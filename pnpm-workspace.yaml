@@ -1,0 +1,6 @@
+packages:
+  - apps/desktop
+  - apps/remote
+  - packages/ui
+  - packages/i18n
+  - packages/client

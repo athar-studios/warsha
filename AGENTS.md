@@ -1,0 +1,11 @@
+# AGENTS.md — rules for any AI agent working on Warsha
+- Read PLAN.md, PROGRESS.md, DECISIONS.md first; update PROGRESS.md before you stop.
+- Never ask questions; decide, log in DECISIONS.md, continue.
+- Rust: stable toolchain, `cargo fmt`, `cargo clippy -D warnings`, no `unwrap()` in non-test code, errors via `thiserror`/`anyhow`.
+- TS: strict mode, pnpm, ESLint + Prettier, no `any`.
+- Tests with every change; CI must be green before merging or moving milestones.
+- Secrets only via OS keychain; never log secrets; no consumer-OAuth token reuse.
+- No network calls to real model APIs in tests — use the mock provider.
+- Never publish, release (non-draft), push --force to main, or post anything.
+- Small Conventional Commits; self-review every diff.
+- UI strings only via i18n catalogs (ar + en), RTL-safe CSS (logical properties).

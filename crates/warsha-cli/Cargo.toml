@@ -1,0 +1,32 @@
+[package]
+name = "warsha-cli"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+description = "CLI binary: warsha command"
+
+[dependencies]
+warsha-core = { path = "../warsha-core" }
+warshad = { path = "../warshad" }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+clap = { workspace = true }
+indicatif = { workspace = true }
+reqwest = { workspace = true }
+jsonrpsee = { workspace = true }
+dirs = { workspace = true }
+
+[[bin]]
+name = "warsha"
+path = "src/main.rs"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+pretty_assertions = "1.4"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.59", features = ["Win32_Security_Credentials", "Win32_Foundation", "Win32_System_Threading"] }

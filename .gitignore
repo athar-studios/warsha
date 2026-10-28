@@ -1,0 +1,63 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# Node.js
+node_modules/
+.pnpm-store/
+.pnpm-cache/
+.npm-cache/
+dist/
+build/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Warsha
+.warsha/
+*.db
+*.db-journal
+*.lock
+
+# Environment
+.env
+.env.local
+.env.*.local
+.npmrc
+.pnpmrc
+
+# Test coverage
+coverage/
+*.lcov
+
+# Temporary files
+*.tmp
+*.temp
+cargo_log.txt
+
+# IDE/Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/*
+
+# Cargo
+**/Cargo.lock
+.cargo/
+.bridge/
+bridge-io/
+
+# Agent scratch files
+test_create.txt
+test_write.txt
+run.flag
+RUN_TRIGGER
+

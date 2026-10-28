@@ -1,0 +1,29 @@
+[package]
+name = "warsha-remote"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+description = "Pairing, E2E crypto, relay client"
+
+[dependencies]
+warsha-core = { path = "../warsha-core" }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+snow = { workspace = true }
+x25519-dalek = { workspace = true }
+chacha20poly1305 = { workspace = true }
+rand = { workspace = true }
+zeroize = { workspace = true }
+ring = { workspace = true }
+qrcode = "0.14"
+image = "0.25"
+base64 = "0.22"
+chrono = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+pretty_assertions = "1.4"

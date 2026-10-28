@@ -1,0 +1,25 @@
+[package]
+name = "warsha-pipeline"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+description = "Stage engine, agent roles, prompts, gate state machine"
+
+[dependencies]
+warsha-core = { path = "../warsha-core" }
+warsha-store = { path = "../warsha-store" }
+warsha-providers = { path = "../warsha-providers" }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+ulid = { workspace = true }
+chrono = { workspace = true }
+async-trait = "0.1"
+
+[dev-dependencies]
+mockall = { workspace = true }
+tempfile = { workspace = true }
+pretty_assertions = "1.4"

@@ -1,0 +1,106 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/warsha-core",
+    "crates/warsha-store",
+    "crates/warsha-providers",
+    "crates/warsha-pipeline",
+    "crates/warsha-backends",
+    "crates/warsha-git",
+    "crates/warsha-remote",
+    "crates/warshad",
+    "crates/warsha-cli",
+    "crates/warsha-relay",
+]
+exclude = []
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "PolyForm-Noncommercial-1.0.0"
+authors = ["Warsha Contributors"]
+repository = "https://github.com/warsha/warsha"
+description = "Warsha — Arabic-first AI Software Factory"
+
+[workspace.dependencies]
+# Core
+thiserror = "1.0"
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.40", features = ["full", "tracing"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Config
+config = "0.14"
+toml = "0.8"
+dirs = "5.0"
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "migrate", "chrono", "uuid", "json"] }
+
+# Crypto
+ring = "0.17"
+snow = "0.9"
+x25519-dalek = { version = "2.0", features = ["static_secrets"] }
+chacha20poly1305 = "0.10"
+rand = "0.9"
+zeroize = "1.6"
+
+# HTTP / RPC
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
+jsonrpsee = { version = "0.26", features = ["server", "ws-client", "tracing"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"] }
+
+# CLI
+clap = { version = "4.5", features = ["derive", "env", "string"] }
+indicatif = "0.17"
+
+# Keychain
+keyring = "1.2"
+
+# Git
+gix = "0.70"
+octocrab = "0.30"
+
+# Utilities
+uuid = { version = "1.8", features = ["v4", "v7", "serde", "fast-rng"] }
+chrono = { version = "0.4", features = ["serde"] }
+ulid = { version = "1.0", features = ["serde"] }
+semver = "1.0"
+url = "2.5"
+futures = "0.3"
+base64 = "0.22"
+
+# Testing
+tempfile = "3.10"
+predicates = "3.0"
+mockall = "0.13"
+
+# Goose integration (to be decided in M0)
+# goose = { git = "https://github.com/aaif-goose/goose", tag = "v0.x.x" }
+
+[workspace.lints.rust]
+unused_crate_dependencies = "warn"
+unused_imports = "warn"
+unused_variables = "warn"
+dead_code = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "warn"
+unimplemented = "warn"
+missing_docs_in_private_items = "allow"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+
+[profile.dev]
+debug = 2

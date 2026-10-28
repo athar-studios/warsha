@@ -1,0 +1,42 @@
+[extend]
+useDefault = true
+
+[[rules]]
+description = "Generic API Key"
+id = "generic-api-key"
+regex = '''(?i)(api[_-]?key|apikey|secret[_-]?key|access[_-]?token)['"\s:=]+[a-zA-Z0-9_\-]{20,}'''
+tags = ["key", "API"]
+
+[[rules]]
+description = "OpenAI API Key"
+id = "openai-api-key"
+regex = '''(?i)sk-[a-zA-Z0-9]{48,}'''
+tags = ["key", "OpenAI"]
+
+[[rules]]
+description = "Anthropic API Key"
+id = "anthropic-api-key"
+regex = '''(?i)sk-ant-[a-zA-Z0-9_-]{95,}'''
+tags = ["key", "Anthropic"]
+
+[[rules]]
+description = "GitHub Token"
+id = "github-token"
+regex = '''(?i)gh[ps]_[a-zA-Z0-9]{36,}'''
+tags = ["key", "GitHub"]
+
+[[rules]]
+description = "Generic Secret"
+id = "generic-secret"
+regex = '''(?i)(secret|password|passwd|pwd)['"\s:=]+[a-zA-Z0-9_\-]{8,}'''
+tags = ["secret"]
+
+[allowlist]
+description = "Allowlist for test files and examples"
+paths = [
+  "**/*test*",
+  "**/*mock*",
+  "**/*example*",
+  "**/*.md",
+  "**/fixtures/**",
+]
