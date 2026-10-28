@@ -1,82 +1,125 @@
-# Warsha (ورشة) — Arabic-first AI Software Factory
+<p align="center"><b>English</b> · <a href="README.ar.md">العربية</a></p>
 
-[![CI](https://github.com/warsha/warsha/workflows/CI/badge.svg)](https://github.com/warsha/warsha/actions)
-[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-orange.svg)](LICENSE)
+<p align="center">
+  <img src="docs/assets/v2-black-wordmark-dark.png" alt="Warsha" width="420">
+</p>
 
-**Warsha** is a source-available, Arabic-first AI software factory that runs a team of AI agents to take any software idea through the complete lifecycle: **idea → research → spec → design → plan → code → test/review/security → release → launch drafts → feedback**.
+<p align="center"><b>Turn your app idea into a working product, with a team of AI agents and you in charge.</b></p>
 
-## Features
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-FFD60A.svg" alt="License: PolyForm Noncommercial 1.0.0"></a>
+  <img src="https://img.shields.io/badge/status-early%20development-0E0E0E.svg" alt="Status: early development">
+</p>
 
-- **Arabic-first (ar + en)** — Full RTL support, ICU MessageFormat, language switch
-- **Multi-agent pipeline** — Specialized roles: intake, researcher, PM, designer, architect, coder, reviewer, QA, security, release, marketer, feedback
-- **Mandatory human gates** — Approval required at Idea, Spec, Merge, and Publish stages
-- **Bring your own models** — API keys (OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, Azure), local (Ollama, LM Studio), or official CLIs (Claude Code, Codex CLI, Gemini CLI, Cursor CLI, OpenHands)
-- **Secure by default** — Secrets in OS keychain only, E2E encrypted remote access via Noise XX, sandboxed code execution
-- **Desktop + CLI + Remote PWA** — Tauri 2 desktop app, `warsha` CLI, mobile PWA with QR pairing
-- **GitHub integration** — Repo creation from templates, branch+PR per task, Gate C merges via API
-- **Event-sourced runs** — Every step, tool call, cost, and gate decision is an append-only event
+> [!WARNING]
+> **Status: early development, not ready to use yet.** There is no release to download. Everything below describes how Warsha is *planned* to work. See the [Roadmap](#roadmap).
 
-## Architecture
+## What is Warsha?
 
-```
-warsha/ (cargo workspace + pnpm workspace)
-  crates/
-    warsha-core       domain: projects, runs, stages, gates, artifacts, events
-    warsha-store      SQLite (sqlx) + artifact files in <repo>/.warsha/ and factory/
-    warsha-providers  provider layer: adapters, router, fallback, cost & quota meter
-    warsha-pipeline   stage engine, agent roles, prompts, gate state machine
-    warsha-backends   coding backends: builtin, OpenHands, Claude Code, Codex CLI, Gemini CLI, Cursor CLI
-    warsha-git        git + GitHub (octocrab) integration
-    warsha-remote     pairing, E2E crypto, relay client
-    warshad           daemon: local API (JSON-RPC + WS) with token auth
-    warsha-cli        `warsha` binary (clap)
-    warsha-relay      optional relay server (axum) — opaque frame forwarding
-  apps/
-    desktop           Tauri 2 + React + TypeScript + Vite
-    remote            PWA (React + Vite + Workbox)
-  packages/
-    ui                shared React components + design tokens (RTL-aware)
-    i18n              ar + en message catalogs (ICU MessageFormat)
-    client            generated TS client for warshad API
-  templates/          project templates (web, cli, android, desktop) with CI
-  docs/
-```
+Warsha ("workshop" in Arabic) is an app that works like a small software team. You describe an idea in plain words, in Arabic or English. A team of AI agents researches it, writes the spec, designs, plans, writes the code, tests and reviews it, and prepares a release, while you approve each important step.
 
-## Quick Start
+- **Arabic first.** Full Arabic interface (right to left) and English.
+- **You stay in control.** Nothing is merged, published or posted without your approval.
+- **Use the AI you already pay for.** Plug in your own AI provider instead of buying a new subscription.
+- **Follow from anywhere.** Watch progress and approve steps from your phone.
 
-```bash
-# Prerequisites: Rust 1.78+, Node.js 20+, pnpm 9+
-# Clone and build
-git clone https://github.com/warsha/warsha
-cd warsha
-cargo build --workspace --release
-pnpm install
+## Who is it for?
 
-# Run daemon
-./target/release/warshad
+- People with an app idea who are not programmers.
+- Founders and small teams who want to go from idea to a first version faster.
+- Developers who want a team of agents doing the routine work while they review.
 
-# In another terminal, run CLI
-./target/release/warsha init
-./target/release/warsha new "Build a todo app with offline sync"
-./target/release/warsha run
+## The journey: from idea to release
+
+The yellow steps are **gates**: the agents stop and wait for your decision.
+
+```mermaid
+flowchart LR
+  I([Your idea]) --> GA{{Gate A<br/>approve idea}}
+  GA --> R[Research] --> S[Spec]
+  S --> GB{{Gate B<br/>approve spec}}
+  GB -- reject --> S
+  GB --> D[Design] --> P[Plan] --> C[Code]
+  C --> T[Test · Review · Security]
+  T --> GC{{Gate C<br/>approve merge}}
+  GC --> REL[Release] --> L[Launch drafts]
+  L --> GD{{Gate D<br/>approve publish}}
+  GD --> F[Feedback] -.-> I
+  classDef gate fill:#FFD60A,stroke:#0E0E0E,color:#0E0E0E;
+  class GA,GB,GC,GD gate;
 ```
 
-## Documentation
+## How the pieces fit together
 
-- [Quickstart (English)](docs/quickstart-en.md)
-- [Quickstart (Arabic)](docs/quickstart-ar.md)
-- [Providers](docs/providers.md)
-- [Security Model](docs/security.md)
-- [Architecture](docs/architecture.md)
+```mermaid
+flowchart TB
+  U[You] --> APP[Desktop app · CLI · Phone app]
+  APP --> W[Warsha engine<br/>runs on your computer]
+  W --> TEAM[Agent team<br/>researcher, PM, designer, architect,<br/>coder, reviewer, QA, security, release, marketer]
+  TEAM --> AI[Your AI subscription<br/>API key · local model · coding CLI]
+  W --> GH[Your GitHub repo]
+  classDef y fill:#FFD60A,stroke:#0E0E0E,color:#0E0E0E;
+  class U y;
+```
 
-## Contributing
+## What it will look like
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding standards, and pull request process.
+<p align="center"><img src="docs/assets/concept-team-panel.svg" alt="Concept mockup of the Warsha window with the agent team panel" width="760"></p>
+<p align="center"><i>Concept mockup only. The real app is not built yet.</i></p>
 
-## Security
+## How to use it (planned)
 
-See [SECURITY.md](SECURITY.md) for vulnerability reporting and security architecture.
+1. **Install.** Download the installer for Windows, macOS or Linux from the Releases page *(coming in a later milestone)*.
+2. **Pick your language** (Arabic or English) when the app opens for the first time.
+3. **Connect your AI.** Add the AI you already have: an API key (OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, Azure), a model running on your own computer (Ollama, LM Studio), or an official coding tool you already use (Claude Code, Codex CLI, Gemini CLI, Cursor CLI). Keys are kept in your system's secure keychain.
+4. **Connect GitHub** so Warsha can create a repository for your project.
+5. **Start a project.** Write your idea in a sentence or two, for example: *"A to-do app that works offline."*
+6. **Follow the team.** The side panel shows every agent and a short, simple summary of what it did. The board shows which stage your project is in.
+7. **Approve or reject at each gate.** Read what the agents produced (idea summary, spec, code changes, launch texts). Approve to continue, or reject with a short reason and the agents will rework it.
+8. **Follow from your phone.** Scan a QR code from the desktop app to pair your phone. You can see live status, chat with the current agent, get notifications, and approve gates.
+9. **Get your release.** At the end you have a GitHub repository with the code, passing checks, a draft release and draft store texts. Warsha never publishes anything by itself.
 
-## License
+Prefer the terminal? The same steps will be available with the `warsha` command (`warsha new "your idea"`, `warsha status`, `warsha approve`, `warsha pair`).
 
-PolyForm Noncommercial License 1.0.0. You may use, modify, and share Warsha for any noncommercial purpose. Commercial use needs a separate license from Athar Studio (contact@atharapp.download). See [LICENSE](LICENSE). Goose and other dependencies keep their own licenses (Goose is Apache-2.0); see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+## Roadmap
+
+Toward the first version, **v0.1.0**. No dates are set.
+
+| Milestone | What it delivers | Status |
+|---|---|---|
+| M0 | Project foundation and automated checks | 🟡 In progress |
+| M1 | Background engine and saved state | ⚪ Planned |
+| M2 | Connecting AI providers, budgets and cost tracking | ⚪ Planned |
+| M3 | The agent pipeline and approval gates | ⚪ Planned |
+| M4 | Command-line tool (`warsha`) | ⚪ Planned |
+| M5 | Desktop app | ⚪ Planned |
+| M6 | Phone app with secure pairing | ⚪ Planned |
+| M7 | Coding agents and GitHub integration | ⚪ Planned |
+| M8 | Full Arabic and English, right-to-left layout | ⚪ Planned |
+| M9 | Installers, releases and documentation | ⚪ Planned |
+
+## FAQ
+
+**How much does it cost?**
+Warsha itself does not charge you. You use your own AI provider, so any AI cost is what you already pay that provider. Warsha will show a cost meter and let you set a budget so it pauses before going over.
+
+**Where does my data live?**
+On your computer. Projects, history and files stay locally, and your project code goes to your own GitHub account. Keys are stored only in your system keychain. Phone connections are end-to-end encrypted, so the relay in between cannot read them.
+
+**Which AI subscriptions work?**
+Planned: API keys from OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter and Azure; local models through Ollama or LM Studio; and official coding tools like Claude Code, Codex CLI, Gemini CLI and Cursor CLI. Warsha only uses official, permitted ways to connect.
+
+**Is it free?**
+Yes, for personal and other noncommercial use.
+
+**What does the license mean in plain words?**
+Warsha uses the PolyForm Noncommercial 1.0.0 license. You can read the code, use it, change it and share it, as long as it is not for commercial purposes. For commercial use, contact Athar Studio at contact@atharapp.download. This makes Warsha "source-available", not open source in the official sense.
+
+**Can I use it now?**
+Not yet. Star or watch this repository to know when the first release is out.
+
+---
+
+Developers: build instructions, architecture and contributing are in [docs/DEVELOPERS.md](docs/DEVELOPERS.md).
+
+Made by **Athar Studio**. License: [PolyForm Noncommercial 1.0.0](LICENSE).
