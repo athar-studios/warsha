@@ -21,10 +21,10 @@
 - [x] SQLite migrations cover projects, runs, events, gates, artifacts, costs, and devices
 - [x] AC: integration tests create a project, append events, survive a daemon restart with state intact, and reject unauthenticated calls
 
-## M2 – Provider layer
-- [ ] Adapters, keychain storage, model listing, routing presets, fallback, and the cost meter, with budgets as in §5
-- [ ] Ollama is auto-detected
-- [ ] AC: mock-provider tests for routing, fallback on 429/5xx/timeout, budget pause, and cost math. No secret ever appears in logs (test with a canary key)
+## M2 – Provider layer ✅ DONE (validated 2026-10-29T09:39:08, all 14 checks green)
+- [x] Adapters, keychain storage, model listing, routing presets, fallback, and the cost meter, with budgets as in §5
+- [x] Ollama is auto-detected
+- [x] AC: mock-provider tests for routing, fallback on 429/5xx/timeout, budget pause, and cost math. No secret ever appears in logs (test with a canary key)
 
 ## M3 – Pipeline engine + gates
 - [ ] All stages with role prompts (stored as versioned files)

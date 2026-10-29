@@ -314,7 +314,7 @@ pub struct ModelConfig {
     pub pricing: ModelPricing,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ModelPricing {
     pub input_per_million_cents: u64,
     pub output_per_million_cents: u64,

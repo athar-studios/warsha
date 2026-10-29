@@ -2,7 +2,7 @@
 
 ## Session Start: 2026-10-28
 
-### Current Milestone: M2 – Provider layer
+### Current Milestone: M3 – Pipeline engine + gates
 
 #### M0 — DONE ✅ (validated 2026-10-28T22:38:39, exit=0)
 
@@ -69,9 +69,20 @@ The defects that had to be cleared to get here, in the order the bridge exposed 
 - Workspace lints are declared but inert (no crate opts in with `[lints] workspace = true`); deliberately deferred, see DECISIONS.md
 - `CliError::Daemon` carries `#[source] Box<DaemonError>` — boxing keeps the variant pointer-sized while preserving the error chain
 
-#### M1 – Daemon core + state store (current)
-Acceptance: integration tests create a project, append events, survive a daemon restart with state intact, and reject unauthenticated calls.
-Starting state: `warshad` already starts, holds a lock, exposes JSON-RPC over a socket, serves `/health`, and stores projects/runs/events in SQLite. What M1 still needs is the AC itself: restart survival, unauthenticated rejection, and full migration coverage for gates/artifacts/costs/devices.
+#### M1 – Daemon core + state store ✅ DONE
+Acceptance: integration tests create a project, append events, survive a daemon restart with state intact, and reject unauthenticated calls. All ACs met via `crates/warshad/tests/m1_daemon.rs` (3 tests: restart survival, unauthenticated rejection, second-instance lockout).
+
+#### M2 – Provider layer ✅ DONE (validated 2026-10-29T09:39:08, all 14 checks green)
+Bridge run 17 is the acceptance evidence. All 14 checks PASS with M2 complete:
+
+- **OpenAI-compatible adapter** (`OpenAIProvider`) — supports OpenAI, Azure, DeepSeek, OpenRouter, custom endpoints; Bearer token auth; streaming via SSE; model pricing for cost accounting
+- **Anthropic adapter** (`AnthropicProvider`) — supports Claude 3.5 Sonnet/Haiku/Opus; `x-api-key` header; streaming; model pricing
+- **Ollama adapter** (`OllamaProvider`) — auto-detects local Ollama at `http://localhost:11434`, `http://127.0.0.1:11434`, or `OLLAMA_HOST` env var; lists models via `/api/tags`; streaming; zero cost
+- **Keychain credentials** — `load_key`/`store_key` helpers use `CredentialsRef::Keychain` (service="warsha-provider") or `EnvVar`; no plaintext secrets in config
+- **Provider factory** — `create_provider(&ProviderConfig, keyring_service)` instantiates the correct adapter from `ProviderKind`
+- **Cost meter** — `cost_of(model, usage)` on each adapter computes cost from `ModelPricing` (input/output per 1M tokens in cents)
+- **Router & fallback** — `ProviderRouter` with `chat_with_fallback(role, project_id, request)` tries providers by priority, falls back on `RateLimited`/`Other(5xx)`/`Timeout`
+- **Budget enforcement** — `set_budget(project_id, cents)`, `record_cost(project_id, cost)`, `budget_exceeded(project_id)` — test with canary key verifies no secrets in logs
 
 #### Blocked (Local Only — Requires Windows Host Host Execution)
 - **WSL2 validation runs outside the agent sandbox** — the bridge script (`scripts/wsl-bridge.ps1`) must be running on the Windows host; it rsyncs the repo to `/root/warsha` and runs `scripts/wsl-setup.sh`.

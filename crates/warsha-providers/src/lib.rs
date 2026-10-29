@@ -6,6 +6,14 @@ use std::collections::HashMap;
 use thiserror::Error;
 use warsha_core::*;
 
+mod anthropic;
+mod ollama;
+mod openai;
+
+pub use anthropic::AnthropicProvider;
+pub use ollama::OllamaProvider;
+pub use openai::{load_key, store_key, OpenAIProvider};
+
 #[derive(Error, Debug, Clone)]
 pub enum ProviderError {
     #[error("Provider not found: {0}")]
@@ -374,6 +382,54 @@ impl Default for ProviderRouter {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Factory for creating provider instances from configuration
+pub async fn create_provider(
+    config: &warsha_core::ProviderConfig,
+    keyring_service: &str,
+) -> Result<Box<dyn ChatProvider>> {
+    let provider = match config.kind {
+        warsha_core::ProviderKind::OpenAI
+        | warsha_core::ProviderKind::DeepSeek
+        | warsha_core::ProviderKind::OpenRouter
+        | warsha_core::ProviderKind::AzureOpenAI
+        | warsha_core::ProviderKind::CustomOpenAICompatible => Box::new(
+            OpenAIProvider::new(
+                config.id.clone(),
+                config.models.first().map(|m| m.id.clone()),
+                &config.credentials,
+                keyring_service,
+            )
+            .await?,
+        ) as Box<dyn ChatProvider>,
+        warsha_core::ProviderKind::Anthropic => Box::new(
+            AnthropicProvider::new(
+                config.id.clone(),
+                config.models.first().map(|m| m.id.clone()),
+                &config.credentials,
+                keyring_service,
+            )
+            .await?,
+        ) as Box<dyn ChatProvider>,
+        warsha_core::ProviderKind::Ollama | warsha_core::ProviderKind::LMStudio => Box::new(
+            OllamaProvider::new(
+                config.id.clone(),
+                config.models.first().map(|m| m.id.clone()),
+                &config.credentials,
+                keyring_service,
+            )
+            .await?,
+        )
+            as Box<dyn ChatProvider>,
+        _ => {
+            return Err(ProviderError::NotFound(format!(
+                "Provider kind {:?} not implemented",
+                config.kind
+            )))
+        }
+    };
+    Ok(provider)
 }
 
 #[cfg(test)]
