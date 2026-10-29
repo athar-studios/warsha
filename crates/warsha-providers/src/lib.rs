@@ -91,14 +91,6 @@ pub struct ChatMessageDelta {
     pub content: Option<String>,
 }
 
-/// Token usage
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TokenUsage {
-    pub input: u64,
-    pub output: u64,
-    pub total: u64,
-}
-
 /// Model information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelInfo {
@@ -240,20 +232,20 @@ impl ChatProvider for MockProvider {
         let response = self.chat(request).await?;
         let id = response.id;
         let model = response.model;
-        let choices = response.choices.into_iter().map(|c| StreamChoice {
-            index: c.index,
-            delta: ChatMessageDelta {
-                role: Some(c.message.role),
-                content: Some(c.message.content),
-            },
-            finish_reason: c.finish_reason,
-        }).collect();
-        let stream = futures::stream::iter(vec![Ok(ChatStreamChunk {
-            id,
-            model,
-            choices,
-        })]);
-        Ok(Box::pin(stream))
+        let choices = response
+            .choices
+            .into_iter()
+            .map(|c| StreamChoice {
+                index: c.index,
+                delta: ChatMessageDelta {
+                    role: Some(c.message.role),
+                    content: Some(c.message.content),
+                },
+                finish_reason: c.finish_reason,
+            })
+            .collect();
+        let stream = futures::stream::iter(vec![Ok(ChatStreamChunk { id, model, choices })]);
+        Ok(Box::new(stream))
     }
 
     fn cost_of(&self, _model: &str, usage: &TokenUsage) -> Result<u64> {
@@ -334,15 +326,16 @@ impl ProviderRouter {
 
         let mut last_error = None;
         for target in &routing.targets {
-            let provider = self.providers.get(&target.provider_id);
-            if provider.is_none() {
-                last_error = Some(ProviderError::NotFound(format!(
-                    "Provider {}",
-                    target.provider_id
-                )));
-                continue;
-            }
-            let provider = provider.unwrap();
+            let provider = match self.providers.get(&target.provider_id) {
+                Some(p) => p,
+                None => {
+                    last_error = Some(ProviderError::NotFound(format!(
+                        "Provider {}",
+                        target.provider_id
+                    )));
+                    continue;
+                }
+            };
 
             request.model = target.model_id.clone();
             match provider.chat(request.clone()).await {
@@ -358,14 +351,16 @@ impl ProviderRouter {
                         break;
                     }
                     // Only fallback on rate limit, quota, timeout, 5xx
-                    if !matches!(
-                        last_error.as_ref().unwrap(),
-                        ProviderError::RateLimited(_)
-                            | ProviderError::QuotaExhausted(_)
-                            | ProviderError::Timeout(_)
-                            | ProviderError::Other(_)
-                    ) {
-                        break;
+                    if let Some(err) = &last_error {
+                        if !matches!(
+                            err,
+                            ProviderError::RateLimited(_)
+                                | ProviderError::QuotaExhausted(_)
+                                | ProviderError::Timeout(_)
+                                | ProviderError::Other(_)
+                        ) {
+                            break;
+                        }
                     }
                 }
             }

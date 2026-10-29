@@ -1,9 +1,12 @@
 //! Warsha Pipeline — Stage engine, agent roles, prompts, gate state machine
 
+use chrono::Utc;
+use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
+use ulid::Ulid;
 use warsha_core::*;
 use warsha_providers::ProviderRouter;
 use warsha_store::Store;
@@ -33,6 +36,7 @@ pub type Result<T> = std::result::Result<T, PipelineError>;
 /// Pipeline engine that drives the stage machine
 pub struct PipelineEngine {
     store: Arc<Store>,
+    #[allow(dead_code)]
     providers: Arc<RwLock<ProviderRouter>>,
 }
 
@@ -43,9 +47,9 @@ impl PipelineEngine {
 
     /// Start a new run for a project
     pub async fn start_run(&self, project_id: ProjectId, idea: &str) -> Result<Run> {
-        let project = self.store.get_project(project_id).await?;
+        let _project = self.store.get_project(project_id).await?;
 
-        let run = Run {
+        let mut run = Run {
             id: RunId::new(),
             project_id,
             current_stage: Stage::Idea,
@@ -61,7 +65,7 @@ impl PipelineEngine {
         // Initialize gate states for all gate stages
         for stage in Stage::all() {
             if stage.is_gate() {
-                run.gate_states.insert(stage, GateState::Pending);
+                run.gate_states.insert(*stage, GateState::Pending);
             }
         }
 
@@ -116,7 +120,11 @@ impl PipelineEngine {
 
         // Check if we're at a gate that needs approval
         if current.is_gate() {
-            let gate_state = run.gate_states.get(&current).unwrap_or(&GateState::Pending);
+            let gate_state = run
+                .gate_states
+                .get(&current)
+                .cloned()
+                .unwrap_or(GateState::Pending);
             if !matches!(gate_state, GateState::Approved { .. }) {
                 return Err(PipelineError::GateNotPending(current));
             }
@@ -415,8 +423,6 @@ impl PipelineEngine {
     }
 }
 
-use std::collections::HashMap;
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -424,9 +430,17 @@ mod tests {
     use warsha_providers::ProviderRouter;
     use warsha_store::Store;
 
+    async fn temp_store() -> Arc<Store> {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.db");
+        let store = Store::open_at(path).await.unwrap();
+        std::mem::forget(dir);
+        Arc::new(store)
+    }
+
     #[tokio::test]
     async fn test_pipeline_start_run() {
-        let store = Arc::new(Store::new().await.unwrap());
+        let store = temp_store().await;
         let providers = Arc::new(RwLock::new(ProviderRouter::new()));
         let engine = PipelineEngine::new(store.clone(), providers);
 
@@ -453,7 +467,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_gate_approval() {
-        let store = Arc::new(Store::new().await.unwrap());
+        let store = temp_store().await;
         let providers = Arc::new(RwLock::new(ProviderRouter::new()));
         let engine = PipelineEngine::new(store.clone(), providers);
 
@@ -493,7 +507,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_gate_rejection() {
-        let store = Arc::new(Store::new().await.unwrap());
+        let store = temp_store().await;
         let providers = Arc::new(RwLock::new(ProviderRouter::new()));
         let engine = PipelineEngine::new(store.clone(), providers);
 
@@ -531,5 +545,48 @@ mod tests {
         let gate_state = run.gate_states.get(&Stage::GateC).unwrap();
         assert!(matches!(gate_state, GateState::Rejected { .. }));
         assert_eq!(run.status, RunStatus::Paused);
+    }
+
+    #[tokio::test]
+    async fn test_gate_b_blocks_advance_to_design() {
+        let store = temp_store().await;
+        let providers = Arc::new(RwLock::new(ProviderRouter::new()));
+        let engine = PipelineEngine::new(store.clone(), providers);
+
+        let project = Project {
+            id: ProjectId::new(),
+            name: "Test Project".to_string(),
+            description: "Test".to_string(),
+            language: "en".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            repo_path: None,
+            repo_url: None,
+        };
+        store.create_project(&project).await.unwrap();
+
+        let mut run = engine
+            .start_run(project.id, "Build a todo app")
+            .await
+            .unwrap();
+        run.current_stage = Stage::PrdSpec;
+        store.update_run(&run).await.unwrap();
+
+        // Spec stage advances into Gate B, but Gate B itself cannot be passed.
+        let run = engine.advance_stage(run.id).await.unwrap();
+        assert_eq!(run.current_stage, Stage::GateB);
+        assert!(matches!(
+            engine.advance_stage(run.id).await,
+            Err(PipelineError::GateNotPending(Stage::GateB))
+        ));
+
+        let device = DeviceId::new();
+        engine
+            .approve_gate(run.id, Stage::GateB, device)
+            .await
+            .unwrap();
+
+        let run = engine.advance_stage(run.id).await.unwrap();
+        assert_eq!(run.current_stage, Stage::Design);
     }
 }

@@ -1,19 +1,24 @@
 //! Warsha Relay — Tiny optional relay server (axum) — opaque frame forwarding
 
 use axum::{
-    extract::{Query, State, WebSocketUpgrade},
+    extract::{
+        ws::{Message, WebSocket},
+        Query, State, WebSocketUpgrade,
+    },
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
-    Router,
+    Json, Router,
 };
 use clap::Parser;
+use futures::{SinkExt, StreamExt};
 use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
+use uuid::Uuid;
 use warsha_core::*;
 use warsha_remote::EncryptedFrame;
 
@@ -84,16 +89,15 @@ impl RelayState {
 async fn submit_frame(
     State(state): State<Arc<RelayState>>,
     Json(frame): Json<EncryptedFrame>,
-) -> Result<impl IntoResponse, StatusCode> {
+) -> axum::response::Response {
     if frame.ciphertext.len() > state.max_frame_size {
-        return Err(StatusCode::PAYLOAD_TOO_LARGE);
+        return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     }
 
-    state
-        .forward(&frame)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(StatusCode::ACCEPTED)
+    if state.forward(&frame).await.is_err() {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+    StatusCode::ACCEPTED.into_response()
 }
 
 /// WebSocket handler for real-time frame relay
@@ -108,17 +112,14 @@ async fn websocket_handler(
         .map(DeviceId);
 
     let Some(device_id) = device_id else {
-        return ws.on_upgrade(|_| async {});
+        return ws.on_upgrade(|_| async {}).into_response();
     };
 
     ws.on_upgrade(move |socket| handle_websocket(socket, device_id, state))
+        .into_response()
 }
 
-async fn handle_websocket(
-    mut socket: axum::extract::ws::WebSocket,
-    device_id: DeviceId,
-    state: Arc<RelayState>,
-) {
+async fn handle_websocket(socket: WebSocket, device_id: DeviceId, state: Arc<RelayState>) {
     let mut rx = state.register(device_id).await;
     info!("Device {} connected to relay", device_id.0);
 
@@ -127,7 +128,10 @@ async fn handle_websocket(
     // Task to forward frames from relay to this device
     let forward_task = tokio::spawn(async move {
         while let Ok(frame) = rx.recv().await {
-            let msg = axum::extract::ws::Message::Binary(serde_json::to_vec(&frame).unwrap());
+            let msg = match serde_json::to_vec(&frame) {
+                Ok(vec) => Message::Binary(vec),
+                Err(_) => break,
+            };
             if sender.send(msg).await.is_err() {
                 break;
             }
@@ -137,9 +141,9 @@ async fn handle_websocket(
     // Task to receive frames from this device and relay them
     let relay_state = state.clone();
     let recv_task = tokio::spawn(async move {
-        while let Some(msg) = receiver.recv().await {
+        while let Some(msg) = receiver.next().await {
             if let Ok(msg) = msg {
-                if let axum::extract::ws::Message::Binary(data) = msg {
+                if let Message::Binary(data) = msg {
                     if let Ok(frame) = serde_json::from_slice::<EncryptedFrame>(&data) {
                         if let Err(e) = relay_state.forward(&frame).await {
                             warn!("Failed to forward frame: {}", e);
@@ -167,8 +171,6 @@ async fn health() -> impl IntoResponse {
     Json(serde_json::json!({ "status": "healthy" }))
 }
 
-use axum::Json;
-
 /// Run the relay server
 pub async fn run_relay(args: RelayArgs) -> Result<()> {
     let state = Arc::new(RelayState::new(args.max_frame_size));
@@ -189,6 +191,7 @@ pub async fn run_relay(args: RelayArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
 
     #[tokio::test]
     async fn test_relay_state() {

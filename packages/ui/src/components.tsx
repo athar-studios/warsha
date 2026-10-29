@@ -8,18 +8,19 @@ export interface BoxProps {
   className?: string;
   p?: number;
   m?: number;
-  dir?: 'rtl' | 'ltr' | 'auto' | string;
+  dir?: 'rtl' | 'ltr' | 'auto';
   style?: React.CSSProperties;
 }
 
-export function Box({ children, className = '', p = 0, m = 0, dir = 'auto' }: BoxProps) {
+export function Box({ children, className = '', p = 0, m = 0, dir = 'auto', style }: BoxProps) {
   return (
     <div
       className={className}
       dir={dir}
       style={{
-        padding: p ? `${p * 4}px` : 0,
-        margin: m ? `${m * 4}px` : 0,
+        paddingInline: p ? `${p * 4}px` : 0,
+        marginInline: m ? `${m * 4}px` : 0,
+        ...style,
       }}
     >
       {children}
@@ -32,11 +33,11 @@ export interface TextProps {
   className?: string;
   size?: 'sm' | 'md' | 'lg' | 'xl';
   weight?: 'normal' | 'medium' | 'bold';
-  dir?: 'rtl' | 'ltr' | 'auto' | string;
+  dir?: 'rtl' | 'ltr' | 'auto';
   style?: React.CSSProperties;
 }
 
-export function Text({ children, className = '', size = 'md', weight = 'normal', dir = 'auto' }: TextProps) {
+export function Text({ children, className = '', size = 'md', weight = 'normal', dir = 'auto', style }: TextProps) {
   const sizeMap = { sm: '0.875rem', md: '1rem', lg: '1.125rem', xl: '1.25rem' };
   const weightMap = { normal: 400, medium: 500, bold: 700 };
   return (
@@ -46,6 +47,7 @@ export function Text({ children, className = '', size = 'md', weight = 'normal',
       style={{
         fontSize: sizeMap[size],
         fontWeight: weightMap[weight],
+        ...style,
       }}
     >
       {children}
@@ -56,10 +58,10 @@ export function Text({ children, className = '', size = 'md', weight = 'normal',
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'ghost';
   size?: 'sm' | 'md' | 'lg';
-  dir?: 'rtl' | 'ltr' | 'auto' | string;
+  dir?: 'rtl' | 'ltr' | 'auto';
 }
 
-export function Button({ children, variant = 'primary', size = 'md', dir = 'auto', className = '', ...props }: ButtonProps) {
+export function Button({ children, variant = 'primary', size = 'md', dir = 'auto', className = '', style, ...props }: ButtonProps) {
   const baseStyle: React.CSSProperties = {
     border: 'none',
     borderRadius: '6px',
@@ -79,9 +81,9 @@ export function Button({ children, variant = 'primary', size = 'md', dir = 'auto
   };
 
   const sizeStyles: Record<'sm' | 'md' | 'lg', React.CSSProperties> = {
-    sm: { padding: '6px 12px', fontSize: '0.875rem' },
-    md: { padding: '10px 16px', fontSize: '1rem' },
-    lg: { padding: '14px 24px', fontSize: '1.125rem' },
+    sm: { paddingInline: '12px', paddingBlock: '6px', fontSize: '0.875rem' },
+    md: { paddingInline: '16px', paddingBlock: '10px', fontSize: '1rem' },
+    lg: { paddingInline: '24px', paddingBlock: '14px', fontSize: '1.125rem' },
   };
 
   return (
@@ -92,6 +94,7 @@ export function Button({ children, variant = 'primary', size = 'md', dir = 'auto
         ...baseStyle,
         ...variantStyles[variant],
         ...sizeStyles[size],
+        ...style,
       }}
       {...props}
     >
@@ -103,11 +106,11 @@ export function Button({ children, variant = 'primary', size = 'md', dir = 'auto
 export interface CardProps {
   children: React.ReactNode;
   className?: string;
-  dir?: 'rtl' | 'ltr' | 'auto' | string;
+  dir?: 'rtl' | 'ltr' | 'auto';
   style?: React.CSSProperties;
 }
 
-export function Card({ children, className = '', dir = 'auto' }: CardProps) {
+export function Card({ children, className = '', dir = 'auto', style }: CardProps) {
   return (
     <div
       className={className}
@@ -117,6 +120,7 @@ export function Card({ children, className = '', dir = 'auto' }: CardProps) {
         borderRadius: '12px',
         boxShadow: '0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06)',
         padding: '16px',
+        ...style,
       }}
     >
       {children}

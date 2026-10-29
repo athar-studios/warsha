@@ -55,8 +55,10 @@ impl std::fmt::Display for RunId {
 #[serde(rename_all = "snake_case")]
 pub enum Stage {
     Idea,
+    GateA,
     Research,
     PrdSpec,
+    GateB,
     Design,
     PlanTasks,
     Code,
@@ -72,8 +74,10 @@ impl Stage {
     pub fn all() -> &'static [Stage] {
         &[
             Stage::Idea,
+            Stage::GateA,
             Stage::Research,
             Stage::PrdSpec,
+            Stage::GateB,
             Stage::Design,
             Stage::PlanTasks,
             Stage::Code,
@@ -93,7 +97,10 @@ impl Stage {
     }
 
     pub fn is_gate(&self) -> bool {
-        matches!(self, Stage::GateC | Stage::GateD)
+        matches!(
+            self,
+            Stage::GateA | Stage::GateB | Stage::GateC | Stage::GateD
+        )
     }
 }
 
@@ -343,9 +350,69 @@ mod tests {
 
     #[test]
     fn test_stage_order() {
-        assert_eq!(Stage::Idea.next(), Some(Stage::Research));
+        assert_eq!(Stage::Idea.next(), Some(Stage::GateA));
+        assert_eq!(Stage::GateA.next(), Some(Stage::Research));
         assert_eq!(Stage::Research.next(), Some(Stage::PrdSpec));
+        assert_eq!(Stage::PrdSpec.next(), Some(Stage::GateB));
+        assert_eq!(Stage::GateB.next(), Some(Stage::Design));
+        assert_eq!(Stage::Design.next(), Some(Stage::PlanTasks));
+        assert_eq!(Stage::PlanTasks.next(), Some(Stage::Code));
+        assert_eq!(Stage::Code.next(), Some(Stage::ReviewQaSecurity));
+        assert_eq!(Stage::ReviewQaSecurity.next(), Some(Stage::GateC));
+        assert_eq!(Stage::GateC.next(), Some(Stage::Release));
+        assert_eq!(Stage::Release.next(), Some(Stage::GateD));
+        assert_eq!(Stage::GateD.next(), Some(Stage::LaunchDrafts));
+        assert_eq!(Stage::LaunchDrafts.next(), Some(Stage::Feedback));
         assert_eq!(Stage::Feedback.next(), None);
+    }
+
+    #[test]
+    fn test_stage_all_matches_next_chain() {
+        let stages = Stage::all();
+        assert_eq!(stages.len(), 14);
+        assert_eq!(stages.first(), Some(&Stage::Idea));
+        assert_eq!(stages.last(), Some(&Stage::Feedback));
+        for pair in stages.windows(2) {
+            assert_eq!(pair[0].next(), Some(pair[1]));
+        }
+    }
+
+    #[test]
+    fn test_is_gate() {
+        assert!(Stage::GateA.is_gate());
+        assert!(Stage::GateB.is_gate());
+        assert!(Stage::GateC.is_gate());
+        assert!(Stage::GateD.is_gate());
+        let non_gates = [
+            Stage::Idea,
+            Stage::Research,
+            Stage::PrdSpec,
+            Stage::Design,
+            Stage::PlanTasks,
+            Stage::Code,
+            Stage::ReviewQaSecurity,
+            Stage::Release,
+            Stage::LaunchDrafts,
+            Stage::Feedback,
+        ];
+        for stage in non_gates {
+            assert!(!stage.is_gate());
+        }
+        assert_eq!(Stage::all().iter().filter(|s| s.is_gate()).count(), 4);
+    }
+
+    #[test]
+    fn test_gate_wire_names_round_trip() {
+        assert_eq!(serde_json::to_string(&Stage::GateA).unwrap(), "\"gate_a\"");
+        assert_eq!(serde_json::to_string(&Stage::GateB).unwrap(), "\"gate_b\"");
+        assert_eq!(
+            serde_json::from_str::<Stage>("\"gate_a\"").unwrap(),
+            Stage::GateA
+        );
+        assert_eq!(
+            serde_json::from_str::<Stage>("\"gate_b\"").unwrap(),
+            Stage::GateB
+        );
     }
 
     #[test]

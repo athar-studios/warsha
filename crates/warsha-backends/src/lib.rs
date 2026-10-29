@@ -1,10 +1,12 @@
 //! Warsha Backends — Coding backends: builtin agent, OpenHands, Claude Code, Codex CLI, Gemini CLI, Cursor CLI
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use thiserror::Error;
+use ulid::Ulid;
 use warsha_core::*;
-use warsha_pipeline::PipelineEngine;
 use which::which;
 
 #[derive(Error, Debug)]
@@ -273,9 +275,6 @@ impl BackendFactory {
         .collect()
     }
 }
-
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[cfg(test)]
 mod tests {

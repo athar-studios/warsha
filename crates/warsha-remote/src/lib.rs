@@ -1,21 +1,20 @@
 //! Warsha Remote — Pairing, E2E crypto, relay client
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
-use chacha20poly1305::{aead::Aead, ChaCha20Poly1305, KeyInit, Nonce};
 use chrono::{DateTime, Duration, Utc};
 use image::Luma;
 use qrcode::QrCode;
 use rand::rngs::OsRng;
-use rand::{RngCore, TryRngCore};
+use rand::TryRngCore;
 use serde::{Deserialize, Serialize};
 use snow::{params::NoiseParams, Builder, HandshakeState, TransportState};
 use std::collections::HashMap;
+use std::io::Cursor;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;
 use warsha_core::*;
 use x25519_dalek::{PublicKey, StaticSecret};
-use zeroize::Zeroize;
 
 #[derive(Error, Debug)]
 pub enum RemoteError {
@@ -58,7 +57,9 @@ pub struct DeviceIdentity {
 impl DeviceIdentity {
     pub fn generate(name: String) -> Result<Self> {
         let mut secret_bytes = [0u8; 32];
-        OsRng.try_fill_bytes(&mut secret_bytes).map_err(|e| RemoteError::Crypto(e.to_string()))?;
+        OsRng
+            .try_fill_bytes(&mut secret_bytes)
+            .map_err(|e| RemoteError::Crypto(e.to_string()))?;
         let static_secret = StaticSecret::from(secret_bytes);
         let static_public = PublicKey::from(&static_secret).to_bytes();
 
@@ -91,7 +92,9 @@ pub struct PairingData {
 impl PairingData {
     pub fn new(device: &DeviceIdentity, relay_url: Option<String>) -> Result<Self> {
         let mut pairing_secret = [0u8; 32];
-        OsRng.try_fill_bytes(&mut pairing_secret).map_err(|e| RemoteError::Crypto(e.to_string()))?;
+        OsRng
+            .try_fill_bytes(&mut pairing_secret)
+            .map_err(|e| RemoteError::Crypto(e.to_string()))?;
 
         Ok(Self {
             device_id: device.device_id,
@@ -107,10 +110,11 @@ impl PairingData {
         let code = QrCode::new(&data).map_err(|e| RemoteError::QrCode(e.to_string()))?;
         let image = code.render::<Luma<u8>>().build();
 
-        // Convert to base64 PNG
+        // Convert to base64 PNG using Cursor which implements Write + Seek
         let mut png_data = Vec::new();
+        let mut cursor = Cursor::new(&mut png_data);
         image
-            .write_to(&mut png_data, image::ImageFormat::Png)
+            .write_to(&mut cursor, image::ImageFormat::Png)
             .map_err(|e| RemoteError::QrCode(e.to_string()))?;
 
         Ok(BASE64_STANDARD.encode(png_data))
@@ -139,6 +143,7 @@ pub struct EncryptedFrame {
 }
 
 /// E2E encrypted channel using Noise XX
+#[allow(dead_code)]
 pub struct EncryptedChannel {
     transport: Option<TransportState>,
     local_static: StaticSecret,
@@ -152,15 +157,17 @@ impl EncryptedChannel {
     /// Initiator side: start handshake
     pub fn initiate(local_identity: &DeviceIdentity, remote_public: &[u8; 32]) -> Result<Self> {
         let params: NoiseParams = NOISE_PARAMS
-            .parse()
-            .map_err(|e| RemoteError::Crypto(e.to_string()))?;
+            .parse::<NoiseParams>()
+            .map_err(|e: snow::Error| RemoteError::Crypto(e.to_string()))?;
         let builder = Builder::new(params);
 
         let mut secret_bytes = [0u8; 32];
-        OsRng.try_fill_bytes(&mut secret_bytes).map_err(|e| RemoteError::Crypto(e.to_string()))?;
+        OsRng
+            .try_fill_bytes(&mut secret_bytes)
+            .map_err(|e| RemoteError::Crypto(e.to_string()))?;
         let local_static = StaticSecret::from(secret_bytes);
 
-        let handshake = builder
+        let _handshake = builder
             .local_private_key(&local_static.to_bytes())
             .remote_public_key(remote_public)
             .build_initiator()
@@ -179,15 +186,17 @@ impl EncryptedChannel {
     /// Responder side: start handshake
     pub fn respond(local_identity: &DeviceIdentity) -> Result<Self> {
         let params: NoiseParams = NOISE_PARAMS
-            .parse()
-            .map_err(|e| RemoteError::Crypto(e.to_string()))?;
+            .parse::<NoiseParams>()
+            .map_err(|e: snow::Error| RemoteError::Crypto(e.to_string()))?;
         let builder = Builder::new(params);
 
         let mut secret_bytes = [0u8; 32];
-        OsRng.try_fill_bytes(&mut secret_bytes).map_err(|e| RemoteError::Crypto(e.to_string()))?;
+        OsRng
+            .try_fill_bytes(&mut secret_bytes)
+            .map_err(|e| RemoteError::Crypto(e.to_string()))?;
         let local_static = StaticSecret::from(secret_bytes);
 
-        let handshake = builder
+        let _handshake = builder
             .local_private_key(&local_static.to_bytes())
             .build_responder()
             .map_err(|e| RemoteError::Handshake(e.to_string()))?;
@@ -209,7 +218,7 @@ impl EncryptedChannel {
     }
 
     /// Write a message (encrypt)
-    pub fn write_message(&mut self, plaintext: &[u8], out: &mut Vec<u8>) -> Result<()> {
+    pub fn write_message(&mut self, plaintext: &[u8], out: &mut [u8]) -> Result<()> {
         if let Some(transport) = &mut self.transport {
             transport
                 .write_message(plaintext, out)
@@ -221,7 +230,7 @@ impl EncryptedChannel {
     }
 
     /// Read a message (decrypt)
-    pub fn read_message(&mut self, ciphertext: &[u8], out: &mut Vec<u8>) -> Result<()> {
+    pub fn read_message(&mut self, ciphertext: &[u8], out: &mut [u8]) -> Result<()> {
         if let Some(transport) = &mut self.transport {
             transport
                 .read_message(ciphertext, out)
@@ -246,6 +255,7 @@ impl EncryptedChannel {
 }
 
 /// Relay client for connecting to warsha-relay
+#[allow(dead_code)]
 pub struct RelayClient {
     url: String,
     device_id: DeviceId,

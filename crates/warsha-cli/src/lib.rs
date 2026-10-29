@@ -1,31 +1,48 @@
 //! Warsha CLI — `warsha` binary
 
 use clap::{Parser, Subcommand};
-use dirs;
-use jsonrpsee::http_client::HttpClientBuilder;
+use jsonrpsee::core::client::ClientT;
+use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
+use jsonrpsee::rpc_params;
 use reqwest::Client;
 use std::path::PathBuf;
 use thiserror::Error;
-use tracing::{info, warn};
+use ulid::Ulid;
+use uuid::Uuid;
 use warsha_core::*;
-use warshad::{load_or_create_config, run_daemon, DaemonArgs, DaemonConfig};
+use warsha_remote::DeviceIdentity;
+use warshad::{run_daemon, DaemonArgs, DaemonConfig};
 
 #[derive(Error, Debug)]
 pub enum CliError {
+    // Boxed: `DaemonError` aggregates every other crate's error and exceeds
+    // clippy's 128-byte `Err`-variant threshold.
     #[error("Daemon error: {0}")]
-    Daemon(#[from] warshad::DaemonError),
+    Daemon(#[source] Box<warshad::DaemonError>),
+    #[error("Remote error: {0}")]
+    Remote(#[from] warsha_remote::RemoteError),
     #[error("RPC error: {0}")]
-    Rpc(#[from] jsonrpsee::core::Error),
+    Rpc(#[from] jsonrpsee::core::client::Error),
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
     #[error("Config error: {0}")]
     Config(String),
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("TOML error: {0}")]
+    Toml(#[from] toml::ser::Error),
     #[error("Not connected to daemon")]
     NotConnected,
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
     #[error("Other: {0}")]
     Other(String),
+}
+
+impl From<warshad::DaemonError> for CliError {
+    fn from(err: warshad::DaemonError) -> Self {
+        Self::Daemon(Box::new(err))
+    }
 }
 
 pub type Result<T> = std::result::Result<T, CliError>;
@@ -229,7 +246,7 @@ pub enum DeviceAction {
 
 /// CLI application
 pub struct CliApp {
-    client: HttpClientBuilder,
+    client: HttpClient,
     http_client: Client,
     base_url: String,
     json_output: bool,
@@ -271,8 +288,10 @@ impl CliApp {
         }
     }
 
-    async fn cmd_init(&self, lang: String) -> Result<()> {
-        let config_dir = dirs::config_dir().unwrap().join("warsha");
+    async fn cmd_init(&self, _lang: String) -> Result<()> {
+        let config_dir = dirs::config_dir()
+            .ok_or_else(|| CliError::Config("Config directory not found".to_string()))?
+            .join("warsha");
         std::fs::create_dir_all(&config_dir)?;
 
         let config = DaemonConfig {
@@ -291,7 +310,7 @@ impl CliApp {
         &self,
         idea: String,
         name: Option<String>,
-        template: Option<String>,
+        _template: Option<String>,
     ) -> Result<()> {
         // Ensure daemon is running
         self.ensure_daemon().await?;
@@ -300,7 +319,7 @@ impl CliApp {
         let project_name = name.unwrap_or_else(|| "New Project".to_string());
         let project = self
             .client
-            .request::<_, warsha_core::Project>(
+            .request::<warsha_core::Project, _>(
                 "projects.create",
                 (project_name, idea.clone(), "en".to_string()),
             )
@@ -309,7 +328,7 @@ impl CliApp {
         // Start run
         let run = self
             .client
-            .request::<_, warsha_core::Run>("runs.start", (project.id, idea))
+            .request::<warsha_core::Run, _>("runs.start", (project.id, idea))
             .await?;
 
         self.output(format!(
@@ -328,7 +347,7 @@ impl CliApp {
         // For now, just show status
         let runs = self
             .client
-            .request::<_, Vec<warsha_core::Run>>("runs.list", (project_id,))
+            .request::<Vec<warsha_core::Run>, _>("runs.list", (project_id,))
             .await?;
 
         if let Some(run) = runs.first() {
@@ -350,7 +369,7 @@ impl CliApp {
                 RunId(Ulid::from_string(&run_id_str).map_err(|e| CliError::Other(e.to_string()))?);
             let run = self
                 .client
-                .request::<_, warsha_core::Run>("runs.get", (run_id,))
+                .request::<warsha_core::Run, _>("runs.get", (run_id,))
                 .await?;
             self.output(format!(
                 "Run {}: {:?} ({:?})",
@@ -360,7 +379,7 @@ impl CliApp {
             let project_id = self.resolve_project(&project_str).await?;
             let runs = self
                 .client
-                .request::<_, Vec<warsha_core::Run>>("runs.list", (project_id,))
+                .request::<Vec<warsha_core::Run>, _>("runs.list", (project_id,))
                 .await?;
             for run in runs {
                 self.output(format!(
@@ -371,7 +390,7 @@ impl CliApp {
         } else {
             let projects = self
                 .client
-                .request::<_, Vec<warsha_core::Project>>("projects.list", ())
+                .request::<Vec<warsha_core::Project>, _>("projects.list", rpc_params![])
                 .await?;
             for project in projects {
                 self.output(format!("{} {}", project.id.0, project.name))?;
@@ -386,7 +405,7 @@ impl CliApp {
         let run_id = RunId(Ulid::from_string(&run).map_err(|e| CliError::Other(e.to_string()))?);
         let events = self
             .client
-            .request::<_, Vec<warsha_core::Event>>("runs.events", (run_id,))
+            .request::<Vec<warsha_core::Event>, _>("runs.events", (run_id,))
             .await?;
 
         for event in events {
@@ -409,7 +428,7 @@ impl CliApp {
         let run_id = RunId(Ulid::from_string(&run).map_err(|e| CliError::Other(e.to_string()))?);
         let run_data = self
             .client
-            .request::<_, warsha_core::Run>("runs.get", (run_id,))
+            .request::<warsha_core::Run, _>("runs.get", (run_id,))
             .await?;
 
         for (stage, state) in run_data.gate_states {
@@ -425,9 +444,8 @@ impl CliApp {
         let stage = parse_gate_stage(&gate)?;
         let device_id = DeviceId::new(); // In real implementation, get from config
 
-        let run = self
-            .client
-            .request::<_, warsha_core::Run>("gates.approve", (run_id, stage, device_id))
+        self.client
+            .request::<warsha_core::Run, _>("gates.approve", (run_id, stage, device_id))
             .await?;
         self.output(format!("Gate {:?} approved", stage))?;
         Ok(())
@@ -438,9 +456,8 @@ impl CliApp {
         let stage = parse_gate_stage(&gate)?;
         let device_id = DeviceId::new();
 
-        let run = self
-            .client
-            .request::<_, warsha_core::Run>("gates.reject", (run_id, stage, reason, device_id))
+        self.client
+            .request::<warsha_core::Run, _>("gates.reject", (run_id, stage, reason, device_id))
             .await?;
         self.output(format!("Gate {:?} rejected", stage))?;
         Ok(())
@@ -451,23 +468,23 @@ impl CliApp {
             ProviderAction::List => {
                 let providers = self
                     .client
-                    .request::<_, Vec<warsha_core::ProviderConfig>>("providers.list", ())
+                    .request::<Vec<warshad::ProviderConfig>, _>("providers.list", rpc_params![])
                     .await?;
                 for p in providers {
-                    self.output(format!("{} ({})", p.name, p.id))?;
+                    self.output(format!("{} ({})", p.id, p.kind))?;
                 }
             }
-            ProviderAction::Add { id, kind, key } => {
+            ProviderAction::Add { .. } => {
                 // Implementation
             }
             ProviderAction::Test { id } => {
                 let health = self
                     .client
-                    .request::<_, warsha_providers::HealthCheck>("providers.test", (id,))
+                    .request::<warsha_providers::HealthCheck, _>("providers.test", (id,))
                     .await?;
                 self.output(format!("Provider health: {:?}", health))?;
             }
-            ProviderAction::Remove { id } => {
+            ProviderAction::Remove { .. } => {
                 // Implementation
             }
         }
@@ -479,7 +496,7 @@ impl CliApp {
             RoleAction::List => {
                 // Implementation
             }
-            RoleAction::Set { role, targets } => {
+            RoleAction::Set { .. } => {
                 // Implementation
             }
         }
@@ -488,10 +505,10 @@ impl CliApp {
 
     async fn cmd_budget(&self, action: BudgetAction) -> Result<()> {
         match action {
-            BudgetAction::Show { project } => {
+            BudgetAction::Show { .. } => {
                 // Implementation
             }
-            BudgetAction::Set { project, cents } => {
+            BudgetAction::Set { .. } => {
                 // Implementation
             }
         }
@@ -563,7 +580,7 @@ impl CliApp {
         let pairing: warsha_remote::PairingData =
             warsha_remote::PairingData::from_qr_code(&qr_code)?;
         self.client
-            .request::<_, ()>("devices.pair", (pairing,))
+            .request::<(), _>("devices.pair", (pairing,))
             .await?;
         self.output("Device paired successfully".to_string())?;
         Ok(())
@@ -574,7 +591,7 @@ impl CliApp {
             DeviceAction::List => {
                 let devices = self
                     .client
-                    .request::<_, Vec<warsha_remote::DeviceIdentity>>("devices.list", ())
+                    .request::<Vec<DeviceIdentity>, _>("devices.list", rpc_params![])
                     .await?;
                 for d in devices {
                     let status = if d.revoked { "REVOKED" } else { "active" };
@@ -585,7 +602,7 @@ impl CliApp {
                 let device_id =
                     DeviceId(Uuid::parse_str(&id).map_err(|e| CliError::Other(e.to_string()))?);
                 self.client
-                    .request::<_, ()>("devices.revoke", (device_id,))
+                    .request::<(), _>("devices.revoke", (device_id,))
                     .await?;
                 self.output("Device revoked".to_string())?;
             }
@@ -619,7 +636,7 @@ impl CliApp {
         // Otherwise search by name
         let projects = self
             .client
-            .request::<_, Vec<warsha_core::Project>>("projects.list", ())
+            .request::<Vec<warsha_core::Project>, _>("projects.list", rpc_params![])
             .await?;
         for project in projects {
             if project.name == name_or_id {
@@ -645,6 +662,8 @@ impl CliApp {
 
 fn parse_gate_stage(s: &str) -> Result<Stage> {
     match s.to_lowercase().as_str() {
+        "gate_a" | "gatea" | "a" => Ok(Stage::GateA),
+        "gate_b" | "gateb" | "b" => Ok(Stage::GateB),
         "gate_c" | "gatec" | "c" => Ok(Stage::GateC),
         "gate_d" | "gated" | "d" => Ok(Stage::GateD),
         _ => Err(CliError::Other(format!("Unknown gate stage: {}", s))),
@@ -657,6 +676,12 @@ mod tests {
 
     #[test]
     fn test_parse_gate_stage() {
+        assert_eq!(parse_gate_stage("gate_a").unwrap(), Stage::GateA);
+        assert_eq!(parse_gate_stage("gatea").unwrap(), Stage::GateA);
+        assert_eq!(parse_gate_stage("a").unwrap(), Stage::GateA);
+        assert_eq!(parse_gate_stage("gate_b").unwrap(), Stage::GateB);
+        assert_eq!(parse_gate_stage("gateb").unwrap(), Stage::GateB);
+        assert_eq!(parse_gate_stage("b").unwrap(), Stage::GateB);
         assert_eq!(parse_gate_stage("gate_c").unwrap(), Stage::GateC);
         assert_eq!(parse_gate_stage("gatec").unwrap(), Stage::GateC);
         assert_eq!(parse_gate_stage("c").unwrap(), Stage::GateC);

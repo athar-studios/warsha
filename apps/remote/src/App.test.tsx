@@ -17,13 +17,27 @@ function renderApp() {
 }
 
 describe('remote app', () => {
-  it('renders without crashing', () => {
+  it('renders the brand in header and dashboard', () => {
     renderApp();
-    expect(screen.getByText('ورشة')).toBeInTheDocument();
+    // The brand appears twice on the dashboard route: once in the header,
+    // once as the dashboard title.
+    expect(screen.getAllByText('ورشة')).toHaveLength(2);
   });
 
-  it('shows dashboard by default', () => {
+  it('shows dashboard by default with Arabic tagline', () => {
     renderApp();
     expect(screen.getByText('مصنع برمجيات بالذكاء الاصطناعي، عربي أولاً')).toBeInTheDocument();
+  });
+
+  it('renders gate action buttons with Arabic labels', () => {
+    renderApp();
+    expect(screen.getByRole('button', { name: 'موافقة' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'رفض' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'طلب تعديلات' })).toBeInTheDocument();
+  });
+
+  it('displays run status with interpolated value', () => {
+    renderApp();
+    expect(screen.getByText('حالة التشغيل: code')).toBeInTheDocument();
   });
 });

@@ -5,12 +5,15 @@
 //! `migrations/001_initial.sql`.
 
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use sqlx::migrate::MigrateDatabase;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use thiserror::Error;
 use tracing::info;
+use ulid::Ulid;
 use uuid::Uuid;
 use warsha_core::{
     Artifact, DeviceId, Event, EventKind, GateState, Project, ProjectId, Role, Run, RunId,
@@ -41,6 +44,12 @@ pub enum StoreError {
     /// Run lookup miss.
     #[error("run not found: {0}")]
     RunNotFound(RunId),
+    /// Gate lookup miss.
+    #[error("gate not found: {0}")]
+    GateNotFound(Ulid),
+    /// Artifact lookup miss.
+    #[error("artifact not found: {0}")]
+    ArtifactNotFound(Ulid),
     /// A stored identifier could not be decoded.
     #[error("corrupt identifier for {field}: {value}")]
     CorruptId {
@@ -56,6 +65,82 @@ pub enum StoreError {
 
 /// Convenience result alias for the store.
 pub type Result<T> = std::result::Result<T, StoreError>;
+
+/// A gate decision recorded for one stage of a run.
+///
+/// `state` holds the structured decision; the flat columns mirror whatever the
+/// current state carries so decisions stay queryable without decoding JSON.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Gate {
+    /// Gate identifier.
+    pub id: Ulid,
+    /// Run the gate belongs to.
+    pub run_id: RunId,
+    /// Stage the gate guards.
+    pub stage: Stage,
+    /// Current state of the gate.
+    pub state: GateState,
+    /// Device that took the decision, when one has been taken.
+    pub decided_by_device_id: Option<DeviceId>,
+    /// Rejection reason, when the gate was rejected.
+    pub reason: Option<String>,
+    /// Notes carried by a changes-requested decision.
+    pub notes: Option<String>,
+    /// When the decision was taken.
+    pub decided_at: Option<DateTime<Utc>>,
+    /// Row creation timestamp.
+    pub created_at: DateTime<Utc>,
+    /// Row update timestamp.
+    pub updated_at: DateTime<Utc>,
+}
+
+/// An index row pointing at an artifact's stored content.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArtifactRecord {
+    /// Artifact identifier.
+    pub id: Ulid,
+    /// Run that produced the artifact.
+    pub run_id: RunId,
+    /// Project that owns the artifact.
+    pub project_id: ProjectId,
+    /// Artifact name within the run.
+    pub name: String,
+    /// Artifact kind, such as `markdown` or `patch`.
+    pub kind: String,
+    /// Path to the artifact's stored content.
+    pub content_path: String,
+    /// Content hash, when one was recorded.
+    pub sha256: Option<String>,
+    /// Row creation timestamp.
+    pub created_at: DateTime<Utc>,
+    /// Row update timestamp.
+    pub updated_at: DateTime<Utc>,
+}
+
+/// One model call's token usage and cost within a run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CostRecord {
+    /// Cost row identifier.
+    pub id: Ulid,
+    /// Run the cost was incurred by.
+    pub run_id: RunId,
+    /// Project that owns the run.
+    pub project_id: ProjectId,
+    /// Agent role that spent the tokens, when one was attributed.
+    pub agent_role: Option<Role>,
+    /// Provider that served the call.
+    pub provider_id: String,
+    /// Model that served the call.
+    pub model_id: String,
+    /// Prompt tokens consumed.
+    pub prompt_tokens: u64,
+    /// Completion tokens produced.
+    pub completion_tokens: u64,
+    /// Cost in cents.
+    pub cost_cents: u64,
+    /// Row creation timestamp.
+    pub created_at: DateTime<Utc>,
+}
 
 /// Thin wrapper around a SQLite connection pool.
 pub struct Store {
@@ -76,13 +161,22 @@ impl Store {
     /// Open (creating if necessary) a database at an explicit path.
     pub async fn open_at(db_path: PathBuf) -> Result<Self> {
         let db_url = format!("sqlite://{}?mode=rwc", db_path.display());
-        if !sqlx::Sqlite::database_exists(&db_url).await.unwrap_or(false) {
+        if !sqlx::Sqlite::database_exists(&db_url)
+            .await
+            .unwrap_or(false)
+        {
             info!("creating database at {}", db_path.display());
             sqlx::Sqlite::create_database(&db_url)
                 .await
                 .map_err(|e| StoreError::Migration(e.to_string()))?;
         }
-        let pool = SqlitePool::connect(&db_url).await?;
+        // Foreign keys are enforced per connection; without this the
+        // `ON DELETE CASCADE` clauses in the migrations never fire.
+        let options = SqliteConnectOptions::new()
+            .filename(&db_path)
+            .create_if_missing(true)
+            .foreign_keys(true);
+        let pool = SqlitePoolOptions::new().connect_with(options).await?;
         Self::run_migrations(&pool).await?;
         Ok(Self { pool, db_path })
     }
@@ -281,6 +375,190 @@ impl Store {
         rows.iter().map(event_from_row).collect()
     }
 
+    // ------------------------------------------------------------------ gates
+
+    /// Insert a gate row for one stage of a run.
+    pub async fn create_gate(&self, gate: &Gate) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO gates (id, run_id, stage, state, decided_by_device_id, reason, notes, \
+             decided_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(gate.id.to_string())
+        .bind(gate.run_id.0.to_string())
+        .bind(serde_json::to_string(&gate.stage)?)
+        .bind(serde_json::to_string(&gate.state)?)
+        .bind(gate.decided_by_device_id.map(|d| d.0.as_bytes().to_vec()))
+        .bind(&gate.reason)
+        .bind(&gate.notes)
+        .bind(gate.decided_at.map(|t| t.to_rfc3339()))
+        .bind(gate.created_at.to_rfc3339())
+        .bind(gate.updated_at.to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Fetch a gate by id.
+    pub async fn get_gate(&self, id: Ulid) -> Result<Gate> {
+        let row = sqlx::query(
+            "SELECT id, run_id, stage, state, decided_by_device_id, reason, notes, decided_at, \
+             created_at, updated_at FROM gates WHERE id = ?",
+        )
+        .bind(id.to_string())
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(StoreError::GateNotFound(id))?;
+        gate_from_row(&row)
+    }
+
+    /// List a run's gates in the order they were created.
+    pub async fn list_gates(&self, run_id: RunId) -> Result<Vec<Gate>> {
+        let rows = sqlx::query(
+            "SELECT id, run_id, stage, state, decided_by_device_id, reason, notes, decided_at, \
+             created_at, updated_at FROM gates WHERE run_id = ? \
+             ORDER BY created_at ASC, id ASC",
+        )
+        .bind(run_id.0.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(gate_from_row).collect()
+    }
+
+    /// Persist a gate's new state, keeping the mirrored decision columns in sync.
+    pub async fn update_gate_state(
+        &self,
+        id: Ulid,
+        state: &GateState,
+        updated_at: DateTime<Utc>,
+    ) -> Result<()> {
+        let (decided_by, reason, notes, decided_at) = match state {
+            GateState::Pending => (None, None, None, None),
+            GateState::Approved { by, at } => (Some(*by), None, None, Some(*at)),
+            GateState::Rejected { reason, by, at } => {
+                (Some(*by), Some(reason.clone()), None, Some(*at))
+            }
+            GateState::ChangesRequested { notes, by, at } => {
+                (Some(*by), None, Some(notes.clone()), Some(*at))
+            }
+        };
+        let outcome = sqlx::query(
+            "UPDATE gates SET state = ?, decided_by_device_id = ?, reason = ?, notes = ?, \
+             decided_at = ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(serde_json::to_string(state)?)
+        .bind(decided_by.map(|d| d.0.as_bytes().to_vec()))
+        .bind(reason)
+        .bind(notes)
+        .bind(decided_at.map(|t| t.to_rfc3339()))
+        .bind(updated_at.to_rfc3339())
+        .bind(id.to_string())
+        .execute(&self.pool)
+        .await?;
+        if outcome.rows_affected() == 0 {
+            return Err(StoreError::GateNotFound(id));
+        }
+        Ok(())
+    }
+
+    // -------------------------------------------------------- artifact index
+
+    /// Insert an artifact index row.
+    pub async fn create_artifact(&self, artifact: &ArtifactRecord) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO artifacts (id, run_id, project_id, name, kind, content_path, sha256, \
+             created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(artifact.id.to_string())
+        .bind(artifact.run_id.0.to_string())
+        .bind(artifact.project_id.0.as_bytes().to_vec())
+        .bind(&artifact.name)
+        .bind(&artifact.kind)
+        .bind(&artifact.content_path)
+        .bind(&artifact.sha256)
+        .bind(artifact.created_at.to_rfc3339())
+        .bind(artifact.updated_at.to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Fetch an artifact index row by id.
+    pub async fn get_artifact(&self, id: Ulid) -> Result<ArtifactRecord> {
+        let row = sqlx::query(
+            "SELECT id, run_id, project_id, name, kind, content_path, sha256, created_at, \
+             updated_at FROM artifacts WHERE id = ?",
+        )
+        .bind(id.to_string())
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(StoreError::ArtifactNotFound(id))?;
+        artifact_from_row(&row)
+    }
+
+    /// List a run's artifacts in the order they were created.
+    pub async fn list_artifacts(&self, run_id: RunId) -> Result<Vec<ArtifactRecord>> {
+        let rows = sqlx::query(
+            "SELECT id, run_id, project_id, name, kind, content_path, sha256, created_at, \
+             updated_at FROM artifacts WHERE run_id = ? \
+             ORDER BY created_at ASC, id ASC",
+        )
+        .bind(run_id.0.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(artifact_from_row).collect()
+    }
+
+    // ------------------------------------------------------------------ costs
+
+    /// Record one model call's token usage and cost.
+    pub async fn record_cost(&self, cost: &CostRecord) -> Result<()> {
+        let agent_role = match cost.agent_role {
+            Some(role) => Some(serde_json::to_string(&role)?),
+            None => None,
+        };
+        sqlx::query(
+            "INSERT INTO costs (id, run_id, project_id, agent_role, provider_id, model_id, \
+             prompt_tokens, completion_tokens, cost_cents, created_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(cost.id.to_string())
+        .bind(cost.run_id.0.to_string())
+        .bind(cost.project_id.0.as_bytes().to_vec())
+        .bind(agent_role)
+        .bind(&cost.provider_id)
+        .bind(&cost.model_id)
+        .bind(cost.prompt_tokens as i64)
+        .bind(cost.completion_tokens as i64)
+        .bind(cost.cost_cents as i64)
+        .bind(cost.created_at.to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// List a run's recorded costs in the order they were recorded.
+    pub async fn list_costs(&self, run_id: RunId) -> Result<Vec<CostRecord>> {
+        let rows = sqlx::query(
+            "SELECT id, run_id, project_id, agent_role, provider_id, model_id, prompt_tokens, \
+             completion_tokens, cost_cents, created_at FROM costs WHERE run_id = ? \
+             ORDER BY created_at ASC, id ASC",
+        )
+        .bind(run_id.0.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(cost_from_row).collect()
+    }
+
+    /// Sum every recorded cost for a run, in cents.
+    pub async fn total_cost_cents(&self, run_id: RunId) -> Result<u64> {
+        let row =
+            sqlx::query("SELECT COALESCE(SUM(cost_cents), 0) AS total FROM costs WHERE run_id = ?")
+                .bind(run_id.0.to_string())
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(column_int(&row, "total")?.unsigned_abs())
+    }
+
     // -------------------------------------------------------------- artifacts
 
     /// Directory holding a project's generated artifacts.
@@ -329,6 +607,16 @@ fn column_opt_text(row: &sqlx::sqlite::SqliteRow, column: &'static str) -> Resul
 fn column_opt_int(row: &sqlx::sqlite::SqliteRow, column: &'static str) -> Result<Option<i64>> {
     row.try_get::<Option<i64>, _>(column)
         .map_err(|_| StoreError::UnexpectedType(column))
+}
+
+fn column_int(row: &sqlx::sqlite::SqliteRow, column: &'static str) -> Result<i64> {
+    row.try_get::<i64, _>(column)
+        .map_err(|_| StoreError::UnexpectedType(column))
+}
+
+fn column_opt_blob(row: &sqlx::sqlite::SqliteRow, field: &'static str) -> Result<Option<Vec<u8>>> {
+    row.try_get::<Option<Vec<u8>>, _>(field)
+        .map_err(|_| StoreError::UnexpectedType(field))
 }
 
 fn parse_uuid(field: &'static str, bytes: &[u8]) -> Result<Uuid> {
@@ -425,6 +713,71 @@ fn event_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Event> {
         tokens,
         created_at: parse_time("events.created_at", &column_text(row, "created_at")?)?,
         device_id,
+    })
+}
+
+fn gate_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Gate> {
+    let decided_by_device_id = match column_opt_blob(row, "decided_by_device_id")? {
+        Some(bytes) => Some(DeviceId(parse_uuid("gates.decided_by_device_id", &bytes)?)),
+        None => None,
+    };
+    let decided_at = match column_opt_text(row, "decided_at")? {
+        Some(raw) => Some(parse_time("gates.decided_at", &raw)?),
+        None => None,
+    };
+    Ok(Gate {
+        id: parse_ulid("gates.id", &column_text(row, "id")?)?,
+        run_id: RunId(parse_ulid("gates.run_id", &column_text(row, "run_id")?)?),
+        stage: serde_json::from_str::<Stage>(&column_text(row, "stage")?)?,
+        state: serde_json::from_str::<GateState>(&column_text(row, "state")?)?,
+        decided_by_device_id,
+        reason: column_opt_text(row, "reason")?,
+        notes: column_opt_text(row, "notes")?,
+        decided_at,
+        created_at: parse_time("gates.created_at", &column_text(row, "created_at")?)?,
+        updated_at: parse_time("gates.updated_at", &column_text(row, "updated_at")?)?,
+    })
+}
+
+fn artifact_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<ArtifactRecord> {
+    Ok(ArtifactRecord {
+        id: parse_ulid("artifacts.id", &column_text(row, "id")?)?,
+        run_id: RunId(parse_ulid(
+            "artifacts.run_id",
+            &column_text(row, "run_id")?,
+        )?),
+        project_id: ProjectId(parse_uuid(
+            "artifacts.project_id",
+            &column_blob(row, "project_id")?,
+        )?),
+        name: column_text(row, "name")?,
+        kind: column_text(row, "kind")?,
+        content_path: column_text(row, "content_path")?,
+        sha256: column_opt_text(row, "sha256")?,
+        created_at: parse_time("artifacts.created_at", &column_text(row, "created_at")?)?,
+        updated_at: parse_time("artifacts.updated_at", &column_text(row, "updated_at")?)?,
+    })
+}
+
+fn cost_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<CostRecord> {
+    let agent_role = match column_opt_text(row, "agent_role")? {
+        Some(raw) => Some(serde_json::from_str::<Role>(&raw)?),
+        None => None,
+    };
+    Ok(CostRecord {
+        id: parse_ulid("costs.id", &column_text(row, "id")?)?,
+        run_id: RunId(parse_ulid("costs.run_id", &column_text(row, "run_id")?)?),
+        project_id: ProjectId(parse_uuid(
+            "costs.project_id",
+            &column_blob(row, "project_id")?,
+        )?),
+        agent_role,
+        provider_id: column_text(row, "provider_id")?,
+        model_id: column_text(row, "model_id")?,
+        prompt_tokens: column_int(row, "prompt_tokens")?.unsigned_abs(),
+        completion_tokens: column_int(row, "completion_tokens")?.unsigned_abs(),
+        cost_cents: column_int(row, "cost_cents")?.unsigned_abs(),
+        created_at: parse_time("costs.created_at", &column_text(row, "created_at")?)?,
     })
 }
 
@@ -561,5 +914,279 @@ mod tests {
             .unwrap();
         let content = store.read_artifact(project.id, "prd").await.unwrap();
         assert_eq!(content, "# PRD");
+    }
+
+    fn sample_run(project_id: ProjectId) -> Run {
+        let now = Utc::now();
+        Run {
+            id: RunId::new(),
+            project_id,
+            current_stage: Stage::Idea,
+            gate_states: HashMap::new(),
+            artifacts: HashMap::new(),
+            created_at: now,
+            updated_at: now,
+            status: RunStatus::Running,
+            budget_cents: None,
+            spent_cents: 0,
+        }
+    }
+
+    fn sample_gate(run_id: RunId, stage: Stage, created_at: DateTime<Utc>) -> Gate {
+        Gate {
+            id: Ulid::new(),
+            run_id,
+            stage,
+            state: GateState::Pending,
+            decided_by_device_id: None,
+            reason: None,
+            notes: None,
+            decided_at: None,
+            created_at,
+            updated_at: created_at,
+        }
+    }
+
+    fn sample_artifact(
+        run_id: RunId,
+        project_id: ProjectId,
+        name: &str,
+        created_at: DateTime<Utc>,
+    ) -> ArtifactRecord {
+        ArtifactRecord {
+            id: Ulid::new(),
+            run_id,
+            project_id,
+            name: name.to_owned(),
+            kind: "markdown".to_owned(),
+            content_path: format!("factory/{name}.md"),
+            sha256: None,
+            created_at,
+            updated_at: created_at,
+        }
+    }
+
+    fn sample_cost(
+        run_id: RunId,
+        project_id: ProjectId,
+        cost_cents: u64,
+        created_at: DateTime<Utc>,
+    ) -> CostRecord {
+        CostRecord {
+            id: Ulid::new(),
+            run_id,
+            project_id,
+            agent_role: Some(Role::Coder),
+            provider_id: "mock".to_owned(),
+            model_id: "mock-1".to_owned(),
+            prompt_tokens: 100,
+            completion_tokens: 50,
+            cost_cents,
+            created_at,
+        }
+    }
+
+    #[tokio::test]
+    async fn round_trips_a_gate() {
+        let store = temp_store().await;
+        let project = sample_project();
+        store.create_project(&project).await.unwrap();
+        let run = sample_run(project.id);
+        store.create_run(&run).await.unwrap();
+
+        let gate = sample_gate(run.id, Stage::GateC, Utc::now());
+        store.create_gate(&gate).await.unwrap();
+
+        let fetched = store.get_gate(gate.id).await.unwrap();
+        assert_eq!(fetched, gate);
+        assert_eq!(store.list_gates(run.id).await.unwrap().len(), 1);
+        assert!(matches!(
+            store.get_gate(Ulid::new()).await,
+            Err(StoreError::GateNotFound(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn lists_gates_in_creation_order() {
+        let store = temp_store().await;
+        let project = sample_project();
+        store.create_project(&project).await.unwrap();
+        let run = sample_run(project.id);
+        store.create_run(&run).await.unwrap();
+
+        let now = Utc::now();
+        let later = now + chrono::TimeDelta::seconds(5);
+        let early_gate = sample_gate(run.id, Stage::GateC, now);
+        let late_gate = sample_gate(run.id, Stage::GateD, later);
+        store.create_gate(&late_gate).await.unwrap();
+        store.create_gate(&early_gate).await.unwrap();
+
+        let stages: Vec<Stage> = store
+            .list_gates(run.id)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|gate| gate.stage)
+            .collect();
+        assert_eq!(stages, vec![Stage::GateC, Stage::GateD]);
+    }
+
+    #[tokio::test]
+    async fn persists_a_gate_state_transition() {
+        let store = temp_store().await;
+        let project = sample_project();
+        store.create_project(&project).await.unwrap();
+        let run = sample_run(project.id);
+        store.create_run(&run).await.unwrap();
+
+        let gate = sample_gate(run.id, Stage::GateC, Utc::now());
+        store.create_gate(&gate).await.unwrap();
+
+        let device = DeviceId::new();
+        let decided_at = Utc::now();
+        store
+            .update_gate_state(
+                gate.id,
+                &GateState::Approved {
+                    by: device,
+                    at: decided_at,
+                },
+                decided_at,
+            )
+            .await
+            .unwrap();
+
+        let fetched = store.get_gate(gate.id).await.unwrap();
+        assert_eq!(
+            fetched.state,
+            GateState::Approved {
+                by: device,
+                at: decided_at,
+            }
+        );
+        assert_eq!(fetched.decided_by_device_id, Some(device));
+        assert_eq!(fetched.decided_at, Some(decided_at));
+        assert_eq!(fetched.updated_at, decided_at);
+    }
+
+    #[tokio::test]
+    async fn updates_a_missing_gate_is_reported() {
+        let store = temp_store().await;
+        let err = store
+            .update_gate_state(Ulid::new(), &GateState::Pending, Utc::now())
+            .await;
+        assert!(matches!(err, Err(StoreError::GateNotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn round_trips_an_artifact_record() {
+        let store = temp_store().await;
+        let project = sample_project();
+        store.create_project(&project).await.unwrap();
+        let run = sample_run(project.id);
+        store.create_run(&run).await.unwrap();
+
+        let artifact = sample_artifact(run.id, project.id, "prd", Utc::now());
+        store.create_artifact(&artifact).await.unwrap();
+
+        let fetched = store.get_artifact(artifact.id).await.unwrap();
+        assert_eq!(fetched, artifact);
+        assert_eq!(store.list_artifacts(run.id).await.unwrap().len(), 1);
+        assert!(matches!(
+            store.get_artifact(Ulid::new()).await,
+            Err(StoreError::ArtifactNotFound(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn lists_artifacts_in_creation_order() {
+        let store = temp_store().await;
+        let project = sample_project();
+        store.create_project(&project).await.unwrap();
+        let run = sample_run(project.id);
+        store.create_run(&run).await.unwrap();
+
+        let now = Utc::now();
+        let later = now + chrono::TimeDelta::seconds(5);
+        let early = sample_artifact(run.id, project.id, "prd", now);
+        let late = sample_artifact(run.id, project.id, "design", later);
+        store.create_artifact(&late).await.unwrap();
+        store.create_artifact(&early).await.unwrap();
+
+        let names: Vec<String> = store
+            .list_artifacts(run.id)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|artifact| artifact.name)
+            .collect();
+        assert_eq!(names, vec!["prd".to_owned(), "design".to_owned()]);
+    }
+
+    #[tokio::test]
+    async fn sums_recorded_costs() {
+        let store = temp_store().await;
+        let project = sample_project();
+        store.create_project(&project).await.unwrap();
+        let run = sample_run(project.id);
+        store.create_run(&run).await.unwrap();
+
+        let now = Utc::now();
+        let one = now + chrono::TimeDelta::seconds(1);
+        let two = now + chrono::TimeDelta::seconds(2);
+        store
+            .record_cost(&sample_cost(run.id, project.id, 120, now))
+            .await
+            .unwrap();
+        store
+            .record_cost(&sample_cost(run.id, project.id, 250, one))
+            .await
+            .unwrap();
+        store
+            .record_cost(&sample_cost(run.id, project.id, 30, two))
+            .await
+            .unwrap();
+
+        let costs = store.list_costs(run.id).await.unwrap();
+        assert_eq!(costs.len(), 3);
+        assert_eq!(costs[0].cost_cents, 120);
+        assert_eq!(costs[2].cost_cents, 30);
+        assert_eq!(costs[0].agent_role, Some(Role::Coder));
+        assert_eq!(store.total_cost_cents(run.id).await.unwrap(), 400);
+        assert_eq!(store.total_cost_cents(RunId::new()).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn deleting_a_run_cascades_to_children() {
+        let store = temp_store().await;
+        let project = sample_project();
+        store.create_project(&project).await.unwrap();
+        let run = sample_run(project.id);
+        store.create_run(&run).await.unwrap();
+
+        let now = Utc::now();
+        store
+            .create_gate(&sample_gate(run.id, Stage::GateC, now))
+            .await
+            .unwrap();
+        store
+            .create_artifact(&sample_artifact(run.id, project.id, "prd", now))
+            .await
+            .unwrap();
+        store
+            .record_cost(&sample_cost(run.id, project.id, 75, now))
+            .await
+            .unwrap();
+
+        sqlx::query("DELETE FROM runs WHERE id = ?")
+            .bind(run.id.0.to_string())
+            .execute(store.pool())
+            .await
+            .unwrap();
+
+        assert!(store.list_gates(run.id).await.unwrap().is_empty());
+        assert!(store.list_artifacts(run.id).await.unwrap().is_empty());
+        assert!(store.list_costs(run.id).await.unwrap().is_empty());
+        assert_eq!(store.total_cost_cents(run.id).await.unwrap(), 0);
     }
 }

@@ -10,6 +10,7 @@ warsha-core = { path = "../warsha-core" }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 sqlx = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

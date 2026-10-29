@@ -87,3 +87,49 @@
 - **Decision**: Warsha's own code is licensed under PolyForm Noncommercial 1.0.0 (same as openbot.run), replacing Apache-2.0. This overrides BUILD_PROMPT.md section 1.
 - **Reason**: Owner's decision. Commercial use requires a separate license from Athar Studio. Goose stays an unmodified Apache-2.0 dependency with its notices kept.
 
+## 2026-10-28 — M13 Desktop UI: Two modes with single toggle
+- **Decision**: Desktop app is a Tauri app window (not a web page) with two modes switched by one toggle:
+  - Simple mode: modeled on Grok Bot / openbot.run — left sidebar with user's bots/agents (avatar, name, role, unread/status), chat with selected bot or Orchestrator, right side panel showing whole team and plain-language summary of what each agent did and what's happening between them, cards for approvals (Approve/Reject at each gate), routines and connected subscriptions in Settings
+  - Advanced mode: modeled on ZadLoop's workspace — per-agent lanes and models, live event/tool stream, diffs, file tree, terminal/log output, task board, skills/MCP config, costs
+- **Wireframes**: Documented in docs/UI.md
+- **Reason**: Owner's decision. Simple mode for non-technical users; Advanced mode for developers/power users. One toggle keeps UI simple while exposing full power.
+
+## 2026-10-28 — Dependency updates via Renovate (M15)
+- **Decision**: Add a Renovate config that keeps the pinned Goose version and every other dependency updated through PRs. CI must pass before any merge. Goose major/minor bumps are **never** auto-merged without the full test suite green.
+- **Alternatives**: Dependabot, manual updates
+- **Reason**: Owner's decision. Renovate handles the pinned-git-tag form Goose needs, and grouped PRs keep review load low. Goose is the agent engine, so a patch-level auto-merge is acceptable but a major/minor bump is not.
+
+## 2026-10-28 — Self-update via official Tauri updater (M15)
+- **Decision**: Ship self-update through the official Tauri updater plugin, consuming signed releases from GitHub Releases. The user approves every update; nothing installs silently.
+- **Alternatives**: Custom updater, winget/Homebrew-only updates, no in-app update
+- **Reason**: Owner's decision. The plugin is the maintained, signature-verifying path for Tauri 2, and per-update approval keeps the "no action without a human gate" rule intact.
+
+## 2026-10-28 — Routines on Goose's built-in scheduler (M15)
+- **Decision**: Warsha routines are built on Goose's built-in scheduler (recipes + cron). Do not write a scheduler from scratch. Expose routines in Simple mode with name, schedule, what it does, pause, and run now.
+- **Alternatives**: Own cron implementation, OS-level schedulers (Task Scheduler/launchd/systemd), job queue
+- **Reason**: Owner's decision. Goose is already the agent engine and already owns scheduled recipe execution; duplicating it would create two schedulers that disagree about run state. Simple-mode exposure keeps routines usable without turning them into a developer feature.
+
+## 2026-10-28 — Automations via Activepieces CE, never n8n (M15)
+- **Decision**: Integrate Activepieces Community Edition as the optional workflow-automation engine, using the **MIT core only** and never the `packages/ee` folders. Do **not** embed n8n. Record every third-party license in `THIRD_PARTY_NOTICES.md`.
+- **Alternatives**: n8n, Zapier-style hosted service, build an automation engine in-house
+- **Reason**: Owner's decision. n8n's Sustainable Use License forbids end users building workflows on top of it, which is exactly what Warsha would ask users to do. Activepieces' MIT core permits it. Keeping to the MIT core and publishing notices keeps Warsha's PolyForm Noncommercial 1.0.0 licensing clean.
+
+## 2026-10-28 — Provider-software auto-update, off by default (M16)
+- **Decision**: Optional auto-update for the AI provider software Warsha drives, off by default behind a toggle in Settings → Providers. Detect installed coding CLIs/runtimes (Claude Code, Codex CLI, Gemini CLI, Cursor CLI, opencode, Ollama, Goose), check their official release channels on a schedule (Goose scheduler), and update them with each vendor's own installer or package manager. Per-provider toggle; `notify only` vs `auto-install`; pin/skip a version; show the changelog; run a quick health check after updating and roll back to the previous version if it fails. Never update while a run is active.
+- **Alternatives**: Update everything automatically, never update, delegate entirely to the OS package manager
+- **Reason**: Owner's decision. Provider CLIs change flags often enough that stale installs break runs, but silently replacing an executable the user relies on is worse. Off-by-default plus per-provider consent plus rollback plus a no-update-while-running rule keeps both risks bounded.
+
+## 2026-10-28 — Workspace lints are inert (known drift, M0)
+- **Decision**: Leave `[workspace.lints.*]` in the root `Cargo.toml` as declared but **not** wire it up in M0. No member crate declares `[lints] workspace = true`, so `unwrap_used = "deny"`, `expect_used = "deny"`, `panic = "deny"`, and `unused_crate_dependencies` currently have no effect; effective linting is rustc/clippy defaults under `-D warnings`. Also: `PROGRESS.md` mentions a `clippy.toml` that does not exist.
+- **Alternatives**: Enable workspace lints now, delete the `[workspace.lints]` table
+- **Reason**: Enabling them mid-M0 would surface a large new error set (every `unwrap()` in test code, unused crate deps across ten crates) and bury the actual M0 acceptance criteria. Wiring the table up is a deliberate decision for a later milestone, recorded here so it is not rediscovered as a surprise.
+
+## 2026-10-28 — M14 Agent safety and quality layer
+- **Decision**: Add M14 as "Agent safety and quality layer" with four pillars, reusing existing cost accounting and built on established open-source tools:
+  - **Guardrails**: All external inputs (web, email, repo, tools) treated as untrusted; prompt-injection detection on inputs; secrets/PII masked in logs and outputs; sensitive actions (send, publish, pay, delete, push) require owner approval card
+  - **Model router**: Per-task routing to small/cheap or large/strong models with per-role defaults the owner can override; all calls feed existing cost accounting; optional response cache for repeated queries
+  - **Observability**: Full trace per agent step, prompt, tool/MCP call, and result via OpenTelemetry; rendered in Advanced mode timeline
+  - **Evals**: Fixed regression suite per bot/role (prompts, skills, routing) using promptfoo; runs automatically before any system prompt/skill/router config change is accepted; failing eval blocks the change; mandatory for post-v1.0.0 self-hosting loop
+- **Alternatives**: Build guardrails/router/tracing/evals from scratch; use different tooling (LangSmith, Langfuse, custom)
+- **Reason**: Owner's decision. Building from scratch duplicates mature open-source ecosystems (promptfoo for evals, OpenTelemetry for traces). Reusing the existing cost accounting avoids a second metering system. The four pillars together create a safety envelope that enables the M15 self-hosting loop without unbounded risk.
+

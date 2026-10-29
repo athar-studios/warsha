@@ -2,101 +2,66 @@
 
 ## Session Start: 2026-10-28
 
-### Current Milestone: M0 – Repo scaffold + CI
+### Current Milestone: M1 – Daemon core + state store
 
-#### Completed
-- [x] Read BUILD_PROMPT.md
-- [x] Created AGENTS.md
-- [x] Created PLAN.md
-- [x] Created PROGRESS.md (this file)
-- [x] Created DECISIONS.md
-- [x] Created Cargo.toml workspace root with all 10 crates
-- [x] Created pnpm-workspace.yaml with 5 packages
-- [x] Created all crate directories and Cargo.toml files (10 crates)
-- [x] Created apps/desktop, apps/remote, packages/ui, packages/i18n, packages/client
-- [x] Created LICENSE (Apache-2.0)
-- [x] Created README.md
-- [x] Created CONTRIBUTING.md
-- [x] Created SECURITY.md
-- [x] Created CODE_OF_CONDUCT.md
-- [x] Created .gitignore
-- [x] Created GitHub Actions CI workflow (.github/workflows/ci.yml)
-- [x] Created .gitleaks.toml
-- [x] Created package.json root with TypeScript/ESLint/Prettier config
-- [x] Created tsconfig.json, .prettierrc, .eslintrc.cjs
-- [x] Implemented core domain types in warsha-core (Project, Run, Stage, Gate, Event, Artifact, Provider, Role, etc.)
-- [x] Implemented SQLite store with migrations in warsha-store
-- [x] Implemented provider layer with adapters, router, fallback, cost meter in warsha-providers
-- [x] Implemented pipeline engine with gate state machine in warsha-pipeline
-- [x] Implemented coding backends (builtin, CLI adapters) in warsha-backends
-- [x] Implemented Git + GitHub integration in warsha-git
-- [x] Implemented remote pairing, E2E crypto (Noise XX), relay client in warsha-remote
-- [x] Implemented daemon (warshad) with JSON-RPC, HTTP/WebSocket, auth token
-- [x] Implemented CLI (warsha) with all required commands
-- [x] Implemented relay server (warsha-relay) with WebSocket frame forwarding
-- [x] Created Tauri 2 desktop app scaffold
-- [x] Created PWA remote app scaffold with Workbox
-- [x] cargo fmt --check: **PASSED** (after running `cargo fmt`)
-- [x] Created `scripts/wsl-bootstrap.ps1` (elevated Windows PowerShell) — copies INCLUDING .git
-- [x] Created `scripts/wsl-setup.sh` (WSL2 Ubuntu validation script)
+#### M0 — DONE ✅ (validated 2026-10-28T22:38:39, exit=0)
 
-#### In Progress
-- **Fixing M0 validation failures** — multiple rounds of bridge runs, fixing each failure
+Bridge run 14 is the acceptance evidence. All 14 checks PASS:
 
-#### Fixes Applied This Session
+| Check | Result |
+|---|---|
+| `cargo fmt --all --check` | PASS |
+| `cargo clippy --workspace --all-targets -- -D warnings` | PASS |
+| `cargo test --workspace` | PASS — 50 tests (core 8, git 13, store 6, remote 4, providers 4, pipeline 4, backends 2, relay 1, cli 1, warshad 1) |
+| `pnpm install` / `-r typecheck` / `-r build` / `-r test` | PASS — 40 tests (client 12, i18n 12, ui 8, desktop 4, remote 4) |
+| `actionlint .github/workflows/ci.yml` | PASS |
 
-| Area | File | Change |
-|------|------|--------|
-| **jsonrpsee** | Cargo.toml (workspace) | `features = ["server", "ws", "tracing"]` → `["server", "ws-client", "tracing"]` (ws doesn't exist in 0.26) |
-| **sqlite** | Cargo.toml (workspace) | Removed `sqlite = { version = "0.36", features = ["bundled"] }` (causes libsqlite3-sys conflict) |
-| **sqlite** | crates/warsha-store/Cargo.toml | Removed `sqlite` dependency (not directly used, sqlx handles it) |
-| **store impl** | crates/warsha-store/src/lib.rs | Complete rewrite: proper Row mapping, error handling, comprehensive tests |
-| **i18n import** | packages/i18n/src/index.ts | `MessageFormat` → `IntlMessageFormat` (correct export from intl-messageformat) |
-| **i18n catalog** | packages/i18n/src/index.ts | Added Arabic/English message catalogs, proper `t()` function |
-| **client types** | packages/client/src/index.ts | Removed `@warsha/core` import, defined types locally (avoids cross-lang dep) |
-| **ui JSX** | packages/ui/src/index.tsx | Renamed from .ts to .tsx for JSX support |
-| **ui tests** | packages/ui/package.json | Added @testing-library/react, @types/react, jsdom, @vitejs/plugin-react |
-| **vitest config** | vitest.config.ts | Added `globals: true` for test globals |
-| **clippy config** | clippy.toml | Created: allow unwrap/expect/panic in tests |
-| **clippy lints** | Cargo.toml (workspace) | `pedantic`/`nursery` → `allow` (reduces noise in tests) |
-| **tsconfig apps** | apps/remote/tsconfig.json, apps/desktop/tsconfig.json | Added `types: ["node", "vite/client"]` |
-| **node types** | apps/remote/package.json, apps/desktop/package.json | Added `@types/node` devDependency |
-| **i18n tests** | packages/i18n/src/index.test.ts | Updated for new API |
-| **client tests** | packages/client/src/index.test.ts | Fixed mock, added success case |
+Total: 90 tests, 0 failures, 0 ignored. `RESULT: M0 validation PASSED — all checks green.`
 
-#### Validation Status (Last Bridge Run - Exit 1)
+The defects that had to be cleared to get here, in the order the bridge exposed them:
 
-| Check | Status | Notes |
-|-------|--------|-------|
-| cargo fmt --check | PASS | |
-| cargo clippy --workspace -- -D warnings | FAIL | libsqlite3-sys conflict (should be fixed by removing sqlite dep) |
-| cargo test --workspace | FAIL | Same |
-| pnpm install | PASS | |
-| pnpm -r typecheck | FAIL | apps/remote, apps/desktop: path/__dirname errors (fixed by adding types) |
-| pnpm -r build | FAIL | Same |
-| pnpm -r test | FAIL | No test files found for client/i18n (fixed by adding test files) |
-| actionlint ci.yml | PASS | |
-
-#### Next Steps
-1. Trigger bridge validation again (create `.bridge/run.flag`)
-2. If all PASS → mark M0 done → begin M1
-3. If FAIL → analyze and fix
-
-#### Blocked (Local Only — Requires Windows Host Execution)
-- **WSL2 not installed in this sandbox** — `pwsh` spawns fail with `EPERM`, cannot access `\\wsl.localhost`
-- **cargo check/test blocked** — Windows schannel SSL error (SEC_E_NO_CREDENTIALS 0x8009030e)
-- **pnpm/npm blocked** — npm EPERM on cache, corepack unavailable
-- **actionlint unavailable** — not installed
-
-**Resolution**: All fixes applied to Windows source. Bridge/WLS will pick up changes on next run.
+| # | Defect | Root cause | Fix |
+|---|---|---|---|
+| 1 | `jsonrpsee` feature resolve error | `proc_macros` is not a `jsonrpsee` feature in 0.26 | `macros` |
+| 2 | `E0252 TokenUsage defined multiple times` | `warsha_core::*` glob plus a redundant `use` and two duplicate `pub use` re-exports | single glob import |
+| 3 | `no method named split for WebSocket` | axum 0.7.9 has no inherent `split`; `WebSocket` is `Stream + Sink` | `use futures::{SinkExt, StreamExt}` + new `futures` dep |
+| 4 | `useless_conversion` on `Message::Binary(vec.into())` | axum 0.7.9's `Binary` holds `Vec<u8>` (verified at `axum-0.7.9/src/extract/ws.rs:570`) | pass `vec` directly |
+| 5 | unclosed delimiter in `warsha-providers` | a dropped `}` for the `for` loop during the `TokenUsage` cleanup | brace restored |
+| 6 | 17 × `E0195` on every RPC method | jsonrpsee 0.26 generates `#[async_trait] pub trait WarshaApiServer`, so a plain `async fn` impl cannot match it | `#[async_trait]` on the impl block |
+| 7 | `ServerHandle` is not a future | `start()` is synchronous in 0.26 | `let handle = server.start(..)` then `handle.stopped().await` in a task |
+| 8 | `Option<&Path>` vs `Option<&PathBuf>`, and `E0716` temporary dropped | `PathBuf`-typed param and `unwrap_or(&config_dir.join(..))` | `Option<&Path>` + named `default_path` binding |
+| 9 | no `map_err` on `keyring::Entry` | keyring 1.2's `Entry::new` is infallible — it returns `Entry` | drop the `?` |
+| 10 | `suspicious_open_options` | `create(true)` with no `truncate` | `.truncate(false)` with a comment on lock semantics |
+| 11 | 16 × `no method named request` | `ClientT` trait not in scope | `use jsonrpsee::core::client::ClientT` |
+| 12 | 4 × `ToRpcParams` not implemented for `()` | `()` has no impl | `rpc_params![]` |
+| 13 | 53 × `ToRpcParams`/`E0308` across every call site | `request<R, Params>` takes the **return type first**; `request::<_, X>` left `R` inferred and put `X` in the Params slot | `request::<X, _>(..)` at all 16 sites |
+| 14 | 21 × `clippy::result_large_err` | `warshad::DaemonError` aggregates six crate error enums and crosses the 128-byte `Err` threshold | `Daemon(#[source] Box<warshad::DaemonError>)` + manual `From` impl |
+| 15 | `getByText` found multiple elements | `t('app.name')` renders in both header and dashboard title | `getAllByText('ورشة')` with `toHaveLength(2)` |
 
 #### Decisions Made
-- License: Apache-2.0 (per spec)
+- License: **PolyForm Noncommercial 1.0.0** (owner decision 2026-10-28, overrides BUILD_PROMPT.md §1). Never revert.
 - Workspace structure: Follow BUILD_PROMPT.md §4 exactly
 - Goose integration: Pinned git tag in Cargo.toml (commented placeholder), fallback to goosed sidecar
 - i18n: Arabic-first with ICU MessageFormat, RTL-aware CSS
-- WSL2 setup: Automated via scripts; cannot self-execute in this sandbox
-- **Single source of truth: ~/warsha in WSL2 Ubuntu** (includes .git); Windows folder no longer used after bootstrap
+- Desktop UI: two modes behind one toggle (Simple = Grok Bot/openbot.run, Advanced = ZadLoop) — M13, wireframes in `docs/UI.md`
+- Roadmap extended to M16: discovery interview, skills, MCP + scout, desktop UI modes, marketing loop, agent safety/quality layer, dependency/routine/automation/self-update automation
+- Workspace lints are declared but inert (no crate opts in with `[lints] workspace = true`); deliberately deferred, see DECISIONS.md
+- `CliError::Daemon` carries `#[source] Box<DaemonError>` — boxing keeps the variant pointer-sized while preserving the error chain
+
+#### M1 – Daemon core + state store (current)
+Acceptance: integration tests create a project, append events, survive a daemon restart with state intact, and reject unauthenticated calls.
+Starting state: `warshad` already starts, holds a lock, exposes JSON-RPC over a socket, serves `/health`, and stores projects/runs/events in SQLite. What M1 still needs is the AC itself: restart survival, unauthenticated rejection, and full migration coverage for gates/artifacts/costs/devices.
+
+#### Blocked (Local Only — Requires Windows Host Host Execution)
+- **WSL2 validation runs outside the agent sandbox** — the bridge script (`scripts/wsl-bridge.ps1`) must be running on the Windows host; it rsyncs the repo to `/root/warsha` and runs `scripts/wsl-setup.sh`.
+- Full validation log lives at `/root/warsha/wsl-validation.log` inside WSL (readable with `wsl -d Ubuntu -u root`).
+
+#### Team structure (Agent Teams)
+- **rust-coder** — owns `crates/**` + root `Cargo.toml`
+- **web-coder** — owns `apps/**`, `packages/**`, `pnpm-workspace.yaml`, `package.json`, `tsconfig.json`, `vitest.config.ts`
+- **debugger** — read-only on code; writes only `docs/VALIDATION_NOTES.md`; maps every bridge FAIL to file + root cause + exact fix
+- Only the lead validates, through the bridge. No member runs a shell, formatter, cargo, pnpm, or tests.
+- Nobody commits, pushes, or reverts the working tree.
 
 ---
 
@@ -108,6 +73,9 @@
 - [ ] Real-provider smoke tests with the user's own keys
 
 ## Additional HUMAN TODO (Local Toolchain)
-- [ ] **Run `scripts\wsl-bootstrap.ps1` from elevated PowerShell on Windows host** (this will install WSL2, Ubuntu, toolchain, and run all M0 validation checks)
-- [ ] If WSL2 was not present, reboot and re-run the bootstrap script
-- [ ] Provide `~/warsha/wsl-validation.log` output for any failures to fix
+- [ ] Keep `scripts/wsl-bridge.ps1` running on the Windows host while the build session is active (it is the only validation path; agents cannot execute WSL commands)
+- [ ] Approve GitHub App installation for Renovate once the repo exists (M16)
+- [ ] Configure Tauri updater signing keys and store them as CI secrets (M16)
+- [ ] Confirm the Activepieces CE deployment target (bundled vs. user-hosted) before M16 starts
+- [ ] Provide API keys for real-provider smoke tests when M2 reaches live verification
+- [ ] Create the `m0` tag locally once a git remote exists (M0 requires a local tag per BUILD_PROMPT §7)

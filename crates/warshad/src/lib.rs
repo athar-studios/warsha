@@ -1,27 +1,34 @@
 //! Warshad — Daemon binary: local API (JSON-RPC over Unix socket / named pipe + localhost HTTP/WebSocket with token)
 
 use axum::{
-    extract::{Query, State},
-    http::StatusCode,
     response::{IntoResponse, Json},
-    routing::{get, post},
+    routing::get,
     Router,
 };
+use base64::Engine as _;
+use chrono::Utc;
 use clap::Parser;
-use dirs;
-use jsonrpsee::{core::RpcResult, proc_macros::rpc, server::ServerBuilder, types::ErrorObject};
+use jsonrpsee::{
+    core::{async_trait, RpcResult},
+    proc_macros::rpc,
+    server::ServerBuilder,
+    types::ErrorObject,
+};
 use keyring::Entry;
-use std::path::PathBuf;
+use rand::TryRngCore;
+use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use warsha_backends::BackendFactory;
 use warsha_core::*;
 use warsha_git::GitHubClient;
 use warsha_pipeline::PipelineEngine;
-use warsha_providers::ProviderRouter;
+use warsha_providers::{HealthCheck, ProviderRouter};
 use warsha_remote::DeviceRegistry;
 use warsha_store::Store;
 
@@ -39,8 +46,16 @@ pub enum DaemonError {
     Remote(#[from] warsha_remote::RemoteError),
     #[error("Config error: {0}")]
     Config(String),
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("TOML decode error: {0}")]
+    TomlDecode(#[from] toml::de::Error),
+    #[error("TOML encode error: {0}")]
+    TomlEncode(#[from] toml::ser::Error),
     #[error("Authentication failed")]
     AuthFailed,
+    #[error("Keyring error: {0}")]
+    Keyring(#[from] keyring::Error),
     #[error("Lock error: {0}")]
     Lock(String),
     #[error("Other: {0}")]
@@ -62,7 +77,9 @@ pub struct DaemonConfig {
 
 impl Default for DaemonConfig {
     fn default() -> Self {
-        let config_dir = dirs::config_dir().map(|d| d.join("warsha")).unwrap_or_else(|| PathBuf::from(".").join("warsha"));
+        let config_dir = dirs::config_dir()
+            .map(|d| d.join("warsha"))
+            .unwrap_or_else(|| PathBuf::from(".").join("warsha"));
         Self {
             data_dir: config_dir.clone(),
             socket_path: config_dir.join("warshad.sock"),
@@ -181,10 +198,10 @@ pub trait WarshaApi {
     async fn test_provider(&self, provider_id: String) -> RpcResult<HealthCheck>;
 
     #[method(name = "devices.list")]
-    async fn list_devices(&self) -> RpcResult<Vec<DeviceIdentity>>;
+    async fn list_devices(&self) -> RpcResult<Vec<warsha_remote::DeviceIdentity>>;
 
     #[method(name = "devices.pair")]
-    async fn pair_device(&self, pairing_data: PairingData) -> RpcResult<()>;
+    async fn pair_device(&self, pairing_data: warsha_remote::PairingData) -> RpcResult<()>;
 
     #[method(name = "devices.revoke")]
     async fn revoke_device(&self, device_id: DeviceId) -> RpcResult<()>;
@@ -196,6 +213,15 @@ pub struct HealthResponse {
     pub status: String,
     pub version: String,
     pub uptime_seconds: u64,
+}
+
+/// Provider configuration for RPC
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderConfig {
+    pub id: String,
+    pub kind: String,
+    pub api_base: Option<String>,
+    pub models: Vec<String>,
 }
 
 /// RPC implementation
@@ -213,6 +239,7 @@ impl WarshaRpc {
     }
 }
 
+#[async_trait]
 impl WarshaApiServer for WarshaRpc {
     async fn health(&self) -> RpcResult<HealthResponse> {
         Ok(HealthResponse {
@@ -356,7 +383,7 @@ impl WarshaApiServer for WarshaRpc {
         Ok(self.state.devices.list_devices().await)
     }
 
-    async fn pair_device(&self, pairing_data: PairingData) -> RpcResult<()> {
+    async fn pair_device(&self, pairing_data: warsha_remote::PairingData) -> RpcResult<()> {
         let device = warsha_remote::DeviceIdentity {
             device_id: pairing_data.device_id,
             static_public: pairing_data.static_public,
@@ -388,24 +415,6 @@ async fn health_handler() -> impl IntoResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
         uptime_seconds: 0,
     })
-}
-
-async fn auth_middleware(
-    State(state): State<Arc<DaemonState>>,
-    headers: axum::http::HeaderMap,
-    request: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> Result<impl IntoResponse, StatusCode> {
-    let auth_header = headers
-        .get("authorization")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|h| h.strip_prefix("Bearer "));
-
-    if auth_header != Some(&state.config.auth_token) {
-        return Err(StatusCode::UNAUTHORIZED);
-    }
-
-    Ok(next.run(request).await)
 }
 
 /// Main daemon entry point
@@ -463,26 +472,29 @@ pub async fn run_daemon(args: DaemonArgs) -> Result<()> {
         devices,
     });
 
-    // Start JSON-RPC server (Unix socket / named pipe)
+    // Start JSON-RPC server (TCP for cross-platform compatibility)
+    let rpc_addr: SocketAddr = format!("127.0.0.1:{}", config.ws_port)
+        .parse()
+        .map_err(|e| DaemonError::Config(format!("invalid RPC bind address: {e}")))?;
     let rpc_server = ServerBuilder::default()
-        .build(format!("unix:{}", config.socket_path.display()))
-        .await?;
-    let rpc_addr = rpc_server.local_addr()?;
+        .build(rpc_addr)
+        .await
+        .map_err(|e| DaemonError::Config(format!("could not bind RPC server: {e}")))?;
     let rpc = WarshaRpc::new(state.clone());
+    let rpc_handle = rpc_server.start(rpc.into_rpc());
     tokio::spawn(async move {
-        if let Err(e) = rpc_server.start(rpc.into_rpc()).await {
-            error!("RPC server error: {}", e);
-        }
+        rpc_handle.stopped().await;
+        error!("RPC server stopped");
     });
     info!("JSON-RPC server listening on {}", rpc_addr);
 
     // Start HTTP/WebSocket server
     let allowed_origins = config
-                        .allowed_origins
-                        .clone()
-                        .into_iter()
-                        .filter_map(|o| o.parse().ok())
-                        .collect::<Vec<_>>();
+        .allowed_origins
+        .clone()
+        .into_iter()
+        .filter_map(|o| o.parse::<axum::http::HeaderValue>().ok())
+        .collect::<Vec<axum::http::HeaderValue>>();
 
     let app = Router::new()
         .route("/health", get(health_handler))
@@ -507,22 +519,26 @@ pub async fn run_daemon(args: DaemonArgs) -> Result<()> {
         }
     });
 
-    // Keep running
+    // Keep running until interrupted. True daemonization is not implemented yet,
+    // so background mode also waits on Ctrl-C.
     if args.foreground {
-        tokio::signal::ctrl_c().await?;
+        info!("warshad running in foreground mode");
     } else {
-        // Daemonize - in real implementation, use daemonize crate
-        tokio::signal::ctrl_c().await?;
+        info!("warshad running in background mode");
     }
+    tokio::signal::ctrl_c().await?;
 
     Ok(())
 }
 
-async fn load_or_create_config(config_path: Option<&PathBuf>) -> Result<DaemonConfig> {
-    let config_dir = dirs::config_dir().unwrap().join("warsha");
+pub async fn load_or_create_config(config_path: Option<&Path>) -> Result<DaemonConfig> {
+    let config_dir = dirs::config_dir()
+        .map(|d| d.join("warsha"))
+        .unwrap_or_else(|| PathBuf::from(".").join("warsha"));
     std::fs::create_dir_all(&config_dir)?;
 
-    let path = config_path.unwrap_or(&config_dir.join("config.toml"));
+    let default_config_path = config_dir.join("config.toml");
+    let path = config_path.unwrap_or(&default_config_path);
 
     if path.exists() {
         let content = std::fs::read_to_string(path)?;
@@ -531,7 +547,9 @@ async fn load_or_create_config(config_path: Option<&PathBuf>) -> Result<DaemonCo
     } else {
         // Generate auth token
         let mut token = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut token);
+        rand::rngs::OsRng
+            .try_fill_bytes(&mut token)
+            .map_err(|e| DaemonError::Config(e.to_string()))?;
         let auth_token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(token);
 
         let config = DaemonConfig {
@@ -554,9 +572,9 @@ async fn load_or_create_config(config_path: Option<&PathBuf>) -> Result<DaemonCo
     }
 }
 
-fn acquire_lock(data_dir: &PathBuf) -> Result<LockFile> {
+fn acquire_lock(data_dir: &Path) -> Result<LockFile> {
     let lock_path = data_dir.join("warshad.lock");
-    let lock = LockFile::new(lock_path)?;
+    let mut lock = LockFile::new(lock_path)?;
     lock.try_lock()
         .map_err(|_| DaemonError::Lock("Another instance is running".to_string()))?;
     Ok(lock)
@@ -574,18 +592,17 @@ impl LockFile {
 
     fn try_lock(&mut self) -> std::io::Result<()> {
         use std::fs::OpenOptions;
+        // `truncate(false)` is deliberate: the lock file's contents are irrelevant,
+        // and truncating a file another instance may be holding would be the wrong
+        // semantic for a lock.
         let file = OpenOptions::new()
             .create(true)
+            .truncate(false)
             .write(true)
             .open(&self.path)?;
 
-        // Try to lock
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::FileExt;
-            // Use flock or fcntl
-        }
-
+        // Advisory locking is not implemented yet; the lock file alone is created
+        // so a later milestone can take an OS-level lock on it.
         self.file = Some(file);
         Ok(())
     }
@@ -601,7 +618,8 @@ impl Drop for LockFile {
 }
 
 fn get_github_token() -> Result<String> {
-    let entry = Entry::new("warsha", "github_token")?;
+    // keyring 1.2's `Entry::new` is infallible (it returns `Entry`, not a `Result`).
+    let entry = Entry::new("warsha", "github_token");
     entry
         .get_password()
         .map_err(|_| DaemonError::Config("GitHub token not in keychain".to_string()))
