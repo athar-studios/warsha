@@ -11,8 +11,10 @@ export type DeviceId = string & { readonly __brand: unique symbol };
 
 export type Stage =
   | 'idea'
+  | 'gate_a'
   | 'research'
   | 'prd_spec'
+  | 'gate_b'
   | 'design'
   | 'plan_tasks'
   | 'code'
@@ -98,6 +100,19 @@ export interface ProviderConfig {
   budgetUsd?: number;
 }
 
+export interface RoutingTargetConfig {
+  provider_id: string;
+  model_id: string;
+  weight: number;
+}
+
+export interface RoleRoutingConfig {
+  role: Role;
+  targets: RoutingTargetConfig[];
+  fallback_enabled: boolean;
+  budget_cents_per_run: number;
+}
+
 export interface BudgetStatus {
   totalBudgetUsd: number;
   spentUsd: number;
@@ -122,8 +137,10 @@ export interface WarshaEvent {
 
 const STAGE_VALUES: readonly Stage[] = [
   'idea',
+  'gate_a',
   'research',
   'prd_spec',
+  'gate_b',
   'design',
   'plan_tasks',
   'code',
@@ -378,6 +395,18 @@ export class WarshaClient {
     return this.rpc('providers.list');
   }
 
+  async addProvider(config: { name: string; kind: string; key: string; api_base?: string }): Promise<ProviderConfig> {
+    return this.rpc('providers.add', config);
+  }
+
+  async testProvider(name: string): Promise<void> {
+    return this.rpc('providers.test', { name });
+  }
+
+  async removeProvider(name: string): Promise<void> {
+    return this.rpc('providers.remove', { name });
+  }
+
   async setProviderBudget(name: string, budgetUsd: number): Promise<void> {
     return this.rpc('providers.budget', { name, budgetUsd });
   }
@@ -386,9 +415,26 @@ export class WarshaClient {
     return this.rpc('providers.budget.status');
   }
 
+  // Project Budgets
+  async getProjectBudget(projectId: ProjectId): Promise<BudgetStatus> {
+    return this.rpc('budget.get', { projectId });
+  }
+
+  async setProjectBudget(projectId: ProjectId, cents: number): Promise<void> {
+    return this.rpc('budget.set', { projectId, cents });
+  }
+
   // Roles
   async listRoles(): Promise<Role[]> {
     return this.rpc('roles.list');
+  }
+
+  async getRoleConfig(role: Role): Promise<RoleRoutingConfig> {
+    return this.rpc('roles.get', { role });
+  }
+
+  async setRoleConfig(config: RoleRoutingConfig): Promise<void> {
+    return this.rpc('roles.set', config);
   }
 
   async assignRole(deviceId: DeviceId, role: Role): Promise<void> {

@@ -1,0 +1,15 @@
+{
+  "name": "@warsha/docs",
+  "version": "0.1.0",
+  "private": true,
+  "//": "mdbook and mdbook-mermaid are cargo binaries, not npm packages. Install them with: cargo install mdbook mdbook-mermaid",
+  "scripts": {
+    "build": "mdbook build",
+    "serve": "mdbook serve --open",
+    "clean": "rm -rf book",
+    "test": "mdbook test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

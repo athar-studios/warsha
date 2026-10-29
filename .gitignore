@@ -12,6 +12,9 @@ dist/
 build/
 *.log
 
+# mdbook output
+docs/book/
+
 # IDE
 .vscode/
 .idea/

@@ -124,12 +124,30 @@
 - **Alternatives**: Enable workspace lints now, delete the `[workspace.lints]` table
 - **Reason**: Enabling them mid-M0 would surface a large new error set (every `unwrap()` in test code, unused crate deps across ten crates) and bury the actual M0 acceptance criteria. Wiring the table up is a deliberate decision for a later milestone, recorded here so it is not rediscovered as a surprise.
 
-## 2026-10-28 — M14 Agent safety and quality layer
-- **Decision**: Add M14 as "Agent safety and quality layer" with four pillars, reusing existing cost accounting and built on established open-source tools:
-  - **Guardrails**: All external inputs (web, email, repo, tools) treated as untrusted; prompt-injection detection on inputs; secrets/PII masked in logs and outputs; sensitive actions (send, publish, pay, delete, push) require owner approval card
-  - **Model router**: Per-task routing to small/cheap or large/strong models with per-role defaults the owner can override; all calls feed existing cost accounting; optional response cache for repeated queries
-  - **Observability**: Full trace per agent step, prompt, tool/MCP call, and result via OpenTelemetry; rendered in Advanced mode timeline
-  - **Evals**: Fixed regression suite per bot/role (prompts, skills, routing) using promptfoo; runs automatically before any system prompt/skill/router config change is accepted; failing eval blocks the change; mandatory for post-v1.0.0 self-hosting loop
-- **Alternatives**: Build guardrails/router/tracing/evals from scratch; use different tooling (LangSmith, Langfuse, custom)
-- **Reason**: Owner's decision. Building from scratch duplicates mature open-source ecosystems (promptfoo for evals, OpenTelemetry for traces). Reusing the existing cost accounting avoids a second metering system. The four pillars together create a safety envelope that enables the M15 self-hosting loop without unbounded risk.
+## 2026-10-29 — Verification evidence: bridge writes result.log, not final.txt
+- **Decision**: Milestone acceptance is judged only from `bridge-io/result.log` (and `run-output.log`) plus a `done.flag` whose timestamp is strictly newer than the `run.flag` that triggered the run. `bridge-io/final.txt` is no longer consulted; it stopped being rewritten at 11:44 on 2026-10-29 and had been misleading every run since.
+- **Alternatives**: Keep trusting `final.txt`; regenerate it inside the bridge script
+- **Reason**: The M10–M13 "all 14 checks green" claims were read from that frozen file and were wrong — the real last run failed cargo clippy/test, pnpm install/typecheck/build/test. Rather than patch the bridge, the record is corrected (PLAN.md/PROGRESS.md) and the validation procedure is documented here so the same mistake is not repeated.
+
+## 2026-10-30 — M16 routines: in-house abstraction behind a runner trait, minimal cron
+- **Decision**: Goose is still only a commented-out placeholder in the root `Cargo.toml`, so `warsha-pipeline` gets an in-house `RoutineRegistry` plus a `RoutineRunner` trait instead of a scheduler. Everything that decides *when* something runs lives in `routines.rs`: `RoutineSchedule` (`Cron(String)`, `IntervalSeconds`, `Manual`), `RoutineState`, `RoutineAction`, and a minimal cron parser limited to `every N seconds|minutes|hours` and `daily at HH:MM` (UTC). Any other cron expression is rejected.
+- **Semantics fixed here**: `tick(now)` marks a due routine `Running` and stamps `last_run_unix`, and only `complete()` returns it to `Idle` (or `Failed`), so two schedulers can never both run the same routine; a `Failed` routine is never due until `Resume`/`RunNow`; pausing a non-idle routine and resuming a non-paused one are refused instead of silently ignored; a never-run *interval* routine is due on the first tick, while a never-run *daily* routine waits for its wall-clock time.
+- **Alternatives**: pull Goose in now and bind to its recipe scheduler; write a full cron engine; ship no routine support in M16.
+- **Reason**: The owner's rule is "routines run on Goose's scheduler", but adding Goose in this milestone would add a dependency and force an API decision the repo is not ready for. The trait is the seam: a Goose-backed runner implements `RoutineRunner` and drives `tick`, and nothing else in the module changes. Full cron is deferred there rather than duplicated here.
+
+## 2026-10-30 — M16 provider auto-update: explicit opt-in, string pin matching, run-active veto
+- **Decision**: `ProviderUpdatePolicy.providers` is opt-in per provider — a provider missing from the map counts as disabled, even in `AutoInstall`. Pin/skip comparisons are equality on the version string with surrounding whitespace and a leading `v` ignored (no ordering: the release channel says what "latest" is). `run_active` is a flag on `plan()` that turns every action into `Skip { reason: RunActive }`, except that an `Off` policy still plans nothing at all. A provider whose release channel fails is reported as `Skip { reason: UnknownVersion }` rather than aborting the whole pass.
+- **Alternatives**: default providers to enabled once `AutoInstall` is picked; semver ordering locally; leave the run-active check to the caller.
+- **Reason**: Silently replacing a binary the owner relies on is worse than staying stale, so consent is per provider and defaults to no. The run-active veto belongs in the planner so no caller can forget it.
+
+## 2026-10-30 — M16 Renovate, updater endpoint, and docs navigation
+- **Decision**: `.github/renovate.json` sets `automerge: false` everywhere (Goose patches included), `prCreation: "not-pending"`, `internalChecksFilter: "strict"` and lists the CI checks it waits for. Goose's commented-out tag is tracked by a `customType: "regex"` manager with the `github-tags` datasource, and Goose major/minor bumps get `full-suite-required` plus a 3-day release age.
+- **Decision**: `plugins.updater.endpoints` points at `https://github.com/Warsha/Warsha/releases/latest/download/latest.json` — the placeholder owner already used in `release.yml` and `book.toml` — instead of a literal `<owner>` token, which is not a parseable URL and would break `tauri build`. `pubkey` stays `""` until signing keys exist, and `bundle.createUpdaterArtifacts` is not enabled yet.
+- **Decision**: `docs/src/launch/*.md` are one-line `{{#include}}` shims for `docs/launch/*.md`. mdBook writes a chapter that lives outside `src/` next to its source file, so a `../launch/*.md` SUMMARY entry builds "successfully" while publishing nothing into `book/` (its sidebar links 404). The shim keeps one source of truth under `docs/launch/` and still produces `book/launch/*.html`.
+- **Reason**: All three keep the build green while leaving the human-controlled parts (the Renovate app, signing keys, the Activepieces CE deployment) explicitly undone and recorded in `PROGRESS.md`.
+
+## 2026-10-29 — mdbook pinned to 0.5.4
+- **Decision**: `docs/book.toml` uses the mdbook 0.5 config layout (`[build] build-dir`), and both `.github/workflows/ci.yml` and `scripts/wsl-setup.sh` install `mdbook --version 0.5.4 --locked` (mdbook-mermaid unpinned in CI, which is fine since it is only a preprocessor). An unpinned install would eventually yield 0.5.x+ and turn a green docs build red with no code change.
+- **Alternatives**: Pin to 0.4.x and keep the older config layout; leave the install unpinned
+- **Reason**: The worker's build proof showed 0.5.4 is what the unpinned install now produces, and 0.4.52 no longer accepts this book.toml. Pinning makes the two environments (CI and the WSL bridge) deterministic and keeps them identical.
 

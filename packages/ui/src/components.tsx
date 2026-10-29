@@ -4,19 +4,21 @@
 import React from 'react';
 
 export interface BoxProps {
-  children: React.ReactNode;
+  children?: React.ReactNode;
   className?: string;
   p?: number;
   m?: number;
   dir?: 'rtl' | 'ltr' | 'auto';
   style?: React.CSSProperties;
+  onClick?: () => void;
 }
 
-export function Box({ children, className = '', p = 0, m = 0, dir = 'auto', style }: BoxProps) {
+export function Box({ children, className = '', p = 0, m = 0, dir = 'auto', style, onClick }: BoxProps) {
   return (
     <div
       className={className}
       dir={dir}
+      onClick={onClick}
       style={{
         paddingInline: p ? `${p * 4}px` : 0,
         marginInline: m ? `${m * 4}px` : 0,
@@ -31,14 +33,14 @@ export function Box({ children, className = '', p = 0, m = 0, dir = 'auto', styl
 export interface TextProps {
   children: React.ReactNode;
   className?: string;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   weight?: 'normal' | 'medium' | 'bold';
   dir?: 'rtl' | 'ltr' | 'auto';
   style?: React.CSSProperties;
 }
 
 export function Text({ children, className = '', size = 'md', weight = 'normal', dir = 'auto', style }: TextProps) {
-  const sizeMap = { sm: '0.875rem', md: '1rem', lg: '1.125rem', xl: '1.25rem' };
+  const sizeMap = { xs: '0.75rem', sm: '0.875rem', md: '1rem', lg: '1.125rem', xl: '1.25rem' };
   const weightMap = { normal: 400, medium: 500, bold: 700 };
   return (
     <span
@@ -108,13 +110,15 @@ export interface CardProps {
   className?: string;
   dir?: 'rtl' | 'ltr' | 'auto';
   style?: React.CSSProperties;
+  onClick?: () => void;
 }
 
-export function Card({ children, className = '', dir = 'auto', style }: CardProps) {
+export function Card({ children, className = '', dir = 'auto', style, onClick }: CardProps) {
   return (
     <div
       className={className}
       dir={dir}
+      onClick={onClick}
       style={{
         backgroundColor: 'white',
         borderRadius: '12px',

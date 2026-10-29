@@ -498,8 +498,24 @@ impl CliApp {
                     self.output(format!("{} ({})", p.id, p.kind))?;
                 }
             }
-            ProviderAction::Add { .. } => {
-                // Implementation
+            ProviderAction::Add { id, kind, key } => {
+                let config = warshad::ProviderConfig {
+                    id: id.clone(),
+                    kind: kind.clone(),
+                    api_base: None,
+                    models: vec![],
+                };
+                self.client
+                    .request::<(), _>("providers.add", (config,))
+                    .await?;
+                if key.is_some() {
+                    self.output(format!("Provider {} added (key provided)", id))?;
+                } else {
+                    self.output(format!(
+                        "Provider {} added (use keychain for credentials)",
+                        id
+                    ))?;
+                }
             }
             ProviderAction::Test { id } => {
                 let health = self
@@ -508,8 +524,11 @@ impl CliApp {
                     .await?;
                 self.output(format!("Provider health: {:?}", health))?;
             }
-            ProviderAction::Remove { .. } => {
-                // Implementation
+            ProviderAction::Remove { id } => {
+                self.client
+                    .request::<(), _>("providers.remove", (id,))
+                    .await?;
+                self.output("Provider removed".to_string())?;
             }
         }
         Ok(())
@@ -518,10 +537,50 @@ impl CliApp {
     async fn cmd_roles(&self, action: RoleAction) -> Result<()> {
         match action {
             RoleAction::List => {
-                // Implementation
+                let roles = self
+                    .client
+                    .request::<Vec<warshad::RoleRoutingConfig>, _>("roles.list", rpc_params![])
+                    .await?;
+                for r in roles {
+                    self.output(format!(
+                        "{} -> {} (fallback: {})",
+                        r.role,
+                        r.targets
+                            .iter()
+                            .map(|t| format!("{}:{}", t.provider_id, t.model_id))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        r.fallback_enabled
+                    ))?;
+                }
             }
-            RoleAction::Set { .. } => {
-                // Implementation
+            RoleAction::Set { role, targets } => {
+                let target_vec: Vec<warshad::RoutingTargetConfig> = targets
+                    .split(',')
+                    .map(|s| {
+                        let parts: Vec<&str> = s.split(':').collect();
+                        if parts.len() != 2 {
+                            return Err(CliError::Config(format!(
+                                "Invalid target format: {} (expected provider:model)",
+                                s
+                            )));
+                        }
+                        Ok(warshad::RoutingTargetConfig {
+                            provider_id: parts[0].to_string(),
+                            model_id: parts[1].to_string(),
+                            weight: 100,
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+
+                let config = warshad::RoleRoutingConfig {
+                    role: role.clone(),
+                    targets: target_vec,
+                    fallback_enabled: true,
+                    budget_cents_per_run: None,
+                };
+                self.client.request::<(), _>("roles.set", (config,)).await?;
+                self.output(format!("Role routing set for {}", role))?;
             }
         }
         Ok(())
@@ -529,11 +588,32 @@ impl CliApp {
 
     async fn cmd_budget(&self, action: BudgetAction) -> Result<()> {
         match action {
-            BudgetAction::Show { .. } => {
-                // Implementation
+            BudgetAction::Show { project } => {
+                let project_id = self.resolve_project(&project).await?;
+                let budget = self
+                    .client
+                    .request::<warshad::BudgetStatus, _>("budget.show", (project_id,))
+                    .await?;
+                self.output(format!(
+                    "Budget: {} / {} cents ({}% used)",
+                    budget.spent_cents,
+                    budget.budget_cents.unwrap_or(0),
+                    if budget.budget_cents.unwrap_or(0) > 0 {
+                        (budget.spent_cents * 100) / budget.budget_cents.unwrap()
+                    } else {
+                        0
+                    }
+                ))?;
+                if let Some(remaining) = budget.remaining_cents {
+                    self.output(format!("Remaining: {} cents", remaining))?;
+                }
             }
-            BudgetAction::Set { .. } => {
-                // Implementation
+            BudgetAction::Set { project, cents } => {
+                let project_id = self.resolve_project(&project).await?;
+                self.client
+                    .request::<(), _>("budget.set", (project_id, cents))
+                    .await?;
+                self.output(format!("Budget set to {} cents for {}", cents, project))?;
             }
         }
         Ok(())

@@ -17,7 +17,8 @@
     "paths": {
       "@warsha/ui": ["packages/ui/src"],
       "@warsha/i18n": ["packages/i18n/src"],
-      "@warsha/client": ["packages/client/src"]
+      "@warsha/client": ["packages/client/src"],
+      "@warsha/crypto": ["packages/crypto/src"]
     }
   },
   "exclude": ["node_modules", "dist", "build"]

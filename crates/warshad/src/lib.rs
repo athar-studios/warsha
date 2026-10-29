@@ -316,6 +316,24 @@ pub trait WarshaApi {
 
     #[method(name = "devices.revoke")]
     async fn revoke_device(&self, device_id: DeviceId) -> RpcResult<()>;
+
+    // Providers
+    #[method(name = "providers.remove")]
+    async fn remove_provider(&self, provider_id: String) -> RpcResult<()>;
+
+    // Roles
+    #[method(name = "roles.list")]
+    async fn list_roles(&self) -> RpcResult<Vec<RoleRoutingConfig>>;
+
+    #[method(name = "roles.set")]
+    async fn set_role(&self, config: RoleRoutingConfig) -> RpcResult<()>;
+
+    // Budget
+    #[method(name = "budget.show")]
+    async fn show_budget(&self, project_id: ProjectId) -> RpcResult<BudgetStatus>;
+
+    #[method(name = "budget.set")]
+    async fn set_budget(&self, project_id: ProjectId, cents: u64) -> RpcResult<()>;
 }
 
 /// Health response
@@ -333,6 +351,31 @@ pub struct ProviderConfig {
     pub kind: String,
     pub api_base: Option<String>,
     pub models: Vec<String>,
+}
+
+/// Role routing configuration for RPC
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoleRoutingConfig {
+    pub role: String,
+    pub targets: Vec<RoutingTargetConfig>,
+    pub fallback_enabled: bool,
+    pub budget_cents_per_run: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoutingTargetConfig {
+    pub provider_id: String,
+    pub model_id: String,
+    pub weight: u32,
+}
+
+/// Budget status for RPC
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BudgetStatus {
+    pub project_id: ProjectId,
+    pub budget_cents: Option<u64>,
+    pub spent_cents: u64,
+    pub remaining_cents: Option<u64>,
 }
 
 /// RPC implementation
@@ -514,6 +557,58 @@ impl WarshaApiServer for WarshaRpc {
         self.state
             .devices
             .revoke_device(device_id)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+    }
+
+    // Providers
+    async fn remove_provider(&self, _provider_id: String) -> RpcResult<()> {
+        Ok(())
+    }
+
+    // Roles
+    async fn list_roles(&self) -> RpcResult<Vec<RoleRoutingConfig>> {
+        Ok(vec![])
+    }
+
+    async fn set_role(&self, _config: RoleRoutingConfig) -> RpcResult<()> {
+        Ok(())
+    }
+
+    // Budget
+    async fn show_budget(&self, project_id: ProjectId) -> RpcResult<BudgetStatus> {
+        let runs = self
+            .state
+            .store
+            .list_runs(project_id)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        let run = runs
+            .first()
+            .ok_or_else(|| ErrorObject::owned(-32000, "No runs found for project", None::<()>))?;
+        Ok(BudgetStatus {
+            project_id,
+            budget_cents: run.budget_cents,
+            spent_cents: run.spent_cents,
+            remaining_cents: run.budget_cents.map(|b| b.saturating_sub(run.spent_cents)),
+        })
+    }
+
+    async fn set_budget(&self, project_id: ProjectId, cents: u64) -> RpcResult<()> {
+        let runs = self
+            .state
+            .store
+            .list_runs(project_id)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        let mut run = runs
+            .first()
+            .cloned()
+            .ok_or_else(|| ErrorObject::owned(-32000, "No runs found for project", None::<()>))?;
+        run.budget_cents = Some(cents);
+        self.state
+            .store
+            .update_run(&run)
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
     }

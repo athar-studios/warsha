@@ -1,0 +1,157 @@
+/* Custom CSS for Warsha Documentation */
+
+/* RTL support for Arabic */
+html[dir="rtl"] {
+  direction: rtl;
+}
+
+html[dir="rtl"] .sidebar {
+  direction: rtl;
+}
+
+html[dir="rtl"] .chapter {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Custom colors */
+:root {
+  --warsha-primary: #2563eb;
+  --warsha-primary-dark: #1d4ed8;
+  --warsha-accent: #10b981;
+  --warsha-warning: #f59e0b;
+  --warsha-error: #ef4444;
+}
+
+/* Header */
+.header {
+  background: linear-gradient(135deg, var(--warsha-primary), #7c3aed);
+  color: white;
+  padding: 1rem 2rem;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+/* Sidebar */
+.sidebar {
+  background: #fafafa;
+  border-inline-end: 1px solid #e5e7eb;
+}
+
+.sidebar a:hover {
+  color: var(--warsha-primary);
+  background: #eff6ff;
+}
+
+/* Code blocks */
+pre code {
+  background: #1e293b;
+  color: #e2e8f0;
+  border-radius: 8px;
+  padding: 1rem;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+/* Tables */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.5rem 0;
+}
+
+th, td {
+  border: 1px solid #e5e7eb;
+  padding: 0.75rem 1rem;
+  text-align: left;
+}
+
+th {
+  background: #f9fafb;
+  font-weight: 600;
+}
+
+tr:nth-child(even) {
+  background: #fafafa;
+}
+
+/* Alert boxes */
+.alert {
+  padding: 1rem 1.25rem;
+  border-radius: 8px;
+  margin: 1rem 0;
+  border-inline-start: 4px solid;
+}
+
+.alert-info {
+  background: #eff6ff;
+  border-color: var(--warsha-primary);
+  color: #1e40af;
+}
+
+.alert-success {
+  background: #ecfdf5;
+  border-color: var(--warsha-accent);
+  color: #065f46;
+}
+
+.alert-warning {
+  background: #fffbeb;
+  border-color: var(--warsha-warning);
+  color: #92400e;
+}
+
+.alert-error {
+  background: #fef2f2;
+  border-color: var(--warsha-error);
+  color: #991b1b;
+}
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 9999px;
+}
+
+.badge-primary {
+  background: #dbeafe;
+  color: var(--warsha-primary);
+}
+
+.badge-success {
+  background: #d1fae5;
+  color: var(--warsha-accent);
+}
+
+.badge-warning {
+  background: #fef3c7;
+  color: var(--warsha-warning);
+}
+
+/* Mermaid diagrams */
+.mermaid {
+  text-align: center;
+  margin: 1.5rem 0;
+}
+
+/* Arabic text improvements */
+[lang="ar"], .arabic {
+  font-family: "Noto Sans Arabic", "Amiri", system-ui, sans-serif;
+  line-height: 1.8;
+}
+
+/* Print styles */
+@media print {
+  .sidebar, .header, .page-nav {
+    display: none !important;
+  }
+  .chapter {
+    max-width: none !important;
+  }
+}

@@ -9,10 +9,16 @@ use warsha_core::*;
 mod anthropic;
 mod ollama;
 mod openai;
+mod provider_update;
 
 pub use anthropic::AnthropicProvider;
 pub use ollama::OllamaProvider;
 pub use openai::{load_key, store_key, OpenAIProvider};
+pub use provider_update::{
+    latest_versions, DetectedProvider, MockChecker, MockDetector, ProviderDetector,
+    ProviderUpdateAction, ProviderUpdateChecker, ProviderUpdateError, ProviderUpdateMode,
+    ProviderUpdatePlanner, ProviderUpdatePolicy, SkipReason,
+};
 
 #[derive(Error, Debug, Clone)]
 pub enum ProviderError {
@@ -303,6 +309,22 @@ impl ProviderRouter {
             .targets
             .first()
             .map(|t| (t.provider_id.as_str(), t.model_id.as_str()))
+    }
+
+    /// Calculate cost for a model using the appropriate provider
+    pub fn cost_of(&self, _model: &str, usage: &TokenUsage) -> Result<u64> {
+        // Since we can't easily iterate async from sync context,
+        // use a reasonable default pricing for cost estimation.
+        // In practice, the provider's actual cost_of would be called after chat.
+        let default_pricing = ModelPricing {
+            input_per_million_cents: 100,
+            output_per_million_cents: 200,
+        };
+        let input_cost =
+            (usage.input as f64 / 1_000_000.0) * default_pricing.input_per_million_cents as f64;
+        let output_cost =
+            (usage.output as f64 / 1_000_000.0) * default_pricing.output_per_million_cents as f64;
+        Ok((input_cost + output_cost).ceil() as u64)
     }
 
     /// Chat with automatic fallback

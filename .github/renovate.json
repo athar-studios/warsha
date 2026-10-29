@@ -1,0 +1,113 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":dependencyDashboard", "schedule:weekly"],
+  "description": "Warsha dependency updates. Nothing is ever auto-merged: CI must be green and a human merges every PR. Goose bumps get their own label and always need the full workspace suite.",
+  "timezone": "UTC",
+  "schedule": ["before 6am on monday"],
+  "automerge": false,
+  "prCreation": "not-pending",
+  "internalChecksFilter": "strict",
+  "ignoreTests": false,
+  "platformAutomerge": false,
+  "requiredStatusChecks": [
+    "Rust (ubuntu-latest)",
+    "Rust (macos-latest)",
+    "Rust (windows-latest)",
+    "TypeScript",
+    "Actionlint"
+  ],
+  "separateMajorMinor": true,
+  "separateMinorPatch": false,
+  "rangeStrategy": "bump",
+  "rebaseWhen": "behind-base-branch",
+  "dependencyDashboard": true,
+  "osvVulnerabilityAlerts": true,
+  "ignorePaths": [
+    "**/target/**",
+    "**/node_modules/**",
+    "docs/book/**",
+    "bridge-io/**"
+  ],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": false,
+    "schedule": ["before 6am on the first day of the month"]
+  },
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security"],
+    "automerge": false
+  },
+  "packageRules": [
+    {
+      "description": "Group minor and patch updates per manager into one reviewable PR; a human still merges it after CI is green.",
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "minor and patch updates",
+      "automerge": false
+    },
+    {
+      "description": "Major updates stay in their own PR so breaking changes get a dedicated review.",
+      "matchUpdateTypes": ["major"],
+      "groupName": null,
+      "automerge": false,
+      "labels": ["major"],
+      "prBodyNotes": [
+        "Major update: read the upstream changelog and expect breakage. Not auto-merged."
+      ]
+    },
+    {
+      "description": "Goose is the agent engine. Track and label every bump.",
+      "matchPackageNames": ["aaif-goose/goose"],
+      "addLabels": ["dependency:goose"]
+    },
+    {
+      "description": "Goose major/minor bumps are never auto-merged and need the full test suite green first (see DECISIONS.md).",
+      "matchPackageNames": ["aaif-goose/goose"],
+      "matchUpdateTypes": ["major", "minor"],
+      "automerge": false,
+      "addLabels": ["full-suite-required"],
+      "minimumReleaseAge": "3 days",
+      "prBodyNotes": [
+        "Goose major/minor bump: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` and the desktop smoke tests must all be green before this merges."
+      ]
+    },
+    {
+      "description": "Goose patch bumps stay manual too, but they are the only Goose PRs a human may fast-track once CI is green.",
+      "matchPackageNames": ["aaif-goose/goose"],
+      "matchUpdateTypes": ["patch"],
+      "automerge": false
+    },
+    {
+      "description": "GitHub Actions pins are reviewed like code: no floating refs and no auto-merge.",
+      "matchManagers": ["github-actions"],
+      "automerge": false,
+      "addLabels": ["ci"]
+    },
+    {
+      "description": "Keep Tauri, React and Vite on the same major train to avoid mixed-version desktop builds.",
+      "matchPackageNames": [
+        "@tauri-apps/api",
+        "@tauri-apps/cli",
+        "@tauri-apps/plugin-updater",
+        "react",
+        "react-dom",
+        "vite",
+        "vitest"
+      ],
+      "groupName": "desktop toolchain",
+      "automerge": false
+    }
+  ],
+  "customManagers": [
+    {
+      "description": "The Goose dependency in the root Cargo.toml is commented out until its crate APIs settle. This manager still watches the pinned tag so the placeholder never silently rots.",
+      "customType": "regex",
+      "fileMatch": ["(^|/)Cargo\\.toml$"],
+      "matchStrings": [
+        "#\\s*goose\\s*=\\s*\\{\\s*git\\s*=\\s*\"https://github\\.com/(?<depName>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\\.git)?\"\\s*,\\s*tag\\s*=\\s*\"(?<currentValue>[^\"]+)\"\\s*\\}"
+      ],
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver-coerced"
+    }
+  ]
+}

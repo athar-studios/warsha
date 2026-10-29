@@ -1,0 +1,455 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ============================================================
+  # Prepare release metadata
+  # ============================================================
+  prepare:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      release_notes: ${{ steps.notes.outputs.notes }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          VERSION=${TAG#v}
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          # Generate changelog from commits since last tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            NOTES=$(git log $PREV_TAG..HEAD --pretty=format:"- %s (%an)" --reverse)
+          else
+            NOTES=$(git log --pretty=format:"- %s (%an)" --reverse)
+          fi
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+  # ============================================================
+  # Rust: Build CLI and daemon
+  # ============================================================
+  rust-build:
+    name: Rust Build (${{ matrix.os }})
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary_suffix: ""
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            binary_suffix: ""
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary_suffix: ".exe"
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsqlite3-dev pkg-config libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install sqlite3 pkg-config
+
+      - name: Build CLI and daemon
+        run: |
+          cargo build --release --workspace --bin warsha --bin warshad
+
+      - name: Strip binaries (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          strip target/${{ matrix.target }}/release/warsha${{ matrix.binary_suffix }}
+          strip target/${{ matrix.target }}/release/warshad${{ matrix.binary_suffix }}
+
+      - name: Upload CLI binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: warsha-${{ matrix.os }}
+          path: target/${{ matrix.target }}/release/warsha${{ matrix.binary_suffix }}
+          retention-days: 1
+
+      - name: Upload daemon binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: warshad-${{ matrix.os }}
+          path: target/${{ matrix.target }}/release/warshad${{ matrix.binary_suffix }}
+          retention-days: 1
+
+  # ============================================================
+  # Desktop: Build Tauri installers
+  # ============================================================
+  desktop-build:
+    name: Desktop Build (${{ matrix.os }})
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            tauri_target: x86_64-unknown-linux-gnu
+            artifacts: |
+              warsha_*_amd64.deb
+              warsha_*_amd64.AppImage
+          - os: macos-latest
+            tauri_target: x86_64-apple-darwin
+            artifacts: |
+              Warsha_*.dmg
+              Warsha_*_aarch64.dmg
+          - os: windows-latest
+            tauri_target: x86_64-pc-windows-msvc
+            artifacts: |
+              Warsha_*_x64_en-US.msi
+              Warsha_*_x64-setup.exe
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.tauri_target }}
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install sqlite3 pkg-config
+
+      - name: Install dependencies
+        working-directory: ./apps/desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Tauri app
+        working-directory: ./apps/desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WINDOWS_CERTIFICATE_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
+        run: |
+          pnpm tauri build --target ${{ matrix.tauri_target }}
+
+      - name: Upload desktop artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: warsha-desktop-${{ matrix.os }}
+          path: apps/desktop/src-tauri/target/${{ matrix.tauri_target }}/release/bundle/**/*
+          retention-days: 1
+
+  # ============================================================
+  # Generate checksums and SBOM
+  # ============================================================
+  artifacts:
+    name: Generate Artifacts
+    needs: [prepare, rust-build, desktop-build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: find artifacts -type f -name "*" | sort
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd artifacts
+          sha256sum $(find . -type f ! -name "*.sha256" | sort) > checksums.sha256
+          cat checksums.sha256
+
+      - name: Generate SBOM (CycloneDX)
+        uses: EmbarkStudios/cargo-deny-action@v1
+        with:
+          command: check
+          # cargo-deny can generate SPDX, but we'll use cyclonedx-bom for CycloneDX
+        continue-on-error: true
+
+      - name: Generate SBOM with cyclonedx
+        run: |
+          cargo install cyclonedx-bom --locked || true
+          cyclonedx-bom -o artifacts/sbom.xml || echo "SBOM generation skipped"
+
+      - name: Upload checksums and SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: |
+            artifacts/checksums.sha256
+            artifacts/sbom.xml
+          retention-days: 30
+
+  # ============================================================
+  # Create GitHub Release (draft)
+  # ============================================================
+  release:
+    name: Create Draft Release
+    needs: [prepare, rust-build, desktop-build, artifacts]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download CLI binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: warsha-*
+          path: release
+          merge-multiple: true
+
+      - name: Download daemon binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: warshad-*
+          path: release
+          merge-multiple: true
+
+      - name: Download desktop artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: warsha-desktop-*
+          path: release
+          merge-multiple: true
+
+      - name: Download checksums and SBOM
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: release
+
+      - name: Organize release files
+        run: |
+          mkdir -p release/cli release/daemon release/desktop
+          mv release/warsha* release/cli/ 2>/dev/null || true
+          mv release/warshad* release/daemon/ 2>/dev/null || true
+          find release -name "*.deb" -o -name "*.AppImage" -o -name "*.dmg" -o -name "*.msi" -o -name "*.exe" | xargs -I {} mv {} release/desktop/ 2>/dev/null || true
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: Warsha ${{ needs.prepare.outputs.version }}
+          body: ${{ needs.prepare.outputs.release_notes }}
+          draft: true
+          prerelease: false
+          files: |
+            release/cli/*
+            release/daemon/*
+            release/desktop/*
+            release/checksums.sha256
+            release/sbom.xml
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ============================================================
+  # Package Manager Manifests (prepare only)
+  # ============================================================
+  manifests:
+    name: Prepare Package Manager Manifests
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create winget manifest
+        run: |
+          VERSION=${{ needs.prepare.outputs.version }}
+          mkdir -p manifests/winget
+          cat > manifests/winget/warsha.yaml <<EOF
+          PackageIdentifier: Warsha.Warsha
+          PackageVersion: $VERSION
+          PackageName: Warsha
+          Publisher: Warsha
+          License: PolyForm Noncommercial 1.0.0
+          ShortDescription: Arabic-first AI software factory
+          Description: Warsha (ورشة) — An Arabic-first AI software factory that automates the full development lifecycle from idea to production.
+          Tags: ["ai", "software-factory", "developer-tools", "arabic"]
+          Installers:
+            - Architecture: x64
+              InstallerType: msi
+              InstallerUrl: https://github.com/Warsha/Warsha/releases/download/v$VERSION/Warsha_${VERSION}_x64_en-US.msi
+              InstallerSha256: PLACEHOLDER_SHA256
+              ProductCode: "{PLACEHOLDER}"
+          ManifestType: singleton
+          ManifestVersion: 1.6.0
+          EOF
+
+      - name: Create Homebrew formula
+        run: |
+          VERSION=${{ needs.prepare.outputs.version }}
+          mkdir -p manifests/homebrew
+          cat > manifests/homebrew/warsha.rb <<EOF
+          class Warsha < Formula
+            desc "Arabic-first AI software factory"
+            homepage "https://github.com/Warsha/Warsha"
+            url "https://github.com/Warsha/Warsha/archive/refs/tags/v#{version}.tar.gz"
+            sha256 "PLACEHOLDER_SHA256"
+            license "PolyForm-Noncommercial-1.0.0"
+
+            depends_on "rust" => :build
+            depends_on "sqlite"
+
+            def install
+              system "cargo", "install", *std_cargo_args
+            end
+
+            test do
+              system "#{bin}/warsha", "--version"
+            end
+          end
+          EOF
+
+      - name: Create Scoop manifest
+        run: |
+          VERSION=${{ needs.prepare.outputs.version }}
+          mkdir -p manifests/scoop
+          cat > manifests/scoop/warsha.json <<EOF
+          {
+            "version": "$VERSION",
+            "description": "Arabic-first AI software factory",
+            "homepage": "https://github.com/Warsha/Warsha",
+            "license": "PolyForm-Noncommercial-1.0.0",
+            "architecture": {
+              "64bit": {
+                "url": "https://github.com/Warsha/Warsha/releases/download/v$VERSION/warsha-windows.exe",
+                "hash": "PLACEHOLDER_SHA256"
+              }
+            },
+            "bin": "warsha.exe",
+            "checkver": "github",
+            "autoupdate": {
+              "architecture": {
+                "64bit": {
+                  "url": "https://github.com/Warsha/Warsha/releases/download/v$version/warsha-windows.exe"
+                }
+              }
+            }
+          }
+          EOF
+
+      - name: Upload manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-manifests
+          path: manifests/
+          retention-days: 30
+
+  # ============================================================
+  # Docs build
+  # ============================================================
+  docs:
+    name: Build Docs
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install mdBook
+        run: cargo install mdbook mdbook-mermaid --locked
+
+      - name: Build docs
+        working-directory: ./docs
+        run: |
+          pnpm install --frozen-lockfile 2>/dev/null || true
+          mdbook build
+
+      - name: Upload docs
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs
+          path: docs/book
+          retention-days: 30

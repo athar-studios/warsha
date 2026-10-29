@@ -86,7 +86,20 @@ if ! command -v actionlint >/dev/null 2>&1; then
 fi
 record "actionlint installed ($(actionlint --version 2>/dev/null | head -n 1))" "$?" "actionlint --version"
 
-# --------------------------------------------------------------- 6. checks
+# ----------------------------------------------------------------- 6. mdbook
+# The `docs` workspace package builds and tests with the mdbook binary, which is
+# a cargo tool, not an npm dependency. CI installs it the same way.
+# Pinned to match `docs/book.toml`, which uses the mdbook 0.5 config layout
+# (`[build] build-dir`). An unpinned `cargo install` would eventually drift and
+# turn a green docs build red without any change in this repo.
+MDBOOK_VERSION="0.5.4"
+step "mdbook"
+if ! command -v mdbook >/dev/null 2>&1; then
+  cargo install mdbook --version "$MDBOOK_VERSION" --locked 2>&1 | tail -n 5 | tee -a "$LOG"
+fi
+record "mdbook installed ($(mdbook --version 2>/dev/null | head -n 1))" "$?" "mdbook --version"
+
+# --------------------------------------------------------------- 7. checks
 run_soft "cargo fmt --check"                        cargo fmt --all --check
 run_soft "cargo clippy --workspace -- -D warnings"  cargo clippy --workspace --all-targets -- -D warnings
 run_soft "cargo test --workspace"                   cargo test --workspace

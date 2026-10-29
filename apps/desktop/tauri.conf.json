@@ -16,12 +16,20 @@
         "width": 1200,
         "height": 800,
         "minWidth": 800,
-        "minHeight": 600
+        "minHeight": 600,
+        "center": true,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "transparent": false,
+        "visible": true,
+        "focus": true
       }
     ],
     "security": {
-      "csp": null
-    }
+      "csp": "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://localhost:* ws://localhost:*;"
+    },
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,
@@ -32,6 +40,68 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "resources": [],
+    "externalBin": [],
+    "copyright": "© 2026 Warsha",
+    "category": "DeveloperTool",
+    "shortDescription": "Arabic-first AI Software Factory",
+    "longDescription": "Warsha (ورشة) — An Arabic-first AI software factory that automates the full development lifecycle from idea to production.",
+    "deb": {
+      "depends": ["libwebkit2gtk-4.1-0", "libayatana-appindicator3-1", "librsvg2-common"]
+    },
+    "macOS": {
+      "entitlements": "entitlements.plist",
+      "exceptionDomain": "",
+      "frameworks": [],
+      "minimumSystemVersion": "10.15",
+      "signingIdentity": null
+    },
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "",
+      "tsp": false
+    }
+  },
+  "plugins": {
+    "shell": {
+      "allowlist": [
+        { "name": "sidecar", "cmd": "warshad", "args": true }
+      ]
+    },
+    "process": {
+      "allowlist": [
+        "warshad"
+      ]
+    },
+    "fs": {
+      "allowlist": [
+        { "path": "$CONFIG/warsha/*", "read": true, "write": true, "recursive": true },
+        { "path": "$APPDATA/warsha/*", "read": true, "write": true, "recursive": true }
+      ]
+    },
+    "dialog": {
+      "all": true
+    },
+    "http": {
+      "allowlist": [
+        { "url": "http://localhost:*", "methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"] },
+        { "url": "ws://localhost:*", "methods": ["GET"] }
+      ]
+    },
+    "clipboardManager": {
+      "all": true
+    },
+    "os": {
+      "all": true
+    },
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/Warsha/Warsha/releases/latest/download/latest.json"
+      ],
+      "pubkey": ""
+    }
   }
 }

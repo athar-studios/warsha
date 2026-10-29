@@ -95,6 +95,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install mdBook
+        run: cargo install mdbook --locked --version 0.5.4
+
       - name: Lint
         run: pnpm lint
 

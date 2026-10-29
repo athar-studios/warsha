@@ -4,3 +4,5 @@ packages:
   - packages/ui
   - packages/i18n
   - packages/client
+  - packages/crypto
+  - docs

@@ -8,8 +8,69 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 use ulid::Ulid;
 use warsha_core::*;
-use warsha_providers::ProviderRouter;
+use warsha_providers::{ChatMessage, ChatRequest, MessageRole, ProviderRouter};
 use warsha_store::Store;
+
+mod evals;
+mod guardrails;
+mod mcp;
+mod observability;
+mod orchestrator;
+mod prompts;
+mod router_quality;
+mod routines;
+mod scout;
+mod skills;
+
+pub use crate::evals::{blocks_change, run_suite, EvalCase, EvalError, EvalOutcome, EvalSuite};
+pub use crate::guardrails::{
+    classify_action, mask_secrets, wrap_untrusted, ApprovalRequest, Guardrails, InjectionSignal,
+    InputOrigin, InspectionResult, SensitiveAction, REDACTED,
+};
+pub use crate::mcp::{
+    McpClient, McpContent, McpError, McpRegistry, McpResource, McpServerConfig, McpTool,
+    McpToolAnnotations, McpToolCall, McpToolResult, McpTransport, PermissionScope, ToolPermission,
+    ToolPermissionEntry,
+};
+pub use crate::observability::{Span, SpanKind, SpanStatus, Tracer, RUN_ID_ATTRIBUTE};
+pub use crate::orchestrator::{
+    DiscoveryAnswer, DiscoveryCategory, DiscoveryQuestion, InputType, Orchestrator,
+    OrchestratorConfig, OrchestratorState, OrchestratorStatus, ProjectBrief,
+};
+pub use crate::router_quality::{
+    CostEntry, CostSink, ModelTier, ResponseCache, RouterPolicy, TaskDifficulty,
+};
+pub use crate::routines::{
+    MockRoutineRunner, Routine, RoutineAction, RoutineError, RoutineId, RoutineRegistry,
+    RoutineRunner, RoutineSchedule, RoutineState,
+};
+pub use crate::scout::{
+    Scout, ScoutConfig, ScoutDependency, ScoutError, ScoutProposal, ScoutResult, ScoutSource,
+};
+pub use crate::skills::{
+    default_role_packs, load_skill_from_dir, LicenseClass, RolePack, Skill, SkillDependency,
+    SkillError, SkillManifest, SkillRegistry, SkillSource, SkillsLockEntry, SkillsLockfile,
+};
+
+// Helper to get stage as string
+fn stage_to_string(stage: Stage) -> &'static str {
+    match stage {
+        Stage::Idea => "idea",
+        Stage::GateA => "gate_a",
+        Stage::Research => "research",
+        Stage::PrdSpec => "prd_spec",
+        Stage::GateB => "gate_b",
+        Stage::Design => "design",
+        Stage::PlanTasks => "plan_tasks",
+        Stage::Code => "code",
+        Stage::ReviewQaSecurity => "review_qa_security",
+        Stage::GateC => "gate_c",
+        Stage::Release => "release",
+        Stage::GateD => "gate_d",
+        Stage::LaunchDrafts => "launch_drafts",
+        Stage::Feedback => "feedback",
+    }
+}
 
 #[derive(Error, Debug)]
 pub enum PipelineError {
@@ -38,11 +99,16 @@ pub struct PipelineEngine {
     store: Arc<Store>,
     #[allow(dead_code)]
     providers: Arc<RwLock<ProviderRouter>>,
+    orchestrator: Orchestrator,
 }
 
 impl PipelineEngine {
     pub fn new(store: Arc<Store>, providers: Arc<RwLock<ProviderRouter>>) -> Self {
-        Self { store, providers }
+        Self {
+            store,
+            providers,
+            orchestrator: Orchestrator::new(OrchestratorConfig::default()),
+        }
     }
 
     /// Start a new run for a project
@@ -82,6 +148,41 @@ impl PipelineEngine {
         run.artifacts.insert("idea".to_string(), idea_artifact);
 
         self.store.create_run(&run).await?;
+
+        // Run orchestrator discovery interview
+        let mut orchestrator_state = self.orchestrator.start_discovery(project_id, run.id);
+
+        // Auto-answer required questions with defaults for automated runs
+        // In real usage, this would be interactive via CLI/desktop
+        for question in self.orchestrator.questions() {
+            if question.required {
+                let default_value = match question.input_type {
+                    crate::orchestrator::InputType::Text => serde_json::json!("To be determined"),
+                    crate::orchestrator::InputType::MultiSelect => serde_json::json!(["Web"]),
+                    crate::orchestrator::InputType::SingleSelect => serde_json::json!("Free"),
+                    crate::orchestrator::InputType::Boolean => serde_json::json!(false),
+                    crate::orchestrator::InputType::Number => serde_json::json!(10000),
+                };
+                orchestrator_state = self.orchestrator.answer_question(
+                    orchestrator_state,
+                    question.id.clone(),
+                    default_value,
+                );
+            }
+        }
+
+        // Create brief artifact
+        let brief_markdown = self.orchestrator.get_brief_markdown(&orchestrator_state);
+        let brief_artifact = Artifact {
+            name: "brief".to_string(),
+            content: brief_markdown,
+            stage: Stage::Idea,
+            role: Some(Role::Intake),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            version: 1,
+        };
+        run.artifacts.insert("brief".to_string(), brief_artifact);
 
         // Emit event
         let event = Event {
@@ -133,7 +234,7 @@ impl PipelineEngine {
         run.current_stage = next;
         run.updated_at = Utc::now();
 
-        // Emit event
+        // Emit event for stage start
         let event = Event {
             id: Ulid::new(),
             run_id,
@@ -149,8 +250,258 @@ impl PipelineEngine {
         self.store.append_event(&event).await?;
         self.store.update_run(&run).await?;
 
+        // Execute the new stage (unless it's a gate or final stage)
+        if !next.is_gate() && next != Stage::Feedback {
+            self.execute_stage(&mut run).await?;
+            self.store.update_run(&run).await?;
+        }
+
         info!("Run {} advanced from {:?} to {:?}", run_id.0, current, next);
         Ok(run)
+    }
+
+    /// Execute the role's agent step for the current stage
+    async fn execute_stage(&self, run: &mut Run) -> Result<()> {
+        let stage = run.current_stage;
+        let role = match crate::prompts::role_for_stage(stage) {
+            Some(r) => r,
+            None => return Ok(()), // Gates don't execute, they just wait for approval
+        };
+
+        // Build context from previous artifacts
+        let context = self.build_context(run);
+
+        // Get the prompt template
+        let prompt_template = crate::prompts::get_prompt(role);
+
+        // Render the prompt with context
+        let prompt = self.render_prompt(prompt_template, &context);
+
+        // Call the provider
+        let mut providers = self.providers.write().await;
+        let request = ChatRequest {
+            model: "default".to_string(), // Will be resolved by router
+            messages: vec![ChatMessage {
+                role: MessageRole::System,
+                content: prompt,
+            }],
+            temperature: Some(0.7),
+            max_tokens: Some(4000),
+            stream: false,
+        };
+
+        let response = providers
+            .chat_with_fallback(role, &run.project_id.0.to_string(), request)
+            .await?;
+
+        // Parse the JSON response
+        let artifact_content = response
+            .choices
+            .first()
+            .map(|c| c.message.content.clone())
+            .unwrap_or_default();
+
+        // Calculate cost
+        let cost_cents = providers.cost_of(&response.model, &response.usage)?;
+        let tokens = Some(response.usage.clone());
+
+        // Create artifact
+        let artifact = Artifact {
+            name: stage_to_string(stage).to_lowercase(),
+            content: artifact_content,
+            stage,
+            role: Some(role),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            version: 1,
+        };
+
+        // Write artifact to factory and record in run
+        self.store
+            .write_artifact(run.project_id, &artifact.name, &artifact.content)
+            .await?;
+        run.artifacts.insert(artifact.name.clone(), artifact);
+
+        // Record cost
+        run.spent_cents += cost_cents;
+
+        // Emit event
+        let event = Event {
+            id: Ulid::new(),
+            run_id: run.id,
+            stage,
+            role: Some(role),
+            kind: EventKind::AgentStep,
+            payload: serde_json::json!({ "role": role, "stage": stage }),
+            cost_cents: Some(cost_cents),
+            tokens,
+            created_at: Utc::now(),
+            device_id: None,
+        };
+        self.store.append_event(&event).await?;
+
+        // Check budget
+        if let Some(budget) = run.budget_cents {
+            if run.spent_cents >= budget {
+                let budget_event = Event {
+                    id: Ulid::new(),
+                    run_id: run.id,
+                    stage,
+                    role: None,
+                    kind: EventKind::BudgetExceeded,
+                    payload: serde_json::json!({ "budget_cents": budget, "spent_cents": run.spent_cents }),
+                    cost_cents: None,
+                    tokens: None,
+                    created_at: Utc::now(),
+                    device_id: None,
+                };
+                self.store.append_event(&budget_event).await?;
+                run.status = RunStatus::Paused;
+                warn!(
+                    "Budget exceeded for run {}: {} >= {}",
+                    run.id.0, run.spent_cents, budget
+                );
+            } else if run.spent_cents as f64 >= budget as f64 * 0.8 {
+                let warn_event = Event {
+                    id: Ulid::new(),
+                    run_id: run.id,
+                    stage,
+                    role: None,
+                    kind: EventKind::BudgetWarning,
+                    payload: serde_json::json!({ "budget_cents": budget, "spent_cents": run.spent_cents, "percent": (run.spent_cents as f64 / budget as f64 * 100.0) as u32 }),
+                    cost_cents: None,
+                    tokens: None,
+                    created_at: Utc::now(),
+                    device_id: None,
+                };
+                self.store.append_event(&warn_event).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Build context from previous artifacts for the prompt
+    fn build_context(&self, run: &Run) -> serde_json::Value {
+        let mut context = serde_json::Map::new();
+
+        // Add all previous artifacts
+        for (name, artifact) in &run.artifacts {
+            context.insert(
+                name.clone(),
+                serde_json::json!({
+                    "content": artifact.content,
+                    "stage": artifact.stage,
+                    "role": artifact.role,
+                }),
+            );
+        }
+
+        // Add gate states
+        let gate_states: serde_json::Map<_, _> = run
+            .gate_states
+            .iter()
+            .map(|(k, v)| {
+                (
+                    stage_to_string(*k).to_lowercase(),
+                    // Gate states are plain data, so serialization cannot fail here.
+                    serde_json::to_value(v).unwrap_or_default(),
+                )
+            })
+            .collect();
+        context.insert(
+            "gate_states".to_string(),
+            serde_json::Value::Object(gate_states),
+        );
+
+        serde_json::Value::Object(context)
+    }
+
+    /// Simple template rendering - replace {{key}} with values
+    fn render_prompt(&self, template: &str, context: &serde_json::Value) -> String {
+        let mut result = template.to_string();
+
+        // Replace {{idea}} with the original idea
+        if let Some(idea) = context
+            .get("idea")
+            .and_then(|v| v.get("content"))
+            .and_then(|v| v.as_str())
+        {
+            result = result.replace("{{idea}}", idea);
+        }
+
+        // Replace {{brief}} with the brief content
+        if let Some(brief) = context
+            .get("brief")
+            .and_then(|v| v.get("content"))
+            .and_then(|v| v.as_str())
+        {
+            result = result.replace("{{brief}}", brief);
+        }
+
+        // Replace {{research}} with research content
+        if let Some(research) = context
+            .get("research")
+            .and_then(|v| v.get("content"))
+            .and_then(|v| v.as_str())
+        {
+            result = result.replace("{{research}}", research);
+        }
+
+        // Replace {{prd}} with PRD content
+        if let Some(prd) = context
+            .get("prd_spec")
+            .and_then(|v| v.get("content"))
+            .and_then(|v| v.as_str())
+        {
+            result = result.replace("{{prd}}", prd);
+        }
+
+        // Replace {{design}} with design content
+        if let Some(design) = context
+            .get("design")
+            .and_then(|v| v.get("content"))
+            .and_then(|v| v.as_str())
+        {
+            result = result.replace("{{design}}", design);
+        }
+
+        // Replace {{architecture}} with architecture content
+        if let Some(arch) = context
+            .get("design")
+            .and_then(|v| v.get("content"))
+            .and_then(|v| v.as_str())
+        {
+            result = result.replace("{{architecture}}", arch);
+        }
+
+        // Replace {{task}} with task description
+        if let Some(task) = context
+            .get("plan_tasks")
+            .and_then(|v| v.get("content"))
+            .and_then(|v| v.as_str())
+        {
+            result = result.replace("{{task}}", task);
+        }
+
+        // Replace {{code}} with code content
+        if let Some(code) = context
+            .get("code")
+            .and_then(|v| v.get("content"))
+            .and_then(|v| v.as_str())
+        {
+            result = result.replace("{{code}}", code);
+        }
+
+        // Replace {{language}} with project language
+        let _ = context
+            .get("idea")
+            .and_then(|v| v.get("stage"))
+            .and_then(|v| v.as_str());
+        // This is a simplification - in reality we'd get language from project
+        result = result.replace("{{language}}", "en");
+
+        result
     }
 
     /// Approve a gate
@@ -427,7 +778,8 @@ impl PipelineEngine {
 mod tests {
     use super::*;
     use tempfile::tempdir;
-    use warsha_providers::ProviderRouter;
+    use warsha_core::{RoleRouting, RoutingTarget};
+    use warsha_providers::{MockProvider, ProviderRouter};
     use warsha_store::Store;
 
     async fn temp_store() -> Arc<Store> {
@@ -436,6 +788,23 @@ mod tests {
         let store = Store::open_at(path).await.unwrap();
         std::mem::forget(dir);
         Arc::new(store)
+    }
+
+    fn setup_providers_with_mock() -> Arc<RwLock<ProviderRouter>> {
+        let mut router = ProviderRouter::new();
+        let mock = MockProvider::new("test");
+        router.register_provider(Box::new(mock));
+        router.set_role_routing(RoleRouting {
+            role: Role::Designer,
+            targets: vec![RoutingTarget {
+                provider_id: "test".to_string(),
+                model_id: "mock-model".to_string(),
+                weight: 100,
+            }],
+            fallback_enabled: false,
+            budget_cents_per_run: None,
+        });
+        Arc::new(RwLock::new(router))
     }
 
     #[tokio::test]
@@ -550,7 +919,7 @@ mod tests {
     #[tokio::test]
     async fn test_gate_b_blocks_advance_to_design() {
         let store = temp_store().await;
-        let providers = Arc::new(RwLock::new(ProviderRouter::new()));
+        let providers = setup_providers_with_mock();
         let engine = PipelineEngine::new(store.clone(), providers);
 
         let project = Project {

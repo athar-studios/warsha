@@ -1,0 +1,30 @@
+[book]
+title = "Warsha Documentation"
+description = "Arabic-first AI software factory documentation"
+authors = ["Warsha Team"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+create-missing = true
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "dark"
+smart-punctuation = true
+mathjax-support = false
+git-repository-url = "https://github.com/Warsha/Warsha"
+edit-url-template = "https://github.com/Warsha/Warsha/edit/main/docs/src/{path}"
+fold = { enable = true, level = 2 }
+additional-css = ["src/custom.css"]
+hash-files = false
+
+[output.html.search]
+enable = true
+limit-results = 10
+teaser-word-count = 30
+use-boolean-and = true
+boost-title = 2
+boost-hierarchy = 1
+boost-paragraph = 1
