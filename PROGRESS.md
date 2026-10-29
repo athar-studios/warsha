@@ -381,3 +381,5 @@ the root `Cargo.toml`) and the Activepieces connection.
 - [ ] Provide API keys for real-provider smoke tests when M2 reaches live verification
 ## v0.1.0 ready
 All milestones M0–M16 are implemented and validated. Last bridge run 2026-10-29T17:47:43 exited 0 with all 18 checks green (cargo fmt/clippy/test, pnpm install/typecheck/build/test, actionlint). See PLAN.md for per-milestone evidence. Human-only steps remain listed above.
+## Plan update 2026-10-29 — LingCode-inspired ideas (ideas only)
+PLAN.md and DECISIONS.md updated with 11 ideas adopted from LingCode's public site (ideas only; no branding/assets/text/code copied). New milestones M17 (Post-launch care), M18 (Agent workflow and context), M19 (Backend kit); subsections M14a (work protection), M14b (router additions), M5a (status strip/delivery), M5b (live preview), M6a (continue on server), M8b (Simple mode UI spec), M15a (website and launch). Definition of Done extended to M10-M19. License remains PolyForm Noncommercial 1.0.0. No code changes; CI unaffected.
