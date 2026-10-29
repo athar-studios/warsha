@@ -11,7 +11,8 @@ use ulid::Ulid;
 use uuid::Uuid;
 use warsha_core::*;
 use warsha_remote::DeviceIdentity;
-use warshad::{run_daemon, DaemonArgs, DaemonConfig};
+pub use warshad::DaemonConfig;
+use warshad::{run_daemon, DaemonArgs};
 
 #[derive(Error, Debug)]
 pub enum CliError {
@@ -65,9 +66,17 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub socket: Option<PathBuf>,
 
-    /// Daemon HTTP URL
-    #[arg(long, global = true, default_value = "http://127.0.0.1:8765")]
+    /// Daemon JSON-RPC URL (default: http://127.0.0.1:8766)
+    #[arg(long, global = true, default_value = "http://127.0.0.1:8766")]
     pub url: String,
+
+    /// Daemon auth token (overrides config.toml)
+    #[arg(long, global = true)]
+    pub token: Option<String>,
+
+    /// Config file path
+    #[arg(short, long, global = true)]
+    pub config: Option<PathBuf>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -250,17 +259,32 @@ pub struct CliApp {
     http_client: Client,
     base_url: String,
     json_output: bool,
+    _token: String,
 }
 
 impl CliApp {
-    pub fn new(base_url: String, json_output: bool) -> Result<Self> {
-        let client = HttpClientBuilder::default().build(format!("{}/rpc", base_url))?;
-        let http_client = Client::new();
+    pub fn new(base_url: String, token: String, json_output: bool) -> Result<Self> {
+        // Build HTTP client with auth header
+        let mut headers = reqwest::header::HeaderMap::new();
+        if !token.is_empty() {
+            let auth_value = format!("Bearer {}", token);
+            headers.insert(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&auth_value)
+                    .map_err(|e| CliError::Config(format!("Invalid auth token: {e}")))?,
+            );
+        }
+        let http_client = Client::builder().default_headers(headers).build()?;
+
+        // JSON-RPC client (no /rpc suffix - daemon serves at root)
+        let client = HttpClientBuilder::default().build(base_url.clone())?;
+
         Ok(Self {
             client,
             http_client,
             base_url,
             json_output,
+            _token: token,
         })
     }
 

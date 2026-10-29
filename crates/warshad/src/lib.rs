@@ -1,29 +1,36 @@
 //! Warshad — Daemon binary: local API (JSON-RPC over Unix socket / named pipe + localhost HTTP/WebSocket with token)
 
 use axum::{
-    response::{IntoResponse, Json},
+    extract::{ws::WebSocketUpgrade, State},
+    http::header::AUTHORIZATION,
+    response::{IntoResponse, Json, Response},
     routing::get,
     Router,
 };
 use base64::Engine as _;
 use chrono::Utc;
 use clap::Parser;
+use fs2::FileExt;
 use jsonrpsee::{
-    core::{async_trait, RpcResult},
+    core::{async_trait, BoxError, RpcResult},
     proc_macros::rpc,
-    server::ServerBuilder,
+    server::{HttpRequest, HttpResponse, ServerBuilder},
     types::ErrorObject,
 };
 use keyring::Entry;
 use rand::TryRngCore;
 use serde::{Deserialize, Serialize};
+use std::future::Future;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use thiserror::Error;
-use tokio::sync::RwLock;
+use tokio::sync::{broadcast, RwLock};
+use tower::Layer;
 use tower_http::cors::{Any, CorsLayer};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use warsha_backends::BackendFactory;
 use warsha_core::*;
 use warsha_git::GitHubClient;
@@ -94,6 +101,109 @@ impl Default for DaemonConfig {
     }
 }
 
+/// Handle to a running daemon instance.
+#[derive(Debug)]
+pub struct DaemonHandle {
+    _lock_file: LockFile,
+    http_task: tokio::task::JoinHandle<()>,
+    rpc_server: jsonrpsee::server::ServerHandle,
+    http_port: u16,
+    rpc_port: u16,
+}
+
+impl DaemonHandle {
+    /// Returns the actual HTTP port the server is bound to.
+    pub fn http_port(&self) -> u16 {
+        self.http_port
+    }
+
+    /// Returns the actual RPC (WebSocket/JSON-RPC) port the server is bound to.
+    pub fn rpc_port(&self) -> u16 {
+        self.rpc_port
+    }
+
+    /// Shuts down the daemon: stops the RPC server, aborts the HTTP task,
+    /// and releases the lock file.
+    pub async fn shutdown(self) {
+        if let Err(e) = self.rpc_server.stop() {
+            warn!("RPC server was already stopped: {e}");
+        }
+        // Aborting the HTTP task drops its listener, so the port is released.
+        self.http_task.abort();
+        // The lock file is dropped here, releasing the lock and removing the file.
+    }
+}
+
+/// Tower layer for RPC authentication.
+/// Checks the Authorization header for a valid Bearer token.
+#[derive(Clone)]
+struct RpcAuthLayer {
+    expected_token: String,
+}
+
+impl<S> Layer<S> for RpcAuthLayer {
+    type Service = RpcAuthService<S>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        RpcAuthService {
+            inner,
+            expected_token: self.expected_token.clone(),
+        }
+    }
+}
+
+/// Tower service for RPC authentication.
+/// Mirrors the pattern used by jsonrpsee's own `HostFilter` middleware layer.
+#[derive(Clone)]
+struct RpcAuthService<S> {
+    inner: S,
+    expected_token: String,
+}
+
+impl<S, B> tower::Service<HttpRequest<B>> for RpcAuthService<S>
+where
+    S: tower::Service<HttpRequest<B>, Response = HttpResponse> + Clone + Send + 'static,
+    S::Response: 'static,
+    S::Future: Send + 'static,
+    S::Error: Into<BoxError> + Send + 'static,
+    B: Send + 'static,
+{
+    type Response = S::Response;
+    type Error = BoxError;
+    type Future = Pin<
+        Box<dyn Future<Output = std::result::Result<Self::Response, Self::Error>> + Send + 'static>,
+    >;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<std::result::Result<(), Self::Error>> {
+        self.inner.poll_ready(cx).map_err(Into::into)
+    }
+
+    fn call(&mut self, req: HttpRequest<B>) -> Self::Future {
+        let authorized = {
+            let expected = self.expected_token.as_str();
+            req.headers()
+                .get(AUTHORIZATION)
+                .and_then(|h| h.to_str().ok())
+                .and_then(|h| h.strip_prefix("Bearer "))
+                .is_some_and(|token| token == expected)
+        };
+
+        if !authorized {
+            let body = serde_json::json!({ "error": "unauthorized" }).to_string();
+            let mut resp = jsonrpsee::server::http::response::ok_response(body);
+            *resp.status_mut() = axum::http::StatusCode::UNAUTHORIZED;
+            resp.headers_mut().insert(
+                axum::http::header::CONTENT_TYPE,
+                axum::http::HeaderValue::from_static("application/json"),
+            );
+            return Box::pin(async move { Ok(resp) });
+        }
+
+        let fut = self.inner.call(req);
+        Box::pin(async move { fut.await.map_err(Into::into) })
+    }
+}
+
 /// CLI arguments for warshad
 #[derive(Parser, Debug)]
 #[command(name = "warshad", version, about = "Warsha daemon")]
@@ -128,6 +238,7 @@ pub struct DaemonState {
     pub backends: Vec<Box<dyn warsha_backends::CodingBackend>>,
     pub github: Option<GitHubClient>,
     pub devices: Arc<DeviceRegistry>,
+    pub event_tx: broadcast::Sender<Event>,
 }
 
 /// JSON-RPC API trait
@@ -417,24 +528,18 @@ async fn health_handler() -> impl IntoResponse {
     })
 }
 
-/// Main daemon entry point
-pub async fn run_daemon(args: DaemonArgs) -> Result<()> {
-    // Load or create config
-    let config = load_or_create_config(args.config.as_deref()).await?;
-
-    // Override with CLI args
-    let mut config = config;
-    config.http_port = args.http_port;
-    config.ws_port = args.ws_port;
-    if let Some(socket) = args.socket {
-        config.socket_path = socket;
-    }
-
+/// Start the daemon and return a handle for management.
+/// Accepts `http_port` and `ws_port` of 0 to let the OS choose ports.
+pub async fn start_daemon(config: DaemonConfig) -> Result<DaemonHandle> {
     // Ensure single instance lock
-    let _lock = acquire_lock(&config.data_dir)?;
+    let lock_file = acquire_lock(&config.data_dir)?;
 
-    // Initialize store
-    let store = Arc::new(Store::new().await?);
+    // Ensure data directory exists
+    std::fs::create_dir_all(&config.data_dir)?;
+
+    // Initialize store with configurable path
+    let db_path = config.data_dir.join("warsha.db");
+    let store = Arc::new(Store::open_at(db_path).await?);
 
     // Initialize provider router
     let providers = Arc::new(RwLock::new(ProviderRouter::new()));
@@ -462,6 +567,9 @@ pub async fn run_daemon(args: DaemonArgs) -> Result<()> {
     let local_identity = warsha_remote::DeviceIdentity::generate("Warsha Daemon".to_string())?;
     let devices = Arc::new(DeviceRegistry::new(local_identity));
 
+    // Create broadcast channel for event streaming
+    let (event_tx, _) = broadcast::channel::<Event>(1024);
+
     let state = Arc::new(DaemonState {
         config: config.clone(),
         store,
@@ -470,23 +578,32 @@ pub async fn run_daemon(args: DaemonArgs) -> Result<()> {
         backends,
         github,
         devices,
+        event_tx,
     });
 
     // Start JSON-RPC server (TCP for cross-platform compatibility)
     let rpc_addr: SocketAddr = format!("127.0.0.1:{}", config.ws_port)
         .parse()
         .map_err(|e| DaemonError::Config(format!("invalid RPC bind address: {e}")))?;
+    let rpc_auth_layer = RpcAuthLayer {
+        expected_token: config.auth_token.clone(),
+    };
     let rpc_server = ServerBuilder::default()
+        .set_http_middleware(tower::ServiceBuilder::new().layer(rpc_auth_layer))
         .build(rpc_addr)
         .await
         .map_err(|e| DaemonError::Config(format!("could not bind RPC server: {e}")))?;
+    let actual_rpc_port = rpc_server.local_addr()?.port();
     let rpc = WarshaRpc::new(state.clone());
     let rpc_handle = rpc_server.start(rpc.into_rpc());
-    tokio::spawn(async move {
-        rpc_handle.stopped().await;
-        error!("RPC server stopped");
-    });
-    info!("JSON-RPC server listening on {}", rpc_addr);
+    {
+        let stopped_handle = rpc_handle.clone();
+        tokio::spawn(async move {
+            stopped_handle.stopped().await;
+            info!("RPC server stopped");
+        });
+    }
+    info!("JSON-RPC server listening on 127.0.0.1:{}", actual_rpc_port);
 
     // Start HTTP/WebSocket server
     let allowed_origins = config
@@ -496,28 +613,74 @@ pub async fn run_daemon(args: DaemonArgs) -> Result<()> {
         .filter_map(|o| o.parse::<axum::http::HeaderValue>().ok())
         .collect::<Vec<axum::http::HeaderValue>>();
 
+    let cors = CorsLayer::new()
+        .allow_origin(allowed_origins)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    // Auth middleware: require Bearer token on all routes except /health
+    let auth_token = config.auth_token.clone();
+    let auth_middleware = axum::middleware::from_fn(
+        move |headers: axum::http::HeaderMap,
+              request: axum::http::Request<axum::body::Body>,
+              next: axum::middleware::Next| {
+            let token = auth_token.clone();
+            async move { auth_handler_inner(token, headers, request, next).await }
+        },
+    );
+
     let app = Router::new()
         .route("/health", get(health_handler))
-        .layer(
-            CorsLayer::new()
-                .allow_origin(allowed_origins)
-                .allow_methods(Any)
-                .allow_headers(Any),
-        )
+        .route("/events", get(events_handler))
+        .layer(auth_middleware)
+        .layer(cors)
         .with_state(state.clone());
 
     let http_listener =
         tokio::net::TcpListener::bind(format!("127.0.0.1:{}", config.http_port)).await?;
+    let actual_http_port = http_listener.local_addr()?.port();
     info!(
         "HTTP server listening on http://127.0.0.1:{}",
-        config.http_port
+        actual_http_port
     );
 
-    tokio::spawn(async move {
+    let http_task = tokio::spawn(async move {
         if let Err(e) = axum::serve(http_listener, app).await {
             error!("HTTP server error: {}", e);
         }
     });
+
+    Ok(DaemonHandle {
+        _lock_file: lock_file,
+        http_task,
+        rpc_server: rpc_handle,
+        http_port: actual_http_port,
+        rpc_port: actual_rpc_port,
+    })
+}
+
+/// Main daemon entry point (kept for CLI compatibility)
+pub async fn run_daemon(args: DaemonArgs) -> Result<()> {
+    // Load or create config
+    let config = load_or_create_config(args.config.as_deref()).await?;
+
+    // Override with CLI args
+    let mut config = config;
+    config.http_port = args.http_port;
+    config.ws_port = args.ws_port;
+    if let Some(socket) = args.socket {
+        config.socket_path = socket;
+    }
+
+    let handle = start_daemon(config).await?;
+    info!(
+        "HTTP server listening on http://127.0.0.1:{}",
+        handle.http_port()
+    );
+    info!(
+        "JSON-RPC server listening on 127.0.0.1:{}",
+        handle.rpc_port()
+    );
 
     // Keep running until interrupted. True daemonization is not implemented yet,
     // so background mode also waits on Ctrl-C.
@@ -528,6 +691,7 @@ pub async fn run_daemon(args: DaemonArgs) -> Result<()> {
     }
     tokio::signal::ctrl_c().await?;
 
+    handle.shutdown().await;
     Ok(())
 }
 
@@ -576,10 +740,11 @@ fn acquire_lock(data_dir: &Path) -> Result<LockFile> {
     let lock_path = data_dir.join("warshad.lock");
     let mut lock = LockFile::new(lock_path)?;
     lock.try_lock()
-        .map_err(|_| DaemonError::Lock("Another instance is running".to_string()))?;
+        .map_err(|e| DaemonError::Lock(format!("Failed to acquire lock: {e}")))?;
     Ok(lock)
 }
 
+#[derive(Debug)]
 struct LockFile {
     path: PathBuf,
     file: Option<std::fs::File>,
@@ -601,8 +766,12 @@ impl LockFile {
             .write(true)
             .open(&self.path)?;
 
-        // Advisory locking is not implemented yet; the lock file alone is created
-        // so a later milestone can take an OS-level lock on it.
+        // Take an exclusive advisory lock (blocking). On Unix this uses flock(2),
+        // on Windows LockFileEx. The lock is released when the file is closed or
+        // the process exits. If another instance holds the lock, this returns
+        // WouldBlock which we convert to a Lock error.
+        file.try_lock_exclusive()?;
+
         self.file = Some(file);
         Ok(())
     }
@@ -611,8 +780,11 @@ impl LockFile {
 impl Drop for LockFile {
     fn drop(&mut self) {
         if let Some(file) = self.file.take() {
+            // Release the lock before dropping
+            let _ = file.unlock();
             drop(file);
         }
+        // Remove the lock file on clean shutdown
         let _ = std::fs::remove_file(&self.path);
     }
 }
@@ -623,6 +795,80 @@ fn get_github_token() -> Result<String> {
     entry
         .get_password()
         .map_err(|_| DaemonError::Config("GitHub token not in keychain".to_string()))
+}
+
+/// Auth middleware: require Bearer token on all routes except /health
+async fn auth_handler_inner(
+    expected_token: String,
+    headers: axum::http::HeaderMap,
+    request: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> Response {
+    let path = request.uri().path();
+    if path == "/health" {
+        return next.run(request).await;
+    }
+
+    let token = headers
+        .get(AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "));
+
+    match token {
+        Some(token) if token == expected_token => next.run(request).await,
+        Some(_) => {
+            warn!("Invalid token for {}", path);
+            Json(serde_json::json!({"error": "invalid token"})).into_response()
+        }
+        None => {
+            warn!("Unauthorized request to {}", path);
+            Json(serde_json::json!({"error": "unauthorized"})).into_response()
+        }
+    }
+}
+
+/// WebSocket handler for /events endpoint
+async fn events_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<Arc<DaemonState>>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_events_socket(socket, state.event_tx.subscribe()))
+}
+
+async fn handle_events_socket(
+    mut socket: axum::extract::ws::WebSocket,
+    mut rx: broadcast::Receiver<Event>,
+) {
+    // Send ping every 30 seconds to keep connection alive
+    let mut ping_interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+
+    loop {
+        tokio::select! {
+            event = rx.recv() => {
+                match event {
+                    Ok(event) => {
+                        let json = serde_json::to_string(&event).unwrap_or_default();
+                        if socket.send(axum::extract::ws::Message::Text(json)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        // Subscriber lagged, skip
+                        continue;
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        // Channel closed, exit
+                        break;
+                    }
+                }
+            }
+            _ = ping_interval.tick() => {
+                if socket.send(axum::extract::ws::Message::Ping(vec![])).await.is_err() {
+                    break;
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

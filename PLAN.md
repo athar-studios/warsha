@@ -14,12 +14,12 @@
 - [x] GitHub Actions: fmt, clippy, test (Linux/macOS/Windows matrix for Rust), lint, typecheck, test for TS, cargo-deny, gitleaks, CodeQL
 - [x] AC: `cargo test --workspace` and `pnpm -r test` pass, and the CI workflow file validates (actionlint)
 
-## M1 – Daemon core + state store
-- [ ] `warshad` starts, holds a lock (one instance)
-- [ ] Exposes JSON-RPC + WS events with a local auth token stored in the user config dir with 0600 permissions
-- [ ] Serves a health endpoint
-- [ ] SQLite migrations cover projects, runs, events, gates, artifacts, costs, and devices
-- [ ] AC: integration tests create a project, append events, survive a daemon restart with state intact, and reject unauthenticated calls
+## M1 – Daemon core + state store ✅ DONE (validated 2026-10-29T08:28:01, all 14 checks green)
+- [x] `warshad` starts, holds a lock (one instance) — fs2 advisory lock
+- [x] Exposes JSON-RPC + WS events with a local auth token stored in the user config dir with 0600 permissions
+- [x] Serves a health endpoint (`/health` unauthenticated)
+- [x] SQLite migrations cover projects, runs, events, gates, artifacts, costs, and devices
+- [x] AC: integration tests create a project, append events, survive a daemon restart with state intact, and reject unauthenticated calls
 
 ## M2 – Provider layer
 - [ ] Adapters, keychain storage, model listing, routing presets, fallback, and the cost meter, with budgets as in §5

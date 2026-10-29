@@ -2,7 +2,7 @@
 
 ## Session Start: 2026-10-28
 
-### Current Milestone: M1 – Daemon core + state store
+### Current Milestone: M2 – Provider layer
 
 #### M0 — DONE ✅ (validated 2026-10-28T22:38:39, exit=0)
 
@@ -17,6 +17,27 @@ Bridge run 14 is the acceptance evidence. All 14 checks PASS:
 | `actionlint .github/workflows/ci.yml` | PASS |
 
 Total: 90 tests, 0 failures, 0 ignored. `RESULT: M0 validation PASSED — all checks green.`
+
+#### M1 — DONE ✅ (validated 2026-10-29T08:28:01, exit=0)
+
+Bridge run 16 is the acceptance evidence. All 14 checks PASS with M1 complete:
+
+- `warshad` single-instance lock via `fs2` advisory locking (`flock` on Unix, `LockFileEx` on Windows)
+- Config at `<config_dir>/warsha/config.toml` with 0600 permissions on Unix
+- Bearer token auth on all HTTP routes except `/health`
+- WebSocket `/events` endpoint streams `Event` JSON frames with 30s ping
+- JSON-RPC served at root (no `/rpc` suffix) on port 8766
+- CLI defaults to `http://127.0.0.1:8766`, reads token from config.toml, supports `--token` override
+- Store uses `config.data_dir` for restart survival
+- `GateA`/`GateB` added to `Stage` enum per BUILD_PROMPT §6
+- **New:** `start_daemon` / `DaemonHandle` split — testable daemon lifecycle with OS-chosen ports
+- **New:** RPC authentication via tower middleware (`RpcAuthLayer`) — bearer token required on all JSON-RPC calls
+- **New:** Three integration tests in `crates/warshad/tests/m1_daemon.rs`:
+  - `restart_survives_with_state_intact` — project/run/events persist across restart
+  - `unauthenticated_calls_are_rejected` — /health allowed, /events + RPC reject unauthenticated
+  - `second_instance_is_locked_out` — advisory lock prevents second instance on same data_dir
+
+The defects that had to be cleared to get here, in the order the bridge exposed them:
 
 The defects that had to be cleared to get here, in the order the bridge exposed them:
 
