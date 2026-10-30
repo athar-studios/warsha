@@ -71,7 +71,7 @@ export function EcoModeToggle({
   return (
     <div
       dir={dir}
-      style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--warsha-space-2)' }}
     >
       <Button
         variant={enabled ? 'primary' : 'secondary'}
@@ -87,7 +87,7 @@ export function EcoModeToggle({
       </Button>
       <span
         data-testid="eco-status"
-        style={{ fontSize: '0.75rem', opacity: 0.8 }}
+        style={{ fontSize: 'var(--warsha-font-size-xs)', opacity: 0.8 }}
         title={reason ?? status}
       >
         {status}

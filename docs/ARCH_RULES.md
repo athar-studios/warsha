@@ -4,9 +4,10 @@ Six rules with stable ids. Five of them (`R1`–`R5`) are boundary rules over th
 the app sources, implemented in `scripts/check-arch.mjs`, run by `pnpm arch` locally, by the bridge
 (`scripts/wsl-setup.sh`) and by CI (`.github/workflows/ci.yml`). The sixth, `R6 no-token-drift`,
 belongs to the design system and is implemented by `packages/ui/src/tokens/tokenDrift.test.ts`, which
-`pnpm -r test` runs in CI and in the bridge; it keeps the same id and message shape, so a reviewer
-reads one contract. The reasoning behind the rules is in [`ARCHITECTURE.md`](ARCHITECTURE.md); this
-file is the contract.
+`pnpm -r test` runs in CI and in the bridge; it reads `packages/ui` and both app sources
+(`apps/desktop/src/**`, `apps/remote/src/**`), and it keeps the same id and message shape, so a
+reviewer reads one contract. The reasoning behind the rules is in
+[`ARCHITECTURE.md`](ARCHITECTURE.md); this file is the contract.
 
 ## Message format
 
@@ -153,10 +154,10 @@ commit; the ids are what a failing build prints, so they are part of the interfa
 
 - **Rule id**: `R6`
 - **Name**: `no-token-drift`
-- **Implemented by**: `packages/ui/src/tokens/tokenDrift.test.ts` (12 tests), run by `pnpm -r test` in
-  CI and by the bridge. It is not in `scripts/check-arch.mjs` on purpose: R1–R5 read Rust manifests
-  and app imports, while R6 has to read the TypeScript token modules *and* `tokens.css` to compare
-  them, which only the package that owns both can do.
+- **Implemented by**: `packages/ui/src/tokens/tokenDrift.test.ts` (17 tests), run by `pnpm -r test`
+  in CI and by the bridge. It is not in `scripts/check-arch.mjs` on purpose: R1–R5 read Rust
+  manifests and app imports, while R6 has to read the TypeScript token modules *and* `tokens.css` to
+  compare them, which only the package that owns both can do.
 - **Forbids**, in every file that renders UI in `packages/ui` — `src/components.tsx` and
   `src/components/*.tsx`, excluding `*.stories.tsx` and `*.test.tsx`:
   1. a **colour literal** — `#rgb`, `#rrggbb`, `rgb(`, `rgba(`, `hsl(`, `hsla(`;
@@ -174,6 +175,21 @@ commit; the ids are what a failing build prints, so they are part of the interfa
 
   Comments are blanked before scanning, so documentation may describe a value ("half-steps of the
   4px base") without tripping the rule; only what renders is scanned.
+- **Also scans both apps** — `apps/desktop/src/**/*.{ts,tsx}` and `apps/remote/src/**/*.{ts,tsx}`,
+  excluding `*.test.ts(x)`, which assert what renders rather than decide a design value. Apps do not
+  import the typed helpers, so their contract is the custom property itself:
+  - a `var(--warsha-…)` reference **is allowed** here (it is the app's whole vocabulary), which is
+    the one place the rule relaxes rule 5 above;
+  - a **colour literal** (`#rgb`, `rgb(`, named colours such as `'white'`) fails;
+  - a **spacing literal** fails when the value sits on the 4px scale (`4 8 12 16 24 32 48 64`), and
+    the message names the `--warsha-space-*` step; a value **off** the scale (`10px`, `18px`, `40px`)
+    is **not** an offence, because the brief is to leave a value the scale cannot express rather than
+    force it;
+  - a **font-size literal** fails when the value sits on the type scale (`12 14 16 18 20 24 30px`,
+    `0.75 0.875 1 1.125 1.25 1.5 1.875rem`), and the message names the `--warsha-font-size-*` token;
+  - an **inline font stack** fails; `inherit` and `var(--warsha-font-mono)` pass;
+  - the scan reads the *value* of a declaration, so `borderRadius: '8px'` beside
+    `padding: 'var(--warsha-space-4)'` is not mistaken for a spacing literal.
 - **Also checks**, in the same file:
   - `tokens.css` and the six token modules declare **exactly the same names** — no extra property in
     the stylesheet, no token in TypeScript the CSS forgot;
@@ -194,7 +210,9 @@ commit; the ids are what a failing build prints, so they are part of the interfa
   passing.
 - **Passes today**: `Box`, `Text`, `Button` and `Card` reference tokens only; `tokens.css` and the
   token modules agree name for name and value for value; five story files cover the four components
-  plus the token layer.
+  plus the token layer; and both apps — 41 `.ts`/`.tsx` files (39 under `apps/desktop/src`, 2 under
+  `apps/remote/src`) — render from `var(--warsha-*)` references with no colour, on-scale spacing or
+  type literal left.
 - **Failure messages** (one per line, in the `ARCH_RULES` shape):
   - ``R6: packages/ui/src/components.tsx:34 hardcoded colour `#2563eb` (use a colour token: …)``
   - ``R6: packages/ui/src/components.tsx:52 hardcoded length `12px` (use a spacing or radius token: …)``
@@ -202,6 +220,10 @@ commit; the ids are what a failing build prints, so they are part of the interfa
   - ``R6: packages/ui/src/components.tsx:70 hardcoded font family `Inter, sans-serif` (use a family token: …)``
   - ``R6: packages/ui/src/components.tsx:78 raw token name `--warsha-…` (call the typed token helper instead)``
   - ``R6: packages/ui/src/components.tsx:80 untyped `cssVar(` call (use the typed helper: …)``
+  - ``R6: apps/desktop/src/screens/Budgets.tsx:41 hardcoded colour `#2563eb` (use a token reference: 'var(--warsha-color-accent)', …)``
+  - ``R6: apps/desktop/src/screens/Budgets.tsx:52 hardcoded spacing `16px` (use `var(--warsha-space-4)`; a value off the 4px scale may stay a pixel)``
+  - ``R6: apps/desktop/src/screens/Budgets.tsx:61 hardcoded font size `0.875rem` (use `var(--warsha-font-size-sm)`)``
+  - ``R6: apps/desktop/src/screens/Budgets.tsx:70 hardcoded font family `Inter, sans-serif` (use `var(--warsha-font-sans)` or `var(--warsha-font-mono)`)``
 
 ---
 
@@ -236,13 +258,21 @@ and exits `1` if any rule fails to fire, or if the clean fixture produces a fals
   do.
 - **Dead code and duplication** (for example the two `provider_setup` modules) are review questions,
   not boundary violations, and no rule here fires on them.
-- **App screens** — `apps/desktop/src/**` and `apps/remote/src/**` — are not scanned by R6 yet. They
-  still carry roughly 330 colour and spacing literals written before the token layer existed, and
-  converting them is a UI batch of its own. The M20 design-system batch migrated the accent
-  (`#FFD60A` / `#0E0E0E`, four sites) and the global stylesheet (`apps/desktop/src/index.css` now
-  imports the tokens); the rest is recorded as follow-up in PLAN.md rather than claimed here.
+- **App stylesheets** — `apps/desktop/src/index.css` and `apps/remote/src/index.css` — are outside the
+  R6 scan, which reads `.ts`/`.tsx` only. Both import `tokens.css` once and reference the custom
+  properties; a colour added there would be caught in review, not by this rule. Widening the scan to
+  `.css` is a one-line change to `APP_DIRECTORIES`' filter when a batch owns those files.
+- **Off-scale values** in the apps are deliberately allowed (see the app rules above): `10px`,
+  `13px`, `18px`, `40px`, `0.8125rem` and `0.8rem` have no token, so the rule does not ask for one.
+  It therefore cannot prove that a screen has no literal at all — only that every literal it *could*
+  have expressed as a token was expressed as one.
+- **Radii, widths and heights** in the apps stay literals: the batch that migrated colours, spacing
+  and type sizes did not touch radius or layout sizing, and R6's app scan does not flag them.
 - **Story files** are not scanned by R6: a story exists to show a token in context (a demo grid, a
   centred layout, a swatch), and scanning them would force fixtures into a vocabulary that exists to
   be looked at.
+- **App test files** are not scanned for the same reason this package's tests are not: an assertion
+  may name a rendered value, and `toHaveStyle({ backgroundColor: 'var(--warsha-color-surface-muted)' })`
+  is a claim about output, not a design decision.
 - **`tokens.css` itself** is not scanned for literals — it is the one file where the values are
   allowed to live, and it is compared against the TypeScript modules instead of being censored.

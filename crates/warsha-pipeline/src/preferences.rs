@@ -26,15 +26,21 @@
 //!   why?" without inventing a narrative the numbers do not support.
 //!
 //! The store is a trait with an in-memory implementation: the implementation
-//! here is the default for a run and the mock for tests, and the SQLite- or
-//! event-store-backed version implements the same three methods later. Nothing
-//! here reads the event store, the gates or the diffs yet — the callers that
-//! would turn a gate decision into a signal do not exist, and this module does
-//! not pretend otherwise.
+//! here is the default for a run and the mock for tests.
+//! [`InMemoryPreferenceStore::save_to_store`] projects the derived preferences
+//! into `warsha-store`'s `preferences` table and
+//! [`InMemoryPreferenceStore::load_from_store`] reads them back, so what Warsha
+//! learned survives a restart. What is *not* persisted is the signal log: the
+//! rows carry the score, its evidence count and its last update, so a reloaded
+//! preference cannot re-explain itself or keep ageing — the signals behind it
+//! still live in memory. Nothing here reads the event store, the gates or the
+//! diffs yet: the callers that would turn a gate decision into a signal do not
+//! exist, and this module does not pretend otherwise.
 
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use thiserror::Error;
+use warsha_store::{SqliteStore, StoreError, StoredPreference};
 
 /// How long it takes a signal to lose half its weight, in seconds (30 days).
 pub const DECAY_HALF_LIFE_SECS: u64 = 30 * 24 * 60 * 60;
@@ -306,6 +312,59 @@ impl InMemoryPreferenceStore {
         self.signals.clear();
         self.seen.clear();
         self.now = 0;
+    }
+
+    /// Project every derived preference into the SQLite store, one row per
+    /// project and target.
+    ///
+    /// The rows are the `(project_id, key)`-keyed output of
+    /// [`PreferenceStore::list_preferences`] — a snapshot of the decayed score,
+    /// not the signals. Saving twice replaces the score rather than adding to it,
+    /// so the table always mirrors the current derivation.
+    ///
+    /// The owner dimension is not a column: `Preference` has no `owner_id`, so
+    /// the owner-scoped view ([`InMemoryPreferenceStore::owner_preferences`])
+    /// stays in memory until the scoring model carries one.
+    pub fn save_to_store(&self, store: &SqliteStore) -> Result<(), StoreError> {
+        let project_ids: BTreeSet<&str> = self
+            .signals
+            .iter()
+            .map(|signal| signal.project_id.as_str())
+            .collect();
+        for project_id in project_ids {
+            for preference in self.scored(project_id, None) {
+                store.save_preference(&StoredPreference {
+                    project_id: project_id.to_string(),
+                    key: preference.key,
+                    score: preference.score,
+                    evidence_count: preference.evidence_count,
+                    last_updated: preference.last_updated,
+                })?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Read a project's preferences back out of the SQLite store.
+    ///
+    /// The scores come back exactly as they were saved. They are *not* decayed
+    /// again on read, because the signals that carry the timestamps are not in
+    /// the table; a caller that wants fresh decay records the signals in a new
+    /// store first. An unknown project is an empty list, not an error.
+    pub fn load_from_store(
+        store: &SqliteStore,
+        project_id: &str,
+    ) -> Result<Vec<Preference>, StoreError> {
+        let rows = store.load_preferences(project_id)?;
+        Ok(rows
+            .into_iter()
+            .map(|row| Preference {
+                key: row.key,
+                score: row.score,
+                evidence_count: row.evidence_count,
+                last_updated: row.last_updated,
+            })
+            .collect())
     }
 
     fn scored(&self, project_id: &str, owner_id: Option<&str>) -> Vec<Preference> {
@@ -732,5 +791,98 @@ mod tests {
             .record_signal(signal("s1", SignalKind::Approve, "dark mode", 10))
             .expect("records");
         assert_eq!(store.len(), 1);
+    }
+
+    /// A `warsha-store` database on a temporary file, with the M20 schema applied.
+    fn temp_sqlite_store() -> (SqliteStore, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let path = dir.path().join("warsha.db");
+        let store = SqliteStore::open(&path.to_string_lossy()).expect("the store opens");
+        store.migrate().expect("the schema is applied");
+        (store, dir)
+    }
+
+    #[test]
+    fn preferences_round_trip_through_the_sqlite_store() {
+        let mut memory = InMemoryPreferenceStore::new();
+        for (index, (kind, target)) in [
+            (SignalKind::Approve, "dark mode"),
+            (SignalKind::Approve, "dark mode"),
+            (SignalKind::Reject, "dark mode"),
+            (SignalKind::Approve, "tone"),
+        ]
+        .iter()
+        .enumerate()
+        {
+            memory
+                .record_signal(signal(
+                    &format!("s{index}"),
+                    *kind,
+                    target,
+                    100 * index as u64,
+                ))
+                .expect("records");
+        }
+        memory
+            .record_signal(PreferenceSignal::new(
+                "p2",
+                "project-2",
+                OWNER,
+                SignalKind::Approve,
+                "dark mode",
+                0,
+            ))
+            .expect("records");
+
+        let (store, _dir) = temp_sqlite_store();
+        memory
+            .save_to_store(&store)
+            .expect("the projection is written");
+
+        assert_eq!(
+            InMemoryPreferenceStore::load_from_store(&store, PROJECT).expect("the rows are read"),
+            memory.list_preferences(PROJECT)
+        );
+        assert_eq!(
+            InMemoryPreferenceStore::load_from_store(&store, "project-2")
+                .expect("the rows are read")
+                .len(),
+            1
+        );
+        // An unknown project is an empty list, not an error.
+        assert!(
+            InMemoryPreferenceStore::load_from_store(&store, "project-3")
+                .expect("the rows are read")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_second_save_replaces_the_stored_score() {
+        let mut memory = InMemoryPreferenceStore::new();
+        memory
+            .record_signal(signal("s1", SignalKind::Approve, "dark mode", 0))
+            .expect("records");
+
+        let (store, _dir) = temp_sqlite_store();
+        memory.save_to_store(&store).expect("the first projection");
+        approx(
+            InMemoryPreferenceStore::load_from_store(&store, PROJECT).expect("read")[0].score,
+            1.0,
+        );
+
+        // A month later the first approval is worth half as much and a second
+        // one is fresh: the row is replaced, not duplicated.
+        memory.advance_to(30 * DAY);
+        memory
+            .record_signal(signal("s2", SignalKind::Approve, "dark mode", 30 * DAY))
+            .expect("records");
+        memory.save_to_store(&store).expect("the second projection");
+
+        let loaded = InMemoryPreferenceStore::load_from_store(&store, PROJECT).expect("read");
+        assert_eq!(loaded.len(), 1);
+        approx(loaded[0].score, 1.5);
+        assert_eq!(loaded[0].evidence_count, 2);
+        assert_eq!(loaded[0].last_updated, 30 * DAY);
     }
 }

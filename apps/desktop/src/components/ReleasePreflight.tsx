@@ -44,18 +44,18 @@ const overallLabels: Record<PreflightOverall, Record<Locale, string>> = {
 };
 
 const overallColors: Record<PreflightOverall, { background: string; color: string }> = {
-  pending: { background: '#f3f4f6', color: '#6b7280' },
-  pass: { background: '#dcfce7', color: '#166534' },
-  fail: { background: '#fee2e2', color: '#991b1b' },
+  pending: { background: 'var(--warsha-color-surface-muted)', color: 'var(--warsha-color-text-muted)' },
+  pass: { background: 'var(--warsha-color-surface-muted)', color: 'var(--warsha-color-success)' },
+  fail: { background: 'var(--warsha-color-surface-muted)', color: 'var(--warsha-color-error)' },
 };
 
 const checkMeta: Record<
   PreflightCheckStatus,
   { glyph: string; color: string; label: Record<Locale, string> }
 > = {
-  pending: { glyph: '○', color: '#6b7280', label: { ar: 'في الانتظار', en: 'Pending' } },
-  pass: { glyph: '✓', color: '#166534', label: { ar: 'ناجح', en: 'Pass' } },
-  fail: { glyph: '✗', color: '#991b1b', label: { ar: 'فاشل', en: 'Fail' } },
+  pending: { glyph: '○', color: 'var(--warsha-color-text-muted)', label: { ar: 'في الانتظار', en: 'Pending' } },
+  pass: { glyph: '✓', color: 'var(--warsha-color-success)', label: { ar: 'ناجح', en: 'Pass' } },
+  fail: { glyph: '✗', color: 'var(--warsha-color-error)', label: { ar: 'فاشل', en: 'Fail' } },
 };
 
 const titleLabel = { ar: 'فحص ما قبل الإصدار', en: 'Release preflight' };
@@ -126,11 +126,11 @@ export function ReleasePreflight({ checks, onRun, disabled }: ReleasePreflightPr
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: '12px',
-        padding: '16px',
+        gap: 'var(--warsha-space-3)',
+        padding: 'var(--warsha-space-4)',
         borderRadius: '12px',
-        backgroundColor: 'white',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+        backgroundColor: 'var(--warsha-color-surface)',
+        boxShadow: 'var(--warsha-shadow-md)',
       }}
     >
       <header
@@ -138,11 +138,11 @@ export function ReleasePreflight({ checks, onRun, disabled }: ReleasePreflightPr
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          gap: '12px',
+          gap: 'var(--warsha-space-3)',
           flexWrap: 'wrap',
         }}
       >
-        <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>{title}</h2>
+        <h2 style={{ margin: 0, fontSize: 'var(--warsha-font-size-md)', fontWeight: 700 }}>{title}</h2>
         <span
           data-testid="preflight-overall"
           data-status={overall}
@@ -153,7 +153,7 @@ export function ReleasePreflight({ checks, onRun, disabled }: ReleasePreflightPr
             paddingInline: '10px',
             paddingBlock: '2px',
             borderRadius: '999px',
-            fontSize: '0.75rem',
+            fontSize: 'var(--warsha-font-size-xs)',
             fontWeight: 600,
             backgroundColor: overallColors[overall].background,
             color: overallColors[overall].color,
@@ -170,7 +170,7 @@ export function ReleasePreflight({ checks, onRun, disabled }: ReleasePreflightPr
           padding: 0,
           display: 'flex',
           flexDirection: 'column',
-          gap: '8px',
+          gap: 'var(--warsha-space-2)',
         }}
       >
         {checks.map((check, index) => {
@@ -199,15 +199,15 @@ export function ReleasePreflight({ checks, onRun, disabled }: ReleasePreflightPr
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
-                fontSize: '0.875rem',
+                gap: 'var(--warsha-space-2)',
+                fontSize: 'var(--warsha-font-size-sm)',
                 color: meta.color,
               }}
             >
               <span aria-hidden="true" data-testid={`preflight-check-icon-${normalized}`}>
                 {meta.glyph}
               </span>
-              <span style={{ color: '#1f2937' }}>{checkName}</span>
+              <span style={{ color: 'var(--warsha-color-text)' }}>{checkName}</span>
             </li>
           );
         })}
@@ -218,11 +218,11 @@ export function ReleasePreflight({ checks, onRun, disabled }: ReleasePreflightPr
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          gap: '12px',
+          gap: 'var(--warsha-space-3)',
           flexWrap: 'wrap',
         }}
       >
-        <span data-testid="preflight-count" style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+        <span data-testid="preflight-count" style={{ fontSize: 'var(--warsha-font-size-xs)', color: 'var(--warsha-color-text-muted)' }}>
           {count}
         </span>
         <Button variant="primary" size="sm" dir={dir} disabled={disabled} onClick={onRun}>

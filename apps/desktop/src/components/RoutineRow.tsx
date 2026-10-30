@@ -48,13 +48,13 @@ const stateLabels: Record<RoutineState, Record<Locale, string>> = {
 
 /** The accent pill is the same in both themes, so the states read the same. */
 const stateStyles: Record<RoutineState, { backgroundColor: string; color: string }> = {
-  idle: { backgroundColor: '#f3f4f6', color: '#4b5563' },
+  idle: { backgroundColor: 'var(--warsha-color-surface-muted)', color: 'var(--warsha-color-text-muted)' },
   running: {
     backgroundColor: 'var(--warsha-color-accent)',
     color: 'var(--warsha-color-accent-ink)',
   },
-  paused: { backgroundColor: '#fef3c7', color: '#92400e' },
-  failed: { backgroundColor: '#fee2e2', color: '#991b1b' },
+  paused: { backgroundColor: 'var(--warsha-color-surface-muted)', color: 'var(--warsha-color-warning)' },
+  failed: { backgroundColor: 'var(--warsha-color-surface-muted)', color: 'var(--warsha-color-error)' },
 };
 
 /**
@@ -99,10 +99,10 @@ export function RoutineRow({ routine, onRun, onPause, onResume }: RoutineRowProp
         flexDirection: 'column',
         gap: '6px',
         paddingInline: '14px',
-        paddingBlock: '12px',
+        paddingBlock: 'var(--warsha-space-3)',
         borderRadius: '10px',
-        border: '1px solid #e5e7eb',
-        backgroundColor: '#ffffff',
+        border: '1px solid var(--warsha-color-border)',
+        backgroundColor: 'var(--warsha-color-surface)',
         listStyle: 'none',
       }}
     >
@@ -111,7 +111,7 @@ export function RoutineRow({ routine, onRun, onPause, onResume }: RoutineRowProp
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          gap: '8px',
+          gap: 'var(--warsha-space-2)',
         }}
       >
         <span
@@ -126,10 +126,10 @@ export function RoutineRow({ routine, onRun, onPause, onResume }: RoutineRowProp
           style={{
             ...stateStyles[routine.state],
             flex: '0 0 auto',
-            paddingInline: '8px',
+            paddingInline: 'var(--warsha-space-2)',
             paddingBlock: '2px',
             borderRadius: '999px',
-            fontSize: '0.75rem',
+            fontSize: 'var(--warsha-font-size-xs)',
             fontWeight: 600,
             whiteSpace: 'nowrap',
           }}
@@ -142,9 +142,9 @@ export function RoutineRow({ routine, onRun, onPause, onResume }: RoutineRowProp
         data-testid={`routine-row-${routine.id}-schedule`}
         dir="ltr"
         style={{
-          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+          fontFamily: 'var(--warsha-font-mono)',
           fontSize: '0.8125rem',
-          color: '#4b5563',
+          color: 'var(--warsha-color-text-muted)',
           unicodeBidi: 'isolate',
           textAlign: 'start',
         }}
@@ -154,12 +154,12 @@ export function RoutineRow({ routine, onRun, onPause, onResume }: RoutineRowProp
 
       <span
         data-testid={`routine-row-${routine.id}-description`}
-        style={{ fontSize: '0.875rem', color: '#374151', lineHeight: 1.5 }}
+        style={{ fontSize: 'var(--warsha-font-size-sm)', color: 'var(--warsha-color-text)', lineHeight: 1.5 }}
       >
         {routine.description}
       </span>
 
-      <div style={{ display: 'flex', gap: '8px', paddingBlockStart: '2px' }}>
+      <div style={{ display: 'flex', gap: 'var(--warsha-space-2)', paddingBlockStart: '2px' }}>
         {routineActions(routine.state).map((action) => (
           <Button key={action} variant="secondary" size="sm" dir={dir} onClick={handlers[action]}>
             {localized(`simple.routines.action.${action}`, actionLabels[action][locale], locale)}

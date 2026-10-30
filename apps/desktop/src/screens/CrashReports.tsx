@@ -89,22 +89,22 @@ export function CrashReports({ reports }: CrashReportsProps) {
         display: 'flex',
         flexDirection: 'column',
         gap: '10px',
-        paddingInline: '16px',
-        paddingBlock: '12px',
+        paddingInline: 'var(--warsha-space-4)',
+        paddingBlock: 'var(--warsha-space-3)',
       }}
     >
       <header style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-          <h2 style={{ margin: 0, fontSize: '1.125rem', fontWeight: 700 }}>{title}</h2>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--warsha-space-2)' }}>
+          <h2 style={{ margin: 0, fontSize: 'var(--warsha-font-size-lg)', fontWeight: 700 }}>{title}</h2>
           <span
             data-testid="crash-reports-count"
             style={{
-              paddingInline: '8px',
+              paddingInline: 'var(--warsha-space-2)',
               paddingBlock: '1px',
               borderRadius: '999px',
-              border: '1px solid #e5e7eb',
-              color: '#4b5563',
-              fontSize: '0.75rem',
+              border: '1px solid var(--warsha-color-border)',
+              color: 'var(--warsha-color-text-muted)',
+              fontSize: 'var(--warsha-font-size-xs)',
               fontWeight: 600,
             }}
           >
@@ -113,7 +113,7 @@ export function CrashReports({ reports }: CrashReportsProps) {
         </div>
         <p
           data-testid="crash-reports-note"
-          style={{ margin: 0, fontSize: '0.8125rem', color: '#4b5563' }}
+          style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--warsha-color-text-muted)' }}
         >
           {note}
         </p>
@@ -122,7 +122,7 @@ export function CrashReports({ reports }: CrashReportsProps) {
       {reports.length === 0 ? (
         <p
           data-testid="crash-reports-empty"
-          style={{ margin: 0, fontSize: '0.875rem', color: '#4b5563' }}
+          style={{ margin: 0, fontSize: 'var(--warsha-font-size-sm)', color: 'var(--warsha-color-text-muted)' }}
         >
           {empty}
         </p>
@@ -132,7 +132,7 @@ export function CrashReports({ reports }: CrashReportsProps) {
           style={{
             display: 'flex',
             flexDirection: 'column',
-            gap: '8px',
+            gap: 'var(--warsha-space-2)',
             margin: 0,
             padding: 0,
             listStyle: 'none',
@@ -152,10 +152,10 @@ export function CrashReports({ reports }: CrashReportsProps) {
                   flexDirection: 'column',
                   gap: '6px',
                   paddingInline: '14px',
-                  paddingBlock: '12px',
+                  paddingBlock: 'var(--warsha-space-3)',
                   borderRadius: '10px',
-                  border: '1px solid #e5e7eb',
-                  backgroundColor: '#ffffff',
+                  border: '1px solid var(--warsha-color-border)',
+                  backgroundColor: 'var(--warsha-color-surface)',
                   listStyle: 'none',
                 }}
               >
@@ -164,7 +164,7 @@ export function CrashReports({ reports }: CrashReportsProps) {
                     display: 'flex',
                     alignItems: 'flex-start',
                     justifyContent: 'space-between',
-                    gap: '8px',
+                    gap: 'var(--warsha-space-2)',
                   }}
                 >
                   <span
@@ -178,10 +178,10 @@ export function CrashReports({ reports }: CrashReportsProps) {
                     data-sent={report.sent}
                     style={{
                       flex: '0 0 auto',
-                      paddingInline: '8px',
+                      paddingInline: 'var(--warsha-space-2)',
                       paddingBlock: '2px',
                       borderRadius: '999px',
-                      fontSize: '0.75rem',
+                      fontSize: 'var(--warsha-font-size-xs)',
                       fontWeight: 600,
                       whiteSpace: 'nowrap',
                       backgroundColor: report.sent
@@ -200,9 +200,9 @@ export function CrashReports({ reports }: CrashReportsProps) {
                   data-testid={`crash-report-${report.id}-time`}
                   dir="ltr"
                   style={{
-                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                    fontFamily: 'var(--warsha-font-mono)',
                     fontSize: '0.8125rem',
-                    color: '#4b5563',
+                    color: 'var(--warsha-color-text-muted)',
                     unicodeBidi: 'isolate',
                     textAlign: 'start',
                   }}
@@ -212,7 +212,7 @@ export function CrashReports({ reports }: CrashReportsProps) {
 
                 {stackTrace.length > 0 ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#6b7280' }}>
+                    <span style={{ fontSize: 'var(--warsha-font-size-xs)', fontWeight: 600, color: 'var(--warsha-color-text-muted)' }}>
                       {stackLabel}
                     </span>
                     <pre
@@ -223,12 +223,12 @@ export function CrashReports({ reports }: CrashReportsProps) {
                         maxHeight: '9rem',
                         overflow: 'auto',
                         paddingInline: '10px',
-                        paddingBlock: '8px',
+                        paddingBlock: 'var(--warsha-space-2)',
                         borderRadius: '8px',
-                        backgroundColor: '#f9fafb',
-                        color: '#374151',
-                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-                        fontSize: '0.75rem',
+                        backgroundColor: 'var(--warsha-color-bg)',
+                        color: 'var(--warsha-color-text)',
+                        fontFamily: 'var(--warsha-font-mono)',
+                        fontSize: 'var(--warsha-font-size-xs)',
                         unicodeBidi: 'isolate',
                         textAlign: 'start',
                       }}

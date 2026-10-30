@@ -91,15 +91,15 @@ export function SlashCommandPicker({ commands, onSelect, query = '' }: SlashComm
         paddingInline: '6px',
         paddingBlock: '6px',
         borderRadius: '10px',
-        border: '1px solid #e5e7eb',
-        backgroundColor: '#ffffff',
-        boxShadow: '0 6px 20px rgba(14, 14, 14, 0.08)',
+        border: '1px solid var(--warsha-color-border)',
+        backgroundColor: 'var(--warsha-color-surface)',
+        boxShadow: 'var(--warsha-shadow-lg)',
       }}
     >
       {options.length === 0 ? (
         <p
           data-testid="slash-command-picker-empty"
-          style={{ margin: 0, paddingInline: '8px', paddingBlock: '4px', color: '#6b7280' }}
+          style={{ margin: 0, paddingInline: 'var(--warsha-space-2)', paddingBlock: 'var(--warsha-space-1)', color: 'var(--warsha-color-text-muted)' }}
         >
           {empty}
         </p>
@@ -116,12 +116,12 @@ export function SlashCommandPicker({ commands, onSelect, query = '' }: SlashComm
               flexDirection: 'column',
               alignItems: 'flex-start',
               gap: '1px',
-              paddingInline: '8px',
+              paddingInline: 'var(--warsha-space-2)',
               paddingBlock: '5px',
               borderRadius: '6px',
               border: 'none',
               backgroundColor: 'transparent',
-              color: '#0E0E0E',
+              color: 'var(--warsha-color-accent-ink)',
               textAlign: 'start',
               cursor: 'pointer',
               fontSize: '0.8125rem',
@@ -130,14 +130,14 @@ export function SlashCommandPicker({ commands, onSelect, query = '' }: SlashComm
             <span
               dir="ltr"
               style={{
-                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                fontFamily: 'var(--warsha-font-mono)',
                 fontWeight: 600,
                 unicodeBidi: 'isolate',
               }}
             >
               {command.name}
             </span>
-            <span style={{ color: '#6b7280', fontSize: '0.75rem' }}>{command.description}</span>
+            <span style={{ color: 'var(--warsha-color-text-muted)', fontSize: 'var(--warsha-font-size-xs)' }}>{command.description}</span>
           </button>
         ))
       )}

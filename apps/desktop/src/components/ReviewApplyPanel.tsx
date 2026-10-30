@@ -118,9 +118,9 @@ export function diffLines(before: string | null, after: string): DiffLine[] {
 const diffGlyphs: Record<DiffKind, string> = { context: ' ', added: '+', removed: '-' };
 
 const diffColors: Record<DiffKind, { background: string; color: string }> = {
-  context: { background: 'transparent', color: '#4b5563' },
-  added: { background: '#dcfce7', color: '#166534' },
-  removed: { background: '#fee2e2', color: '#991b1b' },
+  context: { background: 'transparent', color: 'var(--warsha-color-text-muted)' },
+  added: { background: 'var(--warsha-color-surface-muted)', color: 'var(--warsha-color-success)' },
+  removed: { background: 'var(--warsha-color-surface-muted)', color: 'var(--warsha-color-error)' },
 };
 
 export interface ReviewApplyPanelProps {
@@ -240,11 +240,11 @@ export function ReviewApplyPanel({
         display: 'flex',
         flexDirection: 'column',
         gap: '10px',
-        paddingInline: '16px',
+        paddingInline: 'var(--warsha-space-4)',
         paddingBlock: '14px',
         borderRadius: '12px',
-        backgroundColor: 'white',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+        backgroundColor: 'var(--warsha-color-surface)',
+        boxShadow: 'var(--warsha-shadow-md)',
       }}
     >
       <header
@@ -252,14 +252,14 @@ export function ReviewApplyPanel({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          gap: '12px',
+          gap: 'var(--warsha-space-3)',
           flexWrap: 'wrap',
         }}
       >
         <h2 style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 700 }}>{title}</h2>
         <p
           data-testid="review-apply-summary"
-          style={{ margin: 0, fontSize: '0.75rem', color: '#6b7280' }}
+          style={{ margin: 0, fontSize: 'var(--warsha-font-size-xs)', color: 'var(--warsha-color-text-muted)' }}
         >
           {files.length} {summary}
           {conflictCount > 0 ? ` · ${conflictCount} ${conflictsLabel}` : ''}
@@ -269,7 +269,7 @@ export function ReviewApplyPanel({
       {files.length === 0 ? (
         <p
           data-testid="review-apply-empty"
-          style={{ margin: 0, fontSize: '0.8125rem', color: '#6b7280' }}
+          style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--warsha-color-text-muted)' }}
         >
           {noFiles}
         </p>
@@ -282,7 +282,7 @@ export function ReviewApplyPanel({
             padding: 0,
             display: 'flex',
             flexDirection: 'column',
-            gap: '8px',
+            gap: 'var(--warsha-space-2)',
           }}
         >
           {files.map((file, index) => {
@@ -301,17 +301,17 @@ export function ReviewApplyPanel({
                   flexDirection: 'column',
                   gap: '6px',
                   paddingInline: '10px',
-                  paddingBlock: '8px',
+                  paddingBlock: 'var(--warsha-space-2)',
                   borderRadius: '10px',
-                  border: `1px solid ${file.conflict ? '#fca5a5' : '#e5e7eb'}`,
-                  backgroundColor: file.conflict ? '#fef2f2' : '#f9fafb',
+                  border: `1px solid ${file.conflict ? 'var(--warsha-color-border-strong)' : 'var(--warsha-color-border)'}`,
+                  backgroundColor: file.conflict ? 'var(--warsha-color-surface-muted)' : 'var(--warsha-color-bg)',
                 }}
               >
                 <label
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '8px',
+                    gap: 'var(--warsha-space-2)',
                     flexWrap: 'wrap',
                     fontSize: '0.8125rem',
                     fontWeight: 600,
@@ -328,7 +328,7 @@ export function ReviewApplyPanel({
                     dir="ltr"
                     style={{
                       unicodeBidi: 'isolate',
-                      fontFamily: 'monospace',
+                      fontFamily: 'var(--warsha-font-mono)',
                       fontSize: '0.8125rem',
                     }}
                   >
@@ -341,8 +341,8 @@ export function ReviewApplyPanel({
                         paddingInline: '6px',
                         paddingBlock: '1px',
                         borderRadius: '999px',
-                        backgroundColor: '#dbeafe',
-                        color: '#1e40af',
+                        backgroundColor: 'var(--warsha-color-surface-muted)',
+                        color: 'var(--warsha-color-accent-strong)',
                         fontSize: '0.6875rem',
                       }}
                     >
@@ -356,8 +356,8 @@ export function ReviewApplyPanel({
                         paddingInline: '6px',
                         paddingBlock: '1px',
                         borderRadius: '999px',
-                        backgroundColor: '#fee2e2',
-                        color: '#991b1b',
+                        backgroundColor: 'var(--warsha-color-surface-muted)',
+                        color: 'var(--warsha-color-error)',
                         fontSize: '0.6875rem',
                       }}
                     >
@@ -371,13 +371,13 @@ export function ReviewApplyPanel({
                   dir="ltr"
                   style={{
                     margin: 0,
-                    paddingInline: '8px',
+                    paddingInline: 'var(--warsha-space-2)',
                     paddingBlock: '6px',
                     borderRadius: '8px',
-                    border: '1px solid #e5e7eb',
-                    backgroundColor: 'white',
-                    fontSize: '0.75rem',
-                    fontFamily: 'monospace',
+                    border: '1px solid var(--warsha-color-border)',
+                    backgroundColor: 'var(--warsha-color-surface)',
+                    fontSize: 'var(--warsha-font-size-xs)',
+                    fontFamily: 'var(--warsha-font-mono)',
                     overflowX: 'auto',
                     whiteSpace: 'pre',
                   }}
@@ -399,7 +399,7 @@ export function ReviewApplyPanel({
                 {hidden > 0 && (
                   <p
                     data-testid={`review-file-hidden-${index}`}
-                    style={{ margin: 0, fontSize: '0.6875rem', color: '#6b7280' }}
+                    style={{ margin: 0, fontSize: '0.6875rem', color: 'var(--warsha-color-text-muted)' }}
                   >
                     {hidden} {truncatedNotice}
                   </p>
@@ -416,8 +416,8 @@ export function ReviewApplyPanel({
           display: 'inline-flex',
           alignItems: 'center',
           gap: '6px',
-          fontSize: '0.75rem',
-          color: '#374151',
+          fontSize: 'var(--warsha-font-size-xs)',
+          color: 'var(--warsha-color-text)',
         }}
       >
         <input
@@ -430,7 +430,7 @@ export function ReviewApplyPanel({
         {selectAllLabel}
       </label>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-2)', flexWrap: 'wrap' }}>
         <Button
           size="sm"
           dir={dir}
@@ -455,13 +455,13 @@ export function ReviewApplyPanel({
 
       <p
         data-testid="review-apply-backup-notice"
-        style={{ margin: 0, fontSize: '0.75rem', color: '#374151' }}
+        style={{ margin: 0, fontSize: 'var(--warsha-font-size-xs)', color: 'var(--warsha-color-text)' }}
       >
         {backupNotice}
         {backupName !== '' && (
           <>
             {': '}
-            <code dir="ltr" style={{ unicodeBidi: 'isolate', fontFamily: 'monospace' }}>
+            <code dir="ltr" style={{ unicodeBidi: 'isolate', fontFamily: 'var(--warsha-font-mono)' }}>
               {backupName}
             </code>
           </>
@@ -469,7 +469,7 @@ export function ReviewApplyPanel({
         {runId !== undefined && runId !== '' && (
           <>
             <span aria-hidden="true"> · </span>
-            <code dir="ltr" style={{ unicodeBidi: 'isolate', fontFamily: 'monospace' }}>
+            <code dir="ltr" style={{ unicodeBidi: 'isolate', fontFamily: 'var(--warsha-font-mono)' }}>
               {runId}
             </code>
           </>
@@ -478,7 +478,7 @@ export function ReviewApplyPanel({
       <p
         data-testid="review-apply-conflict-policy"
         data-owner-wins={ownerWins ? 'true' : 'false'}
-        style={{ margin: 0, fontSize: '0.75rem', color: '#6b7280' }}
+        style={{ margin: 0, fontSize: 'var(--warsha-font-size-xs)', color: 'var(--warsha-color-text-muted)' }}
       >
         {ownerWins ? ownerWinsNotice : remoteWinsNotice}
       </p>

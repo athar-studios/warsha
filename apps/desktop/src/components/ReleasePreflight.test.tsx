@@ -59,7 +59,7 @@ describe('ReleasePreflight', () => {
     const overall = screen.getByTestId('preflight-overall');
     expect(overall).toHaveAttribute('data-status', 'pass');
     expect(overall).toHaveTextContent('Ready to release');
-    expect(overall).toHaveStyle({ backgroundColor: 'rgb(220, 252, 231)' });
+    expect(overall).toHaveStyle({ backgroundColor: 'var(--warsha-color-surface-muted)' });
     expect(screen.getByTestId('preflight-count')).toHaveTextContent('6 of 6 passed');
 
     // Every check renders the pass glyph.
@@ -82,7 +82,7 @@ describe('ReleasePreflight', () => {
     expect(overall).toHaveTextContent('Blocked');
     expect(screen.getByTestId('preflight-check-icon-tests').textContent).toBe('✗');
     expect(screen.getByTestId('preflight-check-icon-tests')).toHaveStyle({
-      color: 'rgb(153, 27, 27)',
+      color: 'var(--warsha-color-error)',
     });
     expect(screen.getByTestId('preflight-count')).toHaveTextContent('2 of 6 passed');
   });

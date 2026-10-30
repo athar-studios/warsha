@@ -92,15 +92,15 @@ export function MentionPicker({ onSelect, query = '' }: MentionPickerProps) {
         paddingInline: '6px',
         paddingBlock: '6px',
         borderRadius: '10px',
-        border: '1px solid #e5e7eb',
-        backgroundColor: '#ffffff',
-        boxShadow: '0 6px 20px rgba(14, 14, 14, 0.08)',
+        border: '1px solid var(--warsha-color-border)',
+        backgroundColor: 'var(--warsha-color-surface)',
+        boxShadow: 'var(--warsha-shadow-lg)',
       }}
     >
       {options.length === 0 ? (
         <p
           data-testid="mention-picker-empty"
-          style={{ margin: 0, paddingInline: '8px', paddingBlock: '4px', color: '#6b7280' }}
+          style={{ margin: 0, paddingInline: 'var(--warsha-space-2)', paddingBlock: 'var(--warsha-space-1)', color: 'var(--warsha-color-text-muted)' }}
         >
           {empty}
         </p>
@@ -123,13 +123,13 @@ export function MentionPicker({ onSelect, query = '' }: MentionPickerProps) {
               style={{
                 display: 'flex',
                 alignItems: 'baseline',
-                gap: '8px',
-                paddingInline: '8px',
+                gap: 'var(--warsha-space-2)',
+                paddingInline: 'var(--warsha-space-2)',
                 paddingBlock: '5px',
                 borderRadius: '6px',
                 border: 'none',
                 backgroundColor: 'transparent',
-                color: '#0E0E0E',
+                color: 'var(--warsha-color-accent-ink)',
                 textAlign: 'start',
                 cursor: 'pointer',
                 fontSize: '0.8125rem',
@@ -138,14 +138,14 @@ export function MentionPicker({ onSelect, query = '' }: MentionPickerProps) {
               <span
                 dir="ltr"
                 style={{
-                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-                  color: '#374151',
+                  fontFamily: 'var(--warsha-font-mono)',
+                  color: 'var(--warsha-color-text)',
                   unicodeBidi: 'isolate',
                 }}
               >
                 @{kind}
               </span>
-              <span style={{ color: '#4b5563' }}>{label}</span>
+              <span style={{ color: 'var(--warsha-color-text-muted)' }}>{label}</span>
             </button>
           );
         })

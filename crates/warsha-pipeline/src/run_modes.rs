@@ -28,11 +28,20 @@
 //! handshake, the one-time secret's format and the E2E channel are the M6 device
 //! flow's job (`warsha-remote`); this module stores what that flow decides.
 //!
+//! Both survive a restart through `warsha-store`:
+//! [`RunModeConfig::save_to_store`]/[`RunModeConfig::load_from_store`] keep one
+//! row per mode in `run_modes`, and [`InMemoryPairingStore::save_to_store`]/
+//! [`InMemoryPairingStore::load_from_store`] keep the pairing rows in
+//! `pairing_devices`. The pairing table holds the one-time secret as the M6 flow
+//! minted it — the QR channel has to hand the same value back to the device — and
+//! `Debug` redacts it on both sides so it cannot reach a log.
+//!
 //! Nothing here opens a socket: `bind_host` is data a later daemon reads. The
 //! relay is a URL string, not a connection, and no code in this module dials it.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use warsha_store::{SqliteStore, StoreError, StoredPairing, StoredRunMode};
 
 /// The only two spellings of "this machine" the daemon binds.
 pub const LOOPBACK_HOST: &str = "127.0.0.1";
@@ -231,6 +240,38 @@ impl RunModeConfig {
 
         Ok(())
     }
+
+    /// Persist this config for its own mode, replacing the previous row.
+    ///
+    /// The row is keyed by [`RunMode::as_str`], so the three modes never collide:
+    /// switching to Hosted does not erase the Local config, and switching back
+    /// still finds it. The whole struct is serialised, so an allow-list or a
+    /// relay URL comes back exactly as it went in.
+    pub fn save_to_store(&self, store: &SqliteStore) -> Result<(), StoreError> {
+        store.save_run_mode(&StoredRunMode {
+            mode: self.mode.as_str().to_string(),
+            config_json: serde_json::to_string(self)?,
+        })
+    }
+
+    /// Load the stored config for `mode`, or `None` when it was never saved.
+    ///
+    /// The config is returned as stored and is **not** validated here:
+    /// [`RunModeConfig::validate`] stays the one gate a daemon must pass before
+    /// it binds, so an old row that is no longer legal is read back and then
+    /// refused, rather than being silently repaired.
+    pub fn load_from_store(
+        store: &SqliteStore,
+        mode: RunMode,
+    ) -> Result<Option<RunModeConfig>, StoreError> {
+        match store.load_run_mode(mode.as_str())? {
+            None => Ok(None),
+            Some(row) => {
+                let config: RunModeConfig = serde_json::from_str(&row.config_json)?;
+                Ok(Some(config))
+            }
+        }
+    }
 }
 
 /// True for the two accepted spellings of "this machine".
@@ -405,6 +446,42 @@ impl InMemoryPairingStore {
         self.pairings
             .iter()
             .find(|pairing| pairing.device_id == device_id)
+    }
+
+    /// Persist every pairing — revoked ones included — into the SQLite store.
+    ///
+    /// Revocation is a value on the row, not a delete, so a revoked device is
+    /// written the same way as an active one and comes back revoked.
+    pub fn save_to_store(&self, store: &SqliteStore) -> Result<(), StoreError> {
+        for pairing in &self.pairings {
+            store.save_pairing(&StoredPairing {
+                device_id: pairing.device_id.clone(),
+                secret: pairing.secret.clone(),
+                created_at: pairing.created_at,
+                revoked: pairing.revoked,
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Read the pairings back into a store, oldest first.
+    ///
+    /// The result is a fresh [`InMemoryPairingStore`], so the caller gets the
+    /// same `create`/`list`/`revoke` behaviour it had before the restart rather
+    /// than a read-only view. A device already paired under the same id is kept
+    /// as stored: this is a reload, not a re-pairing.
+    pub fn load_from_store(store: &SqliteStore) -> Result<InMemoryPairingStore, StoreError> {
+        let pairings = store
+            .load_pairings()?
+            .into_iter()
+            .map(|row| PhonePairing {
+                device_id: row.device_id,
+                secret: row.secret,
+                created_at: row.created_at,
+                revoked: row.revoked,
+            })
+            .collect();
+        Ok(Self { pairings })
     }
 }
 
@@ -788,5 +865,98 @@ mod tests {
         assert_eq!(json["device_id"], "device-1");
         assert_eq!(json["secret"], "super-secret-value");
         assert_eq!(json["revoked"], false);
+    }
+
+    /// A `warsha-store` database on a temporary file, with the M20 schema applied.
+    fn temp_sqlite_store() -> (SqliteStore, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let path = dir.path().join("warsha.db");
+        let store = SqliteStore::open(&path.to_string_lossy()).expect("the store opens");
+        store.migrate().expect("the schema is applied");
+        (store, dir)
+    }
+
+    #[test]
+    fn run_mode_config_round_trips_through_the_sqlite_store() {
+        let (store, _dir) = temp_sqlite_store();
+        assert_eq!(
+            RunModeConfig::load_from_store(&store, RunMode::Local).expect("the read works"),
+            None
+        );
+
+        let local = RunModeConfig::for_mode(RunMode::Local);
+        let hosted = RunModeConfig::for_mode(RunMode::Hosted)
+            .with_relay_url("wss://relay.example.invalid")
+            .with_allowed_hosts(["warsha.lan".to_string()]);
+        local.save_to_store(&store).expect("local is written");
+        hosted.save_to_store(&store).expect("hosted is written");
+
+        assert_eq!(
+            RunModeConfig::load_from_store(&store, RunMode::Local).expect("the read works"),
+            Some(local)
+        );
+        let loaded_hosted =
+            RunModeConfig::load_from_store(&store, RunMode::Hosted).expect("the read works");
+        let loaded_hosted = loaded_hosted.expect("hosted was saved");
+        assert_eq!(loaded_hosted, hosted);
+        // Saving one mode did not overwrite the other, and the loaded config is
+        // still valid for its mode.
+        assert_eq!(loaded_hosted.mode, RunMode::Hosted);
+        assert!(loaded_hosted.validate().is_ok());
+        assert_eq!(
+            RunModeConfig::load_from_store(&store, RunMode::SelfHosted).expect("the read works"),
+            None
+        );
+    }
+
+    #[test]
+    fn run_mode_config_saves_replace_the_row_for_that_mode() {
+        let (store, _dir) = temp_sqlite_store();
+        RunModeConfig::for_mode(RunMode::Hosted)
+            .with_relay_url("wss://first.invalid")
+            .save_to_store(&store)
+            .expect("the first write");
+        let replaced =
+            RunModeConfig::for_mode(RunMode::Hosted).with_relay_url("wss://second.invalid");
+        replaced.save_to_store(&store).expect("the second write");
+
+        let loaded = RunModeConfig::load_from_store(&store, RunMode::Hosted)
+            .expect("the read works")
+            .expect("the row exists");
+        assert_eq!(loaded.relay_url.as_deref(), Some("wss://second.invalid"));
+        assert_eq!(loaded, replaced);
+    }
+
+    #[test]
+    fn pairings_round_trip_through_the_sqlite_store() {
+        let (store, _dir) = temp_sqlite_store();
+        let mut memory = InMemoryPairingStore::new();
+        memory
+            .create("device-1", "one-time-secret", 1_700_000_000)
+            .expect("the first pairing");
+        memory
+            .create("device-2", "another-secret", 1_700_000_100)
+            .expect("the second pairing");
+        memory.revoke("device-1").expect("device-1 is revoked");
+
+        memory
+            .save_to_store(&store)
+            .expect("the pairings are written");
+
+        let reloaded = InMemoryPairingStore::load_from_store(&store).expect("the rows are read");
+        assert_eq!(reloaded.list(), memory.list());
+        assert_eq!(reloaded.len(), 2);
+        // Revocation survived the round trip: the row is there, the device is not
+        // allowed to act, and its secret is unchanged.
+        assert_eq!(reloaded.is_revoked("device-1"), Ok(true));
+        assert_eq!(reloaded.is_revoked("device-2"), Ok(false));
+        assert_eq!(reloaded.active().len(), 1);
+        let first = reloaded.get("device-1").expect("the row exists");
+        assert_eq!(first.secret, "one-time-secret");
+        assert_eq!(first.created_at, 1_700_000_000);
+        // The secret never prints on either side of the store.
+        assert!(!format!("{first:?}").contains("one-time-secret"));
+        let stored = store.load_pairings().expect("the rows are readable");
+        assert!(!format!("{stored:?}").contains("one-time-secret"));
     }
 }

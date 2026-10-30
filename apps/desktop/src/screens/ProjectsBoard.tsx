@@ -100,34 +100,34 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
       <Box key={stage} dir={dir} style={{
         minWidth: '280px',
         maxWidth: '280px',
-        backgroundColor: isGate ? '#fef3c7' : '#f9fafb',
+        backgroundColor: isGate ? 'var(--warsha-color-surface-muted)' : 'var(--warsha-color-bg)',
         borderRadius: '12px',
-        padding: '12px',
+        padding: 'var(--warsha-space-3)',
         display: 'flex',
         flexDirection: 'column',
         minHeight: '600px',
       }}>
-        <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+        <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--warsha-space-3)' }}>
           <Text weight="bold" size="sm" dir={dir} style={{ 
-            color: isGate ? '#92400e' : '#374151',
+            color: isGate ? 'var(--warsha-color-warning)' : 'var(--warsha-color-text)',
             textTransform: 'uppercase',
             letterSpacing: '0.05em',
           }}>
             {locale === 'ar' && isGate ? 'بوابة' : label}
           </Text>
           <Text size="xs" dir={dir} style={{ 
-            backgroundColor: isGate ? '#fde68a' : '#e5e7eb',
-            padding: '2px 8px',
+            backgroundColor: isGate ? 'var(--warsha-color-surface-muted)' : 'var(--warsha-color-border)',
+            padding: '2px var(--warsha-space-2)',
             borderRadius: '9999px',
-            color: isGate ? '#92400e' : '#6b7280',
+            color: isGate ? 'var(--warsha-color-warning)' : 'var(--warsha-color-text-muted)',
           }}>
             {count}
           </Text>
         </Box>
         
-        <Box dir={dir} style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <Box dir={dir} style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' }}>
           {runs.length === 0 ? (
-            <Text size="xs" dir={dir} style={{ color: '#9ca3af', textAlign: 'center', marginTop: '40px' }}>
+            <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-muted)', textAlign: 'center', marginTop: '40px' }}>
               {isGate 
                 ? (locale === 'ar' ? 'في انتظار الموافقة' : 'Awaiting approval')
                 : (locale === 'ar' ? 'فارغ' : 'Empty')}
@@ -138,7 +138,7 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
                 <Text weight="medium" size="sm" dir={dir} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {run.projectName}
                 </Text>
-                <Text size="xs" dir={dir} style={{ color: '#6b7280' }}>
+                <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
                   {new Date(run.startedAt).toLocaleDateString(locale)}
                 </Text>
               </Card>
@@ -150,8 +150,8 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
   };
 
   return (
-    <Box dir={dir} className="projects-board" style={{ padding: '24px', minHeight: 'calc(100vh - 80px)' }}>
-      <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+    <Box dir={dir} className="projects-board" style={{ padding: 'var(--warsha-space-6)', minHeight: 'calc(100vh - 80px)' }}>
+      <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--warsha-space-6)' }}>
         <Text size="xl" weight="bold" dir={dir}>
           {locale === 'ar' ? 'لوحة المشاريع' : 'Projects Board'}
         </Text>
@@ -167,9 +167,9 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
       ) : (
         <Box dir={dir} style={{ 
           display: 'flex', 
-          gap: '16px', 
+          gap: 'var(--warsha-space-4)', 
           overflowX: 'auto',
-          paddingBottom: '24px',
+          paddingBottom: 'var(--warsha-space-6)',
           minHeight: '600px',
         }}>
           {STAGE_COLUMNS.map(col => renderColumn(col.stage, col.label, col.isGate))}
@@ -183,29 +183,29 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
           insetInlineStart: 0,
           insetInlineEnd: 0,
           bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
+          backgroundColor: 'var(--warsha-color-muted)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           zIndex: 1000,
           direction: dir,
         }}>
-          <Card dir={dir} style={{ width: '100%', maxWidth: '480px', margin: '16px' }}>
-            <Text size="lg" weight="bold" dir={dir} style={{ marginBottom: '24px' }}>
+          <Card dir={dir} style={{ width: '100%', maxWidth: '480px', margin: 'var(--warsha-space-4)' }}>
+            <Text size="lg" weight="bold" dir={dir} style={{ marginBottom: 'var(--warsha-space-6)' }}>
               {locale === 'ar' ? 'مشروع جديد' : 'New Project'}
             </Text>
             
-            <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
               <input
                 type="text"
                 placeholder={locale === 'ar' ? 'اسم المشروع' : 'Project name'}
                 value={newProjectName}
                 onChange={(e) => setNewProjectName(e.target.value)}
                 style={{
-                  padding: '12px',
-                  border: '1px solid #d1d5db',
+                  padding: 'var(--warsha-space-3)',
+                  border: '1px solid var(--warsha-color-border-strong)',
                   borderRadius: '6px',
-                  fontSize: '1rem',
+                  fontSize: 'var(--warsha-font-size-md)',
                 }}
                 dir={dir}
               />
@@ -215,16 +215,16 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
                 onChange={(e) => setNewProjectIdea(e.target.value)}
                 rows={4}
                 style={{
-                  padding: '12px',
-                  border: '1px solid #d1d5db',
+                  padding: 'var(--warsha-space-3)',
+                  border: '1px solid var(--warsha-color-border-strong)',
                   borderRadius: '6px',
-                  fontSize: '1rem',
+                  fontSize: 'var(--warsha-font-size-md)',
                   fontFamily: 'inherit',
                   resize: 'vertical',
                 }}
                 dir={dir}
               />
-              <Box dir={dir} style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-3)', justifyContent: 'flex-end' }}>
                 <Button variant="secondary" onClick={() => setShowNewProject(false)} dir={dir}>
                   {locale === 'ar' ? 'إلغاء' : 'Cancel'}
                 </Button>

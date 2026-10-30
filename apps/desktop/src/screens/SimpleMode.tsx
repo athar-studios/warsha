@@ -301,10 +301,10 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
 
   const getStatusColor = (status: Agent['status']) => {
     switch (status) {
-      case 'working': return '#10b981';
-      case 'waiting': return '#f59e0b';
-      case 'done': return '#6b7280';
-      default: return '#9ca3af';
+      case 'working': return 'var(--warsha-color-success)';
+      case 'waiting': return 'var(--warsha-color-warning)';
+      case 'done': return 'var(--warsha-color-text-muted)';
+      default: return 'var(--warsha-color-muted)';
     }
   };
 
@@ -314,24 +314,24 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
       <Box dir={dir} style={{
         width: '280px',
         minWidth: '280px',
-        backgroundColor: 'white',
-        borderInlineEnd: '1px solid #e5e7eb',
+        backgroundColor: 'var(--warsha-color-surface)',
+        borderInlineEnd: '1px solid var(--warsha-color-border)',
         display: 'flex',
         flexDirection: 'column',
       }}>
-        <Box dir={dir} style={{ padding: '16px', borderBottom: '1px solid #e5e7eb' }}>
+        <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', borderBottom: '1px solid var(--warsha-color-border)' }}>
           {onBack && (
-            <Button variant="ghost" size="sm" dir={dir} onClick={onBack} style={{ marginBottom: '8px' }}>
+            <Button variant="ghost" size="sm" dir={dir} onClick={onBack} style={{ marginBottom: 'var(--warsha-space-2)' }}>
               ← {t('common.back') || 'Back'}
             </Button>
           )}
           <Text weight="bold" size="lg" dir={dir}>{project.name}</Text>
-          <Text size="sm" style={{ color: '#6b7280' }} dir={dir}>
+          <Text size="sm" style={{ color: 'var(--warsha-color-text-muted)' }} dir={dir}>
             {t('simple.team') || '12 team members'}
           </Text>
         </Box>
 
-        <Box dir={dir} style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
+        <Box dir={dir} style={{ flex: 1, overflowY: 'auto', padding: 'var(--warsha-space-2)' }}>
           {agents.map(agent => (
             <Box
               key={agent.id}
@@ -343,13 +343,13 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '12px',
-                padding: '12px',
+                gap: 'var(--warsha-space-3)',
+                padding: 'var(--warsha-space-3)',
                 borderRadius: '8px',
                 cursor: 'pointer',
-                backgroundColor: selectedAgent?.id === agent.id ? '#eff6ff' : 'transparent',
-                border: selectedAgent?.id === agent.id ? '1px solid #bfdbfe' : '1px solid transparent',
-                marginBottom: '4px',
+                backgroundColor: selectedAgent?.id === agent.id ? 'var(--warsha-color-surface-muted)' : 'transparent',
+                border: selectedAgent?.id === agent.id ? '1px solid var(--warsha-color-border-strong)' : '1px solid transparent',
+                marginBottom: 'var(--warsha-space-1)',
               }}
             >
               <Box dir={dir} style={{ position: 'relative' }}>
@@ -357,11 +357,11 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
                   width: '40px',
                   height: '40px',
                   borderRadius: '50%',
-                  backgroundColor: '#f3f4f6',
+                  backgroundColor: 'var(--warsha-color-surface-muted)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontSize: '20px',
+                  fontSize: 'var(--warsha-font-size-xl)',
                 }}>
                   {agent.avatar}
                 </Box>
@@ -384,12 +384,12 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
                   </Text>
                   {agent.unreadCount > 0 && (
                     <Box dir={dir} style={{
-                      backgroundColor: '#2563eb',
-                      color: 'white',
+                      backgroundColor: 'var(--warsha-color-accent)',
+                      color: 'var(--warsha-color-accent-ink)',
                       borderRadius: '9999px',
                       paddingInline: '6px',
                       paddingBlock: '2px',
-                      fontSize: '12px',
+                      fontSize: 'var(--warsha-font-size-xs)',
                       fontWeight: 600,
                       minWidth: '20px',
                       textAlign: 'center',
@@ -398,7 +398,7 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
                     </Box>
                   )}
                 </Box>
-                <Text size="sm" style={{ color: '#6b7280' }} dir={dir}>
+                <Text size="sm" style={{ color: 'var(--warsha-color-text-muted)' }} dir={dir}>
                   {agent.model} • {agent.status}
                 </Text>
               </Box>
@@ -408,24 +408,24 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
       </Box>
 
       {/* Center — Chat */}
-      <Box dir={dir} style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: '#fafafa' }}>
+      <Box dir={dir} style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: 'var(--warsha-color-bg)' }}>
         {/* Chat Header */}
         <Box dir={dir} style={{
-          padding: '16px',
-          backgroundColor: 'white',
-          borderBottom: '1px solid #e5e7eb',
+          padding: 'var(--warsha-space-4)',
+          backgroundColor: 'var(--warsha-color-surface)',
+          borderBottom: '1px solid var(--warsha-color-border)',
           display: 'flex',
           alignItems: 'center',
-          gap: '12px',
+          gap: 'var(--warsha-space-3)',
         }}>
           {selectedAgent && (
             <>
-              <Box dir={dir} style={{ fontSize: '24px' }}>{selectedAgent.avatar}</Box>
+              <Box dir={dir} style={{ fontSize: 'var(--warsha-font-size-2xl)' }}>{selectedAgent.avatar}</Box>
               <Box dir={dir}>
                 <Text weight="bold" dir={dir}>
                   {locale === 'ar' ? ROLE_NAMES[selectedAgent.role]?.ar || selectedAgent.name : selectedAgent.name}
                 </Text>
-                <Text size="sm" style={{ color: '#6b7280' }} dir={dir}>
+                <Text size="sm" style={{ color: 'var(--warsha-color-text-muted)' }} dir={dir}>
                   {selectedAgent.model} • {selectedAgent.status}
                 </Text>
               </Box>
@@ -435,17 +435,17 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
 
         {/* Gate Approval Cards */}
         {pendingGates.length > 0 && (
-          <Box dir={dir} style={{ padding: '16px', backgroundColor: '#fef3c7', borderBottom: '1px solid #fcd34d' }}>
-            <Text weight="bold" dir={dir} style={{ marginBottom: '8px' }}>
+          <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', backgroundColor: 'var(--warsha-color-surface-muted)', borderBottom: '1px solid var(--warsha-color-border-strong)' }}>
+            <Text weight="bold" dir={dir} style={{ marginBottom: 'var(--warsha-space-2)' }}>
               {t('simple.pendingApproval') || 'Pending Approval'} ({pendingGates.length})
             </Text>
             {pendingGates.map(gate => (
-              <Card key={gate.stage as string} dir={dir} style={{ marginBottom: '8px', border: '1px solid #f59e0b' }}>
+              <Card key={gate.stage as string} dir={dir} style={{ marginBottom: 'var(--warsha-space-2)', border: '1px solid var(--warsha-color-warning)' }}>
                 <Text weight="medium" dir={dir}>{gate.stage as string}</Text>
-                <Text size="sm" style={{ color: '#6b7280', marginBlock: '8px' }} dir={dir}>
+                <Text size="sm" style={{ color: 'var(--warsha-color-text-muted)', marginBlock: 'var(--warsha-space-2)' }} dir={dir}>
                   {t('simple.gateReady') || 'Gate is ready for review'}
                 </Text>
-                <Box dir={dir} style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)', marginTop: 'var(--warsha-space-2)' }}>
                   <Button variant="primary" size="sm" dir={dir} onClick={() => handleApproveGate(gate.stage)}>
                     ✅ {t('common.approve') || 'Approve'}
                   </Button>
@@ -459,7 +459,7 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
         )}
 
         {/* Messages */}
-        <Box dir={dir} style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <Box dir={dir} style={{ flex: 1, overflowY: 'auto', padding: 'var(--warsha-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-3)' }}>
           {messages.map(msg => (
             <Box
               key={msg.id}
@@ -471,11 +471,11 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
             >
               <Box dir={dir} style={{
                 maxWidth: '70%',
-                padding: '12px 16px',
+                padding: 'var(--warsha-space-3) var(--warsha-space-4)',
                 borderRadius: '12px',
-                backgroundColor: msg.sender === 'user' ? '#2563eb' : 'white',
-                color: msg.sender === 'user' ? 'white' : '#1f2937',
-                boxShadow: msg.sender === 'agent' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
+                backgroundColor: msg.sender === 'user' ? 'var(--warsha-color-accent)' : 'var(--warsha-color-surface)',
+                color: msg.sender === 'user' ? 'var(--warsha-color-accent-ink)' : 'var(--warsha-color-text)',
+                boxShadow: msg.sender === 'agent' ? 'var(--warsha-shadow-sm)' : 'none',
                 whiteSpace: 'pre-wrap',
               }}>
                 <Text dir={dir} style={{ color: 'inherit' }}>{msg.content}</Text>
@@ -486,14 +486,14 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
 
         {/* Input */}
         <Box dir={dir} style={{
-          padding: '16px',
-          backgroundColor: 'white',
-          borderTop: '1px solid #e5e7eb',
+          padding: 'var(--warsha-space-4)',
+          backgroundColor: 'var(--warsha-color-surface)',
+          borderTop: '1px solid var(--warsha-color-border)',
           display: 'flex',
           flexDirection: 'column',
-          gap: '8px',
+          gap: 'var(--warsha-space-2)',
         }}>
-          <div dir={dir} style={{ display: 'flex', gap: '8px' }}>
+          <div dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)' }}>
             <input
               type="text"
               value={inputMessage}
@@ -504,10 +504,10 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
               data-testid="simple-composer-input"
               style={{
                 flex: 1,
-                padding: '10px 16px',
+                padding: '10px var(--warsha-space-4)',
                 borderRadius: '8px',
-                border: '1px solid #d1d5db',
-                fontSize: '14px',
+                border: '1px solid var(--warsha-color-border-strong)',
+                fontSize: 'var(--warsha-font-size-sm)',
                 outline: 'none',
               }}
             />
@@ -536,41 +536,41 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
       <Box dir={dir} style={{
         width: '320px',
         minWidth: '320px',
-        backgroundColor: 'white',
-        borderInlineStart: '1px solid #e5e7eb',
+        backgroundColor: 'var(--warsha-color-surface)',
+        borderInlineStart: '1px solid var(--warsha-color-border)',
         display: 'flex',
         flexDirection: 'column',
       }}>
-        <Box dir={dir} style={{ padding: '16px', borderBottom: '1px solid #e5e7eb' }}>
+        <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', borderBottom: '1px solid var(--warsha-color-border)' }}>
           <Text weight="bold" size="lg" dir={dir}>
             {t('simple.teamActivity') || 'Team Activity'}
           </Text>
-          <Text size="sm" style={{ color: '#6b7280' }} dir={dir}>
+          <Text size="sm" style={{ color: 'var(--warsha-color-text-muted)' }} dir={dir}>
             {t('simple.whatsHappening') || 'What’s happening'}
           </Text>
         </Box>
 
-        <Box dir={dir} style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
+        <Box dir={dir} style={{ flex: 1, overflowY: 'auto', padding: 'var(--warsha-space-4)' }}>
           {recentActivity.length === 0 ? (
-            <Text size="sm" style={{ color: '#9ca3af' }} dir={dir}>
+            <Text size="sm" style={{ color: 'var(--warsha-color-muted)' }} dir={dir}>
               {t('simple.noActivity') || 'No activity yet. The team will start working soon.'}
             </Text>
           ) : (
             recentActivity.map((event: WarshaEvent) => (
-              <Box key={event.id} dir={dir} style={{ marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px solid #f3f4f6' }}>
-                <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                  <Box dir={dir} style={{ fontSize: '16px' }}>
+              <Box key={event.id} dir={dir} style={{ marginBottom: 'var(--warsha-space-3)', paddingBottom: 'var(--warsha-space-3)', borderBottom: '1px solid var(--warsha-color-border)' }}>
+                <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-2)', marginBottom: 'var(--warsha-space-1)' }}>
+                  <Box dir={dir} style={{ fontSize: 'var(--warsha-font-size-md)' }}>
                     {ROLE_AVATARS[event.role || 'Orchestrator'] || '🤖'}
                   </Box>
                   <Text weight="medium" size="sm" dir={dir}>
                     {locale === 'ar' ? ROLE_NAMES[event.role || '']?.ar || event.role || 'Orchestrator' : event.role || 'Orchestrator'}
                   </Text>
                 </Box>
-                <Text size="sm" style={{ color: '#4b5563' }} dir={dir}>
+                <Text size="sm" style={{ color: 'var(--warsha-color-text-muted)' }} dir={dir}>
                   {event.stage} • {event.kind}
                 </Text>
                 {event.costCents !== null && (
-                  <Text size="sm" style={{ color: '#059669' }} dir={dir}>
+                  <Text size="sm" style={{ color: 'var(--warsha-color-success)' }} dir={dir}>
                     ${(event.costCents / 100).toFixed(4)}
                   </Text>
                 )}
@@ -580,11 +580,11 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
         </Box>
 
         {/* Team Summary */}
-        <Box dir={dir} style={{ padding: '16px', borderTop: '1px solid #e5e7eb', backgroundColor: '#f9fafb' }}>
-          <Text weight="medium" size="sm" dir={dir} style={{ marginBottom: '8px' }}>
+        <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', borderTop: '1px solid var(--warsha-color-border)', backgroundColor: 'var(--warsha-color-bg)' }}>
+          <Text weight="medium" size="sm" dir={dir} style={{ marginBottom: 'var(--warsha-space-2)' }}>
             {t('simple.teamSummary') || 'Team Summary'}
           </Text>
-          <Text size="sm" style={{ color: '#4b5563', lineHeight: 1.6 }} dir={dir}>
+          <Text size="sm" style={{ color: 'var(--warsha-color-text-muted)', lineHeight: 1.6 }} dir={dir}>
             {locale === 'ar'
               ? `المنسق يقود الفريق. الباحث يجمع المعلومات. ${pendingGates.length} بوابة بانتظار الموافقة.`
               : `Orchestrator is leading. Researcher is gathering info. ${pendingGates.length} gates awaiting approval.`}

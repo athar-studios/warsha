@@ -16,8 +16,8 @@ const kindHints: Record<TargetKind, Record<Locale, string>> = {
 };
 
 const kindColors: Record<TargetKind, { background: string; color: string }> = {
-  local: { background: '#dcfce7', color: '#166534' },
-  cloud: { background: '#dbeafe', color: '#1e40af' },
+  local: { background: 'var(--warsha-color-surface-muted)', color: 'var(--warsha-color-success)' },
+  cloud: { background: 'var(--warsha-color-surface-muted)', color: 'var(--warsha-color-accent-strong)' },
 };
 
 /**
@@ -57,10 +57,10 @@ export function LocalCloudBadge({ kind, targetName, model }: LocalCloudBadgeProp
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        paddingInline: '8px',
+        paddingInline: 'var(--warsha-space-2)',
         paddingBlock: '2px',
         borderRadius: '999px',
-        fontSize: '0.75rem',
+        fontSize: 'var(--warsha-font-size-xs)',
         fontWeight: 600,
         backgroundColor: colors.background,
         color: colors.color,

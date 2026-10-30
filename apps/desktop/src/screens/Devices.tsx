@@ -59,7 +59,7 @@ export function Devices({ onBack }: DevicesProps) {
 
   const getStatusColor = (lastSeen: string) => {
     const diff = Date.now() - new Date(lastSeen).getTime();
-    return diff < 300000 ? '#10b981' : diff < 3600000 ? '#f59e0b' : '#9ca3af';
+    return diff < 300000 ? 'var(--warsha-color-success)' : diff < 3600000 ? 'var(--warsha-color-warning)' : 'var(--warsha-color-muted)';
   };
 
   const getStatusLabel = (lastSeen: string) => {
@@ -70,16 +70,16 @@ export function Devices({ onBack }: DevicesProps) {
   };
 
   return (
-    <Box dir={dir} className="devices" style={{ padding: '24px', minHeight: 'calc(100vh - 80px)', maxWidth: '800px' }}>
-      <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+    <Box dir={dir} className="devices" style={{ padding: 'var(--warsha-space-6)', minHeight: 'calc(100vh - 80px)', maxWidth: '800px' }}>
+      <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--warsha-space-6)' }}>
         <Box dir={dir}>
-          <Button variant="ghost" size="sm" onClick={onBack} dir={dir} style={{ marginBottom: '8px' }}>
+          <Button variant="ghost" size="sm" onClick={onBack} dir={dir} style={{ marginBottom: 'var(--warsha-space-2)' }}>
             ← {locale === 'ar' ? 'رجوع' : 'Back'}
           </Button>
           <Text size="xl" weight="bold" dir={dir}>
             {locale === 'ar' ? 'الأجهزة المقترنة' : 'Paired Devices'}
           </Text>
-          <Text size="md" dir={dir} style={{ color: '#6b7280' }}>
+          <Text size="md" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
             {locale === 'ar' ? 'إدارة الأجهزة المصرح لها بالوصول' : 'Manage authorized devices'}
           </Text>
         </Box>
@@ -93,13 +93,13 @@ export function Devices({ onBack }: DevicesProps) {
           <Text dir={dir}>{locale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</Text>
         </Box>
       ) : (
-        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-3)' }}>
           {devices.length === 0 ? (
-            <Card dir={dir} style={{ textAlign: 'center', padding: '48px 24px' }}>
-              <Text size="md" dir={dir} style={{ color: '#9ca3af', marginBottom: '16px' }}>
+            <Card dir={dir} style={{ textAlign: 'center', padding: 'var(--warsha-space-12) var(--warsha-space-6)' }}>
+              <Text size="md" dir={dir} style={{ color: 'var(--warsha-color-muted)', marginBottom: 'var(--warsha-space-4)' }}>
                 {locale === 'ar' ? 'لا توجد أجهزة مقترنة' : 'No paired devices'}
               </Text>
-              <Text size="sm" dir={dir} style={{ color: '#9ca3af', marginBottom: '16px' }}>
+              <Text size="sm" dir={dir} style={{ color: 'var(--warsha-color-muted)', marginBottom: 'var(--warsha-space-4)' }}>
                 {locale === 'ar' ? 'استخدم التطبيق المحمول لمسح رمز QR وإقران جهاز' : 'Use the mobile app to scan QR code and pair a device'}
               </Text>
               <Button variant="primary" onClick={handlePair} dir={dir}>
@@ -112,33 +112,33 @@ export function Devices({ onBack }: DevicesProps) {
                 display: 'flex', 
                 justifyContent: 'space-between', 
                 alignItems: 'center',
-                backgroundColor: '#fafafa',
+                backgroundColor: 'var(--warsha-color-bg)',
               }}>
-                <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-4)' }}>
                   <Box style={{
                     width: '48px',
                     height: '48px',
                     borderRadius: '12px',
-                    backgroundColor: '#dbeafe',
+                    backgroundColor: 'var(--warsha-color-surface-muted)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: '24px',
+                    fontSize: 'var(--warsha-font-size-2xl)',
                   }}>📱</Box>
                   <Box dir={dir}>
                     <Text weight="bold" dir={dir}>{device.name}</Text>
-                    <Box dir={dir} style={{ display: 'flex', gap: '16px', marginTop: '4px', flexWrap: 'wrap' }}>
-                      <Text size="xs" dir={dir} style={{ color: '#6b7280' }}>
+                    <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-4)', marginTop: 'var(--warsha-space-1)', flexWrap: 'wrap' }}>
+                      <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
                         {locale === 'ar' ? 'مقترن' : 'Paired'}: {formatTime(device.pairedAt)}
                       </Text>
-                      <Text size="xs" dir={dir} style={{ color: '#6b7280' }}>
+                      <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
                         {locale === 'ar' ? 'آخر ظهور' : 'Last seen'}: {formatTime(device.lastSeen)}
                       </Text>
                       <span style={{
                         display: 'inline-flex',
                         alignItems: 'center',
-                        gap: '4px',
-                        padding: '2px 8px',
+                        gap: 'var(--warsha-space-1)',
+                        padding: '2px var(--warsha-space-2)',
                         backgroundColor: getStatusColor(device.lastSeen) + '20',
                         color: getStatusColor(device.lastSeen),
                         borderRadius: '9999px',
@@ -156,7 +156,7 @@ export function Devices({ onBack }: DevicesProps) {
                     </Box>
                   </Box>
                 </Box>
-                <Button variant="ghost" size="sm" onClick={() => handleRevoke(device.id)} dir={dir} style={{ color: '#ef4444' }}>
+                <Button variant="ghost" size="sm" onClick={() => handleRevoke(device.id)} dir={dir} style={{ color: 'var(--warsha-color-error)' }}>
                   {locale === 'ar' ? 'إلغاء الإقران' : 'Revoke'}
                 </Button>
               </Card>
@@ -172,18 +172,18 @@ export function Devices({ onBack }: DevicesProps) {
           insetInlineStart: 0,
           insetInlineEnd: 0,
           bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
+          backgroundColor: 'var(--warsha-color-muted)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           zIndex: 1000,
           direction: dir,
         }}>
-          <Card dir={dir} style={{ width: '100%', maxWidth: '400px', margin: '16px', textAlign: 'center' }}>
-            <Text size="lg" weight="bold" dir={dir} style={{ marginBottom: '8px' }}>
+          <Card dir={dir} style={{ width: '100%', maxWidth: '400px', margin: 'var(--warsha-space-4)', textAlign: 'center' }}>
+            <Text size="lg" weight="bold" dir={dir} style={{ marginBottom: 'var(--warsha-space-2)' }}>
               {locale === 'ar' ? 'إقران جهاز جديد' : 'Pair New Device'}
             </Text>
-            <Text size="md" dir={dir} style={{ color: '#6b7280', marginBottom: '24px' }}>
+            <Text size="md" dir={dir} style={{ color: 'var(--warsha-color-text-muted)', marginBottom: 'var(--warsha-space-6)' }}>
               {locale === 'ar' 
                 ? 'افتح تطبيق Warsha المحمول وامسح رمز QR أدناه'
                 : 'Open the Warsha mobile app and scan the QR code below'}
@@ -192,31 +192,31 @@ export function Devices({ onBack }: DevicesProps) {
             <Box dir={dir} style={{ 
               width: '200px', 
               height: '200px', 
-              margin: '0 auto 24px',
-              backgroundColor: '#f9fafb',
-              border: '2px dashed #d1d5db',
+              margin: '0 auto var(--warsha-space-6)',
+              backgroundColor: 'var(--warsha-color-bg)',
+              border: '2px dashed var(--warsha-color-border-strong)',
               borderRadius: '12px',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
             }}>
-              <Text size="xl" weight="bold" dir={dir} style={{ color: '#6b7280', marginBottom: '8px' }}>
+              <Text size="xl" weight="bold" dir={dir} style={{ color: 'var(--warsha-color-text-muted)', marginBottom: 'var(--warsha-space-2)' }}>
                 {t('devices.qr_code') || 'QR Code'}
               </Text>
-              <Text size="xs" dir={dir} style={{ color: '#9ca3af' }}>
+              <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-muted)' }}>
                 {pairingCode}
               </Text>
             </Box>
 
-            <Text size="sm" weight="medium" dir={dir} style={{ color: '#374151', marginBottom: '4px' }}>
+            <Text size="sm" weight="medium" dir={dir} style={{ color: 'var(--warsha-color-text)', marginBottom: 'var(--warsha-space-1)' }}>
               {locale === 'ar' ? 'رمز الإقران' : 'Pairing Code'}
             </Text>
-            <Text size="lg" weight="bold" dir={dir} style={{ fontFamily: 'monospace', letterSpacing: '0.2em', marginBottom: '24px' }}>
+            <Text size="lg" weight="bold" dir={dir} style={{ fontFamily: 'var(--warsha-font-mono)', letterSpacing: '0.2em', marginBottom: 'var(--warsha-space-6)' }}>
               {pairingCode}
             </Text>
 
-            <Box dir={dir} style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+            <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-3)', justifyContent: 'center' }}>
               <Button variant="secondary" onClick={() => setShowPair(false)} dir={dir}>
                 {locale === 'ar' ? 'إلغاء' : 'Cancel'}
               </Button>

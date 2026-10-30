@@ -70,12 +70,12 @@ export function ArtifactViewer({ run, onBack }: ArtifactViewerProps) {
       {/* Sidebar */}
       <Box dir={dir} style={{ 
         width: '280px', 
-        borderInlineEnd: '1px solid #e5e7eb',
-        backgroundColor: '#fafafa',
+        borderInlineEnd: '1px solid var(--warsha-color-border)',
+        backgroundColor: 'var(--warsha-color-bg)',
         display: 'flex',
         flexDirection: 'column',
       }}>
-        <Box dir={dir} style={{ padding: '16px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', borderBottom: '1px solid var(--warsha-color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Text weight="bold" dir={dir}>
             {locale === 'ar' ? 'المصنوعات' : 'Artifacts'}
           </Text>
@@ -84,7 +84,7 @@ export function ArtifactViewer({ run, onBack }: ArtifactViewerProps) {
           </Button>
         </Box>
         
-        <Box dir={dir} style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
+        <Box dir={dir} style={{ flex: 1, overflowY: 'auto', padding: 'var(--warsha-space-2)' }}>
           {artifactList.map(artifact => {
             const exists = artifacts[artifact.key];
             return (
@@ -98,13 +98,13 @@ export function ArtifactViewer({ run, onBack }: ArtifactViewerProps) {
                   width: '100%', 
                   justifyContent: 'space-between',
                   textAlign: dir === 'rtl' ? 'right' : 'left',
-                  backgroundColor: selectedArtifact === artifact.key ? '#dbeafe' : 'transparent',
-                  color: selectedArtifact === artifact.key ? '#1d4ed8' : '#374151',
+                  backgroundColor: selectedArtifact === artifact.key ? 'var(--warsha-color-surface-muted)' : 'transparent',
+                  color: selectedArtifact === artifact.key ? 'var(--warsha-color-accent-strong)' : 'var(--warsha-color-text)',
                 }}
               >
                 <span>{artifact.label[locale]}</span>
                 {exists && (
-                  <span style={{ fontSize: '0.75rem', color: '#10b981' }}>●</span>
+                  <span style={{ fontSize: 'var(--warsha-font-size-xs)', color: 'var(--warsha-color-success)' }}>●</span>
                 )}
               </Button>
             );
@@ -113,14 +113,14 @@ export function ArtifactViewer({ run, onBack }: ArtifactViewerProps) {
       </Box>
 
       {/* Main content */}
-      <Box dir={dir} style={{ flex: 1, padding: '24px', overflowY: 'auto', backgroundColor: 'white' }}>
+      <Box dir={dir} style={{ flex: 1, padding: 'var(--warsha-space-6)', overflowY: 'auto', backgroundColor: 'var(--warsha-color-surface)' }}>
         {selectedArtifact ? (
           <Box dir={dir}>
-            <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--warsha-space-4)' }}>
               <Text size="xl" weight="bold" dir={dir}>
                 {artifactList.find(a => a.key === selectedArtifact)?.label[locale] || selectedArtifact}
               </Text>
-              <Box dir={dir} style={{ display: 'flex', gap: '8px' }}>
+              <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)' }}>
                 {!editMode && (
                   <>
                     <Button variant="secondary" onClick={() => setEditMode(true)} dir={dir}>
@@ -145,18 +145,18 @@ export function ArtifactViewer({ run, onBack }: ArtifactViewerProps) {
             </Box>
 
             {editMode ? (
-              <Box dir={dir} style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+              <Box dir={dir} style={{ border: '1px solid var(--warsha-color-border)', borderRadius: '8px', overflow: 'hidden' }}>
                 <textarea
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                   style={{
                     width: '100%',
                     minHeight: '500px',
-                    padding: '16px',
+                    padding: 'var(--warsha-space-4)',
                     border: 'none',
                     outline: 'none',
-                    fontFamily: 'monospace',
-                    fontSize: '0.875rem',
+                    fontFamily: 'var(--warsha-font-mono)',
+                    fontSize: 'var(--warsha-font-size-sm)',
                     lineHeight: '1.6',
                     resize: 'vertical',
                     direction: 'ltr',
@@ -166,15 +166,15 @@ export function ArtifactViewer({ run, onBack }: ArtifactViewerProps) {
                 />
               </Box>
             ) : (
-              <Box dir={dir} style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+              <Box dir={dir} style={{ border: '1px solid var(--warsha-color-border)', borderRadius: '8px', overflow: 'hidden' }}>
                 <pre style={{
                   width: '100%',
                   minHeight: '500px',
-                  padding: '16px',
+                  padding: 'var(--warsha-space-4)',
                   margin: 0,
-                  backgroundColor: '#f9fafb',
-                  fontFamily: 'monospace',
-                  fontSize: '0.875rem',
+                  backgroundColor: 'var(--warsha-color-bg)',
+                  fontFamily: 'var(--warsha-font-mono)',
+                  fontSize: 'var(--warsha-font-size-sm)',
                   lineHeight: '1.6',
                   overflowX: 'auto',
                   whiteSpace: 'pre-wrap',
@@ -186,11 +186,11 @@ export function ArtifactViewer({ run, onBack }: ArtifactViewerProps) {
             )}
           </Box>
         ) : (
-          <Card dir={dir} style={{ textAlign: 'center', padding: '64px 32px', maxWidth: '480px', margin: '0 auto', marginTop: '64px' }}>
-            <Text size="xl" weight="bold" dir={dir} style={{ marginBottom: '8px' }}>
+          <Card dir={dir} style={{ textAlign: 'center', padding: 'var(--warsha-space-16) var(--warsha-space-8)', maxWidth: '480px', margin: '0 auto', marginTop: 'var(--warsha-space-16)' }}>
+            <Text size="xl" weight="bold" dir={dir} style={{ marginBottom: 'var(--warsha-space-2)' }}>
               {locale === 'ar' ? 'اختر مصنوعة' : 'Select an Artifact'}
             </Text>
-            <Text size="md" dir={dir} style={{ color: '#6b7280' }}>
+            <Text size="md" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
               {locale === 'ar' ? 'اختر من القائمة الجانبية لعرض أو تحرير مصنوعة' : 'Select from the sidebar to view or edit an artifact'}
             </Text>
           </Card>

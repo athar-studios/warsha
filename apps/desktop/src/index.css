@@ -55,6 +55,6 @@ select {
 }
 
 ::selection {
-  background-color: #bfdbfe;
-  color: #1e3a8a;
+  background-color: var(--warsha-color-surface-muted);
+  color: var(--warsha-color-accent-strong);
 }

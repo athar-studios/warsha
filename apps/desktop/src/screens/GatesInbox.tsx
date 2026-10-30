@@ -91,28 +91,28 @@ export function GatesInbox({ run, onBack }: GatesInboxProps) {
     switch (state.state) {
       case 'approved':
         return (
-          <span style={{ color: '#059669', fontWeight: 500 }}>
+          <span style={{ color: 'var(--warsha-color-success)', fontWeight: 500 }}>
             ✓ {locale === 'ar' ? 'موافق عليه' : 'Approved'}
           </span>
         );
       case 'rejected':
         return (
-          <span style={{ color: '#dc2626', fontWeight: 500 }}>
+          <span style={{ color: 'var(--warsha-color-error)', fontWeight: 500 }}>
             ✗ {locale === 'ar' ? 'مرفوض' : 'Rejected'}
-            {state.reason && <Text size="xs" dir={dir} style={{ color: '#6b7280', marginTop: '4px' }}>{state.reason}</Text>}
+            {state.reason && <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)', marginTop: 'var(--warsha-space-1)' }}>{state.reason}</Text>}
           </span>
         );
       case 'changes_requested':
         return (
-          <span style={{ color: '#d97706', fontWeight: 500 }}>
+          <span style={{ color: 'var(--warsha-color-warning)', fontWeight: 500 }}>
             ↻ {locale === 'ar' ? 'تغييرات مطلوبة' : 'Changes Requested'}
-            {state.notes && <Text size="xs" dir={dir} style={{ color: '#6b7280', marginTop: '4px' }}>{state.notes}</Text>}
+            {state.notes && <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)', marginTop: 'var(--warsha-space-1)' }}>{state.notes}</Text>}
           </span>
         );
       case 'pending':
       default:
         return (
-          <span style={{ color: '#d97706', fontWeight: 500 }}>
+          <span style={{ color: 'var(--warsha-color-warning)', fontWeight: 500 }}>
             ⏳ {locale === 'ar' ? 'في الانتظار' : 'Pending'}
           </span>
         );
@@ -122,16 +122,16 @@ export function GatesInbox({ run, onBack }: GatesInboxProps) {
   const canAct = (state: GateState) => state.state === 'pending';
 
   return (
-    <Box dir={dir} className="gates-inbox" style={{ padding: '24px', minHeight: 'calc(100vh - 80px)' }}>
-      <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+    <Box dir={dir} className="gates-inbox" style={{ padding: 'var(--warsha-space-6)', minHeight: 'calc(100vh - 80px)' }}>
+      <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--warsha-space-6)' }}>
         <Box dir={dir}>
-          <Button variant="ghost" size="sm" onClick={onBack} dir={dir} style={{ marginBottom: '8px' }}>
+          <Button variant="ghost" size="sm" onClick={onBack} dir={dir} style={{ marginBottom: 'var(--warsha-space-2)' }}>
             ← {locale === 'ar' ? 'رجوع' : 'Back'}
           </Button>
           <Text size="xl" weight="bold" dir={dir}>
             {locale === 'ar' ? 'صندوق الوارد للبوابات' : 'Gates Inbox'}
           </Text>
-          <Text size="md" dir={dir} style={{ color: '#6b7280' }}>
+          <Text size="md" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
             {run.projectId}
           </Text>
         </Box>
@@ -142,18 +142,18 @@ export function GatesInbox({ run, onBack }: GatesInboxProps) {
           <Text dir={dir}>{locale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</Text>
         </Box>
       ) : (
-        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '800px' }}>
+        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)', maxWidth: '800px' }}>
           {gates.map((gate, index) => (
             <Card key={gate.stage} dir={dir} style={{ 
-              backgroundColor: gate.state.state === 'pending' ? '#fffbeb' : 'white',
-              borderInlineStart: `4px solid ${gate.state.state === 'approved' ? '#10b981' : gate.state.state === 'rejected' ? '#ef4444' : gate.state.state === 'changes_requested' ? '#f59e0b' : '#f59e0b'}`,
+              backgroundColor: gate.state.state === 'pending' ? 'var(--warsha-color-surface-muted)' : 'var(--warsha-color-surface)',
+              borderInlineStart: `4px solid ${gate.state.state === 'approved' ? 'var(--warsha-color-success)' : gate.state.state === 'rejected' ? 'var(--warsha-color-error)' : gate.state.state === 'changes_requested' ? 'var(--warsha-color-warning)' : 'var(--warsha-color-warning)'}`,
             }}>
-              <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px' }}>
+              <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 'var(--warsha-space-4)' }}>
                 <Box dir={dir}>
                   <Text weight="bold" size="lg" dir={dir}>
                     {GATE_LABELS[gate.stage as keyof typeof GATE_LABELS]?.[locale] || gate.stage}
                   </Text>
-                  <Text size="sm" dir={dir} style={{ color: '#6b7280', marginTop: '4px' }}>
+                  <Text size="sm" dir={dir} style={{ color: 'var(--warsha-color-text-muted)', marginTop: 'var(--warsha-space-1)' }}>
                     {locale === 'ar' ? `البوابة ${index + 1} من ${gates.length}` : `Gate ${index + 1} of ${gates.length}`}
                   </Text>
                 </Box>
@@ -163,31 +163,31 @@ export function GatesInbox({ run, onBack }: GatesInboxProps) {
               </Box>
 
               {canAct(gate.state) && (
-                <Box dir={dir} style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #e5e7eb' }}>
-                  <Text weight="medium" size="sm" dir={dir} style={{ marginBottom: '12px' }}>
+                <Box dir={dir} style={{ marginTop: 'var(--warsha-space-4)', paddingTop: 'var(--warsha-space-4)', borderTop: '1px solid var(--warsha-color-border)' }}>
+                  <Text weight="medium" size="sm" dir={dir} style={{ marginBottom: 'var(--warsha-space-3)' }}>
                     {locale === 'ar' ? 'الإجراء المطلوب' : 'Action Required'}
                   </Text>
                   
                   {selectedGate === gate.stage && action && (
-                    <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-3)' }}>
                       {action === 'reject' && (
-                        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' }}>
                           <textarea
                             placeholder={locale === 'ar' ? 'سبب الرفض...' : 'Reason for rejection...'}
                             value={reason}
                             onChange={(e) => setReason(e.target.value)}
                             rows={3}
                             style={{
-                              padding: '12px',
-                              border: '1px solid #d1d5db',
+                              padding: 'var(--warsha-space-3)',
+                              border: '1px solid var(--warsha-color-border-strong)',
                               borderRadius: '6px',
-                              fontSize: '0.875rem',
+                              fontSize: 'var(--warsha-font-size-sm)',
                               fontFamily: 'inherit',
                               resize: 'vertical',
                             }}
                             dir={dir}
                           />
-                          <Box dir={dir} style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                          <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)', justifyContent: 'flex-end' }}>
                             <Button variant="secondary" size="sm" onClick={() => { setSelectedGate(null); setAction(null); }} dir={dir}>
                               {locale === 'ar' ? 'إلغاء' : 'Cancel'}
                             </Button>
@@ -198,23 +198,23 @@ export function GatesInbox({ run, onBack }: GatesInboxProps) {
                         </Box>
                       )}
                       {action === 'changes' && (
-                        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' }}>
                           <textarea
                             placeholder={locale === 'ar' ? 'ملاحظات التغييرات المطلوبة...' : 'Notes for requested changes...'}
                             value={reason}
                             onChange={(e) => setReason(e.target.value)}
                             rows={3}
                             style={{
-                              padding: '12px',
-                              border: '1px solid #d1d5db',
+                              padding: 'var(--warsha-space-3)',
+                              border: '1px solid var(--warsha-color-border-strong)',
                               borderRadius: '6px',
-                              fontSize: '0.875rem',
+                              fontSize: 'var(--warsha-font-size-sm)',
                               fontFamily: 'inherit',
                               resize: 'vertical',
                             }}
                             dir={dir}
                           />
-                          <Box dir={dir} style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                          <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)', justifyContent: 'flex-end' }}>
                             <Button variant="secondary" size="sm" onClick={() => { setSelectedGate(null); setAction(null); }} dir={dir}>
                               {locale === 'ar' ? 'إلغاء' : 'Cancel'}
                             </Button>
@@ -225,7 +225,7 @@ export function GatesInbox({ run, onBack }: GatesInboxProps) {
                         </Box>
                       )}
                       {!action && (
-                        <Box dir={dir} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)', flexWrap: 'wrap' }}>
                           <Button variant="primary" size="sm" onClick={() => { setSelectedGate(gate.stage); setAction('approve'); handleApprove(gate.stage); }} dir={dir}>
                             ✓ {locale === 'ar' ? 'موافقة' : 'Approve'}
                           </Button>

@@ -78,12 +78,12 @@ export function ProviderRow({
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: '8px',
+        gap: 'var(--warsha-space-2)',
         paddingInline: '14px',
-        paddingBlock: '12px',
+        paddingBlock: 'var(--warsha-space-3)',
         borderRadius: '10px',
-        border: '1px solid #e5e7eb',
-        backgroundColor: '#ffffff',
+        border: '1px solid var(--warsha-color-border)',
+        backgroundColor: 'var(--warsha-color-surface)',
         listStyle: 'none',
         opacity: enabled ? 1 : 0.72,
       }}
@@ -93,7 +93,7 @@ export function ProviderRow({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          gap: '8px',
+          gap: 'var(--warsha-space-2)',
         }}
       >
         <span style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{name}</span>
@@ -116,7 +116,7 @@ export function ProviderRow({
         </label>
       </div>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 'var(--warsha-space-2)' }}>
         <select
           aria-label={withName(label('mode'))}
           value={mode}
@@ -140,7 +140,7 @@ export function ProviderRow({
           onChange={(event) => onPinVersion(event.target.value)}
           style={{
             ...styles.input,
-            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+            fontFamily: 'var(--warsha-font-mono)',
             unicodeBidi: 'isolate',
             maxWidth: '140px',
           }}
@@ -156,11 +156,11 @@ export function ProviderRow({
 
 const styles = {
   input: {
-    paddingInline: '8px',
+    paddingInline: 'var(--warsha-space-2)',
     paddingBlock: '6px',
     borderRadius: '6px',
-    border: '1px solid #d1d5db',
+    border: '1px solid var(--warsha-color-border-strong)',
     fontFamily: 'inherit',
-    fontSize: '0.875rem',
+    fontSize: 'var(--warsha-font-size-sm)',
   } as const,
 };

@@ -3,6 +3,12 @@
 //! Uses runtime `sqlx` queries (no compile-time `DATABASE_URL` requirement) and
 //! stores identifiers as their text/byte encodings described in
 //! `migrations/001_initial.sql`.
+//!
+//! The M20 settings-shaped rows (taste preferences, backend kits, run modes and
+//! phone pairings) live in the `persistence` module instead: one synchronous
+//! `rusqlite` connection in WAL mode, with its own idempotent migration. Both
+//! halves write the same SQLite file format; they differ in the API the caller
+//! wants, not in the database.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -18,6 +24,12 @@ use uuid::Uuid;
 use warsha_core::{
     Artifact, DeviceId, Event, EventKind, GateState, Project, ProjectId, Role, Run, RunId,
     RunStatus, Stage, TokenUsage,
+};
+
+mod persistence;
+
+pub use persistence::{
+    SqliteStore, StoredBackendKit, StoredPairing, StoredPreference, StoredRunMode,
 };
 
 /// Errors raised by the persistence layer.
@@ -61,6 +73,15 @@ pub enum StoreError {
     /// A stored column had an unexpected SQL type.
     #[error("unexpected column type for {0}")]
     UnexpectedType(&'static str),
+    /// Underlying SQLite failure from the synchronous [`SqliteStore`].
+    #[error("sqlite error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
+    /// The path handed to [`SqliteStore::open`] is unusable.
+    #[error("invalid database path: {0}")]
+    InvalidPath(String),
+    /// The database did not end up in WAL mode, so the store refused it.
+    #[error("journal mode was not WAL: {0}")]
+    WalNotEnabled(String),
 }
 
 /// Convenience result alias for the store.
@@ -695,11 +716,8 @@ fn event_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Event> {
         Some(raw) => Some(serde_json::from_str::<TokenUsage>(&raw)?),
         None => None,
     };
-    let device_id = match column_opt_int(row, "device_id")? {
-        Some(_) => Some(DeviceId(parse_uuid(
-            "events.device_id",
-            &column_blob(row, "device_id")?,
-        )?)),
+    let device_id = match column_opt_blob(row, "device_id")? {
+        Some(bytes) => Some(DeviceId(parse_uuid("events.device_id", &bytes)?)),
         None => None,
     };
     Ok(Event {
@@ -894,6 +912,51 @@ mod tests {
         let events = store.get_events(run.id).await.unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].kind, EventKind::StageStarted);
+    }
+
+    #[tokio::test]
+    async fn reads_an_event_whose_device_id_is_set() {
+        // `append_event` binds the device id as a 16-byte UUID blob, so reading it as
+        // an integer made a run's whole log unreadable at the first gate decision.
+        let store = temp_store().await;
+        let project = sample_project();
+        store.create_project(&project).await.unwrap();
+        let run = sample_run(project.id);
+        store.create_run(&run).await.unwrap();
+
+        let device = DeviceId::new();
+        let stage_started = Event {
+            id: Ulid::new(),
+            run_id: run.id,
+            stage: Stage::Idea,
+            role: None,
+            kind: EventKind::StageStarted,
+            payload: serde_json::json!({ "note": "no device yet" }),
+            cost_cents: None,
+            tokens: None,
+            created_at: Utc::now(),
+            device_id: None,
+        };
+        let gate_decision = Event {
+            id: Ulid::new(),
+            run_id: run.id,
+            stage: Stage::GateA,
+            role: None,
+            kind: EventKind::GateDecision,
+            payload: serde_json::json!({ "decision": "approved" }),
+            cost_cents: None,
+            tokens: None,
+            created_at: stage_started.created_at + chrono::TimeDelta::seconds(1),
+            device_id: Some(device),
+        };
+        store.append_event(&stage_started).await.unwrap();
+        store.append_event(&gate_decision).await.unwrap();
+
+        let events = store.get_events(run.id).await.unwrap();
+        assert_eq!(events.len(), 2, "the log reads as a whole: {events:?}");
+        assert_eq!(events[0].device_id, None);
+        assert_eq!(events[1].kind, EventKind::GateDecision);
+        assert_eq!(events[1].device_id, Some(device));
     }
 
     #[tokio::test]

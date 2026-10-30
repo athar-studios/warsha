@@ -38,29 +38,29 @@ interface StatusMeta {
 const statusMeta: Record<StageStatus, StatusMeta> = {
   pending: {
     glyph: '○',
-    background: '#f3f4f6',
-    color: '#6b7280',
+    background: 'var(--warsha-color-surface-muted)',
+    color: 'var(--warsha-color-text-muted)',
     label: { ar: 'في الانتظار', en: 'Pending' },
     hint: { ar: 'لم يبدأ بعد', en: 'Not started yet' },
   },
   running: {
     glyph: '',
-    background: '#dbeafe',
-    color: '#1e40af',
+    background: 'var(--warsha-color-surface-muted)',
+    color: 'var(--warsha-color-accent-strong)',
     label: { ar: 'قيد التنفيذ', en: 'Running' },
     hint: { ar: 'يعمل الآن', en: 'Running now' },
   },
   pass: {
     glyph: '✓',
-    background: '#dcfce7',
-    color: '#166534',
+    background: 'var(--warsha-color-surface-muted)',
+    color: 'var(--warsha-color-success)',
     label: { ar: 'ناجح', en: 'Pass' },
     hint: { ar: 'نجح', en: 'Passed' },
   },
   fail: {
     glyph: '✗',
-    background: '#fee2e2',
-    color: '#991b1b',
+    background: 'var(--warsha-color-surface-muted)',
+    color: 'var(--warsha-color-error)',
     label: { ar: 'فاشل', en: 'Fail' },
     hint: { ar: 'فشل ويحتاج إصلاحًا', en: 'Failed and needs a fix' },
   },
@@ -150,7 +150,7 @@ export function StatusStrip({ stages }: StatusStripProps) {
         display: 'flex',
         flexWrap: 'wrap',
         alignItems: 'center',
-        gap: '8px',
+        gap: 'var(--warsha-space-2)',
         listStyle: 'none',
         margin: 0,
         padding: 0,
@@ -178,7 +178,7 @@ export function StatusStrip({ stages }: StatusStripProps) {
           <li
             key={`${normalized}-${index}`}
             data-stage={normalized}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--warsha-space-2)' }}
           >
             <span
               data-testid={`status-strip-stage-${normalized}`}
@@ -190,7 +190,7 @@ export function StatusStrip({ stages }: StatusStripProps) {
                 alignItems: 'center',
                 gap: '6px',
                 paddingInline: '10px',
-                paddingBlock: '4px',
+                paddingBlock: 'var(--warsha-space-1)',
                 borderRadius: '999px',
                 fontSize: '0.8125rem',
                 fontWeight: 600,
@@ -210,7 +210,7 @@ export function StatusStrip({ stages }: StatusStripProps) {
               <span
                 aria-hidden="true"
                 data-testid="status-strip-arrow"
-                style={{ color: '#9ca3af' }}
+                style={{ color: 'var(--warsha-color-muted)' }}
               >
                 {arrow}
               </span>

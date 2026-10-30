@@ -15,7 +15,7 @@ use jsonrpsee::{
     core::{async_trait, BoxError, RpcResult},
     proc_macros::rpc,
     server::{HttpRequest, HttpResponse, ServerBuilder},
-    types::ErrorObject,
+    types::{ErrorObject, ErrorObjectOwned},
 };
 use keyring::Entry;
 use rand::TryRngCore;
@@ -36,9 +36,11 @@ use warsha_backends::BackendFactory;
 use warsha_core::*;
 use warsha_git::GitHubClient;
 use warsha_pipeline::{
-    BackendKind, BackendKit, CrashReport, CrashReportStore, HandoffBundle, HandoffManager,
-    InMemoryCrashReportStore, InMemoryStoreReviewStore, PipelineEngine, StoreReview,
-    StoreReviewStore,
+    AgentLoop, AgentTurnResult, BackendKind, BackendKit, CrashReport, CrashReportStore,
+    HandoffBundle, HandoffManager, InMemoryCrashReportStore, InMemoryMcpManager,
+    InMemoryProcessManager, InMemoryStoreReviewStore, LivePreview, LivePreviewManager,
+    ManagedProcess, McpConnection, McpManager, PipelineEngine, ProcessManager, ProcessStatus,
+    ProcessSummary, SlashCommand, SlashCommandRegistry, StoreReview, StoreReviewStore,
 };
 use warsha_providers::{HealthCheck, ProviderRouter};
 use warsha_remote::DeviceRegistry;
@@ -256,6 +258,26 @@ pub struct DaemonState {
     /// Store reviews, in arrival order. Nothing fetches one yet: the store API
     /// client is PLAN.md M17's remaining half.
     pub store_reviews: Arc<RwLock<InMemoryStoreReviewStore>>,
+    /// The agent loop behind `agent.turn`.
+    ///
+    /// One loop per daemon: the mode manager, the todo list, the `ask_user` queue,
+    /// the message bus and the transcript are a run's conversation, and the loop's
+    /// own compactor is what keeps the transcript bounded.
+    ///
+    /// TODO(persistence): the loop lives in memory, so a restart forgets the
+    /// approval history and the todos; `Store` persistence is a later batch.
+    pub agent_loop: Arc<RwLock<AgentLoop>>,
+    /// The one spawner: `process.*` drives it, the MCP stdio transport starts its
+    /// server through it, and the live preview runs its dev server on it, so every
+    /// child the daemon starts shows up in one `process.list`.
+    ///
+    /// TODO(reaping): nothing kills these children when the daemon exits, so a
+    /// restart forgets a dev server that is still listening on its port.
+    pub processes: Arc<dyn ProcessManager>,
+    /// MCP servers by name, with their connections. `mcp.*` is its RPC surface.
+    pub mcp: Arc<dyn McpManager>,
+    /// Live-preview dev servers, one per project.
+    pub previews: Arc<LivePreviewManager>,
 }
 
 /// JSON-RPC API trait
@@ -373,6 +395,56 @@ pub trait WarshaApi {
 
     #[method(name = "postlaunch.reviews")]
     async fn list_store_reviews(&self, store: String) -> RpcResult<Vec<StoreReview>>;
+
+    // Agent workflow (PLAN.md M18) — the skills catalog and one turn
+    #[method(name = "skills.list")]
+    async fn list_skills(&self) -> RpcResult<Vec<SlashCommand>>;
+
+    #[method(name = "agent.turn")]
+    async fn agent_turn(&self, input: String) -> RpcResult<AgentTurnResult>;
+
+    // Process spawning and MCP transports (PLAN.md M20) — real child processes
+    #[method(name = "process.spawn")]
+    async fn spawn_process(
+        &self,
+        command: String,
+        args: Vec<String>,
+        env: HashMap<String, String>,
+    ) -> RpcResult<String>;
+
+    #[method(name = "process.stop")]
+    async fn stop_process(&self, id: String) -> RpcResult<()>;
+
+    #[method(name = "process.status")]
+    async fn process_status(&self, id: String) -> RpcResult<ProcessStatus>;
+
+    #[method(name = "process.list")]
+    async fn list_processes(&self) -> RpcResult<Vec<ProcessSummary>>;
+
+    #[method(name = "mcp.connect")]
+    async fn connect_mcp(
+        &self,
+        config: warsha_pipeline::mcp_transport::McpServerConfig,
+    ) -> RpcResult<()>;
+
+    #[method(name = "mcp.disconnect")]
+    async fn disconnect_mcp(&self, name: String) -> RpcResult<()>;
+
+    #[method(name = "mcp.list")]
+    async fn list_mcp(&self) -> RpcResult<Vec<McpConnection>>;
+
+    #[method(name = "mcp.send")]
+    async fn send_mcp(&self, name: String, payload: String) -> RpcResult<String>;
+
+    // Live preview dev server (PLAN.md M5b + M20)
+    #[method(name = "preview.start")]
+    async fn start_preview(&self, project_id: String, command: String) -> RpcResult<LivePreview>;
+
+    #[method(name = "preview.stop")]
+    async fn stop_preview(&self, project_id: String) -> RpcResult<()>;
+
+    #[method(name = "preview.status")]
+    async fn preview_status(&self, project_id: String) -> RpcResult<LivePreview>;
 }
 
 /// Health response
@@ -789,6 +861,163 @@ impl WarshaApiServer for WarshaRpc {
             reviews.list_by_store(wanted)
         })
     }
+
+    // Agent workflow (PLAN.md M18)
+    async fn list_skills(&self) -> RpcResult<Vec<SlashCommand>> {
+        Ok(skill_catalog())
+    }
+
+    async fn agent_turn(&self, input: String) -> RpcResult<AgentTurnResult> {
+        // The turn is synchronous (it parses, decides and compacts), so the write
+        // lock is held for its duration and no `.await` runs inside it.
+        let skills = skill_catalog();
+        let mut agent_loop = self.state.agent_loop.write().await;
+        Ok(agent_loop.run_turn(&input, &skills))
+    }
+
+    // Process spawning and MCP transports (PLAN.md M20)
+    async fn spawn_process(
+        &self,
+        command: String,
+        args: Vec<String>,
+        env: HashMap<String, String>,
+    ) -> RpcResult<String> {
+        self.state
+            .processes
+            .spawn(&command, &args, &env)
+            .await
+            .map_err(|error| rpc_error(error.to_string()))
+    }
+
+    async fn stop_process(&self, id: String) -> RpcResult<()> {
+        self.state
+            .processes
+            .stop(&id)
+            .await
+            .map_err(|error| rpc_error(error.to_string()))
+    }
+
+    async fn process_status(&self, id: String) -> RpcResult<ProcessStatus> {
+        self.state
+            .processes
+            .status(&id)
+            .await
+            .map_err(|error| rpc_error(error.to_string()))
+    }
+
+    async fn list_processes(&self) -> RpcResult<Vec<ProcessSummary>> {
+        // `list` hands back the record without its child handle; the summary is the
+        // same facts in a type an RPC result (which must be clonable) can carry.
+        Ok(self
+            .state
+            .processes
+            .list()
+            .await
+            .iter()
+            .map(ManagedProcess::summary)
+            .collect())
+    }
+
+    async fn connect_mcp(
+        &self,
+        config: warsha_pipeline::mcp_transport::McpServerConfig,
+    ) -> RpcResult<()> {
+        // An `Http`/`WebSocket` config succeeds without connecting: the transport
+        // is recorded and `mcp.list` reports it as disconnected (see
+        // `McpServerConfig::is_wired`).
+        self.state
+            .mcp
+            .connect(config)
+            .await
+            .map_err(|error| rpc_error(error.to_string()))
+    }
+
+    async fn disconnect_mcp(&self, name: String) -> RpcResult<()> {
+        self.state
+            .mcp
+            .disconnect(&name)
+            .await
+            .map_err(|error| rpc_error(error.to_string()))
+    }
+
+    async fn list_mcp(&self) -> RpcResult<Vec<McpConnection>> {
+        Ok(self.state.mcp.list().await)
+    }
+
+    async fn send_mcp(&self, name: String, payload: String) -> RpcResult<String> {
+        self.state
+            .mcp
+            .send(&name, &payload)
+            .await
+            .map_err(|error| rpc_error(error.to_string()))
+    }
+
+    // Live preview dev server (PLAN.md M5b + M20)
+    async fn start_preview(&self, project_id: String, command: String) -> RpcResult<LivePreview> {
+        // The command line is split on whitespace by the pipeline (no shell), so
+        // `npm run dev` runs `npm` with `run dev` and nothing else is interpreted.
+        self.state
+            .previews
+            .start(&project_id, &command)
+            .await
+            .map_err(|error| rpc_error(error.to_string()))
+    }
+
+    async fn stop_preview(&self, project_id: String) -> RpcResult<()> {
+        self.state
+            .previews
+            .stop(&project_id)
+            .await
+            .map_err(|error| rpc_error(error.to_string()))
+    }
+
+    async fn preview_status(&self, project_id: String) -> RpcResult<LivePreview> {
+        self.state
+            .previews
+            .status(&project_id)
+            .await
+            .map_err(|error| rpc_error(error.to_string()))
+    }
+}
+
+/// One JSON-RPC error object for every failure these methods can return.
+///
+/// `-32000` is the daemon's existing "server error" code; the message is the
+/// `thiserror` rendering, which names the process, server or project involved.
+fn rpc_error(message: String) -> ErrorObjectOwned {
+    ErrorObject::owned(-32000, message, None::<()>)
+}
+
+/// The slash commands `skills.list` reports: `/review`, `/refactor`, `/test`,
+/// `/fix`, `/explain`, in the order the composer should offer them.
+///
+/// This is the hardcoded catalog the M18 wiring starts from. M11's skill loader
+/// (`skills.rs`) and `factory/skills.lock` are what would fill the registry from a
+/// project's installed skills; until that wiring exists, the RPC reports these
+/// five and nothing here reads a directory or a lockfile.
+const SKILL_CATALOG: &[(&str, &str)] = &[
+    ("review", "Review the current diff and report problems"),
+    (
+        "refactor",
+        "Restructure the code without changing behaviour",
+    ),
+    ("test", "Write or run the tests for the current change"),
+    ("fix", "Repair the failing check, test or build"),
+    ("explain", "Explain what a file or a change does"),
+];
+
+/// The catalog as a list, built through the registry so the RPC serves exactly
+/// what [`SlashCommandRegistry::register`] accepts.
+///
+/// A refusal cannot happen with the constants above (no blank name, no whitespace,
+/// no duplicate), and an entry that somehow failed would simply not be listed
+/// rather than failing the RPC.
+fn skill_catalog() -> Vec<SlashCommand> {
+    let mut registry = SlashCommandRegistry::new();
+    for (name, description) in SKILL_CATALOG {
+        let _ = registry.register(SlashCommand::new(*name, *description));
+    }
+    registry.skills()
 }
 
 /// Directory under the daemon's data directory that holds handoff bundles.
@@ -856,6 +1085,13 @@ pub async fn start_daemon(config: DaemonConfig) -> Result<DaemonHandle> {
     // Create broadcast channel for event streaming
     let (event_tx, _) = broadcast::channel::<Event>(1024);
 
+    // One spawner for the daemon: the MCP stdio transport starts its server
+    // through it and the live preview runs its dev server on it, so `process.list`
+    // is the one place that names every child.
+    let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared();
+    let mcp: Arc<dyn McpManager> = Arc::new(InMemoryMcpManager::new(processes.clone()));
+    let previews = Arc::new(LivePreviewManager::new(processes.clone()));
+
     let state = Arc::new(DaemonState {
         config: config.clone(),
         store,
@@ -868,6 +1104,10 @@ pub async fn start_daemon(config: DaemonConfig) -> Result<DaemonHandle> {
         backend_kits: Arc::new(RwLock::new(HashMap::new())),
         crash_reports: Arc::new(RwLock::new(InMemoryCrashReportStore::new())),
         store_reviews: Arc::new(RwLock::new(InMemoryStoreReviewStore::new())),
+        agent_loop: Arc::new(RwLock::new(AgentLoop::new())),
+        processes,
+        mcp,
+        previews,
     });
 
     // Start JSON-RPC server (TCP for cross-platform compatibility)
@@ -1216,6 +1456,10 @@ mod tests {
             .expect("a device identity");
         let (event_tx, _) = broadcast::channel::<Event>(16);
 
+        let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared();
+        let mcp: Arc<dyn McpManager> = Arc::new(InMemoryMcpManager::new(processes.clone()));
+        let previews = Arc::new(LivePreviewManager::new(processes.clone()));
+
         let state = Arc::new(DaemonState {
             config,
             store: store.clone(),
@@ -1228,6 +1472,10 @@ mod tests {
             backend_kits: Arc::new(RwLock::new(HashMap::new())),
             crash_reports: Arc::new(RwLock::new(InMemoryCrashReportStore::new())),
             store_reviews: Arc::new(RwLock::new(InMemoryStoreReviewStore::new())),
+            agent_loop: Arc::new(RwLock::new(AgentLoop::new())),
+            processes,
+            mcp,
+            previews,
         });
         (state, store)
     }
@@ -1369,5 +1617,254 @@ mod tests {
         // The project, not the run id, names the dump.
         assert!(dump.contains("-- project: Shop"), "unexpected dump: {dump}");
         assert!(dump.contains("-- backend: PocketBase"));
+    }
+
+    #[tokio::test]
+    async fn skills_list_reports_the_slash_command_catalog() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, _store) = test_state(temp.path()).await;
+
+        let skills = WarshaRpc::new(state)
+            .list_skills()
+            .await
+            .expect("the catalog is served");
+
+        let names: Vec<&str> = skills.iter().map(|skill| skill.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["/review", "/refactor", "/test", "/fix", "/explain"]
+        );
+        assert!(skills
+            .iter()
+            .all(|skill| !skill.description.trim().is_empty()));
+        // The same list resolves as a registry, which is what `agent.turn` does
+        // with it: `/FIX` and `fix` are one command.
+        let registry = SlashCommandRegistry::from_skills(&skills);
+        assert_eq!(
+            registry.lookup("/FIX").map(|command| command.name.as_str()),
+            Some("/fix")
+        );
+    }
+
+    #[tokio::test]
+    async fn agent_turn_plans_first_and_executes_after_the_owner_approves() {
+        use warsha_pipeline::AgentMode;
+
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state.clone());
+
+        let planned = rpc
+            .agent_turn("/review the diff of @file src/main.rs".to_string())
+            .await
+            .expect("a plan turn answers");
+        assert_eq!(planned.mode, AgentMode::Plan);
+        assert_eq!(
+            planned
+                .command
+                .as_ref()
+                .map(|command| command.name.as_str()),
+            Some("/review")
+        );
+        assert_eq!(planned.mentions.len(), 1);
+        assert_eq!(planned.todos.len(), 1);
+        assert!(!state.agent_loop.read().await.mode_manager.can_edit());
+
+        // Agent mode is only reachable through the owner's approval.
+        state
+            .agent_loop
+            .write()
+            .await
+            .approve_agent_mode("owner")
+            .expect("the approval is accepted");
+
+        let executed = rpc
+            .agent_turn("now apply it".to_string())
+            .await
+            .expect("an agent turn answers");
+        assert_eq!(executed.mode, AgentMode::Agent);
+        assert_eq!(executed.command, None);
+        assert_eq!(executed.todos.len(), 2);
+        assert_eq!(executed.todos[1].id, "turn-2");
+        assert!(executed.response.contains("mock execution"));
+    }
+
+    /// A program plus args that keeps running until the test stops it.
+    #[cfg(windows)]
+    fn long_running() -> (String, Vec<String>) {
+        (
+            "cmd".to_string(),
+            vec!["/C".to_string(), "ping -n 30 127.0.0.1 >nul".to_string()],
+        )
+    }
+
+    /// A program plus args that keeps running until the test stops it (Unix).
+    #[cfg(not(windows))]
+    fn long_running() -> (String, Vec<String>) {
+        (
+            "sh".to_string(),
+            vec!["-c".to_string(), "sleep 30".to_string()],
+        )
+    }
+
+    /// The same server as one command line, which is what `preview.start` takes.
+    fn long_running_line() -> String {
+        let (command, args) = long_running();
+        std::iter::once(command)
+            .chain(args)
+            .collect::<Vec<String>>()
+            .join(" ")
+    }
+
+    #[tokio::test]
+    async fn process_rpcs_spawn_list_report_and_stop_a_real_process() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let (command, args) = long_running();
+
+        let id = rpc
+            .spawn_process(command.clone(), args.clone(), HashMap::new())
+            .await
+            .expect("the process starts");
+        assert_eq!(
+            rpc.process_status(id.clone()).await.unwrap(),
+            ProcessStatus::Running
+        );
+        let listed = rpc.list_processes().await.expect("the list is served");
+        let process = listed.first().expect("the process is listed");
+        assert_eq!(process.id, id);
+        assert_eq!(process.command, command);
+        assert_eq!(process.args, args);
+        assert!(process.started_at.is_some());
+
+        rpc.stop_process(id.clone())
+            .await
+            .expect("the process stops");
+        assert_eq!(
+            rpc.process_status(id.clone()).await.unwrap(),
+            ProcessStatus::Stopped
+        );
+
+        // A second stop has nothing left to signal, and an unknown id is refused.
+        assert!(rpc.stop_process(id).await.is_err());
+        assert!(rpc.process_status("proc-404".to_string()).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn mcp_rpcs_connect_send_and_disconnect_a_stdio_server() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let (command, args) = long_running();
+
+        rpc.connect_mcp(warsha_pipeline::mcp_transport::McpServerConfig::new_stdio(
+            "files", command, args,
+        ))
+        .await
+        .expect("the server connects");
+        let listed = rpc.list_mcp().await.expect("the list is served");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].status, warsha_pipeline::McpStatus::Connected);
+        assert!(listed[0].process_id.is_some());
+
+        let frame = r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;
+        assert_eq!(
+            rpc.send_mcp("files".to_string(), frame.to_string())
+                .await
+                .expect("the frame is written"),
+            frame
+        );
+
+        rpc.disconnect_mcp("files".to_string())
+            .await
+            .expect("the server disconnects");
+        let listed = rpc.list_mcp().await.expect("the list is served");
+        assert_eq!(listed[0].status, warsha_pipeline::McpStatus::Disconnected);
+        assert_eq!(listed[0].process_id, None);
+        // Nothing is dialled for a *wired* name after the disconnect.
+        assert!(rpc
+            .send_mcp("files".to_string(), "{}".to_string())
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn mcp_connect_records_an_http_transport_without_dialling_it() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+
+        rpc.connect_mcp(warsha_pipeline::mcp_transport::McpServerConfig::new_http(
+            "remote",
+            "https://mcp.example/mcp",
+        ))
+        .await
+        .expect("the config is recorded");
+
+        let listed = rpc.list_mcp().await.expect("the list is served");
+        assert_eq!(listed[0].status, warsha_pipeline::McpStatus::Disconnected);
+        assert_eq!(listed[0].process_id, None);
+        assert!(rpc
+            .list_processes()
+            .await
+            .expect("the list is served")
+            .is_empty());
+        // The transport is recorded, not wired, and the error says so.
+        let error = rpc
+            .send_mcp("remote".to_string(), "{}".to_string())
+            .await
+            .expect_err("nothing dials an http transport yet");
+        assert!(format!("{error:?}").contains("not wired"));
+    }
+
+    #[tokio::test]
+    async fn preview_rpcs_start_report_and_stop_one_dev_server_per_project() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state.clone());
+        let command = long_running_line();
+
+        let started = rpc
+            .start_preview("project-1".to_string(), command.clone())
+            .await
+            .expect("the preview starts");
+        assert_eq!(started.project_id, "project-1");
+        let status = rpc
+            .preview_status("project-1".to_string())
+            .await
+            .expect("the preview is tracked");
+        assert_eq!(status.process_id, started.process_id);
+        assert_eq!(status.status, ProcessStatus::Running);
+        // The dev server is a real child, so `process.list` sees it too.
+        assert_eq!(
+            rpc.list_processes()
+                .await
+                .expect("the list is served")
+                .len(),
+            1
+        );
+
+        // One preview per project, and an unknown project is refused.
+        assert!(rpc
+            .start_preview("project-1".to_string(), command)
+            .await
+            .is_err());
+        assert!(rpc.preview_status("nobody".to_string()).await.is_err());
+
+        rpc.stop_preview("project-1".to_string())
+            .await
+            .expect("the preview stops");
+        assert_eq!(
+            rpc.preview_status("project-1".to_string())
+                .await
+                .expect("the preview is still tracked")
+                .status,
+            ProcessStatus::Stopped
+        );
+        // The process stays in the list as a stopped record.
+        let listed = rpc.list_processes().await.expect("the list is served");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].status, ProcessStatus::Stopped);
     }
 }

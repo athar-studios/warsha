@@ -64,19 +64,27 @@ describe('StatusStrip', () => {
 
     const pass = screen.getByTestId('status-strip-stage-code_checks');
     expect(pass).toHaveAttribute('data-status', 'pass');
-    expect(pass).toHaveStyle({ backgroundColor: 'rgb(220, 252, 231)', color: 'rgb(22, 101, 52)' });
+    // The pill carries the token reference, not a literal, so it follows `data-theme`
+    // (R6, docs/ARCH_RULES.md).
+    expect(pass).toHaveStyle({
+      backgroundColor: 'var(--warsha-color-surface-muted)',
+      color: 'var(--warsha-color-success)',
+    });
     expect(pass.textContent).toContain('✓');
 
     const fail = screen.getByTestId('status-strip-stage-builds');
     expect(fail).toHaveAttribute('data-status', 'fail');
-    expect(fail).toHaveStyle({ backgroundColor: 'rgb(254, 226, 226)', color: 'rgb(153, 27, 27)' });
+    expect(fail).toHaveStyle({
+      backgroundColor: 'var(--warsha-color-surface-muted)',
+      color: 'var(--warsha-color-error)',
+    });
     expect(fail.textContent).toContain('✗');
 
     const pending = screen.getByTestId('status-strip-stage-tests');
     expect(pending).toHaveAttribute('data-status', 'pending');
     expect(pending).toHaveStyle({
-      backgroundColor: 'rgb(243, 244, 246)',
-      color: 'rgb(107, 114, 128)',
+      backgroundColor: 'var(--warsha-color-surface-muted)',
+      color: 'var(--warsha-color-text-muted)',
     });
     expect(pending.textContent).toContain('○');
 

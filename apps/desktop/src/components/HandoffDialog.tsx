@@ -73,12 +73,12 @@ const statusGlyphs: Record<HandoffPhase, string> = {
 };
 
 const statusColors: Record<HandoffPhase, string> = {
-  idle: '#6b7280',
-  preparing: '#1e40af',
-  handed_off: '#1e40af',
-  applying: '#1e40af',
-  applied: '#166534',
-  failed: '#991b1b',
+  idle: 'var(--warsha-color-text-muted)',
+  preparing: 'var(--warsha-color-accent-strong)',
+  handed_off: 'var(--warsha-color-accent-strong)',
+  applying: 'var(--warsha-color-accent-strong)',
+  applied: 'var(--warsha-color-success)',
+  failed: 'var(--warsha-color-error)',
 };
 
 /**
@@ -195,9 +195,9 @@ export function HandoffDialog({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        paddingInline: '16px',
-        paddingBlock: '16px',
-        backgroundColor: 'rgba(15, 23, 42, 0.45)',
+        paddingInline: 'var(--warsha-space-4)',
+        paddingBlock: 'var(--warsha-space-4)',
+        backgroundColor: 'var(--warsha-color-muted)',
         zIndex: 50,
       }}
     >
@@ -216,17 +216,17 @@ export function HandoffDialog({
           paddingInline: '20px',
           paddingBlock: '18px',
           borderRadius: '14px',
-          backgroundColor: 'white',
-          boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+          backgroundColor: 'var(--warsha-color-surface)',
+          boxShadow: 'var(--warsha-shadow-xl)',
         }}
       >
         <h2
           id="handoff-dialog-title"
-          style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#111827' }}
+          style={{ margin: 0, fontSize: 'var(--warsha-font-size-md)', fontWeight: 700, color: 'var(--warsha-color-text)' }}
         >
           {title}
         </h2>
-        <p style={{ margin: 0, fontSize: '0.8125rem', color: '#4b5563' }}>{intro}</p>
+        <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--warsha-color-text-muted)' }}>{intro}</p>
 
         <form
           data-testid="handoff-form"
@@ -235,7 +235,7 @@ export function HandoffDialog({
         >
           <label
             htmlFor="handoff-remote-url"
-            style={{ fontSize: '0.75rem', fontWeight: 600, color: '#374151' }}
+            style={{ fontSize: 'var(--warsha-font-size-xs)', fontWeight: 600, color: 'var(--warsha-color-text)' }}
           >
             {urlLabel}
           </label>
@@ -257,7 +257,7 @@ export function HandoffDialog({
               paddingInline: '10px',
               paddingBlock: '7px',
               borderRadius: '8px',
-              border: `1px solid ${draft.trim() !== '' && !urlOk ? '#fca5a5' : '#d1d5db'}`,
+              border: `1px solid ${draft.trim() !== '' && !urlOk ? 'var(--warsha-color-error)' : 'var(--warsha-color-border-strong)'}`,
               fontSize: '0.8125rem',
               fontFamily: 'inherit',
               unicodeBidi: 'isolate',
@@ -268,14 +268,14 @@ export function HandoffDialog({
             data-testid="handoff-url-hint"
             style={{
               margin: 0,
-              fontSize: '0.75rem',
-              color: draft.trim() !== '' && !urlOk ? '#991b1b' : '#6b7280',
+              fontSize: 'var(--warsha-font-size-xs)',
+              color: draft.trim() !== '' && !urlOk ? 'var(--warsha-color-error)' : 'var(--warsha-color-text-muted)',
             }}
           >
             {draft.trim() !== '' && !urlOk ? invalidUrl : urlHint}
           </p>
 
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 'var(--warsha-space-2)', flexWrap: 'wrap' }}>
             <Button
               type="submit"
               size="sm"
@@ -314,7 +314,7 @@ export function HandoffDialog({
           <p
             data-testid="handoff-error"
             role="alert"
-            style={{ margin: 0, fontSize: '0.75rem', color: '#991b1b' }}
+            style={{ margin: 0, fontSize: 'var(--warsha-font-size-xs)', color: 'var(--warsha-color-error)' }}
           >
             {failureReason ?? statusLine}
           </p>
@@ -323,10 +323,10 @@ export function HandoffDialog({
         {remoteRunId !== undefined && remoteRunId !== '' && (
           <p
             data-testid="handoff-remote-info"
-            style={{ margin: 0, fontSize: '0.75rem', color: '#374151' }}
+            style={{ margin: 0, fontSize: 'var(--warsha-font-size-xs)', color: 'var(--warsha-color-text)' }}
           >
             <span>{remoteInfo}: </span>
-            <code dir="ltr" style={{ unicodeBidi: 'isolate', fontFamily: 'monospace' }}>
+            <code dir="ltr" style={{ unicodeBidi: 'isolate', fontFamily: 'var(--warsha-font-mono)' }}>
               {remoteRunId}
             </code>
             {remoteUrl !== '' && (

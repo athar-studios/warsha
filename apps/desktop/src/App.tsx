@@ -16,6 +16,7 @@ import { PermissionModeChip, type PermissionMode } from './components/Permission
 import { PlanModeBadge, type AgentMode } from './components/PlanModeBadge';
 import { ProviderSetupWizard } from './components/ProviderSetupWizard';
 import { StatusStrip, initialDeliveryStages, type DeliveryStage } from './components/StatusStrip';
+import { ThemeToggle } from './components/ThemeToggle';
 import { AdvancedMode } from './screens/AdvancedMode';
 import { ArtifactViewer } from './screens/ArtifactViewer';
 import { Budgets } from './screens/Budgets';
@@ -36,6 +37,7 @@ import {
 import { SettingsScreen } from './screens/SettingsScreen';
 import { SimpleMode } from './screens/SimpleMode';
 import { StoreReviews, type StoreReview } from './screens/StoreReviews';
+import { ThemeProvider, useTheme } from './theme';
 
 
 // Screen types
@@ -160,6 +162,9 @@ function ModeProvider({ children, initialMode }: { children: ReactNode; initialM
 function AppContent() {
   const dir = useDirection();
   const locale = useLocale();
+  // The owner's theme choice (light / dark / system). The provider writes `data-theme`; this
+  // shell only mounts the switch.
+  const { preference: themePreference, setPreference: setThemePreference } = useTheme();
   const [screen, setScreen] = useState<Screen>('onboarding');
   const [client, setClient] = useState<WarshaClient | null>(null);
   const [, setProjects] = useState<ProjectSummary[]>([]);
@@ -318,32 +323,32 @@ function AppContent() {
         display: 'flex', 
         flexDirection: 'column', 
         height: '100vh',
-        backgroundColor: '#fafafa'
+        backgroundColor: 'var(--warsha-color-bg)'
       }}>
         {/* Top Bar */}
         <Box dir={dir} style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          paddingInline: '16px',
-          paddingBlock: '12px',
-          backgroundColor: 'white',
-          borderBottom: '1px solid #e5e7eb',
+          paddingInline: 'var(--warsha-space-4)',
+          paddingBlock: 'var(--warsha-space-3)',
+          backgroundColor: 'var(--warsha-color-surface)',
+          borderBottom: '1px solid var(--warsha-color-border)',
           position: 'sticky',
           top: 0,
           zIndex: 100,
         }}>
-          <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <Text size="xl" weight="bold" style={{ color: '#2563eb' }}>{t('app.brand') || 'Warsha'}</Text>
-            <Text size="sm" style={{ color: '#6b7280' }}>{t('app.version') || 'v0.1.0'}</Text>
+          <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-3)' }}>
+            <Text size="xl" weight="bold" style={{ color: 'var(--warsha-color-accent-strong)' }}>{t('app.brand') || 'Warsha'}</Text>
+            <Text size="sm" style={{ color: 'var(--warsha-color-text-muted)' }}>{t('app.version') || 'v0.1.0'}</Text>
           </Box>
 
-          <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-3)' }}>
             {/* Ship status strip: Code checks → Builds → Tests → Store-ready */}
             <StatusStrip stages={deliveryStages} />
           </Box>
 
-          <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-3)' }}>
             {/* Work protection: permission mode */}
             <PermissionModeChip mode={permissionMode} onChange={setPermissionMode} />
 
@@ -351,7 +356,7 @@ function AppContent() {
             <PlanModeBadge mode={agentMode} onToggle={setAgentMode} />
 
             {/* Mode Toggle */}
-            <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#f3f4f6', borderRadius: '8px', padding: '4px' }}>
+            <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-2)', backgroundColor: 'var(--warsha-color-surface-muted)', borderRadius: '8px', padding: 'var(--warsha-space-1)' }}>
               <Button
                 variant={screen === 'simple' ? 'primary' : 'ghost'}
                 size="sm"
@@ -370,6 +375,9 @@ function AppContent() {
               </Button>
             </Box>
             
+            {/* Theme: light / dark / system, applied as `data-theme` on <html> */}
+            <ThemeToggle preference={themePreference} onChange={setThemePreference} />
+
             <Button variant="ghost" size="sm" dir={dir} data-testid="settings-open" onClick={() => setScreen('settings')}>
               {t('app.settings') || 'Settings'}
             </Button>
@@ -400,11 +408,11 @@ function AppContent() {
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: '8px',
-        paddingInline: '16px',
+        gap: 'var(--warsha-space-2)',
+        paddingInline: 'var(--warsha-space-4)',
         paddingBlock: '10px',
-        backgroundColor: 'white',
-        borderBottom: '1px solid #e5e7eb',
+        backgroundColor: 'var(--warsha-color-surface)',
+        borderBottom: '1px solid var(--warsha-color-border)',
         flexWrap: 'wrap',
       }}
     >
@@ -513,7 +521,7 @@ function AppContent() {
             />
             {/* One-click setup (M14b): the six presets and the network-free
                 "Test connection". `onSave` has no settings RPC behind it yet. */}
-            <Box dir={dir} style={{ paddingInline: '16px', paddingBlock: '12px' }}>
+            <Box dir={dir} style={{ paddingInline: 'var(--warsha-space-4)', paddingBlock: 'var(--warsha-space-3)' }}>
               <ProviderSetupWizard />
             </Box>
           </Box>
@@ -539,7 +547,7 @@ function AppContent() {
         return (
           <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
             {renderSettingsTabs()}
-            <Box dir={dir} style={{ padding: '16px', maxWidth: '900px', margin: '0 auto', width: '100%' }}>
+            <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', maxWidth: '900px', margin: '0 auto', width: '100%' }}>
               <BackendKitPanel
                 kind={backendKind}
                 features={backendFeatures}
@@ -565,7 +573,7 @@ function AppContent() {
 
   return (
     <LocaleProvider initialLocale={locale as 'ar' | 'en'}>
-      <Box dir={dir} className="app" style={{ minHeight: '100vh', backgroundColor: '#fafafa' }}>
+      <Box dir={dir} className="app" style={{ minHeight: '100vh', backgroundColor: 'var(--warsha-color-bg)' }}>
         {renderScreen()}
       </Box>
     </LocaleProvider>
@@ -573,5 +581,11 @@ function AppContent() {
 }
 
 export default function App() {
-  return <AppContent />;
+  // The theme outranks every screen: the provider writes `data-theme` on the document root, and
+  // `main.tsx` applies the stored choice before the first paint so a dark app does not flash light.
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
+  );
 }

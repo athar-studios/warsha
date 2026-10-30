@@ -105,22 +105,22 @@ export function StoreReviews({ reviews }: StoreReviewsProps) {
         display: 'flex',
         flexDirection: 'column',
         gap: '10px',
-        paddingInline: '16px',
-        paddingBlock: '12px',
+        paddingInline: 'var(--warsha-space-4)',
+        paddingBlock: 'var(--warsha-space-3)',
       }}
     >
       <header style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-          <h2 style={{ margin: 0, fontSize: '1.125rem', fontWeight: 700 }}>{title}</h2>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--warsha-space-2)' }}>
+          <h2 style={{ margin: 0, fontSize: 'var(--warsha-font-size-lg)', fontWeight: 700 }}>{title}</h2>
           <span
             data-testid="store-reviews-count"
             style={{
-              paddingInline: '8px',
+              paddingInline: 'var(--warsha-space-2)',
               paddingBlock: '1px',
               borderRadius: '999px',
-              border: '1px solid #e5e7eb',
-              color: '#4b5563',
-              fontSize: '0.75rem',
+              border: '1px solid var(--warsha-color-border)',
+              color: 'var(--warsha-color-text-muted)',
+              fontSize: 'var(--warsha-font-size-xs)',
               fontWeight: 600,
             }}
           >
@@ -129,7 +129,7 @@ export function StoreReviews({ reviews }: StoreReviewsProps) {
         </div>
         <p
           data-testid="store-reviews-note"
-          style={{ margin: 0, fontSize: '0.8125rem', color: '#4b5563' }}
+          style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--warsha-color-text-muted)' }}
         >
           {note}
         </p>
@@ -138,7 +138,7 @@ export function StoreReviews({ reviews }: StoreReviewsProps) {
       {reviews.length === 0 ? (
         <p
           data-testid="store-reviews-empty"
-          style={{ margin: 0, fontSize: '0.875rem', color: '#4b5563' }}
+          style={{ margin: 0, fontSize: 'var(--warsha-font-size-sm)', color: 'var(--warsha-color-text-muted)' }}
         >
           {empty}
         </p>
@@ -148,7 +148,7 @@ export function StoreReviews({ reviews }: StoreReviewsProps) {
           style={{
             display: 'flex',
             flexDirection: 'column',
-            gap: '8px',
+            gap: 'var(--warsha-space-2)',
             margin: 0,
             padding: 0,
             listStyle: 'none',
@@ -164,10 +164,10 @@ export function StoreReviews({ reviews }: StoreReviewsProps) {
                 flexDirection: 'column',
                 gap: '6px',
                 paddingInline: '14px',
-                paddingBlock: '12px',
+                paddingBlock: 'var(--warsha-space-3)',
                 borderRadius: '10px',
-                border: '1px solid #e5e7eb',
-                backgroundColor: '#ffffff',
+                border: '1px solid var(--warsha-color-border)',
+                backgroundColor: 'var(--warsha-color-surface)',
                 listStyle: 'none',
               }}
             >
@@ -176,7 +176,7 @@ export function StoreReviews({ reviews }: StoreReviewsProps) {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  gap: '8px',
+                  gap: 'var(--warsha-space-2)',
                 }}
               >
                 {/* Stars read left-to-right in both languages: pinned and isolated. */}
@@ -187,7 +187,7 @@ export function StoreReviews({ reviews }: StoreReviewsProps) {
                   aria-label={ratingLabel(review.rating, locale)}
                   style={{
                     flex: '0 0 auto',
-                    color: '#B45309',
+                    color: 'var(--warsha-color-warning)',
                     fontSize: '0.9375rem',
                     letterSpacing: '0.06em',
                     unicodeBidi: 'isolate',
@@ -200,13 +200,13 @@ export function StoreReviews({ reviews }: StoreReviewsProps) {
                   dir="ltr"
                   style={{
                     flex: '0 0 auto',
-                    paddingInline: '8px',
+                    paddingInline: 'var(--warsha-space-2)',
                     paddingBlock: '2px',
                     borderRadius: '999px',
-                    backgroundColor: '#f3f4f6',
-                    color: '#4b5563',
-                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-                    fontSize: '0.75rem',
+                    backgroundColor: 'var(--warsha-color-surface-muted)',
+                    color: 'var(--warsha-color-text-muted)',
+                    fontFamily: 'var(--warsha-font-mono)',
+                    fontSize: 'var(--warsha-font-size-xs)',
                     unicodeBidi: 'isolate',
                   }}
                 >
@@ -216,7 +216,7 @@ export function StoreReviews({ reviews }: StoreReviewsProps) {
 
               <span
                 data-testid={`store-review-${review.id}-body`}
-                style={{ fontSize: '0.875rem', color: '#374151', lineHeight: 1.5 }}
+                style={{ fontSize: 'var(--warsha-font-size-sm)', color: 'var(--warsha-color-text)', lineHeight: 1.5 }}
               >
                 {review.body}
               </span>
@@ -224,14 +224,14 @@ export function StoreReviews({ reviews }: StoreReviewsProps) {
               <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
                 <span
                   data-testid={`store-review-${review.id}-author`}
-                  style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#111827' }}
+                  style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--warsha-color-text)' }}
                 >
                   {review.author}
                 </span>
                 {ratingIsKnown(review.rating) ? null : (
                   <span
                     data-testid={`store-review-${review.id}-out-of-range`}
-                    style={{ fontSize: '0.75rem', color: '#991b1b' }}
+                    style={{ fontSize: 'var(--warsha-font-size-xs)', color: 'var(--warsha-color-error)' }}
                   >
                     {outOfRange}
                   </span>

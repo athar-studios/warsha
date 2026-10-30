@@ -2124,3 +2124,600 @@ and other sessions' files (`.github/workflows/ci.yml`, `DECISIONS.md`, `apps/des
 All milestones M0–M16 are implemented and validated. Last bridge run 2026-10-29T17:47:43 exited 0 with all 18 checks green (cargo fmt/clippy/test, pnpm install/typecheck/build/test, actionlint). See PLAN.md for per-milestone evidence. Human-only steps remain listed above.
 ## Plan update 2026-10-29 — LingCode-inspired ideas (ideas only)
 PLAN.md and DECISIONS.md updated with 11 ideas adopted from LingCode's public site (ideas only; no branding/assets/text/code copied). New milestones M17 (Post-launch care), M18 (Agent workflow and context), M19 (Backend kit); subsections M14a (work protection), M14b (router additions), M5a (status strip/delivery), M5b (live preview), M6a (continue on server), M8b (Simple mode UI spec), M15a (website and launch). Definition of Done extended to M10-M19. License remains PolyForm Noncommercial 1.0.0. No code changes; CI unaffected.
+
+#### M20 (ninth batch) – Agent loop wiring: `agent_loop.rs` + `skills.list`/`agent.turn` ✅ DONE (validated 2026-10-30T18:12, all check groups green; 294 Rust tests and 256 TS tests, 0 failures)
+
+Wiring only, in the five files the batch was allowed to touch: no dependency added, no `Cargo.toml`,
+`package.json` or lockfile change, no `.github/workflows/**` change, no i18n catalog entry, no
+TypeScript source change, no new feature. The loop calls the M18 types exactly as they shipped; the
+only additions to `agent_workflow.rs` are two helpers on `SlashCommandRegistry`.
+
+| Deliverable | Path | What landed |
+|---|---|---|
+| Agent loop | `crates/warsha-pipeline/src/agent_loop.rs` (new) + `lib.rs` `mod`/`pub use` | `AgentLoop { mode_manager, todo_list, ask_queue, message_bus, compactor, compressor }` + the private `context` transcript, `AgentLoop::new()`, `run_turn(input, skills) -> AgentTurnResult` (mentions → slash command → Plan plan / Agent summary → one todo → compaction), `approve_agent_mode`/`return_to_plan_mode` through `ModeManager::request_transition`, `mode`/`todos`/`context` accessors, `AgentTurnResult { mode, mentions, command, response, todos }` (serde `snake_case`), `TURN_CONTEXT_BUDGET_TOKENS = 512`, `MAX_SUMMARY_CHARS = 120`, hand-written `impl Default` |
+| Registry helpers | `crates/warsha-pipeline/src/agent_workflow.rs` | `SlashCommandRegistry::from_skills(&[SlashCommand]) -> Self` (cannot fail: a nameless or whitespace-named entry is skipped and a repeated name keeps the first) and `SlashCommandRegistry::skills() -> Vec<SlashCommand>` (owned, registration order — the `skills.list` wire shape; `list()` stays the sorted picker view) |
+| Skills RPC | `crates/warshad/src/lib.rs` | `SKILL_CATALOG` (`/review`, `/refactor`, `/test`, `/fix`, `/explain`), `skill_catalog()` built through the registry, `#[method(name = "skills.list")] list_skills() -> Vec<SlashCommand>` |
+| Agent turn RPC | `crates/warshad/src/lib.rs` | `#[method(name = "agent.turn")] agent_turn(input) -> AgentTurnResult`: builds the catalog, takes the loop's write lock and returns `run_turn(&input, &skills)` |
+| Daemon wiring | `crates/warshad/src/lib.rs` | `DaemonState.agent_loop: Arc<RwLock<AgentLoop>>` with a `TODO(persistence)` note, initialized in `start_daemon` and in the tests' `test_state` |
+
+Tests added — 15 new, all passing: 12 in `agent_loop` (a new loop starts in Plan with empty stores,
+Plan returns a plan and executes nothing, Agent returns a summary, mentions parsed and repeated in the
+response, a catalogued slash command resolves, an unknown/late/absent-catalog command is `None` and
+says so, the transcript is compacted past the budget with the newest turn verbatim, one todo per turn
+with `turn-1`/`turn-2` ids, a blank approver is `ApprovalRequired` and the switch back to Plan is
+allowed, the loop owns the `ask_user` queue and the message bus, the result's serde shape, an empty
+input still produces a turn), 1 in `agent_workflow` (`from_skills` skipping the two unusable entries
+and the duplicate, `skills()` order, slash-less lookup) and 2 in `warshad` (`skills.list` reports the
+five commands in catalog order and resolves as a registry; `agent.turn` plans first and executes only
+after the owner's approval, with `turn-2` recorded). Workspace totals: Rust 279 → 294, TS unchanged at
+256.
+
+Checks actually run (Rust and docs in WSL Ubuntu as root against a synced copy at `/root/warsha-al`
+with `CARGO_TARGET_DIR=/root/warsha/target`, because this Windows host's `cargo` targets
+`x86_64-pc-windows-gnu` and has no `gcc.exe` for `ring`; TypeScript on this Windows host with the
+repo's own `node_modules`, because `pnpm` is not installed here):
+
+| Check | Result |
+|---|---|
+| `cargo fmt --all --check` | PASS — exit 0, also re-checked with the WSL toolchain's `rustfmt 1.10.0-stable` |
+| `cargo clippy --workspace --all-targets -- -D warnings` | PASS — exit 0, no warning |
+| `cargo test --workspace` | PASS — 294 passed, 0 failed, 0 ignored |
+| `tsc --noEmit` (client, crypto, i18n, desktop, remote) | PASS — exit 0 for all five |
+| `tsc --noEmit` (`packages/ui`) | **Not a regression, pre-existing**: exit 2 on `Cannot find module '@storybook/react'` and the implicit-`any` parameters that follow from it. `node_modules/@storybook` does not exist on this host — the M20 fifth batch recorded the same gap ("the Windows host's `node_modules` predates the fifth batch") and the bridge's `pnpm install` supplies the package. No `.ts`/`.tsx` file changed in this batch |
+| `vitest run` per package | PASS — 256 tests (client 32, crypto 22, i18n 12, ui 31, desktop 155, remote 4), 0 failures |
+| `vite build` (desktop, remote) | PASS — exit 0, both bundles written |
+| `eslint src --ext .ts,.tsx` per package | PASS — 0 errors, 1 warning: the pre-existing `react-hooks/exhaustive-deps` in the desktop composer's subscription ref |
+| `node scripts/check-arch.mjs --self-test` + `node scripts/check-arch.mjs` | PASS — 5 rules fire on the fixtures, `arch: 5 rules, 0 violations` |
+| `actionlint .github/workflows/ci.yml` (WSL) | PASS — exit 0, no workflow file touched |
+| `mdbook build` + `mdbook test` (WSL, 0.5.4) | PASS — both exit 0, 22 chapters tested, no docs source changed |
+| `pnpm install` / `-r typecheck` / `-r build` / `-r test`, the bridge run | Not run — `pnpm` is not on this host's PATH and no `pnpm.cjs` exists anywhere under the user profile, so the per-package equivalents above were run instead; no `package.json`, lockfile or TypeScript source changed, so the bridge's run exercises the same code |
+
+Defects found and fixed inside files this batch created:
+
+- The first `cargo clippy` run failed to compile `warsha-pipeline`: `#[derive(Debug, Clone)]` on
+  `AgentLoop` requires the two tool types it holds, and `ContextCompactor`/`OutputCompressor` are
+  stateless unit structs that implement neither. The derive was dropped (nothing clones a loop) rather
+  than adding trait impls to M18's public types.
+- The second run failed `clippy::new_without_default`: `AgentLoop::new()` has no `Default`. A
+  hand-written `impl Default` was added instead of a derive, for the same reason.
+- Two tests asserted a slash command that was not the turn's **first** token (`@file … /review …`) and
+  got `None` — the test inputs were wrong, not the rule, which is "a command is how a turn starts".
+  Both now start with the command and the mention follows it.
+
+Decisions (logged here because `DECISIONS.md` is outside this batch's file scope):
+
+- **`run_turn` takes `&mut self`.** The brief's signature has no receiver, but a turn records a todo
+  and compacts the transcript, so it mutates the loop; a `&self` version would have had to drop both
+  of the AC's behaviours.
+- **The loop keeps one private `context: Vec<String>`.** The brief lists six tools and no history, but
+  "compacts context if over budget" needs a transcript to compact. It is private, read through
+  `AgentLoop::context()`, and it is the only state outside the six named tools; `AgentTurnResult`
+  keeps exactly the five fields the brief names.
+- **The six tools are public fields.** They are the loop's state, not its internals (the daemon and the
+  run view read the queue and the bus), and a private field that is never read is a `dead_code` error
+  under `-D warnings`. `mode_manager` being public does not weaken the rule: `ModeManager::current` was
+  already public in M18, and `approve_agent_mode` still goes through `request_transition`.
+- **A turn records one todo, `Pending` in Plan and `Done` in Agent.** That is what makes "the todo list
+  was updated" observable without inventing a tool layer, and it keeps `Cancelled` unused: nothing here
+  drops work.
+- **The command must be the first token.** `please /review` is prose, `/review the diff` is a command —
+  one rule, stated in the doc comment and test-covered both ways. A trailing `,`/`.`/`:`/`;` is trimmed
+  the way the mention parser trims punctuation, so `/review,` is not an unknown command.
+- **An unknown command is `None` and the response says so.** Silently treating `/deploy` as prose would
+  hide a typo; failing the turn would be worse, so the response carries
+  `/deploy — unknown command, ignored`.
+- **The Agent-mode execution is a mock, and every response says it.** No file is read, no tool runs and
+  no model is called; the summary names the mentions, the command and the todo. `PLAN.md` and this log
+  record the missing tool layer instead of implying the turn did work.
+- **`skills()` is registration order, not sorted.** The catalog's order is a reading order (what to
+  reach for first); the composer sorts with `list()`/`matching()` already, so the wire shape does not
+  have to.
+- **The skills catalog is hardcoded in `warshad`.** The brief allows "a hardcoded catalog or a skills
+  directory". `skills.rs` and `factory/skills.lock` are the real source, but neither is loaded at
+  startup today, so a directory reader here would have been a second, unused loader. The five
+  commands go through `SlashCommandRegistry::register`, so the RPC serves exactly what the registry
+  accepts.
+- **No `packages/client` or desktop change.** The brief's scope is the loop, the two RPC methods and
+  the daemon state; adding client methods and a screen would be a new feature, and the composer's
+  `simpleSlashCommands` stays until a screen calls `skills.list`.
+
+Not wired, recorded rather than claimed:
+
+- **No screen calls the two RPCs.** `packages/client` has no `skills.list`/`agent.turn` methods and the
+  Simple mode composer still uses its own placeholder catalog.
+- **The mode has no RPC.** The daemon test flips `DaemonState.agent_loop`'s mode through
+  `approve_agent_mode`; a gate card or an approval RPC would be the real caller, and neither exists.
+- **The loop's state is in memory.** `TODO(persistence)` sits on `DaemonState.agent_loop`: a restart
+  forgets the approval history, the todos, the queue, the bus and the transcript.
+- **`agent.turn` is not covered over the wire.** The two daemon tests call `WarshaRpc`'s methods
+  directly; `crates/warshad/tests/m1_daemon.rs` is outside this batch's file scope, so no integration
+  test drives the new methods through JSON-RPC.
+- **Mentions still carry a target string only**, and there is no tool layer for the summary to drive —
+  both unchanged from M18.
+
+Pre-existing, not touched: `packages/ui`'s `tsc` failure on the missing `@storybook/react` (recorded
+above and in the M20 fifth batch), the one `react-hooks/exhaustive-deps` warning in the desktop
+composer, and `mdbook`'s Windows `0xC0000005` crash (docs were built in WSL 0.5.4). The working tree
+was clean when this batch started (`git status --porcelain` empty) and nothing was committed or
+pushed.
+
+#### M20 (tenth batch) – Persistence batch: preferences, backend kits, run modes and pairings in SQLite ✅ DONE (validated 2026-10-30T18:41:22, exit=0, all 20 checks green in the WSL bridge — 313 Rust and 256 TS tests, 0 failures)
+
+Durability only. The four M20 records that lived in memory — the taste
+preferences, the backend kit, the run mode config and the phone pairings — now
+have a table, an idempotent migration and a save/load pair with round-trip tests.
+No feature was added: no new RPC, no screen, and no daemon loads the rows at boot
+yet.
+
+| Deliverable | Path | What landed |
+|---|---|---|
+| Persistence module | `crates/warsha-store/src/persistence.rs` (new) + `lib.rs` `mod`/`pub use` | `SqliteStore { conn: rusqlite::Connection }` with `open(&str)` (creates the file, `journal_mode = WAL`, `foreign_keys = ON`, 5 s busy timeout, and it **refuses** to return a store that did not end up in WAL), `migrate()` (one `unchecked_transaction`, `CREATE TABLE IF NOT EXISTS`, safe to call on every start), `tables()` and `connection()`. Rows: `StoredPreference { project_id, key, score, evidence_count, last_updated }`, `StoredBackendKit { project_id, kind, url, config_json }`, `StoredRunMode { mode, config_json }`, `StoredPairing { device_id, secret, created_at, revoked }` (hand-written `Debug`, prints `<redacted>`). Methods: `save_preference`/`load_preferences` (upsert on `(project_id, key)`, highest score first then key), `save_backend_kit`/`load_backend_kit` (`Option`), `save_run_mode`/`load_run_mode` (`Option`), `save_pairing`/`load_pairings` (oldest first, revoked rows kept) |
+| Store error variants | `crates/warsha-store/src/lib.rs` | `StoreError::Sqlite(#[from] rusqlite::Error)`, `InvalidPath(String)` (a blank path is not SQLite's silent temp database) and `WalNotEnabled(String)`. No caller in the workspace matches `StoreError` exhaustively, so the three additions are source-compatible |
+| Dependency | `crates/warsha-store/Cargo.toml` | `rusqlite = { version = "0.32", features = ["bundled"] }` — the only new dependency. 0.32 is the newest line that wants `libsqlite3-sys ^0.30`, which is exactly what `sqlx`'s SQLite driver already links, so the workspace still has one native `sqlite3` (Cargo allows only one `links = "sqlite3"` package) and the bundled amalgamation is compiled once |
+| Preferences | `crates/warsha-pipeline/src/preferences.rs` | `InMemoryPreferenceStore::save_to_store(&self, &SqliteStore)` projects every derived preference, one row per `(project_id, key)`, in project-id order; `InMemoryPreferenceStore::load_from_store(store, project_id)` reads them back in the same order `list_preferences` uses. Module doc now says what is persisted (the derived rows) and what is not (the signal log, the owner dimension) |
+| Backend kit | `crates/warsha-pipeline/src/backend_kit.rs` | `BackendKit::save_to_store(&self, store, project_id)` writes the serialised kit into `config_json` and mirrors `kind`/`url` into their own columns; `BackendKit::load_from_store(store, project_id)` returns `Option<BackendKit>` and turns a row whose JSON no longer parses into `StoreError::Serialization` rather than an empty kit |
+| Run modes + pairing | `crates/warsha-pipeline/src/run_modes.rs` | `RunModeConfig::save_to_store`/`load_from_store(store, mode)` keyed by `RunMode::as_str` (saving Hosted does not erase Local), returned **unvalidated** so `validate()` stays the one gate before a bind; `InMemoryPairingStore::save_to_store`/`load_from_store` (returns a fresh store, so the caller keeps `create`/`list`/`revoke`/`is_revoked`) with revocation as a value on the row |
+
+Tests added — 19 new, all passing: 11 in `warsha-store::persistence` (`open` creates the file and is
+in WAL, a blank path is refused, `migrate` creates the four tables and is idempotent, WAL survives a
+reopen, preference round trip + ordering + upsert, backend-kit round trip + replacement, run-mode round
+trip + replacement + `None` for an unknown mode, pairing round trip with the revoked row kept, `Debug`
+redaction) and 8 in `warsha-pipeline` (2 `preferences`: the projection round-trips per project and a
+second save replaces the score at 1.5 after 30 days of decay; 3 `backend_kit`: full-kit round trip with
+an identical `export()` dump, the kind/url columns, replacement on a second save; 3 `run_modes`: config
+round trip per mode, replacement per mode, pairings round trip incl. `is_revoked`/`active` and no secret
+in `Debug` on either side). Suite totals: `warsha-store` 14 → 25, `warsha-pipeline` 222 → 230,
+workspace 294 → 313.
+
+Verification for this batch (the WSL bridge, `bridge-io`; the Windows host cannot build the workspace —
+`cargo` targets `x86_64-pc-windows-gnu` and there is no `gcc`, which fails `libsqlite3-sys`'s C build
+before any of this code is reached):
+
+| Check | Result |
+|---|---|
+| `cargo fmt --all --check` | PASS |
+| `cargo clippy --workspace --all-targets -- -D warnings` | PASS |
+| `cargo test --workspace` | PASS — 313 tests, 0 failed, 1 ignored |
+| `pnpm install` / `-r typecheck` / `lint` / `-r build` / `-r test` | PASS — 256 TS tests |
+| `node scripts/check-arch.mjs` | PASS |
+| `actionlint .github/workflows/ci.yml` | PASS |
+
+Bridge evidence (per the corrected verification rule — `result.log`, not `final.txt`): run requested
+2026-10-30T18:40 via `bridge-io/run.flag`; `bridge-io/done.flag` says `exit=0 finished
+2026-10-30T18:41:22`; `bridge-io/result.log` carries 20 `PASS` lines, 0 `FAIL`, and ends `RESULT: M0
+validation PASSED — all checks green.` Two earlier runs (18:29:52 and 18:38:06) were identically green;
+the only edits after this one are the timestamps in this file and in `PLAN.md`, and no check in
+`scripts/wsl-setup.sh` reads a root-level `.md`.
+
+Decisions (logged here because `DECISIONS.md` is outside this batch's file scope):
+
+- **`rusqlite`, not the existing `sqlx` pool.** The brief asks for `SqliteStore { conn:
+  rusqlite::Connection }`, and the four records are single-row settings writes a screen makes
+  synchronously; a pool plus `await` would have bought nothing and changed every signature. The two
+  halves share the database file, not the API.
+- **Pinned to `rusqlite 0.32`.** 0.33 and later want `libsqlite3-sys ^0.31`, and Cargo refuses two
+  versions of a `links = "sqlite3"` crate: adding one would have failed the *whole workspace* build, not
+  just this crate. 0.32.1 wants `^0.30.1`, which is the version already in `Cargo.lock`.
+- **`rusqlite` is declared in the crate, not in the workspace.** The root `Cargo.toml` is outside this
+  batch's allowed files, so the dependency is pinned where it is used. Moving it to
+  `[workspace.dependencies]` later is a one-line move with no code change.
+- **`Cargo.lock` is rewritten, and that is not a repo change.** `.gitignore` ignores `**/Cargo.lock`
+  (line 56), so adding the dependency touches an untracked file only; the resolution now holds
+  `rusqlite 0.32.1` beside the untouched `libsqlite3-sys 0.30.1`.
+- **`open` does not migrate.** The brief lists them as separate methods and a test asserts that `open`
+  leaves the schema empty, so a caller runs both. `migrate` is idempotent, so running it every start is
+  the intended use.
+- **`open` fails when WAL is unavailable.** A database on a filesystem that cannot do WAL would
+  otherwise quietly journal in rollback mode, and the durability the store promises would be a comment
+  rather than a property. An in-memory path is refused for the same reason.
+- **`load_from_store` returns the score as saved.** Decay needs the signal timestamps, which the table
+  does not carry (the brief's columns are the derived ones), so a reloaded preference is a snapshot: it
+  does not re-decay, and `explain` cannot be rebuilt from rows. `Preference::last_updated` is there so
+  a caller can see how stale the snapshot is.
+- **The save/load pair is inherent, not a `PreferenceStore`/`PairingStore` trait method.** A trait
+  method would force every implementation — including `mockall` mocks and the in-memory defaults — to
+  depend on `SqliteStore`; the concrete type that owns the data is the one that can persist it.
+- **A load does not validate.** `RunModeConfig::load_from_store` returns the stored config as-is and
+  `validate()` stays the single gate a daemon passes before binding, so a stale row is refused loudly
+  instead of being silently repaired. The same rule applies to `BackendKit::load_from_store`: corrupt
+  JSON is an error, not an empty kit that would export a schema missing tables.
+
+Not wired, recorded rather than claimed:
+
+- **Nothing loads these rows at startup.** No daemon RPC, CLI command or desktop screen calls
+  `save_to_store`/`load_from_store`; the tables are written only by tests. `DaemonState` still keeps
+  its kits and loop state in memory (`TODO(persistence)`).
+- **No owner-level preferences.** `Preference` has no `owner_id` and the brief's table has no column
+  for one, so `owner_preferences`/`explain_for_owner` stay in memory.
+- **No migration versioning.** `migrate()` is `CREATE TABLE IF NOT EXISTS`, not a numbered migration
+  run: there is no schema-version table, so a future column change needs a real step added here (the
+  `sqlx` half of the crate has `migrations/`; this half does not yet).
+- **No async wrapper.** `SqliteStore` is blocking; a caller on a tokio worker thread has to move the
+  call off it itself.
+
+⚠️ Security note, flagged rather than silently accepted: the brief's `pairing_devices` schema stores
+the M6 one-time `secret` in the SQLite file, while `AGENTS.md` says secrets live only in the OS
+keychain. It is implemented as specified — the QR channel has to hand the same value back — and the
+secret is `Debug`-redacted on both sides so it cannot reach a log, but a durable pairing secret belongs
+in the keychain (or as a hash plus a one-time-use flag) and that is a schema change for a later batch,
+not something to decide here.
+
+Pre-existing, not touched: the working tree already carried another session's uncommitted changes when
+this batch started (`PLAN.md`, `PROGRESS.md`, `crates/warsha-pipeline/src/agent_workflow.rs`,
+`crates/warsha-pipeline/src/lib.rs`, `crates/warshad/src/lib.rs`, and the new
+`crates/warsha-pipeline/src/agent_loop.rs`); they are kept as they were. Nothing was committed or
+pushed.
+
+#### M20 (eleventh batch) – Process spawning for real: live-preview dev server + MCP transports ✅ DONE (validated 2026-10-30T19:03:09, exit=0, all 20 checks green in the WSL bridge — 346 Rust and 256 TS tests, 0 failures)
+
+Two new pipeline modules and one daemon wiring. The live preview and the MCP stdio transport now start
+**actual OS processes**: `spawn` calls `tokio::process::Command`, `stop` kills the child, `status` asks
+`try_wait()`, and `preview.start` runs a dev server. No new dependency and no `Cargo.toml` change — the
+workspace's `tokio` already enables `full`, which carries the `process` feature (checked before writing a
+line, as the brief asked).
+
+| Deliverable | Path | What landed |
+|---|---|---|
+| Process spawner | `crates/warsha-pipeline/src/process_spawn.rs` (new) + `lib.rs` `mod`/`pub use` | `ManagedProcess { id, command, args, child, status, started_at, exit_code }` (the handle is `#[serde(skip)]`), `ProcessSummary` (the clonable handle-free projection), `ProcessStatus` (`starting`/`running`/`stopped`/`failed`/`crashed` with `as_str`/`is_terminal`), `ProcessError` via thiserror, `ProcessManager` (`spawn(command, args, env) -> id`, `stop`, `status`, `list`, `restart`, plus `write_stdin`), `InMemoryProcessManager` (ids `proc-1`, `proc-2`, … from a counter; records behind one `tokio::sync::Mutex`) |
+| Live preview | same file | `LivePreview { project_id, process_id, command, args, status }`, `LivePreviewManager { processes: Arc<dyn ProcessManager>, previews }` with `split_command` (`npm run dev` → `npm` + `run dev`, whitespace only), `start`/`stop`/`status`/`list`, and one dev server per project |
+| MCP transports | `crates/warsha-pipeline/src/mcp_transport.rs` (new) + `lib.rs` `pub mod` | `McpTransport` (`Stdio`/`Http { url }`/`WebSocket { url }`, serde tag `kind`, `as_str`/`url`), `McpServerConfig { name, transport, command, args }` (`new_stdio`/`new_http`/`new_websocket`/`is_wired`), `McpStatus` (`disconnected`/`connecting`/`connected`/`error(message)`, `as_str`/`is_connected`), `McpConnection { config, status, process_id }`, `McpTransportError` via thiserror, `McpManager` (`connect`/`disconnect`/`list`/`send`) and `InMemoryMcpManager`, which starts a stdio server through the `ProcessManager` and writes its frames to the child's stdin |
+| Daemon state + RPC | `crates/warshad/src/lib.rs` | `DaemonState` gained `processes: Arc<dyn ProcessManager>`, `mcp: Arc<dyn McpManager>` and `previews: Arc<LivePreviewManager>`, built **once** in `start_daemon` (and in the test helper) so a dev server, an MCP server and a `process.spawn` all appear in one `process.list`. Eleven `#[method]`s: `process.spawn`, `process.stop`, `process.status`, `process.list`, `mcp.connect`, `mcp.disconnect`, `mcp.list`, `mcp.send`, `preview.start`, `preview.stop`, `preview.status`. One `rpc_error` helper (`-32000`) carries the `thiserror` message |
+
+Tests added — 33 new, all passing: 18 in `process_spawn` (`spawn` → `running`, distinct ids, a missing
+binary, an empty command, `stop` → `stopped`, `stop` on a finished process → `NotRunning`, the exit code of
+an exited process, an unknown id, `list` never handing out the handle, `restart` keeping the id, `restart`
+replaying the environment, `restart` of an unknown id, `write_stdin` reaching the pipe, `split_command`,
+preview start/status/stop, a second start refused, unknown project + blank id, stopping a preview twice),
+11 in `mcp_transport` (stdio connect spawns the command and names its process, http recorded with no child,
+websocket recorded, a stdio config without a command, blank + duplicate name, an unspawnable command
+recorded as `error`, `disconnect` stops the process and clears the connection, unknown + repeated
+disconnect, a server that exited reported as `error`, `send` writing the frame, `send` refused when
+disconnected or unwired) and 4 in `warshad` (`process.*` round trip against a real child, `mcp.*` round
+trip connect → send → disconnect, an http `mcp.connect` recorded without dialling, the `preview.*` round
+trip with one server per project). Suite totals: `warsha-pipeline` 230 → 259, `warshad` 7 → 11, workspace
+313 → 346; TS unchanged at 256 (no `.ts`/`.tsx` file was touched).
+
+Verification for this batch (the WSL bridge, `bridge-io`; the Windows host cannot build the workspace —
+`cargo` targets `x86_64-pc-windows-gnu` with no `gcc`, which fails `ring`'s build script):
+
+| Check | Result |
+|---|---|
+| `cargo fmt --all --check` | PASS |
+| `cargo clippy --workspace --all-targets -- -D warnings` | PASS |
+| `cargo test --workspace` | PASS — 346 tests, 0 failed, 1 ignored |
+| `pnpm install` / `-r typecheck` / `lint` / `-r build` / `-r test` | PASS — 256 TS tests (client 32, i18n 12, crypto 22, ui 31, remote 4, desktop 155) |
+| `node scripts/check-arch.mjs` | PASS — the new module is reached through a public path, so no rule fires |
+| `actionlint .github/workflows/ci.yml` | PASS |
+| `mdbook build` / `mdbook test` (inside `pnpm -r test`) | PASS — no docs source changed this batch |
+
+Bridge evidence (per the corrected verification rule — `result.log`, not `final.txt`): run requested
+2026-10-30T19:01:54 via `bridge-io/run.flag` (`status.txt` showed `started`); `bridge-io/done.flag` says
+`exit=0 finished 2026-10-30T19:03:09`; `bridge-io/result.log` carries 20 `PASS` lines, 0 `FAIL`, and ends
+`RESULT: M0 validation PASSED — all checks green.` The Rust totals in that log are 24 `test result` lines
+summing to 346 passed, 0 failed, 1 ignored. This run already included the `PLAN.md` and `PROGRESS.md` edits;
+the earlier run at 18:59:24 was identically green and carried the same 346/256 totals.
+
+Defect found and fixed inside a file this batch created: the first `cargo check -p warshad --all-targets`
+failed with `E0277: the trait bound ManagedProcess: Clone is not satisfied`, because `jsonrpsee`'s
+`IntoResponse` requires `T: Serialize + Clone` and `ManagedProcess` owns a `tokio::process::Child`, which is
+not `Clone`. `ProcessSummary` — the same six facts, no handle — was added in `process_spawn.rs` and
+`process.list` now serves `Vec<ProcessSummary>`; `ProcessManager::list` still returns `Vec<ManagedProcess>`
+as the brief specifies.
+
+Decisions (logged here because `DECISIONS.md` is outside this batch's file scope):
+
+- **`mcp_transport` is a `pub mod`, not a flat re-export.** `mcp.rs` (M12) already exports `McpTransport`
+  and `McpServerConfig` at the crate root, and the brief's new types carry the same two names with a
+  different shape (`Http { url }` against `Http`). A flat re-export would either fail to compile or force a
+  rename that made callers guess which type they got, so the new layer is reached as
+  `warsha_pipeline::mcp_transport::…` and the M12 names stay untouched.
+- **A status is observed, not remembered.** `spawn` records `starting` and the first `status`/`list`/`stop`
+  call asks `try_wait()`, which promotes it to `running` or settles it as `stopped` (exit 0) or `crashed`
+  (non-zero). `failed` is reserved for a wait that itself errored — the three terminal states therefore
+  mean three different things.
+- **The environment sits beside the record, not on it.** The brief fixes `ManagedProcess`'s six fields, so
+  the env a spawn was given is kept in a private `Entry { process, env }` where `restart` can replay it
+  without widening the public struct.
+- **`write_stdin` is an extra trait method, with a default that refuses.** `McpManager::send` has to return
+  a `String`, and the honest version delivers bytes; a manager that pipes no stdin keeps the default
+  `StdInUnsupported` rather than reporting a delivery that never happened.
+- **stdin is piped; stdout and stderr are inherited.** The MCP transport needs the pipe, a dev server's log
+  belongs on the daemon's console, and an unread pipe would eventually block the child.
+- **Http and WebSocket are recorded, not dialled.** No HTTP or WebSocket client exists in this crate, so the
+  config is stored, `status` is `disconnected`, `process_id` stays `None` and `send` refuses with "not
+  wired". `McpServerConfig::is_wired` is the one predicate a caller reads instead of inferring.
+- **`mcp.list` asks the process.** A stdio server that exited reports `error` naming the process, so the
+  panel can never show `connected` for a server that is gone. A `disconnect` of an already-exited process
+  succeeds: the caller asked for it to be down, and it is.
+- **One preview per project, and a finished one may be replaced.** Two dev servers on one port is a port
+  conflict, not a feature; a preview whose process the manager no longer has counts as finished so the
+  project is never stuck.
+- **`split_command` splits on whitespace and nothing else.** No shell, no quoting, no expansion — a command
+  that needs a pipe or a glob is a script the project owns, not a string whose meaning differs between two
+  hosts.
+- **The dev server's URL is not invented.** The server picks its own port and prints it, and this module
+  captures no output, so `LivePreview` carries no `url` and the preview panel's `url` prop stays the seam
+  that PLAN.md M5b recorded.
+- **One manager for the whole daemon.** `process.*`, `mcp.*` and `preview.*` share a single
+  `Arc<dyn ProcessManager>`, which is what makes `process.list` a complete answer instead of a third of
+  one.
+
+Not wired, recorded rather than claimed:
+
+- **Nothing reaps children on shutdown.** A daemon restart forgets the processes it started, so a dev server
+  can outlive the daemon on its port (`TODO(reaping)` sits on `DaemonState.processes`).
+- **No MCP handshake and no stdout reader.** `initialize`/`tools/list` are not sent and a server's replies
+  are never consumed, so `mcp.send` delivers a frame and returns that frame — it is a transport, not a
+  client.
+- **`packages/client` has no methods for the eleven RPCs** and no screen calls them; `RunView`, the preview
+  panel and the two composer pickers are unchanged.
+- **A process inherits the daemon's working directory and environment** (plus the caller's `env`); there is
+  no per-project cwd or sandbox yet.
+- **No integration test over the wire.** The four daemon tests call `WarshaRpc`'s methods directly;
+  `crates/warshad/tests/m1_daemon.rs` is outside this batch's allowed files, so no JSON-RPC round trip is
+  asserted.
+
+Pre-existing, not touched: the working tree already carried another session's uncommitted changes when this
+batch started (`PLAN.md`, `PROGRESS.md`, `crates/warsha-pipeline/src/agent_workflow.rs`,
+`crates/warsha-pipeline/src/backend_kit.rs`, `crates/warsha-pipeline/src/preferences.rs`,
+`crates/warsha-pipeline/src/run_modes.rs`, `crates/warsha-pipeline/src/lib.rs`,
+`crates/warshad/src/lib.rs`, `crates/warsha-store/**` and the new
+`crates/warsha-pipeline/src/agent_loop.rs`); they are kept as they were. Nothing was committed or pushed.
+
+
+#### M20 (twelfth batch) – Theme switch (`data-theme`), both apps migrated to tokens, R6 scans the apps ✅ DONE (validated 2026-10-30T19:40:04, exit=0, all 20 checks green in the WSL bridge — 346 Rust and 282 TS tests, 0 failures; no new dependency, no Rust change, no manifest change)
+
+Scope kept: `apps/desktop/src/**`, `apps/remote/src/**`, `packages/ui/src/tokens/tokenDrift.test.ts`,
+`docs/ARCH_RULES.md`, `PLAN.md`, `PROGRESS.md`. Nothing committed, nothing pushed.
+
+What landed:
+
+- **Theme switch.** `apps/desktop/src/theme.tsx` (new) holds the owner's choice as one of
+  `light` / `dark` / `system` (default `system`), reads `localStorage` (`warsha.theme`) and
+  `prefers-color-scheme`, and writes `document.documentElement.dataset.theme` with a resolved
+  `light` / `dark` value — never `system`. The provider subscribes to the media query's `change`
+  event, so `system` keeps following the OS without a reload, and an explicit choice ignores the
+  query entirely. `main.tsx` calls `applyStoredTheme()` before `createRoot(...).render(...)`, so a
+  dark app does not flash the light palette for one frame.
+- **Toggle.** `apps/desktop/src/components/ThemeToggle.tsx` (new) sits in the top bar beside Settings:
+  a `role="group"` of three `aria-pressed` buttons, labels and hints through `t()` with the
+  `localized` fallback (ar + en), token-styled, logical properties only. It asks; the provider owns
+  the choice and persists it, so there is one source of truth for one attribute.
+- **Both apps on tokens.** 36 files, ~900 literal values replaced with `var(--warsha-*)`
+  references: 388 hex colours (64 distinct), 22 `white`, 12 `rgba()` scrims/shadows, 377 on-scale
+  spacing values, 81 type-scale font sizes, 19 inline mono stacks and one `line-height`.
+  `apps/remote/src/index.css` now imports `@warsha/ui/tokens/tokens.css` — it never did, so every
+  `var()` reference in that app would have resolved to nothing.
+- **R6 scans the apps.** `packages/ui/src/tokens/tokenDrift.test.ts` 12 → 17 tests:
+  `appSourceFiles()` walks both `src` trees for `.ts`/`.tsx` (tests excluded) and
+  `scanAppForLiterals()` allows `var(--warsha-…)` while flagging colour literals, colour keywords,
+  on-scale spacing, on-scale font sizes and inline font stacks. `docs/ARCH_RULES.md` R6 documents the
+  app scope, four app failure messages, and what the scan cannot see.
+
+Colour mapping (by role, not by hue — the brief's "replace literals" has to land somewhere):
+
+| literals | token |
+| --- | --- |
+| `#fafafa`, `#f9fafb` | `--warsha-color-bg` |
+| `#ffffff`, `white` | `--warsha-color-surface` |
+| `#f3f4f6`, `#eef2ff`, `#eff6ff`, `#dbeafe`, `#dcfce7`, `#d1fae5`, `#fee2e2`, `#fef2f2`, `#fef3c7`, `#fffbeb`, `#bfdbfe`, `#fde68a`, dark panes (`#0f172a`, `#1e293b`, `#1e1e1e`) | `--warsha-color-surface-muted` |
+| `#e5e7eb`, `#e5e5e5` | `--warsha-color-border` |
+| `#d1d5db`, `#93c5fd`, `#c7d2fe`, `#bbf7d0`, `#fcd34d`, `#fca5a5` | `--warsha-color-border-strong` |
+| `#111827`, `#1f2937`, `#374151`, `#e2e8f0` | `--warsha-color-text` |
+| `#6b7280`, `#4b5563`, `#64748b` | `--warsha-color-text-muted` |
+| `#9ca3af`, `#94a3b8`, `#6b6b6b` | `--warsha-color-muted` |
+| `#2563eb`, `#1d4ed8`, `#1e40af`, `#1e3a8a`, `#3b82f6`, `#3730a3`, `#6366f1`, `#8b5cf6`, `#06b6d4`, `#0ea5e9` | `--warsha-color-accent-strong` |
+| `#10b981`, `#059669`, `#166534`, `#065f46`, `#1a7f37`, `#14b8a6` | `--warsha-color-success` |
+| `#f59e0b`, `#d97706`, `#92400e`, `#b45309`, `#f97316` | `--warsha-color-warning` |
+| `#ef4444`, `#dc2626`, `#991b1b`, `#ec4899`, `#d946ef` | `--warsha-color-error` |
+| `#ffd60a` / `#0e0e0e` | `--warsha-color-accent` / `--warsha-color-accent-ink` |
+| `rgba(0,0,0,0.5)`, `rgba(15, 23, 42, 0.45)` (modal scrims) | `--warsha-color-muted` |
+| `boxShadow: '0 1px …'` … (six literals) | `--warsha-shadow-sm` / `-md` / `-lg` / `-xl` |
+| `4 8 12 16 24 32 48 64 px` in padding/margin/gap | `--warsha-space-1 … -16` |
+| `12 14 16 18 20 24 30 px`, `0.75 … 1.875rem` in `fontSize` | `--warsha-font-size-xs … -3xl` |
+| `'monospace'`, `'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'` | `--warsha-font-mono` |
+
+Verification for this batch (the WSL bridge, `bridge-io`; the Windows host cannot build the
+workspace — no pnpm, and the Rust toolchain is WSL-only):
+
+| Check | Result |
+| --- | --- |
+| Bridge run `bridge-io/run.flag` → `done.flag` | PASS — `exit=0 finished 2026-10-30T19:40:04`, `result.log` carries 20 `PASS` lines, 0 `FAIL`, `RESULT: M0 validation PASSED — all checks green.` The earlier run at 19:34:14 was identically green with the same 346/282 totals; the 19:40:04 run already carried this section, `PLAN.md`'s batch section and the `ARCH_RULES.md` R6 rewrite. Only markup changed after it (this heading's timestamp, one file count in `ARCH_RULES.md`), and no check reads those files |
+| `cargo fmt --check` / `cargo clippy --workspace -- -D warnings` | PASS — no Rust file changed this batch |
+| `cargo test --workspace` | PASS — 24 `test result` lines summing to 346 passed, 0 failed, 1 ignored |
+| `pnpm install` / `pnpm -r typecheck` / `pnpm lint` / `pnpm -r build` / `pnpm -r test` | PASS — 282 TS tests (client 32, i18n 12, crypto 22, ui 36, remote 4, desktop 176), 0 failures |
+| `node scripts/check-arch.mjs` | PASS — `arch: 5 rules, 0 violations` |
+| `actionlint .github/workflows/ci.yml` | PASS — the workflow is untouched by this batch |
+| `mdbook build` / `mdbook test` (inside `pnpm -r test`) | PASS — no docs source changed |
+
+Local Windows runs before the bridge (the repo's per-package binaries, used to iterate):
+
+| Check | Result |
+| --- | --- |
+| `apps/desktop`: `vitest run` | PASS — 23 files, 176 tests |
+| `apps/remote`: `vitest run` | PASS — 1 file, 4 tests |
+| `packages/ui`: `vitest run` | PASS — 4 files, 36 tests (17 in `tokenDrift`) |
+| `apps/desktop` / `apps/remote`: `tsc --noEmit` | PASS — exit 0 each |
+| `eslint src --ext .ts,.tsx` (desktop, remote, ui) | PASS — 0 errors; 1 pre-existing warning at `RunView.tsx:102` (`react-hooks/exhaustive-deps`, at HEAD) |
+| `vite build` (desktop, remote) | PASS — desktop 367.19 kB js / 3.59 kB css, remote 212.75 kB js / 3.60 kB css; both built stylesheets now carry the `--warsha-*` declarations |
+| `packages/ui`: `tsc --noEmit` on the Windows host | FAIL (environment, not code) — 10 errors, all `TS2307 Cannot find module '@storybook/react'` in `*.stories.tsx` plus its cascade; `@storybook` is not installed in this host's `node_modules`. The bridge's `pnpm install` provides it and `pnpm -r typecheck` passes there |
+
+Defects found and fixed inside files this batch owns:
+
+- **Six rgb() assertions and three colour assertions** in `StatusStrip.test.tsx` and
+  `ReleasePreflight.test.tsx` compared rendered colours; they now compare the token references
+  (`var(--warsha-color-surface-muted)`, `-success`, `-error`, `-text-muted`), which is what the
+  components now render — the first local run failed here and nowhere else.
+- **The first codemod pass dropped the quotes** around six scrim/tint substitutions
+  (`backgroundColor: var(--warsha-color-muted)`), which is a syntax error rather than a style
+  change; they are quoted again.
+- **Five sites where a ternary collapsed** to the same token on both branches
+  (`backgroundColor: isGate ? surface-muted : surface-muted`); the four that carried no distinction
+  were reduced to the single value, and the ones that still carry state (`color`, `borderColor`) were
+  left alone (the fifth, `GatesInbox`'s duplicated `changes_requested` branch, was already that way
+  at HEAD). `HandoffDialog`'s invalid-URL border keeps its distinction as
+  `--warsha-color-error` against `--warsha-color-border-strong`.
+- **Seven false positives in the new app scan** (`borderRadius: '8px'` on a line that also had a
+  spacing property) turned the scanner from property-name matching into value matching: it now reads
+  the value of a spacing/font-size declaration only.
+
+Decisions (logged here because `DECISIONS.md` is outside this batch's file scope):
+
+- **`system` is the default and stays live.** The tokens file deliberately has no
+  `prefers-color-scheme` query — the theme is an owner choice — so the query belongs in the provider,
+  which is the one place that can also re-read it on `change`. A one-shot read would make `system`
+  mean "whatever the OS said at launch".
+- **The provider writes `data-theme`; the toggle only asks.** Two owners of one attribute is how a
+  persisted value and a rendered value drift apart.
+- **`main.tsx` applies the stored choice before React renders.** The provider's effect runs after the
+  first paint; without the pre-render call a dark app flashes light for a frame.
+- **An unrecognised stored value falls back to `system`.** A store a previous version wrote, or a
+  hand-edited one, is not trusted into a value that could yield an unstyled document.
+- **Colours map by role, not by hue.** `#2563eb` (blue) became `--warsha-color-accent-strong`, not
+  `--warsha-color-accent`: the brand accent is `#FFD60A`, and gold on white is unreadable as text, so
+  the accent-strong role is the one that exists for foreground brand colour. Pale status tints
+  (`#dcfce7`, `#fef3c7`, `#fee2e2`) became `surface-muted`, because the pill's *text* colour is what
+  carries the state and a saturated success/warning/error background would have made that text
+  unreadable.
+- **A modal scrim has no token, so it uses `--warsha-color-muted`.** It is the only neutral that is
+  grey in both themes; a dedicated scrim/overlay token is recorded as a follow-up rather than
+  invented, because `packages/ui/src/tokens/**` is outside this batch's file scope.
+- **Off-scale values stay pixels.** `6px`, `10px`, `13px`, `18px`, `20px`, `40px`, `0.8125rem`,
+  `0.8rem`, `0.625rem` and every radius/width/height have no token, and forcing them would move
+  layout — the brief says leave them, and R6's app scan says so too.
+- **Radii are not part of this batch.** The brief names colour, spacing and font sizes; the two new
+  theme files use `--warsha-radius-*` because they are new code, and the older `borderRadius: '8px'`
+  sites are left for the batch that owns radius.
+- **Inline mono stacks became `--warsha-font-mono`; `fontFamily: 'inherit'` stayed.** `inherit` is a
+  CSS keyword, not a choice of typeface — the same line R6 already draws inside `packages/ui`.
+- **App test files are not scanned by R6**, matching the package's own exclusion: a test asserts what
+  renders, and `toHaveStyle({ backgroundColor: 'var(--warsha-color-surface-muted)' })` is a claim
+  about output rather than a design decision.
+
+Not claimed / still open:
+
+- **The two app stylesheets are outside the R6 scan** (`.ts`/`.tsx` only): both import `tokens.css`
+  and reference custom properties, but a colour added to `index.css` would be caught in review, not
+  by the rule.
+- **Off-scale values and radii/widths/heights remain literals**, so R6 cannot prove a screen has no
+  literal at all — only that every literal it could express as a token was expressed as one.
+- **No undeclared-token check for the apps.** The `ui` package's R6 flags a hand-typed `--warsha-`
+  name; the app scan allows `var(--warsha-…)` wholesale, so a typo there would render as nothing. A
+  one-off script confirmed all 37 token names the apps use are declared in `tokens.css`, but nothing
+  enforces it.
+- **The remote app has no theme toggle** — the brief asked for the switch in the desktop app, and the
+  remote PWA renders light until one is added.
+- **Nothing renders dark in CI**: the tests assert `data-theme` and the token references, not pixels,
+  so a token that maps to the wrong role is a review question.
+
+Pre-existing, not touched: the working tree already carried another session's uncommitted changes when
+this batch started (`PLAN.md`, `PROGRESS.md`, `crates/warsha-pipeline/src/agent_workflow.rs`,
+`crates/warsha-pipeline/src/backend_kit.rs`, `crates/warsha-pipeline/src/preferences.rs`,
+`crates/warsha-pipeline/src/run_modes.rs`, `crates/warsha-pipeline/src/lib.rs`,
+`crates/warshad/src/lib.rs`, `crates/warsha-store/**` and the new
+`crates/warsha-pipeline/src/agent_loop.rs`, `mcp_transport.rs`, `process_spawn.rs`,
+`crates/warsha-store/src/persistence.rs`); they are kept as they were. `dist/` from the two local
+`vite build` runs is gitignored. The one `react-hooks/exhaustive-deps` warning at `RunView.tsx:102` is
+at HEAD. Nothing was committed or pushed.
+
+#### M20 (thirteenth batch) — End-to-end request → artifact test ✅ DONE (validated 2026-10-30T20:06:32, exit=0, all 20 checks green)
+
+One new test, no new feature and no new dependency: a written request goes through the daemon's RPC
+layer, a clarifying question, an approved plan, the pipeline stages, code generation into a temp
+directory, `cargo test`, `cargo build` and the built binary's output. The bridge run is the evidence:
+
+| Check | Result |
+|---|---|
+| `cargo fmt --all --check` | PASS |
+| `cargo clippy --workspace --all-targets -- -D warnings` | PASS — 0 warnings, 0 errors |
+| `cargo test --workspace` | PASS — 347 tests (346 + the new one), 0 failures |
+| `pnpm install` / `-r typecheck` / `lint` / `-r build` / `-r test` | PASS — 282 TS tests (client 32, i18n 12, crypto 22, ui 36, remote 4, desktop 176), 0 failures |
+| `node scripts/check-arch.mjs` | PASS |
+| `actionlint .github/workflows/ci.yml` | PASS |
+
+`RESULT: M0 validation PASSED — all checks green.` (20 PASS lines, 0 FAIL, exit=0.)
+
+| Deliverable | Path | What landed |
+|---|---|---|
+| End-to-end test | `crates/warshad/tests/e2e_request_to_artifact.rs` (new) | One `#[tokio::test]` covering ten steps, plus the helpers it needs: the scripted answers, a file-block parser, a safe-path screen and the `cargo`/binary runners |
+| Milestones | `PLAN.md` | The thirteenth-batch section, `[x]` items and the one ⛔ limit |
+| This log | `PROGRESS.md` | This section |
+
+What the test actually does, in order:
+
+1. A temp tree, a `Store` under it, a `ProviderRouter` whose only provider is `MockProvider`, and a
+   `DaemonState` built over both; `WarshaRpc::new(state)` is the daemon's RPC layer.
+2. `projects.create` ("hello-cli", the request as its description) and `runs.start` with
+   `Build a hello-world Rust CLI that prints 'Hello, {name}!'`. The run is at `Idea`, records the
+   request as its `idea` artifact, and its event log reads back one `stage_started` event.
+3. The agent asks `Which name should the greeting print when the CLI is given no argument?` on the
+   `ask_user` store; the test asserts the run is blocked, answers `Ada`, and asserts it is unblocked.
+4. `AgentLoop::run_turn` in Plan mode returns a plan and executes nothing; `approve_agent_mode("owner")`
+   is the only way into Agent mode, and it records `Plan → Agent` with an approver.
+5. Gate A is approved through `approve_gate`, then the run walks
+   `Idea → GateA → Research → PrdSpec → GateB`; Gate B is approved; `→ Design → PlanTasks → Code →
+   ReviewQaSecurity`. Each stage asserts its artifact held the mock provider's `Mock response` before
+   the scripted answer replaced it.
+6. The plan (4 numbered files) and the code answer (3 file blocks) plus the reviewer's test answer
+   (1 file block) are recorded as artifacts through `upsert_artifact`, then written into the project
+   directory; the test asserts the written paths are exactly the files the plan named.
+7. `cargo test` in the generated project: 2 tests pass (the library's unit test and `tests/greeting.rs`).
+8. `cargo build`: `target/debug/hello-cli` exists.
+9. The binary prints `Hello, Ada!` with its argument and `Hello, world!` without one.
+10. `runs.get` reports `review_qa_security` with Gates A and B still approved.
+
+Decisions (logged here because `DECISIONS.md` is outside this batch's file scope):
+
+- **`crates/warsha-pipeline/src/e2e.rs` was allowed but not created.** Declaring a module needs
+  `crates/warsha-pipeline/src/lib.rs`, which this batch's file scope does not include, and no helper
+  needed the pipeline crate's private state — the parser, the path screen and the `cargo` runner are
+  test-local, and `PipelineEngine`, `AgentLoop`, `AskUserQueue` and `ModeManager` are already public.
+- **The scripted model is `MockProvider`, not a new `ChatProvider`.** Implementing `ChatProvider`
+  means providing `chat_stream`, whose return type names `futures::Stream`; `futures` is not a
+  dependency of `warsha-pipeline` or `warshad`, so a scripted provider would have needed a
+  `Cargo.toml` change. The canned answers instead ride the pipeline's own `upsert_artifact` call,
+  which is what an agent's output would use, and the test asserts the mock's sentence was there first.
+- **The test builds `DaemonState` itself instead of calling `start_daemon`.** `start_daemon` opens
+  sockets, registers a mock provider with no role routing, and no RPC advances a stage, so the
+  in-process state is the only way to drive `WarshaRpc` and the engine over one store. The state
+  construction mirrors the crate's own `#[cfg(test)] test_state` helper; `crates/warshad/src/lib.rs`
+  is untouched.
+- **`cargo` runs as a real subprocess, offline.** `--offline` plus `CARGO_NET_OFFLINE=true` keep the
+  nested build off the network (the generated project has no dependencies), and `CARGO_TARGET_DIR` is
+  pinned inside the project so an inherited value cannot point the nested build at this workspace's
+  target lock. `CARGO` is honoured when it is set, so the test uses the same cargo that is running it.
+- **The generated project's paths are screened before writing** (relative only, no root, no `..`, no
+  backslash) so a canned answer cannot choose where a file lands, and the screen keeps `src/lib.rs`
+  the same file on Windows and Unix.
+- **The plan and the code are separate artifacts** (`plan_tasks`, `code`, `review_qa_security`) rather
+  than one blob, so "the code wrote exactly the files the plan named" is a real assertion.
+
+Found, not fixed (outside this batch's file scope):
+
+- **`Store::get_events` cannot read a run's whole event log once a gate has been decided.**
+  `append_event` binds `device_id` as a 16-byte UUID blob, while `event_from_row` reads that column
+  with `column_opt_int` (`crates/warsha-store/src/lib.rs:719`) — a `BLOB` read as an integer, so the
+  call fails with `unexpected column type for device_id` as soon as any event carries a device id,
+  which every gate decision does (`gate_from_row` reads its own blob column correctly, so this looks
+  like one copy-paste slip). The test this batch adds asserts the two approvals from the runs
+  `approve_gate` returned instead, and asserts the readable part of the log (the `stage_started` event)
+  before the first gate decision. `crates/warsha-store` is out of scope, so nothing was changed.
+
+Not claimed / still open:
+
+- **Nothing synthesized the code.** The model is canned: the plan, the sources and the test are
+  constants in the test file. The test proves the plumbing (project → run → question → plan → stages →
+  gates → files → `cargo`), not that a model can write a hello-world.
+- **The build is not a pipeline stage.** The pipeline has no build stage, so `cargo build` runs
+  outside it; the artifact is the binary, not a recorded artifact.
+- **Gates C and D are never approved** and `Release`/`LaunchDrafts`/`Feedback` never run — the flow
+  the brief asked for ends at the built binary.
+- **The generated project has no repository**: `projects.create` has no `repo_path` parameter, so the
+  test writes into its own temp directory and the stored project keeps `repo_path = None`.
+
+Pre-existing, not touched: the working tree already carried other sessions' uncommitted changes when
+this batch started (`PLAN.md`, `PROGRESS.md`, `apps/desktop/**`, `crates/warsha-pipeline/**`,
+`crates/warsha-store/**`, the new `crates/warsha-pipeline/src/{agent_loop,mcp_transport,process_spawn}.rs`
+and `crates/warsha-store/src/persistence.rs`); they are kept as they were. Only
+`crates/warshad/tests/e2e_request_to_artifact.rs` (new), `PLAN.md` and `PROGRESS.md` were changed.
+Nothing was committed or pushed.

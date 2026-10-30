@@ -11,6 +11,7 @@ use warsha_core::*;
 use warsha_providers::{ChatMessage, ChatRequest, MessageRole, ProviderRouter};
 use warsha_store::Store;
 
+mod agent_loop;
 mod agent_workflow;
 mod backend_kit;
 mod build_cache;
@@ -19,10 +20,16 @@ mod guardrails;
 mod handoff;
 mod llm_cache;
 mod mcp;
+/// The MCP connection layer (PLAN.md M20), public as a module because
+/// [`McpTransport`] and [`McpServerConfig`] already name the M12 registry types
+/// at this crate's root: the two would collide in a flat re-export, and renaming
+/// either would make the caller guess which one it got.
+pub mod mcp_transport;
 mod observability;
 mod orchestrator;
 mod post_launch;
 mod preferences;
+mod process_spawn;
 mod prompts;
 mod provider_setup;
 mod router_quality;
@@ -33,6 +40,7 @@ mod scout;
 mod skills;
 mod work_protection;
 
+pub use crate::agent_loop::{AgentLoop, AgentTurnResult, TURN_CONTEXT_BUDGET_TOKENS};
 pub use crate::agent_workflow::{
     AgentMode, AgentWorkflowError, AskUserQueue, AskUserRequest, CompressedOutput,
     ContextCompactor, Mention, MentionKind, MentionParser, Message, MessageBus, ModeManager,
@@ -64,6 +72,9 @@ pub use crate::mcp::{
     McpToolAnnotations, McpToolCall, McpToolResult, McpTransport, PermissionScope, ToolPermission,
     ToolPermissionEntry,
 };
+pub use crate::mcp_transport::{
+    InMemoryMcpManager, McpConnection, McpManager, McpStatus, McpTransportError,
+};
 pub use crate::observability::{Span, SpanKind, SpanStatus, Tracer, RUN_ID_ATTRIBUTE};
 pub use crate::orchestrator::{
     DiscoveryAnswer, DiscoveryCategory, DiscoveryQuestion, InputType, Orchestrator,
@@ -78,6 +89,10 @@ pub use crate::post_launch::{
 pub use crate::preferences::{
     decay_factor, InMemoryPreferenceStore, Preference, PreferenceError, PreferenceSignal,
     PreferenceStore, SignalKind, DECAY_HALF_LIFE_SECS, DEFAULT_SIGNAL_WEIGHT,
+};
+pub use crate::process_spawn::{
+    InMemoryProcessManager, LivePreview, LivePreviewManager, ManagedProcess, ProcessError,
+    ProcessManager, ProcessStatus, ProcessSummary,
 };
 pub use crate::provider_setup::{ConnectionTestResult, OneClickProvider, ProviderSetupWizard};
 pub use crate::router_quality::{

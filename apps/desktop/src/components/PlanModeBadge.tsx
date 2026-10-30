@@ -28,7 +28,7 @@ const hints: Record<AgentMode, Record<Locale, string>> = {
 
 /** Badge colours: plan is a neutral read-only pill, agent is the one accent (#FFD60A on #0E0E0E). */
 const colours: Record<AgentMode, Record<'background' | 'ink' | 'border', string>> = {
-  plan: { background: '#eef2ff', ink: '#3730a3', border: '1px solid #c7d2fe' },
+  plan: { background: 'var(--warsha-color-surface-muted)', ink: 'var(--warsha-color-accent-strong)', border: '1px solid var(--warsha-color-border-strong)' },
   agent: {
     background: 'var(--warsha-color-accent)',
     ink: 'var(--warsha-color-accent-ink)',
@@ -80,7 +80,7 @@ export function PlanModeBadge({ mode, onToggle }: PlanModeBadgeProps) {
         alignItems: 'center',
         gap: '6px',
         paddingInline: '10px',
-        paddingBlock: '4px',
+        paddingBlock: 'var(--warsha-space-1)',
         borderRadius: '999px',
         border: palette.border,
         backgroundColor: palette.background,

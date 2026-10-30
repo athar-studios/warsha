@@ -874,6 +874,36 @@ impl SlashCommandRegistry {
             .find(|command| command.bare_name().eq_ignore_ascii_case(wanted))
     }
 
+    /// A registry over an already-resolved skill list — the shape `skills.list`
+    /// returns and the agent loop looks up against.
+    ///
+    /// Unlike [`SlashCommandRegistry::register`] this cannot fail: a nameless
+    /// command is skipped and a repeated name keeps the first entry, so a skill
+    /// catalog a caller received over RPC cannot fail a turn. The accepted
+    /// entries keep their order.
+    pub fn from_skills(skills: &[SlashCommand]) -> Self {
+        let mut registry = Self::new();
+        for skill in skills {
+            if skill.bare_name().is_empty() || skill.bare_name().contains(char::is_whitespace) {
+                continue;
+            }
+            if registry.lookup(skill.bare_name()).is_some() {
+                continue;
+            }
+            registry.commands.push(skill.clone());
+        }
+        registry
+    }
+
+    /// The registered commands as an owned list, in registration order.
+    ///
+    /// [`SlashCommandRegistry::list`] is the sorted view the composer's
+    /// autocomplete uses; this is the wire shape `skills.list` returns, where the
+    /// catalog's own order (what to reach for first) is the useful one.
+    pub fn skills(&self) -> Vec<SlashCommand> {
+        self.commands.clone()
+    }
+
     /// Every command, sorted by name so the picker's order is stable.
     pub fn list(&self) -> Vec<&SlashCommand> {
         let mut commands: Vec<&SlashCommand> = self.commands.iter().collect();
@@ -1507,6 +1537,38 @@ mod tests {
             registry.register(SlashCommand::new("/REVIEW", "again")),
             Err(AgentWorkflowError::DuplicateCommand("/REVIEW".to_string()))
         );
+    }
+
+    #[test]
+    fn skills_round_trip_through_a_registry_without_failing() {
+        let skills = vec![
+            SlashCommand::new("review", "Review the current diff"),
+            SlashCommand::new("/test", "Write or run the tests"),
+            SlashCommand::new("  ", "no name"),
+            SlashCommand::new("two words", "no spaces allowed"),
+            SlashCommand::new("REVIEW", "a duplicate of the first"),
+        ];
+
+        let registry = SlashCommandRegistry::from_skills(&skills);
+
+        // The two unusable entries and the duplicate are skipped, the rest keep
+        // their order, and a lookup needs no leading slash.
+        assert_eq!(registry.len(), 2);
+        assert_eq!(
+            registry.skills(),
+            vec![skills[0].clone(), skills[1].clone()]
+        );
+        assert_eq!(
+            registry
+                .lookup("REVIEW")
+                .map(|command| command.name.as_str()),
+            Some("/review")
+        );
+        assert_eq!(
+            registry.lookup("test").map(|command| command.name.as_str()),
+            Some("/test")
+        );
+        assert!(SlashCommandRegistry::from_skills(&[]).is_empty());
     }
 
     #[test]

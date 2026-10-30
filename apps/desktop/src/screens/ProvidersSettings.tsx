@@ -92,38 +92,38 @@ export function ProvidersSettings({ onBack }: ProvidersSettingsProps) {
       display: 'flex', 
       justifyContent: 'space-between', 
       alignItems: 'center',
-      backgroundColor: provider.enabled ? 'white' : '#f9fafb',
+      backgroundColor: provider.enabled ? 'var(--warsha-color-surface)' : 'var(--warsha-color-bg)',
     }}>
-      <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <span style={{ fontSize: '24px' }}>{PROVIDER_KINDS.find(k => k.id === provider.kind)?.logo || '🔧'}</span>
+      <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-3)' }}>
+        <span style={{ fontSize: 'var(--warsha-font-size-2xl)' }}>{PROVIDER_KINDS.find(k => k.id === provider.kind)?.logo || '🔧'}</span>
         <Box dir={dir}>
           <Text weight="bold" dir={dir}>{provider.name}</Text>
-          <Text size="sm" dir={dir} style={{ color: '#6b7280' }}>
+          <Text size="sm" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
             {PROVIDER_KINDS.find(k => k.id === provider.kind)?.name || provider.kind}
           </Text>
         </Box>
       </Box>
       
-      <Box dir={dir} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+      <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)', alignItems: 'center' }}>
         <span style={{
-          padding: '4px 10px',
-          backgroundColor: provider.enabled ? '#d1fae5' : '#fef3c7',
-          color: provider.enabled ? '#065f46' : '#92400e',
+          padding: 'var(--warsha-space-1) 10px',
+          backgroundColor: 'var(--warsha-color-surface-muted)',
+          color: provider.enabled ? 'var(--warsha-color-success)' : 'var(--warsha-color-warning)',
           borderRadius: '9999px',
-          fontSize: '0.75rem',
+          fontSize: 'var(--warsha-font-size-xs)',
           fontWeight: 500,
         }}>
           {provider.enabled ? (locale === 'ar' ? 'مفعل' : 'Enabled') : (locale === 'ar' ? 'معطل' : 'Disabled')}
         </span>
         {provider.budgetUsd && (
-          <Text size="xs" dir={dir} style={{ color: '#6b7280' }}>
+          <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
             ${provider.budgetUsd}
           </Text>
         )}
         <Button variant="ghost" size="sm" onClick={() => handleTestProvider(provider.name)} disabled={testing === provider.name} dir={dir}>
           {testing === provider.name ? '⏳' : (locale === 'ar' ? 'اختبار' : 'Test')}
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => handleRemoveProvider(provider.name)} dir={dir} style={{ color: '#ef4444' }}>
+        <Button variant="ghost" size="sm" onClick={() => handleRemoveProvider(provider.name)} dir={dir} style={{ color: 'var(--warsha-color-error)' }}>
           {locale === 'ar' ? 'حذف' : 'Remove'}
         </Button>
       </Box>
@@ -131,10 +131,10 @@ export function ProvidersSettings({ onBack }: ProvidersSettingsProps) {
   );
 
   return (
-    <Box dir={dir} className="providers-settings" style={{ padding: '24px', minHeight: 'calc(100vh - 80px)', maxWidth: '800px' }}>
-      <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+    <Box dir={dir} className="providers-settings" style={{ padding: 'var(--warsha-space-6)', minHeight: 'calc(100vh - 80px)', maxWidth: '800px' }}>
+      <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--warsha-space-6)' }}>
         <Box dir={dir}>
-          <Button variant="ghost" size="sm" onClick={onBack} dir={dir} style={{ marginBottom: '8px' }}>
+          <Button variant="ghost" size="sm" onClick={onBack} dir={dir} style={{ marginBottom: 'var(--warsha-space-2)' }}>
             ← {locale === 'ar' ? 'رجوع' : 'Back'}
           </Button>
           <Text size="xl" weight="bold" dir={dir}>
@@ -151,10 +151,10 @@ export function ProvidersSettings({ onBack }: ProvidersSettingsProps) {
           <Text dir={dir}>{locale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</Text>
         </Box>
       ) : (
-        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-3)' }}>
           {providers.length === 0 ? (
-            <Card dir={dir} style={{ textAlign: 'center', padding: '48px 24px' }}>
-              <Text size="md" dir={dir} style={{ color: '#9ca3af', marginBottom: '16px' }}>
+            <Card dir={dir} style={{ textAlign: 'center', padding: 'var(--warsha-space-12) var(--warsha-space-6)' }}>
+              <Text size="md" dir={dir} style={{ color: 'var(--warsha-color-muted)', marginBottom: 'var(--warsha-space-4)' }}>
                 {locale === 'ar' ? 'لا توجد مزودين مضافين' : 'No providers added'}
               </Text>
               <Button variant="primary" onClick={() => setShowAdd(true)} dir={dir}>
@@ -174,21 +174,21 @@ export function ProvidersSettings({ onBack }: ProvidersSettingsProps) {
           insetInlineStart: 0,
           insetInlineEnd: 0,
           bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
+          backgroundColor: 'var(--warsha-color-muted)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           zIndex: 1000,
           direction: dir,
         }}>
-          <Card dir={dir} style={{ width: '100%', maxWidth: '480px', margin: '16px' }}>
-            <Text size="lg" weight="bold" dir={dir} style={{ marginBottom: '24px' }}>
+          <Card dir={dir} style={{ width: '100%', maxWidth: '480px', margin: 'var(--warsha-space-4)' }}>
+            <Text size="lg" weight="bold" dir={dir} style={{ marginBottom: 'var(--warsha-space-6)' }}>
               {locale === 'ar' ? 'إضافة مزود جديد' : 'Add New Provider'}
             </Text>
             
-            <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
               <Box dir={dir}>
-                <Text size="sm" weight="medium" dir={dir} style={{ marginBottom: '8px' }}>
+                <Text size="sm" weight="medium" dir={dir} style={{ marginBottom: 'var(--warsha-space-2)' }}>
                   {locale === 'ar' ? 'نوع المزود' : 'Provider Type'}
                 </Text>
                 <select
@@ -196,10 +196,10 @@ export function ProvidersSettings({ onBack }: ProvidersSettingsProps) {
                   onChange={(e) => setNewProvider({ ...newProvider, kind: e.target.value })}
                   style={{
                     width: '100%',
-                    padding: '12px',
-                    border: '1px solid #d1d5db',
+                    padding: 'var(--warsha-space-3)',
+                    border: '1px solid var(--warsha-color-border-strong)',
                     borderRadius: '6px',
-                    fontSize: '1rem',
+                    fontSize: 'var(--warsha-font-size-md)',
                   }}
                   dir={dir}
                 >
@@ -211,7 +211,7 @@ export function ProvidersSettings({ onBack }: ProvidersSettingsProps) {
               </Box>
               
               <Box dir={dir}>
-                <Text size="sm" weight="medium" dir={dir} style={{ marginBottom: '8px' }}>
+                <Text size="sm" weight="medium" dir={dir} style={{ marginBottom: 'var(--warsha-space-2)' }}>
                   {locale === 'ar' ? 'مفتاح API' : 'API Key'}
                 </Text>
                 <input
@@ -221,10 +221,10 @@ export function ProvidersSettings({ onBack }: ProvidersSettingsProps) {
                   onChange={(e) => setNewProvider({ ...newProvider, key: e.target.value })}
                   style={{
                     width: '100%',
-                    padding: '12px',
-                    border: '1px solid #d1d5db',
+                    padding: 'var(--warsha-space-3)',
+                    border: '1px solid var(--warsha-color-border-strong)',
                     borderRadius: '6px',
-                    fontSize: '1rem',
+                    fontSize: 'var(--warsha-font-size-md)',
                     direction: 'ltr',
                   }}
                   dir="ltr"
@@ -232,7 +232,7 @@ export function ProvidersSettings({ onBack }: ProvidersSettingsProps) {
               </Box>
               
               <Box dir={dir}>
-                <Text size="sm" weight="medium" dir={dir} style={{ marginBottom: '8px' }}>
+                <Text size="sm" weight="medium" dir={dir} style={{ marginBottom: 'var(--warsha-space-2)' }}>
                   {locale === 'ar' ? 'قاعدة API (اختياري)' : 'API Base URL (optional)'}
                 </Text>
                 <input
@@ -242,17 +242,17 @@ export function ProvidersSettings({ onBack }: ProvidersSettingsProps) {
                   onChange={(e) => setNewProvider({ ...newProvider, apiBase: e.target.value })}
                   style={{
                     width: '100%',
-                    padding: '12px',
-                    border: '1px solid #d1d5db',
+                    padding: 'var(--warsha-space-3)',
+                    border: '1px solid var(--warsha-color-border-strong)',
                     borderRadius: '6px',
-                    fontSize: '1rem',
+                    fontSize: 'var(--warsha-font-size-md)',
                     direction: 'ltr',
                   }}
                   dir="ltr"
                 />
               </Box>
               
-              <Box dir={dir} style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-3)', justifyContent: 'flex-end' }}>
                 <Button variant="secondary" onClick={() => setShowAdd(false)} dir={dir}>
                   {locale === 'ar' ? 'إلغاء' : 'Cancel'}
                 </Button>

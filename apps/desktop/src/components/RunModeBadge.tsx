@@ -35,8 +35,8 @@ const hints: Record<RunMode, Record<Locale, string>> = {
 
 /** One accent per mode: local is quiet, self-hosted asks for care, hosted is the brand accent. */
 const colours: Record<RunMode, { background: string; ink: string; border: string }> = {
-  local: { background: '#dcfce7', ink: '#166534', border: '1px solid #bbf7d0' },
-  self_hosted: { background: '#fef3c7', ink: '#92400e', border: '1px solid #fde68a' },
+  local: { background: 'var(--warsha-color-surface-muted)', ink: 'var(--warsha-color-success)', border: '1px solid var(--warsha-color-border-strong)' },
+  self_hosted: { background: 'var(--warsha-color-surface-muted)', ink: 'var(--warsha-color-warning)', border: '1px solid var(--warsha-color-border-strong)' },
   hosted: {
     background: 'var(--warsha-color-accent)',
     ink: 'var(--warsha-color-accent-ink)',
@@ -105,7 +105,7 @@ export function RunModeBadge({ mode, detail }: RunModeBadgeProps) {
         border: palette.border,
         backgroundColor: palette.background,
         color: palette.ink,
-        fontSize: '0.75rem',
+        fontSize: 'var(--warsha-font-size-xs)',
         fontWeight: 700,
         unicodeBidi: 'isolate',
         whiteSpace: 'nowrap',

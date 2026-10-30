@@ -134,11 +134,11 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: '8px',
-        padding: '12px',
+        gap: 'var(--warsha-space-2)',
+        padding: 'var(--warsha-space-3)',
         borderRadius: '12px',
-        backgroundColor: 'white',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+        backgroundColor: 'var(--warsha-color-surface)',
+        boxShadow: 'var(--warsha-shadow-md)',
       }}
     >
       <header
@@ -146,7 +146,7 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          gap: '12px',
+          gap: 'var(--warsha-space-3)',
           flexWrap: 'wrap',
         }}
       >
@@ -166,9 +166,9 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
           position: 'relative',
           minHeight: '320px',
           borderRadius: '10px',
-          border: '1px solid #e5e7eb',
+          border: '1px solid var(--warsha-color-border)',
           overflow: 'hidden',
-          backgroundColor: '#f9fafb',
+          backgroundColor: 'var(--warsha-color-bg)',
         }}
       >
         {url ? (
@@ -183,7 +183,7 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
               width: '100%',
               height: '320px',
               border: 'none',
-              backgroundColor: 'white',
+              backgroundColor: 'var(--warsha-color-surface)',
             }}
           />
         ) : (
@@ -194,15 +194,15 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '4px',
+              gap: 'var(--warsha-space-1)',
               minHeight: '320px',
-              paddingInline: '16px',
+              paddingInline: 'var(--warsha-space-4)',
               textAlign: 'center',
-              color: '#6b7280',
+              color: 'var(--warsha-color-text-muted)',
             }}
           >
-            <p style={{ margin: 0, fontSize: '0.875rem', fontWeight: 600 }}>{placeholder}</p>
-            <p style={{ margin: 0, fontSize: '0.75rem' }}>{placeholderHint}</p>
+            <p style={{ margin: 0, fontSize: 'var(--warsha-font-size-sm)', fontWeight: 600 }}>{placeholder}</p>
+            <p style={{ margin: 0, fontSize: 'var(--warsha-font-size-xs)' }}>{placeholderHint}</p>
           </div>
         )}
 
@@ -217,18 +217,18 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
               flexDirection: 'column',
               gap: '6px',
               paddingInline: '10px',
-              paddingBlock: '8px',
-              backgroundColor: 'rgba(37, 99, 235, 0.08)',
-              borderBlockEnd: '1px solid #93c5fd',
+              paddingBlock: 'var(--warsha-space-2)',
+              backgroundColor: 'var(--warsha-color-surface-muted)',
+              borderBlockEnd: '1px solid var(--warsha-color-border-strong)',
             }}
           >
             <p
               data-testid="live-preview-pick-hint"
-              style={{ margin: 0, fontSize: '0.8125rem', fontWeight: 700, color: '#1e40af' }}
+              style={{ margin: 0, fontSize: '0.8125rem', fontWeight: 700, color: 'var(--warsha-color-accent-strong)' }}
             >
               {pickHint}
             </p>
-            <p style={{ margin: 0, fontSize: '0.75rem', color: '#1e40af' }}>{pickNote}</p>
+            <p style={{ margin: 0, fontSize: 'var(--warsha-font-size-xs)', color: 'var(--warsha-color-accent-strong)' }}>{pickNote}</p>
             <form
               data-testid="live-preview-pick-form"
               onSubmit={submitSelector}
@@ -246,10 +246,10 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
                 style={{
                   flex: '1 1 12rem',
                   minWidth: 0,
-                  paddingInline: '8px',
-                  paddingBlock: '4px',
+                  paddingInline: 'var(--warsha-space-2)',
+                  paddingBlock: 'var(--warsha-space-1)',
                   borderRadius: '6px',
-                  border: '1px solid #93c5fd',
+                  border: '1px solid var(--warsha-color-border-strong)',
                   fontSize: '0.8125rem',
                   fontFamily: 'inherit',
                 }}
@@ -266,7 +266,7 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
         <p
           data-testid="live-preview-error"
           role="alert"
-          style={{ margin: 0, fontSize: '0.75rem', color: '#991b1b' }}
+          style={{ margin: 0, fontSize: 'var(--warsha-font-size-xs)', color: 'var(--warsha-color-error)' }}
         >
           {errorLine}
         </p>

@@ -229,7 +229,7 @@ export function ProviderSetupWizard({
         event.preventDefault();
         runTest();
       }}
-      style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '420px' }}
+      style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)', maxWidth: '420px' }}
     >
       <label style={styles.field}>
         <span style={styles.caption}>{label('provider')}</span>
@@ -289,7 +289,7 @@ export function ProviderSetupWizard({
         />
       </label>
 
-      <div style={{ display: 'flex', gap: '8px' }}>
+      <div style={{ display: 'flex', gap: 'var(--warsha-space-2)' }}>
         <Button type="button" variant="secondary" size="sm" dir={dir} onClick={runTest}>
           {label('test')}
         </Button>
@@ -307,7 +307,7 @@ export function ProviderSetupWizard({
       {result !== null && (
         <ul
           data-testid="connection-result"
-          style={{ listStyle: 'none', paddingInline: 0, margin: 0, fontSize: '0.875rem' }}
+          style={{ listStyle: 'none', paddingInline: 0, margin: 0, fontSize: 'var(--warsha-font-size-sm)' }}
         >
           {rows.map((row) => (
             <li key={row.field} data-ok={row.ok} style={{ paddingBlock: '2px' }}>
@@ -332,12 +332,12 @@ function localized(key: string, fallback: string, locale: Locale): string {
 
 const styles = {
   field: { display: 'flex', flexDirection: 'column', gap: '2px' } as const,
-  caption: { fontSize: '0.75rem', opacity: 0.8 } as const,
+  caption: { fontSize: 'var(--warsha-font-size-xs)', opacity: 0.8 } as const,
   input: {
-    paddingInline: '8px',
+    paddingInline: 'var(--warsha-space-2)',
     paddingBlock: '6px',
     borderRadius: '6px',
-    border: '1px solid #d1d5db',
+    border: '1px solid var(--warsha-color-border-strong)',
     fontFamily: 'inherit',
   } as const,
 };

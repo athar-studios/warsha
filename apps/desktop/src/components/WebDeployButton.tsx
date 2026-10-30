@@ -41,10 +41,10 @@ const blockedHint = {
 const icons: Record<DeployStatus, string> = { idle: '↑', deploying: '', done: '✓', error: '✗' };
 
 const statusColors: Record<DeployStatus, string> = {
-  idle: '#6b7280',
-  deploying: '#1e40af',
-  done: '#166534',
-  error: '#991b1b',
+  idle: 'var(--warsha-color-text-muted)',
+  deploying: 'var(--warsha-color-accent-strong)',
+  done: 'var(--warsha-color-success)',
+  error: 'var(--warsha-color-error)',
 };
 
 /**
@@ -84,7 +84,7 @@ export function WebDeployButton({ disabled, onDeploy, status }: WebDeployButtonP
   return (
     <div
       dir={dir}
-      style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--warsha-space-2)', flexWrap: 'wrap' }}
     >
       <span title={disabled ? hint : description}>
         <Button
@@ -139,7 +139,7 @@ export function WebDeployButton({ disabled, onDeploy, status }: WebDeployButtonP
         data-testid="web-deploy-status"
         role="status"
         aria-live="polite"
-        style={{ fontSize: '0.75rem', color: statusColors[status] }}
+        style={{ fontSize: 'var(--warsha-font-size-xs)', color: statusColors[status] }}
       >
         {description}
       </span>

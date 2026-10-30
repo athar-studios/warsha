@@ -57,15 +57,15 @@ export function SettingsProviders({
         display: 'flex',
         flexDirection: 'column',
         gap: '10px',
-        paddingInline: '16px',
-        paddingBlock: '12px',
+        paddingInline: 'var(--warsha-space-4)',
+        paddingBlock: 'var(--warsha-space-3)',
       }}
     >
       <header style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-        <h2 style={{ margin: 0, fontSize: '1.125rem', fontWeight: 700 }}>{title}</h2>
+        <h2 style={{ margin: 0, fontSize: 'var(--warsha-font-size-lg)', fontWeight: 700 }}>{title}</h2>
         <p
           data-testid="settings-providers-note"
-          style={{ margin: 0, fontSize: '0.875rem', color: '#4b5563' }}
+          style={{ margin: 0, fontSize: 'var(--warsha-font-size-sm)', color: 'var(--warsha-color-text-muted)' }}
         >
           {note}
         </p>
@@ -74,7 +74,7 @@ export function SettingsProviders({
       {providers.length === 0 ? (
         <p
           data-testid="settings-providers-empty"
-          style={{ margin: 0, fontSize: '0.875rem', color: '#4b5563' }}
+          style={{ margin: 0, fontSize: 'var(--warsha-font-size-sm)', color: 'var(--warsha-color-text-muted)' }}
         >
           {empty}
         </p>
@@ -84,7 +84,7 @@ export function SettingsProviders({
           style={{
             display: 'flex',
             flexDirection: 'column',
-            gap: '8px',
+            gap: 'var(--warsha-space-2)',
             margin: 0,
             padding: 0,
             listStyle: 'none',

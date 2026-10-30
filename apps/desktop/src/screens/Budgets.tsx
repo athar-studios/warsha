@@ -73,22 +73,22 @@ export function Budgets({ onBack }: BudgetsProps) {
 
   const getProgressColor = (spent: number, total: number) => {
     const pct = total > 0 ? (spent / total) * 100 : 0;
-    if (pct >= 90) return '#ef4444';
-    if (pct >= 70) return '#f59e0b';
-    return '#10b981';
+    if (pct >= 90) return 'var(--warsha-color-error)';
+    if (pct >= 70) return 'var(--warsha-color-warning)';
+    return 'var(--warsha-color-success)';
   };
 
   return (
-    <Box dir={dir} className="budgets" style={{ padding: '24px', minHeight: 'calc(100vh - 80px)', maxWidth: '1000px' }}>
-      <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+    <Box dir={dir} className="budgets" style={{ padding: 'var(--warsha-space-6)', minHeight: 'calc(100vh - 80px)', maxWidth: '1000px' }}>
+      <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--warsha-space-6)' }}>
         <Box dir={dir}>
-          <Button variant="ghost" size="sm" onClick={onBack} dir={dir} style={{ marginBottom: '8px' }}>
+          <Button variant="ghost" size="sm" onClick={onBack} dir={dir} style={{ marginBottom: 'var(--warsha-space-2)' }}>
             ← {locale === 'ar' ? 'رجوع' : 'Back'}
           </Button>
           <Text size="xl" weight="bold" dir={dir}>
             {locale === 'ar' ? 'الميزانيات' : 'Budgets'}
           </Text>
-          <Text size="md" dir={dir} style={{ color: '#6b7280' }}>
+          <Text size="md" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
             {locale === 'ar' ? 'تتبع الإنفاق لكل مشروع' : 'Track spending per project'}
           </Text>
         </Box>
@@ -102,10 +102,10 @@ export function Budgets({ onBack }: BudgetsProps) {
           <Text dir={dir}>{locale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</Text>
         </Box>
       ) : (
-        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
           {Object.entries(budgets).length === 0 ? (
-            <Card dir={dir} style={{ textAlign: 'center', padding: '48px 24px' }}>
-              <Text size="md" dir={dir} style={{ color: '#9ca3af', marginBottom: '16px' }}>
+            <Card dir={dir} style={{ textAlign: 'center', padding: 'var(--warsha-space-12) var(--warsha-space-6)' }}>
+              <Text size="md" dir={dir} style={{ color: 'var(--warsha-color-muted)', marginBottom: 'var(--warsha-space-4)' }}>
                 {locale === 'ar' ? 'لا توجد ميزانيات محددة' : 'No budgets set'}
               </Text>
               <Button variant="primary" onClick={() => setShowAdd(true)} dir={dir}>
@@ -118,22 +118,22 @@ export function Budgets({ onBack }: BudgetsProps) {
               const color = getProgressColor(budget.spentUsd * 100, budget.totalBudgetUsd * 100);
               return (
                 <Card key={projectId} dir={dir}>
-                  <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+                  <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--warsha-space-4)' }}>
                     <Box dir={dir}>
                       <Text weight="bold" size="lg" dir={dir}>{budget.projectName}</Text>
-                      <Text size="sm" dir={dir} style={{ color: '#6b7280' }}>{t('projects.id_label') || 'ID:'} {projectId.slice(0, 8)}...</Text>
+                      <Text size="sm" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>{t('projects.id_label') || 'ID:'} {projectId.slice(0, 8)}...</Text>
                     </Box>
                     <Box dir={dir} style={{ textAlign: dir === 'rtl' ? 'right' : 'left' }}>
                       <Text size="sm" weight="bold" dir={dir} style={{ color }}>
                         {formatMoney(Math.round(budget.spentUsd * 100))} / {formatMoney(Math.round(budget.totalBudgetUsd * 100))}
                       </Text>
-                      <Text size="xs" dir={dir} style={{ color: '#6b7280', marginTop: '4px' }}>
+                      <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)', marginTop: 'var(--warsha-space-1)' }}>
                         {locale === 'ar' ? 'متبقي' : 'Remaining'}: {formatMoney(Math.round(budget.remainingUsd * 100))}
                       </Text>
                     </Box>
                   </Box>
 
-                  <Box dir={dir} style={{ height: '8px', backgroundColor: '#e5e7eb', borderRadius: '4px', overflow: 'hidden' }}>
+                  <Box dir={dir} style={{ height: '8px', backgroundColor: 'var(--warsha-color-border)', borderRadius: '4px', overflow: 'hidden' }}>
                     <div style={{
                       width: `${Math.min(pct, 100)}%`,
                       height: '100%',
@@ -142,11 +142,11 @@ export function Budgets({ onBack }: BudgetsProps) {
                     }} />
                   </Box>
 
-                  <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
+                  <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', marginTop: 'var(--warsha-space-2)' }}>
                     <Text size="xs" dir={dir} style={{ color: color, fontWeight: 500 }}>
                       {pct.toFixed(1)}% {locale === 'ar' ? 'مستخدمة' : 'used'}
                     </Text>
-                    <Text size="xs" dir={dir} style={{ color: '#6b7280' }}>
+                    <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
                       {locale === 'ar' ? 'محددة' : 'Set'}: {formatMoney(Math.round(budget.totalBudgetUsd * 100))}
                     </Text>
                   </Box>
@@ -164,21 +164,21 @@ export function Budgets({ onBack }: BudgetsProps) {
           insetInlineStart: 0,
           insetInlineEnd: 0,
           bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
+          backgroundColor: 'var(--warsha-color-muted)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           zIndex: 1000,
           direction: dir,
         }}>
-          <Card dir={dir} style={{ width: '100%', maxWidth: '480px', margin: '16px' }}>
-            <Text size="lg" weight="bold" dir={dir} style={{ marginBottom: '24px' }}>
+          <Card dir={dir} style={{ width: '100%', maxWidth: '480px', margin: 'var(--warsha-space-4)' }}>
+            <Text size="lg" weight="bold" dir={dir} style={{ marginBottom: 'var(--warsha-space-6)' }}>
               {locale === 'ar' ? 'تعيين ميزانية جديدة' : 'Set New Budget'}
             </Text>
             
-            <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
               <Box dir={dir}>
-                <Text size="sm" weight="medium" dir={dir} style={{ marginBottom: '8px' }}>
+                <Text size="sm" weight="medium" dir={dir} style={{ marginBottom: 'var(--warsha-space-2)' }}>
                   {locale === 'ar' ? 'المشروع' : 'Project'}
                 </Text>
                 <select
@@ -186,10 +186,10 @@ export function Budgets({ onBack }: BudgetsProps) {
                   onChange={(e) => setNewBudget({ ...newBudget, projectId: e.target.value })}
                   style={{
                     width: '100%',
-                    padding: '12px',
-                    border: '1px solid #d1d5db',
+                    padding: 'var(--warsha-space-3)',
+                    border: '1px solid var(--warsha-color-border-strong)',
                     borderRadius: '6px',
-                    fontSize: '1rem',
+                    fontSize: 'var(--warsha-font-size-md)',
                   }}
                   dir={dir}
                 >
@@ -201,7 +201,7 @@ export function Budgets({ onBack }: BudgetsProps) {
               </Box>
               
               <Box dir={dir}>
-                <Text size="sm" weight="medium" dir={dir} style={{ marginBottom: '8px' }}>
+                <Text size="sm" weight="medium" dir={dir} style={{ marginBottom: 'var(--warsha-space-2)' }}>
                   {locale === 'ar' ? 'الميزانية (دولار)' : 'Budget (USD)'}
                 </Text>
                 <input
@@ -212,17 +212,17 @@ export function Budgets({ onBack }: BudgetsProps) {
                   onChange={(e) => setNewBudget({ ...newBudget, cents: Math.round(parseFloat(e.target.value) * 100) })}
                   style={{
                     width: '100%',
-                    padding: '12px',
-                    border: '1px solid #d1d5db',
+                    padding: 'var(--warsha-space-3)',
+                    border: '1px solid var(--warsha-color-border-strong)',
                     borderRadius: '6px',
-                    fontSize: '1rem',
+                    fontSize: 'var(--warsha-font-size-md)',
                     direction: 'ltr',
                   }}
                   dir="ltr"
                 />
               </Box>
               
-              <Box dir={dir} style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-3)', justifyContent: 'flex-end' }}>
                 <Button variant="secondary" onClick={() => setShowAdd(false)} dir={dir}>
                   {locale === 'ar' ? 'إلغاء' : 'Cancel'}
                 </Button>

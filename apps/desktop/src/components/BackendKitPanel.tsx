@@ -178,16 +178,16 @@ export function BackendKitPanel({
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: '16px',
-        border: '1px solid #E5E5E5',
+        gap: 'var(--warsha-space-4)',
+        border: '1px solid var(--warsha-color-border)',
         borderRadius: '12px',
-        paddingBlock: '16px',
-        paddingInline: '16px',
+        paddingBlock: 'var(--warsha-space-4)',
+        paddingInline: 'var(--warsha-space-4)',
       }}
     >
       <header>
-        <h3 style={{ margin: 0, fontSize: '1rem' }}>{title}</h3>
-        <p style={{ margin: '4px 0 0', fontSize: '0.75rem', opacity: 0.7 }} dir="ltr">
+        <h3 style={{ margin: 0, fontSize: 'var(--warsha-font-size-md)' }}>{title}</h3>
+        <p style={{ margin: 'var(--warsha-space-1) 0 0', fontSize: 'var(--warsha-font-size-xs)', opacity: 0.7 }} dir="ltr">
           {typeof url === 'string' && url.trim().length > 0 ? url : text.noUrl}
         </p>
       </header>
@@ -195,7 +195,7 @@ export function BackendKitPanel({
       <div
         role="radiogroup"
         aria-label={text.kind}
-        style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}
+        style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--warsha-space-2)' }}
       >
         {backendKinds.map((candidate) => {
           const label = localized(
@@ -221,7 +221,7 @@ export function BackendKitPanel({
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>{text.features}</span>
+        <span style={{ fontSize: 'var(--warsha-font-size-xs)', opacity: 0.7 }}>{text.features}</span>
         {allBackendFeatures.map((feature) => {
           const label = localized(
             `backend_kit.feature.${feature}`,
@@ -232,7 +232,7 @@ export function BackendKitPanel({
           return (
             <label
               key={feature}
-              style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
+              style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-2)', cursor: 'pointer' }}
             >
               <input
                 type="checkbox"
@@ -247,18 +247,18 @@ export function BackendKitPanel({
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>{text.tables}</span>
+        <span style={{ fontSize: 'var(--warsha-font-size-xs)', opacity: 0.7 }}>{text.tables}</span>
         {tables.length === 0 ? (
           <p style={{ margin: 0, fontSize: '0.8rem', opacity: 0.8 }}>{text.empty}</p>
         ) : (
           <ul style={{ margin: 0, paddingInlineStart: '18px', fontSize: '0.8rem' }}>
             {tables.map((table) => (
-              <li key={table.name} style={{ marginBlockEnd: '4px' }}>
+              <li key={table.name} style={{ marginBlockEnd: 'var(--warsha-space-1)' }}>
                 <code dir="ltr" style={{ fontSize: '0.8rem' }}>
                   {table.name}
                 </code>
                 <span style={{ opacity: 0.7 }}>{` — ${table.columns.length} × `}</span>
-                <code dir="ltr" style={{ fontSize: '0.75rem' }}>
+                <code dir="ltr" style={{ fontSize: 'var(--warsha-font-size-xs)' }}>
                   {table.columns
                     .map((column) =>
                       column.nullable
@@ -273,7 +273,7 @@ export function BackendKitPanel({
         )}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-3)', flexWrap: 'wrap' }}>
         <Button
           variant="primary"
           size="sm"
@@ -287,12 +287,12 @@ export function BackendKitPanel({
           data-testid="payments-gate"
           data-enabled={gateOpen}
           style={{
-            fontSize: '0.75rem',
+            fontSize: 'var(--warsha-font-size-xs)',
             paddingBlock: '2px',
-            paddingInline: '8px',
+            paddingInline: 'var(--warsha-space-2)',
             borderRadius: '999px',
-            border: `1px solid ${gateOpen ? '#1A7F37' : '#E5E5E5'}`,
-            color: gateOpen ? '#1A7F37' : '#6B6B6B',
+            border: `1px solid ${gateOpen ? 'var(--warsha-color-success)' : 'var(--warsha-color-border)'}`,
+            color: gateOpen ? 'var(--warsha-color-success)' : 'var(--warsha-color-muted)',
           }}
         >
           {`${text.payments}: ${paymentsGateText(payments, locale)}`}

@@ -90,16 +90,16 @@ export function RolesSettings({ onBack }: RolesSettingsProps) {
   };
 
   return (
-    <Box dir={dir} className="roles-settings" style={{ padding: '24px', minHeight: 'calc(100vh - 80px)', maxWidth: '1000px' }}>
-      <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+    <Box dir={dir} className="roles-settings" style={{ padding: 'var(--warsha-space-6)', minHeight: 'calc(100vh - 80px)', maxWidth: '1000px' }}>
+      <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--warsha-space-6)' }}>
         <Box dir={dir}>
-          <Button variant="ghost" size="sm" onClick={onBack} dir={dir} style={{ marginBottom: '8px' }}>
+          <Button variant="ghost" size="sm" onClick={onBack} dir={dir} style={{ marginBottom: 'var(--warsha-space-2)' }}>
             ← {locale === 'ar' ? 'رجوع' : 'Back'}
           </Button>
           <Text size="xl" weight="bold" dir={dir}>
             {locale === 'ar' ? 'إعدادات الأدوار' : 'Role Settings'}
           </Text>
-          <Text size="md" dir={dir} style={{ color: '#6b7280' }}>
+          <Text size="md" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
             {locale === 'ar' ? 'تعيين توجيه المزود/النموذج لكل دور' : 'Assign provider/model routing per role'}
           </Text>
         </Box>
@@ -110,10 +110,10 @@ export function RolesSettings({ onBack }: RolesSettingsProps) {
           <Text dir={dir}>{locale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</Text>
         </Box>
       ) : (
-        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
           {editingRole ? (
             <Card dir={dir}>
-              <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+              <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--warsha-space-6)' }}>
                 <Text size="lg" weight="bold" dir={dir}>
                   {locale === 'ar' ? 'تحرير' : 'Editing'}: {ROLE_LABELS[editingRole]?.[locale] || editingRole}
                 </Text>
@@ -122,12 +122,12 @@ export function RolesSettings({ onBack }: RolesSettingsProps) {
                 </Button>
               </Box>
 
-              <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
                 {editTargets.map((target, index) => (
-                  <Card key={index} dir={dir} style={{ backgroundColor: '#f9fafb' }}>
-                    <Box dir={dir} style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <Card key={index} dir={dir} style={{ backgroundColor: 'var(--warsha-color-bg)' }}>
+                    <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-3)', alignItems: 'center', flexWrap: 'wrap' }}>
                       <Box dir={dir} style={{ flex: 1, minWidth: '150px' }}>
-                        <Text size="xs" weight="medium" dir={dir} style={{ marginBottom: '4px', color: '#6b7280' }}>
+                        <Text size="xs" weight="medium" dir={dir} style={{ marginBottom: 'var(--warsha-space-1)', color: 'var(--warsha-color-text-muted)' }}>
                           {locale === 'ar' ? 'المزود' : 'Provider'}
                         </Text>
                         <select
@@ -137,10 +137,10 @@ export function RolesSettings({ onBack }: RolesSettingsProps) {
                           }}
                           style={{
                             width: '100%',
-                            padding: '8px 12px',
-                            border: '1px solid #d1d5db',
+                            padding: 'var(--warsha-space-2) var(--warsha-space-3)',
+                            border: '1px solid var(--warsha-color-border-strong)',
                             borderRadius: '6px',
-                            fontSize: '0.875rem',
+                            fontSize: 'var(--warsha-font-size-sm)',
                           }}
                           dir={dir}
                         >
@@ -151,7 +151,7 @@ export function RolesSettings({ onBack }: RolesSettingsProps) {
                       </Box>
                       
                       <Box dir={dir} style={{ flex: 1, minWidth: '150px' }}>
-                        <Text size="xs" weight="medium" dir={dir} style={{ marginBottom: '4px', color: '#6b7280' }}>
+                        <Text size="xs" weight="medium" dir={dir} style={{ marginBottom: 'var(--warsha-space-1)', color: 'var(--warsha-color-text-muted)' }}>
                           {locale === 'ar' ? 'النموذج' : 'Model'}
                         </Text>
                         <input
@@ -163,10 +163,10 @@ export function RolesSettings({ onBack }: RolesSettingsProps) {
                           }}
                           style={{
                             width: '100%',
-                            padding: '8px 12px',
-                            border: '1px solid #d1d5db',
+                            padding: 'var(--warsha-space-2) var(--warsha-space-3)',
+                            border: '1px solid var(--warsha-color-border-strong)',
                             borderRadius: '6px',
-                            fontSize: '0.875rem',
+                            fontSize: 'var(--warsha-font-size-sm)',
                             direction: 'ltr',
                           }}
                           dir="ltr"
@@ -174,7 +174,7 @@ export function RolesSettings({ onBack }: RolesSettingsProps) {
                       </Box>
                       
                       <Box dir={dir} style={{ width: '100px' }}>
-                        <Text size="xs" weight="medium" dir={dir} style={{ marginBottom: '4px', color: '#6b7280' }}>
+                        <Text size="xs" weight="medium" dir={dir} style={{ marginBottom: 'var(--warsha-space-1)', color: 'var(--warsha-color-text-muted)' }}>
                           {locale === 'ar' ? 'الوزن' : 'Weight'}
                         </Text>
                         <input
@@ -187,17 +187,17 @@ export function RolesSettings({ onBack }: RolesSettingsProps) {
                           }}
                           style={{
                             width: '100%',
-                            padding: '8px 12px',
-                            border: '1px solid #d1d5db',
+                            padding: 'var(--warsha-space-2) var(--warsha-space-3)',
+                            border: '1px solid var(--warsha-color-border-strong)',
                             borderRadius: '6px',
-                            fontSize: '0.875rem',
+                            fontSize: 'var(--warsha-font-size-sm)',
                             direction: 'ltr',
                           }}
                           dir="ltr"
                         />
                       </Box>
                       
-                      <Button variant="ghost" size="sm" onClick={() => removeTarget(index)} dir={dir} style={{ color: '#ef4444' }}>
+                      <Button variant="ghost" size="sm" onClick={() => removeTarget(index)} dir={dir} style={{ color: 'var(--warsha-color-error)' }}>
                         ✗
                       </Button>
                     </Box>
@@ -208,7 +208,7 @@ export function RolesSettings({ onBack }: RolesSettingsProps) {
                   + {locale === 'ar' ? 'إضافة هدف' : 'Add Target'}
                 </Button>
 
-                <Box dir={dir} style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '16px' }}>
+                <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-3)', justifyContent: 'flex-end', marginTop: 'var(--warsha-space-4)' }}>
                   <Button variant="secondary" onClick={() => setEditingRole(null)} dir={dir}>
                     {locale === 'ar' ? 'إلغاء' : 'Cancel'}
                   </Button>
@@ -219,7 +219,7 @@ export function RolesSettings({ onBack }: RolesSettingsProps) {
               </Box>
             </Card>
           ) : (
-            <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-3)' }}>
               {ROLES.map(role => {
                 const config = roles.find(r => r.role === role);
                 const targets = config?.targets || [];
@@ -228,19 +228,19 @@ export function RolesSettings({ onBack }: RolesSettingsProps) {
                     display: 'flex', 
                     justifyContent: 'space-between', 
                     alignItems: 'center',
-                    backgroundColor: config ? 'white' : '#f9fafb',
+                    backgroundColor: config ? 'var(--warsha-color-surface)' : 'var(--warsha-color-bg)',
                   }}>
-                    <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+                    <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-3)', flex: 1 }}>
                       <Text weight="bold" dir={dir}>{ROLE_LABELS[role]?.[locale] || role}</Text>
                       {config && targets.length > 0 && (
-                        <Box dir={dir} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)', flexWrap: 'wrap' }}>
                           {targets.map((t, i) => (
                             <span key={i} style={{
-                              padding: '2px 8px',
-                              backgroundColor: '#dbeafe',
-                              color: '#1d4ed8',
+                              padding: '2px var(--warsha-space-2)',
+                              backgroundColor: 'var(--warsha-color-surface-muted)',
+                              color: 'var(--warsha-color-accent-strong)',
                               borderRadius: '9999px',
-                              fontSize: '0.75rem',
+                              fontSize: 'var(--warsha-font-size-xs)',
                               fontWeight: 500,
                             }}>
                               {t.provider_id}:{t.model_id}
@@ -249,7 +249,7 @@ export function RolesSettings({ onBack }: RolesSettingsProps) {
                         </Box>
                       )}
                       {!config && (
-                        <Text size="sm" dir={dir} style={{ color: '#9ca3af' }}>
+                        <Text size="sm" dir={dir} style={{ color: 'var(--warsha-color-muted)' }}>
                           {locale === 'ar' ? 'غير مهيأ' : 'Not configured'}
                         </Text>
                       )}

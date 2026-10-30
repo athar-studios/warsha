@@ -30,8 +30,8 @@ export function SettingsScreen({ client, onBack }: SettingsScreenProps) {
   ];
 
   return (
-    <Box dir={dir} style={{ padding: '16px', maxWidth: '900px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+    <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', maxWidth: '900px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
+      <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-3)' }}>
         {onBack && (
           <Button variant="ghost" size="sm" dir={dir} onClick={onBack}>
             ← {t('common.back') || 'Back'}
@@ -43,22 +43,22 @@ export function SettingsScreen({ client, onBack }: SettingsScreenProps) {
       </Box>
 
       <Card dir={dir}>
-        <Text weight="bold" dir={dir} style={{ marginBottom: '12px' }}>
+        <Text weight="bold" dir={dir} style={{ marginBottom: 'var(--warsha-space-3)' }}>
           {t('settings.routines') || 'Routines'}
         </Text>
-        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' }}>
           {routines.map(routine => (
             <Box key={routine.id} dir={dir} style={{
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              padding: '12px',
-              backgroundColor: '#f9fafb',
+              padding: 'var(--warsha-space-3)',
+              backgroundColor: 'var(--warsha-color-bg)',
               borderRadius: '8px',
             }}>
               <Box dir={dir}>
                 <Text weight="medium" dir={dir}>{locale === 'ar' ? routine.ar : routine.en}</Text>
-                <Text size="sm" style={{ color: '#6b7280' }} dir={dir}>{routine.schedule}</Text>
+                <Text size="sm" style={{ color: 'var(--warsha-color-text-muted)' }} dir={dir}>{routine.schedule}</Text>
               </Box>
               <Button variant="secondary" size="sm" dir={dir}>
                 {t('common.edit') || 'Edit'}
@@ -69,25 +69,25 @@ export function SettingsScreen({ client, onBack }: SettingsScreenProps) {
       </Card>
 
       <Card dir={dir}>
-        <Text weight="bold" dir={dir} style={{ marginBottom: '12px' }}>
+        <Text weight="bold" dir={dir} style={{ marginBottom: 'var(--warsha-space-3)' }}>
           {t('settings.subscriptions') || 'Connected Subscriptions'}
         </Text>
-        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' }}>
           {subscriptions.map(sub => (
             <Box key={sub.id} dir={dir} style={{
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              padding: '12px',
-              backgroundColor: '#f9fafb',
+              padding: 'var(--warsha-space-3)',
+              backgroundColor: 'var(--warsha-color-bg)',
               borderRadius: '8px',
             }}>
-              <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-2)' }}>
                 <Box dir={dir} style={{
                   width: '10px',
                   height: '10px',
                   borderRadius: '50%',
-                  backgroundColor: sub.status === 'connected' ? '#10b981' : '#9ca3af',
+                  backgroundColor: sub.status === 'connected' ? 'var(--warsha-color-success)' : 'var(--warsha-color-muted)',
                 }} />
                 <Text dir={dir}>{sub.name}</Text>
               </Box>

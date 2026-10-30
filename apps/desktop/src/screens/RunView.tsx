@@ -183,40 +183,40 @@ export function RunView({ run, onBack }: RunViewProps) {
       <Box dir={dir} style={{ 
         display: 'flex', 
         alignItems: 'center', 
-        gap: '16px', 
-        padding: '16px 24px', 
-        borderBottom: '1px solid #e5e7eb',
-        backgroundColor: 'white',
+        gap: 'var(--warsha-space-4)', 
+        padding: 'var(--warsha-space-4) var(--warsha-space-6)', 
+        borderBottom: '1px solid var(--warsha-color-border)',
+        backgroundColor: 'var(--warsha-color-surface)',
       }}>
         <Button variant="ghost" size="sm" onClick={onBack} dir={dir}>
           ← {locale === 'ar' ? 'رجوع' : 'Back'}
         </Button>
         <Box dir={dir} style={{ flex: 1 }}>
           <Text size="lg" weight="bold" dir={dir}>{run.projectId}</Text>
-          <Box dir={dir} style={{ display: 'flex', gap: '12px', marginTop: '4px', flexWrap: 'wrap' }}>
+          <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-3)', marginTop: 'var(--warsha-space-1)', flexWrap: 'wrap' }}>
             <span style={{
-              padding: '4px 10px',
-              backgroundColor: '#dbeafe',
-              color: '#1d4ed8',
+              padding: 'var(--warsha-space-1) 10px',
+              backgroundColor: 'var(--warsha-color-surface-muted)',
+              color: 'var(--warsha-color-accent-strong)',
               borderRadius: '9999px',
-              fontSize: '0.75rem',
+              fontSize: 'var(--warsha-font-size-xs)',
               fontWeight: 500,
             }}>
               {STAGE_LABELS[run.stage] || run.stage}
             </span>
             <span style={{
-              padding: '4px 10px',
-              backgroundColor: run.status === 'running' ? '#d1fae5' : '#fef3c7',
-              color: run.status === 'running' ? '#065f46' : '#92400e',
+              padding: 'var(--warsha-space-1) 10px',
+              backgroundColor: 'var(--warsha-color-surface-muted)',
+              color: run.status === 'running' ? 'var(--warsha-color-success)' : 'var(--warsha-color-warning)',
               borderRadius: '9999px',
-              fontSize: '0.75rem',
+              fontSize: 'var(--warsha-font-size-xs)',
               fontWeight: 500,
             }}>
               {run.status}
             </span>
           </Box>
         </Box>
-        <Box dir={dir} style={{ display: 'flex', gap: '8px' }}>
+        <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)' }}>
           <Button 
             variant={following ? 'primary' : 'secondary'} 
             onClick={() => setFollowing(!following)} 
@@ -251,11 +251,11 @@ export function RunView({ run, onBack }: RunViewProps) {
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '8px',
-          paddingInline: '24px',
-          paddingBlock: '8px',
-          backgroundColor: 'white',
-          borderBottom: '1px solid #e5e7eb',
+          gap: 'var(--warsha-space-2)',
+          paddingInline: 'var(--warsha-space-6)',
+          paddingBlock: 'var(--warsha-space-2)',
+          backgroundColor: 'var(--warsha-color-surface)',
+          borderBottom: '1px solid var(--warsha-color-border)',
           flexWrap: 'wrap',
         }}
       >
@@ -282,28 +282,28 @@ export function RunView({ run, onBack }: RunViewProps) {
         <Box dir={dir} style={{ 
           flex: '0 0 400px', 
           maxWidth: '400px',
-          borderInlineEnd: '1px solid #e5e7eb',
-          backgroundColor: '#fafafa',
+          borderInlineEnd: '1px solid var(--warsha-color-border)',
+          backgroundColor: 'var(--warsha-color-bg)',
           display: 'flex',
           flexDirection: 'column',
         }}>
-          <Box dir={dir} style={{ padding: '16px', borderBottom: '1px solid #e5e7eb' }}>
+          <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', borderBottom: '1px solid var(--warsha-color-border)' }}>
             <Text weight="bold" dir={dir}>
               {locale === 'ar' ? 'سجل الأحداث' : 'Event Stream'}
             </Text>
           </Box>
           
-          <Box dir={dir} style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <Box dir={dir} style={{ flex: 1, overflowY: 'auto', padding: 'var(--warsha-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-3)' }}>
             {events.map(event => (
-              <Card key={event.id} dir={dir} style={{ backgroundColor: 'white' }}>
-                <Box dir={dir} style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                  <Text size="sm" weight="bold" dir={dir} style={{ color: '#2563eb' }}>
+              <Card key={event.id} dir={dir} style={{ backgroundColor: 'var(--warsha-color-surface)' }}>
+                <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)', marginBottom: 'var(--warsha-space-2)' }}>
+                  <Text size="sm" weight="bold" dir={dir} style={{ color: 'var(--warsha-color-accent-strong)' }}>
                     {getEventIcon(event.kind)}
                   </Text>
-                  <Text size="xs" dir={dir} style={{ color: '#6b7280' }}>
+                  <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
                     {formatEventTime(event.createdAt)}
                   </Text>
-                  <Text size="xs" dir={dir} style={{ color: '#9ca3af', marginInlineStart: 'auto' }}>
+                  <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-muted)', marginInlineStart: 'auto' }}>
                     {STAGE_LABELS[event.stage] || event.stage}
                   </Text>
                 </Box>
@@ -311,7 +311,7 @@ export function RunView({ run, onBack }: RunViewProps) {
                   {event.kind}: {JSON.stringify(event.payload).slice(0, 100)}
                 </Text>
                 {event.costCents && (
-                  <Text size="xs" dir={dir} style={{ color: '#059669', marginTop: '4px' }}>
+                  <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-success)', marginTop: 'var(--warsha-space-1)' }}>
                     💰 ${(event.costCents / 100).toFixed(2)}
                   </Text>
                 )}
@@ -324,11 +324,11 @@ export function RunView({ run, onBack }: RunViewProps) {
         {/* Artifacts panel */}
         <Box dir={dir} style={{ 
           flex: 1, 
-          padding: '24px', 
+          padding: 'var(--warsha-space-6)', 
           overflowY: 'auto',
-          backgroundColor: 'white',
+          backgroundColor: 'var(--warsha-color-surface)',
         }}>
-          <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+          <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--warsha-space-6)' }}>
             <Text size="xl" weight="bold" dir={dir}>
               {locale === 'ar' ? 'المصنوعات' : 'Artifacts'}
             </Text>
@@ -338,20 +338,20 @@ export function RunView({ run, onBack }: RunViewProps) {
           </Box>
 
           {Object.entries(artifacts).length === 0 ? (
-            <Card dir={dir} style={{ textAlign: 'center', padding: '64px 32px' }}>
-              <Text size="md" dir={dir} style={{ color: '#9ca3af' }}>
+            <Card dir={dir} style={{ textAlign: 'center', padding: 'var(--warsha-space-16) var(--warsha-space-8)' }}>
+              <Text size="md" dir={dir} style={{ color: 'var(--warsha-color-muted)' }}>
                 {locale === 'ar' ? 'لا توجد مصنوعات بعد' : 'No artifacts yet'}
               </Text>
             </Card>
           ) : (
-            <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
               {Object.entries(artifacts).map(([name, content]) => (
                 <Card key={name} dir={dir}>
-                  <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--warsha-space-3)' }}>
                     <Text weight="medium" dir={dir} style={{ textTransform: 'capitalize' }}>
                       {name.replace(/_/g, ' ')}
                     </Text>
-                    <Box dir={dir} style={{ display: 'flex', gap: '8px' }}>
+                    <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)' }}>
                       <Button variant="ghost" size="sm" dir={dir}>
                         {locale === 'ar' ? 'نسخ' : 'Copy'}
                       </Button>
@@ -361,12 +361,12 @@ export function RunView({ run, onBack }: RunViewProps) {
                     </Box>
                   </Box>
                   <pre style={{
-                    backgroundColor: '#1f2937',
-                    color: '#e5e7eb',
-                    padding: '16px',
+                    backgroundColor: 'var(--warsha-color-surface-muted)',
+                    color: 'var(--warsha-color-text)',
+                    padding: 'var(--warsha-space-4)',
                     borderRadius: '8px',
                     overflowX: 'auto',
-                    fontSize: '0.875rem',
+                    fontSize: 'var(--warsha-font-size-sm)',
                     lineHeight: '1.6',
                     maxHeight: '400px',
                     direction: 'ltr',
@@ -383,7 +383,7 @@ export function RunView({ run, onBack }: RunViewProps) {
 
       {/* Live preview (M5b): the panel takes the URL and the status from here */}
       {tab === 'preview' && (
-        <Box dir={dir} style={{ flex: 1, overflowY: 'auto', padding: '24px', backgroundColor: '#fafafa' }}>
+        <Box dir={dir} style={{ flex: 1, overflowY: 'auto', padding: 'var(--warsha-space-6)', backgroundColor: 'var(--warsha-color-bg)' }}>
           <LivePreview
             url={previewUrl}
             status={previewStatus}
@@ -396,7 +396,7 @@ export function RunView({ run, onBack }: RunViewProps) {
 
       {/* Continue on server (M6a): the handoff entry point and the review & apply dry run */}
       {tab === 'handoff' && (
-        <Box dir={dir} style={{ flex: 1, overflowY: 'auto', padding: '24px', backgroundColor: '#fafafa', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <Box dir={dir} style={{ flex: 1, overflowY: 'auto', padding: 'var(--warsha-space-6)', backgroundColor: 'var(--warsha-color-bg)', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
           <Button variant="secondary" size="sm" dir={dir} onClick={() => setHandoffOpen(true)}>
             {locale === 'ar' ? 'المتابعة على الخادم' : 'Hand off'}
           </Button>
@@ -408,7 +408,7 @@ export function RunView({ run, onBack }: RunViewProps) {
 
       {/* Router & cost (M14b): Eco mode and the local/cloud badge per target */}
       {tab === 'router' && (
-        <Box dir={dir} style={{ flex: 1, overflowY: 'auto', padding: '24px', backgroundColor: 'white', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <Box dir={dir} style={{ flex: 1, overflowY: 'auto', padding: 'var(--warsha-space-6)', backgroundColor: 'var(--warsha-color-surface)', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
           <Text size="xl" weight="bold" dir={dir}>
             {locale === 'ar' ? 'التوجيه والتكلفة' : 'Router & cost'}
           </Text>
@@ -421,16 +421,16 @@ export function RunView({ run, onBack }: RunViewProps) {
             onChange={setEcoEnabled}
           />
           {routerTargets.length === 0 ? (
-            <Text size="sm" dir={dir} style={{ color: '#9ca3af' }}>
+            <Text size="sm" dir={dir} style={{ color: 'var(--warsha-color-muted)' }}>
               {locale === 'ar' ? 'لا توجد أهداف توجيه بعد' : 'No router targets yet'}
             </Text>
           ) : (
-            <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' }}>
               {routerTargets.map((target) => (
-                <Card key={target.name} dir={dir} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <Card key={target.name} dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-3)' }}>
                   <LocalCloudBadge kind={target.kind} targetName={target.name} model={target.model} />
                   <Text size="sm" dir={dir}>{target.name}</Text>
-                  <Text size="xs" dir={dir} style={{ color: '#6b7280' }}>{target.model}</Text>
+                  <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>{target.model}</Text>
                 </Card>
               ))}
             </Box>
