@@ -3,6 +3,8 @@ import React, { useState, useEffect, createContext, useContext, ReactNode } from
 import { Box, Text, Button, Card } from '@warsha/ui';
 import { LocaleProvider, useLocale, useDirection, t } from '@warsha/i18n';
 import { createClient, type WarshaClient, type ProjectSummary, type RunSummary } from '@warsha/client';
+import { PermissionModeChip, type PermissionMode } from './components/PermissionModeChip';
+import { StatusStrip, initialDeliveryStages, type DeliveryStage } from './components/StatusStrip';
 import { Onboarding } from './screens/Onboarding';
 import { ProjectsBoard } from './screens/ProjectsBoard';
 import { RunView } from './screens/RunView';
@@ -105,6 +107,12 @@ function AppContent() {
   const [selectedRun, setSelectedRun] = useState<RunSummary | null>(null);
   const [onboardingComplete, setOnboardingComplete] = useState(false);
   const [savedMode, setSavedMode] = useState<AppMode>('simple');
+  // Work protection: per-session permission mode, shown in the status strip.
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>('ask_for_risky');
+  // Ship status strip (M5a): the four delivery stages. Seeded pending, because
+  // nothing has reported a check yet; the CI/GitHub check feed replaces this
+  // initializer once the delivery RPC exists.
+  const [deliveryStages] = useState<DeliveryStage[]>(initialDeliveryStages);
 
   // Initialize client and load mode
   useEffect(() => {
@@ -200,8 +208,16 @@ function AppContent() {
             <Text size="xl" weight="bold" style={{ color: '#2563eb' }}>Warsha</Text>
             <Text size="sm" style={{ color: '#6b7280' }}>{t('app.version') || 'v0.1.0'}</Text>
           </Box>
-          
+
           <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {/* Ship status strip: Code checks → Builds → Tests → Store-ready */}
+            <StatusStrip stages={deliveryStages} />
+          </Box>
+
+          <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {/* Work protection: permission mode */}
+            <PermissionModeChip mode={permissionMode} onChange={setPermissionMode} />
+
             {/* Mode Toggle */}
             <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#f3f4f6', borderRadius: '8px', padding: '4px' }}>
               <Button

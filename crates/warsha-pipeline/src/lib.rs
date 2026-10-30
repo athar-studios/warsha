@@ -11,21 +11,42 @@ use warsha_core::*;
 use warsha_providers::{ChatMessage, ChatRequest, MessageRole, ProviderRouter};
 use warsha_store::Store;
 
+mod agent_workflow;
+mod backend_kit;
 mod evals;
 mod guardrails;
+mod handoff;
 mod mcp;
 mod observability;
 mod orchestrator;
+mod post_launch;
 mod prompts;
+mod provider_setup;
 mod router_quality;
 mod routines;
 mod scout;
 mod skills;
+mod work_protection;
 
+pub use crate::agent_workflow::{
+    AgentMode, AgentWorkflowError, AskUserQueue, AskUserRequest, CompressedOutput,
+    ContextCompactor, Mention, MentionKind, MentionParser, Message, MessageBus, ModeManager,
+    ModeTransition, OutputCompressor, SlashCommand, SlashCommandRegistry, TodoItem, TodoList,
+    TodoStatus, CHARS_PER_TOKEN,
+};
+pub use crate::backend_kit::{
+    is_safe_column_type, is_safe_identifier, BackendConfig, BackendFeature, BackendKind,
+    BackendKit, BackendKitError, ColumnDef, ExportBundle, PaymentsGate, RlsOperation, RlsPolicy,
+    TableDef,
+};
 pub use crate::evals::{blocks_change, run_suite, EvalCase, EvalError, EvalOutcome, EvalSuite};
 pub use crate::guardrails::{
     classify_action, mask_secrets, wrap_untrusted, ApprovalRequest, Guardrails, InjectionSignal,
     InputOrigin, InspectionResult, SensitiveAction, REDACTED,
+};
+pub use crate::handoff::{
+    backup_bundle_name, content_checksum, ApplyOptions, ApplyResult, Conflict, HandoffBundle,
+    HandoffError, HandoffFile, HandoffManager, HandoffState,
 };
 pub use crate::mcp::{
     McpClient, McpContent, McpError, McpRegistry, McpResource, McpServerConfig, McpTool,
@@ -37,8 +58,16 @@ pub use crate::orchestrator::{
     DiscoveryAnswer, DiscoveryCategory, DiscoveryQuestion, InputType, Orchestrator,
     OrchestratorConfig, OrchestratorState, OrchestratorStatus, ProjectBrief,
 };
+pub use crate::post_launch::{
+    ChangeRequestStatus, ChangeRequestStore, CrashReport, CrashReportStore, DailySummary,
+    DailySummaryBuilder, InMemoryChangeRequestStore, InMemoryCrashReportStore,
+    InMemoryStoreReviewStore, PlainLanguageChangeRequest, PostLaunchError, StoreReview,
+    StoreReviewStore, SummaryLanguage, MAX_RATING, MIN_RATING,
+};
+pub use crate::provider_setup::{ConnectionTestResult, OneClickProvider, ProviderSetupWizard};
 pub use crate::router_quality::{
-    CostEntry, CostSink, ModelTier, ResponseCache, RouterPolicy, TaskDifficulty,
+    CostEntry, CostSink, EcoMode, EcoModeDecision, LocalFallbackPolicy, ModelTier, PerTaskDefault,
+    PerTaskDefaults, ResponseCache, RouterPolicy, RouterTarget, TargetKind, TaskDifficulty,
 };
 pub use crate::routines::{
     MockRoutineRunner, Routine, RoutineAction, RoutineError, RoutineId, RoutineRegistry,
@@ -50,6 +79,11 @@ pub use crate::scout::{
 pub use crate::skills::{
     default_role_packs, load_skill_from_dir, LicenseClass, RolePack, Skill, SkillDependency,
     SkillError, SkillManifest, SkillRegistry, SkillSource, SkillsLockEntry, SkillsLockfile,
+};
+pub use crate::work_protection::{
+    InMemorySnapshotStore, PermissionMode, ReadBeforeWriteGuard, Snapshot, SnapshotFile,
+    SnapshotStore, UndoEntry, UndoStack, WorkProtectionError, WorkProtectionPolicy,
+    MAX_UNDO_ENTRIES,
 };
 
 // Helper to get stage as string

@@ -19,7 +19,7 @@ in RTL and the left in LTR without any mirrored code path.
 
 ## 1. Simple mode
 
-```
+```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │  Warsha  ورشة            [ Simple ●────○ Advanced ]        🔔 3   ⚙  👤       │
 ├───────────────┬──────────────────────────────────────┬───────────────────────┤
@@ -66,7 +66,7 @@ roles the pipeline actually has (no free-form agents in Simple mode).
 
 **Center — chat.** The primary surface. Chat is with the Orchestrator by default, or with
 whichever bot is selected. Approvals that the Orchestrator needs from the owner arrive
-*inline* in the transcript as buttons, and are repeated in the approvals strip below the
+_inline_ in the transcript as buttons, and are repeated in the approvals strip below the
 composer so they are never lost to scroll. The "Happening between agents" strip is a plain-
 language feed of inter-agent handoffs ("PM → Designer: spec v2 approved"), rendered from the
 same event stream as Advanced mode's log, but with one line per handoff rather than one line
@@ -98,7 +98,7 @@ reading a log lives here.
 
 ## 2. Advanced mode
 
-```
+```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │  Warsha  ورشة            [ Simple ○────● Advanced ]        ⏱ $1.84   ⚙  👤    │
 ├──────────┬───────────────────────────────────────────────────────────────────┤
@@ -173,19 +173,188 @@ token counts and wall-clock time, matching what the cost meter stores.
 
 ## 3. Shared behaviour
 
-| Concern | Simple mode | Advanced mode |
-|---|---|---|
-| Chat with an agent | Center, primary | Available per lane (drawer) |
-| Approve / reject gate | Card + inline buttons | Bottom gate strip |
-| Inter-agent activity | One-line handoff feed | Full event/tool tree |
-| Diffs | not shown | `DIFF` tab |
-| Terminal output | not shown | `TERMINAL` tab |
-| Costs | not shown (budget in Settings) | Header + breakdown |
-| Skills / MCP | not shown | `SKILLS & MCP` strip |
-| Routines | Settings, name/schedule/pause/run | Settings + scheduler status |
-| Language switch | Settings | Settings |
-| Provider auto-update | Settings → Providers | Settings → Providers |
+| Concern               | Simple mode                       | Advanced mode               |
+| --------------------- | --------------------------------- | --------------------------- |
+| Chat with an agent    | Center, primary                   | Available per lane (drawer) |
+| Approve / reject gate | Card + inline buttons             | Bottom gate strip           |
+| Inter-agent activity  | One-line handoff feed             | Full event/tool tree        |
+| Diffs                 | not shown                         | `DIFF` tab                  |
+| Terminal output       | not shown                         | `TERMINAL` tab              |
+| Costs                 | not shown (budget in Settings)    | Header + breakdown          |
+| Skills / MCP          | not shown                         | `SKILLS & MCP` strip        |
+| Routines              | Settings, name/schedule/pause/run | Settings + scheduler status |
+| Language switch       | Settings                          | Settings                    |
+| Provider auto-update  | Settings → Providers              | Settings → Providers        |
 
 Both modes must satisfy, in automation tests: every gate decision reachable from both modes,
 mode switch preserving selection and scroll position, full keyboard navigation, and no
 colour-only status signal (every state also carries a text or icon label).
+
+---
+
+## 4. Simple mode layout spec (M8b)
+
+<div dir="rtl" lang="ar">
+
+### بالعربية
+
+الوضع البسيط لمن يريد أن يقول ماذا يريد ويقرأ النتيجة، لا من يقرأ كودًا.
+
+- **ثلاثة أعمدة، مرآة كاملة للاتجاه** — الشريط الجانبي (محادثة جديدة، بحث، مشاريع،
+  محادثات اليوم، شارة الخطة) | المحادثة | المعاينة الحيّة. ثلاثتها في صف واحد
+  ينعكس مع اللغة، بخصائص CSS منطقية فقط.
+- **الشريط العلوي** — اسم المشروع، شارة النوع (ويب / ويب + هاتف / ويب + سطح مكتب /
+  صفحات اجتماعية)، حالة الجهاز، زر أساسي واحد **تشغيل**، وزر ثانوي **نشر** يفتح
+  البوابة ولا ينشر من تلقاء نفسه.
+- **شكل الرد** — سطر «ما فعلته» يُفتح ويُطوى (خطوات بخط ثابت العرض) ← النتيجة بلغة
+  بشرية ← قائمة «كيف يتصرّف». لا كود في المحادثة إطلاقًا.
+- **صندوق الكتابة** — مستدير الحواف، وداخله: `+` و`@` والميكروفون ومُبدّل النموذج
+  وشارة الإذن. لا أدوات حوله.
+- **السمة** — فاتحة وداكنة، ولون تمييز واحد `#FFD60A` على `#0E0E0E`، وخط واجهة على
+  نمط IBM Plex Sans Arabic، والخط ثابت العرض للخطوات والسجلات والنسخ الحرفي فقط.
+- **الوضع المتقدّم** — على نمط ZadLoop كما هو، لا يتغيّر بهذا القسم.
+
+</div>
+
+LingCode's public site is the inspiration for the ideas in this section only: no code, text
+or asset was copied from it.
+
+This section is the current layout contract for Simple mode, and where it disagrees with the
+M13 wireframe above, this section wins. Two disagreements are deliberate, not oversights:
+
+- **The right pane is the live preview, not the team panel.** The team panel keeps its M13
+  contents but becomes the second tab of that pane (`Preview` default, `Team` second), so the
+  three panes are sidebar | chat | live preview without losing "what is the team doing".
+- **The sidebar is chat-first.** New chat, search, projects, today's chats, plan badge. The
+  per-agent list from M13 survives as the target picker of **New chat**, so "chat with the PM"
+  is still one click and no agent loses its entry point.
+
+### Three panes, mirrored for RTL
+
+```text
+┌──────────────┬───────────────────────────┬──────────────┐
+│ sidebar      │ chat                      │ live preview │
+│ —— new chat  │ [ top bar ]               │ running app  │
+│ —— search    │ agent reply               │  or phone QR │
+│ —— projects  │ agent reply               │              │
+│ —— today     │                           │ [Preview|Team│
+│ —— plan      │ composer                  │              │
+└──────────────┴───────────────────────────┴──────────────┘
+```
+
+One flex row, direction from the document (`dir` from `useDirection()`), so Arabic mirrors all
+three panes at once with no second layout path. The sidebar is fixed-width and scrolls inside
+itself, chat takes the remaining width with the composer pinned to the bottom, and the preview
+keeps a minimum width. Below the breakpoint the preview stops being a column and becomes a tab
+above the chat; on a phone the preview becomes a QR code that opens the same view over the
+existing M6 encrypted channel.
+
+Sidebar contents, in this order: **New chat** (agent picker), search, projects, today's chats,
+plan badge. No file tree, no tool palette, no terminal — those stay in Advanced mode.
+
+### Top bar
+
+Project name, type pill, device status, primary **Run**, secondary **Publish**.
+
+The type pill is the project's own type — web / web + mobile / web + desktop / social pages —
+with no picker in the top bar, because the type is decided in the discovery interview at Gate A.
+Device status uses the same four states as the team panel (`idle`, `thinking`, `working`,
+`waiting on you`). **Run** is the only primary button in the bar; **Publish** is secondary and
+never automatic: it opens the gate and the gate stays the owner's to sign. Nothing in the top
+bar shows a cost, a token count or a model id.
+
+### Agent reply format
+
+Every reply is exactly three parts, in this order:
+
+1. **"What I did"** — one collapsible line, closed by default. Opened, it lists short steps in
+   the mono font. This is the only place a mono font appears inside the chat.
+2. **The result** — one or two sentences in plain language: what is true now, and what it means
+   for the owner. Written in the owner's language.
+3. **"How it behaves"** — bullets describing behaviour the owner can check ("pressing Run
+   rebuilds the page", "the button stays disabled until a provider is connected"). Behaviour,
+   not file names and not function names.
+
+No code dumps in Simple mode, and no "show diff" affordance in the chat: the gate shows the
+diff and Advanced mode keeps the full viewer. A reply that wants to paste a patch is out of
+format — the steps explain where the work happened, the result says what changed, the behaviour
+list says what to try.
+
+### Composer
+
+```text
+[ + ] [ @ ]  ask the team anything…            [ mic ] [ model ▾ ] [ permission ]
+                                                                    [    send    ]
+```
+
+One rounded composer holds everything; nothing floats around it. `+` attaches a file or folder,
+`@` mentions a file, screen or teammate (the resolver is M18; the composer owns the shape), the
+mic dictates into the composer as editable text and never sends on its own. The **model picker**
+and the **permission chip** live inside the composer and apply to the next message rather than
+the whole session; the chip cycles ask always → ask for risky → auto inside project, the same
+`PermissionModeChip` the status strip renders. `Enter` sends, `Shift+Enter` breaks the line, and
+the composer grows to a maximum height and then scrolls.
+
+### Themes, accent, type
+
+- **Light and dark** are both first-class; the accent does not change between them.
+- **One accent: `#FFD60A` on `#0E0E0E`.** Accent marks the thing to press — Run, the active
+  routine badge, the plan badge — never a whole surface. Success and failure are carried by text
+  and a glyph as well as colour, so no third accent colour is introduced.
+- **UI font:** an IBM Plex Sans Arabic-style family — a humanist sans with real Arabic coverage
+  and tabular figures. Arabic gets the Arabic cut and English the Latin cut of the same family,
+  so both locales keep the same rhythm.
+- **Mono only for steps and logs:** the collapsible step list, the event stream, the terminal,
+  and anything copied verbatim (a schedule, a version, a path, a command). Copied tokens are
+  pinned `dir="ltr"` with `unicodeBidi: 'isolate'` so an LTR run cannot reorder the Arabic
+  sentence around it.
+
+### The two Simple-mode screens this batch adds
+
+Both are built and test-covered (27 tests across four files). Neither mounts itself: each takes
+its state from props and reports every change back out, which is what lets it be tested without
+a daemon and mounted in either mode.
+
+| Screen / row         | Path                                             | What it renders                                                                                                                |
+| -------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| Routines             | `apps/desktop/src/screens/Routines.tsx`          | Header with the count, one `RoutineRow` per routine, empty state                                                               |
+| Routine row          | `apps/desktop/src/components/RoutineRow.tsx`     | Name, schedule (mono, `dir="ltr"`), plain-language description, state badge, `routineActions(state)` deciding Run/Pause/Resume |
+| Settings → Providers | `apps/desktop/src/screens/SettingsProviders.tsx` | Header, the "off by default" note, one `ProviderRow` per provider, empty state                                                 |
+| Provider row         | `apps/desktop/src/components/ProviderRow.tsx`    | Name, enabled toggle, mode selector (off / notify only / auto), pinned version input (mono, `dir="ltr"`), "Test connection"    |
+
+**Routines** answers "what does the team do on its own". `routineActions` is a pure function:
+`idle` → `['run']`, `running` → `['pause']`, `paused` → `['resume', 'run']`, `failed` →
+`['run']`. A row shows only what its state allows, so Pause never sits next to a routine that is
+not running. The running badge uses the accent (dark ink on `#FFD60A`); idle, paused and failed
+use neutral, amber and red pills. The empty state says what a routine is instead of showing an
+empty box.
+
+**Settings → Providers** answers "what may update or connect by itself". Every provider is off
+by default and the note under the header says so. The mode selector offers off → notify only →
+auto, safest first. An empty pinned version means "follow the latest release", and the field is
+`dir="ltr"` because a version reads left-to-right in both languages. "Test connection" is a
+seam: the row calls `onTest` and nothing else — no key is read, no socket is opened, and the
+structured `ConnectionTestResult` from `provider_setup` is what a caller drops into the result
+line.
+
+### i18n and RTL in these screens
+
+Every string goes through `t('simple.routines.*')` / `t('simple.providers.*')` with an ar/en
+fallback, exactly as the M14a/M14b/M5a/M5b/M5c components do. The `simple.*` prefix is
+deliberate: the catalog already holds unrelated `providers.title` and `providers.test` messages
+for the older settings screen, and `t()` prefers a catalog entry over a fallback, so a shared
+prefix would have silently replaced these labels. A catalog entry added later under `simple.*`
+still takes precedence automatically, and no string is hardcoded outside the fallback tables.
+
+### What is not here yet
+
+- **Not mounted.** `App.tsx` and the settings router are outside this batch's file scope, so
+  Routines and Settings → Providers render where a caller puts them (same precedent as M14a,
+  M14b, M5a, M5b, M5c).
+- **No scheduler and no updater.** The Rust side has `RoutineRegistry` and
+  `ProviderUpdatePlanner` (M16); nothing in these screens calls either, and Goose is still a
+  commented placeholder in the root `Cargo.toml`.
+- **No live-preview mount and no phone pane.** `LivePreview.tsx` exists and is unmounted; the QR
+  half of this section is a spec paragraph, not a component.
+- **No mention resolver and no model list in the composer.** The composer's shape is specified
+  here; the resolver is M18 and the model list is the router's.

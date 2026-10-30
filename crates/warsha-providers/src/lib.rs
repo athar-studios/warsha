@@ -9,11 +9,13 @@ use warsha_core::*;
 mod anthropic;
 mod ollama;
 mod openai;
+mod provider_setup;
 mod provider_update;
 
 pub use anthropic::AnthropicProvider;
 pub use ollama::OllamaProvider;
 pub use openai::{load_key, store_key, OpenAIProvider};
+pub use provider_setup::{ConnectionTestResult, OneClickProvider, ProviderSetupWizard};
 pub use provider_update::{
     latest_versions, DetectedProvider, MockChecker, MockDetector, ProviderDetector,
     ProviderUpdateAction, ProviderUpdateChecker, ProviderUpdateError, ProviderUpdateMode,

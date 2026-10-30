@@ -99,9 +99,9 @@
     "updater": {
       "active": true,
       "endpoints": [
-        "https://github.com/Warsha/Warsha/releases/latest/download/latest.json"
+        "https://github.com/athar-studios/warsha/releases/latest/download/latest.json"
       ],
-      "pubkey": ""
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk3MzFEREJGNTAyNjRBOEMKUldTTVNpWlF2OTB4bDdnU1pVbHExdytpaWw2d2lSb29mWkVEaUVtbVBBS2NWNnZ5WTFzVTAvbzYK"
     }
   }
 }
