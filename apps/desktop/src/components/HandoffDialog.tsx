@@ -5,9 +5,9 @@
 // into and `phase` is what the caller observes. No credential is read here and
 // nothing is logged — a pairing secret belongs to the device-pairing handshake,
 // never to this URL.
-import { useEffect, useState, type FormEvent } from 'react';
 import { t, useDirection, useLocale, type Locale } from '@warsha/i18n';
 import { Button } from '@warsha/ui';
+import { useEffect, useState, type FormEvent } from 'react';
 
 /**
  * Mirrors `HandoffState::label()` in `crates/warsha-pipeline/src/handoff.rs`, so

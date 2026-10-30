@@ -1,0 +1,134 @@
+/*
+ * @warsha/ui — design tokens as CSS custom properties.
+ *
+ * Import this file once, at the root of an app or of Storybook:
+ *
+ *   @import '@warsha/ui/tokens/tokens.css';   (CSS)
+ *   import '@warsha/ui/tokens/tokens.css';    (bundler)
+ *
+ * Light is the default on :root. A dark surface opts in with `data-theme="dark"`, either on <html>
+ * or on any container, so a panel can be dark inside a light window. There is deliberately no
+ * `prefers-color-scheme` query: Warsha's theme is an owner choice stored with the app, and a media
+ * query would silently override it.
+ *
+ * This file is the CSS half of the token layer. The TypeScript half (`./colors.ts`, `./spacing.ts`,
+ * `./radius.ts`, `./typography.ts`, `./shadow.ts`, `./motion.ts`) declares the same names and values;
+ * `tokenDrift.test.ts` fails if the two ever disagree, and fails if a component references a token
+ * this file does not declare (docs/ARCH_RULES.md R6).
+ *
+ * Colours are role names, not colour names. Never write a hex value in a component.
+ */
+
+:root,
+[data-theme='light'] {
+  color-scheme: light;
+
+  /* ---------------------------------------------------------------- colour */
+  --warsha-color-bg: #fafafa;
+  --warsha-color-surface: #ffffff;
+  --warsha-color-surface-muted: #f3f4f6;
+  --warsha-color-text: #111827;
+  --warsha-color-text-muted: #6b7280;
+  --warsha-color-border: #e5e7eb;
+  --warsha-color-border-strong: #d1d5db;
+  --warsha-color-accent: #ffd60a;
+  --warsha-color-accent-ink: #0e0e0e;
+  --warsha-color-accent-strong: #8a6a00;
+  --warsha-color-success: #1a7f37;
+  --warsha-color-warning: #b45309;
+  --warsha-color-error: #b42318;
+  --warsha-color-muted: #9ca3af;
+
+  /* --------------------------------------------------------------- spacing */
+  --warsha-space-0: 0px;
+  --warsha-space-1: 4px;
+  --warsha-space-2: 8px;
+  --warsha-space-3: 12px;
+  --warsha-space-4: 16px;
+  --warsha-space-6: 24px;
+  --warsha-space-8: 32px;
+  --warsha-space-12: 48px;
+  --warsha-space-16: 64px;
+  --warsha-space-24: 96px;
+  --warsha-space-32: 128px;
+  --warsha-space-48: 192px;
+  --warsha-space-64: 256px;
+
+  /* ---------------------------------------------------------------- radius */
+  --warsha-radius-none: 0px;
+  --warsha-radius-sm: 4px;
+  --warsha-radius-md: 6px;
+  --warsha-radius-lg: 8px;
+  --warsha-radius-xl: 12px;
+  --warsha-radius-full: 9999px;
+
+  /* ------------------------------------------------------------ typography */
+  --warsha-font-sans:
+    'IBM Plex Sans Arabic', 'Noto Sans Arabic', 'Segoe UI', 'Inter', system-ui, -apple-system,
+    'Helvetica Neue', Arial, sans-serif;
+  --warsha-font-mono:
+    'IBM Plex Mono', 'Cascadia Code', 'SFMono-Regular', ui-monospace, Menlo, Consolas, monospace;
+  --warsha-font-size-xs: 0.75rem;
+  --warsha-font-size-sm: 0.875rem;
+  --warsha-font-size-md: 1rem;
+  --warsha-font-size-lg: 1.125rem;
+  --warsha-font-size-xl: 1.25rem;
+  --warsha-font-size-2xl: 1.5rem;
+  --warsha-font-size-3xl: 1.875rem;
+  --warsha-line-height-tight: 1.25;
+  --warsha-line-height-snug: 1.35;
+  --warsha-line-height-base: 1.5;
+  --warsha-line-height-relaxed: 1.75;
+  --warsha-font-weight-normal: 400;
+  --warsha-font-weight-medium: 500;
+  --warsha-font-weight-semibold: 600;
+  --warsha-font-weight-bold: 700;
+
+  /* ---------------------------------------------------------------- shadow */
+  --warsha-shadow-none: none;
+  --warsha-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --warsha-shadow-md: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --warsha-shadow-lg: 0 4px 6px rgba(0, 0, 0, 0.07), 0 2px 4px rgba(0, 0, 0, 0.06);
+  --warsha-shadow-xl: 0 10px 15px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05);
+
+  /* ---------------------------------------------------------------- motion */
+  --warsha-duration-fast: 120ms;
+  --warsha-duration-normal: 180ms;
+  --warsha-duration-slow: 240ms;
+  --warsha-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --warsha-ease-entrance: cubic-bezier(0, 0, 0.2, 1);
+  --warsha-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --warsha-color-bg: #0e0e0e;
+  --warsha-color-surface: #171717;
+  --warsha-color-surface-muted: #1f1f1f;
+  --warsha-color-text: #f5f5f5;
+  --warsha-color-text-muted: #a3a3a3;
+  --warsha-color-border: #2e2e2e;
+  --warsha-color-border-strong: #404040;
+  --warsha-color-accent: #ffd60a;
+  --warsha-color-accent-ink: #0e0e0e;
+  --warsha-color-accent-strong: #ffd60a;
+  --warsha-color-success: #3fb950;
+  --warsha-color-warning: #d29922;
+  --warsha-color-error: #f85149;
+  --warsha-color-muted: #737373;
+}
+
+/*
+ * Motion is a preference, not a decoration. Zeroing the durations here means every component that
+ * used a duration token stops animating without knowing this rule exists.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root,
+  [data-theme='light'],
+  [data-theme='dark'] {
+    --warsha-duration-fast: 0ms;
+    --warsha-duration-normal: 0ms;
+    --warsha-duration-slow: 0ms;
+  }
+}

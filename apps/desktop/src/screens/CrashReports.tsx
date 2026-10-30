@@ -184,8 +184,12 @@ export function CrashReports({ reports }: CrashReportsProps) {
                       fontSize: '0.75rem',
                       fontWeight: 600,
                       whiteSpace: 'nowrap',
-                      backgroundColor: report.sent ? '#f3f4f6' : '#FFD60A',
-                      color: report.sent ? '#4b5563' : '#0E0E0E',
+                      backgroundColor: report.sent
+                        ? 'var(--warsha-color-surface-muted)'
+                        : 'var(--warsha-color-accent)',
+                      color: report.sent
+                        ? 'var(--warsha-color-text-muted)'
+                        : 'var(--warsha-color-accent-ink)',
                     }}
                   >
                     {report.sent ? sentLabel : unsentLabel}

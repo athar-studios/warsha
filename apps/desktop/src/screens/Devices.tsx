@@ -1,15 +1,15 @@
 // Devices — List paired devices, revoke
-import React, { useState, useEffect } from 'react';
-import { Box, Text, Button, Card } from '@warsha/ui';
-import { t, useDirection, useLocale } from '@warsha/i18n';
 import { WarshaClient, type DeviceId, type DeviceSummary } from '@warsha/client';
+import { t, useDirection, useLocale } from '@warsha/i18n';
+import { Box, Text, Button, Card } from '@warsha/ui';
+import React, { useState, useEffect } from 'react';
 
 interface DevicesProps {
   client: WarshaClient;
   onBack: () => void;
 }
 
-export function Devices({ client, onBack }: DevicesProps) {
+export function Devices({ onBack }: DevicesProps) {
   const dir = useDirection();
   const locale = useLocale();
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
@@ -169,8 +169,8 @@ export function Devices({ client, onBack }: DevicesProps) {
         <div style={{
           position: 'fixed',
           top: 0,
-          left: 0,
-          right: 0,
+          insetInlineStart: 0,
+          insetInlineEnd: 0,
           bottom: 0,
           backgroundColor: 'rgba(0,0,0,0.5)',
           display: 'flex',
@@ -202,7 +202,7 @@ export function Devices({ client, onBack }: DevicesProps) {
               justifyContent: 'center',
             }}>
               <Text size="xl" weight="bold" dir={dir} style={{ color: '#6b7280', marginBottom: '8px' }}>
-                QR Code
+                {t('devices.qr_code') || 'QR Code'}
               </Text>
               <Text size="xs" dir={dir} style={{ color: '#9ca3af' }}>
                 {pairingCode}

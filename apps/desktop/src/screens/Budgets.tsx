@@ -1,15 +1,15 @@
 // Budgets — Per-project budget with spend tracking
-import React, { useState, useEffect } from 'react';
-import { Box, Text, Button, Card } from '@warsha/ui';
-import { t, useDirection, useLocale } from '@warsha/i18n';
 import { WarshaClient, type BudgetStatus, type ProjectId, type ProjectSummary } from '@warsha/client';
+import { t, useDirection, useLocale } from '@warsha/i18n';
+import { Box, Text, Button, Card } from '@warsha/ui';
+import React, { useState, useEffect } from 'react';
 
 interface BudgetsProps {
   client: WarshaClient;
   onBack: () => void;
 }
 
-export function Budgets({ client, onBack }: BudgetsProps) {
+export function Budgets({ onBack }: BudgetsProps) {
   const dir = useDirection();
   const locale = useLocale();
   const [budgets, setBudgets] = useState<Record<string, BudgetStatus & { projectName: string }>>({});
@@ -121,7 +121,7 @@ export function Budgets({ client, onBack }: BudgetsProps) {
                   <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
                     <Box dir={dir}>
                       <Text weight="bold" size="lg" dir={dir}>{budget.projectName}</Text>
-                      <Text size="sm" dir={dir} style={{ color: '#6b7280' }}>ID: {projectId.slice(0, 8)}...</Text>
+                      <Text size="sm" dir={dir} style={{ color: '#6b7280' }}>{t('projects.id_label') || 'ID:'} {projectId.slice(0, 8)}...</Text>
                     </Box>
                     <Box dir={dir} style={{ textAlign: dir === 'rtl' ? 'right' : 'left' }}>
                       <Text size="sm" weight="bold" dir={dir} style={{ color }}>
@@ -161,8 +161,8 @@ export function Budgets({ client, onBack }: BudgetsProps) {
         <div style={{
           position: 'fixed',
           top: 0,
-          left: 0,
-          right: 0,
+          insetInlineStart: 0,
+          insetInlineEnd: 0,
           bottom: 0,
           backgroundColor: 'rgba(0,0,0,0.5)',
           display: 'flex',

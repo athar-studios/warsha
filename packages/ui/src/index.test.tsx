@@ -1,8 +1,9 @@
 // @warsha/ui — Tests
 
-import { describe, it, expect } from 'vitest';
-import { Box, Text, Button, Card } from './index';
 import { render, screen } from '@testing-library/react';
+import { describe, it, expect } from 'vitest';
+
+import { Box, Text, Button, Card } from './index';
 
 describe('ui components', () => {
   it('exports components', () => {

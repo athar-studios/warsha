@@ -6,9 +6,9 @@
 //   * `ConnectionTestResult` → the same snake_case shape the daemon returns,
 //     so a real result can be dropped straight into this component;
 //   * `testConnection` → the same three checks, no network call.
-import { useState } from 'react';
 import { t, useDirection, useLocale, type Locale } from '@warsha/i18n';
 import { Button } from '@warsha/ui';
+import { useState } from 'react';
 
 export type OneClickProvider =
   | 'open_router'

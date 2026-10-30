@@ -66,8 +66,8 @@ export function Routines({ routines, onRun, onPause, onResume }: RoutinesProps) 
             paddingInline: '8px',
             paddingBlock: '1px',
             borderRadius: '999px',
-            backgroundColor: '#FFD60A',
-            color: '#0E0E0E',
+            backgroundColor: 'var(--warsha-color-accent)',
+            color: 'var(--warsha-color-accent-ink)',
             fontSize: '0.75rem',
             fontWeight: 600,
           }}

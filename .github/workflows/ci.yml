@@ -104,6 +104,14 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # docs/ARCH_RULES.md, enforced by scripts/check-arch.mjs. Runs before Test because a
+      # boundary breach should fail fast, and runs its own fixture self-test first so a silently
+      # broken rule can never report a clean tree.
+      - name: Architecture boundaries
+        run: |
+          node scripts/check-arch.mjs --self-test
+          node scripts/check-arch.mjs
+
       - name: Test
         run: pnpm -r test
 

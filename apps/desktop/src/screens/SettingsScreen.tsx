@@ -1,8 +1,8 @@
 // Settings screen — routines, connected subscriptions, mode preference
-import React from 'react';
-import { Box, Text, Button, Card } from '@warsha/ui';
-import { useLocale, useDirection, t } from '@warsha/i18n';
 import { type WarshaClient } from '@warsha/client';
+import { useLocale, useDirection, t } from '@warsha/i18n';
+import { Box, Text, Button, Card } from '@warsha/ui';
+import React from 'react';
 
 interface SettingsScreenProps {
   client: WarshaClient;

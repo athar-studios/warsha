@@ -3,8 +3,8 @@
 
 import { chacha20poly1305 } from '@noble/ciphers/chacha';
 import { x25519 } from '@noble/curves/ed25519';
-import { sha256 } from '@noble/hashes/sha256';
 import { hkdf } from '@noble/hashes/hkdf';
+import { sha256 } from '@noble/hashes/sha256';
 import { randomBytes } from '@noble/hashes/utils';
 
 export type DeviceId = string & { readonly __brand: unique symbol };

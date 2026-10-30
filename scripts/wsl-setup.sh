@@ -105,6 +105,8 @@ run_soft "cargo clippy --workspace -- -D warnings"  cargo clippy --workspace --a
 run_soft "cargo test --workspace"                   cargo test --workspace
 run_soft "pnpm install"                             pnpm install
 run_soft "pnpm -r typecheck"                        pnpm -r typecheck
+run_soft "pnpm lint"                                pnpm lint
+run_soft "node scripts/check-arch.mjs"              node scripts/check-arch.mjs
 run_soft "pnpm -r build"                            pnpm -r build
 run_soft "pnpm -r test"                             pnpm -r test
 run_soft "actionlint ci.yml"                        actionlint .github/workflows/ci.yml

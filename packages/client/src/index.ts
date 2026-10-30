@@ -282,7 +282,7 @@ function eventEndpoint(url: string): string {
 /** Subprotocol carrying the bearer token on the WebSocket handshake. */
 const TOKEN_SUBPROTOCOL_PREFIX = 'warsha.token.';
 
-export class WarshaClient {
+export class WarshaClient implements WarshaWiringApi {
   private baseUrl: string;
   private token: string;
   private requestId = 0;
@@ -458,14 +458,250 @@ export class WarshaClient {
   async health(): Promise<{ status: string; version: string }> {
     return this.rpc('health');
   }
+
+  // Wiring (PLAN.md M20): backend kit export, continue-on-server handoff, and the
+  // read half of post-launch care. Parameter names are snake_case because that is
+  // what `warshad`'s jsonrpsee params deserialize; every result is checked before
+  // it reaches a caller, so a wrong shape is a named error and not `undefined`
+  // rendered by a screen.
+  async exportBackend(runId: RunId, outputDir: string): Promise<string> {
+    const result = await this.rpc<unknown>(BACKEND_EXPORT_METHOD, {
+      run_id: runId,
+      output_dir: outputDir,
+    });
+    return wiringPath(result, BACKEND_EXPORT_METHOD);
+  }
+
+  async createHandoff(
+    runId: RunId,
+    files: ReadonlyArray<readonly [string, string]>
+  ): Promise<string> {
+    const result = await this.rpc<unknown>(HANDOFF_CREATE_METHOD, { run_id: runId, files });
+    return wiringPath(result, HANDOFF_CREATE_METHOD);
+  }
+
+  async applyHandoff(path: string, ownerWins: boolean): Promise<HandoffApplySummary> {
+    const result = await this.rpc<unknown>(HANDOFF_APPLY_METHOD, {
+      path,
+      owner_wins: ownerWins,
+    });
+    return parseHandoffApplySummary(wiringString(result, HANDOFF_APPLY_METHOD, 'summary'));
+  }
+
+  async listCrashReports(runId?: RunId): Promise<CrashReport[]> {
+    // A blank run id is the daemon's "every report" (the crash screen's unselected state).
+    const result = await this.rpc<unknown>(POSTLAUNCH_CRASHES_METHOD, { run_id: runId ?? '' });
+    return wiringArray(result, POSTLAUNCH_CRASHES_METHOD, 'crashes').map(parseCrashReport);
+  }
+
+  async listStoreReviews(store?: string): Promise<StoreReview[]> {
+    // A blank store is the daemon's "every store".
+    const result = await this.rpc<unknown>(POSTLAUNCH_REVIEWS_METHOD, { store: store ?? '' });
+    return wiringArray(result, POSTLAUNCH_REVIEWS_METHOD, 'reviews').map(parseStoreReview);
+  }
+}
+
+/** One `warsha_pipeline::CrashReport` as the daemon serialises it (snake_case). */
+export interface CrashReport {
+  id: string;
+  run_id: string;
+  message: string;
+  stack_trace?: string | null;
+  occurred_at: number;
+  sent: boolean;
+}
+
+/** One `warsha_pipeline::StoreReview` as the daemon serialises it (snake_case). */
+export interface StoreReview {
+  id: string;
+  store: string;
+  rating: number;
+  body: string;
+  author: string;
+  received_at: number;
+}
+
+/** One entry of `warsha_pipeline::Conflict`, in the `handoff.apply` summary. */
+export interface HandoffConflict {
+  path: string;
+  local_checksum: string;
+  remote_checksum: string;
+}
+
+/**
+ * What `handoff.apply` decides, as `warsha_pipeline::ApplyResult` serialises it.
+ * `applied` is what would be written, `backups` what must survive the write, and
+ * `resolved` the conflicts owner-wins settled; anything left in `conflicts`
+ * without a `resolved` entry needs a gate. `backup_dir` names where the copies
+ * went and is absent when nothing was backed up (and on a dry run).
+ */
+export interface HandoffApplySummary {
+  applied: string[];
+  conflicts: HandoffConflict[];
+  backups: string[];
+  resolved: string[];
+  backup_dir?: string;
+}
+
+/**
+ * Signatures for the daemon wiring batch (PLAN.md M20): backend kit export,
+ * continue-on-server handoff and the read half of post-launch care.
+ *
+ * `WarshaClient` implements this interface, so a screen written against these
+ * five methods calls the daemon's own RPC names (`backend.export`,
+ * `handoff.create`, `handoff.apply`, `postlaunch.crashes`,
+ * `postlaunch.reviews`) without knowing the wire shape.
+ */
+export interface WarshaWiringApi {
+  /** `backend.export` — write `schema.sql` into `outputDir`; resolves to its path. */
+  exportBackend(runId: RunId, outputDir: string): Promise<string>;
+
+  /** `handoff.create` — write the bundle under the daemon's data dir; resolves to its JSON path. */
+  createHandoff(runId: RunId, files: ReadonlyArray<readonly [string, string]>): Promise<string>;
+
+  /** `handoff.apply` — read the bundle at `path` and apply it, returning the decoded summary. */
+  applyHandoff(path: string, ownerWins: boolean): Promise<HandoffApplySummary>;
+
+  /** `postlaunch.crashes` — crash reports for `runId`, or every report when it is omitted. */
+  listCrashReports(runId?: RunId): Promise<CrashReport[]>;
+
+  /** `postlaunch.reviews` — store reviews, optionally of one `store`. */
+  listStoreReviews(store?: string): Promise<StoreReview[]>;
+}
+
+const BACKEND_EXPORT_METHOD = 'backend.export';
+const HANDOFF_CREATE_METHOD = 'handoff.create';
+const HANDOFF_APPLY_METHOD = 'handoff.apply';
+const POSTLAUNCH_CRASHES_METHOD = 'postlaunch.crashes';
+const POSTLAUNCH_REVIEWS_METHOD = 'postlaunch.reviews';
+
+const WIRING_RESULT_ERROR = 'Malformed RPC result';
+
+function wiringObject(value: unknown, method: string): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`${WIRING_RESULT_ERROR} from ${method}: expected an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function wiringArray(value: unknown, method: string, name: string): unknown[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "${name}" is not a list`);
+  }
+  return value as unknown[];
+}
+
+function wiringString(value: unknown, method: string, name: string): string {
+  if (typeof value !== 'string') {
+    throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "${name}" is not a string`);
+  }
+  return value;
+}
+
+function wiringNumber(value: unknown, method: string, name: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "${name}" is not a number`);
+  }
+  return value;
+}
+
+function wiringBoolean(value: unknown, method: string, name: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "${name}" is not a boolean`);
+  }
+  return value;
+}
+
+/** A string field that serde may omit or null: absent and `null` both read as `null`. */
+function wiringNullableString(value: unknown, method: string, name: string): string | null {
+  if (value === null || value === undefined) return null;
+  return wiringString(value, method, name);
+}
+
+/** A path the daemon reports it wrote, which is never blank. */
+function wiringPath(value: unknown, method: string): string {
+  const path = wiringString(value, method, 'path');
+  if (path.length === 0) {
+    throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "path" is blank`);
+  }
+  return path;
+}
+
+function wiringStringList(value: unknown, method: string, name: string): string[] {
+  return wiringArray(value, method, name).map((entry) => wiringString(entry, method, name));
+}
+
+function parseHandoffConflict(value: unknown): HandoffConflict {
+  const source = wiringObject(value, HANDOFF_APPLY_METHOD);
+  return {
+    path: wiringString(source['path'], HANDOFF_APPLY_METHOD, 'path'),
+    local_checksum: wiringString(source['local_checksum'], HANDOFF_APPLY_METHOD, 'local_checksum'),
+    remote_checksum: wiringString(
+      source['remote_checksum'],
+      HANDOFF_APPLY_METHOD,
+      'remote_checksum'
+    ),
+  };
+}
+
+function parseCrashReport(value: unknown): CrashReport {
+  const source = wiringObject(value, POSTLAUNCH_CRASHES_METHOD);
+  return {
+    id: wiringString(source['id'], POSTLAUNCH_CRASHES_METHOD, 'id'),
+    run_id: wiringString(source['run_id'], POSTLAUNCH_CRASHES_METHOD, 'run_id'),
+    message: wiringString(source['message'], POSTLAUNCH_CRASHES_METHOD, 'message'),
+    stack_trace: wiringNullableString(
+      source['stack_trace'],
+      POSTLAUNCH_CRASHES_METHOD,
+      'stack_trace'
+    ),
+    occurred_at: wiringNumber(source['occurred_at'], POSTLAUNCH_CRASHES_METHOD, 'occurred_at'),
+    sent: wiringBoolean(source['sent'], POSTLAUNCH_CRASHES_METHOD, 'sent'),
+  };
+}
+
+function parseStoreReview(value: unknown): StoreReview {
+  const source = wiringObject(value, POSTLAUNCH_REVIEWS_METHOD);
+  return {
+    id: wiringString(source['id'], POSTLAUNCH_REVIEWS_METHOD, 'id'),
+    store: wiringString(source['store'], POSTLAUNCH_REVIEWS_METHOD, 'store'),
+    rating: wiringNumber(source['rating'], POSTLAUNCH_REVIEWS_METHOD, 'rating'),
+    body: wiringString(source['body'], POSTLAUNCH_REVIEWS_METHOD, 'body'),
+    author: wiringString(source['author'], POSTLAUNCH_REVIEWS_METHOD, 'author'),
+    received_at: wiringNumber(source['received_at'], POSTLAUNCH_REVIEWS_METHOD, 'received_at'),
+  };
+}
+
+/**
+ * Decode the JSON string `handoff.apply` returns into a `HandoffApplySummary`.
+ * `backup_dir` is optional (a dry run, or an apply that overwrote nothing).
+ * Throws an `Error` naming the method and field that did not match.
+ */
+export function parseHandoffApplySummary(json: string): HandoffApplySummary {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(json);
+  } catch {
+    throw new Error(`${WIRING_RESULT_ERROR} from ${HANDOFF_APPLY_METHOD}: not valid JSON`);
+  }
+  const source = wiringObject(decoded, HANDOFF_APPLY_METHOD);
+  const summary: HandoffApplySummary = {
+    applied: wiringStringList(source['applied'], HANDOFF_APPLY_METHOD, 'applied'),
+    conflicts: wiringArray(source['conflicts'], HANDOFF_APPLY_METHOD, 'conflicts').map(
+      parseHandoffConflict
+    ),
+    backups: wiringStringList(source['backups'], HANDOFF_APPLY_METHOD, 'backups'),
+    resolved: wiringStringList(source['resolved'], HANDOFF_APPLY_METHOD, 'resolved'),
+  };
+  const backupDir = wiringNullableString(source['backup_dir'], HANDOFF_APPLY_METHOD, 'backup_dir');
+  if (backupDir !== null) summary.backup_dir = backupDir;
+  return summary;
 }
 
 /** Handle returned by `subscribeEvents`; `close()` is idempotent. */
 export interface EventSubscription {
   close(): void;
-}
-
-export interface SubscribeEventsOptions {
+}export interface SubscribeEventsOptions {
   /** Base WebSocket URL of the daemon, e.g. `ws://127.0.0.1:8766`. */
   url: string;
   /** Daemon auth token, sent on the handshake as `warsha.token.<token>`. */

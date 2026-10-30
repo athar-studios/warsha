@@ -7,9 +7,9 @@
 // here. The toggle therefore asks for the selector the owner pointed at, and a
 // postMessage bridge inside the previewed app is what removes the paste step
 // (the wire format is documented in docs/src/live-preview.md).
-import { useState, type FormEvent } from 'react';
 import { t, useDirection, useLocale, type Locale } from '@warsha/i18n';
 import { Button } from '@warsha/ui';
+import { useState, type FormEvent } from 'react';
 
 import { PreviewToolbar, type PreviewStatus } from './PreviewToolbar';
 

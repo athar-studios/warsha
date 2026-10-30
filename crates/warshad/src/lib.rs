@@ -20,6 +20,7 @@ use jsonrpsee::{
 use keyring::Entry;
 use rand::TryRngCore;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -34,7 +35,11 @@ use tracing::{error, info, warn};
 use warsha_backends::BackendFactory;
 use warsha_core::*;
 use warsha_git::GitHubClient;
-use warsha_pipeline::PipelineEngine;
+use warsha_pipeline::{
+    BackendKind, BackendKit, CrashReport, CrashReportStore, HandoffBundle, HandoffManager,
+    InMemoryCrashReportStore, InMemoryStoreReviewStore, PipelineEngine, StoreReview,
+    StoreReviewStore,
+};
 use warsha_providers::{HealthCheck, ProviderRouter};
 use warsha_remote::DeviceRegistry;
 use warsha_store::Store;
@@ -239,6 +244,18 @@ pub struct DaemonState {
     pub github: Option<GitHubClient>,
     pub devices: Arc<DeviceRegistry>,
     pub event_tx: broadcast::Sender<Event>,
+    /// Backend kits per run, in memory for the first wiring batch.
+    ///
+    /// TODO(persistence): back this with `Store` so a restart keeps the schema a
+    /// backend run built; the MCP client that fills it in is not wired yet, so a
+    /// run starts from [`default_backend_kit`].
+    pub backend_kits: Arc<RwLock<HashMap<String, BackendKit>>>,
+    /// Crash reports, in arrival order. Nothing records one yet: the opt-in
+    /// collector is PLAN.md M17's remaining half.
+    pub crash_reports: Arc<RwLock<InMemoryCrashReportStore>>,
+    /// Store reviews, in arrival order. Nothing fetches one yet: the store API
+    /// client is PLAN.md M17's remaining half.
+    pub store_reviews: Arc<RwLock<InMemoryStoreReviewStore>>,
 }
 
 /// JSON-RPC API trait
@@ -334,6 +351,28 @@ pub trait WarshaApi {
 
     #[method(name = "budget.set")]
     async fn set_budget(&self, project_id: ProjectId, cents: u64) -> RpcResult<()>;
+
+    // Backend kit (PLAN.md M19) — first wiring batch
+    #[method(name = "backend.export")]
+    async fn export_backend(&self, run_id: String, output_dir: String) -> RpcResult<String>;
+
+    // Continue on server (PLAN.md M6a) — first wiring batch
+    #[method(name = "handoff.create")]
+    async fn create_handoff(
+        &self,
+        run_id: String,
+        files: Vec<(String, String)>,
+    ) -> RpcResult<String>;
+
+    #[method(name = "handoff.apply")]
+    async fn apply_handoff(&self, path: String, owner_wins: bool) -> RpcResult<String>;
+
+    // Post-launch care (PLAN.md M17) — read halves only
+    #[method(name = "postlaunch.crashes")]
+    async fn list_crash_reports(&self, run_id: String) -> RpcResult<Vec<CrashReport>>;
+
+    #[method(name = "postlaunch.reviews")]
+    async fn list_store_reviews(&self, store: String) -> RpcResult<Vec<StoreReview>>;
 }
 
 /// Health response
@@ -389,6 +428,42 @@ impl WarshaRpc {
         Self {
             state,
             start_time: std::time::Instant::now(),
+        }
+    }
+
+    /// The working tree a handoff bundle is applied to.
+    ///
+    /// The bundle names the run, the run names the project, and the project's
+    /// `repo_path` is where that project's files live. `None` when any link is
+    /// missing (a bundle whose run id is not a ULID, a run the store does not
+    /// have, a project with no repo yet): an apply writes files, so the caller
+    /// refuses instead of writing into the daemon's own bundle directory.
+    async fn working_tree_for_run(&self, run_id: &str) -> Option<PathBuf> {
+        let id = run_id.parse::<ulid::Ulid>().ok()?;
+        let run = self.state.store.get_run(RunId(id)).await.ok()?;
+        let project = self.state.store.get_project(run.project_id).await.ok()?;
+        project.repo_path.map(PathBuf::from)
+    }
+
+    /// The name of the project behind a run, for a backend export.
+    ///
+    /// The kit names the project the export belongs to, so `backend.export`
+    /// resolves RunId → Run → Project and falls back to the run id when a link is
+    /// missing, which keeps an export of an unregistered run working.
+    async fn project_name_for_run(&self, run_id: &str) -> String {
+        let Ok(id) = run_id.parse::<ulid::Ulid>() else {
+            return run_id.to_string();
+        };
+        let Ok(run) = self.state.store.get_run(RunId(id)).await else {
+            return run_id.to_string();
+        };
+        let Ok(project) = self.state.store.get_project(run.project_id).await else {
+            return run_id.to_string();
+        };
+        if project.name.trim().is_empty() {
+            run_id.to_string()
+        } else {
+            project.name
         }
     }
 }
@@ -612,6 +687,122 @@ impl WarshaApiServer for WarshaRpc {
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
     }
+
+    // Backend kit (PLAN.md M19)
+    async fn export_backend(&self, run_id: String, output_dir: String) -> RpcResult<String> {
+        // The kit is created here on first use: no RPC adds tables yet, so an
+        // export is the header plus whatever an in-process caller put in the map.
+        // It is built from the run's project, so the dump, the storage archive
+        // stem and the header all name the project rather than the run.
+        let project_name = self.project_name_for_run(&run_id).await;
+        let kit = self
+            .state
+            .backend_kits
+            .write()
+            .await
+            .entry(run_id.clone())
+            .or_insert_with(|| default_backend_kit(&project_name))
+            .clone();
+
+        kit.export_to_dir(&output_dir)
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+    }
+
+    // Continue on server (PLAN.md M6a)
+    async fn create_handoff(
+        &self,
+        run_id: String,
+        files: Vec<(String, String)>,
+    ) -> RpcResult<String> {
+        let manager = HandoffManager::new();
+        let captured: Vec<(&str, &str)> = files
+            .iter()
+            .map(|(path, content)| (path.as_str(), content.as_str()))
+            .collect();
+        let bundle = manager.create_bundle(&run_id, &captured);
+
+        // Bundles live under the daemon's data directory, next to the store.
+        let dir = self.state.config.data_dir.join(HANDOFF_DIR);
+        let dir = dir.to_string_lossy().into_owned();
+        manager
+            .write_bundle(&bundle, &dir)
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+    }
+
+    async fn apply_handoff(&self, path: String, owner_wins: bool) -> RpcResult<String> {
+        let encoded = std::fs::read_to_string(&path).map_err(|e| {
+            ErrorObject::owned(-32000, format!("could not read `{path}`: {e}"), None::<()>)
+        })?;
+        let bundle: HandoffBundle = serde_json::from_str(&encoded).map_err(|e| {
+            ErrorObject::owned(
+                -32000,
+                format!("`{path}` is not a handoff bundle: {e}"),
+                None::<()>,
+            )
+        })?;
+
+        // RunId → Run → Project.repo_path is the tree the bundle is written into.
+        let root = self
+            .working_tree_for_run(&bundle.run_id)
+            .await
+            .ok_or_else(|| {
+                ErrorObject::owned(
+                    -32000,
+                    format!("run `{}` has no project repo to apply into", bundle.run_id),
+                    None::<()>,
+                )
+            })?;
+
+        // The apply copies every file it overwrites into
+        // `{working_tree}/.warsha-backup/{timestamp}/` and then writes the files,
+        // so the returned summary names the conflicts and that backup directory.
+        let result = HandoffManager::new()
+            .apply_to_disk(&bundle, &root.to_string_lossy(), owner_wins)
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+
+        serde_json::to_string(&result)
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+    }
+
+    // Post-launch care (PLAN.md M17)
+    async fn list_crash_reports(&self, run_id: String) -> RpcResult<Vec<CrashReport>> {
+        let reports = self.state.crash_reports.read().await.list();
+        let wanted = run_id.trim();
+        // A blank run id asks for every report, which is what the crash screen
+        // shows before a run is selected.
+        Ok(if wanted.is_empty() {
+            reports
+        } else {
+            reports
+                .into_iter()
+                .filter(|report| report.run_id == wanted)
+                .collect()
+        })
+    }
+
+    async fn list_store_reviews(&self, store: String) -> RpcResult<Vec<StoreReview>> {
+        let reviews = self.state.store_reviews.read().await;
+        let wanted = store.trim();
+        Ok(if wanted.is_empty() {
+            reviews.list()
+        } else {
+            reviews.list_by_store(wanted)
+        })
+    }
+}
+
+/// Directory under the daemon's data directory that holds handoff bundles.
+const HANDOFF_DIR: &str = "handoff";
+
+/// The local PocketBase address PLAN.md M19 documents for a generated project.
+const LOCAL_POCKETBASE_URL: &str = "http://127.0.0.1:8090";
+
+/// The backend kit a run starts from until the MCP layer fills one in.
+///
+/// PocketBase is the PLAN's preferred backend, and the project name is what the
+/// export header and the storage archive stem are made of.
+fn default_backend_kit(project_name: &str) -> BackendKit {
+    BackendKit::from_project(project_name, LOCAL_POCKETBASE_URL, BackendKind::PocketBase)
 }
 
 /// HTTP server for REST API and WebSocket
@@ -674,6 +865,9 @@ pub async fn start_daemon(config: DaemonConfig) -> Result<DaemonHandle> {
         github,
         devices,
         event_tx,
+        backend_kits: Arc::new(RwLock::new(HashMap::new())),
+        crash_reports: Arc::new(RwLock::new(InMemoryCrashReportStore::new())),
+        store_reviews: Arc::new(RwLock::new(InMemoryStoreReviewStore::new())),
     });
 
     // Start JSON-RPC server (TCP for cross-platform compatibility)
@@ -970,6 +1164,19 @@ async fn handle_events_socket(
 mod tests {
     use super::*;
 
+    #[test]
+    fn the_default_backend_kit_comes_from_the_run_project() {
+        let kit = default_backend_kit("Shop");
+
+        assert_eq!(kit.config.kind, BackendKind::PocketBase);
+        assert_eq!(kit.config.url, LOCAL_POCKETBASE_URL);
+        // The project name, not the run id, names the export and its archive.
+        assert_eq!(kit.config.project_name, "Shop");
+        assert!(kit.config.enabled_features.is_empty());
+        assert!(kit.is_empty());
+        assert!(kit.export().sql_dump.contains("-- project: Shop"));
+    }
+
     #[tokio::test]
     async fn test_config_generation() {
         let temp_dir = tempfile::tempdir().unwrap();
@@ -987,5 +1194,180 @@ mod tests {
         let loaded: DaemonConfig =
             toml::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
         assert_eq!(loaded.auth_token, "test-token");
+    }
+
+    /// A daemon state over a temporary store, plus the store so a test can write
+    /// the project and run the RPC reads.
+    async fn test_state(data_dir: &Path) -> (Arc<DaemonState>, Arc<Store>) {
+        std::fs::create_dir_all(data_dir).expect("the data directory is made");
+        let config = DaemonConfig {
+            data_dir: data_dir.to_path_buf(),
+            auth_token: "test-token".to_string(),
+            ..Default::default()
+        };
+        let store = Arc::new(
+            Store::open_at(data_dir.join("warsha.db"))
+                .await
+                .expect("the store opens"),
+        );
+        let providers = Arc::new(RwLock::new(ProviderRouter::new()));
+        let pipeline = Arc::new(PipelineEngine::new(store.clone(), providers.clone()));
+        let identity = warsha_remote::DeviceIdentity::generate("test daemon".to_string())
+            .expect("a device identity");
+        let (event_tx, _) = broadcast::channel::<Event>(16);
+
+        let state = Arc::new(DaemonState {
+            config,
+            store: store.clone(),
+            providers,
+            pipeline,
+            backends: BackendFactory::all_available(),
+            github: None,
+            devices: Arc::new(DeviceRegistry::new(identity)),
+            event_tx,
+            backend_kits: Arc::new(RwLock::new(HashMap::new())),
+            crash_reports: Arc::new(RwLock::new(InMemoryCrashReportStore::new())),
+            store_reviews: Arc::new(RwLock::new(InMemoryStoreReviewStore::new())),
+        });
+        (state, store)
+    }
+
+    /// Store a project and a run in it, returning the run.
+    async fn stored_run(store: &Store, name: &str, repo_path: Option<&Path>) -> Run {
+        let project = Project {
+            id: ProjectId::new(),
+            name: name.to_string(),
+            description: format!("{name} description"),
+            language: "en".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            repo_path: repo_path.map(|path| path.to_string_lossy().into_owned()),
+            repo_url: None,
+        };
+        store
+            .create_project(&project)
+            .await
+            .expect("the project is stored");
+
+        let run = Run {
+            id: RunId::new(),
+            project_id: project.id,
+            current_stage: Stage::Idea,
+            gate_states: HashMap::new(),
+            artifacts: HashMap::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            status: RunStatus::Running,
+            budget_cents: None,
+            spent_cents: 0,
+        };
+        store.create_run(&run).await.expect("the run is stored");
+        run
+    }
+
+    #[tokio::test]
+    async fn apply_handoff_writes_the_files_and_reports_the_conflict_and_backup() {
+        use warsha_pipeline::ApplyResult;
+
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let working_tree = temp.path().join("repo");
+        std::fs::create_dir_all(working_tree.join("src")).expect("the working tree is made");
+        std::fs::write(working_tree.join("src/lib.rs"), "local edit\n")
+            .expect("the local file is written");
+
+        let (state, store) = test_state(&temp.path().join("data")).await;
+        let run = stored_run(&store, "Shop", Some(&working_tree)).await;
+
+        // The bundle the remote run sends back, written where handoff.create puts
+        // it: the same directory shape, one JSON file per run.
+        let bundle = HandoffManager::new().create_bundle(
+            &run.id.0.to_string(),
+            &[("src/lib.rs", "remote\n"), ("src/new.rs", "new\n")],
+        );
+        let handoff_dir = temp.path().join("handoff");
+        let path = HandoffManager::new()
+            .write_bundle(&bundle, &handoff_dir.to_string_lossy())
+            .expect("the bundle is written");
+
+        let rpc = WarshaRpc::new(state);
+        let summary = rpc
+            .apply_handoff(path, false)
+            .await
+            .expect("a bundle with a project repo is applied");
+        let result: ApplyResult = serde_json::from_str(&summary).expect("the summary is a result");
+
+        // Remote wins: the conflict is overwritten and still on record.
+        assert_eq!(result.applied, vec!["src/lib.rs", "src/new.rs"]);
+        assert_eq!(result.conflicts.len(), 1);
+        assert_eq!(result.conflicts[0].path, "src/lib.rs");
+        assert!(result.requires_gate());
+        // The file the two sides agreed nothing about is a plain write.
+        assert_eq!(
+            std::fs::read_to_string(working_tree.join("src/new.rs")).expect("the new file"),
+            "new\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(working_tree.join("src/lib.rs")).expect("the overwritten file"),
+            "remote\n"
+        );
+
+        // The summary names the backup directory, and the local edit is in it.
+        let backup_dir = result
+            .backup_dir
+            .as_deref()
+            .expect("the summary names the backup directory");
+        assert!(Path::new(backup_dir).starts_with(working_tree.join(".warsha-backup")));
+        assert_eq!(
+            std::fs::read_to_string(Path::new(backup_dir).join("src/lib.rs"))
+                .expect("the backup is readable"),
+            "local edit\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn apply_handoff_refuses_a_run_with_no_project_repo() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, store) = test_state(temp.path()).await;
+        let run = stored_run(&store, "Shop", None).await;
+
+        let bundle = HandoffManager::new().create_bundle(&run.id.0.to_string(), &[("a.rs", "a\n")]);
+        let handoff_dir = temp.path().join("handoff");
+        let path = HandoffManager::new()
+            .write_bundle(&bundle, &handoff_dir.to_string_lossy())
+            .expect("the bundle is written");
+
+        let error = WarshaRpc::new(state)
+            .apply_handoff(path, true)
+            .await
+            .expect_err("an apply needs a working tree to write into");
+        let message = format!("{error:?}");
+        assert!(
+            message.contains("has no project repo"),
+            "unexpected error: {message}"
+        );
+        // Nothing was written next to the daemon's own bundle file.
+        assert!(!handoff_dir.join("a.rs").exists());
+    }
+
+    #[tokio::test]
+    async fn export_backend_names_the_dump_after_the_run_project() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, store) = test_state(&temp.path().join("data")).await;
+        let run = stored_run(&store, "Shop", None).await;
+
+        let output_dir = temp.path().join("export");
+        let path = WarshaRpc::new(state)
+            .export_backend(
+                run.id.0.to_string(),
+                output_dir.to_string_lossy().into_owned(),
+            )
+            .await
+            .expect("the export is written");
+
+        assert_eq!(Path::new(&path), output_dir.join("schema.sql").as_path());
+        let dump = std::fs::read_to_string(&path).expect("schema.sql is readable");
+        // The project, not the run id, names the dump.
+        assert!(dump.contains("-- project: Shop"), "unexpected dump: {dump}");
+        assert!(dump.contains("-- backend: PocketBase"));
     }
 }

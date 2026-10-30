@@ -22,11 +22,18 @@
 //! agent drives the backend through the backend's own MCP server (PLAN.md M19),
 //! and this module is the state that server's calls are recorded against, so a
 //! later `warshad` RPC has one place to read the schema from. Nothing in this
-//! file opens a socket, and [`BackendKit::export`] writes nothing to disk — it
-//! returns the bundle for the caller to store.
+//! file opens a socket. [`BackendKit::export`] stays in memory and returns the
+//! bundle; [`BackendKit::export_to_dir`] is the only writer, and it writes one
+//! `schema.sql` file — packing the storage archive is still the caller's job.
+
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+/// The file [`BackendKit::export_to_dir`] writes the dump to, inside the
+/// directory the caller names.
+pub const SCHEMA_FILE_NAME: &str = "schema.sql";
 
 /// Errors raised by the backend kit.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -71,6 +78,17 @@ pub enum BackendKitError {
     /// A function with that name is already defined.
     #[error("function `{0}` already exists")]
     DuplicateFunction(String),
+    /// The directory the export has to write to is unusable.
+    #[error("invalid export path: {0}")]
+    InvalidExportPath(String),
+    /// Writing the dump to disk failed.
+    #[error("could not write `{path}`: {message}")]
+    Io {
+        /// The path the export tried to write.
+        path: String,
+        /// The operating system's message.
+        message: String,
+    },
     /// Payments cannot be enabled without a named owner.
     #[error("payments need an explicit owner approval")]
     ApprovalRequired,
@@ -473,6 +491,16 @@ impl BackendKit {
         }
     }
 
+    /// The kit a project starts from: the backend it picked, where it answers and
+    /// its name, with the default config — no service enabled and no schema yet.
+    ///
+    /// The blank project name and URL are the caller's to avoid; this layer
+    /// records what it is given, so a daemon that has a run but not its project
+    /// name yet still gets a kit rather than an error.
+    pub fn from_project(project_name: &str, url: &str, kind: BackendKind) -> Self {
+        Self::new(BackendConfig::new(kind, url, project_name))
+    }
+
     /// The config this kit was built from.
     pub fn config(&self) -> &BackendConfig {
         &self.config
@@ -663,6 +691,32 @@ impl BackendKit {
         }
     }
 
+    /// Write the standard export to `{dir}/schema.sql` and return that path.
+    ///
+    /// This is the on-disk form of [`BackendKit::export`]: the same dump, one
+    /// file, `<dir>` created when it does not exist. Only the SQL is written —
+    /// [`ExportBundle::storage_archive_path`] still names an archive the caller
+    /// has to pack, because this crate has no archive writer.
+    pub fn export_to_dir(&self, dir: &str) -> Result<String, BackendKitError> {
+        if dir.trim().is_empty() {
+            return Err(BackendKitError::InvalidExportPath(dir.to_string()));
+        }
+
+        let path = Path::new(dir).join(SCHEMA_FILE_NAME);
+        let bundle = self.export();
+
+        std::fs::create_dir_all(dir).map_err(|e| BackendKitError::Io {
+            path: dir.to_string(),
+            message: e.to_string(),
+        })?;
+        std::fs::write(&path, bundle.sql_dump.as_bytes()).map_err(|e| BackendKitError::Io {
+            path: path.to_string_lossy().into_owned(),
+            message: e.to_string(),
+        })?;
+
+        Ok(path.to_string_lossy().into_owned())
+    }
+
     /// The path the storage archive belongs at, or `None` when the project has
     /// no buckets to pack.
     pub fn storage_archive_path(&self) -> Option<String> {
@@ -795,6 +849,40 @@ mod tests {
                 ColumnDef::new("body", "TEXT", true),
             ],
         )
+    }
+
+    #[test]
+    fn from_project_builds_a_valid_empty_kit() {
+        let kit =
+            BackendKit::from_project("Shop", "http://127.0.0.1:8090", BackendKind::PocketBase);
+
+        assert_eq!(kit.config.kind, BackendKind::PocketBase);
+        assert_eq!(kit.config.url, "http://127.0.0.1:8090");
+        assert_eq!(kit.config.project_name, "Shop");
+        // The default config turns no service on and holds no schema.
+        assert!(kit.config.enabled_features.is_empty());
+        assert!(kit.features().is_empty());
+        assert!(kit.is_empty());
+
+        // A kit from a project is usable as-is: it can take a table and export it.
+        let mut kit = kit;
+        kit.add_table(posts()).expect("the kit accepts a table");
+        assert!(!kit.is_empty());
+        assert!(kit.export().has_schema());
+        assert!(kit.export().sql_dump.contains("-- project: Shop"));
+
+        // Supabase is the other kind, and the name reaches the archive stem.
+        let mut supabase =
+            BackendKit::from_project("Shop App", "http://localhost:54321", BackendKind::Supabase);
+        assert_eq!(supabase.config.kind, BackendKind::Supabase);
+        assert!(supabase.storage_archive_path().is_none());
+        supabase
+            .add_storage_bucket("avatars")
+            .expect("the kit accepts a bucket");
+        assert_eq!(
+            supabase.storage_archive_path().as_deref(),
+            Some("shop-app-storage.tar.gz")
+        );
     }
 
     #[test]
@@ -1052,6 +1140,40 @@ mod tests {
             .starts_with("-- Warsha backend kit export\n"));
         assert!(bundle.sql_dump.contains("-- tables: 0"));
         assert!(bundle.sql_dump.contains("-- features: none"));
+    }
+
+    #[test]
+    fn export_to_dir_writes_the_dump_to_schema_sql() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let mut kit = kit();
+        kit.add_table(posts()).expect("table accepted");
+        kit.add_function("digest").expect("function accepted");
+
+        // The target directory does not exist yet: the export creates it.
+        let output_dir = temp.path().join("export");
+        let dir = output_dir.to_string_lossy().into_owned();
+        let path = kit
+            .export_to_dir(&dir)
+            .expect("the dump is written to disk");
+
+        assert_eq!(
+            Path::new(&path),
+            output_dir.join(SCHEMA_FILE_NAME).as_path()
+        );
+        let written = std::fs::read_to_string(&path).expect("schema.sql is readable");
+        assert_eq!(written, kit.export().sql_dump);
+        assert!(written.contains("CREATE TABLE IF NOT EXISTS \"posts\""));
+        assert!(written.contains("-- functions: digest"));
+        // Only the SQL lands on disk; the archive is still the caller's to pack.
+        assert!(!output_dir.join("my-app-storage.tar.gz").exists());
+    }
+
+    #[test]
+    fn export_to_dir_refuses_a_blank_directory() {
+        assert_eq!(
+            kit().export_to_dir("   "),
+            Err(BackendKitError::InvalidExportPath("   ".to_string()))
+        );
     }
 
     #[test]

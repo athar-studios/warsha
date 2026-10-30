@@ -1,7 +1,7 @@
+import { t, useLocale, useDirection } from '@warsha/i18n';
+import { Box, Text, Button, Card } from '@warsha/ui';
 import React from 'react';
 import { Routes, Route } from 'react-router-dom';
-import { Box, Text, Button, Card } from '@warsha/ui';
-import { t, useLocale, useDirection } from '@warsha/i18n';
 
 function Dashboard() {
   const dir = useDirection();
@@ -30,9 +30,9 @@ function Settings() {
   const locale = useLocale();
   return (
     <Box dir={dir} p={4} m={2}>
-      <Text size="xl" weight="bold" dir={dir}>Settings</Text>
+      <Text size="xl" weight="bold" dir={dir}>{t('nav.settings') || 'Settings'}</Text>
       <Text size="md" dir={dir} style={{ marginTop: '8px' }}>
-        Current locale: {locale}
+        {t('settings.current_locale', { locale })}
       </Text>
     </Box>
   );
@@ -47,8 +47,8 @@ function App() {
           {t('app.name')}
         </Text>
         <nav style={{ display: 'flex', gap: '16px' }}>
-          <Button variant="ghost" size="sm" dir={dir}>Dashboard</Button>
-          <Button variant="ghost" size="sm" dir={dir}>Settings</Button>
+          <Button variant="ghost" size="sm" dir={dir}>{t('nav.dashboard') || 'Dashboard'}</Button>
+          <Button variant="ghost" size="sm" dir={dir}>{t('nav.settings') || 'Settings'}</Button>
         </nav>
       </header>
       <main>

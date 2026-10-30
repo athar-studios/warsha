@@ -1,8 +1,8 @@
 // Projects board — Kanban columns = stages
-import React, { useState, useEffect } from 'react';
+import { type ProjectSummary, type RunSummary, type Stage, WarshaClient } from '@warsha/client';
+import { useDirection, useLocale } from '@warsha/i18n';
 import { Box, Text, Button, Card } from '@warsha/ui';
-import { t, useDirection, useLocale } from '@warsha/i18n';
-import { createClient, type ProjectSummary, type RunSummary, type Stage, WarshaClient } from '@warsha/client';
+import React, { useState, useEffect } from 'react';
 
 const STAGE_COLUMNS: { stage: Stage; label: string; isGate: boolean }[] = [
   { stage: 'idea', label: 'Idea', isGate: false },
@@ -40,8 +40,11 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectIdea, setNewProjectIdea] = useState('');
 
+  // `loadData` is declared below and only reads `client`, which is a prop, so an empty dependency
+  // array is the correct "load once on mount" behaviour. Behaviour is unchanged.
   useEffect(() => {
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load-once on mount; client is a stable prop
   }, []);
 
   const loadData = async () => {
@@ -51,7 +54,7 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
       
       const allRuns: RunWithProject[] = [];
       for (const project of projectsData) {
-        const runs = await client.listRuns(project.id as any);
+        const runs = await client.listRuns(project.id);
         allRuns.push(...runs.map(r => ({ ...r, projectName: project.name })));
       }
       
@@ -72,7 +75,7 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
     
     try {
       const project = await client.createProject(newProjectName);
-      await client.startRun(project.id as any, newProjectIdea);
+      await client.startRun(project.id, newProjectIdea);
       setShowNewProject(false);
       setNewProjectName('');
       setNewProjectIdea('');
@@ -177,8 +180,8 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
         <div style={{
           position: 'fixed',
           top: 0,
-          left: 0,
-          right: 0,
+          insetInlineStart: 0,
+          insetInlineEnd: 0,
           bottom: 0,
           backgroundColor: 'rgba(0,0,0,0.5)',
           display: 'flex',

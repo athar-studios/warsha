@@ -4,8 +4,9 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { LocaleProvider } from '@warsha/i18n';
 import { describe, expect, it, vi } from 'vitest';
 
-import { Routines } from './Routines';
 import type { Routine } from '../components/RoutineRow';
+
+import { Routines } from './Routines';
 
 const routines: Routine[] = [
   {

@@ -13,17 +13,22 @@ use warsha_store::Store;
 
 mod agent_workflow;
 mod backend_kit;
+mod build_cache;
 mod evals;
 mod guardrails;
 mod handoff;
+mod llm_cache;
 mod mcp;
 mod observability;
 mod orchestrator;
 mod post_launch;
+mod preferences;
 mod prompts;
 mod provider_setup;
 mod router_quality;
 mod routines;
+mod run_modes;
+mod scale_standards;
 mod scout;
 mod skills;
 mod work_protection;
@@ -39,6 +44,9 @@ pub use crate::backend_kit::{
     BackendKit, BackendKitError, ColumnDef, ExportBundle, PaymentsGate, RlsOperation, RlsPolicy,
     TableDef,
 };
+pub use crate::build_cache::{
+    BuildCache, BuildCacheEntry, BuildCacheKey, BuildCacheStats, InMemoryBuildCache,
+};
 pub use crate::evals::{blocks_change, run_suite, EvalCase, EvalError, EvalOutcome, EvalSuite};
 pub use crate::guardrails::{
     classify_action, mask_secrets, wrap_untrusted, ApprovalRequest, Guardrails, InjectionSignal,
@@ -47,6 +55,9 @@ pub use crate::guardrails::{
 pub use crate::handoff::{
     backup_bundle_name, content_checksum, ApplyOptions, ApplyResult, Conflict, HandoffBundle,
     HandoffError, HandoffFile, HandoffManager, HandoffState,
+};
+pub use crate::llm_cache::{
+    normalize_prompt, InMemoryLlmCache, LlmCache, LlmCacheEntry, LlmCacheKey, LlmCacheStats,
 };
 pub use crate::mcp::{
     McpClient, McpContent, McpError, McpRegistry, McpResource, McpServerConfig, McpTool,
@@ -64,6 +75,10 @@ pub use crate::post_launch::{
     InMemoryStoreReviewStore, PlainLanguageChangeRequest, PostLaunchError, StoreReview,
     StoreReviewStore, SummaryLanguage, MAX_RATING, MIN_RATING,
 };
+pub use crate::preferences::{
+    decay_factor, InMemoryPreferenceStore, Preference, PreferenceError, PreferenceSignal,
+    PreferenceStore, SignalKind, DECAY_HALF_LIFE_SECS, DEFAULT_SIGNAL_WEIGHT,
+};
 pub use crate::provider_setup::{ConnectionTestResult, OneClickProvider, ProviderSetupWizard};
 pub use crate::router_quality::{
     CostEntry, CostSink, EcoMode, EcoModeDecision, LocalFallbackPolicy, ModelTier, PerTaskDefault,
@@ -73,6 +88,11 @@ pub use crate::routines::{
     MockRoutineRunner, Routine, RoutineAction, RoutineError, RoutineId, RoutineRegistry,
     RoutineRunner, RoutineSchedule, RoutineState,
 };
+pub use crate::run_modes::{
+    is_loopback_host, InMemoryPairingStore, PairingStore, PhonePairing, RunMode, RunModeConfig,
+    RunModeError, LOCALHOST, LOOPBACK_HOST, REDACTED_SECRET, WILDCARD_HOST,
+};
+pub use crate::scale_standards::{ScaleCategory, ScaleStandard, ScaleStandards, SCALE_STANDARDS};
 pub use crate::scout::{
     Scout, ScoutConfig, ScoutDependency, ScoutError, ScoutProposal, ScoutResult, ScoutSource,
 };

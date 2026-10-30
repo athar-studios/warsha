@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "baseUrl": "."
+  },
+  "include": [".storybook/**/*"],
+  "exclude": ["node_modules", "storybook-static"]
+}

@@ -15,6 +15,8 @@
 - [Post-launch Care](post-launch-care.md)
 - [Agent Workflow and Context](agent-workflow.md)
 - [Backend Kit](backend-kit.md)
+- [Scale Standards](scale-standards.md)
+- [Run Modes](run-modes.md)
 - [Changelog](changelog.md)
 - [Terms of Service](tos.md)
 - [Architecture](architecture.md)

@@ -1,9 +1,9 @@
 // Advanced Mode — Full workspace (modeled on ZadLoop's workspace)
 // Per-agent lanes, live event stream, diffs, file tree, terminal, kanban, skills/MCP config, costs
-import React, { useState, useEffect } from 'react';
-import { Box, Text, Button, Card } from '@warsha/ui';
+import { type WarshaClient, type ProjectSummary, type WarshaEvent, subscribeEvents } from '@warsha/client';
 import { useLocale, useDirection, t } from '@warsha/i18n';
-import { type WarshaClient, type ProjectSummary, type RunSummary, type WarshaEvent, subscribeEvents } from '@warsha/client';
+import { Box, Text, Button, Card } from '@warsha/ui';
+import React, { useState, useEffect } from 'react';
 
 interface AdvancedModeProps {
   client: WarshaClient;
@@ -52,7 +52,7 @@ export function AdvancedMode({ client, project, onBack }: AdvancedModeProps) {
     let cancelled = false;
     const init = async () => {
       try {
-        const runsData = await client.listRuns(project.id as any);
+        const runsData = await client.listRuns(project.id);
         if (cancelled) return;
         setRunCount(runsData.length);
       } catch (error) {
@@ -152,7 +152,7 @@ export function AdvancedMode({ client, project, onBack }: AdvancedModeProps) {
               <Box dir={dir}>
                 <Text weight="bold" size="lg" dir={dir}>{lane.name}</Text>
                 <Text size="sm" style={{ color: '#6b7280' }} dir={dir}>
-                  Model: {lane.model} • ${(lane.costCents / 100).toFixed(4)}
+                  {t('run.model_label') || 'Model:'} {lane.model} • ${(lane.costCents / 100).toFixed(4)}
                 </Text>
               </Box>
               <Box dir={dir} style={{
@@ -466,7 +466,7 @@ export function AdvancedMode({ client, project, onBack }: AdvancedModeProps) {
               ← {t('common.back') || 'Back'}
             </Button>
           )}
-          <Text size="xl" weight="bold" style={{ color: '#2563eb' }} dir={dir}>Warsha</Text>
+          <Text size="xl" weight="bold" style={{ color: '#2563eb' }} dir={dir}>{t('app.brand') || 'Warsha'}</Text>
           <Text size="sm" style={{ color: '#6b7280' }} dir={dir}>{project.name}</Text>
         </Box>
 

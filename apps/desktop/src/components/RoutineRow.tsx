@@ -49,7 +49,10 @@ const stateLabels: Record<RoutineState, Record<Locale, string>> = {
 /** The accent pill is the same in both themes, so the states read the same. */
 const stateStyles: Record<RoutineState, { backgroundColor: string; color: string }> = {
   idle: { backgroundColor: '#f3f4f6', color: '#4b5563' },
-  running: { backgroundColor: '#FFD60A', color: '#0E0E0E' },
+  running: {
+    backgroundColor: 'var(--warsha-color-accent)',
+    color: 'var(--warsha-color-accent-ink)',
+  },
   paused: { backgroundColor: '#fef3c7', color: '#92400e' },
   failed: { backgroundColor: '#fee2e2', color: '#991b1b' },
 };

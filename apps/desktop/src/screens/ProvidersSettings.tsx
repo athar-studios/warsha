@@ -1,8 +1,8 @@
 // Providers settings — Add/test/remove providers
-import React, { useState, useEffect } from 'react';
-import { Box, Text, Button, Card } from '@warsha/ui';
-import { t, useDirection, useLocale } from '@warsha/i18n';
 import { WarshaClient, type ProviderConfig } from '@warsha/client';
+import { useDirection, useLocale } from '@warsha/i18n';
+import { Box, Text, Button, Card } from '@warsha/ui';
+import React, { useState, useEffect } from 'react';
 
 interface ProvidersSettingsProps {
   client: WarshaClient;
@@ -20,7 +20,7 @@ const PROVIDER_KINDS = [
   { id: 'custom', name: 'Custom OpenAI Compatible', logo: '⚙️' },
 ];
 
-export function ProvidersSettings({ client, onBack }: ProvidersSettingsProps) {
+export function ProvidersSettings({ onBack }: ProvidersSettingsProps) {
   const dir = useDirection();
   const locale = useLocale();
   const [providers, setProviders] = useState<ProviderConfig[]>([]);
@@ -70,7 +70,7 @@ export function ProvidersSettings({ client, onBack }: ProvidersSettingsProps) {
     try {
       // await client.testProvider(name);
       alert(`${locale === 'ar' ? 'الاتصال ناجح' : 'Connection successful'}: ${name}`);
-    } catch (error) {
+    } catch {
       alert(`${locale === 'ar' ? 'فشل الاتصال' : 'Connection failed'}: ${name}`);
     } finally {
       setTesting(null);
@@ -171,8 +171,8 @@ export function ProvidersSettings({ client, onBack }: ProvidersSettingsProps) {
         <div style={{
           position: 'fixed',
           top: 0,
-          left: 0,
-          right: 0,
+          insetInlineStart: 0,
+          insetInlineEnd: 0,
           bottom: 0,
           backgroundColor: 'rgba(0,0,0,0.5)',
           display: 'flex',

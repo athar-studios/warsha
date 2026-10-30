@@ -5,8 +5,9 @@ import { LocaleProvider } from '@warsha/i18n';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { SettingsProviders } from './SettingsProviders';
 import type { ProviderEntry, ProviderMode } from '../components/ProviderRow';
+
+import { SettingsProviders } from './SettingsProviders';
 
 const providers: ProviderEntry[] = [
   { name: 'Claude Code', mode: 'notify', pinnedVersion: '1.2.3', enabled: true },

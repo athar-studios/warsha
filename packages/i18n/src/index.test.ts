@@ -1,6 +1,7 @@
 // @warsha/i18n — Tests
 
 import { describe, it, expect } from 'vitest';
+
 import { formatMessage, t, direction, defaultLocale, supportedLocales, LocaleProvider, useLocale, useDirection, Locale } from './index';
 
 describe('i18n', () => {

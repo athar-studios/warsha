@@ -1,9 +1,12 @@
 // Simple Mode — Chat with bots/agents (modeled on Grok Bot / openbot.run)
 // Left sidebar: bots/agents list, Center: chat, Right: team activity summary
-import React, { useState, useEffect } from 'react';
-import { Box, Text, Button, Card } from '@warsha/ui';
-import { useLocale, useDirection, t } from '@warsha/i18n';
 import { type WarshaClient, type ProjectSummary, type RunSummary, type GateSummary, type WarshaEvent, type Stage, subscribeEvents } from '@warsha/client';
+import { useLocale, useDirection, t, type Locale } from '@warsha/i18n';
+import { Box, Text, Button, Card } from '@warsha/ui';
+import React, { useState, useEffect } from 'react';
+
+import { MentionPicker, type MentionKind } from '../components/MentionPicker';
+import { SlashCommandPicker, type SlashCommandItem } from '../components/SlashCommandPicker';
 
 interface SimpleModeProps {
   client: WarshaClient;
@@ -64,6 +67,74 @@ const ROLE_NAMES: Record<string, { ar: string; en: string }> = {
   Feedback: { ar: 'التغذية الراجعة', en: 'Feedback' },
 };
 
+/** Which autocomplete the composer offers, and what was typed after its marker. */
+export interface ComposerTrigger {
+  kind: 'mention' | 'slash';
+  query: string;
+}
+
+/** The last whitespace-delimited token of the composer's text — the one being typed. */
+function trailingToken(value: string): string {
+  const match = /[^\s]*$/.exec(value);
+  return match === null ? '' : match[0];
+}
+
+/**
+ * The autocomplete the composer should open for `value`, or `null` for "nothing open".
+ *
+ * Only the token the owner is still typing counts: the `@` or `/` has to begin it, and nothing
+ * but letters may follow (a `-` is allowed after a `/`, because command names like `/dry-run`
+ * exist). That keeps `dev@example.com` an address, `@file:src/main.rs` an already-resolved
+ * mention, and a finished `/review ` a plain word — none of them re-open a dropdown.
+ */
+export function composerTriggerFor(value: string): ComposerTrigger | null {
+  const token = trailingToken(value);
+  const mention = /^@([A-Za-z]*)$/.exec(token);
+  if (mention !== null) return { kind: 'mention', query: mention[1] };
+  const slash = /^\/([A-Za-z-]*)$/.exec(token);
+  if (slash !== null) return { kind: 'slash', query: slash[1] };
+  return null;
+}
+
+/**
+ * Replace the token being typed with `insertion` plus a trailing space, so the owner can keep
+ * typing a normal message after picking. Text before that token is untouched.
+ */
+export function insertComposerToken(value: string, insertion: string): string {
+  const token = trailingToken(value);
+  return `${value.slice(0, value.length - token.length)}${insertion} `;
+}
+
+/** One command the Simple mode composer offers, with a one-line description per locale. */
+interface SimpleSlashCommand {
+  name: string;
+  ar: string;
+  en: string;
+}
+
+/**
+ * The commands the composer offers today.
+ *
+ * Skills become slash commands through `SlashCommandRegistry` in the daemon, but no RPC reports
+ * them yet, so this list is the composer's own placeholder. The descriptions carry their own
+ * ar/en strings rather than an i18n catalog entry — the same fallback rule the two pickers use.
+ */
+const SIMPLE_SLASH_COMMANDS: readonly SimpleSlashCommand[] = [
+  { name: '/review', ar: 'راجع التغيير قبل الدمج', en: 'Review the change before merging' },
+  { name: '/refactor', ar: 'أعد الهيكلة دون تغيير السلوك', en: 'Restructure without changing behaviour' },
+  { name: '/test', ar: 'شغّل الاختبارات وأصلح ما يسقط', en: 'Run the tests and fix what fails' },
+  { name: '/docs', ar: 'حدّث فصل التوثيق', en: 'Update the docs chapter' },
+  { name: '/release', ar: 'جهّز مسودة إصدار', en: 'Prepare a draft release' },
+];
+
+/** The catalog in the shape `SlashCommandPicker` takes, in the current locale. */
+export function simpleSlashCommands(locale: Locale): SlashCommandItem[] {
+  return SIMPLE_SLASH_COMMANDS.map((command) => ({
+    name: command.name,
+    description: locale === 'ar' ? command.ar : command.en,
+  }));
+}
+
 export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
   const dir = useDirection();
   const locale = useLocale();
@@ -71,6 +142,10 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
+  // The two composer autocompletes. `null` is "closed"; a string is what was typed after the
+  // marker, which is also what the picker filters on, so visibility and query stay one value.
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [slashQuery, setSlashQuery] = useState<string | null>(null);
   const [pendingGates, setPendingGates] = useState<GateSummary[]>([]);
   const [recentActivity, setRecentActivity] = useState<WarshaEvent[]>([]);
 
@@ -78,7 +153,7 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
   useEffect(() => {
     const initAgents = async () => {
       try {
-        const runs = await client.listRuns(project.id as any);
+        const runs = await client.listRuns(project.id);
         const currentRun = runs[0] as RunSummary | undefined;
 
         const baseAgents: Agent[] = [
@@ -101,7 +176,7 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
 
         // Load gates if a run exists; the live stream is wired in a separate effect.
         if (currentRun) {
-          const gates = await client.getGates(currentRun.id as any);
+          const gates = await client.getGates(currentRun.id);
           setPendingGates(gates.filter((g: GateSummary) => g.state.state === 'pending'));
         }
 
@@ -138,11 +213,34 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
   }, []);
 
   const refreshGates = async () => {
-    const runs = await client.listRuns(project.id as any);
+    const runs = await client.listRuns(project.id);
     const currentRun = runs[0];
     if (!currentRun) return;
-    const gates = await client.getGates(currentRun.id as any);
+    const gates = await client.getGates(currentRun.id);
     setPendingGates(gates.filter((g: GateSummary) => g.state.state === 'pending'));
+  };
+
+  const closePickers = () => {
+    setMentionQuery(null);
+    setSlashQuery(null);
+  };
+
+  /** Keep the composer's text and both pickers in step with one keystroke. */
+  const handleComposerChange = (value: string) => {
+    setInputMessage(value);
+    const trigger = composerTriggerFor(value);
+    setMentionQuery(trigger?.kind === 'mention' ? trigger.query : null);
+    setSlashQuery(trigger?.kind === 'slash' ? trigger.query : null);
+  };
+
+  const pickMention = (kind: MentionKind) => {
+    setInputMessage(current => insertComposerToken(current, `@${kind}`));
+    closePickers();
+  };
+
+  const pickSlashCommand = (name: string) => {
+    setInputMessage(current => insertComposerToken(current, name));
+    closePickers();
   };
 
   const handleSendMessage = async () => {
@@ -158,6 +256,7 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
 
     setMessages(prev => [...prev, userMessage]);
     setInputMessage('');
+    closePickers();
 
     // Mock agent response (in real app, sends to daemon)
     setTimeout(() => {
@@ -176,10 +275,10 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
 
   const handleApproveGate = async (stage: Stage) => {
     try {
-      const runs = await client.listRuns(project.id as any);
+      const runs = await client.listRuns(project.id);
       const currentRun = runs[0];
       if (currentRun) {
-        await client.approveGate(currentRun.id as any, stage);
+        await client.approveGate(currentRun.id, stage);
         await refreshGates();
       }
     } catch (error) {
@@ -189,10 +288,10 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
 
   const handleRejectGate = async (stage: Stage) => {
     try {
-      const runs = await client.listRuns(project.id as any);
+      const runs = await client.listRuns(project.id);
       const currentRun = runs[0];
       if (currentRun) {
-        await client.rejectGate(currentRun.id as any, stage, 'Needs more work');
+        await client.rejectGate(currentRun.id, stage, 'Needs more work');
         await refreshGates();
       }
     } catch (error) {
@@ -391,27 +490,45 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
           backgroundColor: 'white',
           borderTop: '1px solid #e5e7eb',
           display: 'flex',
+          flexDirection: 'column',
           gap: '8px',
         }}>
-          <input
-            type="text"
-            value={inputMessage}
-            onChange={(e) => setInputMessage(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-            placeholder={locale === 'ar' ? 'اكتب رسالتك...' : 'Type your message...'}
-            dir={dir}
-            style={{
-              flex: 1,
-              padding: '10px 16px',
-              borderRadius: '8px',
-              border: '1px solid #d1d5db',
-              fontSize: '14px',
-              outline: 'none',
-            }}
-          />
-          <Button variant="primary" dir={dir} onClick={handleSendMessage}>
-            {t('common.send') || 'Send'} →
-          </Button>
+          <div dir={dir} style={{ display: 'flex', gap: '8px' }}>
+            <input
+              type="text"
+              value={inputMessage}
+              onChange={(e) => handleComposerChange(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+              placeholder={locale === 'ar' ? 'اكتب رسالتك...' : 'Type your message...'}
+              dir={dir}
+              data-testid="simple-composer-input"
+              style={{
+                flex: 1,
+                padding: '10px 16px',
+                borderRadius: '8px',
+                border: '1px solid #d1d5db',
+                fontSize: '14px',
+                outline: 'none',
+              }}
+            />
+            <Button variant="primary" dir={dir} onClick={handleSendMessage}>
+              {t('common.send') || 'Send'} →
+            </Button>
+          </div>
+
+          {/* The two autocompletes open under the field, in the composer's own column, so a long
+              list pushes the composer up instead of covering the message being typed. Each one
+              takes the filtered query and hands back what to insert. */}
+          {mentionQuery !== null && (
+            <MentionPicker query={mentionQuery} onSelect={pickMention} />
+          )}
+          {slashQuery !== null && (
+            <SlashCommandPicker
+              commands={simpleSlashCommands(locale)}
+              query={slashQuery}
+              onSelect={pickSlashCommand}
+            />
+          )}
         </Box>
       </Box>
 

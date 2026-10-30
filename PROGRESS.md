@@ -1293,6 +1293,807 @@ changes. `crates/warsha-pipeline/src/lib.rs` already carried one of those change
 added `mod backend_kit;` and the `pub use` block above the existing lines (the one line the bridge's
 `rustfmt` re-wrapped).
 
+#### M20 (first batch) – Architecture boundaries + `pnpm lint` ✅ DONE (validated 2026-10-30T14:53:15, exit=0, all 20 checks green — the 18 previous + `pnpm lint` + `node scripts/check-arch.mjs`)
+
+Two independent deliverables. Nothing under `crates/**/src/**` was edited; no component behaviour was
+changed.
+
+**A. Architecture docs + CI-enforced boundaries**
+- `docs/ARCHITECTURE.md` — the workspace as declared on disk (10 crates, 7 pnpm packages). Read from
+  `Cargo.toml`, every `crates/*/Cargo.toml`, `packages/*/package.json` and `apps/*/package.json`:
+  the per-crate dependency table, the per-crate and per-package module map, the declared direction,
+  the intended direction, a rationale for every significant edge, the edges that must never exist,
+  and a §5 census of the places where declared ≠ intended.
+- `docs/ARCH_RULES.md` — five rules with stable ids (`R1 core-is-leaf`, `R2
+  no-daemon-under-pipeline`, `R3 no-upward-edges`, `R4 no-private-module-reach`, `R5
+  ui-through-client`), each with what it forbids, why, and the exact `<RULE-ID>: <file>:<line>
+  <offence>` format; plus the self-test contract and the out-of-scope list.
+- `scripts/check-arch.mjs` — Node ESM, zero dependencies (it runs before `pnpm install` in some
+  environments). Parses `[dependencies]`, `[dev-dependencies]`, `[build-dependencies]`,
+  `[target.'cfg(…)'…]` and the `[dependencies.foo]` sub-table form; reads each crate's private `mod`
+  list and `pub use` set for R4; strips comments before scanning for R5 so a `fetch(` in prose is not
+  a call. `--root <dir>` checks another tree; `--self-test` builds two fixtures in the OS temp dir.
+- Wiring: `pnpm arch` in the root `package.json`; an "Architecture boundaries" step in
+  `.github/workflows/ci.yml` after Typecheck, before Test, running `--self-test` then the real check;
+  `run_soft "node scripts/check-arch.mjs"` in `scripts/wsl-setup.sh` after the typecheck line.
+
+Proof the check has teeth, from the actual runs:
+`arch: 5 rules, 0 violations`, and
+
+```text
+self-test R1 core-is-leaf: detected path dependency warsha-store
+self-test R2 no-daemon-under-pipeline: detected dependency warshad
+self-test R3 no-upward-edges: detected dependency warsha-pipeline (tier 3 is above warsha-store tier 1)
+self-test R4 no-private-module-reach: detected path warsha_pipeline::handoff (private module)
+self-test R5 ui-through-client: detected fetch( (call daemon through @warsha/client)
+self-test clean fixture: 0 violations
+```
+
+A clean pass is not proof by itself, so the parser was exercised directly: it reads 7 in-repo path
+edges from `crates/warshad/Cargo.toml`, 3 from `warsha-pipeline`, 16 private modules and 158
+re-exported names from `crates/warsha-pipeline/src/lib.rs`. The clean fixture mirrors the real tree, so
+it also proves R3 and R4 do not fire on the layout we actually ship.
+
+**B. `pnpm lint` green repo-wide (ESLint 9 flat config)**
+- `eslint.config.js` (root, CommonJS — the root `package.json` has no `"type": "module"`). Carries
+  every preset `.eslintrc.cjs` extended except one: `eslint:recommended`,
+  `@typescript-eslint/recommended`, `@typescript-eslint/eslint-recommended`, `react/recommended`,
+  `react/jsx-runtime`, `react-hooks/recommended`, `import/recommended`, `import/typescript`,
+  `prettier`, plus `no-explicit-any: error`, `no-unused-vars` with `argsIgnorePattern: ^_` and
+  `import/order`, all verbatim. Verified against the resolved config (`eslint --print-config`): 94
+  rules enabled, `react/react-in-jsx-scope: 0`, `react-hooks/rules-of-hooks: 2`,
+  `no-explicit-any: 2`, `import/order` with the original options object.
+- The one deferred preset and why: see DECISIONS.md 2026-10-31 — `recommended-type-checked` would turn
+  ~280 existing lines red and every fix is a component-logic change the brief excludes. Recorded as a
+  PLAN.md follow-up rather than dropped silently.
+- Import resolver: the bundled Node resolver with TS extensions, which is what the old
+  `{ typescript: true, node: true }` degraded to once the TypeScript resolver module proved absent.
+  No dependency added.
+- New rules, and what they found: `as any` — 13 real sites, all removed (the casts were redundant
+  because `ProjectSummary.id`/`RunSummary.id` are already branded `ProjectId`/`RunId`); hardcoded UI
+  strings — 11 sites, all moved to the catalog or the established `locale === 'ar' ? … : …` fallback
+  (8 new keys added to both the ar and en catalogs, including `app.brand` so the brand is
+  translatable); physical CSS — 12 sites, all converted (`left`/`right` → `insetInlineStart`/
+  `insetInlineEnd` ×8, `borderLeft`/`borderRight` → `borderInlineStart`/`borderInlineEnd` ×3,
+  `marginLeft` → `marginInlineStart`).
+- `.eslintrc.cjs` deleted **after** the new config was green.
+- Narrow opt-outs: exactly 3, all `// eslint-disable-next-line <rule> -- <reason>` with the reason on
+  the line: `ProjectsBoard.tsx:47` and `RunView.tsx:45` (`exhaustive-deps` where adding the listed
+  loader would change effect timing — behaviour the brief excludes), and `App.tsx:159`
+  (`no-unused-vars` on `handleCreateProject`, an unwired handler kept for the M20 wiring follow-up).
+
+What the bridge showed: `pnpm lint` → `Scope: 7 of 8 workspace projects`, all seven `Done`,
+`0 errors, 1 warning` (a pre-existing `react-hooks/exhaustive-deps` warning in `RunView.tsx`, present
+at HEAD). `pnpm -r test` → desktop `Test Files 20 passed (20)`, `Tests 137 passed (137)`; remote
+`4 passed (4)`; unchanged from the previous run, so the i18n and cast changes kept rendered output
+identical.
+
+Not done (outside this brief): `ARCH_AUDIT.md`; the type-checked ESLint preset; wiring
+`handleCreateProject`; and the rest of M20 (tokens/Storybook, taste store, caches, scale standards,
+run modes).
+
+Pre-existing, not touched: `mdbook` on Windows dies with `0xC0000005`, so docs are built in WSL
+0.5.4; `apps/desktop/src/App.tsx` prints the `act(...)` warning its own test already produced at HEAD.
+
+Incident to record: a bulk find/replace script of mine (not a repo file) mis-substituted `b`→`o`
+across `GatesInbox.tsx` and `ArtifactViewer.tsx`. Both were restored from HEAD — they had no prior
+uncommitted changes — and the intended logical-property edit was reapplied with the editor. Every
+other touched file's diff was re-read afterwards and contains only its intended change.
+
+#### M20 – ARCH_AUDIT (`ARCH_AUDIT.md`) ✅ DONE (documentation only, 2026-10-30)
+
+Closes the `ARCH_AUDIT.md` item the first-batch note above lists as not done. No source file,
+manifest or workflow was edited; the new file plus this note and one PLAN.md sub-item are the whole
+change.
+
+What was audited, by name and line count: **107 files** — 34 `crates/*/src/**/*.rs`, 1 Rust
+integration test (`crates/warshad/tests/m1_daemon.rs`), 56 desktop + 3 remote + 10 shared-package
+TS/TSX files, and the three governance files (`scripts/check-arch.mjs`, `eslint.config.js`,
+`.github/workflows/ci.yml`). The ten `crates/*/Cargo.toml` manifests get their own rows because
+R1–R3 are manifest rules. Every file has a row with its path, line count, the rules checked, the
+violation count, the action and a note; nothing is summarised away.
+
+What was run (`pnpm` off the host PATH, so the bundled pnpm 9.0.0 through a shim):
+
+```text
+node scripts/check-arch.mjs              -> arch: 5 rules, 0 violations                (exit 0)
+node scripts/check-arch.mjs --self-test  -> 5 rules fire, clean fixture is clean       (exit 0)
+pnpm lint                                -> Scope: 7 of 8 workspace projects, all Done,
+                                            0 errors, 1 warning                        (exit 0)
+```
+
+The one warning is the pre-existing `RunView.tsx:59:23 react-hooks/exhaustive-deps`. Not re-run here
+and named as such in the audit: `cargo fmt`, `cargo clippy`, `cargo test`, `pnpm typecheck`,
+`pnpm -r test`, `actionlint`.
+
+Findings, all recorded in the file rather than fixed:
+
+- **0 architecture violations.** 22 in-repo `path` edges, all in `[dependencies]` (none in
+  `[dev-dependencies]`); R1 (core is a leaf) and R2 (no daemon/CLI/relay/backends under the pipeline)
+  hold; R3 holds with two same-tier edges (`warsha-backends → warsha-pipeline`,
+  `warsha-cli → warshad`); 32 cross-crate `warsha_*::<segment>` paths exist and every one names a
+  re-exported type, so R4 has no private-module reach to report. R5 is clean across all 56 app files:
+  no `crates/` import, no `fetch(`, no `new WebSocket(`.
+- **The two crates with private modules** are `warsha-pipeline` (16) and `warsha-providers` (5);
+  `prompts` is the one pipeline module with no `pub use` block (internal-only, used from `lib.rs`).
+- **3 lint opt-outs**, unchanged: `App.tsx:159` (`no-unused-vars`), `ProjectsBoard.tsx:47` and
+  `RunView.tsx:45` (`exhaustive-deps`).
+- **Two things worth knowing that no rule fires on**: `eslint-plugin-jsx-a11y` is registered with
+  zero rules enabled (no a11y lint runs, same as HEAD), and `App.tsx` imports `@tauri-apps/api/core`
+  directly (Tauri IPC, not a daemon call).
+- **The type-checked preset and the R3 ring order** are documented in the audit as the two deliberate
+  deviations they are, with their DECISIONS.md entries cited.
+
+Checks after the write: every table row is well-formed, all 117 expected rows are present exactly
+once with line counts that match the files on disk (validated by a throwaway script outside the repo),
+and `pnpm lint` / `check-arch.mjs` were re-run afterwards with the same result.
+
+
+#### M20 (second batch) – First UI wiring batch: App shell + run view ✅ DONE (validated 2026-10-31, desktop 144 tests, `tsc`/`eslint`/`vite build`/`check-arch.mjs`/`actionlint` green on the Windows host; no bridge run for this batch)
+
+Mounting only: no component was edited, no behaviour or logic was added, no dependency, no
+`package.json`/lockfile change, no `.github/workflows/**` change, no i18n catalog entry. The three
+files in scope are `apps/desktop/src/App.tsx`, `apps/desktop/src/screens/RunView.tsx` and
+`apps/desktop/src/App.test.tsx`.
+
+| Deliverable | Path | What landed |
+|---|---|---|
+| App shell mounts | `apps/desktop/src/App.tsx` | `PlanModeBadge` in the top bar next to the Simple/Advanced toggle (with `agentMode` state seeded `plan`); a Settings tab strip (`role="tablist"`, `data-testid="settings-tab-<screen>"`) over `settings` / `settings-providers` / `routines` / `crash-reports` / `store-reviews` / `backend-kit`; `Routines`, `SettingsProviders` + `ProviderSetupWizard`, `CrashReports`, `StoreReviews` and `BackendKitPanel` mounted behind it with empty lists and local state; `StatusStrip` + `PermissionModeChip` verified in place |
+| Run-view mounts | `apps/desktop/src/screens/RunView.tsx` | Four tabs (`run-tab-stream` / `-preview` / `-handoff` / `-router`) plus a `handoff-open` button in the header; `LivePreview` on the preview tab; `HandoffDialog` (mounted once, `data-phase="idle"`) and `ReviewApplyPanel` (empty `files`, `backupName=""`) on the handoff tab; `EcoModeToggle` + `LocalCloudBadge` rows on the router & cost tab with an empty-target line |
+| Mount tests | `apps/desktop/src/App.test.tsx` | 7 new tests (8 in the file): top bar (status strip, permission chip, plan badge), the badge flip to `agent`, every settings tab including the wizard and the shut payments gate, preview idle → running, handoff dialog open/close, review & apply empty state with both apply buttons disabled, eco toggle flip + the empty target line |
+
+Checks actually run (this Windows host, `pnpm` is not on the PATH, so the repo's own
+`node_modules/.bin` equivalents were used):
+
+| Check | Result |
+|---|---|
+| `tsc --noEmit -p apps/desktop` | PASS — exit 0, TS strict, no `any` added |
+| `vitest run` (each package from its own directory, the way `pnpm -r test` runs it) | PASS — desktop 20 files / 144 tests (was 20 / 137), client 32, i18n 12, crypto 22, ui 8, remote 4: 222 TS tests |
+| `eslint src` (apps/desktop) | PASS — 0 errors, 1 warning: the pre-existing `RunView.tsx react-hooks/exhaustive-deps`, present at HEAD |
+| `vite build` (apps/desktop) | PASS — exit 0, 87 modules, bundle written |
+| `node scripts/check-arch.mjs --self-test` + `node scripts/check-arch.mjs` | PASS — 5 rules fire on the fixtures, `arch: 5 rules, 0 violations` |
+| `actionlint .github/workflows/ci.yml` (WSL Ubuntu) | PASS — exit 0, no workflow file touched |
+| `cargo fmt`/`clippy`/`test`, `pnpm install`/`-r typecheck`/`-r build`/`-r test`, `mdbook` | Not run — no Rust, manifest, lockfile or docs source changed in this batch; the bridge runs the full 18-check set |
+
+Not wired, and recorded rather than claimed:
+
+- **`MentionPicker` + `SlashCommandPicker` in the composer.** The composer is in
+  `apps/desktop/src/screens/SimpleMode.tsx`, which is outside this batch's allowed files. Both
+  components and their tests exist; only the mount is missing, and `PLAN.md` M20 keeps it open.
+- **Data behind the lists.** `warshad` exposes no `routines.*`, provider-listing, `post_launch.*` or
+  `backend_kit.*` RPC, so routines, providers, crash reports, store reviews, router targets and
+  backend tables all start empty. Every handler (`handleRoutineRun/Pause/Resume`,
+  `handleBackendExport`, `handlePreviewRun/Stop`, `handleHandOff`, `handleApplyChanges`) is a
+  `TODO(M20 wiring)` seam that only touches local state, and `ProviderSetupWizard`'s `onSave` is
+  not passed at all.
+- **`handleProviderToggle/Mode/Pin` do edit local state** (that is the toggle's own contract), but
+  nothing persists them: there is no settings RPC.
+- **Eco mode / router targets** are shown in the run view's router tab. `AdvancedMode.tsx`'s costs
+  tab is untouched (out of scope), so the badges do not appear there yet.
+
+Decisions:
+
+- **The settings sub-screens share one tab strip instead of new top-bar buttons.** `SettingsScreen`
+  takes no route prop and is out of scope, so the strip is rendered by `App.tsx` above whichever
+  settings screen is active; each screen stays a dead end otherwise.
+- **`settingsTabLabel` uses the repo's `localized()` rule, not `t(key) || fallback`.** `t` returns the
+  key itself for a missing message, so the `||` form renders `settings.routines` as a label; the
+  `localized` helper (same one M8b/M14a/M17 use) checks `translated === key` and falls back to the
+  local text.
+- **The plan badge flips shell state and nothing else.** `PlanModeBadge` documents that the badge
+  asks and the caller grants; the owner-approval card is the gates inbox's job, and the shell only
+  records the requested mode.
+- **`data-testid`s were added to the two tab strips, the top-bar Settings button and the run view's
+  "Hand off" button.** They are test hooks on `Button`/`div`, no text or behaviour change; the tab
+  labels themselves still come from the catalog-or-fallback rule, so the tests do not depend on
+  copy.
+- **The run view's stream + artifacts pane is unchanged** inside `{tab === 'stream' && …}`; the
+  existing 100-line block was not re-indented, to keep the diff to the mounts.
+- **Test doubles stay offline.** `@tauri-apps/api/core` is mocked for `get_config`, and the
+  `@warsha/client` factory is wrapped so `listProjects`/`listRuns` resolve `[]`; no test opens a
+  socket.
+
+Pre-existing, not touched: `apps/desktop/src/screens/RunView.tsx` already carried another session's
+uncommitted M20 lint fixes (import order, `borderInlineEnd`, `marginInlineStart`, the `exhaustive-deps`
+opt-out); they are kept as they were and only the mounts were added around them.
+`apps/desktop/src/App.tsx`, `App.test.tsx` and 18 other desktop files also carry uncommitted changes
+from other sessions, and `apps/desktop/src/App.tsx` still prints the `act(...)` warning its own test
+produced at HEAD. `dist/` from the local `vite build` is gitignored. Running `vitest run` once from
+the repo root (not what CI does) still fails the `packages/ui` files, because the root
+`vitest.config.ts` sets `environment: 'node'`; per package they pass 8/8.
+
+#### M20 (third batch) – First daemon RPC wiring batch ✅ DONE (2026-10-31: `cargo fmt`/`clippy`/`test` green in WSL Ubuntu, client `tsc`/`eslint`/`vitest` and desktop `tsc` green on the Windows host, `actionlint` green; no bridge run for this batch)
+
+Wiring only, in the six files the batch was allowed to touch: no dependency added, no `Cargo.toml`,
+`package.json` or lockfile change, no `.github/workflows/**` change, no i18n catalog entry, no desktop
+component mount. The batch scope listed five paths but item 4 names
+`packages/client/src/index.ts`, so that file was treated as in scope and nothing else in
+`packages/` or `apps/` was edited.
+
+| Deliverable | Path | What landed |
+|---|---|---|
+| Backend kit export | `crates/warsha-pipeline/src/backend_kit.rs` | `pub const SCHEMA_FILE_NAME`; `BackendKitError::InvalidExportPath` + `Io { path, message }`; `BackendKit::export_to_dir(&self, dir: &str) -> Result<String, BackendKitError>` — creates `<dir>`, writes the `export()` dump to `<dir>/schema.sql` with `std::fs`, returns the path. `export()` itself still writes nothing, and the storage archive is still the caller's to pack |
+| Handoff bundle writer | `crates/warsha-pipeline/src/handoff.rs` | `HANDOFF_FILE_PREFIX`/`HANDOFF_FILE_SUFFIX`; `HandoffError::Encode` + `Io { path, message }`; `HandoffManager::write_bundle(&self, bundle, dir) -> Result<String, HandoffError>` — `validate_bundle` first, then `serde_json::to_string_pretty` into `<dir>/handoff-<run_id>.json`. `is_file_stem_safe` refuses a run id that is not one path segment (separator, `..`, blank), so a bundle cannot choose where it lands |
+| RPC methods | `crates/warshad/src/lib.rs` | Five `#[method]`s on `WarshaApi` + bodies; `DaemonState` gained `backend_kits: RwLock<HashMap<String, BackendKit>>`, `crash_reports: RwLock<InMemoryCrashReportStore>`, `store_reviews: RwLock<InMemoryStoreReviewStore>`; helpers `default_backend_config`, `is_relative_bundle_path`, consts `HANDOFF_DIR`/`LOCAL_POCKETBASE_URL` |
+| Client signatures | `packages/client/src/index.ts` | `WarshaWiringApi` (`exportBackend`, `createHandoff`, `applyHandoff`, `listCrashReports`, `listStoreReviews`) plus `CrashReport`, `StoreReview`, `HandoffConflict` and `HandoffApplySummary` wire types, snake_case to match serde. Signatures only: `WarshaClient` does not implement them |
+
+The five RPC methods, and what each one actually does today:
+
+| Method | Body |
+|---|---|
+| `backend.export(run_id, output_dir)` | Gets or inserts the run's `BackendKit` in `DaemonState.backend_kits` (starting from `default_backend_config`: PocketBase on `http://127.0.0.1:8090`, project name = `run_id`), clones it, calls `export_to_dir`, returns the path. Because no RPC adds tables yet, the first export is a header-only dump |
+| `handoff.create(run_id, files)` | `HandoffManager::create_bundle` from the `(path, content)` pairs, then `write_bundle` into `<data_dir>/handoff/`; returns the JSON path |
+| `handoff.apply(path, owner_wins)` | Reads and parses the bundle, resolves the working tree (`RunId` → `Run` → `Project.repo_path`, falling back to the bundle's own directory) and reads every relative bundle path that exists there, then returns `ApplyResult` as JSON (`applied`/`conflicts`/`backups`/`resolved`). It writes no file and takes no backup — `apply_bundle` is the dry-run decision the module documents |
+| `postlaunch.crashes(run_id)` | `list()` from the in-memory store, filtered by `run_id`; a blank id returns every report (the crash screen's unselected state) |
+| `postlaunch.reviews(store)` | `list()` / `list_by_store(store)` from the in-memory store; a blank store returns every review |
+
+Tests added — 6 new, all passing: 2 in `backend_kit` (the dump written to `<dir>/schema.sql` and read
+back byte-for-byte against `export().sql_dump`, with the directory created and no archive written; a
+blank directory refused as `InvalidExportPath`), 2 in `handoff` (a bundle written, parsed back and
+compared field by field, named `handoff-run-1.json`; the escaping run id, blank directory and blank
+run id refused with nothing written), 2 in `warshad` (`is_relative_bundle_path` accepting
+`src/main.rs`/`./src/main.rs` and refusing blank, absolute and `..` paths; `default_backend_config`
+being PocketBase on the documented local URL named after the run).
+
+Checks actually run (`pnpm` is not on this host's PATH, so the repo's own `node_modules` binaries were
+used; all Rust checks ran in WSL Ubuntu):
+
+| Check | Result |
+|---|---|
+| `cargo fmt --all --check` | PASS — exit 0 |
+| `cargo clippy --workspace --all-targets -- -D warnings` | PASS — exit 0, no warnings |
+| `cargo test --workspace` | PASS — exit 0, 214 tests passed, 0 failed across every `test result:` line |
+| `tsc --noEmit -p packages/client` | PASS — exit 0 |
+| `eslint src --ext .ts` (packages/client) | PASS — exit 0 |
+| `vitest run` (packages/client) | PASS — 32 tests |
+| `tsc --noEmit -p apps/desktop` | PASS — exit 0 (the desktop consumes `@warsha/client`) |
+| `actionlint .github/workflows/ci.yml` | PASS — exit 0, no workflow file touched |
+| `pnpm install` / `-r typecheck` / `-r build` / `-r test`, `mdbook`, `vite build`, the 18-check bridge run | Not run — `pnpm` is missing on this Windows host and the per-package equivalents above were run instead; no docs source and no desktop component changed, so `mdbook`/`vite build` would exercise untouched code |
+
+Not wired, recorded rather than claimed:
+
+- **Nothing fills a `BackendKit`.** No RPC calls `add_table`/`add_rls_policy`/`add_storage_bucket`/
+  `add_function`, and no MCP client exists, so `backend.export` writes the header for an empty kit.
+  `TODO(persistence)` sits on the state field: kits are lost on restart.
+- **`handoff.apply` is a decision, not a write.** The files are not written and the backups in
+  `ApplyResult::backups` are not taken; the JSON summary is what `ReviewApplyPanel` would render.
+  Nothing calls these methods from the desktop yet: `WarshaClient` does not implement
+  `WarshaWiringApi`, so the UI wiring is a later batch.
+- **`postlaunch.*` lists are empty by construction.** The opt-in crash collector and the store-review
+  fetch (M17's two remaining halves) are still unbuilt, and nothing records into the daemon's
+  in-memory stores.
+- **No integration test drives the new methods over RPC.** `crates/warshad/tests/m1_daemon.rs` is
+  outside this batch's file scope, so the coverage is the two unit tests on the pure helpers
+  (`is_relative_bundle_path`, `default_backend_config`) plus the five green module-level tests they
+  call. `bundle_working_tree` needs a `Store` and is covered only by compilation plus `clippy`.
+
+Decisions:
+
+- **Kits live in `DaemonState` rather than per call.** The allowed alternative was a fresh in-memory
+  kit per call; keeping one map means the next batch persists one field instead of changing five call
+  sites, and a future MCP write can reach the same map.
+- **`handoff.apply` resolves the working tree from the bundle's run id.** The RPC takes no repo
+  argument, so it goes `RunId` → `Run` → `Project.repo_path` through the existing store, which is where
+  the project's files actually are and therefore where a conflict is real. The bundle's own directory
+  is the fallback for a run with no repo or an id the store does not know, so a review still decides
+  something. `is_relative_bundle_path` drops absolute and `..` paths, which keeps a bundle that
+  travelled through the relay from pointing at a file outside that tree.
+- **A blank `run_id`/`store` means "everything"** for the two read methods, matching the screens'
+  unselected state, instead of an error the caller has to special-case.
+- **`write_bundle` refuses instead of sanitising a hostile run id.** Rewriting `../escape` into
+  something safe would silently change the identity the remote run is known by.
+- **The new `BackendKitError`/`HandoffError` variants carry strings, not `std::io::Error`.** Both enums
+  derive `Clone, PartialEq, Eq`, which `io::Error` cannot; the message is enough for a JSON-RPC error.
+
+Pre-existing, not touched: 34 other modified files and 5 untracked files in the working tree carry
+changes from other sessions (`.github/workflows/ci.yml`, `DECISIONS.md`, `App.tsx`, `RunView.tsx`,
+`ARCH_AUDIT.md`, `eslint.config.js`, …); they were left exactly as found, and the six files above were
+edited in place around whatever they already held. The count moves while other sessions work. The `LF
+will be replaced by CRLF` notices from `git diff` are this Windows checkout's line-ending handling,
+not a change made here.
+
+#### M20 (fourth batch) – Second daemon RPC wiring batch: `handoff.apply` writes + backups, `backend.export` from the project ✅ DONE (validated 2026-10-30T16:15:48, exit=0, all 20 checks green in the WSL bridge — 224 Rust tests and 222 TS tests, 0 failures)
+
+Five files: `crates/warsha-pipeline/src/handoff.rs`, `crates/warsha-pipeline/src/backend_kit.rs`,
+`crates/warshad/src/lib.rs`, `PLAN.md`, `PROGRESS.md`. No dependency added, no `Cargo.toml` edited, no
+TypeScript changed, no `.github/workflows/**` change.
+
+| Deliverable | Path | What landed |
+|---|---|---|
+| Handoff apply to disk | `crates/warsha-pipeline/src/handoff.rs` | `HandoffManager::apply_to_disk(&self, bundle, working_tree: &str, owner_wins: bool) -> Result<ApplyResult, HandoffError>`: reads the working tree, runs the existing dry-run decision (`apply_bundle`), then copies every path in `ApplyResult::backups` to `{working_tree}/.warsha-backup/{timestamp}/{path}` and only then writes every path in `ApplyResult::applied` (parent directories created, a file that already matches left untouched). A conflict does not stop the apply — the other files are written and the conflict stays on record. A bundle that fails a checksum or carries a path outside the tree (`..`, absolute, drive prefix) is refused as a whole, so an apply never writes half a tree. `BACKUP_DIR_NAME`, `MAX_BACKUP_ATTEMPTS`, `create_backup_dir` (millisecond stamp, `-2`, `-3`, … on collision so two applies never share a backup directory), `is_working_tree_path`, `io_error` |
+| Apply summary | same file | `ApplyResult::backup_dir: Option<String>` — `None` for a dry run, and `skip_serializing_if` keeps it out of the JSON then, so the previously shipped summary shape is unchanged. `#[serde(default)]` on the way back in |
+| `handoff.apply` | `crates/warshad/src/lib.rs` | Reads the bundle from disk, resolves RunId → Run → `Project.repo_path` (`working_tree_for_run`, no bundle-directory fallback: an apply writes files, so a run with no repo is refused with `run \`…\` has no project repo to apply into`), calls `apply_to_disk`, returns the `ApplyResult` JSON with `conflicts` and `backup_dir`. The old `is_relative_bundle_path` screen moved into the pipeline crate as `is_working_tree_path` (it is now applied by the layer that writes) |
+| `BackendKit::from_project` | `crates/warsha-pipeline/src/backend_kit.rs` | `BackendKit::from_project(project_name: &str, url: &str, kind: BackendKind) -> Self` — the default config for a project: kind, URL, project name, no service enabled, no schema |
+| `backend.export` | `crates/warshad/src/lib.rs` | Resolves the run's project name (`project_name_for_run`: RunId → Run → Project, falling back to the run id when a link is missing) and creates the per-run kit through the new `default_backend_kit(project_name)`, so `schema.sql` and the storage-archive stem name the project instead of the run; then `export_to_dir` |
+
+Tests added — 11 new, all passing: 7 in `handoff` (`apply_to_disk` writes a new file and its parent
+directory while leaving an agreed file alone and creating no backup directory; remote-wins overwrites a
+local edit and the local content is readable under the reported `.warsha-backup` directory; owner-wins
+keeps the local file and still backs it up; the conflicting file does not stop the new one; two applies
+get two backup directories, the second holding the first's overwrite; three escaping paths, a broken
+checksum and a blank working tree are refused and write nothing), 1 in `backend_kit`
+(`from_project_builds_a_valid_empty_kit` — empty kit, then takes a table and exports with `-- project:
+Shop`, plus the Supabase archive stem), and 3 in `warshad` (`apply_handoff` writes the files, reports the
+conflict and the backup directory, and keeps the local edit in the backup; a run with no project repo is
+refused and nothing lands next to the daemon's bundle file; `export_backend` writes `schema.sql` with
+`-- project: Shop`). One test removed with the helper it covered (`is_relative_bundle_path`, now
+`is_working_tree_path` in `warsha-pipeline`), and `the_default_backend_config_is_pocketbase_named_after_the_run`
+replaced by `the_default_backend_kit_comes_from_the_run_project`.
+
+Verification run for this batch (WSL Ubuntu via `scripts/wsl-bridge.ps1`, Node 20.20.2, pnpm 9.0.0,
+mdbook 0.5.4, actionlint 1.7.7). Final run requested 2026-10-30T16:19:19 via `bridge-io/run.flag`;
+`bridge-io/done.flag` says `exit=0 finished 2026-10-30T16:20:28`; `bridge-io/result.log` has no `FAIL`
+line and ends with `RESULT: M0 validation PASSED — all checks green.` (the script's own label is still
+"M0"; the check set is the 20-item `wsl-setup.sh` list).
+
+| Check | Result |
+|---|---|
+| `cargo fmt --all --check` | PASS |
+| `cargo clippy --workspace --all-targets -- -D warnings` | PASS |
+| `cargo test --workspace` | PASS — 224 tests, 0 failed (the 11 new ones listed above are named in the log) |
+| `pnpm install` | PASS |
+| `pnpm -r typecheck` | PASS |
+| `pnpm lint` | PASS |
+| `node scripts/check-arch.mjs` | PASS |
+| `pnpm -r build` | PASS |
+| `pnpm -r test` | PASS — 222 tests (client 32, i18n 12, crypto 22, ui 8, remote 4, desktop 144) |
+| `actionlint .github/workflows/ci.yml` | PASS |
+
+The first run of this batch (requested 16:12:41) already had clippy, test, lint, build, arch and actionlint
+green and failed only `cargo fmt --check` on the new code; `cargo fmt --all` touched exactly the three Rust
+files above, the second run (16:14:28) was green, and the third run (16:19:19) re-validated the same tree
+after one doc-comment rename (`[`default_backend_config`]` → `[`default_backend_kit`]` in `DaemonState`) and
+is the evidence quoted here.
+
+Decisions (logged here because `DECISIONS.md` is outside this batch's file scope):
+
+- **`apply_to_disk`, not a second `apply_bundle`.** The batch brief asked for
+  `HandoffManager::apply_bundle(&bundle, working_tree, owner_wins)`, but `apply_bundle(bundle, local_files,
+  options)` already exists and is the documented dry-run decision every existing test and the M20 third
+  batch rely on; Rust does not overload methods, and redefining it to write files would have turned a pure
+  function with 11 test call sites into a filesystem call. The writing method therefore takes the heading's
+  name (`apply_to_disk`) and reuses `apply_bundle` for the decision, so "review shows a diff, apply writes"
+  stays one implementation.
+- **Owner-wins keeps the local file, remote-wins overwrites it.** The brief's prose ("if owner_wins, write
+  the bundle's version") reads the other way round, but the shipped and documented rule in this module —
+  `ApplyOptions::owner_wins`, `ApplyResult::resolved`, `requires_gate()` — is that the owner's file wins a
+  conflict and a remote overwrite is what needs a gate. Inverted, "owner wins" would mean the owner's work
+  is overwritten, which contradicts PLAN.md M6a ("owner-wins on conflicts", "not silently overwritten"). The
+  established semantics were kept rather than silently flipped.
+- **Backups are taken whichever side wins.** A conflict that owner-wins settles still copies the local file
+  aside: the copy is what makes an accidental overwrite recoverable, and one rule is easier to verify than
+  "back up only when we write".
+- **`backup_dir` sits on `ApplyResult` instead of a new wrapper type.** The RPC has to return the directory
+  in the same JSON the dry run already returns, and a separate struct would either duplicate the shape or
+  need `serde(flatten)`; the optional field with `skip_serializing_if` adds one key only when there is
+  something to name.
+- **A run with no `repo_path` is an error, not a silent fallback.** The third batch compared against the
+  bundle's own directory when the store had no repo, which was safe for a read-only decision. An apply
+  writes, so the fallback would scatter project files into the daemon's `handoff/` directory; the RPC now
+  refuses and says which run has no repo.
+- **`backend.export` keeps one kit per run, keyed by run id.** The name inside the kit comes from the
+  project; the key stays the run id so the existing map and a future MCP writer still address the same
+  entry. A kit already in the map is not rebuilt when the project is renamed — that is the persistence
+  follow-up, not a defect to paper over.
+
+Not wired yet: `WarshaClient` still does not implement the five `WarshaWiringApi` methods (so no desktop
+call reaches `handoff.apply` or `backend.export`), kits are still in memory (`TODO(persistence)`), bundles
+still do not survive a restart, the MCP client that fills a `BackendKit` is unbuilt, and the storage
+archive named by `ExportBundle::storage_archive_path` is still the caller's to pack.
+
+Pre-existing, not touched: 35 other modified files and 5 untracked files in the working tree carry changes
+from other sessions (`.github/workflows/ci.yml`, `DECISIONS.md`, `apps/desktop/src/App.tsx`,
+`apps/desktop/src/components/HandoffDialog.tsx`, `ARCH_AUDIT.md`, `eslint.config.js`, …); they were left
+exactly as found, and the three Rust files above were edited in place around whatever they already held. The
+count moves while other sessions work. The `LF will be replaced by CRLF` notices from `git diff` are this
+Windows checkout's line-ending handling, not a change made here.
+
+#### M20 (fifth batch) – Design system: `packages/ui` tokens + Storybook ✅ DONE (validated 2026-10-31, exit=0, all 9 checks green in WSL Ubuntu on a pristine copy at `/root/warsha-m20-final`)
+
+| Check | Result |
+|---|---|
+| `pnpm install --frozen-lockfile` | PASS — the regenerated lockfile adds 731 lines, 0 deleted |
+| `pnpm -r typecheck` | PASS — 7 packages, including five story files checked against the real `@storybook/react` types |
+| `pnpm lint` | PASS — 0 errors; 1 pre-existing `react-hooks/exhaustive-deps` warning in `apps/desktop/src/screens/RunView.tsx` |
+| `node scripts/check-arch.mjs --self-test` | PASS |
+| `node scripts/check-arch.mjs` | PASS — `arch: 5 rules, 0 violations` |
+| `pnpm -r test` | PASS — 245 tests (client 32, crypto 22, i18n 12, ui 31, remote 4, desktop 144), 0 failures |
+| `pnpm -r build` | PASS — desktop CSS 3.54 kB, the tokens inlined through the `@warsha/ui` alias |
+| `actionlint .github/workflows/ci.yml` | PASS |
+| `npx storybook build` (in `packages/ui`) | PASS — the five stories and the preview compiled, ~3.3 s |
+
+What landed:
+
+| Area | File(s) | What it holds |
+|---|---|---|
+| Token layer | `packages/ui/src/tokens/{colors,spacing,radius,typography,shadow,motion,vars,index}.ts` | Role-named tokens with light + dark values, plus one typed helper per family (`colorVar`, `space`, `radius`, `shadow`, `fontSize`, `fontWeight`, `duration`, `easing`) and the `--warsha-*` name builders the drift test compares against the stylesheet |
+| Stylesheet | `packages/ui/src/tokens/tokens.css` | Every token as a custom property: light on `:root`, dark on `[data-theme='dark']`, durations zeroed under `prefers-reduced-motion`, `color-scheme` per theme. Deliberately no `prefers-color-scheme` query |
+| Components | `packages/ui/src/components.tsx` | `Box`/`Text`/`Button`/`Card` read tokens only; 10 literals (blue, greys, white card, 3 radii, a shadow, 2 durations) replaced. Same props, same computed values |
+| Storybook | `packages/ui/.storybook/{main.ts,preview.ts}`, `packages/ui/src/components/{Box,Text,Button,Card,Tokens}.stories.tsx` | SB 8 with `@storybook/react-vite` + `addon-essentials`; the decorator sets `dir` and `data-theme` from two toolbar globes (RTL default, light + dark) and imports `tokens.css` once |
+| Drift rule | `packages/ui/src/tokens/tokenDrift.test.ts`, `docs/ARCH_RULES.md` `R6` | 12 tests: no colour/length/physical-property/font-stack/raw-token/`cssVar(` literal in a component, TS and CSS agree per theme, every exported component has a story, self-tested against one planted violation per rule |
+| Helper tests | `packages/ui/src/tokens/tokens.test.ts` | 11 tests: the name each helper renders, the accent invariant (`#FFD60A` in both themes, ink on top), a palette per theme, the 4px scale, and `space()`'s off-scale branch (1.5/2.5/3.5 → 6/10/14px) that makes the component migration pixel-identical |
+| Storybook typecheck | `packages/ui/tsconfig.storybook.json`, `packages/ui/package.json` | `typecheck`/`build` also run `tsc --noEmit -p tsconfig.storybook.json`, so `main.ts` and `preview.ts` are under strict TypeScript too — they are outside the package `rootDir`, which is why the package tsconfig cannot cover them |
+| Desktop (minimal) | `apps/desktop/src/index.css`, `PlanModeBadge.tsx`, `RoutineRow.tsx`, `screens/Routines.tsx`, `screens/CrashReports.tsx` | The stylesheet imports the tokens and styles `body`/links/focus from them (the `[dir="rtl"]` family override is gone — the Arabic-first stack covers both directions); the four accent sites reference `--warsha-color-accent` / `-accent-ink` |
+| Manifest | `packages/ui/package.json`, `pnpm-lock.yaml` | `storybook`, `@storybook/react`, `@storybook/react-vite`, `@storybook/addon-essentials` pinned at `8.6.19`, `vite ^5.4.0`, `storybook`/`build-storybook` scripts, an `exports` map so `@warsha/ui/tokens/tokens.css` resolves |
+
+Two defects this batch found and fixed before the acceptance run:
+
+1. `pnpm lint` failed on the new `Tokens.stories.tsx` — `import/order` wanted the `@storybook/react` type import before the `react` one with no blank line inside the group. Fixed the import order; the second `lint` run was clean.
+2. The first lockfile copy-back silently restored the *old* file: a later `rsync` into the WSL copy overwrote the regenerated lockfile before it was copied out, and the frozen install then passed against a manifest the lockfile did not describe. Detected by `git status --porcelain pnpm-lock.yaml` reporting no change; re-running `pnpm install` after the last sync and copying it back produced the +731-line diff, and `pnpm install --frozen-lockfile` was re-proved on a clean copy afterwards.
+
+Decisions (logged here because `DECISIONS.md` is outside this batch's file scope):
+
+- **The lockfile was regenerated even though the brief said "declare them, do not install".** `pnpm install --frozen-lockfile` is the first step of the TypeScript CI job, so a manifest entry with no lockfile entry turns CI red before `typecheck` ever runs. The resolution was produced in a throwaway WSL copy (`/root/warsha-m20-ds`); the workspace `node_modules` was not touched and nothing was installed on the Windows host, where `pnpm` is not on `PATH` at all.
+- **Tokens are declared twice (TS + CSS) and compared, not generated.** No build step in this repo turns TypeScript into CSS, and a generator would be a new dependency outside the Storybook allowance. The drift test gives the same guarantee at the cost of editing two files — and it fails when only one is edited.
+- **`space()` keeps an off-scale fallback instead of widening the scale.** `Button`'s block paddings are 6/10/14 px (1.5/2.5/3.5 steps); snapping them to the 13 published steps would have moved every button by up to 2 px. The one place that computes a length therefore lives in `tokens/spacing.ts`, not in a component — which is also why R6 never has to allow a literal.
+- **`Button` primary is the accent, not the old blue.** `#2563eb` appears in no token list the brief names, and "one accent `#FFD60A` on `#0E0E0E`" is what the milestone is for. Secondary (`surfaceMuted` on `text`) and ghost (`text`) stay neutral so no label sits unreadably on yellow.
+- **`accentStrong` is an addition to the nine required roles.** The required set has no readable accent *foreground*: `#FFD60A` on `#fafafa` fails contrast, so links and active labels use a dark gold of the same hue in light mode and the brand value in dark mode.
+- **Spacing is published in px, not rem.** The pre-token components computed pixels (`p * 4`), and a rem scale would change every rendered padding under a non-16 px root font size. The type sizes stay in rem, where scaling is the point.
+- **Storybook is a per-package config, not a root one.** `packages/ui` is the only package with stories; a root config would make every app install Storybook to build nothing. The permitted root `.storybook/` was therefore not created.
+- **R6 is a test, not an ESLint rule.** A lint rule would mean editing the root `eslint.config.js` (outside this batch's files) and still could not read `tokens.css` to compare the two halves. A vitest test in the owning package compares both, self-tests against planted violations, and fails the existing `Test` step — no CI change needed.
+- **`preview.ts` builds its decorator with `React.createElement`.** The brief names `preview.ts`; JSX would force a `.tsx` rename and a second entry-point convention.
+- **`docs/ARCH_RULES.md` was edited although it is not in the listed allowed scope.** The brief requires R6 documented there, so the section was written in the existing contract's shape (id, forbids, why, failure messages) and the file's "five rules" framing was corrected to six, with the enforcement split stated explicitly so `arch: 5 rules, 0 violations` stays accurate.
+
+Not done, recorded rather than claimed:
+
+- The remaining ~330 colour/spacing literals in `apps/desktop/src/**` (and `apps/remote/src/**`) are untouched — only the accent and the global stylesheet were migrated. R6 does not scan the apps yet, and that is written down in `docs/ARCH_RULES.md` as out of scope and in PLAN.md as follow-up.
+- No theme switch in the app: `data-theme` resolves to light because nothing sets it. The tokens, the Storybook globe and the `[data-theme='dark']` block are in place; the toggle is UI work.
+- `prettier --check` is not a CI step and was not enforced; the older long-line component style was preserved rather than reformatted across the package.
+- Rust was not rebuilt for this batch: no Rust file changed (the WSL runs before this batch are still the Rust evidence).
+
+Pre-existing, not touched: the working tree carries changes from other sessions (`.eslintrc.cjs`, `.github/workflows/ci.yml`, `DECISIONS.md`, `apps/desktop/src/App.tsx`, `apps/desktop/src/components/HandoffDialog.tsx`, `ARCH_AUDIT.md`, `docs/ARCHITECTURE.md`, `eslint.config.js`, `scripts/check-arch.mjs`, …). They were left exactly as found; the files edited here were edited around whatever they already held, and no `git` state was discarded. The `LF will be replaced by CRLF` notice on `pnpm-lock.yaml` is this Windows checkout's line-ending handling, not a change made here.
+
+#### M20 (sixth batch) – Foundations: taste store, build + LLM caches, scale standards ✅ DONE (2026-10-31; every check run from this session against a synced copy at `/root/warsha-m20-cache` — `cargo fmt`/`clippy`/`test`, `mdbook build`/`test`, `pnpm install --frozen-lockfile`/`-r typecheck`/`lint`/`-r build`/`-r test`, `check-arch.mjs`, `actionlint`; the full 20-check `wsl-setup.sh` set by hand, no bridge run)
+
+Four new modules in `crates/warsha-pipeline`, one `lib.rs` wiring block, one docs chapter plus its
+SUMMARY line, and the two record files. No dependency added, no `Cargo.toml`, `package.json` or
+lockfile change, no `.github/workflows/**` change, no TypeScript and no i18n catalog entry.
+
+| Deliverable | Path | What landed |
+|---|---|---|
+| Taste store | `crates/warsha-pipeline/src/preferences.rs` (new) + `lib.rs` `mod`/`pub use` | `SignalKind` (`Approve`/`Reject`/`ChangeRequest`/`Edit`, serde `snake_case`, `all`/`as_str`/`is_positive`/`direction`/`phrase`), `PreferenceSignal { id, project_id, owner_id, kind, target, weight, recorded_at }` (`new`/`with_weight`/`contribution`/`decayed_contribution`, validating `weight` finite and non-negative), `Preference { key, score, evidence_count, last_updated }`, `PreferenceStore` trait (`record_signal`/`list_preferences`/`explain`), `InMemoryPreferenceStore` (append-only `Vec` + id set, `owner_preferences`, `explain_for_owner`, `signals`/`len`/`is_empty`/`clear`, monotonic `advance_to` clock), `decay_factor`, `DECAY_HALF_LIFE_SECS` (30 days), `DEFAULT_SIGNAL_WEIGHT`, `PreferenceError` via thiserror |
+| Build cache | `crates/warsha-pipeline/src/build_cache.rs` (new) + `lib.rs` | `BuildCacheKey { stage, inputs_hash, prompt_hash, model, skill_versions }` (`new`/`with_skills`/`hash`/`is_complete`, `#[serde(default)]` on the skill list), `BuildCacheEntry { key, output_path, created_at, hit_count }`, `BuildCache` trait (`get`/`put`/`invalidate`/`stats`), `InMemoryBuildCache` (`entries`/`len`/`is_empty`/`clear`), `BuildCacheStats` (`lookups`/`hit_rate`), `pub(crate) fnv1a_64_hex` |
+| LLM cache | `crates/warsha-pipeline/src/llm_cache.rs` (new) + `lib.rs` | `normalize_prompt` (trim, collapse whitespace, lowercase), `LlmCacheKey { prompt, model, normalized }` (`new`/`normalized`/`canonical_prompt`/`hash`), `LlmCacheEntry { key, response, created_at, hit_count }`, `LlmCache` trait (`get`/`put`/`stats`), `InMemoryLlmCache` (exact identity map + normalized pointer map, `entries`/`len`/`is_empty`/`clear`), `LlmCacheStats` |
+| Scale standards | `crates/warsha-pipeline/src/scale_standards.rs` (new) + `lib.rs` | `ScaleCategory` (`Database`/`Api`/`Observability`/`Security`, `all`/`as_str`/`label`), `ScaleStandard { id, category, description, check }` (`new`/`is_namespaced`), `SCALE_STANDARDS` = `static LazyLock<[ScaleStandard; 8]>` (FK indexes, no N+1, connection pooling, pagination, timeout budget, structured logs, health endpoint, request size limit), `ScaleStandards::all`/`by_category`/`get`/`checklist` |
+| Docs chapter | `docs/src/scale-standards.md` (new) + `docs/src/SUMMARY.md` | Arabic-first RTL block plus the English spec: the types, why the table is a `LazyLock` and not a `const`, the eight standards with a rationale and a check each, the per-rule security/API reasoning, how `checklist()` is meant to reach the Coder/Reviewer/spec-template prompts, and an explicit "what is not here yet" section. Rust fences are ` ```rust,ignore ` because `mdbook test` runs rustdoc over them |
+
+Tests added — 39 new, all passing: 13 in `preferences` (kind table + serde, one approval, approvals and
+rejections netting out, weight scaling, halving after 30 days, no amplification and no clock rewind,
+`explain` for 3 approvals + 1 rejection, `explain` with "twice" and the decayed marker, the six
+signal refusals incl. duplicate id and non-finite weight, project + owner isolation, sort order,
+`clear`), 10 in `build_cache` (per-field hashing incl. skill order, field-boundary separation,
+put→get hit, cold-start misses, accumulating hits, `invalidate` by stage, rebuild replacing and
+resetting, `is_complete`, serde incl. a key with no `skill_versions`, `clear`), 12 in `llm_cache`
+(normalize incl. fixed point, exact round trip, miss counting, normalized lookup matching different
+whitespace, exact lookup staying whitespace-sensitive, model-scoped keys, hit rate, re-put, the
+first-writer rule for the normalized pointer, serde, `canonical_prompt`, `clear`) and 4 in
+`scale_standards` (the eight required ids, unique + namespaced, one standard per category and the
+partition sum, the checklist line shape, category names + serde). Suite totals: `warsha-pipeline`
+154 → 193, workspace 224 → 263.
+
+Verification for this batch (`pnpm` is not on the Windows host PATH, so the whole set ran inside WSL
+Ubuntu on a synced copy, `/root/warsha-m20-cache`, with `CARGO_TARGET_DIR=/root/warsha/target`):
+
+| Check | Result |
+|---|---|
+| `cargo fmt --all --check` | PASS — exit 0 |
+| `cargo clippy --workspace --all-targets -- -D warnings` | PASS — exit 0, no warning |
+| `cargo test --workspace` | PASS — exit 0, 263 passed, 0 failed, 0 ignored across 24 `test result:` lines |
+| `pnpm install --frozen-lockfile` | PASS |
+| `pnpm -r typecheck` | PASS — 7 packages |
+| `pnpm lint` | PASS — 0 errors, 1 warning: the pre-existing `react-hooks/exhaustive-deps` in `apps/desktop/src/screens/RunView.tsx`, present at HEAD |
+| `node scripts/check-arch.mjs` | PASS — `arch: 5 rules, 0 violations` |
+| `pnpm -r build` | PASS — desktop bundle 340.83 kB |
+| `pnpm -r test` | PASS — 245 tests (client 32, crypto 22, i18n 12, ui 31, remote 4, desktop 144), incl. `mdbook build` + `mdbook test`, which lists `Testing chapter 'Scale Standards': "scale-standards.md"` |
+| `mdbook build` / `mdbook test` (docs, 0.5.4) | PASS — both exit 0, no `ERROR`, `book/scale-standards.html` (33 KB) written |
+| `actionlint .github/workflows/ci.yml` | PASS — exit 0, no workflow file touched |
+
+Nothing is committed and nothing is pushed. The counts in the table above are the ones the runs printed;
+no check is quoted that was not executed.
+
+Defects found and fixed inside files this batch created:
+
+- `ScaleStandards::all()` first returned `&SCALE_STANDARDS`, which does not compile:
+  `&LazyLock<[ScaleStandard; 8]>` is not `&[ScaleStandard]` and the coercion does not chain through
+  `Deref`. It is `SCALE_STANDARDS.as_slice()` now (exit-0 clippy is the proof).
+- Two `preferences` tests asserted the wrong thing on their first run: `advance_to(500)` after a
+  signal recorded at 1000 does move the clock (the guard is "never backwards", not "never forwards"),
+  and `explain` capitalised only the first reason, so the expected `Rejected once` never matched.
+  `explain` now capitalises each reason and the test asserts the clock's real behaviour.
+- Self-review before the first run caught a mangled string in the `observability.structured_logs`
+  check (`"… fields ".to_string() + "(…)"` left over from a rewrite) and a `bool_assert_comparison`
+  (`assert_eq!(… .is_some(), true)`) in `llm_cache`; both were rewritten before any check saw them.
+
+Decisions (logged here because `DECISIONS.md` is outside this batch's file scope):
+
+- **Decay is computed at read time, and the store owns the clock.** The three specified trait methods
+  take no `now`, so a signal is stored exactly as it arrived and `list_preferences`/`explain` age it
+  against `InMemoryPreferenceStore::now`, which `advance_to` moves forward only. `now = 0` therefore
+  means "no decay", which is what keeps the twelve tests independent of the host clock (no timer, no
+  sleep, no `SystemTime`).
+- **`weight` is a magnitude and the sign comes from the kind.** `PreferenceSignal::contribution` is
+  `kind.direction() * weight`, a negative weight is refused with a message naming `SignalKind::Reject`,
+  and a NaN is refused outright — otherwise `Reject` with `-2.0` would read as approval, and one
+  hand-built signal would poison every later score.
+- **`explain` is one line per target, not one line per event.** The specified examples ("Approved 3
+  times", "Rejected once") are the counts, so a line reads
+  `dark mode — Approved 3 times, Rejected once (score 2.00)`, with a `, decayed` marker when any
+  contributing signal has aged. That is the whole "what did Warsha learn, and why" surface a screen
+  needs, and it fits in a `Vec<String>`.
+- **Preferences are derived, never stored.** There is no second copy to keep in sync: `score` and
+  `evidence_count` are folded from the append-only signal list on every read. A cached preference row
+  would have made `explain` and `list_preferences` disagree the first time a signal arrived.
+- **The cache hash is FNV-1a 64 with a unit separator between fields.** The separator is what keeps
+  `("ab", "c")` and `("a", "bc")` apart, and a 16-hex-digit string is a stable cache name across
+  processes, which `DefaultHasher` is not. No digest crate was added — the same call M6a made for the
+  handoff checksum — and the LLM cache reuses this one function instead of a second copy.
+- **`SCALE_STANDARDS` is a `static LazyLock`, not a `const`.** The specified struct owns `String`
+  fields, and a `const` cannot. `ScaleStandards::all()` returns `&'static [ScaleStandard]`, so a caller
+  still sees one table: `SCALE_STANDARDS.iter()`, `SCALE_STANDARDS[0]` and `all()` are the same eight
+  entries, and nothing can drift because there is no second list to drift from.
+- **`security.request_size_limit` is categorised Security, not Api.** The ceiling protects memory and
+  the parser before any handler logic runs, and it keeps all four categories non-empty, so
+  `by_category` is meaningful for every value of the enum (tested).
+- **The LLM cache normalizes only whitespace and case, and an exact lookup stays exact.** `normalize_prompt`
+  is the whole tolerance: a differently-spaced prompt finds the stored answer (a post-compaction prompt
+  differs exactly that way), while an exact key only matches the exact text. Every `put` is reachable
+  both ways, and when two raw prompts normalize alike the first writer owns the pointer (`or_insert`),
+  so a tolerant lookup is deterministic instead of last-write-wins.
+- **`router_quality::ResponseCache` is untouched.** It stays the router's per-run memo keyed by
+  `(role, model, prompt)`; the documented order is `ResponseCache` first, and only a miss reaches
+  `LlmCache`, so the existing hit/miss meter keeps its meaning and this cache records what survived a
+  cold start. Nothing in that file changed.
+- **The scale checklist renders as `[<id>] <rule> — <check>`.** A gate report has to quote *which*
+  standard failed, and a bare sentence cannot be quoted back; the id is also what `ScaleStandards::get`
+  takes, so a prompt, a finding and a lookup use one string.
+
+Not wired yet (the abstraction is in place, the caller is not):
+
+- **No persistence.** `PreferenceStore` is implemented only in memory: `warsha-store` and its SQLite
+  migrations are outside this batch's files, so taste signals do not survive a daemon restart, and no
+  gate decision, diff or review is turned into a `PreferenceSignal` — nothing calls `record_signal`.
+- **No UI.** The read-only "what Warsha learned" screen and the cost view's hit/miss meter are outside
+  this batch: `explain()` and `stats()` are the surfaces they would read.
+- **No prompt injection of the standards, and no eval case.** `crates/warsha-pipeline/src/prompts/**`
+  and `evals.rs` are outside this batch's files, so no Coder/Reviewer prompt and no eval case cites
+  `ScaleStandards::checklist()` yet; `architect.md` already carries "normalized with indexes" and
+  "paginated" and nothing else.
+- **No stage actually consults either cache.** `PipelineEngine` is outside this batch's scope, so a
+  stage still runs; `get`/`put` are what the engine would call.
+
+Pre-existing, not touched: the working tree carries changes from other sessions (`.eslintrc.cjs`
+deleted, `.github/workflows/ci.yml`, `DECISIONS.md`, `apps/desktop/src/App.tsx`, `RunView.tsx`,
+`ARCH_AUDIT.md`, `eslint.config.js`, `scripts/check-arch.mjs`, `crates/warsha-pipeline/src/{backend_kit,
+handoff}.rs`, `crates/warshad/src/lib.rs`, …). They were left exactly as found; `cargo fmt --all` was
+run and touched only the five files above (`git status` mtimes confirm `backend_kit.rs`, `handoff.rs`
+and `warshad/src/lib.rs` were not rewritten). Also pre-existing: `pnpm` is not on this host's PATH and
+`mdbook` on Windows dies with `0xC0000005`, which is why the whole check set ran in WSL; the one
+`exhaustive-deps` lint warning and the `act(...)` warning from `apps/desktop/src/App.tsx` are both at
+HEAD.
+
+#### M20 (seventh batch) – Run modes with phone pairing (the last M20 item) ✅ DONE (2026-10-30; every check run from this session — `cargo fmt`/`clippy`/`test` on a synced copy at `/root/warsha-rm` in WSL Ubuntu, `tsc`/`eslint`/`vitest`/`vite build`/`check-arch.mjs` per package on the Windows host, `mdbook build`/`test` and `actionlint` in WSL; no bridge run)
+
+One new module in `crates/warsha-pipeline`, one `lib.rs` wiring block, one desktop component plus its
+tests, one docs chapter plus its SUMMARY line, and the two record files. No dependency added; no
+`Cargo.toml`, `package.json`, lockfile, `.github/workflows/**` or i18n catalog change; no file outside
+this batch's allowed scope touched.
+
+| Deliverable | Path | What landed |
+|---|---|---|
+| Run modes | `crates/warsha-pipeline/src/run_modes.rs` (new) + `lib.rs` `mod`/`pub use` | `RunMode` (`Local`/`SelfHosted`/`Hosted`, serde `snake_case`, `all`/`as_str`/`label`, `Local` is `Default`), `RunModeConfig { mode, bind_host, allowed_hosts, relay_url }` with `for_mode`/`validate`/`is_loopback_only`/`requires_pairing` + `with_bind_host`/`with_allowed_hosts`/`with_relay_url`, `is_loopback_host`, `LOOPBACK_HOST`/`WILDCARD_HOST`/`LOCALHOST`, `PhonePairing` (`new`/`is_active`, hand-written `Debug`), `PairingStore` trait (`create`/`list`/`revoke`/`is_revoked` + provided `active`), `InMemoryPairingStore` (`new`/`len`/`is_empty`/`get`), `RunModeError` via thiserror (11 variants), `REDACTED_SECRET` |
+| Badge | `apps/desktop/src/components/RunModeBadge.tsx` (new) + `RunModeBadge.test.tsx` (new) | `RunMode` = the three serde tags, `RUN_MODES`, `loopbackOnly` (mirrors `is_loopback_only`), `runModeLabel`/`runModeHint`, and the pill: SVG icon per mode, green/amber/accent colour, `data-mode`/`data-loopback`, `dir` from the locale, `paddingInline`, `unicode-bidi: isolate`. Strings go through `t('run_modes.*')` with an ar/en fallback table, the same shape as `PlanModeBadge`/`LocalCloudBadge` |
+| Docs chapter | `docs/src/run-modes.md` (new) + `docs/src/SUMMARY.md` | Arabic-first RTL block plus the English spec: the three modes, the bind/allow-list/relay table, the error-per-rule table, `for_mode`'s deliberate refusals, the pairing flow (seven steps) and its revocation semantics, the badge, and an explicit "what is not here yet" section. Rust fences are ` ```rust,ignore ` because `mdbook test` runs rustdoc over them |
+
+Tests added — 21 new, all passing: 16 in `run_modes` (`for_mode` per mode and its refusal, the
+refused-by-default SelfHosted/Hosted starts, stable tags + labels + serde + `Default`, both loopback
+spellings accepted and five others refused, Local refusing an allow-list and a relay, SelfHosted
+accepting `0.0.0.0` with a list and refusing loopback + four malformed entries, Hosted refusing a
+wildcard bind and a blank relay, a blank bind host refused in every mode, `is_loopback_only` from the
+bind alone, `requires_pairing` true in all three, pairing create/list/revoke round trip, revoke
+idempotent + unknown device is `PairingNotFound`, blank/duplicate refusals incl. after revocation, and
+`Debug` printing `<redacted>` while serde still carries the secret) and 5 in
+`RunModeBadge.test.tsx`. Suite totals: `warsha-pipeline` 193 → 209, workspace 263 → 279; desktop
+144 → 149.
+
+Verification for this batch (the Windows host has no `pnpm`, and `cargo` on Windows cannot build
+`ring` — no `gcc` — so the Rust and docs checks ran in WSL Ubuntu on a synced copy, `/root/warsha-rm`,
+and the TypeScript checks ran per package on the Windows host through the local `node_modules/.bin`
+binaries with `npm --prefix`):
+
+| Check | Result |
+|---|---|
+| `cargo fmt --all --check` | PASS — exit 0 |
+| `cargo clippy --workspace --all-targets -- -D warnings` | PASS — exit 0, no warning |
+| `cargo test --workspace --all-targets` | PASS — exit 0, 279 passed, 0 failed, 0 ignored across 14 `test result:` lines |
+| `mdbook build` / `mdbook test` (docs, 0.5.4) | PASS — both exit 0, `Testing chapter 'Run Modes': "run-modes.md"` listed (22 chapters) |
+| `actionlint .github/workflows/ci.yml` | PASS — exit 0, no workflow file touched |
+| `packages/client` typecheck / test / build / lint | PASS — 32 tests |
+| `packages/crypto` typecheck / test / build / lint | PASS — 22 tests |
+| `packages/i18n` typecheck / test / build / lint | PASS — 12 tests |
+| `packages/ui` test / lint | PASS — 31 tests, 0 errors |
+| `packages/ui` typecheck / build | ⚠️ NOT RUN GREEN — exit 2, `Cannot find module '@storybook/react'` in the five pre-existing `*.stories.tsx`. `packages/ui/package.json` and `pnpm-lock.yaml` both carry `@storybook/react@8.6.19`, but this host's `node_modules` predates the fifth batch and there is no `pnpm` to reinstall with, so the package is simply absent. `packages/ui` is untouched by this batch; CI's `pnpm install --frozen-lockfile` supplies it |
+| `apps/desktop` typecheck / test / build / lint | PASS — 149 tests, `vite build` exit 0 |
+| `apps/remote` typecheck / test / build / lint | PASS — 4 tests |
+| `node scripts/check-arch.mjs` | PASS — `arch: 5 rules, 0 violations` |
+
+Nothing is committed and nothing is pushed. The counts above are the ones the runs printed; the one
+check that did not pass is named with its cause rather than omitted. The only lint output repo-wide is
+the pre-existing `react-hooks/exhaustive-deps` warning in `apps/desktop/src/screens/RunView.tsx` (1
+problem, 0 errors), which is at HEAD and untouched here.
+
+Decisions (logged here because `DECISIONS.md` is outside this batch's file scope):
+
+- **`for_mode` returns a startable-or-refused config, never a silently corrected one.** `for_mode(Local)`
+  is valid as returned; `for_mode(SelfHosted)` comes back on `0.0.0.0` with an empty allow-list and
+  `for_mode(Hosted)` comes back on loopback with no relay, and both fail `validate()` until the caller
+  supplies the missing piece. Filling the allow-list with a wildcard would have turned "the owner has
+  not configured this yet" into an open port.
+- **`is_loopback_only` is a property of the bind, and Hosted answers `true`.** Hosted's API binds
+  `127.0.0.1` and remote devices arrive through the relay, so nothing listens off-host. Whether a relay
+  is *reachable* is a different question, answered by a transport that does not exist yet, and conflating
+  the two would let a config claim "not exposed" because it has a URL.
+- **Only `127.0.0.1` and `localhost` count as loopback; `::1` is refused.** The daemon binds IPv4 and
+  reports one address, so accepting a v6 literal would validate a config nothing can bind. `localhost`
+  is compared trimmed and case-insensitively; `127.0.0.1` likewise.
+- **A duplicate device id is refused even when the existing record is revoked.** Re-pairing has to be a
+  fresh, visible device id, not a resurrection of a cut-off one — otherwise revoking a device and
+  pairing it again under the same id would rewrite history the revocation was recorded for.
+- **`is_revoked` returns `Err(PairingNotFound)` for an unknown device instead of `Ok(false)`.**
+  "No record" and "active" are different answers to a security question, and a `bool` would let a
+  caller that skipped `create` read as authorised.
+- **`PhonePairing`'s `Debug` is hand-written to print `secret: "<redacted>"`; serde still carries it.**
+  The pairing channel has to hand the secret to the device, but a `tracing::debug!("{:?}", pairing)` must
+  not put it in a log (AGENTS.md: never log secrets). The `PairingStore` trait only refuses a blank
+  secret — the M6 flow owns the secret's format, so this module does not invent a length policy.
+- **`requires_pairing()` is a constant `true`.** The method exists so a caller asks the config rather than
+  remembering the rule; a phone is a remote device in all three modes, and a loopback bind does not make
+  someone else's phone local.
+- **Hosted does not validate `allowed_hosts`.** It never listens off-host, so an allow-list there would
+  describe a socket that does not exist; validating it would imply Hosted has a peer-facing surface.
+
+Not wired yet (the rules are data, the caller is not):
+
+- **Nothing binds a socket or checks a peer.** `bind_host` is read by nobody: no listener, no
+  allow-list middleware, no run-mode field in the daemon's config, and the M1 JSON-RPC surface is
+  unchanged. The mode a config describes is enforced only by `validate()`.
+- **No relay client.** `relay_url` is a validated string; the E2E transport stays M6's `warsha-relay`.
+- **No persistence.** `PairingStore` is implemented only in memory — `warsha-store`'s `devices` table is
+  outside this batch's files, so a restart forgets every pairing and revocation.
+- **No QR handshake and no secret generator.** M6 owns both; this module stores what that flow decides.
+- **The badge is not mounted.** No screen reads a run mode, because nothing in the daemon reports one;
+  `apps/desktop/src/App.tsx` is outside this batch's allowed files.
+
+Tooling note: a first attempt at the WSL sync interpolated `$SRC`/`$DST` as empty inside a
+`wsl ... bash -lc '...'` call and ran `rsync -a --delete / /` for about fourteen minutes. It was killed
+on discovery; `git status` in the repo and a check of the WSL root (`/etc/passwd`, `/usr/bin/bash`,
+`/root/.cargo`, disk usage) confirmed nothing was deleted or rewritten, and the sync was re-run with
+literal paths (exit 0, 6.6 MB, seconds).
+
+Context, not touched: the working tree carried 52 modified and 14 untracked files from other sessions
+when this batch started (`.eslintrc.cjs` deleted, `DECISIONS.md`, `apps/desktop/src/{App.tsx,App.test.tsx}`,
+`apps/desktop/src/components/{HandoffDialog,PlanModeBadge,LivePreview}.tsx`, `ARCH_AUDIT.md`,
+`eslint.config.js`, `scripts/check-arch.mjs`, `crates/warsha-pipeline/src/{backend_kit,handoff}.rs`,
+`crates/warshad/src/lib.rs`, `docs/ARCH_*.md`, `docs/src/scale-standards.md`, `packages/ui/.storybook/`, …).
+They were left exactly as found: this batch adds four new files (`run_modes.rs`, `RunModeBadge.tsx`,
+`RunModeBadge.test.tsx`, `run-modes.md`) and edits four (`crates/warsha-pipeline/src/lib.rs`,
+`docs/src/SUMMARY.md`, `PLAN.md`, `PROGRESS.md`), and `cargo fmt --all` rewrote only `run_modes.rs`.
+No i18n catalog entry was added, matching the precedent that these components carry their own ar/en
+fallback table until the catalog gains the keys.
+
+#### M20 (eighth batch) – UI wiring batch: `WarshaClient` RPC implementations + `MentionPicker`/`SlashCommandPicker` in the composer ✅ DONE (validated 2026-10-30T17:53:06, exit=0, all 20 checks green in the WSL bridge — 279 Rust and 256 TS tests, 0 failures)
+
+Three code files plus the two record files: `packages/client/src/index.ts`,
+`apps/desktop/src/screens/SimpleMode.tsx`, `apps/desktop/src/App.test.tsx`, `PLAN.md`,
+`PROGRESS.md`. No dependency added, no `Cargo.toml`/`package.json`/lockfile change, no
+`.github/workflows/**` change, no i18n catalog entry, no Rust change.
+
+| Deliverable | Path | What landed |
+|---|---|---|
+| Client implementations | `packages/client/src/index.ts` | `WarshaClient implements WarshaWiringApi`; `exportBackend`/`createHandoff`/`applyHandoff`/`listCrashReports`/`listStoreReviews` call `backend.export`/`handoff.create`/`handoff.apply`/`postlaunch.crashes`/`postlaunch.reviews` with the daemon's snake_case params (`run_id`, `output_dir`, `files`, `path`, `owner_wins`, `store`). Result validation: `wiringObject`/`wiringArray`/`wiringString`/`wiringNumber`/`wiringBoolean`/`wiringNullableString`/`wiringPath`/`wiringStringList` + exported `parseHandoffApplySummary`, every error prefixed `Malformed RPC result from <method>: …`. Method names are module consts so the call and its errors cannot drift |
+| Wire types | same file | `HandoffApplySummary.backup_dir?: string` (the field the fourth batch added to `ApplyResult`); `applyHandoff` now resolves `Promise<HandoffApplySummary>`, the third batch's `Promise<string>` decoded into the type it names; `WarshaWiringApi`'s doc comment no longer says "signatures only" |
+| Composer mount | `apps/desktop/src/screens/SimpleMode.tsx` | `ComposerTrigger`, `composerTriggerFor(value)`, `insertComposerToken(value, insertion)`, `simpleSlashCommands(locale)` and a `SIMPLE_SLASH_COMMANDS` placeholder catalog, all exported for reuse; `mentionQuery`/`slashQuery` state (`null` = closed, the string is also the filter query); `handleComposerChange` keeps text and both pickers in step; `pickMention`/`pickSlashCommand` insert and close; `closePickers` on send. The composer box became a column: the input row, then `MentionPicker`/`SlashCommandPicker` under it, `data-testid="simple-composer-input"` on the field |
+| Tests | `apps/desktop/src/App.test.tsx` | 6 new tests (desktop 149 → 155): mention opens on `@fi` with `data-query="fi"` and inserts `@file `; slash opens on `/re` and inserts `/review `; neither opens for `dev@example.com` or `@file:src/main.rs`; the two path-returning RPC calls and their params; the apply summary (`backup_dir` included) plus `postlaunch.crashes` with `run_id: ''` and `postlaunch.reviews` with a store; the two malformed-result rejections |
+
+What the composer actually does now, and what it still does not:
+
+| Piece | Behaviour |
+|---|---|
+| Mention trigger | `@` must begin the trailing token and only letters may follow, so `dev@example.com` stays an address and `@file:src/main.rs` counts as resolved. Picking a kind writes `@file ` (or `@folder`, `@codebase`, …) and closes the dropdown |
+| Slash trigger | Same rule with `/` and an allowed `-` (so `/dry-run` works). Picking writes the command name (already slash-prefixed) plus a space |
+| Mutual exclusion | One nullable query per picker, set from a single `composerTriggerFor` result, so the two can never be open together and neither survives a send |
+| Slash catalog | `/review`, `/refactor`, `/test`, `/docs`, `/release` with ar/en one-liners, held in the screen. No RPC reports the project's skills yet, so this is the composer's placeholder, not the daemon's registry |
+| Not done | Nothing attaches file contents for a mention (`@file` is text only — resolution still belongs to the caller), nothing executes a slash command, and the message still goes to the mock agent reply. No screen calls the five new client methods yet |
+
+Checks actually run (the Windows host has no `pnpm`, so the repo's own `node_modules` binaries were
+used for the per-package runs, and `bridge-io/run.flag` requested the bridge run that CI actually
+uses):
+
+| Check | Result |
+|---|---|
+| `cargo fmt --all --check` | PASS — bridge, exit 0 |
+| `cargo clippy --workspace --all-targets -- -D warnings` | PASS — bridge, exit 0 |
+| `cargo test --workspace` | PASS — bridge, 279 passed, 0 failed across 24 `test result:` lines (Rust untouched this batch) |
+| `pnpm install` / `-r typecheck` | PASS — bridge |
+| `pnpm lint` | PASS — bridge; 0 errors, 1 warning (the pre-existing `react-hooks/exhaustive-deps` in `apps/desktop/src/screens/RunView.tsx`). The same run locally on the two edited files reports nothing for them |
+| `node scripts/check-arch.mjs` / `--self-test` | PASS — `arch: 5 rules, 0 violations`; self-test fires all five rules |
+| `pnpm -r build` | PASS — bridge. Locally `vite build` also ran from `apps/desktop` (348.50 kB) and `apps/remote` (212.57 kB) |
+| `pnpm -r test` | PASS — bridge, 256 tests: client 32, i18n 12, crypto 22, ui 31, remote 4, desktop 155 |
+| `actionlint .github/workflows/ci.yml` | PASS — exit 0 in the bridge and directly in WSL; no workflow file touched |
+| `mdbook build` / `test` | Not run separately — `docs/src/**` is untouched this batch and the bridge's `pnpm -r test` covers the docs package |
+
+Defects and host problems met while getting there:
+
+- The first `vite build` attempt pointed at the root `node_modules/.bin`, where this checkout has no
+  `vite` link (only `vitest`); `apps/desktop/node_modules/vite/bin/vite.js` is the working entry, and
+  both builds then exited 0.
+- The Windows host's `node_modules` predates the fifth batch, so `packages/ui`'s `tsc` exits 2 on
+  `Cannot find module '@storybook/react'` (the manifest and lockfile both declare `8.6.19`, and
+  `node_modules/.pnpm` holds no storybook at all). This is the same pre-existing gap the seventh
+  batch recorded; the bridge's `pnpm install` supplies the package and `pnpm -r typecheck` passed
+  there, which is the CI-equivalent evidence quoted above.
+- The Simple mode screen subscribes to the event stream on mount, so its tests stub `WebSocket` with a
+  `SilentWebSocket` that opens nothing; the first version of the tests also produced `act(...)`
+  warnings from the screen's async init, and they are gone after awaiting the welcome message once.
+
+Decisions (logged here because `DECISIONS.md` is outside this batch's file scope):
+
+- **The five methods keep the names `WarshaWiringApi` already published** — `exportBackend`,
+  `createHandoff`, `applyHandoff`, `listCrashReports`, `listStoreReviews` — rather than the
+  `backendExport`/`handoffCreate`/`handoffApply`/`postlaunchCrashes`/`postlaunchReviews` spellings the
+  brief used. The brief asked for "the 5 methods from `WarshaWiringApi`", the interface is the contract
+  the third batch shipped and PLAN/PROGRESS record, and implementing it under other names would have
+  left `implements WarshaWiringApi` unsatisfiable — so one canonical set was kept and the class now
+  implements the interface (checked by `tsc`).
+- **`applyHandoff` returns the decoded summary, not the raw JSON string.** The daemon's `RpcResult<String>`
+  is a `serde_json` encoding of `ApplyResult`, and the brief asks for `HandoffApplySummary`; decoding it
+  in the client is what makes the exported type do any work, and the field-by-field parse means a
+  changed Rust shape fails loudly at the boundary instead of inside a screen.
+- **`backup_dir` was added to `HandoffApplySummary`.** The fourth batch made it the field that tells the
+  owner where an overwritten file was copied; dropping it in the client would have hidden the only
+  pointer to the backup.
+- **Results are validated, not cast.** Every method returns `unknown` from `rpc` and is narrowed field
+  by field, so `undefined` cannot reach a render. The messages are `Malformed RPC result from <method>:
+  "<field>" is not …`, never a body dump, so nothing a daemon echoes can leak into a message (the token
+  redaction in `rpc` still covers transport and JSON-RPC errors).
+- **A blank `run_id`/`store` is sent for "everything".** `postlaunch.crashes` and `postlaunch.reviews`
+  treat a blank filter as the crash and review screens' unselected state, so the optional TS parameter
+  maps onto that instead of a second RPC shape or a "list everything then filter here".
+- **The composer stays an `<input>`.** The brief says "below the composer textarea", but the field is an
+  input in this screen, and turning it into a textarea is a restyle of the whole chat footer — outside a
+  wiring batch. The two pickers sit in the composer's own column below the field, so a long list pushes
+  the composer up rather than covering the message being typed; every value used is logical
+  (`paddingInline`, `borderInlineEnd`, `insetInlineEnd`), so the RTL layout mirrors.
+- **Visibility state is the query.** `mentionQuery`/`slashQuery` as `string | null` means there is no
+  "open but stale query" state to keep in sync, and one `composerTriggerFor` result drives both, which
+  is what makes them mutually exclusive by construction.
+- **The trigger rule refuses more than it accepts.** Letters only after `@` (and `-` after `/`) is what
+  keeps an email address, an already-resolved mention and a finished command from re-opening a dropdown
+  on the next keystroke. A composer that reopens on `@file ` would fight the owner.
+- **No i18n catalog entries were added.** The two pickers already carry their own ar/en fallback tables
+  and this batch adds no new UI string outside them; the slash-command descriptions follow the same rule
+  so the catalogs stay the single source when the keys are added.
+- **The RPC tests live in `apps/desktop/src/App.test.tsx`.** `packages/client/src/index.test.ts` was
+  outside this batch's allowed files, and the desktop file may "if needed". The tests drive the real
+  `WarshaClient` (only `createClient`'s two list methods are stubbed) with a stubbed `fetch`, so the
+  method-to-RPC mapping, the snake_case params and the decoders are exercised for real; the client
+  package's own suite stays at 32 tests.
+
+Recorded rather than claimed:
+
+- Nothing consumes the five client methods yet: `BackendKitPanel`, `ReviewApplyPanel`, `CrashReports`
+  and `StoreReviews` still take their data through props, so this batch ends at "the client can call
+  the daemon", not "the screens are live".
+- Both `postlaunch.*` lists still start empty — no crash collector and no store-review fetch exist.
+- `backend.export`/`handoff.create` still need a caller that owns a working directory; the composer's
+  pickers still do not resolve mentions or execute commands.
+
+Pre-existing, not touched: the working tree carried no committed/staged change when this batch started,
+and other sessions' files (`.github/workflows/ci.yml`, `DECISIONS.md`, `apps/desktop/src/App.tsx`,
+`RunView.tsx`, `ARCH_AUDIT.md`, `eslint.config.js`, …) were left exactly as found. The one
+`react-hooks/exhaustive-deps` warning and the `act(...)` warning from `AppContent` are both at HEAD.
+`dist/` from the two local `vite build` runs is gitignored. The bridge run wrote `bridge-io/result.log`,
+`run-output.log`, `status.txt` and `done.flag`, which are that directory's own artefacts.
+
 #### Blocked (Local Only — Requires Windows Host Execution)
 - **WSL2 validation runs outside the agent sandbox** — the bridge script (`scripts/wsl-bridge.ps1`) must be running on the Windows host; it rsyncs the repo to `/root/warsha` and runs `scripts/wsl-setup.sh`.
 - Full validation log lives at `/root/warsha/wsl-validation.log` inside WSL (readable with `wsl -d Ubuntu -u root`).

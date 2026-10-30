@@ -4,9 +4,9 @@
 // The panel is the dry run the owner signs off: it renders the per-file diff and
 // reports which paths to apply. Nothing is written here — `onApply(paths)` is the
 // seam a daemon RPC plugs into, and the caller takes the backup bundle first.
-import { useState } from 'react';
 import { t, useDirection, useLocale, type Locale } from '@warsha/i18n';
 import { Button } from '@warsha/ui';
+import { useState } from 'react';
 
 export type DiffKind = 'context' | 'added' | 'removed';
 

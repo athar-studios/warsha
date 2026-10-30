@@ -1,8 +1,8 @@
 // Artifact viewer/editor — Markdown with syntax highlighting
-import React, { useState } from 'react';
-import { Box, Text, Button, Card } from '@warsha/ui';
-import { t, useDirection, useLocale } from '@warsha/i18n';
 import { WarshaClient, type RunSummary } from '@warsha/client';
+import { useDirection, useLocale } from '@warsha/i18n';
+import { Box, Text, Button, Card } from '@warsha/ui';
+import React, { useState } from 'react';
 
 interface ArtifactViewerProps {
   client: WarshaClient;
@@ -10,7 +10,7 @@ interface ArtifactViewerProps {
   onBack: () => void;
 }
 
-export function ArtifactViewer({ client, run, onBack }: ArtifactViewerProps) {
+export function ArtifactViewer({ run, onBack }: ArtifactViewerProps) {
   const dir = useDirection();
   const locale = useLocale();
   const [artifacts, setArtifacts] = useState<Record<string, string>>({});
@@ -70,7 +70,7 @@ export function ArtifactViewer({ client, run, onBack }: ArtifactViewerProps) {
       {/* Sidebar */}
       <Box dir={dir} style={{ 
         width: '280px', 
-        borderRight: '1px solid #e5e7eb',
+        borderInlineEnd: '1px solid #e5e7eb',
         backgroundColor: '#fafafa',
         display: 'flex',
         flexDirection: 'column',

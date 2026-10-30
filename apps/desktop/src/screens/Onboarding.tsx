@@ -1,7 +1,7 @@
 // Onboarding screen — Language selection, provider setup, GitHub auth
-import React, { useState } from 'react';
-import { Box, Text, Button, Card } from '@warsha/ui';
 import { t, useLocale, useDirection } from '@warsha/i18n';
+import { Box, Text, Button, Card } from '@warsha/ui';
+import React, { useState } from 'react';
 
 type OnboardingStep = 'language' | 'providers' | 'github' | 'complete';
 
@@ -64,7 +64,7 @@ export function Onboarding({ onComplete }: { onComplete: () => void }) {
           dir={dir}
           style={{ minWidth: '140px' }}
         >
-          العربية
+          {t('onboarding.lang_ar') || 'العربية'}
         </Button>
         <Button
           variant={selectedLanguage === 'en' ? 'primary' : 'secondary'}
@@ -73,7 +73,7 @@ export function Onboarding({ onComplete }: { onComplete: () => void }) {
           dir={dir}
           style={{ minWidth: '140px' }}
         >
-          English
+          {t('onboarding.lang_en') || 'English'}
         </Button>
       </Box>
 

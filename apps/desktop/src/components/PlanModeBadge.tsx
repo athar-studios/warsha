@@ -26,10 +26,14 @@ const hints: Record<AgentMode, Record<Locale, string>> = {
   },
 };
 
-/** Badge colours: plan is a neutral read-only pill, agent is the one accent. */
+/** Badge colours: plan is a neutral read-only pill, agent is the one accent (#FFD60A on #0E0E0E). */
 const colours: Record<AgentMode, Record<'background' | 'ink' | 'border', string>> = {
   plan: { background: '#eef2ff', ink: '#3730a3', border: '1px solid #c7d2fe' },
-  agent: { background: '#FFD60A', ink: '#0E0E0E', border: '1px solid #FFD60A' },
+  agent: {
+    background: 'var(--warsha-color-accent)',
+    ink: 'var(--warsha-color-accent-ink)',
+    border: '1px solid var(--warsha-color-accent)',
+  },
 };
 
 /**

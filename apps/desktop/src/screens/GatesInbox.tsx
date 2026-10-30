@@ -1,8 +1,8 @@
 // Gates inbox — Approve/reject with device confirmation
-import React, { useState, useEffect } from 'react';
-import { Box, Text, Button, Card } from '@warsha/ui';
-import { t, useDirection, useLocale } from '@warsha/i18n';
 import { WarshaClient, type RunSummary, type GateState, type DeviceId } from '@warsha/client';
+import { useDirection, useLocale } from '@warsha/i18n';
+import { Box, Text, Button, Card } from '@warsha/ui';
+import React, { useState, useEffect } from 'react';
 
 interface GatesInboxProps {
   client: WarshaClient;
@@ -10,7 +10,6 @@ interface GatesInboxProps {
   onBack: () => void;
 }
 
-const GATE_STAGES = ['gate_a', 'gate_b', 'gate_c', 'gate_d'] as const;
 const GATE_LABELS = {
   'gate_a': { ar: 'البوابة أ', en: 'Gate A' },
   'gate_b': { ar: 'البوابة ب', en: 'Gate B' },
@@ -18,7 +17,7 @@ const GATE_LABELS = {
   'gate_d': { ar: 'البوابة د', en: 'Gate D' },
 };
 
-export function GatesInbox({ client, run, onBack }: GatesInboxProps) {
+export function GatesInbox({ run, onBack }: GatesInboxProps) {
   const dir = useDirection();
   const locale = useLocale();
   const [gates, setGates] = useState<Array<{ stage: string; state: GateState }>>([]);
@@ -147,7 +146,7 @@ export function GatesInbox({ client, run, onBack }: GatesInboxProps) {
           {gates.map((gate, index) => (
             <Card key={gate.stage} dir={dir} style={{ 
               backgroundColor: gate.state.state === 'pending' ? '#fffbeb' : 'white',
-              borderLeft: `4px solid ${gate.state.state === 'approved' ? '#10b981' : gate.state.state === 'rejected' ? '#ef4444' : gate.state.state === 'changes_requested' ? '#f59e0b' : '#f59e0b'}`,
+              borderInlineStart: `4px solid ${gate.state.state === 'approved' ? '#10b981' : gate.state.state === 'rejected' ? '#ef4444' : gate.state.state === 'changes_requested' ? '#f59e0b' : '#f59e0b'}`,
             }}>
               <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px' }}>
                 <Box dir={dir}>

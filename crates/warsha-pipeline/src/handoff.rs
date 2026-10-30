@@ -10,16 +10,39 @@
 //! - [`HandoffBundle`] / [`HandoffFile`] — the payload that travels to the
 //!   remote daemon and back; every file carries a checksum of its own content.
 //!
-//! Nothing here touches the filesystem, the network or the event store. That is
-//! deliberate: [`HandoffManager::apply_bundle`] decides *what* would change
-//! (`applied`, `conflicts`, `backups`) and the caller writes the files and takes
-//! the backup. So "review & apply" is a dry run until the owner presses the
-//! button, and the conflict rules are testable without a temp directory.
+//! Two filesystem calls live here, and nothing opens a socket or touches the
+//! event store:
+//!
+//! - [`HandoffManager::write_bundle`] saves a bundle as one JSON file.
+//! - [`HandoffManager::apply_to_disk`] is the button the owner presses: it
+//!   compares the bundle against the working tree, copies every file it is about
+//!   to overwrite into `.warsha-backup/<timestamp>/`, then writes the files.
+//!
+//! The decision itself stays separate: [`HandoffManager::apply_bundle`] decides
+//! *what* would change (`applied`, `conflicts`, `backups`) from the working tree
+//! the caller hands it. So "review & apply" still shows a dry-run diff first, and
+//! the conflict rules are testable without a temp directory.
 
 use std::collections::HashSet;
+use std::path::{Component, Path, PathBuf};
 
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+/// Prefix of the file [`HandoffManager::write_bundle`] writes.
+pub const HANDOFF_FILE_PREFIX: &str = "handoff-";
+
+/// Suffix of the file [`HandoffManager::write_bundle`] writes.
+pub const HANDOFF_FILE_SUFFIX: &str = ".json";
+
+/// Directory inside the working tree where [`HandoffManager::apply_to_disk`]
+/// keeps the copy of every file it overwrites.
+pub const BACKUP_DIR_NAME: &str = ".warsha-backup";
+
+/// How many timestamp suffixes an apply tries before giving up on a free backup
+/// directory. Only a same-millisecond burst of applies can reach the second one.
+const MAX_BACKUP_ATTEMPTS: u32 = 100;
 
 /// FNV-1a, 64-bit, over the UTF-8 bytes of `content`, as 16 lowercase hex digits.
 ///
@@ -242,6 +265,11 @@ pub struct ApplyResult {
     pub backups: Vec<String>,
     /// Conflicts that owner-wins kept on the local side.
     pub resolved: Vec<String>,
+    /// Where [`HandoffManager::apply_to_disk`] put the copies named in
+    /// [`ApplyResult::backups`], or `None` when nothing was backed up (and for
+    /// every dry run). The summary the owner reads names this directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backup_dir: Option<String>,
 }
 
 impl ApplyResult {
@@ -295,6 +323,17 @@ pub enum HandoffError {
         from: String,
         /// The state that was requested.
         to: String,
+    },
+    /// The bundle could not be turned into JSON.
+    #[error("could not encode the handoff bundle: {0}")]
+    Encode(String),
+    /// Writing the bundle to disk failed.
+    #[error("could not write `{path}`: {message}")]
+    Io {
+        /// The path the write tried to use.
+        path: String,
+        /// The operating system's message.
+        message: String,
     },
 }
 
@@ -395,6 +434,48 @@ impl HandoffManager {
         }
     }
 
+    /// Write `bundle` as JSON to `{dir}/handoff-{run_id}.json` and return that
+    /// path.
+    ///
+    /// The bundle is validated first, so a malformed one is refused here rather
+    /// than at the far end of the round trip. `run_id` has to be usable as one
+    /// file name: an id that is not (a separator, `..`, a blank id) is refused
+    /// instead of being allowed to choose where the file lands.
+    pub fn write_bundle(&self, bundle: &HandoffBundle, dir: &str) -> Result<String, HandoffError> {
+        validate_bundle(bundle)?;
+
+        if dir.trim().is_empty() {
+            return Err(HandoffError::Io {
+                path: dir.to_string(),
+                message: "the bundle directory is empty".to_string(),
+            });
+        }
+        if !is_file_stem_safe(&bundle.run_id) {
+            return Err(HandoffError::InvalidBundle(format!(
+                "`{}` is not usable in a file name",
+                bundle.run_id
+            )));
+        }
+
+        let encoded = serde_json::to_string_pretty(bundle)
+            .map_err(|e| HandoffError::Encode(e.to_string()))?;
+        let path = Path::new(dir).join(format!(
+            "{HANDOFF_FILE_PREFIX}{}{HANDOFF_FILE_SUFFIX}",
+            bundle.run_id
+        ));
+
+        std::fs::create_dir_all(dir).map_err(|e| HandoffError::Io {
+            path: dir.to_string(),
+            message: e.to_string(),
+        })?;
+        std::fs::write(&path, encoded).map_err(|e| HandoffError::Io {
+            path: path.to_string_lossy().into_owned(),
+            message: e.to_string(),
+        })?;
+
+        Ok(path.to_string_lossy().into_owned())
+    }
+
     /// Decide what applying `bundle` would do to `local_files`.
     ///
     /// `local_files` is the working tree as it is now, as `(path, content)`
@@ -464,6 +545,105 @@ impl HandoffManager {
         Ok(result)
     }
 
+    /// Apply `bundle` to `working_tree` on disk and return what was done.
+    ///
+    /// This is [`HandoffManager::apply_bundle`] followed by the two steps that
+    /// turn a decision into a change:
+    ///
+    /// 1. **Backup first.** Every path in [`ApplyResult::backups`] — the files the
+    ///    apply is about to overwrite, and the local edits owner-wins keeps — is
+    ///    copied to `{working_tree}/.warsha-backup/{timestamp}/{path}` before the
+    ///    working tree is touched, so the owner's content survives either rule.
+    /// 2. **Then write.** Every path in [`ApplyResult::applied`] receives the
+    ///    bundle's content, with the parent directories created. A file whose
+    ///    content already matches is left alone rather than rewritten.
+    ///
+    /// Conflicts do not stop the apply: the files the two sides agree on, and the
+    /// new ones, are written anyway, and [`ApplyResult::conflicts`] still names
+    /// every disagreement for the gate. A bundle that fails its checksums, or
+    /// carries a path that would leave the working tree, is refused as a whole —
+    /// an apply never writes half a tree.
+    pub fn apply_to_disk(
+        &self,
+        bundle: &HandoffBundle,
+        working_tree: &str,
+        owner_wins: bool,
+    ) -> Result<ApplyResult, HandoffError> {
+        if working_tree.trim().is_empty() {
+            return Err(HandoffError::Io {
+                path: working_tree.to_string(),
+                message: "the working tree is empty".to_string(),
+            });
+        }
+        validate_bundle(bundle)?;
+        for file in &bundle.files {
+            if !is_working_tree_path(&file.path) {
+                return Err(HandoffError::InvalidBundle(format!(
+                    "`{}` would be written outside the working tree",
+                    file.path
+                )));
+            }
+        }
+
+        let root = Path::new(working_tree);
+
+        // The working tree as it is right now is what the decision compares
+        // against; a file that cannot be read as text is treated as absent, the
+        // same way a new file is.
+        let mut local: Vec<(String, String)> = Vec::new();
+        for file in &bundle.files {
+            let path = root.join(normalize_path(&file.path));
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                local.push((file.path.clone(), content));
+            }
+        }
+        let local: Vec<(&str, &str)> = local
+            .iter()
+            .map(|(path, content)| (path.as_str(), content.as_str()))
+            .collect();
+
+        let mut result = self.apply_bundle(bundle, &local, &ApplyOptions::all(owner_wins))?;
+
+        // The backup directory is made on demand: an apply that overwrites
+        // nothing does not create one.
+        let mut backup_dir: Option<PathBuf> = None;
+        for path in &result.backups {
+            let dir = match backup_dir.clone() {
+                Some(dir) => dir,
+                None => {
+                    let dir = create_backup_dir(root)?;
+                    backup_dir = Some(dir.clone());
+                    dir
+                }
+            };
+            let source = root.join(normalize_path(path));
+            let target = dir.join(normalize_path(path));
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| io_error(parent, e))?;
+            }
+            std::fs::copy(&source, &target).map_err(|e| io_error(&source, e))?;
+        }
+
+        for path in &result.applied {
+            let Some(file) = bundle.file(path) else {
+                continue;
+            };
+            let target = root.join(normalize_path(path));
+            // Owner-wins keeps the local file for a conflict, and an agreed file
+            // is already what the bundle holds, so neither is rewritten.
+            if std::fs::read_to_string(&target).is_ok_and(|current| current == file.content) {
+                continue;
+            }
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| io_error(parent, e))?;
+            }
+            std::fs::write(&target, file.content.as_bytes()).map_err(|e| io_error(&target, e))?;
+        }
+
+        result.backup_dir = backup_dir.map(|dir| dir.to_string_lossy().into_owned());
+        Ok(result)
+    }
+
     fn transition_error(&self, to: &'static str) -> HandoffError {
         HandoffError::InvalidTransition {
             from: self.state.label().to_string(),
@@ -506,12 +686,97 @@ fn normalize_path(path: &str) -> &str {
     trimmed.strip_prefix("./").unwrap_or(trimmed)
 }
 
+/// Whether a bundled path stays inside the working tree it is written into.
+///
+/// A bundle may have travelled through the relay, so an absolute path, a drive
+/// prefix or a `..` segment is refused instead of letting the bundle choose
+/// where it lands.
+fn is_working_tree_path(path: &str) -> bool {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let candidate = Path::new(trimmed);
+    !candidate.is_absolute()
+        && !candidate.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+}
+
+/// Make a fresh `{working_tree}/.warsha-backup/{timestamp}` directory and return
+/// it. Two applies inside the same millisecond get `-2`, `-3`, … so an earlier
+/// backup is never written over.
+fn create_backup_dir(root: &Path) -> Result<PathBuf, HandoffError> {
+    let backup_root = root.join(BACKUP_DIR_NAME);
+    std::fs::create_dir_all(&backup_root).map_err(|e| io_error(&backup_root, e))?;
+
+    let stamp = Utc::now().format("%Y%m%dT%H%M%S%3fZ").to_string();
+    for attempt in 1..=MAX_BACKUP_ATTEMPTS {
+        let name = if attempt == 1 {
+            stamp.clone()
+        } else {
+            format!("{stamp}-{attempt}")
+        };
+        let candidate = backup_root.join(name);
+        match std::fs::create_dir(&candidate) {
+            Ok(()) => return Ok(candidate),
+            // `create_dir` (not `create_dir_all`) is the existence test: it fails
+            // only when this stamp is already taken.
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(io_error(&candidate, e)),
+        }
+    }
+
+    Err(HandoffError::Io {
+        path: backup_root.to_string_lossy().into_owned(),
+        message: format!("no free backup directory after {MAX_BACKUP_ATTEMPTS} attempts"),
+    })
+}
+
+/// The [`HandoffError::Io`] for one failed filesystem call.
+fn io_error(path: &Path, error: std::io::Error) -> HandoffError {
+    HandoffError::Io {
+        path: path.to_string_lossy().into_owned(),
+        message: error.to_string(),
+    }
+}
+
+/// Whether a value can be one path segment: ASCII letters, digits, `-` and `_`.
+///
+/// A run id becomes a file name in [`HandoffManager::write_bundle`], so a
+/// separator, `..` or an absolute path would let the bundle pick its own
+/// destination.
+fn is_file_stem_safe(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn bundle_with(files: &[(&str, &str)]) -> HandoffBundle {
         HandoffManager::new().create_bundle("run-1", files)
+    }
+
+    /// Every backup directory under a working tree, oldest name first.
+    fn backup_directories(working_tree: &Path) -> Vec<PathBuf> {
+        let root = working_tree.join(BACKUP_DIR_NAME);
+        let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root)
+            .map(|entries| {
+                entries
+                    .filter_map(Result::ok)
+                    .map(|entry| entry.path())
+                    .collect()
+            })
+            .unwrap_or_default();
+        dirs.sort();
+        dirs
     }
 
     #[test]
@@ -537,6 +802,61 @@ mod tests {
         );
         assert!(bundle.file("src/other.rs").is_none());
         assert_eq!(backup_bundle_name("run-1"), "warsha-backup-run-1");
+    }
+
+    #[test]
+    fn write_bundle_writes_one_json_file_named_after_the_run() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let bundle = bundle_with(&[("src/main.rs", "fn main() {}\n"), ("docs/notes.md", "")]);
+
+        // The target directory does not exist yet: the write creates it.
+        let output_dir = temp.path().join("handoff");
+        let dir = output_dir.to_string_lossy().into_owned();
+        let path = HandoffManager::new()
+            .write_bundle(&bundle, &dir)
+            .expect("the bundle is written to disk");
+
+        assert_eq!(
+            Path::new(&path),
+            output_dir.join("handoff-run-1.json").as_path()
+        );
+        let written = std::fs::read_to_string(&path).expect("the bundle file is readable");
+        let decoded: HandoffBundle =
+            serde_json::from_str(&written).expect("the written JSON is a bundle");
+        assert_eq!(decoded, bundle);
+        assert_eq!(decoded.paths(), vec!["src/main.rs", "docs/notes.md"]);
+        // The content travelled, not just the paths, so an apply needs no
+        // second remote call.
+        assert_eq!(decoded.files[0].content, "fn main() {}\n");
+    }
+
+    #[test]
+    fn write_bundle_refuses_a_run_id_that_is_not_a_file_name() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let dir = temp.path().join("handoff").to_string_lossy().into_owned();
+        let manager = HandoffManager::new();
+
+        let escaping = manager.create_bundle("../escape", &[("a.rs", "a\n")]);
+        assert_eq!(
+            manager.write_bundle(&escaping, &dir),
+            Err(HandoffError::InvalidBundle(
+                "`../escape` is not usable in a file name".to_string()
+            ))
+        );
+
+        // A blank directory and a bundle with no run id are refused too.
+        let bundle = bundle_with(&[("a.rs", "a\n")]);
+        assert!(manager.write_bundle(&bundle, "  ").is_err());
+        let blank_run = manager.create_bundle("", &[("a.rs", "a\n")]);
+        assert_eq!(
+            manager.write_bundle(&blank_run, &dir),
+            Err(HandoffError::InvalidBundle(
+                "the bundle has no run id".to_string()
+            ))
+        );
+
+        // Nothing was written by any of the refusals.
+        assert!(std::fs::read_dir(&dir).is_err());
     }
 
     #[test]
@@ -704,6 +1024,226 @@ mod tests {
     }
 
     #[test]
+    fn apply_to_disk_writes_new_files_and_leaves_an_agreed_one_alone() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let root = temp.path();
+        std::fs::write(root.join("README.md"), "# x\n").expect("the readme is written");
+
+        let bundle = bundle_with(&[("src/new.rs", "pub fn new() {}\n"), ("README.md", "# x\n")]);
+        let result = HandoffManager::new()
+            .apply_to_disk(&bundle, &root.to_string_lossy(), true)
+            .expect("the bundle is written to the working tree");
+
+        assert_eq!(result.applied, vec!["src/new.rs", "README.md"]);
+        // The parent directory is created for a bundled file, so a nested path
+        // lands where the bundle says it does.
+        assert_eq!(
+            std::fs::read_to_string(root.join("src/new.rs")).expect("the new file is readable"),
+            "pub fn new() {}\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("README.md")).expect("the readme is readable"),
+            "# x\n"
+        );
+        // Nothing was overwritten, so no backup directory was made.
+        assert!(result.backups.is_empty());
+        assert_eq!(result.backup_dir, None);
+        assert!(!root.join(BACKUP_DIR_NAME).exists());
+        assert!(!result.has_conflicts());
+    }
+
+    #[test]
+    fn apply_to_disk_remote_wins_overwrites_a_local_edit_and_keeps_it_as_a_backup() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let root = temp.path();
+        std::fs::create_dir_all(root.join("src")).expect("the source directory is made");
+        std::fs::write(root.join("src/lib.rs"), "local edit\n").expect("the local file is written");
+
+        let bundle = bundle_with(&[("src/lib.rs", "remote\n")]);
+        let result = HandoffManager::new()
+            .apply_to_disk(&bundle, &root.to_string_lossy(), false)
+            .expect("the bundle is applied");
+
+        // Remote wins: the working tree holds the remote content.
+        assert_eq!(
+            std::fs::read_to_string(root.join("src/lib.rs")).expect("the file is readable"),
+            "remote\n"
+        );
+        assert_eq!(result.applied, vec!["src/lib.rs"]);
+        assert_eq!(result.resolved, Vec::<String>::new());
+        assert_eq!(
+            result.conflicts,
+            vec![Conflict {
+                path: "src/lib.rs".to_string(),
+                local_checksum: content_checksum("local edit\n"),
+                remote_checksum: content_checksum("remote\n"),
+            }]
+        );
+        // Overwriting a local edit is what the owner has to sign off at a gate.
+        assert!(result.requires_gate());
+
+        // The local edit survives in `{working_tree}/.warsha-backup/{stamp}/src/lib.rs`.
+        let backup_dir = result
+            .backup_dir
+            .as_deref()
+            .expect("the apply names its backup directory");
+        let backup_dir = Path::new(backup_dir);
+        assert_eq!(
+            backup_dir,
+            backup_directories(root)[0].as_path(),
+            "the reported directory is the one on disk"
+        );
+        assert!(backup_dir.starts_with(root.join(BACKUP_DIR_NAME)));
+        assert_eq!(
+            std::fs::read_to_string(backup_dir.join("src/lib.rs"))
+                .expect("the backed-up file is readable"),
+            "local edit\n"
+        );
+    }
+
+    #[test]
+    fn apply_to_disk_owner_wins_keeps_the_local_file_and_still_backs_it_up() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let root = temp.path();
+        std::fs::write(root.join("src-lib.rs"), "local edit\n").expect("the local file is written");
+
+        let bundle = bundle_with(&[("src-lib.rs", "remote\n")]);
+        let result = HandoffManager::new()
+            .apply_to_disk(&bundle, &root.to_string_lossy(), true)
+            .expect("the bundle is applied");
+
+        // Owner wins: the local edit stays, and the conflict is on record.
+        assert_eq!(
+            std::fs::read_to_string(root.join("src-lib.rs")).expect("the file is readable"),
+            "local edit\n"
+        );
+        assert_eq!(result.applied, Vec::<String>::new());
+        assert_eq!(result.resolved, vec!["src-lib.rs"]);
+        assert!(result.has_conflicts());
+        assert!(!result.requires_gate());
+
+        // The owner's content is still copied aside, so a later apply cannot
+        // erase it without a trace.
+        let backup_dir = PathBuf::from(
+            result
+                .backup_dir
+                .as_deref()
+                .expect("the apply names its backup directory"),
+        );
+        assert_eq!(
+            std::fs::read_to_string(backup_dir.join("src-lib.rs"))
+                .expect("the backed-up file is readable"),
+            "local edit\n"
+        );
+    }
+
+    #[test]
+    fn apply_to_disk_writes_the_other_files_around_a_conflict() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let root = temp.path();
+        std::fs::write(root.join("a.rs"), "local a\n").expect("the local file is written");
+
+        let bundle = bundle_with(&[("a.rs", "remote a\n"), ("b.rs", "new b\n")]);
+        let result = HandoffManager::new()
+            .apply_to_disk(&bundle, &root.to_string_lossy(), false)
+            .expect("a conflict does not stop the apply");
+
+        assert_eq!(
+            std::fs::read_to_string(root.join("a.rs")).expect("the conflicting file is readable"),
+            "remote a\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("b.rs")).expect("the new file is readable"),
+            "new b\n"
+        );
+        assert_eq!(result.applied, vec!["a.rs", "b.rs"]);
+        assert_eq!(result.conflicts.len(), 1);
+        assert_eq!(result.conflicts[0].path, "a.rs");
+    }
+
+    #[test]
+    fn apply_to_disk_gives_each_apply_its_own_backup_directory() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let root = temp.path();
+        std::fs::write(root.join("a.rs"), "local a\n").expect("the local file is written");
+
+        let first = HandoffManager::new()
+            .apply_to_disk(
+                &bundle_with(&[("a.rs", "remote 1\n")]),
+                &root.to_string_lossy(),
+                false,
+            )
+            .expect("the first apply runs");
+        let second = HandoffManager::new()
+            .apply_to_disk(
+                &bundle_with(&[("a.rs", "remote 2\n")]),
+                &root.to_string_lossy(),
+                false,
+            )
+            .expect("the second apply runs");
+
+        let directories = backup_directories(root);
+        assert_eq!(directories.len(), 2);
+        assert_ne!(first.backup_dir, second.backup_dir);
+        // Both backups are kept: the second apply does not write over the first.
+        assert_eq!(
+            std::fs::read_to_string(directories[0].join("a.rs")).expect("the first backup"),
+            "local a\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(directories[1].join("a.rs")).expect("the second backup"),
+            "remote 1\n"
+        );
+    }
+
+    #[test]
+    fn apply_to_disk_refuses_a_path_that_leaves_the_working_tree() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let root = temp.path();
+        let manager = HandoffManager::new();
+
+        for path in ["../escape.rs", "/etc/passwd", "src/../../escape.rs"] {
+            let bundle = bundle_with(&[(path, "x\n"), ("ok.rs", "ok\n")]);
+            let error = manager
+                .apply_to_disk(&bundle, &root.to_string_lossy(), false)
+                .expect_err("a path outside the tree is refused");
+            assert_eq!(
+                error,
+                HandoffError::InvalidBundle(format!(
+                    "`{path}` would be written outside the working tree"
+                ))
+            );
+        }
+
+        // The whole bundle is refused: the safe file in it is not written either.
+        assert!(!root.join("ok.rs").exists());
+        assert!(!root.join(BACKUP_DIR_NAME).exists());
+
+        // A blank working tree is refused too.
+        let bundle = bundle_with(&[("ok.rs", "ok\n")]);
+        assert!(manager.apply_to_disk(&bundle, "   ", false).is_err());
+    }
+
+    #[test]
+    fn apply_to_disk_refuses_a_bundle_whose_checksum_no_longer_matches() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let root = temp.path();
+        let mut bundle = bundle_with(&[("a.rs", "remote\n")]);
+        bundle.files[0].content = "tampered\n".to_string();
+
+        let error = HandoffManager::new()
+            .apply_to_disk(&bundle, &root.to_string_lossy(), false)
+            .expect_err("a broken checksum must refuse the apply");
+        assert_eq!(
+            error,
+            HandoffError::ChecksumMismatch {
+                path: "a.rs".to_string()
+            }
+        );
+        assert!(!root.join("a.rs").exists());
+    }
+
+    #[test]
     fn the_state_machine_follows_the_handoff_flow() {
         let mut manager = HandoffManager::new();
         assert_eq!(manager.state(), &HandoffState::Idle);
@@ -802,11 +1342,19 @@ mod tests {
             }],
             backups: vec!["b.rs".to_string()],
             resolved: Vec::new(),
+            backup_dir: Some("/tmp/.warsha-backup/20261031T120000000Z".to_string()),
         };
         let encoded = serde_json::to_string(&result).expect("serialize result");
         assert_eq!(
             serde_json::from_str::<ApplyResult>(&encoded).expect("deserialize result"),
             result
         );
+        // A dry run carries no backup directory, and the field is absent from the
+        // wire form rather than `null`, so the existing summary shape is unchanged.
+        let dry_run = ApplyResult::default();
+        assert!(dry_run.backup_dir.is_none());
+        assert!(!serde_json::to_string(&dry_run)
+            .expect("serialize a dry run")
+            .contains("backup_dir"));
     }
 }

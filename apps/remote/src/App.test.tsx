@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import { LocaleProvider } from '@warsha/i18n';
 import React from 'react';
 import { BrowserRouter } from 'react-router-dom';
-import { LocaleProvider } from '@warsha/i18n';
+import { describe, it, expect } from 'vitest';
+
 import App from './App';
 
 function renderApp() {

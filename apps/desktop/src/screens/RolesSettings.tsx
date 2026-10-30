@@ -1,8 +1,8 @@
 // Roles settings — Set role routing (provider/model per role)
-import React, { useState, useEffect } from 'react';
+import { WarshaClient, type RoleRoutingConfig, type Role } from '@warsha/client';
+import { useDirection, useLocale } from '@warsha/i18n';
 import { Box, Text, Button, Card } from '@warsha/ui';
-import { t, useDirection, useLocale } from '@warsha/i18n';
-import { WarshaClient, type RoleRoutingConfig, type RoutingTargetConfig, type Role } from '@warsha/client';
+import React, { useState, useEffect } from 'react';
 
 interface RolesSettingsProps {
   client: WarshaClient;
@@ -29,7 +29,7 @@ const ROLE_LABELS: Record<Role, { ar: string; en: string }> = {
   feedback: { ar: 'التغذية الراجعة', en: 'Feedback' },
 };
 
-export function RolesSettings({ client, onBack }: RolesSettingsProps) {
+export function RolesSettings({ onBack }: RolesSettingsProps) {
   const dir = useDirection();
   const locale = useLocale();
   const [roles, setRoles] = useState<RoleRoutingConfig[]>([]);

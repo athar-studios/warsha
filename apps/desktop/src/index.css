@@ -1,29 +1,36 @@
-/* Warsha Desktop — Global styles */
+/* Warsha Desktop — Global styles
+ *
+ * The design tokens live in @warsha/ui (`packages/ui/src/tokens/tokens.css`) and are imported once,
+ * here. Nothing below invents a colour or a font: it references a token, so flipping
+ * `data-theme="dark"` on <html> restyles the whole app without touching this file.
+ */
+@import '@warsha/ui/tokens/tokens.css';
+
 * {
   box-sizing: border-box;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   margin: 0;
   padding: 0;
 }
 
 body {
-  font-family: 'Inter', 'Noto Sans Arabic', system-ui, -apple-system, sans-serif;
-  background-color: #f9fafb;
-  color: #1f2937;
-  line-height: 1.5;
+  /* Arabic-first stack: IBM Plex Sans Arabic leads for both directions, so there is no longer a
+   * separate `[dir="rtl"]` family override — one stack covers Arabic and Latin copy. */
+  font-family: var(--warsha-font-sans);
+  background-color: var(--warsha-color-bg);
+  color: var(--warsha-color-text);
+  line-height: var(--warsha-line-height-base);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-[dir="rtl"] {
-  font-family: 'Noto Sans Arabic', 'Inter', system-ui, -apple-system, sans-serif;
-}
-
 a {
-  color: #2563eb;
+  color: var(--warsha-color-accent-strong);
   text-decoration: none;
 }
 
@@ -35,13 +42,15 @@ button {
   font-family: inherit;
 }
 
-input, textarea, select {
+input,
+textarea,
+select {
   font-family: inherit;
-  font-size: 1rem;
+  font-size: var(--warsha-font-size-md);
 }
 
 :focus-visible {
-  outline: 2px solid #2563eb;
+  outline: 2px solid var(--warsha-color-accent);
   outline-offset: 2px;
 }
 

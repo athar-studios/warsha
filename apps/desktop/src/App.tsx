@@ -1,23 +1,42 @@
 // @warsha/desktop — Main app component with Simple/Advanced mode routing
-import React, { useState, useEffect, createContext, useContext, ReactNode } from 'react';
-import { Box, Text, Button, Card } from '@warsha/ui';
-import { LocaleProvider, useLocale, useDirection, t } from '@warsha/i18n';
+import { invoke } from '@tauri-apps/api/core';
 import { createClient, type WarshaClient, type ProjectSummary, type RunSummary } from '@warsha/client';
+import { LocaleProvider, useLocale, useDirection, t, type Locale } from '@warsha/i18n';
+import { Box, Text, Button } from '@warsha/ui';
+import React, { useState, useEffect, createContext, useContext, ReactNode } from 'react';
+
+import {
+  BackendKitPanel,
+  type BackendFeature,
+  type BackendKind,
+  type BackendTable,
+  type PaymentsGateStatus,
+} from './components/BackendKitPanel';
 import { PermissionModeChip, type PermissionMode } from './components/PermissionModeChip';
+import { PlanModeBadge, type AgentMode } from './components/PlanModeBadge';
+import { ProviderSetupWizard } from './components/ProviderSetupWizard';
 import { StatusStrip, initialDeliveryStages, type DeliveryStage } from './components/StatusStrip';
+import { AdvancedMode } from './screens/AdvancedMode';
+import { ArtifactViewer } from './screens/ArtifactViewer';
+import { Budgets } from './screens/Budgets';
+import { CrashReports, type CrashReport } from './screens/CrashReports';
+import { Devices } from './screens/Devices';
+import { GatesInbox } from './screens/GatesInbox';
 import { Onboarding } from './screens/Onboarding';
 import { ProjectsBoard } from './screens/ProjectsBoard';
-import { RunView } from './screens/RunView';
-import { GatesInbox } from './screens/GatesInbox';
-import { ArtifactViewer } from './screens/ArtifactViewer';
 import { ProvidersSettings } from './screens/ProvidersSettings';
 import { RolesSettings } from './screens/RolesSettings';
-import { Budgets } from './screens/Budgets';
-import { Devices } from './screens/Devices';
-import { SimpleMode } from './screens/SimpleMode';
-import { AdvancedMode } from './screens/AdvancedMode';
+import { Routines, type Routine } from './screens/Routines';
+import { RunView } from './screens/RunView';
+import {
+  SettingsProviders,
+  type ProviderEntry,
+  type ProviderMode,
+} from './screens/SettingsProviders';
 import { SettingsScreen } from './screens/SettingsScreen';
-import { invoke } from '@tauri-apps/api/core';
+import { SimpleMode } from './screens/SimpleMode';
+import { StoreReviews, type StoreReview } from './screens/StoreReviews';
+
 
 // Screen types
 type Screen = 
@@ -32,7 +51,48 @@ type Screen =
   | 'devices'
   | 'simple'
   | 'advanced'
-  | 'settings';
+  | 'settings'
+  | 'routines'
+  | 'settings-providers'
+  | 'crash-reports'
+  | 'store-reviews'
+  | 'backend-kit';
+
+// The Settings tab strip (PLAN.md M20 wiring batch): every settings sub-screen can
+// reach the others, so none of them is a dead end. Order is the sidebar order.
+const SETTINGS_SCREENS: Screen[] = [
+  'settings',
+  'settings-providers',
+  'routines',
+  'crash-reports',
+  'store-reviews',
+  'backend-kit',
+];
+
+// Tab labels. `t` returns the key itself when the catalog has no entry yet, so the
+// label falls back to the local text until `@warsha/i18n` gains the key (the same
+// `localized` rule the M8b/M14a/M17 components use).
+function localized(key: string, fallback: string, locale: Locale): string {
+  const translated = t(key, {}, locale);
+  return translated === key ? fallback : translated;
+}
+
+function settingsTabLabel(screen: Screen, locale: Locale): string {
+  switch (screen) {
+    case 'settings-providers':
+      return localized('nav.providers', 'Providers', locale);
+    case 'routines':
+      return localized('settings.routines', 'Routines', locale);
+    case 'crash-reports':
+      return localized('settings.crashReports', 'Crash reports', locale);
+    case 'store-reviews':
+      return localized('settings.storeReviews', 'Store reviews', locale);
+    case 'backend-kit':
+      return localized('settings.backendKit', 'Backend kit', locale);
+    default:
+      return localized('nav.settings', 'Settings', locale);
+  }
+}
 
 // App mode
 type AppMode = 'simple' | 'advanced';
@@ -102,7 +162,7 @@ function AppContent() {
   const locale = useLocale();
   const [screen, setScreen] = useState<Screen>('onboarding');
   const [client, setClient] = useState<WarshaClient | null>(null);
-  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [, setProjects] = useState<ProjectSummary[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(null);
   const [selectedRun, setSelectedRun] = useState<RunSummary | null>(null);
   const [onboardingComplete, setOnboardingComplete] = useState(false);
@@ -113,6 +173,25 @@ function AppContent() {
   // nothing has reported a check yet; the CI/GitHub check feed replaces this
   // initializer once the delivery RPC exists.
   const [deliveryStages] = useState<DeliveryStage[]>(initialDeliveryStages);
+  // Agent workflow (M18): Plan/Agent mode, shown next to the mode toggle. The badge
+  // only asks for a switch; Plan → Agent needs the owner's approval card, so this
+  // shell records the requested mode and the gates inbox grants it.
+  const [agentMode, setAgentMode] = useState<AgentMode>('plan');
+  // Settings → Routines / Providers (M8b): `warshad` has no routines.* or provider
+  // listing RPC on this branch, so both lists start empty and the handlers are the
+  // seams a later RPC plugs into.
+  const [routines] = useState<Routine[]>([]);
+  const [providers, setProviders] = useState<ProviderEntry[]>([]);
+  // Post-launch care (M17): crash reports and store reviews are read-only lists;
+  // nothing records or fetches them yet.
+  const [crashReports] = useState<CrashReport[]>([]);
+  const [storeReviews] = useState<StoreReview[]>([]);
+  // Backend kit (M19): the backend kind, the enabled services, the tables the agent
+  // created and the payments gate (shut until the owner approves it).
+  const [backendKind, setBackendKind] = useState<BackendKind>('pocket_base');
+  const [backendFeatures, setBackendFeatures] = useState<BackendFeature[]>([]);
+  const [backendTables] = useState<BackendTable[]>([]);
+  const [paymentsGate] = useState<PaymentsGateStatus>({ enabled: false });
 
   // Initialize client and load mode
   useEffect(() => {
@@ -152,15 +231,18 @@ function AppContent() {
     }
   };
 
+  // Not wired to a screen yet: the create-project flow still lives inside ProjectsBoard. Kept as-is
+  // because rewiring it is component behaviour, which the M20 foundations brief excludes.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept for the M20 wiring follow-up
   const handleCreateProject = async (name: string, idea: string) => {
     if (!client) return;
     try {
       const project = await client.createProject(name);
-      await client.startRun(project.id as any, idea);
+      await client.startRun(project.id, idea);
       const projectsData = await client.listProjects();
       setProjects(projectsData);
       setSelectedProject(project);
-      const runs = await client.listRuns(project.id as any);
+      const runs = await client.listRuns(project.id);
       if (runs.length > 0) {
         setSelectedRun(runs[0]);
         setScreen(savedMode);
@@ -168,6 +250,53 @@ function AppContent() {
     } catch (error) {
       console.error('Failed to create project:', error);
     }
+  };
+
+  // Routines: the registry and its runner live in `warsha-pipeline`, but the daemon
+  // exposes no routines.* method yet, so these three only record the seam. Nothing is
+  // scheduled or executed from the shell.
+  const handleRoutineRun = (_id: string) => {
+    // TODO(M20 wiring): call the daemon's routines.run-now RPC once it exists.
+  };
+  const handleRoutinePause = (_id: string) => {
+    // TODO(M20 wiring): call the daemon's routines.pause RPC once it exists.
+  };
+  const handleRoutineResume = (_id: string) => {
+    // TODO(M20 wiring): call the daemon's routines.resume RPC once it exists.
+  };
+
+  // Settings → Providers (M16): every provider is off by default, so the row edits
+  // only touch the list this shell holds; persisting them needs the settings RPC.
+  const handleProviderToggle = (name: string, enabled: boolean) => {
+    setProviders((current) =>
+      current.map((entry) => (entry.name === name ? { ...entry, enabled } : entry))
+    );
+  };
+  const handleProviderMode = (name: string, mode: ProviderMode) => {
+    setProviders((current) =>
+      current.map((entry) => (entry.name === name ? { ...entry, mode } : entry))
+    );
+  };
+  const handleProviderPin = (name: string, version: string) => {
+    setProviders((current) =>
+      current.map((entry) => (entry.name === name ? { ...entry, pinnedVersion: version } : entry))
+    );
+  };
+
+  // Backend kit (M19): the panel's edits are local; the MCP client that creates the
+  // tables, policies and buckets, and the export that writes the SQL dump, are not wired.
+  const handleBackendKind = (kind: BackendKind) => {
+    setBackendKind(kind);
+  };
+  const handleBackendFeature = (feature: BackendFeature, enabled: boolean) => {
+    setBackendFeatures((current) =>
+      enabled
+        ? [...current.filter((entry) => entry !== feature), feature]
+        : current.filter((entry) => entry !== feature)
+    );
+  };
+  const handleBackendExport = () => {
+    // TODO(M20 wiring): call the daemon's backend-kit export RPC once it exists.
   };
 
   const renderScreen = () => {
@@ -205,7 +334,7 @@ function AppContent() {
           zIndex: 100,
         }}>
           <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <Text size="xl" weight="bold" style={{ color: '#2563eb' }}>Warsha</Text>
+            <Text size="xl" weight="bold" style={{ color: '#2563eb' }}>{t('app.brand') || 'Warsha'}</Text>
             <Text size="sm" style={{ color: '#6b7280' }}>{t('app.version') || 'v0.1.0'}</Text>
           </Box>
 
@@ -217,6 +346,9 @@ function AppContent() {
           <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             {/* Work protection: permission mode */}
             <PermissionModeChip mode={permissionMode} onChange={setPermissionMode} />
+
+            {/* Agent workflow: Plan/Agent badge, next to the mode toggle */}
+            <PlanModeBadge mode={agentMode} onToggle={setAgentMode} />
 
             {/* Mode Toggle */}
             <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#f3f4f6', borderRadius: '8px', padding: '4px' }}>
@@ -238,7 +370,7 @@ function AppContent() {
               </Button>
             </Box>
             
-            <Button variant="ghost" size="sm" dir={dir} onClick={() => setScreen('settings')}>
+            <Button variant="ghost" size="sm" dir={dir} data-testid="settings-open" onClick={() => setScreen('settings')}>
               {t('app.settings') || 'Settings'}
             </Button>
           </Box>
@@ -257,6 +389,41 @@ function AppContent() {
       </ModeProvider>
     );
   };
+
+  // The tab strip the settings sub-screens share, so Routines, Providers, the
+  // post-launch lists and the backend kit are all reachable from Settings.
+  const renderSettingsTabs = () => (
+    <div
+      dir={dir}
+      role="tablist"
+      data-testid="settings-tabs"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        paddingInline: '16px',
+        paddingBlock: '10px',
+        backgroundColor: 'white',
+        borderBottom: '1px solid #e5e7eb',
+        flexWrap: 'wrap',
+      }}
+    >
+      {SETTINGS_SCREENS.map((target) => (
+        <Button
+          key={target}
+          role="tab"
+          aria-selected={screen === target}
+          variant={screen === target ? 'primary' : 'ghost'}
+          size="sm"
+          dir={dir}
+          data-testid={`settings-tab-${target}`}
+          onClick={() => setScreen(target)}
+        >
+          {settingsTabLabel(target, locale)}
+        </Button>
+      ))}
+    </div>
+  );
 
   const renderMainContent = () => {
     if (!client) {
@@ -314,7 +481,77 @@ function AppContent() {
         return <Devices client={client} onBack={() => setScreen('projects')} />;
       
       case 'settings':
-        return <SettingsScreen client={client} onBack={() => setScreen('projects')} />;
+        return (
+          <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+            {renderSettingsTabs()}
+            <SettingsScreen client={client} onBack={() => setScreen('projects')} />
+          </Box>
+        );
+
+      case 'routines':
+        return (
+          <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+            {renderSettingsTabs()}
+            <Routines
+              routines={routines}
+              onRun={handleRoutineRun}
+              onPause={handleRoutinePause}
+              onResume={handleRoutineResume}
+            />
+          </Box>
+        );
+
+      case 'settings-providers':
+        return (
+          <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+            {renderSettingsTabs()}
+            <SettingsProviders
+              providers={providers}
+              onModeChange={handleProviderMode}
+              onToggle={handleProviderToggle}
+              onPinVersion={handleProviderPin}
+            />
+            {/* One-click setup (M14b): the six presets and the network-free
+                "Test connection". `onSave` has no settings RPC behind it yet. */}
+            <Box dir={dir} style={{ paddingInline: '16px', paddingBlock: '12px' }}>
+              <ProviderSetupWizard />
+            </Box>
+          </Box>
+        );
+
+      case 'crash-reports':
+        return (
+          <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+            {renderSettingsTabs()}
+            <CrashReports reports={crashReports} />
+          </Box>
+        );
+
+      case 'store-reviews':
+        return (
+          <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+            {renderSettingsTabs()}
+            <StoreReviews reviews={storeReviews} />
+          </Box>
+        );
+
+      case 'backend-kit':
+        return (
+          <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+            {renderSettingsTabs()}
+            <Box dir={dir} style={{ padding: '16px', maxWidth: '900px', margin: '0 auto', width: '100%' }}>
+              <BackendKitPanel
+                kind={backendKind}
+                features={backendFeatures}
+                tables={backendTables}
+                payments={paymentsGate}
+                onKindChange={handleBackendKind}
+                onToggleFeature={handleBackendFeature}
+                onExport={handleBackendExport}
+              />
+            </Box>
+          </Box>
+        );
       
       default:
         return <ProjectsBoard client={client} onProjectSelect={handleProjectSelect} />;
