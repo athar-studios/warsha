@@ -30,7 +30,7 @@ export function SettingsScreen({ client, onBack }: SettingsScreenProps) {
   ];
 
   return (
-    <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', maxWidth: '900px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
+    <Box dir={dir} className="settings-screen" style={{ padding: 'var(--warsha-space-4)', maxWidth: '900px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
       <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-3)' }}>
         {onBack && (
           <Button variant="ghost" size="sm" dir={dir} onClick={onBack}>

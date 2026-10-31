@@ -82,15 +82,39 @@ export interface TextProps {
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   weight?: 'normal' | 'medium' | 'bold';
   dir?: 'rtl' | 'ltr' | 'auto';
+  /**
+   * Render in the inline flow instead of as a block-level box.
+   *
+   * `false` is the default and the deliberate one: every screen in this repository uses `Text` as a
+   * *block* — it passes `marginBottom`/`marginBlock`, `textAlign`, `maxWidth` — and none of those do
+   * anything on an inline box. An inline `<span>` also cannot stack, so consecutive `Text` runs
+   * collapse onto one line and their boxes overlap (that was the desktop layout defect this prop
+   * exists to keep fixed).
+   *
+   * Set it only where a run of text must flow inside surrounding inline content, e.g.
+   * `<Text inline>{count}</Text> of 12`.
+   */
+  inline?: boolean;
   style?: React.CSSProperties;
 }
 
-export function Text({ children, className = '', size = 'md', weight = 'normal', dir = 'auto', style }: TextProps) {
+export function Text({
+  children,
+  className = '',
+  size = 'md',
+  weight = 'normal',
+  dir = 'auto',
+  inline = false,
+  style,
+}: TextProps) {
   return (
+    // The tag stays a `<span>` so no existing selector, test or consumer changes; the *box* is what
+    // was wrong, and `display` is what fixes it. `inline` opts back into the inline flow.
     <span
       className={className}
       dir={dir}
       style={{
+        display: inline ? 'inline' : 'block',
         fontSize: TEXT_SIZE[size],
         fontWeight: TEXT_WEIGHT[weight],
         ...style,

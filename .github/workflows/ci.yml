@@ -115,6 +115,16 @@ jobs:
       - name: Test
         run: pnpm -r test
 
+      # The visual suite starts both dev servers itself (playwright.config.ts webServer), screenshots
+      # all 56 desktop cases plus the remote smoke check against the baselines committed beside them,
+      # and fails on any layout invariant or pixel diff. The browsers are the same Linux chromium the
+      # baselines were generated with, so the comparison is exact.
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Visual regression
+        run: pnpm visual
+
       - name: Build
         run: pnpm build
 

@@ -13,12 +13,23 @@
 //!
 //! What is real and what is not:
 //!
-//! - **Stdio is real.** [`McpManager::connect`] spawns the server's command
-//!   through the daemon's [`ProcessManager`], so `process.list` sees it, and
-//!   [`McpManager::send`] writes the frame to the child's stdin. The MCP JSON-RPC
-//!   handshake (`initialize`, `tools/list`, notifications) is **not** implemented:
-//!   bytes are forwarded verbatim, and the caller supplies a frame the server can
-//!   parse.
+//! - **Stdio is real, handshake included.** [`McpManager::connect`] spawns the
+//!   server's command through the daemon's [`ProcessManager`], so `process.list`
+//!   sees it, and then speaks the protocol: `initialize`, read the reply,
+//!   `notifications/initialized`, `tools/list`, read the reply. The tool names
+//!   that reply carried travel on the connection, so `mcp.list` reports what the
+//!   server said it can do instead of an empty promise, and a server that is not
+//!   an MCP server is reported rather than recorded as connected.
+//! - **An answer is waited for, and only so long.** Each connection keeps a
+//!   cursor into its process's stdout ([`ProcessManager::read_stdout`]), and the
+//!   handshake reads one reply per request within [`RESPONSE_TIMEOUT`]. A server
+//!   that never answers fails `connect` with [`McpTransportError::Timeout`] and
+//!   is stopped with the connection it did not earn. Lines that are not JSON (a
+//!   server may log to stdout) and replies carrying another id are skipped, so a
+//!   chatty server is not mistaken for a silent one.
+//!   [`McpManager::send`] stays the raw seam it was: one framed line out, the
+//!   frame back, and no waiting — a caller driving a method this client does not
+//!   is the caller's own protocol.
 //! - **Http and WebSocket are recorded, not connected.** The configuration is
 //!   stored and reported as [`McpStatus::Disconnected`] with no process id, so
 //!   `mcp.list` tells the truth about a transport that was never dialled.
@@ -26,12 +37,35 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::process_spawn::{ProcessError, ProcessManager, ProcessStatus};
+
+/// The MCP revision this client speaks, sent as `protocolVersion`.
+pub const MCP_PROTOCOL_VERSION: &str = "2024-11-05";
+
+/// How long a stdio server is given to answer one request.
+///
+/// The handshake is two requests, so a server that never answers costs the caller
+/// this once per request rather than hanging the daemon on a pipe that stays open.
+pub const RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How often the reply reader asks its process what it has printed.
+const RESPONSE_POLL_INTERVAL: Duration = Duration::from_millis(20);
+
+/// The id the `initialize` request carries, echoed back by the reply.
+const INITIALIZE_REQUEST_ID: u64 = 1;
+
+/// The id the `tools/list` request carries, echoed back by the reply.
+const TOOLS_LIST_REQUEST_ID: u64 = 2;
+
+/// The name this client reports to a server in `initialize`.
+const CLIENT_NAME: &str = "warsha-daemon";
 
 /// How to reach an MCP server.
 ///
@@ -171,6 +205,13 @@ pub struct McpConnection {
     pub status: McpStatus,
     /// The managed process behind a stdio connection.
     pub process_id: Option<String>,
+    /// The tool names the server's `tools/list` reply carried, in its own order.
+    ///
+    /// Empty until the handshake has run: an `Http`/`WebSocket` config is recorded
+    /// without one, and a server whose handshake failed has no list to report.
+    /// Only the names travel: a description is the server's to show, and nothing
+    /// here has a screen to show it on.
+    pub tools: Vec<String>,
 }
 
 /// Everything that can go wrong connecting, sending or disconnecting.
@@ -217,6 +258,35 @@ pub enum McpTransportError {
         #[source]
         source: ProcessError,
     },
+    /// The server's output could not be read.
+    #[error("could not read from MCP server `{name}`: {source}")]
+    Read {
+        /// The server whose output was being read.
+        name: String,
+        /// Why the read failed.
+        #[source]
+        source: ProcessError,
+    },
+    /// The server did not answer in time.
+    #[error("MCP server `{name}` did not answer `{method}` within {seconds}s")]
+    Timeout {
+        /// The server that stayed silent.
+        name: String,
+        /// The method that went unanswered.
+        method: String,
+        /// How long it was given, in seconds.
+        seconds: u64,
+    },
+    /// The server answered, but not with something this client can use.
+    #[error("MCP server `{name}` answered `{method}` with {problem}")]
+    Protocol {
+        /// The server that answered badly.
+        name: String,
+        /// The method it answered.
+        method: String,
+        /// What was wrong with the reply.
+        problem: String,
+    },
     /// The server process could not be stopped.
     #[error("could not stop MCP server `{name}`: {source}")]
     Stop {
@@ -249,9 +319,15 @@ pub trait McpManager: Send + Sync {
 /// One connection per name. A stdio connection owns exactly one managed process;
 /// disconnecting stops it, and the process stays visible in `process.list` as a
 /// stopped record — the manager never deletes history it does not own.
+///
+/// The stdout cursor lives here rather than on the connection because it is a
+/// reader's position, not a server's state: [`McpConnection`] is what `mcp.list`
+/// reports, and a cursor in that record would have to be invented for a
+/// connection that has no process to read from.
 pub struct InMemoryMcpManager {
     processes: Arc<dyn ProcessManager>,
     connections: Mutex<Vec<McpConnection>>,
+    cursors: Mutex<HashMap<String, usize>>,
 }
 
 impl InMemoryMcpManager {
@@ -260,6 +336,7 @@ impl InMemoryMcpManager {
         InMemoryMcpManager {
             processes,
             connections: Mutex::new(Vec::new()),
+            cursors: Mutex::new(HashMap::new()),
         }
     }
 
@@ -289,6 +366,176 @@ impl InMemoryMcpManager {
             Err(_) => McpStatus::Error(format!("process {process_id} is gone")),
         }
     }
+
+    /// Write one newline-framed JSON frame to a server's stdin.
+    async fn write_frame(
+        &self,
+        name: &str,
+        process_id: &str,
+        frame: &Value,
+    ) -> Result<(), McpTransportError> {
+        let mut encoded = frame.to_string();
+        encoded.push('\n');
+        self.processes
+            .write_stdin(process_id, encoded.as_bytes())
+            .await
+            .map_err(|source| McpTransportError::Send {
+                name: name.to_string(),
+                source,
+            })
+    }
+
+    /// The stdout lines the server has printed since the last call.
+    ///
+    /// The cursor advances past what it hands back, so a reply is read once.
+    async fn read_new_lines(
+        &self,
+        name: &str,
+        process_id: &str,
+    ) -> Result<Vec<String>, McpTransportError> {
+        let offset = self
+            .cursors
+            .lock()
+            .await
+            .get(name)
+            .copied()
+            .unwrap_or_default();
+        let lines = self
+            .processes
+            .read_stdout(process_id, offset)
+            .await
+            .map_err(|source| McpTransportError::Read {
+                name: name.to_string(),
+                source,
+            })?;
+        if !lines.is_empty() {
+            *self
+                .cursors
+                .lock()
+                .await
+                .entry(name.to_string())
+                .or_default() += lines.len();
+        }
+        Ok(lines)
+    }
+
+    /// Send one request and wait for the reply that carries its id.
+    ///
+    /// The wait is bounded by [`RESPONSE_TIMEOUT`]: a server that never answers is
+    /// an error the caller can act on, not a daemon parked on a pipe. A JSON-RPC
+    /// error is a reply, so it is reported as [`McpTransportError::Protocol`]
+    /// rather than waited past.
+    async fn request(
+        &self,
+        name: &str,
+        process_id: &str,
+        frame: &Value,
+        method: &str,
+    ) -> Result<Value, McpTransportError> {
+        let id = frame.get("id").cloned().unwrap_or(Value::Null);
+        self.write_frame(name, process_id, frame).await?;
+
+        let deadline = Instant::now() + RESPONSE_TIMEOUT;
+        loop {
+            for line in self.read_new_lines(name, process_id).await? {
+                let Ok(reply) = serde_json::from_str::<Value>(&line) else {
+                    // A server is free to log to stdout; only JSON lines are replies.
+                    continue;
+                };
+                if reply.get("id") != Some(&id) {
+                    continue;
+                }
+                if let Some(error) = reply.get("error") {
+                    return Err(McpTransportError::Protocol {
+                        name: name.to_string(),
+                        method: method.to_string(),
+                        problem: format!("error {error}"),
+                    });
+                }
+                return Ok(reply);
+            }
+            if Instant::now() >= deadline {
+                return Err(McpTransportError::Timeout {
+                    name: name.to_string(),
+                    method: method.to_string(),
+                    seconds: RESPONSE_TIMEOUT.as_secs(),
+                });
+            }
+            tokio::time::sleep(RESPONSE_POLL_INTERVAL).await;
+        }
+    }
+
+    /// The protocol's opening: `initialize`, then `tools/list`, and the tool names.
+    ///
+    /// The `notifications/initialized` note the revision asks a client to send
+    /// follows the first reply; a notification has no id and is not answered, so
+    /// nothing waits on it. The two requests are answered in turn rather than
+    /// pipelined, because a reply is only meaningful if the request before it was
+    /// accepted.
+    async fn handshake(
+        &self,
+        name: &str,
+        process_id: &str,
+    ) -> Result<Vec<String>, McpTransportError> {
+        let initialize = json!({
+            "jsonrpc": "2.0",
+            "id": INITIALIZE_REQUEST_ID,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": MCP_PROTOCOL_VERSION,
+                "capabilities": {},
+                "clientInfo": {
+                    "name": CLIENT_NAME,
+                    "version": env!("CARGO_PKG_VERSION"),
+                },
+            },
+        });
+        let reply = self
+            .request(name, process_id, &initialize, "initialize")
+            .await?;
+        if reply.get("result").is_none() {
+            return Err(McpTransportError::Protocol {
+                name: name.to_string(),
+                method: "initialize".to_string(),
+                problem: "a reply with no `result`".to_string(),
+            });
+        }
+
+        self.write_frame(
+            name,
+            process_id,
+            &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+        )
+        .await?;
+
+        let reply = self
+            .request(
+                name,
+                process_id,
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": TOOLS_LIST_REQUEST_ID,
+                    "method": "tools/list",
+                    "params": {},
+                }),
+                "tools/list",
+            )
+            .await?;
+        let tools = reply
+            .get("result")
+            .and_then(|result| result.get("tools"))
+            .and_then(Value::as_array)
+            .ok_or_else(|| McpTransportError::Protocol {
+                name: name.to_string(),
+                method: "tools/list".to_string(),
+                problem: "a reply with no `tools` array".to_string(),
+            })?;
+        Ok(tools
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+            .map(str::to_string)
+            .collect())
+    }
 }
 
 #[async_trait]
@@ -310,43 +557,70 @@ impl McpManager for InMemoryMcpManager {
 
         // The lock is not held across a spawn: starting a process is the slow step
         // and no other RPC should wait on it.
-        let (status, process_id) = if config.is_wired() {
-            let Some(command) = config
-                .command
-                .as_deref()
-                .map(str::trim)
-                .filter(|command| !command.is_empty())
-            else {
-                return Err(McpTransportError::MissingCommand(name));
-            };
-            match self
-                .processes
-                .spawn(command, &config.args, &HashMap::new())
-                .await
-            {
-                Ok(process_id) => (McpStatus::Connected, Some(process_id)),
-                Err(source) => {
-                    let message = source.to_string();
-                    self.connections.lock().await.push(McpConnection {
-                        config,
-                        status: McpStatus::Error(message),
-                        process_id: None,
-                    });
-                    return Err(McpTransportError::Spawn { name, source });
-                }
-            }
-        } else {
+        if !config.is_wired() {
             // Recorded, not dialled: no HTTP client and no WebSocket client is
             // wired, and saying `connected` here would be a lie the panel shows.
-            (McpStatus::Disconnected, None)
+            self.connections.lock().await.push(McpConnection {
+                config,
+                status: McpStatus::Disconnected,
+                process_id: None,
+                tools: Vec::new(),
+            });
+            return Ok(());
+        }
+
+        let Some(command) = config
+            .command
+            .as_deref()
+            .map(str::trim)
+            .filter(|command| !command.is_empty())
+        else {
+            return Err(McpTransportError::MissingCommand(name));
+        };
+        let process_id = match self
+            .processes
+            .spawn(command, &config.args, &HashMap::new())
+            .await
+        {
+            Ok(process_id) => process_id,
+            Err(source) => {
+                let message = source.to_string();
+                self.connections.lock().await.push(McpConnection {
+                    config,
+                    status: McpStatus::Error(message),
+                    process_id: None,
+                    tools: Vec::new(),
+                });
+                return Err(McpTransportError::Spawn { name, source });
+            }
         };
 
-        self.connections.lock().await.push(McpConnection {
-            config,
-            status,
-            process_id,
-        });
-        Ok(())
+        match self.handshake(&name, &process_id).await {
+            Ok(tools) => {
+                self.connections.lock().await.push(McpConnection {
+                    config,
+                    status: McpStatus::Connected,
+                    process_id: Some(process_id),
+                    tools,
+                });
+                Ok(())
+            }
+            Err(error) => {
+                // A server that will not handshake is not a connection: the child
+                // goes with the attempt, so a wrong command does not leave a
+                // process running that nothing will ever address again.
+                if let Err(stop) = self.processes.stop(&process_id).await {
+                    tracing::warn!("could not stop the MCP server `{name}`: {stop}");
+                }
+                self.connections.lock().await.push(McpConnection {
+                    config,
+                    status: McpStatus::Error(error.to_string()),
+                    process_id: None,
+                    tools: Vec::new(),
+                });
+                Err(error)
+            }
+        }
     }
 
     async fn disconnect(&self, name: &str) -> Result<(), McpTransportError> {
@@ -377,6 +651,11 @@ impl McpManager for InMemoryMcpManager {
             }
         }
 
+        // The next connection under this name reads its server's output from the
+        // start: a cursor into a stopped process's transcript would misplace every
+        // reply the new server sends.
+        self.cursors.lock().await.remove(name);
+
         let mut connections = self.connections.lock().await;
         if let Some(connection) = connections
             .iter_mut()
@@ -384,6 +663,7 @@ impl McpManager for InMemoryMcpManager {
         {
             connection.status = McpStatus::Disconnected;
             connection.process_id = None;
+            connection.tools.clear();
         }
         Ok(())
     }
@@ -423,8 +703,9 @@ impl McpManager for InMemoryMcpManager {
             });
         };
 
-        // One frame per line: the MCP stdio framing. The handshake that would make
-        // the frame meaningful (`initialize`, then `tools/list`) is not sent here.
+        // One frame per line: the MCP stdio framing. `send` is the raw seam — the
+        // handshake in `connect` is what reads replies — so a caller driving a
+        // method this client does not knows its own protocol and its own answers.
         let mut frame = payload.to_string();
         frame.push('\n');
         match self
@@ -449,41 +730,120 @@ impl McpManager for InMemoryMcpManager {
 mod tests {
     use super::*;
     use crate::process_spawn::InMemoryProcessManager;
-    use std::time::Duration;
+    use serde_json::{json, Value};
+    use std::io::BufRead;
 
-    /// A stdio server that stays up until the test disconnects it.
-    #[cfg(windows)]
-    fn long_running() -> (String, Vec<String>) {
-        (
-            "cmd".to_string(),
-            vec!["/C".to_string(), "ping -n 30 127.0.0.1 >nul".to_string()],
-        )
+    /// The tool names the scripted server answers `tools/list` with.
+    ///
+    /// The child is this same test binary, so both halves read one list: a server
+    /// that answered something else would be a different server.
+    const PROBE_TOOLS: [&str; 2] = ["read_file", "write_file"];
+
+    /// A stdio MCP server, run as a child of this test binary.
+    ///
+    /// A daemon starts an MCP server with the program and arguments it was
+    /// configured with and no environment of its own, so the child identifies
+    /// itself by the arguments it was started with — `--exact` names this probe —
+    /// and answers from the constants above. `--ignored` selects an ignored test,
+    /// and `--nocapture` is what lets its `println!` reach the pipe the manager
+    /// reads instead of libtest's in-memory buffer. The guard makes the probe
+    /// harmless if a full ignored run ever reaches it: only a run pointed at
+    /// `--exact` is a child of a test.
+    #[test]
+    #[ignore = "a child process, not a test"]
+    fn mcp_server_probe() {
+        if !std::env::args().any(|arg| arg == "--exact") {
+            return;
+        }
+        for line in std::io::stdin().lock().lines() {
+            let Ok(line) = line else { break };
+            let Ok(request) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
+            // A notification has no id and is not answered.
+            let Some(id) = request.get("id").cloned() else {
+                continue;
+            };
+            let method = request.get("method").and_then(Value::as_str).unwrap_or("");
+            let result = match method {
+                "initialize" => json!({
+                    "protocolVersion": MCP_PROTOCOL_VERSION,
+                    "capabilities": { "tools": {} },
+                    "serverInfo": { "name": "warsha-test-server", "version": "1.0.0" },
+                }),
+                "tools/list" => json!({
+                    "tools": PROBE_TOOLS
+                        .iter()
+                        .map(|name| json!({ "name": name }))
+                        .collect::<Vec<Value>>(),
+                }),
+                _ => {
+                    println!(
+                        "{}",
+                        json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": { "code": -32601, "message": "unknown method" },
+                        })
+                    );
+                    continue;
+                }
+            };
+            println!(
+                "{}",
+                json!({ "jsonrpc": "2.0", "id": id, "result": result })
+            );
+        }
     }
 
-    /// A stdio server that stays up until the test disconnects it (Unix half).
-    #[cfg(not(windows))]
-    fn long_running() -> (String, Vec<String>) {
-        (
-            "sh".to_string(),
-            vec!["-c".to_string(), "sleep 30".to_string()],
-        )
+    /// A stdio server that stays up and answers nothing at all.
+    #[test]
+    #[ignore = "a child process, not a test"]
+    fn mcp_server_silent_probe() {
+        if !std::env::args().any(|arg| arg == "--exact") {
+            return;
+        }
+        std::thread::sleep(Duration::from_secs(30));
     }
 
-    /// A server that exits as soon as it starts.
-    #[cfg(windows)]
-    fn exits_at_once() -> (String, Vec<String>) {
-        (
-            "cmd".to_string(),
-            vec!["/C".to_string(), "exit 0".to_string()],
-        )
+    /// A stdio server that answers `initialize` with a protocol error.
+    #[test]
+    #[ignore = "a child process, not a test"]
+    fn mcp_server_error_probe() {
+        if !std::env::args().any(|arg| arg == "--exact") {
+            return;
+        }
+        for line in std::io::stdin().lock().lines() {
+            let Ok(line) = line else { break };
+            let Ok(request) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
+            let Some(id) = request.get("id").cloned() else {
+                continue;
+            };
+            println!(
+                "{}",
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32600, "message": "no handshake for you" },
+                })
+            );
+        }
     }
 
-    /// A server that exits as soon as it starts (Unix half).
-    #[cfg(not(windows))]
-    fn exits_at_once() -> (String, Vec<String>) {
-        (
-            "sh".to_string(),
-            vec!["-c".to_string(), "exit 0".to_string()],
+    /// A server configuration pointing at one probe of this test binary.
+    fn server_config(name: &str, test: &str) -> McpServerConfig {
+        let exe = std::env::current_exe().expect("the test binary names itself");
+        McpServerConfig::new_stdio(
+            name,
+            exe.to_string_lossy().into_owned(),
+            vec![
+                "--exact".to_string(),
+                format!("mcp_transport::tests::{test}"),
+                "--ignored".to_string(),
+                "--nocapture".to_string(),
+            ],
         )
     }
 
@@ -494,11 +854,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn connect_stdio_spawns_the_server_command() {
+    async fn connect_stdio_handshakes_and_reports_the_servers_tools() {
         let (processes, mcp) = manager();
-        let (command, args) = long_running();
 
-        mcp.connect(McpServerConfig::new_stdio("files", command, args))
+        mcp.connect(server_config("files", "mcp_server_probe"))
             .await
             .expect("the server connects");
 
@@ -506,6 +865,11 @@ mod tests {
         let connection = listed.first().expect("the connection is listed");
         assert_eq!(connection.config.name, "files");
         assert_eq!(connection.status, McpStatus::Connected);
+        assert_eq!(
+            connection.tools,
+            PROBE_TOOLS.map(str::to_string).to_vec(),
+            "the tools come from the server's own `tools/list` reply"
+        );
         let process_id = connection
             .process_id
             .clone()
@@ -517,6 +881,55 @@ mod tests {
                 .expect("the process is tracked"),
             ProcessStatus::Running
         );
+        mcp.disconnect("files").await.expect("the server closes");
+    }
+
+    #[tokio::test]
+    async fn a_server_that_never_answers_is_a_clean_error() {
+        let (processes, mcp) = manager();
+
+        let error = mcp
+            .connect(server_config("silent", "mcp_server_silent_probe"))
+            .await
+            .expect_err("a silent server never completes the handshake");
+
+        assert!(
+            matches!(
+                &error,
+                McpTransportError::Timeout { method, .. } if method == "initialize"
+            ),
+            "got {error:?}"
+        );
+        // The connection is recorded as the failure it was, and the server it
+        // started is not left running behind a connection nobody has.
+        let listed = mcp.list().await;
+        let connection = listed.first().expect("the failure is listed");
+        assert!(matches!(connection.status, McpStatus::Error(_)));
+        assert_eq!(connection.process_id, None);
+        assert!(connection.tools.is_empty());
+        let stopped = processes.list().await;
+        assert_eq!(stopped.len(), 1, "the server was started then stopped");
+        assert_eq!(stopped[0].status, ProcessStatus::Stopped);
+    }
+
+    #[tokio::test]
+    async fn a_server_that_answers_with_an_error_is_reported() {
+        let (_processes, mcp) = manager();
+
+        let error = mcp
+            .connect(server_config("angry", "mcp_server_error_probe"))
+            .await
+            .expect_err("a protocol error is not a connection");
+
+        assert!(
+            matches!(
+                &error,
+                McpTransportError::Protocol { method, problem, .. }
+                    if method == "initialize" && problem.contains("no handshake for you")
+            ),
+            "got {error:?}"
+        );
+        assert!(matches!(mcp.list().await[0].status, McpStatus::Error(_)));
     }
 
     #[tokio::test]
@@ -535,6 +948,10 @@ mod tests {
         assert_eq!(connection.status, McpStatus::Disconnected);
         assert_eq!(connection.process_id, None);
         assert!(!connection.config.is_wired());
+        assert!(
+            connection.tools.is_empty(),
+            "a transport that was never dialled reports no tools"
+        );
         assert_eq!(
             connection.config.transport.url(),
             Some("https://mcp.example/mcp")
@@ -626,8 +1043,7 @@ mod tests {
     #[tokio::test]
     async fn disconnect_stops_the_process_and_clears_the_connection() {
         let (processes, mcp) = manager();
-        let (command, args) = long_running();
-        mcp.connect(McpServerConfig::new_stdio("files", command, args))
+        mcp.connect(server_config("files", "mcp_server_probe"))
             .await
             .expect("the server connects");
         let process_id = mcp
@@ -645,6 +1061,7 @@ mod tests {
         let connection = listed.first().expect("the connection is still listed");
         assert_eq!(connection.status, McpStatus::Disconnected);
         assert_eq!(connection.process_id, None);
+        assert!(connection.tools.is_empty());
         assert_eq!(
             processes
                 .status(&process_id)
@@ -677,36 +1094,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_reports_a_server_that_exited_as_an_error() {
-        let (_processes, mcp) = manager();
-        let (command, args) = exits_at_once();
-        mcp.connect(McpServerConfig::new_stdio("short-lived", command, args))
+    async fn list_reports_a_server_whose_process_has_gone_as_an_error() {
+        let (processes, mcp) = manager();
+        mcp.connect(server_config("files", "mcp_server_probe"))
             .await
             .expect("the server connects");
+        let process_id = mcp.list().await[0]
+            .process_id
+            .clone()
+            .expect("the connection names its process");
 
-        // The child exits on its own; `list` asks the process, so the connection
-        // stops claiming to be connected.
-        let mut status = McpStatus::Connected;
-        for _ in 0..100 {
-            status = mcp
-                .list()
-                .await
-                .first()
-                .map(|connection| connection.status.clone())
-                .expect("the connection is listed");
-            if !status.is_connected() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
+        // The child is killed behind the connection's back: `list` asks the
+        // process, so the connection stops claiming to be connected.
+        processes
+            .stop(&process_id)
+            .await
+            .expect("the server is stopped");
+
+        let status = mcp.list().await[0].status.clone();
         assert!(matches!(status, McpStatus::Error(_)), "got {status:?}");
     }
 
     #[tokio::test]
     async fn send_writes_the_frame_to_a_connected_server() {
         let (_processes, mcp) = manager();
-        let (command, args) = long_running();
-        mcp.connect(McpServerConfig::new_stdio("files", command, args))
+        mcp.connect(server_config("files", "mcp_server_probe"))
             .await
             .expect("the server connects");
 
@@ -718,6 +1130,7 @@ mod tests {
 
         assert_eq!(sent, frame);
         assert!(mcp.list().await[0].status.is_connected());
+        mcp.disconnect("files").await.expect("the server closes");
     }
 
     #[tokio::test]
@@ -739,8 +1152,7 @@ mod tests {
             Err(McpTransportError::NotWired(_))
         ));
 
-        let (command, args) = long_running();
-        mcp.connect(McpServerConfig::new_stdio("files", command, args))
+        mcp.connect(server_config("files", "mcp_server_probe"))
             .await
             .expect("the server connects");
         mcp.disconnect("files")

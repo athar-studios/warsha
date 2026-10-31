@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The base capability for the Warsha window. The app reaches the daemon over loopback HTTP/WebSocket from the webview and calls the shell's own `get_config`/`set_config` commands, so `core:default` is the whole permission set: there is no Tauri plugin in this bundle to grant anything to.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

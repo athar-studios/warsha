@@ -42,9 +42,23 @@ Thumbs.db
 coverage/
 *.lcov
 
+# Playwright (pnpm visual)
+#
+# The report, traces and per-run diff output are artifacts; the screenshots under
+# `apps/*/e2e/*-snapshots/` are the baselines and are tracked, so no `*.png` goes here.
+playwright-report/
+blob-report/
+test-results/
+playwright/.cache/
+
 # Temporary files
 *.tmp
 *.temp
+
+# Tauri build outputs (per-app, not repo-root /target/)
+apps/*/src-tauri/target/
+# Generated ACL/capability schemas
+apps/*/src-tauri/gen/schemas/
 cargo_log.txt
 
 # IDE/Editor

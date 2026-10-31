@@ -37,19 +37,30 @@ use warsha_core::*;
 use warsha_git::GitHubClient;
 use warsha_pipeline::{
     AgentLoop, AgentTurnResult, BackendKind, BackendKit, CrashReport, CrashReportStore,
-    HandoffBundle, HandoffManager, InMemoryCrashReportStore, InMemoryMcpManager,
-    InMemoryProcessManager, InMemoryStoreReviewStore, LivePreview, LivePreviewManager,
-    ManagedProcess, McpConnection, McpManager, PipelineEngine, ProcessManager, ProcessStatus,
-    ProcessSummary, SlashCommand, SlashCommandRegistry, StoreReview, StoreReviewStore,
+    FilesystemToolExecutor, HandoffBundle, HandoffManager, InMemoryCrashReportStore,
+    InMemoryMcpManager, InMemoryPairingStore, InMemoryPreferenceStore, InMemoryProcessManager,
+    InMemoryStoreReviewStore, LivePreview, LivePreviewManager, ManagedProcess, McpConnection,
+    McpManager, PairingStore, PhonePairing, PipelineEngine, Preference, PreferenceSignal,
+    PreferenceStore, ProcessManager, ProcessStatus, ProcessSummary, ProviderRouterAdapter, RunMode,
+    RunModeConfig, SlashCommand, SlashCommandRegistry, StoreReview, StoreReviewStore, AGENT_ROLE,
 };
-use warsha_providers::{HealthCheck, ProviderRouter};
+use warsha_providers::{
+    probe_endpoint, HealthCheck, KeychainSecretStore, OneClickProvider, ProviderRouter,
+    ProviderSetupWizard, SecretStore,
+};
 use warsha_remote::DeviceRegistry;
-use warsha_store::Store;
+use warsha_store::{Store, StoredProvider};
+
+mod settings;
+
+pub use settings::{SettingsError, SettingsStore};
 
 #[derive(Error, Debug)]
 pub enum DaemonError {
     #[error("Store error: {0}")]
     Store(#[from] warsha_store::StoreError),
+    #[error("Settings error: {0}")]
+    Settings(#[from] SettingsError),
     #[error("Provider error: {0}")]
     Provider(#[from] warsha_providers::ProviderError),
     #[error("Pipeline error: {0}")]
@@ -77,6 +88,15 @@ pub enum DaemonError {
 }
 
 pub type Result<T> = std::result::Result<T, DaemonError>;
+
+/// The JSON-RPC error a `providers.*` refusal carries.
+///
+/// The message is the reason the owner is shown, and every message this module
+/// builds is written for that: no key, no request headers, no base URL that could
+/// carry a token in its query string.
+fn provider_refusal(message: impl Into<String>) -> ErrorObjectOwned {
+    ErrorObject::owned(-32000, message.into(), None::<()>)
+}
 
 /// Daemon configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,13 +129,26 @@ impl Default for DaemonConfig {
 }
 
 /// Handle to a running daemon instance.
-#[derive(Debug)]
 pub struct DaemonHandle {
     _lock_file: LockFile,
     http_task: tokio::task::JoinHandle<()>,
     rpc_server: jsonrpsee::server::ServerHandle,
     http_port: u16,
     rpc_port: u16,
+    /// The one spawner, so shutdown can take the daemon's children with it.
+    processes: Arc<dyn ProcessManager>,
+}
+
+impl std::fmt::Debug for DaemonHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The spawner holds live children and is not `Debug`, so the handle
+        // reports the ports it is serving on and the lock it holds rather than
+        // pretending to print a process table.
+        f.debug_struct("DaemonHandle")
+            .field("http_port", &self.http_port)
+            .field("rpc_port", &self.rpc_port)
+            .finish_non_exhaustive()
+    }
 }
 
 impl DaemonHandle {
@@ -130,13 +163,25 @@ impl DaemonHandle {
     }
 
     /// Shuts down the daemon: stops the RPC server, aborts the HTTP task,
-    /// and releases the lock file.
+    /// kills and reaps every child it started, and releases the lock file.
+    ///
+    /// The children are the whole [`ProcessManager`] list — a preview dev server,
+    /// an MCP stdio server, anything `process.spawn` started — and each one is
+    /// killed *and* waited for. Killing alone would leave a zombie, and dropping
+    /// the handles would leave a dev server holding its port for the next daemon
+    /// to trip over.
     pub async fn shutdown(self) {
         if let Err(e) = self.rpc_server.stop() {
             warn!("RPC server was already stopped: {e}");
         }
         // Aborting the HTTP task drops its listener, so the port is released.
         self.http_task.abort();
+        // The RPC server is down, so nothing can start a child while the sweep
+        // runs to completion.
+        let killed = self.processes.kill_all().await;
+        if killed > 0 {
+            info!("killed {killed} child process(es) on shutdown");
+        }
         // The lock file is dropped here, releasing the lock and removing the file.
     }
 }
@@ -246,11 +291,13 @@ pub struct DaemonState {
     pub github: Option<GitHubClient>,
     pub devices: Arc<DeviceRegistry>,
     pub event_tx: broadcast::Sender<Event>,
-    /// Backend kits per run, in memory for the first wiring batch.
+    /// Backend kits by project id, seeded from [`SettingsStore`] at start.
     ///
-    /// TODO(persistence): back this with `Store` so a restart keeps the schema a
-    /// backend run built; the MCP client that fills it in is not wired yet, so a
-    /// run starts from [`default_backend_kit`].
+    /// The key is the project, not the run: `backend.export` addresses a run, and
+    /// every run of one project exports the same schema, so two runs of a project
+    /// share one kit rather than each growing its own. A run whose project is not
+    /// in the store is keyed by its own id, which is what makes an export of an
+    /// unregistered run answerable.
     pub backend_kits: Arc<RwLock<HashMap<String, BackendKit>>>,
     /// Crash reports, in arrival order. Nothing records one yet: the opt-in
     /// collector is PLAN.md M17's remaining half.
@@ -262,7 +309,9 @@ pub struct DaemonState {
     ///
     /// One loop per daemon: the mode manager, the todo list, the `ask_user` queue,
     /// the message bus and the transcript are a run's conversation, and the loop's
-    /// own compactor is what keeps the transcript bounded.
+    /// own compactor is what keeps the transcript bounded. Its two seams are wired
+    /// by [`build_agent_loop`] — file tools inside `<data_dir>/workspace`, model
+    /// calls through the daemon's provider router.
     ///
     /// TODO(persistence): the loop lives in memory, so a restart forgets the
     /// approval history and the todos; `Store` persistence is a later batch.
@@ -271,13 +320,48 @@ pub struct DaemonState {
     /// server through it, and the live preview runs its dev server on it, so every
     /// child the daemon starts shows up in one `process.list`.
     ///
-    /// TODO(reaping): nothing kills these children when the daemon exits, so a
-    /// restart forgets a dev server that is still listening on its port.
+    /// It is also the complete list of children [`DaemonHandle::shutdown`] has to
+    /// reap, which is why one manager is shared rather than each feature holding
+    /// its own.
     pub processes: Arc<dyn ProcessManager>,
     /// MCP servers by name, with their connections. `mcp.*` is its RPC surface.
     pub mcp: Arc<dyn McpManager>,
     /// Live-preview dev servers, one per project.
     pub previews: Arc<LivePreviewManager>,
+    /// The daemon's settings file: the four small M20 records, read once at start
+    /// and written by every RPC that changes one.
+    pub settings: Arc<SettingsStore>,
+    /// The run modes by mode, seeded from [`SettingsStore`] at start.
+    ///
+    /// Every mode has an entry: one the owner never saved carries the
+    /// [`RunModeConfig::for_mode`] default, which for Hosted is deliberately
+    /// invalid until a relay is named — so `runmode.list` reports the whole switch
+    /// and `runmode.set` is what makes a mode servable.
+    pub run_modes: Arc<RwLock<HashMap<RunMode, RunModeConfig>>>,
+    /// The taste signals recorded in this daemon's life.
+    ///
+    /// Signals are what the decay is computed from, so they stay in memory and are
+    /// projected into the store on every record; a restart reloads the projection
+    /// ([`DaemonState::stored_preferences`]) rather than replaying signals nobody
+    /// kept.
+    pub preferences: Arc<RwLock<InMemoryPreferenceStore>>,
+    /// The stored preference rows per project, as read at start and refreshed
+    /// after each recorded signal.
+    ///
+    /// This is what `preferences.list` answers from: the table is the projection
+    /// every daemon shares, and the signal log is this daemon's own.
+    pub stored_preferences: Arc<RwLock<HashMap<String, Vec<Preference>>>>,
+    /// The paired phones, seeded from [`SettingsStore`] at start.
+    pub pairings: Arc<RwLock<InMemoryPairingStore>>,
+    /// Where a configured provider's API key lives.
+    ///
+    /// The OS keychain when the daemon started normally
+    /// ([`KeychainSecretStore`]); a test double when it was handed one through
+    /// [`start_daemon_with_secrets`], because a headless runner has no secret
+    /// service to talk to. The provider *configuration* is not here at all: it is
+    /// a row in [`DaemonState::settings`], read per call, so nothing in memory can
+    /// disagree with what a restart would see.
+    pub secrets: Arc<dyn SecretStore>,
 }
 
 /// JSON-RPC API trait
@@ -339,13 +423,26 @@ pub trait WarshaApi {
     ) -> RpcResult<Run>;
 
     #[method(name = "providers.list")]
-    async fn list_providers(&self) -> RpcResult<Vec<ProviderConfig>>;
+    async fn list_providers(&self) -> RpcResult<Vec<ProviderRecord>>;
 
+    /// Add a provider and put its API key in the OS keychain.
+    ///
+    /// Four named parameters, which is the object the wizard already sends
+    /// (`{ name, kind, key, api_base }`): the key rides on this one call and
+    /// nowhere else, and `api_base` is `None` when the caller sent none.
     #[method(name = "providers.add")]
-    async fn add_provider(&self, config: ProviderConfig) -> RpcResult<()>;
+    async fn add_provider(
+        &self,
+        name: String,
+        kind: String,
+        key: String,
+        api_base: Option<String>,
+    ) -> RpcResult<ProviderRecord>;
 
+    /// Test a stored provider's connection. A refusal is a JSON-RPC error whose
+    /// message says why and whose `data` carries the [`HealthCheck`].
     #[method(name = "providers.test")]
-    async fn test_provider(&self, provider_id: String) -> RpcResult<HealthCheck>;
+    async fn test_provider(&self, name: String) -> RpcResult<HealthCheck>;
 
     #[method(name = "devices.list")]
     async fn list_devices(&self) -> RpcResult<Vec<warsha_remote::DeviceIdentity>>;
@@ -358,7 +455,7 @@ pub trait WarshaApi {
 
     // Providers
     #[method(name = "providers.remove")]
-    async fn remove_provider(&self, provider_id: String) -> RpcResult<()>;
+    async fn remove_provider(&self, name: String) -> RpcResult<ProviderRecord>;
 
     // Roles
     #[method(name = "roles.list")]
@@ -445,6 +542,37 @@ pub trait WarshaApi {
 
     #[method(name = "preview.status")]
     async fn preview_status(&self, project_id: String) -> RpcResult<LivePreview>;
+
+    // Settings that survive a restart (PLAN.md M20) — the four stored records.
+    // Every method here writes through to the settings file before it answers, so
+    // a restart sees the change; a write that could not be stored is an error the
+    // caller sees rather than a change the owner believes they made.
+    #[method(name = "runmode.list")]
+    async fn list_run_modes(&self) -> RpcResult<Vec<RunModeConfig>>;
+
+    #[method(name = "runmode.set")]
+    async fn set_run_mode(&self, config: RunModeConfig) -> RpcResult<RunModeConfig>;
+
+    #[method(name = "backend.get")]
+    async fn get_backend(&self, run_id: String) -> RpcResult<Option<BackendKit>>;
+
+    #[method(name = "backend.set")]
+    async fn set_backend(&self, run_id: String, kit: BackendKit) -> RpcResult<()>;
+
+    #[method(name = "preferences.list")]
+    async fn list_preferences(&self, project_id: String) -> RpcResult<Vec<Preference>>;
+
+    #[method(name = "preferences.record")]
+    async fn record_preference(&self, signal: PreferenceSignal) -> RpcResult<Vec<Preference>>;
+
+    #[method(name = "pairing.list")]
+    async fn list_pairings(&self) -> RpcResult<Vec<PhonePairing>>;
+
+    #[method(name = "pairing.create")]
+    async fn create_pairing(&self, device_id: String, secret: String) -> RpcResult<PhonePairing>;
+
+    #[method(name = "pairing.revoke")]
+    async fn revoke_pairing(&self, device_id: String) -> RpcResult<PhonePairing>;
 }
 
 /// Health response
@@ -456,12 +584,65 @@ pub struct HealthResponse {
 }
 
 /// Provider configuration for RPC
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProviderConfig {
-    pub id: String,
+///
+/// The wire shape the desktop's first-run wizard already sends and reads, so the
+/// wizard, its tests and the 112 screenshot baselines stay exactly as they are:
+///
+/// - `name` is the provider's identity — the keychain account for its key, the
+///   key `providers.add`/`test`/`remove` take, and what `providers.list` reports.
+///   There is no separate `id`: an owner who can name the provider once should not
+///   have to keep two names in step.
+/// - `kind` is the adapter tag the wizard's presets use (`open_router`,
+///   `deep_seek`, `kimi`, `glm`, `qwen`), which is also what names a default base
+///   URL and model in `warsha-providers`.
+/// - `api_base` is present only when one is configured; the client declares it
+///   optional for the same reason.
+/// - There is no `key` field. A provider's secret lives in the OS keychain and is
+///   never part of a reply, so no `providers.*` answer can leak it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRecord {
+    pub name: String,
     pub kind: String,
+    pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub api_base: Option<String>,
-    pub models: Vec<String>,
+}
+
+impl From<StoredProvider> for ProviderRecord {
+    fn from(provider: StoredProvider) -> Self {
+        Self {
+            name: provider.name,
+            kind: provider.kind,
+            enabled: provider.enabled,
+            api_base: provider.api_base,
+        }
+    }
+}
+
+/// The endpoint `provider` is tested against: the owner's own, else its kind's
+/// published default. `None` only for a kind with neither.
+fn provider_endpoint(provider: &StoredProvider) -> Option<String> {
+    provider.api_base.clone().or_else(|| {
+        OneClickProvider::from_tag(&provider.kind)
+            .and_then(OneClickProvider::default_base_url)
+            .map(str::to_string)
+    })
+}
+
+/// The model `provider` is tested with: its kind's published default, or `""` when
+/// the kind has none — which the setup check reports as "Enter the model id."
+fn provider_model(provider: &StoredProvider) -> &'static str {
+    OneClickProvider::from_tag(&provider.kind)
+        .and_then(OneClickProvider::default_model)
+        .unwrap_or_default()
+}
+
+/// A blank string is no string: the wizard sends `api_base` only when it has one,
+/// but a caller that sends `""` means the same thing.
+fn non_empty(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 /// Role routing configuration for RPC
@@ -517,27 +698,101 @@ impl WarshaRpc {
         project.repo_path.map(PathBuf::from)
     }
 
-    /// The name of the project behind a run, for a backend export.
+    /// The project behind a run: its id and its name, or the run id as both.
     ///
-    /// The kit names the project the export belongs to, so `backend.export`
-    /// resolves RunId → Run → Project and falls back to the run id when a link is
-    /// missing, which keeps an export of an unregistered run working.
-    async fn project_name_for_run(&self, run_id: &str) -> String {
+    /// The settings rows are keyed by project while the RPCs are addressed by run,
+    /// so this is the one place that resolution happens: RunId → Run → Project.
+    /// A link that is missing (a bundle whose run id is not a ULID, a run the store
+    /// does not have, a project that was deleted) falls back to the run id as both
+    /// the key and the name, which keeps an export of an unregistered run working
+    /// instead of failing on a project that was never stored.
+    async fn project_for_run(&self, run_id: &str) -> (String, String) {
+        let fallback = || (run_id.to_string(), run_id.to_string());
         let Ok(id) = run_id.parse::<ulid::Ulid>() else {
-            return run_id.to_string();
+            return fallback();
         };
         let Ok(run) = self.state.store.get_run(RunId(id)).await else {
-            return run_id.to_string();
+            return fallback();
         };
         let Ok(project) = self.state.store.get_project(run.project_id).await else {
-            return run_id.to_string();
+            return fallback();
         };
-        if project.name.trim().is_empty() {
+        let name = if project.name.trim().is_empty() {
             run_id.to_string()
         } else {
             project.name
+        };
+        (project.id.to_string(), name)
+    }
+
+    /// The kit of a project key: the daemon's copy, else the stored row, else the
+    /// default for that project.
+    ///
+    /// The order is the point. The in-memory copy is what a `backend.set` in this
+    /// life put there; the stored row is what an earlier life left; the default is
+    /// what a project that never exported gets, so the first export of a new
+    /// project is the empty schema rather than nothing at all.
+    async fn backend_kit(&self, key: &str, project_name: &str) -> BackendKit {
+        if let Some(kit) = self.state.backend_kits.read().await.get(key) {
+            return kit.clone();
+        }
+        match self.state.settings.load_backend_kit(key).await {
+            Ok(Some(kit)) => kit,
+            Ok(None) => default_backend_kit(project_name),
+            Err(error) => {
+                // A kit that cannot be read is reported and the default stands in:
+                // an export is still worth producing, and the row is left untouched
+                // for the next read.
+                warn!("could not read the backend kit for `{key}`: {error}");
+                default_backend_kit(project_name)
+            }
         }
     }
+
+    /// Remember a kit: on disk first, then in memory.
+    ///
+    /// That order is what makes the in-memory copy trustworthy — it never holds a
+    /// change the file refused — and it is why a failed write is an error the
+    /// caller sees rather than a setting the owner only thinks they made.
+    async fn remember_backend_kit(&self, key: &str, kit: &BackendKit) -> RpcResult<()> {
+        self.state
+            .settings
+            .save_backend_kit(key, kit)
+            .await
+            .map_err(|error| rpc_error(error.to_string()))?;
+        self.state
+            .backend_kits
+            .write()
+            .await
+            .insert(key.to_string(), kit.clone());
+        Ok(())
+    }
+
+    /// Write the daemon's pairings through to the settings file.
+    ///
+    /// The whole list is written because a revocation is a value on the row rather
+    /// than a delete: the table has to mirror the store exactly, or a phone the
+    /// owner revoked would come back paired after a restart.
+    async fn save_pairings(&self) -> RpcResult<()> {
+        let pairings = self.state.pairings.read().await.clone();
+        self.state
+            .settings
+            .save_pairings(pairings)
+            .await
+            .map_err(|error| rpc_error(error.to_string()))
+    }
+}
+
+/// Seconds since the Unix epoch, or `0` on a clock that cannot answer.
+///
+/// A settings row is stamped with this when the caller does not supply a time, and
+/// a stamp is diagnostic: a host whose clock sits before 1970 records `0` rather
+/// than refusing the write.
+fn now_epoch_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or_default()
 }
 
 #[async_trait]
@@ -663,21 +918,143 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
     }
 
-    async fn list_providers(&self) -> RpcResult<Vec<ProviderConfig>> {
-        // Return empty for now
-        Ok(vec![])
+    async fn list_providers(&self) -> RpcResult<Vec<ProviderRecord>> {
+        let stored = self
+            .state
+            .settings
+            .load_providers()
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        Ok(stored.into_iter().map(ProviderRecord::from).collect())
     }
 
-    async fn add_provider(&self, _config: ProviderConfig) -> RpcResult<()> {
-        Ok(())
+    /// Add a provider: keychain first, then the settings row.
+    ///
+    /// The order is the point. A keychain that refuses (a locked keyring, a
+    /// platform with no secret service) must leave no row behind, because a
+    /// configured provider whose key is missing is a provider every
+    /// `providers.test` would refuse — recorded as if the owner had finished
+    /// setup. Nothing here logs the key, echoes it in an error, or writes it
+    /// anywhere but the store it was handed.
+    async fn add_provider(
+        &self,
+        name: String,
+        kind: String,
+        key: String,
+        api_base: Option<String>,
+    ) -> RpcResult<ProviderRecord> {
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return Err(provider_refusal("a provider needs a name"));
+        }
+        let kind = kind.trim().to_string();
+        if kind.is_empty() {
+            return Err(provider_refusal(format!(
+                "provider {name} needs a kind (open_router, deep_seek, kimi, glm, qwen or custom)"
+            )));
+        }
+        let api_base = non_empty(api_base);
+        // A pasted key arrives with the whitespace the paste carried; the wizard's
+        // own check trims before it judges, so the key that is stored and later sent
+        // as a bearer token is the trimmed one and not a key with a newline in it.
+        let key = key.trim().to_string();
+
+        // The endpoint has to be known before anything is stored: the kind's
+        // default when the caller sent none, and a refusal when there is none.
+        let endpoint = api_base.clone().or_else(|| {
+            OneClickProvider::from_tag(&kind)
+                .and_then(OneClickProvider::default_base_url)
+                .map(str::to_string)
+        });
+        let Some(endpoint) = endpoint else {
+            return Err(provider_refusal(format!(
+                "no base URL is known for provider kind {kind}; send api_base with the provider"
+            )));
+        };
+
+        // The two input checks that belong to `add`: the URL parses and the key is
+        // usable. The model is not checked here — `add` has no model to check, and
+        // `providers.test` is where that field is reported.
+        let inputs = ProviderSetupWizard::test_connection(&endpoint, &key, "");
+        if let Some(reason) = inputs.url_reason {
+            return Err(provider_refusal(reason));
+        }
+        if let Some(reason) = inputs.key_reason {
+            return Err(provider_refusal(reason));
+        }
+
+        self.state.secrets.store(&name, &key).await.map_err(|e| {
+            provider_refusal(format!(
+                "the API key could not be stored in the OS keychain: {e}"
+            ))
+        })?;
+
+        let provider = StoredProvider {
+            name: name.clone(),
+            kind,
+            api_base,
+            enabled: true,
+            created_at: u64::try_from(Utc::now().timestamp()).unwrap_or_default(),
+        };
+        self.state
+            .settings
+            .save_provider(&provider)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+
+        info!("provider {name} configured");
+        Ok(provider.into())
     }
 
-    async fn test_provider(&self, _provider_id: String) -> RpcResult<HealthCheck> {
-        Ok(HealthCheck {
-            healthy: true,
-            latency_ms: Some(10),
-            error: None,
-        })
+    /// Test a stored provider for real: is the input well formed, then does the
+    /// endpoint answer and accept the key.
+    ///
+    /// A refusal is an error rather than `{healthy: false}`, because the desktop
+    /// client's `providers.test` treats a resolved call as a passing test — the
+    /// wizard could not tell an unhealthy result from a healthy one. The reason
+    /// therefore travels in the error's message (what the wizard shows) and in its
+    /// `data` as the [`HealthCheck`] the RPC declares.
+    async fn test_provider(&self, name: String) -> RpcResult<HealthCheck> {
+        let provider = self
+            .state
+            .settings
+            .load_provider(&name)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?
+            .ok_or_else(|| provider_refusal(format!("no provider named {name} is configured")))?;
+
+        let endpoint = provider_endpoint(&provider).ok_or_else(|| {
+            provider_refusal(format!(
+                "no base URL is known for provider kind {}; add it again with api_base",
+                provider.kind
+            ))
+        })?;
+        let key = self.state.secrets.load(&name).await.map_err(|e| {
+            provider_refusal(format!(
+                "the API key for {name} could not be read from the OS keychain: {e}"
+            ))
+        })?;
+
+        // No network yet: a malformed URL or a key the owner typed with a space in
+        // it is refused here, from the wizard's own checks.
+        if let Some(reason) =
+            ProviderSetupWizard::test_connection(&endpoint, &key, provider_model(&provider))
+                .reason()
+        {
+            return Err(provider_refusal(reason));
+        }
+
+        let health = probe_endpoint(&endpoint, &key).await;
+        if health.healthy {
+            return Ok(health);
+        }
+
+        let reason = health
+            .error
+            .clone()
+            .unwrap_or_else(|| "the connection test failed".to_string());
+        warn!("provider {name} failed its connection test: {reason}");
+        Err(ErrorObject::owned(-32000, reason, Some(health)))
     }
 
     async fn list_devices(&self) -> RpcResult<Vec<warsha_remote::DeviceIdentity>> {
@@ -709,8 +1086,31 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     // Providers
-    async fn remove_provider(&self, _provider_id: String) -> RpcResult<()> {
-        Ok(())
+    async fn remove_provider(&self, name: String) -> RpcResult<ProviderRecord> {
+        let provider = self
+            .state
+            .settings
+            .load_provider(&name)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?
+            .ok_or_else(|| provider_refusal(format!("no provider named {name} is configured")))?;
+
+        // The keychain goes first, and a failure there stops the removal: the
+        // account is the provider's name, so a row deleted while its key stayed
+        // behind would be an entry nothing could ever overwrite or reach again.
+        self.state.secrets.delete(&name).await.map_err(|e| {
+            provider_refusal(format!(
+                "the API key could not be removed from the OS keychain: {e}"
+            ))
+        })?;
+        self.state
+            .settings
+            .delete_provider(&name)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+
+        info!("provider {name} removed");
+        Ok(provider.into())
     }
 
     // Roles
@@ -762,22 +1162,19 @@ impl WarshaApiServer for WarshaRpc {
 
     // Backend kit (PLAN.md M19)
     async fn export_backend(&self, run_id: String, output_dir: String) -> RpcResult<String> {
-        // The kit is created here on first use: no RPC adds tables yet, so an
-        // export is the header plus whatever an in-process caller put in the map.
-        // It is built from the run's project, so the dump, the storage archive
-        // stem and the header all name the project rather than the run.
-        let project_name = self.project_name_for_run(&run_id).await;
-        let kit = self
-            .state
-            .backend_kits
-            .write()
-            .await
-            .entry(run_id.clone())
-            .or_insert_with(|| default_backend_kit(&project_name))
-            .clone();
+        // The kit is the project's, not the run's: the stored row is keyed by
+        // project id, so a second run of one project exports the same schema
+        // instead of starting a second, empty one. It is loaded (the daemon's copy,
+        // then the stored row, then the default) and re-remembered, so an export is
+        // the write-through that would otherwise never happen for a kit that was
+        // only read. The dump, the storage archive stem and the header all name the
+        // project, not the run.
+        let (key, project_name) = self.project_for_run(&run_id).await;
+        let kit = self.backend_kit(&key, &project_name).await;
+        self.remember_backend_kit(&key, &kit).await?;
 
         kit.export_to_dir(&output_dir)
-            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+            .map_err(|error| rpc_error(error.to_string()))
     }
 
     // Continue on server (PLAN.md M6a)
@@ -868,11 +1265,13 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn agent_turn(&self, input: String) -> RpcResult<AgentTurnResult> {
-        // The turn is synchronous (it parses, decides and compacts), so the write
-        // lock is held for its duration and no `.await` runs inside it.
+        // The turn parses, decides and compacts; in Agent mode it may also run one
+        // tool or make one model call, so the write lock is held across that await.
+        // Nothing else takes this lock mid-turn, so the ordering stays one turn at a
+        // time — which is what keeps the todo list and the transcript coherent.
         let skills = skill_catalog();
         let mut agent_loop = self.state.agent_loop.write().await;
-        Ok(agent_loop.run_turn(&input, &skills))
+        Ok(agent_loop.run_turn(&input, &skills).await)
     }
 
     // Process spawning and MCP transports (PLAN.md M20)
@@ -978,6 +1377,126 @@ impl WarshaApiServer for WarshaRpc {
             .await
             .map_err(|error| rpc_error(error.to_string()))
     }
+
+    // Settings that survive a restart (PLAN.md M20)
+    async fn list_run_modes(&self) -> RpcResult<Vec<RunModeConfig>> {
+        // Mode order, not insertion order: the caller renders a switch, and a
+        // switch whose rows move when one of them is saved is a switch that
+        // reorders itself under the pointer.
+        let modes = self.state.run_modes.read().await;
+        Ok(RunMode::all()
+            .into_iter()
+            .filter_map(|mode| modes.get(&mode).cloned())
+            .collect())
+    }
+
+    async fn set_run_mode(&self, config: RunModeConfig) -> RpcResult<RunModeConfig> {
+        // The rule a daemon has to pass before it binds is applied before the
+        // config is stored: a mode that cannot be served is not a setting.
+        config
+            .validate()
+            .map_err(|error| rpc_error(error.to_string()))?;
+        self.state
+            .settings
+            .save_run_mode(&config)
+            .await
+            .map_err(|error| rpc_error(error.to_string()))?;
+        self.state
+            .run_modes
+            .write()
+            .await
+            .insert(config.mode, config.clone());
+        Ok(config)
+    }
+
+    async fn get_backend(&self, run_id: String) -> RpcResult<Option<BackendKit>> {
+        let (key, _project_name) = self.project_for_run(&run_id).await;
+        // A project that never exported has no stored row, and reporting the
+        // default as if it were one would invent a kit the owner never reviewed.
+        // A kit set in this life does count: the owner asked for exactly that one.
+        if let Some(kit) = self.state.backend_kits.read().await.get(&key) {
+            return Ok(Some(kit.clone()));
+        }
+        self.state
+            .settings
+            .load_backend_kit(&key)
+            .await
+            .map_err(|error| rpc_error(error.to_string()))
+    }
+
+    async fn set_backend(&self, run_id: String, kit: BackendKit) -> RpcResult<()> {
+        let (key, _project_name) = self.project_for_run(&run_id).await;
+        self.remember_backend_kit(&key, &kit).await
+    }
+
+    async fn list_preferences(&self, project_id: String) -> RpcResult<Vec<Preference>> {
+        let preferences = self.state.stored_preferences.read().await;
+        Ok(preferences
+            .get(project_id.trim())
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    async fn record_preference(&self, signal: PreferenceSignal) -> RpcResult<Vec<Preference>> {
+        let project_id = signal.project_id.trim().to_string();
+        {
+            let mut store = self.state.preferences.write().await;
+            // The clock is what the decay is measured against, and it is not the
+            // wall clock of the store: without this a signal recorded by a
+            // long-running daemon would be scored against the last write.
+            store.advance_to(now_epoch_secs());
+            store
+                .record_signal(signal)
+                .map_err(|error| rpc_error(error.to_string()))?;
+        }
+
+        // The rows are the projection, so they are written before they are
+        // reported: what this returns is what a restart would load.
+        let memory = self.state.preferences.read().await.clone();
+        self.state
+            .settings
+            .save_preferences(memory)
+            .await
+            .map_err(|error| rpc_error(error.to_string()))?;
+        let rows = self
+            .state
+            .settings
+            .load_preferences(&project_id)
+            .await
+            .map_err(|error| rpc_error(error.to_string()))?;
+        self.state
+            .stored_preferences
+            .write()
+            .await
+            .insert(project_id, rows.clone());
+        Ok(rows)
+    }
+
+    async fn list_pairings(&self) -> RpcResult<Vec<PhonePairing>> {
+        Ok(self.state.pairings.read().await.list())
+    }
+
+    async fn create_pairing(&self, device_id: String, secret: String) -> RpcResult<PhonePairing> {
+        let pairing = {
+            let mut pairings = self.state.pairings.write().await;
+            pairings
+                .create(&device_id, &secret, now_epoch_secs())
+                .map_err(|error| rpc_error(error.to_string()))?
+        };
+        self.save_pairings().await?;
+        Ok(pairing)
+    }
+
+    async fn revoke_pairing(&self, device_id: String) -> RpcResult<PhonePairing> {
+        let pairing = {
+            let mut pairings = self.state.pairings.write().await;
+            pairings
+                .revoke(&device_id)
+                .map_err(|error| rpc_error(error.to_string()))?
+        };
+        self.save_pairings().await?;
+        Ok(pairing)
+    }
 }
 
 /// One JSON-RPC error object for every failure these methods can return.
@@ -1026,12 +1545,113 @@ const HANDOFF_DIR: &str = "handoff";
 /// The local PocketBase address PLAN.md M19 documents for a generated project.
 const LOCAL_POCKETBASE_URL: &str = "http://127.0.0.1:8090";
 
-/// The backend kit a run starts from until the MCP layer fills one in.
+/// The backend kit a project starts from until it exports or sets one of its own.
 ///
 /// PocketBase is the PLAN's preferred backend, and the project name is what the
 /// export header and the storage archive stem are made of.
 fn default_backend_kit(project_name: &str) -> BackendKit {
     BackendKit::from_project(project_name, LOCAL_POCKETBASE_URL, BackendKind::PocketBase)
+}
+
+/// Every project id in the store, as the strings the settings rows are keyed by.
+///
+/// The `ProjectId`'s display form is the UUID the RPCs and the settings columns
+/// both use, which is what makes one key meaningful in both places.
+async fn project_ids(store: &Store) -> Result<Vec<String>> {
+    Ok(store
+        .list_projects()
+        .await?
+        .into_iter()
+        .map(|project| project.id.to_string())
+        .collect())
+}
+
+/// Every run mode: the stored config where the owner saved one, the mode's
+/// default where they never did.
+///
+/// Both halves matter. All three modes are present because `runmode.list` reports
+/// a switch, and a mode that was stored comes back exactly as it was stored —
+/// including a Hosted mode with no relay, which [`RunModeConfig::validate`] keeps
+/// refusing until the owner names one rather than this function inventing it.
+async fn seed_run_modes(settings: &SettingsStore) -> Result<HashMap<RunMode, RunModeConfig>> {
+    let mut modes: HashMap<RunMode, RunModeConfig> = RunMode::all()
+        .into_iter()
+        .map(|mode| (mode, RunModeConfig::for_mode(mode)))
+        .collect();
+    for stored in settings.load_run_modes().await? {
+        modes.insert(stored.mode, stored);
+    }
+    Ok(modes)
+}
+
+/// The stored backend kits of every project in the store, by project id.
+///
+/// A project with no stored row is absent rather than defaulted: the default names
+/// the project, and only the RPC that resolves a run knows which project it is.
+async fn seed_backend_kits(
+    store: &Store,
+    settings: &SettingsStore,
+) -> Result<HashMap<String, BackendKit>> {
+    let kits = settings
+        .load_backend_kits(project_ids(store).await?)
+        .await?;
+    Ok(kits.into_iter().collect())
+}
+
+/// The stored preference rows of every project in the store, by project id.
+///
+/// The signals themselves are not stored — the table keeps the derived score — so
+/// this is what `preferences.list` answers with after a restart, and the daemon's
+/// signal log starts empty.
+async fn seed_preferences(
+    store: &Store,
+    settings: &SettingsStore,
+) -> Result<HashMap<String, Vec<Preference>>> {
+    let rows = settings
+        .load_all_preferences(project_ids(store).await?)
+        .await?;
+    Ok(rows.into_iter().collect())
+}
+
+/// The stored phone pairings, revocation included.
+async fn seed_pairings(settings: &SettingsStore) -> Result<InMemoryPairingStore> {
+    Ok(settings.load_pairings().await?)
+}
+
+/// Directory under the daemon's data directory the agent loop's file tools read
+/// and write in.
+///
+/// One directory per daemon, not one per run: an agent turn is the owner's
+/// conversation and belongs to no run, so every path a turn names resolves inside
+/// this single directory — and nothing outside it, because
+/// [`FilesystemToolExecutor`] refuses a path that escapes. Pointing the loop at a
+/// project's repository instead is a caller's decision, and is not made here.
+const AGENT_WORKSPACE_DIR: &str = "workspace";
+
+/// The budget meter key the agent turn's model calls are recorded under.
+///
+/// A turn belongs to no run, so its spend cannot be metered against a project id.
+/// The router's cost meter keys on this one stable string instead, which is what
+/// `ProviderRouterAdapter` takes as its `project_id`.
+const AGENT_METER_KEY: &str = "agent-loop";
+
+/// The agent loop behind `agent.turn`: the real filesystem tool layer under the
+/// daemon's data directory, and the real provider router behind the model call,
+/// routed as [`AGENT_ROLE`].
+///
+/// Both halves are seams the loop only reports on: with no role routing set the
+/// loop answers that no provider is routed for the agent role, and a tool request
+/// whose path leaves the workspace is refused — neither is a panic and neither is
+/// a silent no-op.
+fn build_agent_loop(
+    data_dir: &Path,
+    providers: Arc<RwLock<ProviderRouter>>,
+) -> Arc<RwLock<AgentLoop>> {
+    let tools = FilesystemToolExecutor::new(data_dir.join(AGENT_WORKSPACE_DIR));
+    let router = ProviderRouterAdapter::new(providers, AGENT_ROLE, AGENT_METER_KEY);
+    Arc::new(RwLock::new(
+        AgentLoop::with_tool_executor(Box::new(tools)).with_router(Arc::new(router)),
+    ))
 }
 
 /// HTTP server for REST API and WebSocket
@@ -1046,6 +1666,21 @@ async fn health_handler() -> impl IntoResponse {
 /// Start the daemon and return a handle for management.
 /// Accepts `http_port` and `ws_port` of 0 to let the OS choose ports.
 pub async fn start_daemon(config: DaemonConfig) -> Result<DaemonHandle> {
+    start_daemon_with_secrets(config, Arc::new(KeychainSecretStore::new())).await
+}
+
+/// Start the daemon with the secret store it should keep provider keys in.
+///
+/// The production entry point ([`start_daemon`]) passes the OS keychain. This one
+/// exists because the keychain is not always there: a headless CI container or a
+/// WSL shell with no D-Bus secret service refuses `keyring` with
+/// `PlatformFailure`, and an integration test that drove `providers.add` through
+/// it would be testing the runner. The daemon's behaviour is otherwise identical,
+/// and the key that a test writes is the key `providers.test` reads back.
+pub async fn start_daemon_with_secrets(
+    config: DaemonConfig,
+    secrets: Arc<dyn SecretStore>,
+) -> Result<DaemonHandle> {
     // Ensure single instance lock
     let lock_file = acquire_lock(&config.data_dir)?;
 
@@ -1054,6 +1689,13 @@ pub async fn start_daemon(config: DaemonConfig) -> Result<DaemonHandle> {
 
     // Initialize store with configurable path
     let db_path = config.data_dir.join("warsha.db");
+    // The settings are the same database the async store uses: the four small
+    // records a restart has to keep live beside the projects they configure, in one
+    // file, so a project and the settings that describe it cannot be lost
+    // separately. The migration runs here, before anything is served, so a file
+    // that cannot be opened fails the start instead of the first setting the owner
+    // changes.
+    let settings = Arc::new(SettingsStore::open(&db_path).await?);
     let store = Arc::new(Store::open_at(db_path).await?);
 
     // Initialize provider router
@@ -1092,6 +1734,20 @@ pub async fn start_daemon(config: DaemonConfig) -> Result<DaemonHandle> {
     let mcp: Arc<dyn McpManager> = Arc::new(InMemoryMcpManager::new(processes.clone()));
     let previews = Arc::new(LivePreviewManager::new(processes.clone()));
 
+    // The agent loop's two seams, wired to the real thing: its file tools run
+    // inside `<data_dir>/workspace`, and its model calls go out through the same
+    // router the pipeline stages use.
+    let agent_loop = build_agent_loop(&config.data_dir, providers.clone());
+
+    // Seed the four settings records from the file before the RPC surface opens.
+    // A daemon that answered the first request from an empty switch while the
+    // owner's settings sat on disk would be the bug this batch exists to fix, so
+    // the seeding is part of starting rather than a background warm-up.
+    let run_modes = seed_run_modes(&settings).await?;
+    let backend_kits = seed_backend_kits(&store, &settings).await?;
+    let stored_preferences = seed_preferences(&store, &settings).await?;
+    let pairings = seed_pairings(&settings).await?;
+
     let state = Arc::new(DaemonState {
         config: config.clone(),
         store,
@@ -1101,24 +1757,53 @@ pub async fn start_daemon(config: DaemonConfig) -> Result<DaemonHandle> {
         github,
         devices,
         event_tx,
-        backend_kits: Arc::new(RwLock::new(HashMap::new())),
+        backend_kits: Arc::new(RwLock::new(backend_kits)),
         crash_reports: Arc::new(RwLock::new(InMemoryCrashReportStore::new())),
         store_reviews: Arc::new(RwLock::new(InMemoryStoreReviewStore::new())),
-        agent_loop: Arc::new(RwLock::new(AgentLoop::new())),
+        agent_loop,
         processes,
         mcp,
         previews,
+        settings,
+        run_modes: Arc::new(RwLock::new(run_modes)),
+        preferences: Arc::new(RwLock::new(InMemoryPreferenceStore::new())),
+        stored_preferences: Arc::new(RwLock::new(stored_preferences)),
+        pairings: Arc::new(RwLock::new(pairings)),
+        secrets,
     });
 
     // Start JSON-RPC server (TCP for cross-platform compatibility)
     let rpc_addr: SocketAddr = format!("127.0.0.1:{}", config.ws_port)
         .parse()
         .map_err(|e| DaemonError::Config(format!("invalid RPC bind address: {e}")))?;
+    // The origins this daemon accepts, parsed once and used by both servers below.
+    //
+    // They are not optional for the RPC server: `warsha-desktop` serves its webview from
+    // `http://tauri.localhost`, so every RPC call it makes is cross-origin and arrives with
+    // `Content-Type: application/json`, which makes it a request a browser has to preflight. A
+    // preflight carries no `Authorization` header, so the CORS layer has to sit *outside* the auth
+    // layer: inside, every preflight would be answered "unauthorized" and the real POST would never
+    // be sent. A client that sends no `Origin` (the CLI, a test) sees no CORS headers and is
+    // unaffected.
+    let allowed_origins = config
+        .allowed_origins
+        .clone()
+        .into_iter()
+        .filter_map(|o| o.parse::<axum::http::HeaderValue>().ok())
+        .collect::<Vec<axum::http::HeaderValue>>();
+    let rpc_cors = CorsLayer::new()
+        .allow_origin(allowed_origins.clone())
+        .allow_methods(Any)
+        .allow_headers(Any);
     let rpc_auth_layer = RpcAuthLayer {
         expected_token: config.auth_token.clone(),
     };
     let rpc_server = ServerBuilder::default()
-        .set_http_middleware(tower::ServiceBuilder::new().layer(rpc_auth_layer))
+        .set_http_middleware(
+            tower::ServiceBuilder::new()
+                .layer(rpc_cors)
+                .layer(rpc_auth_layer),
+        )
         .build(rpc_addr)
         .await
         .map_err(|e| DaemonError::Config(format!("could not bind RPC server: {e}")))?;
@@ -1134,14 +1819,7 @@ pub async fn start_daemon(config: DaemonConfig) -> Result<DaemonHandle> {
     }
     info!("JSON-RPC server listening on 127.0.0.1:{}", actual_rpc_port);
 
-    // Start HTTP/WebSocket server
-    let allowed_origins = config
-        .allowed_origins
-        .clone()
-        .into_iter()
-        .filter_map(|o| o.parse::<axum::http::HeaderValue>().ok())
-        .collect::<Vec<axum::http::HeaderValue>>();
-
+    // Start HTTP/WebSocket server. The same origin list as the RPC server, parsed above.
     let cors = CorsLayer::new()
         .allow_origin(allowed_origins)
         .allow_methods(Any)
@@ -1185,6 +1863,9 @@ pub async fn start_daemon(config: DaemonConfig) -> Result<DaemonHandle> {
         rpc_server: rpc_handle,
         http_port: actual_http_port,
         rpc_port: actual_rpc_port,
+        // The daemon's own spawner, not a second one: the sweep at shutdown has to
+        // see the children the RPCs started.
+        processes: state.processes.clone(),
     })
 }
 
@@ -1218,9 +1899,14 @@ pub async fn run_daemon(args: DaemonArgs) -> Result<()> {
     } else {
         info!("warshad running in background mode");
     }
-    tokio::signal::ctrl_c().await?;
 
+    // Every exit path goes through the same shutdown, so no child outlives the
+    // daemon: a signal that could not be listened for is waited out as an error
+    // *after* the children are reaped, rather than returning early and leaving a
+    // dev server holding its port.
+    let interrupted = tokio::signal::ctrl_c().await;
     handle.shutdown().await;
+    interrupted?;
     Ok(())
 }
 
@@ -1403,6 +2089,7 @@ async fn handle_events_socket(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use warsha_providers::InMemorySecretStore;
 
     #[test]
     fn the_default_backend_kit_comes_from_the_run_project() {
@@ -1450,7 +2137,7 @@ mod tests {
                 .await
                 .expect("the store opens"),
         );
-        let providers = Arc::new(RwLock::new(ProviderRouter::new()));
+        let providers = Arc::new(RwLock::new(agent_router_with_mock()));
         let pipeline = Arc::new(PipelineEngine::new(store.clone(), providers.clone()));
         let identity = warsha_remote::DeviceIdentity::generate("test daemon".to_string())
             .expect("a device identity");
@@ -1459,6 +2146,12 @@ mod tests {
         let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared();
         let mcp: Arc<dyn McpManager> = Arc::new(InMemoryMcpManager::new(processes.clone()));
         let previews = Arc::new(LivePreviewManager::new(processes.clone()));
+        let agent_loop = build_agent_loop(data_dir, providers.clone());
+        let settings = Arc::new(
+            SettingsStore::open(&data_dir.join("warsha.db"))
+                .await
+                .expect("the settings open"),
+        );
 
         let state = Arc::new(DaemonState {
             config,
@@ -1472,12 +2165,114 @@ mod tests {
             backend_kits: Arc::new(RwLock::new(HashMap::new())),
             crash_reports: Arc::new(RwLock::new(InMemoryCrashReportStore::new())),
             store_reviews: Arc::new(RwLock::new(InMemoryStoreReviewStore::new())),
-            agent_loop: Arc::new(RwLock::new(AgentLoop::new())),
+            agent_loop,
             processes,
             mcp,
             previews,
+            settings,
+            // The seeded maps are what `start_daemon` builds; a state built by hand
+            // starts from the defaults and no rows, which is the same shape.
+            run_modes: Arc::new(RwLock::new(
+                RunMode::all()
+                    .into_iter()
+                    .map(|mode| (mode, RunModeConfig::for_mode(mode)))
+                    .collect(),
+            )),
+            preferences: Arc::new(RwLock::new(InMemoryPreferenceStore::new())),
+            stored_preferences: Arc::new(RwLock::new(HashMap::new())),
+            pairings: Arc::new(RwLock::new(InMemoryPairingStore::new())),
+            // A state built by hand is a state under test: no OS keychain is
+            // reached, and a test that adds a provider can read its key back.
+            secrets: Arc::new(InMemorySecretStore::new()),
         });
         (state, store)
+    }
+
+    #[test]
+    fn a_providers_endpoint_falls_back_to_its_kinds_default() {
+        let stored = StoredProvider {
+            name: "mine".to_string(),
+            kind: "qwen".to_string(),
+            api_base: Some("http://127.0.0.1:8000/v1".to_string()),
+            enabled: true,
+            created_at: 1_700_000_000,
+        };
+        // What the owner named wins.
+        assert_eq!(
+            provider_endpoint(&stored).as_deref(),
+            Some("http://127.0.0.1:8000/v1")
+        );
+
+        // The kind's published default when the owner named none, which is what
+        // makes "paste one API key" the whole first-run input.
+        let defaulted = StoredProvider {
+            api_base: None,
+            ..stored.clone()
+        };
+        assert_eq!(
+            provider_endpoint(&defaulted).as_deref(),
+            Some(
+                OneClickProvider::Qwen
+                    .default_base_url()
+                    .expect("qwen has a default")
+            )
+        );
+
+        // A custom endpoint is the owner's to name: no default URL, no default
+        // model, and the setup check is what says so.
+        let custom = StoredProvider {
+            kind: "custom".to_string(),
+            api_base: None,
+            ..stored
+        };
+        assert_eq!(provider_endpoint(&custom), None);
+        assert_eq!(provider_model(&custom), "");
+    }
+
+    #[test]
+    fn a_providers_model_comes_from_its_kind_and_blank_input_is_no_input() {
+        let kimi = StoredProvider {
+            name: "kimi".to_string(),
+            kind: "kimi".to_string(),
+            api_base: None,
+            enabled: true,
+            created_at: 1_700_000_000,
+        };
+        assert_eq!(
+            provider_model(&kimi),
+            OneClickProvider::Kimi
+                .default_model()
+                .expect("kimi has a default")
+        );
+        assert!(!provider_model(&kimi).is_empty());
+
+        // A blank string is no string, and a padded one is trimmed.
+        assert_eq!(non_empty(None), None);
+        assert_eq!(non_empty(Some("   ".to_string())), None);
+        assert_eq!(
+            non_empty(Some(" http://127.0.0.1:9/v1 ".to_string())).as_deref(),
+            Some("http://127.0.0.1:9/v1")
+        );
+    }
+
+    /// A provider router with the one mock provider routed for the agent role.
+    /// `warsha_providers::MockProvider` is the only provider a test may use
+    /// (AGENTS.md): no key, no network, no spend. Routing it for [`AGENT_ROLE`] is
+    /// what makes an Agent-mode turn's model path a real router call inside a test.
+    fn agent_router_with_mock() -> ProviderRouter {
+        let mut router = ProviderRouter::new();
+        router.register_provider(Box::new(warsha_providers::MockProvider::new("mock")));
+        router.set_role_routing(RoleRouting {
+            role: AGENT_ROLE,
+            targets: vec![RoutingTarget {
+                provider_id: "mock".to_string(),
+                model_id: "mock-model".to_string(),
+                weight: 100,
+            }],
+            fallback_enabled: false,
+            budget_cents_per_run: None,
+        });
+        router
     }
 
     /// Store a project and a run in it, returning the run.
@@ -1668,6 +2463,7 @@ mod tests {
         );
         assert_eq!(planned.mentions.len(), 1);
         assert_eq!(planned.todos.len(), 1);
+        assert!(planned.tools.is_empty());
         assert!(!state.agent_loop.read().await.mode_manager.can_edit());
 
         // Agent mode is only reachable through the owner's approval.
@@ -1686,7 +2482,157 @@ mod tests {
         assert_eq!(executed.command, None);
         assert_eq!(executed.todos.len(), 2);
         assert_eq!(executed.todos[1].id, "turn-2");
-        assert!(executed.response.contains("mock execution"));
+        // The turn is not a tool request, so it went to the router — which is the
+        // daemon's real `ProviderRouter`, holding the mock provider in this test.
+        assert!(executed.response.starts_with("Summary (model completion):"));
+        assert!(executed.response.contains("- model: Mock response"));
+        assert!(executed.tools.is_empty());
+    }
+
+    #[tokio::test]
+    async fn agent_turn_runs_a_tool_inside_the_agent_workspace() {
+        use warsha_pipeline::AgentMode;
+
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let data_dir = temp.path().join("data");
+        let (state, _store) = test_state(&data_dir).await;
+        let rpc = WarshaRpc::new(state.clone());
+        state
+            .agent_loop
+            .write()
+            .await
+            .approve_agent_mode("owner")
+            .expect("the approval is accepted");
+
+        let executed = rpc
+            .agent_turn("write file notes/hello.md: written by the agent".to_string())
+            .await
+            .expect("a tool turn answers");
+
+        assert_eq!(executed.mode, AgentMode::Agent);
+        assert_eq!(executed.tools.len(), 1);
+        assert!(
+            executed.tools[0].success,
+            "unexpected tool: {:?}",
+            executed.tools[0]
+        );
+        // The real file layer wrote it, inside `<data_dir>/workspace`.
+        let written = data_dir.join("workspace").join("notes").join("hello.md");
+        assert!(written.is_file(), "{} was not written", written.display());
+        assert_eq!(
+            std::fs::read_to_string(&written).expect("the file is readable"),
+            "written by the agent"
+        );
+
+        // A path that leaves the workspace is refused, not written.
+        let refused = rpc
+            .agent_turn("write file ../escape.md: no".to_string())
+            .await
+            .expect("a refused tool turn still answers");
+        assert_eq!(refused.tools.len(), 1);
+        assert!(!refused.tools[0].success);
+        assert!(
+            !data_dir.join("escape.md").exists(),
+            "the screen let a path out"
+        );
+    }
+
+    /// The tool name [`mcp_probe_server`] answers `tools/list` with.
+    const PROBE_TOOL: &str = "read_file";
+
+    /// The address [`preview_probe`] prints, as a dev server prints one.
+    const PROBE_URL: &str = "http://127.0.0.1:5199/";
+
+    /// A stdio MCP server, run as a child of this test binary.
+    ///
+    /// `mcp.connect` now speaks the protocol, so a test server has to answer it.
+    /// The daemon starts a server with the program and arguments it was given and
+    /// no environment, so the child identifies itself by `--exact` and answers from
+    /// the constant above. `--nocapture` is what lets this `println!` reach the pipe
+    /// the manager reads instead of libtest's in-memory buffer, and the guard makes
+    /// the probe harmless if a full ignored run ever reaches it.
+    #[test]
+    #[ignore = "a child process, not a test"]
+    fn mcp_probe_server() {
+        use std::io::BufRead;
+
+        if !std::env::args().any(|arg| arg == "--exact") {
+            return;
+        }
+        for line in std::io::stdin().lock().lines() {
+            let Ok(line) = line else { break };
+            let Ok(request) = serde_json::from_str::<serde_json::Value>(&line) else {
+                continue;
+            };
+            let Some(id) = request.get("id").cloned() else {
+                continue;
+            };
+            match request.get("method").and_then(serde_json::Value::as_str) {
+                Some("initialize") => println!(
+                    "{}",
+                    serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": { "protocolVersion": "2024-11-05", "capabilities": {} },
+                    })
+                ),
+                Some("tools/list") => println!(
+                    "{}",
+                    serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": { "tools": [{ "name": PROBE_TOOL }] },
+                    })
+                ),
+                _ => println!(
+                    "{}",
+                    serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": { "code": -32601, "message": "unknown method" },
+                    })
+                ),
+            }
+        }
+    }
+
+    /// A dev server, run as a child of this test binary: it prints its address and
+    /// stays up, which is what `preview.start` waits to read.
+    #[test]
+    #[ignore = "a child process, not a test"]
+    fn preview_probe() {
+        if !std::env::args().any(|arg| arg == "--exact") {
+            return;
+        }
+        println!("  ➜  Local:   {PROBE_URL}");
+        std::thread::sleep(std::time::Duration::from_secs(30));
+    }
+
+    /// The command line that starts one probe of this test binary.
+    ///
+    /// A preview is given one command line and splits it itself, so a binary path
+    /// with a space in it would not survive. It does not here, and the pipeline's
+    /// own preview tests rest on the same assumption.
+    fn probe_line(test: &str) -> String {
+        let exe = std::env::current_exe().expect("the test binary names itself");
+        format!(
+            "{} --exact tests::{test} --ignored --nocapture",
+            exe.display()
+        )
+    }
+
+    /// The same probe as a program plus args, which is what `mcp.connect` takes.
+    fn probe_command(test: &str) -> (String, Vec<String>) {
+        let exe = std::env::current_exe().expect("the test binary names itself");
+        (
+            exe.to_string_lossy().into_owned(),
+            vec![
+                "--exact".to_string(),
+                format!("tests::{test}"),
+                "--ignored".to_string(),
+                "--nocapture".to_string(),
+            ],
+        )
     }
 
     /// A program plus args that keeps running until the test stops it.
@@ -1705,15 +2651,6 @@ mod tests {
             "sh".to_string(),
             vec!["-c".to_string(), "sleep 30".to_string()],
         )
-    }
-
-    /// The same server as one command line, which is what `preview.start` takes.
-    fn long_running_line() -> String {
-        let (command, args) = long_running();
-        std::iter::once(command)
-            .chain(args)
-            .collect::<Vec<String>>()
-            .join(" ")
     }
 
     #[tokio::test]
@@ -1756,7 +2693,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("a temporary directory");
         let (state, _store) = test_state(temp.path()).await;
         let rpc = WarshaRpc::new(state);
-        let (command, args) = long_running();
+        let (command, args) = probe_command("mcp_probe_server");
 
         rpc.connect_mcp(warsha_pipeline::mcp_transport::McpServerConfig::new_stdio(
             "files", command, args,
@@ -1767,6 +2704,8 @@ mod tests {
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].status, warsha_pipeline::McpStatus::Connected);
         assert!(listed[0].process_id.is_some());
+        // The handshake ran, so `mcp.list` reports what the server said it can do.
+        assert_eq!(listed[0].tools, vec![PROBE_TOOL.to_string()]);
 
         let frame = r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;
         assert_eq!(
@@ -1823,19 +2762,22 @@ mod tests {
         let temp = tempfile::tempdir().expect("a temporary directory");
         let (state, _store) = test_state(temp.path()).await;
         let rpc = WarshaRpc::new(state.clone());
-        let command = long_running_line();
+        let command = probe_line("preview_probe");
 
         let started = rpc
             .start_preview("project-1".to_string(), command.clone())
             .await
             .expect("the preview starts");
         assert_eq!(started.project_id, "project-1");
+        // The dev server prints its address, and `preview.start` reports it (D4).
+        assert_eq!(started.url.as_deref(), Some(PROBE_URL));
         let status = rpc
             .preview_status("project-1".to_string())
             .await
             .expect("the preview is tracked");
         assert_eq!(status.process_id, started.process_id);
         assert_eq!(status.status, ProcessStatus::Running);
+        assert_eq!(status.url.as_deref(), Some(PROBE_URL));
         // The dev server is a real child, so `process.list` sees it too.
         assert_eq!(
             rpc.list_processes()

@@ -12,6 +12,7 @@ use warsha_providers::{ChatMessage, ChatRequest, MessageRole, ProviderRouter};
 use warsha_store::Store;
 
 mod agent_loop;
+mod agent_tools;
 mod agent_workflow;
 mod backend_kit;
 mod build_cache;
@@ -40,7 +41,13 @@ mod scout;
 mod skills;
 mod work_protection;
 
-pub use crate::agent_loop::{AgentLoop, AgentTurnResult, TURN_CONTEXT_BUDGET_TOKENS};
+pub use crate::agent_loop::{
+    AgentLoop, AgentTurnResult, ProviderRouterAdapter, Router, RouterError, AGENT_ROLE,
+    TURN_CONTEXT_BUDGET_TOKENS,
+};
+pub use crate::agent_tools::{
+    AgentTool, FilesystemToolExecutor, NoToolExecutor, ToolError, ToolExecutor, ToolResult,
+};
 pub use crate::agent_workflow::{
     AgentMode, AgentWorkflowError, AskUserQueue, AskUserRequest, CompressedOutput,
     ContextCompactor, Mention, MentionKind, MentionParser, Message, MessageBus, ModeManager,

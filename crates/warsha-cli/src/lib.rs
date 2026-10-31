@@ -492,41 +492,45 @@ impl CliApp {
             ProviderAction::List => {
                 let providers = self
                     .client
-                    .request::<Vec<warshad::ProviderConfig>, _>("providers.list", rpc_params![])
+                    .request::<Vec<warshad::ProviderRecord>, _>("providers.list", rpc_params![])
                     .await?;
                 for p in providers {
-                    self.output(format!("{} ({})", p.id, p.kind))?;
+                    self.output(format!("{} ({})", p.name, p.kind))?;
                 }
             }
             ProviderAction::Add { id, kind, key } => {
-                let config = warshad::ProviderConfig {
-                    id: id.clone(),
-                    kind: kind.clone(),
-                    api_base: None,
-                    models: vec![],
-                };
-                self.client
-                    .request::<(), _>("providers.add", (config,))
+                // The key is not optional any more: `providers.add` files it in the
+                // OS keychain under the provider's name, and a provider with no key
+                // is one every `providers test` would refuse.
+                let key = key.ok_or_else(|| {
+                    CliError::Other(format!(
+                        "providers add {id} needs --key: the key is stored in the OS keychain"
+                    ))
+                })?;
+                // Positional, in the order the RPC declares: name, kind, key,
+                // api_base. `None` lets the daemon use the kind's default URL.
+                let provider = self
+                    .client
+                    .request::<warshad::ProviderRecord, _>(
+                        "providers.add",
+                        (id.clone(), kind, key, None::<String>),
+                    )
                     .await?;
-                if key.is_some() {
-                    self.output(format!("Provider {} added (key provided)", id))?;
-                } else {
-                    self.output(format!(
-                        "Provider {} added (use keychain for credentials)",
-                        id
-                    ))?;
-                }
+                self.output(format!(
+                    "Provider {} added ({})",
+                    provider.name, provider.kind
+                ))?;
             }
             ProviderAction::Test { id } => {
                 let health = self
                     .client
                     .request::<warsha_providers::HealthCheck, _>("providers.test", (id,))
                     .await?;
-                self.output(format!("Provider health: {:?}", health))?;
+                self.output(format!("Provider health: {health:?}"))?;
             }
             ProviderAction::Remove { id } => {
                 self.client
-                    .request::<(), _>("providers.remove", (id,))
+                    .request::<warshad::ProviderRecord, _>("providers.remove", (id,))
                     .await?;
                 self.output("Provider removed".to_string())?;
             }

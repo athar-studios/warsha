@@ -121,7 +121,7 @@ export function Budgets({ onBack }: BudgetsProps) {
                   <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--warsha-space-4)' }}>
                     <Box dir={dir}>
                       <Text weight="bold" size="lg" dir={dir}>{budget.projectName}</Text>
-                      <Text size="sm" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>{t('projects.id_label') || 'ID:'} {projectId.slice(0, 8)}...</Text>
+                      <Text size="sm" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>{t('projects.id_label', {}, locale) || 'ID:'} {projectId.slice(0, 8)}...</Text>
                     </Box>
                     <Box dir={dir} style={{ textAlign: dir === 'rtl' ? 'right' : 'left' }}>
                       <Text size="sm" weight="bold" dir={dir} style={{ color }}>

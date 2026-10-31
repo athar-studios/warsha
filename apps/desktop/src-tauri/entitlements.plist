@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    Deliberately empty. `tauri.conf.json` names this file so a macOS bundle has entitlements to
+    sign with, and Warsha needs no hardened-runtime exception to run: the app writes only inside
+    its own config directory, spawns no helper that needs a sandbox escape, and reaches the
+    daemon it started on loopback. Signing itself stays off until the owner supplies a
+    certificate (M9 recorded the signing hooks as present but disabled).
+  -->
+</dict>
+</plist>

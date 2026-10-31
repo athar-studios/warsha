@@ -11,15 +11,21 @@ mod ollama;
 mod openai;
 mod provider_setup;
 mod provider_update;
+mod secrets;
 
 pub use anthropic::AnthropicProvider;
 pub use ollama::OllamaProvider;
-pub use openai::{load_key, store_key, OpenAIProvider};
-pub use provider_setup::{ConnectionTestResult, OneClickProvider, ProviderSetupWizard};
+pub use openai::{delete_key, load_key, store_key, OpenAIProvider};
+pub use provider_setup::{
+    probe_endpoint, ConnectionTestResult, OneClickProvider, ProviderSetupWizard, PROBE_TIMEOUT,
+};
 pub use provider_update::{
     latest_versions, DetectedProvider, MockChecker, MockDetector, ProviderDetector,
     ProviderUpdateAction, ProviderUpdateChecker, ProviderUpdateError, ProviderUpdateMode,
     ProviderUpdatePlanner, ProviderUpdatePolicy, SkipReason,
+};
+pub use secrets::{
+    InMemorySecretStore, KeychainSecretStore, SecretStore, PROVIDER_KEYCHAIN_SERVICE,
 };
 
 #[derive(Error, Debug, Clone)]

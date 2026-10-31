@@ -109,6 +109,11 @@ run_soft "pnpm lint"                                pnpm lint
 run_soft "node scripts/check-arch.mjs"              node scripts/check-arch.mjs
 run_soft "pnpm -r build"                            pnpm -r build
 run_soft "pnpm -r test"                             pnpm -r test
+# The visual suite opens the built app in chromium and compares 56 desktop screenshots plus the
+# remote smoke check against the baselines in the repo. Soft, like the rest of this script: it needs
+# chromium and a free 5173/5174, and it reports rather than blocks the toolchain bootstrap.
+run_soft "pnpm visual"                              pnpm visual
+mkdir -p bridge-io/shots && cp -f apps/desktop/e2e/screens.visual.spec.ts-snapshots/*.png bridge-io/shots/ 2>/dev/null && cp -f apps/remote/e2e/smoke.visual.spec.ts-snapshots/*.png bridge-io/shots/ 2>/dev/null || true
 run_soft "actionlint ci.yml"                        actionlint .github/workflows/ci.yml
 
 # --------------------------------------------------------------- summary

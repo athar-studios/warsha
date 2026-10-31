@@ -202,7 +202,7 @@ export function Devices({ onBack }: DevicesProps) {
               justifyContent: 'center',
             }}>
               <Text size="xl" weight="bold" dir={dir} style={{ color: 'var(--warsha-color-text-muted)', marginBottom: 'var(--warsha-space-2)' }}>
-                {t('devices.qr_code') || 'QR Code'}
+                {t('devices.qr_code', {}, locale) || 'QR Code'}
               </Text>
               <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-muted)' }}>
                 {pairingCode}

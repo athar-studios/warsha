@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { LocaleProvider } from '@warsha/i18n';
 import React from 'react';
@@ -40,5 +40,20 @@ describe('remote app', () => {
   it('displays run status with interpolated value', () => {
     renderApp();
     expect(screen.getByText('حالة التشغيل: code')).toBeInTheDocument();
+  });
+
+  it('reaches English through the language switch, catalog copy included', () => {
+    renderApp();
+
+    expect(screen.getByText('مصنع برمجيات بالذكاء الاصطناعي، عربي أولاً')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('remote-language-en'));
+
+    // Both kinds of copy have to follow: the inline `locale === 'ar' ? … : …` strings and the ones
+    // read straight out of the `@warsha/i18n` catalog.
+    expect(screen.getByText('Arabic-first AI software factory')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
+    expect(screen.getByText('Run status: code')).toBeInTheDocument();
+    expect(document.documentElement.dir).toBe('ltr');
   });
 });

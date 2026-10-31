@@ -2,7 +2,7 @@
 //! and phone pairings (PLAN.md M20).
 //!
 //! `warsha-store` already persists projects, runs, events, gates, artifacts and
-//! costs through `sqlx`. The four records in this module are different: they are
+//! costs through `sqlx`. The five records in this module are different: they are
 //! *small settings-shaped rows* that the desktop, the daemon and the pipeline
 //! touch synchronously, one at a time, so they get a plain [`rusqlite`]
 //! connection instead of the async pool:
@@ -11,17 +11,21 @@
 //!   database to `journal_mode = WAL` and refuses to return a store that did not
 //!   end up there, because a reader is not supposed to block the daemon's writer.
 //! - **One migration step, idempotent.** [`SqliteStore::migrate`] creates the
-//!   four tables inside a transaction and is a no-op afterwards, so calling it on
+//!   five tables inside a transaction and is a no-op afterwards, so calling it on
 //!   every start is safe.
 //! - **Rows, not pipeline types.** The store cannot depend on `warsha-pipeline`
 //!   (the dependency direction is core ← store ← providers ← pipeline), so the
 //!   columns live in [`StoredPreference`], [`StoredBackendKit`],
-//!   [`StoredRunMode`] and [`StoredPairing`]. The pipeline converts its own types
-//!   to these and back; nothing here knows what a taste signal or a table
-//!   definition is.
+//!   [`StoredRunMode`], [`StoredPairing`] and [`StoredProvider`]. The pipeline
+//!   converts its own types to these and back; nothing here knows what a taste
+//!   signal or a table definition is.
 //! - **A pairing secret is never printed.** [`StoredPairing`] keeps the one-time
 //!   secret so the pairing channel can hand it back, but its `Debug` impl prints
 //!   `<redacted>`, the same rule `PhonePairing` follows in `warsha-pipeline`.
+//! - **A provider row never carries a key.** [`StoredProvider`] holds the name,
+//!   the kind, the base URL and the enabled flag; the API key lives in the OS
+//!   keychain, addressed by the provider's name. There is no column for it, so
+//!   `providers.add` has nothing to leak into this file.
 //!
 //! What is deliberately not here: no async API, no connection pool, no query
 //! cache and no second migration system. [`SqliteStore`] owns one connection and
@@ -63,6 +67,13 @@ CREATE TABLE IF NOT EXISTS pairing_devices (
     secret     TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     revoked    INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS configured_providers (
+    name       TEXT PRIMARY KEY,
+    kind       TEXT NOT NULL,
+    api_base   TEXT,
+    enabled    INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
 );
 ";
 
@@ -141,7 +152,29 @@ impl fmt::Debug for StoredPairing {
     }
 }
 
-/// A SQLite database holding the four M20 tables, in WAL mode.
+/// One configured model provider, as the daemon's `providers.*` RPCs store it.
+///
+/// The name is the row's key and the keychain account: one provider, one secret,
+/// no collision between two providers that happen to share a kind. There is
+/// deliberately no `key` column — the API key is the OS keychain's, and a row
+/// that could carry it is a row that could leak it into a backup, a crash report
+/// or a `SELECT *` in a bug report.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredProvider {
+    /// The owner's name for this provider; also its keychain account.
+    pub name: String,
+    /// The adapter kind tag the wizard sent, e.g. `open_router`.
+    pub kind: String,
+    /// The OpenAI-compatible base URL, `None` when the kind's default applies.
+    pub api_base: Option<String>,
+    /// Whether the provider may be used. A stored provider is enabled; a
+    /// removed one has no row at all rather than a disabled one.
+    pub enabled: bool,
+    /// When the provider was added, in Unix seconds. Ordering only.
+    pub created_at: u64,
+}
+
+/// A SQLite database holding the five M20 tables, in WAL mode.
 ///
 /// [`SqliteStore::open`] creates the file (and the directory is the caller's to
 /// create) and switches it to WAL; [`SqliteStore::migrate`] creates the tables.
@@ -180,7 +213,7 @@ impl SqliteStore {
         Ok(store)
     }
 
-    /// Create the four tables if they do not exist yet.
+    /// Create the five tables if they do not exist yet.
     ///
     /// One transaction, so a failure half way through leaves no partial schema.
     pub fn migrate(&self) -> Result<()> {
@@ -379,6 +412,72 @@ impl SqliteStore {
             .collect()
     }
 
+    // -------------------------------------------------------------- providers
+
+    /// Insert or replace one configured provider, keyed by its name.
+    ///
+    /// Replacing is how a re-`add` of the same name works: the row keeps its
+    /// `created_at` (the provider is not new again just because its key was
+    /// re-entered) and takes the kind and base URL the caller just sent.
+    pub fn save_provider(&self, provider: &StoredProvider) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO configured_providers (name, kind, api_base, enabled, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5) \
+             ON CONFLICT(name) DO UPDATE SET \
+             kind = excluded.kind, api_base = excluded.api_base, enabled = excluded.enabled",
+            params![
+                provider.name,
+                provider.kind,
+                provider.api_base,
+                i64::from(provider.enabled),
+                sql_int(provider.created_at, "configured_providers.created_at")?,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// One provider by name, or `None` when no such row exists.
+    pub fn load_provider(&self, name: &str) -> Result<Option<StoredProvider>> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT name, kind, api_base, enabled, created_at FROM configured_providers \
+                 WHERE name = ?1",
+                params![name],
+                stored_provider_from_row,
+            )
+            .optional()?;
+        Ok(row)
+    }
+
+    /// Every configured provider, oldest first, then by name.
+    ///
+    /// Creation order is what a picker shows, and the name breaks the tie so two
+    /// providers added in the same second still come back in a stable order.
+    pub fn load_providers(&self) -> Result<Vec<StoredProvider>> {
+        let mut statement = self.conn.prepare(
+            "SELECT name, kind, api_base, enabled, created_at FROM configured_providers \
+             ORDER BY created_at ASC, name ASC",
+        )?;
+        let rows = statement
+            .query_map([], stored_provider_from_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Delete one provider's row, answering whether there was one.
+    ///
+    /// The keychain entry is not touched here: this layer has no keychain, and a
+    /// caller that deletes the row without its secret is exactly the orphan this
+    /// method's `bool` lets it detect.
+    pub fn delete_provider(&self, name: &str) -> Result<bool> {
+        let deleted = self.conn.execute(
+            "DELETE FROM configured_providers WHERE name = ?1",
+            params![name],
+        )?;
+        Ok(deleted > 0)
+    }
+
     /// Read the journal mode back and refuse anything that is not WAL.
     fn ensure_wal(&self) -> Result<()> {
         let mode: String = self
@@ -415,6 +514,20 @@ fn unsigned_u64(value: i64, field: &'static str) -> Result<u64> {
     u64::try_from(value).map_err(|_| StoreError::CorruptId {
         field,
         value: value.to_string(),
+    })
+}
+
+/// One `providers` row, in the column order both provider queries select.
+///
+/// `rusqlite` reads the `INTEGER` columns back as `bool` and `u64` directly, so a
+/// negative or oversized stored value is an error rather than something to clamp.
+fn stored_provider_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredProvider> {
+    Ok(StoredProvider {
+        name: row.get(0)?,
+        kind: row.get(1)?,
+        api_base: row.get(2)?,
+        enabled: row.get(3)?,
+        created_at: row.get(4)?,
     })
 }
 
@@ -479,7 +592,7 @@ mod tests {
     }
 
     #[test]
-    fn migrate_creates_the_four_tables_and_is_idempotent() {
+    fn migrate_creates_the_five_tables_and_is_idempotent() {
         let dir = tempfile::tempdir().expect("a temporary directory");
         let path = dir.path().join("warsha.db");
         let store = SqliteStore::open(&path.to_string_lossy()).expect("the store opens");
@@ -489,6 +602,7 @@ mod tests {
             store.tables().expect("the schema is readable"),
             vec![
                 "backend_kits".to_string(),
+                "configured_providers".to_string(),
                 "pairing_devices".to_string(),
                 "preferences".to_string(),
                 "run_modes".to_string(),
@@ -497,7 +611,7 @@ mod tests {
 
         // A second run is a no-op, not an error: every CREATE is IF NOT EXISTS.
         store.migrate().expect("the second migration is a no-op");
-        assert_eq!(store.tables().expect("the schema is readable").len(), 4);
+        assert_eq!(store.tables().expect("the schema is readable").len(), 5);
     }
 
     #[test]
@@ -697,5 +811,77 @@ mod tests {
         assert!(rendered.contains("device-1"));
         assert!(rendered.contains(REDACTED_SECRET));
         assert!(!rendered.contains("super-secret-value"));
+    }
+
+    #[test]
+    fn provider_crud_round_trips_through_the_store() {
+        let (store, _dir) = temp_store();
+
+        // Empty at start.
+        assert!(store.load_providers().expect("providers load").is_empty());
+        assert_eq!(
+            store.load_provider("open_router").expect("load single"),
+            None
+        );
+
+        let openrouter = StoredProvider {
+            name: "open_router".to_string(),
+            kind: "open_router".to_string(),
+            api_base: Some("https://openrouter.ai/api/v1".to_string()),
+            enabled: true,
+            created_at: 1_700_000_000,
+        };
+        let custom = StoredProvider {
+            name: "my-llm".to_string(),
+            kind: "custom".to_string(),
+            api_base: Some("http://localhost:8000/v1".to_string()),
+            enabled: true,
+            created_at: 1_700_000_100,
+        };
+
+        store.save_provider(&openrouter).expect("openrouter stored");
+        store.save_provider(&custom).expect("custom stored");
+
+        // Both return in creation order.
+        let list = store.load_providers().expect("providers load");
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].name, "open_router");
+        assert_eq!(list[1].name, "my-llm");
+
+        // Single lookup works.
+        let single = store.load_provider("open_router").expect("single load");
+        assert_eq!(single, Some(openrouter.clone()));
+
+        // Update of kind / api_base preserves created_at.
+        let updated = StoredProvider {
+            name: "open_router".to_string(),
+            kind: "open_router".to_string(),
+            api_base: Some("https://openrouter.example.com/v1".to_string()),
+            enabled: false,
+            created_at: 1_800_000_000, // ignored by the ON CONFLICT DO UPDATE
+        };
+        store.save_provider(&updated).expect("update stored");
+        let reloaded = store.load_provider("open_router").expect("reload");
+        assert_eq!(
+            reloaded,
+            Some(StoredProvider {
+                name: "open_router".to_string(),
+                kind: "open_router".to_string(),
+                api_base: Some("https://openrouter.example.com/v1".to_string()),
+                enabled: false,
+                created_at: 1_700_000_000,
+            })
+        );
+
+        // Deletion removes the row.
+        assert!(store.delete_provider("open_router").expect("delete"));
+        assert!(!store.delete_provider("open_router").expect("delete again"));
+        assert_eq!(
+            store
+                .load_provider("open_router")
+                .expect("load after delete"),
+            None
+        );
+        assert_eq!(store.load_providers().expect("remaining").len(), 1);
     }
 }

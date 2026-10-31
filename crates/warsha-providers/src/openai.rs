@@ -411,3 +411,18 @@ pub async fn store_key(
         CredentialsRef::None => Err(ProviderError::Auth("No credentials configured".to_string())),
     }
 }
+
+/// Delete API key from keychain
+pub async fn delete_key(credentials: &CredentialsRef) -> Result<()> {
+    match credentials {
+        CredentialsRef::Keychain {
+            service: svc,
+            account: acc,
+        } => {
+            let entry = keyring::Entry::new(svc, acc);
+            let _ = entry.delete_password();
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}

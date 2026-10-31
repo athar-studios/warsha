@@ -309,7 +309,7 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
   };
 
   return (
-    <Box dir={dir} style={{ display: 'flex', height: '100%', minHeight: '600px' }}>
+    <Box dir={dir} className="simple-mode" style={{ display: 'flex', height: '100%', minHeight: '600px' }}>
       {/* Left Sidebar — Agents List */}
       <Box dir={dir} style={{
         width: '280px',

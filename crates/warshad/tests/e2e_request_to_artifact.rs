@@ -38,13 +38,14 @@ use warsha_core::{
 };
 use warsha_pipeline::{
     AgentLoop, AgentMode, AskUserRequest, InMemoryCrashReportStore, InMemoryMcpManager,
-    InMemoryProcessManager, InMemoryStoreReviewStore, LivePreviewManager, McpManager,
-    PipelineEngine, ProcessManager,
+    InMemoryPairingStore, InMemoryPreferenceStore, InMemoryProcessManager,
+    InMemoryStoreReviewStore, LivePreviewManager, McpManager, PipelineEngine, ProcessManager,
+    RunMode, RunModeConfig,
 };
-use warsha_providers::{MockProvider, ProviderRouter};
+use warsha_providers::{InMemorySecretStore, MockProvider, ProviderRouter};
 use warsha_remote::{DeviceIdentity, DeviceRegistry};
 use warsha_store::Store;
-use warshad::{DaemonConfig, DaemonState, WarshaApiServer, WarshaRpc};
+use warshad::{DaemonConfig, DaemonState, SettingsStore, WarshaApiServer, WarshaRpc};
 
 /// The written request the project starts from.
 const HELLO_REQUEST: &str = "Build a hello-world Rust CLI that prints 'Hello, {name}!'";
@@ -202,7 +203,7 @@ async fn e2e_request_to_artifact() {
     // ---- 4. Plan mode proposes, the owner approves, Agent mode may edit.
     let plan = {
         let mut agent = state.agent_loop.write().await;
-        agent.run_turn(HELLO_REQUEST, &[])
+        agent.run_turn(HELLO_REQUEST, &[]).await
     };
     assert_eq!(plan.mode, AgentMode::Plan);
     assert!(
@@ -483,6 +484,14 @@ async fn daemon_state(data_dir: &Path) -> Arc<DaemonState> {
     let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared();
     let mcp: Arc<dyn McpManager> = Arc::new(InMemoryMcpManager::new(processes.clone()));
     let previews = Arc::new(LivePreviewManager::new(processes.clone()));
+    // The settings file the daemon would seed from: this test builds its state by
+    // hand, so it opens the same database and starts from empty settings rather
+    // than pretending a restart happened.
+    let settings = Arc::new(
+        SettingsStore::open(&data_dir.join("warsha.db"))
+            .await
+            .expect("the settings open"),
+    );
 
     Arc::new(DaemonState {
         config: DaemonConfig {
@@ -504,6 +513,19 @@ async fn daemon_state(data_dir: &Path) -> Arc<DaemonState> {
         processes,
         mcp,
         previews,
+        settings,
+        run_modes: Arc::new(RwLock::new(
+            RunMode::all()
+                .into_iter()
+                .map(|mode| (mode, RunModeConfig::for_mode(mode)))
+                .collect(),
+        )),
+        preferences: Arc::new(RwLock::new(InMemoryPreferenceStore::new())),
+        stored_preferences: Arc::new(RwLock::new(HashMap::new())),
+        pairings: Arc::new(RwLock::new(InMemoryPairingStore::new())),
+        // No provider key is stored by this flow, and a state built by hand never
+        // reaches the OS keychain anyway.
+        secrets: Arc::new(InMemorySecretStore::new()),
     })
 }
 

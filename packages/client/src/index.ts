@@ -97,6 +97,15 @@ export interface ProviderConfig {
   name: string;
   kind: string;
   enabled: boolean;
+  /**
+   * The endpoint the provider is reached at, when one is configured.
+   *
+   * `providers.list` omits it rather than sending `null` for a provider that uses
+   * its kind's default, so it is optional here too. The provider's API key is not
+   * part of any reply: it stays in the OS keychain, and the daemon only ever reads
+   * it to test the connection.
+   */
+  api_base?: string;
   budgetUsd?: number;
 }
 

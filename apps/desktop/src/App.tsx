@@ -1,7 +1,7 @@
 // @warsha/desktop — Main app component with Simple/Advanced mode routing
 import { invoke } from '@tauri-apps/api/core';
 import { createClient, type WarshaClient, type ProjectSummary, type RunSummary } from '@warsha/client';
-import { LocaleProvider, useLocale, useDirection, t, type Locale } from '@warsha/i18n';
+import { useLocale, useDirection, t, type Locale } from '@warsha/i18n';
 import { Box, Text, Button } from '@warsha/ui';
 import React, { useState, useEffect, createContext, useContext, ReactNode } from 'react';
 
@@ -99,6 +99,88 @@ function settingsTabLabel(screen: Screen, locale: Locale): string {
 // App mode
 type AppMode = 'simple' | 'advanced';
 
+/**
+ * Screens a deep link may name, e.g. `?screen=settings`.
+ *
+ * This shell routes on state rather than on URLs, so no screen has an address of its own. The query
+ * parameter is the one way to open a screen directly, which is what the Playwright visual suite in
+ * `apps/desktop/e2e/` uses instead of clicking through the app on every case. Only these names are
+ * accepted; anything else (including `onboarding`) falls back to the saved mode, so a hand-typed
+ * URL cannot put the shell into a screen it has no data for.
+ */
+const DEEP_LINK_SCREENS: readonly Screen[] = [
+  'projects',
+  'run',
+  'gates',
+  'artifacts',
+  'providers',
+  'roles',
+  'budgets',
+  'devices',
+  'simple',
+  'advanced',
+  'settings',
+  'routines',
+  'settings-providers',
+  'crash-reports',
+  'store-reviews',
+  'backend-kit',
+];
+
+/** Screens that render one project (`simple`, `advanced`). */
+const PROJECT_SCREENS: readonly Screen[] = ['simple', 'advanced'];
+
+/** Screens that render one run (`run`, `gates`, `artifacts`). */
+const RUN_SCREENS: readonly Screen[] = ['run', 'gates', 'artifacts'];
+
+/** The screen `search` (a `location.search` string) asks for, or `null` for "no deep link". */
+export function requestedScreen(search: string): Screen | null {
+  const value = new URLSearchParams(search).get('screen');
+  if (value === null) return null;
+  return (DEEP_LINK_SCREENS as readonly string[]).includes(value) ? (value as Screen) : null;
+}
+
+/** Where the shell opens, and what it has to select to get there. */
+interface StartupTarget {
+  screen: Screen;
+  project: ProjectSummary | null;
+  run: RunSummary | null;
+}
+
+/**
+ * Resolve the first screen: the deep link when it names a screen the shell can render, the owner's
+ * saved mode otherwise.
+ *
+ * A screen that renders a project or a run needs one selected before it mounts, so the first project
+ * (and its first run) is loaded here instead of each screen fetching its own. A deep link whose data
+ * does not exist — no projects, or a project with no runs — falls back to the saved mode rather than
+ * showing an empty screen.
+ */
+async function startupTarget(
+  mode: AppMode,
+  projects: ProjectSummary[],
+  client: WarshaClient,
+  search: string
+): Promise<StartupTarget> {
+  const wanted = requestedScreen(search);
+  const none: StartupTarget = { screen: mode, project: null, run: null };
+  if (wanted === null) return none;
+
+  const wantsProject = PROJECT_SCREENS.includes(wanted);
+  const wantsRun = RUN_SCREENS.includes(wanted);
+  const project = wantsProject || wantsRun ? projects[0] ?? null : null;
+  if ((wantsProject || wantsRun) && project === null) return none;
+
+  let run: RunSummary | null = null;
+  if (wantsRun && project !== null) {
+    const runs = await client.listRuns(project.id);
+    run = runs[0] ?? null;
+    if (run === null) return { screen: mode, project, run: null };
+  }
+
+  return { screen: wanted, project, run };
+}
+
 // Mode context
 interface ModeContextValue {
   mode: AppMode;
@@ -125,6 +207,40 @@ async function checkOnboarding(): Promise<boolean> {
   }
 }
 
+// One shell config key, or the empty string when the shell has nothing to say (a browser, or a
+// command that failed). Callers treat empty as "not reported" rather than as a value.
+async function readConfig(key: string): Promise<string> {
+  try {
+    return await invoke<string>('get_config', { key });
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Where the daemon is, and the token that reaches it.
+ *
+ * The shell starts `warshad` itself and lets the OS choose the ports, so neither the URL nor the
+ * token can be a constant in this file: `src-tauri/src/lib.rs` publishes both as the `daemon_url`
+ * and `daemon_token` config keys, and this reads them back. A reported URL that is not an HTTP
+ * URL is ignored — an empty or malformed answer must not become the client's endpoint.
+ *
+ * A browser has no shell: `pnpm dev` in a plain browser and the Playwright harness
+ * (`e2e/harness.ts`) both answer those keys with the empty string, and the development defaults
+ * below are what the harness stubs, so the visual checks measure the same client they always did.
+ */
+const DEV_DAEMON_URL = 'http://127.0.0.1:8766';
+const DEV_DAEMON_TOKEN = 'test-token';
+
+async function daemonEndpoint(): Promise<{ baseUrl: string; token: string }> {
+  const reportedUrl = await readConfig('daemon_url');
+  const reportedToken = await readConfig('daemon_token');
+  const baseUrl = /^https?:\/\/\S+$/.test(reportedUrl)
+    ? reportedUrl.replace(/\/+$/, '')
+    : DEV_DAEMON_URL;
+  return { baseUrl, token: reportedToken === '' ? DEV_DAEMON_TOKEN : reportedToken };
+}
+
 // Get saved mode
 async function getSavedMode(): Promise<AppMode> {
   try {
@@ -141,6 +257,16 @@ async function saveMode(mode: AppMode): Promise<void> {
     await invoke('set_config', { key: 'app_mode', value: mode });
   } catch (error) {
     console.error('Failed to save mode:', error);
+  }
+}
+
+// Mark the first run done, so the wizard does not come back. The write is best-effort: losing it
+// costs one repeat of the wizard at the next launch, not the project it created.
+async function saveOnboardingComplete(): Promise<void> {
+  try {
+    await invoke('set_config', { key: 'onboarding_complete', value: 'true' });
+  } catch (error) {
+    console.error('Failed to save onboarding state:', error);
   }
 }
 
@@ -202,24 +328,28 @@ function AppContent() {
   useEffect(() => {
     const initApp = async () => {
       try {
-        const baseUrl = 'http://127.0.0.1:8766';
-        const token = 'test-token';
+        const { baseUrl, token } = await daemonEndpoint();
         const apiClient = createClient(baseUrl, token);
         setClient(apiClient);
-        
+
         const complete = await checkOnboarding();
         setOnboardingComplete(complete);
-        
+
         const mode = await getSavedMode();
         setSavedMode(mode);
-        
-        if (complete) {
-          setScreen(mode);
-          const projectsData = await apiClient.listProjects();
-          setProjects(projectsData);
-        } else {
+
+        if (!complete) {
           setScreen('onboarding');
+          return;
         }
+
+        const projectsData = await apiClient.listProjects();
+        setProjects(projectsData);
+
+        const target = await startupTarget(mode, projectsData, apiClient, window.location.search);
+        if (target.project) setSelectedProject(target.project);
+        if (target.run) setSelectedRun(target.run);
+        setScreen(target.screen);
       } catch (error) {
         console.error('Failed to initialize app:', error);
         setScreen('onboarding');
@@ -228,8 +358,17 @@ function AppContent() {
     initApp();
   }, []);
 
-  const handleOnboardingComplete = () => {
+  /**
+   * Leave the first-run wizard.
+   *
+   * The wizard has already created the project through `@warsha/client`; this records that the first
+   * run is done (the `set_config` / `onboarding_complete` seam `checkOnboarding` reads back), selects
+   * what it created, and opens the owner's saved mode on it.
+   */
+  const handleOnboardingComplete = (project: ProjectSummary) => {
+    void saveOnboardingComplete();
     setOnboardingComplete(true);
+    setSelectedProject(project);
     setScreen(savedMode);
     if (client) {
       client.listProjects().then(setProjects);
@@ -306,13 +445,15 @@ function AppContent() {
 
   const renderScreen = () => {
     if (!onboardingComplete) {
-      return <Onboarding onComplete={handleOnboardingComplete} />;
+      // The first-run wizard owns everything up to the owner's first project; it talks to the daemon
+      // through the same client the shell uses (`client` is `null` only until start-up has built it).
+      return <Onboarding client={client} onComplete={handleOnboardingComplete} />;
     }
 
     if (!client) {
       return (
         <Box dir={dir} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-          <Text dir={dir}>{t('app.loading') || 'Loading...'}</Text>
+          <Text dir={dir}>{t('app.loading', {}, locale) || 'Loading...'}</Text>
         </Box>
       );
     }
@@ -330,6 +471,12 @@ function AppContent() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
+          // The bar carries the brand, the ship status, the permission chip, the Plan/Agent badge,
+          // the mode toggle, the theme switch and Settings. On a narrow window that is more than one
+          // row of controls, so it wraps: without this the row stayed 1124px wide in a 390px window
+          // and the whole document scrolled sideways.
+          flexWrap: 'wrap',
+          rowGap: 'var(--warsha-space-2)',
           paddingInline: 'var(--warsha-space-4)',
           paddingBlock: 'var(--warsha-space-3)',
           backgroundColor: 'var(--warsha-color-surface)',
@@ -343,12 +490,12 @@ function AppContent() {
             <Text size="sm" style={{ color: 'var(--warsha-color-text-muted)' }}>{t('app.version') || 'v0.1.0'}</Text>
           </Box>
 
-          <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-3)' }}>
+          <Box dir={dir} style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', rowGap: 'var(--warsha-space-2)', gap: 'var(--warsha-space-3)' }}>
             {/* Ship status strip: Code checks → Builds → Tests → Store-ready */}
             <StatusStrip stages={deliveryStages} />
           </Box>
 
-          <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-3)' }}>
+          <Box dir={dir} style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', rowGap: 'var(--warsha-space-2)', gap: 'var(--warsha-space-3)' }}>
             {/* Work protection: permission mode */}
             <PermissionModeChip mode={permissionMode} onChange={setPermissionMode} />
 
@@ -437,7 +584,7 @@ function AppContent() {
     if (!client) {
       return (
         <Box dir={dir} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-          <Text dir={dir}>{t('app.loading') || 'Loading...'}</Text>
+          <Text dir={dir}>{t('app.loading', {}, locale) || 'Loading...'}</Text>
         </Box>
       );
     }
@@ -572,11 +719,12 @@ function AppContent() {
   };
 
   return (
-    <LocaleProvider initialLocale={locale as 'ar' | 'en'}>
-      <Box dir={dir} className="app" style={{ minHeight: '100vh', backgroundColor: 'var(--warsha-color-bg)' }}>
-        {renderScreen()}
-      </Box>
-    </LocaleProvider>
+    // The locale provider lives in `main.tsx`, above this component: `useLocale()` here has to read
+    // the *live* choice, and a provider mounted inside this shell would shadow it — that is what
+    // kept the app stuck in Arabic with a language picker that changed nothing.
+    <Box dir={dir} className="app" style={{ minHeight: '100vh', backgroundColor: 'var(--warsha-color-bg)' }}>
+      {renderScreen()}
+    </Box>
   );
 }
 

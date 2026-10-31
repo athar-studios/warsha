@@ -152,7 +152,7 @@ export function AdvancedMode({ client, project, onBack }: AdvancedModeProps) {
               <Box dir={dir}>
                 <Text weight="bold" size="lg" dir={dir}>{lane.name}</Text>
                 <Text size="sm" style={{ color: 'var(--warsha-color-text-muted)' }} dir={dir}>
-                  {t('run.model_label') || 'Model:'} {lane.model} • ${(lane.costCents / 100).toFixed(4)}
+                  {t('run.model_label', {}, locale) || 'Model:'} {lane.model} • ${(lane.costCents / 100).toFixed(4)}
                 </Text>
               </Box>
               <Box dir={dir} style={{

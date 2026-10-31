@@ -7,7 +7,7 @@
 //! an MCP server, so both go through [`ProcessManager`] and one manager owns
 //! every child the daemon spawns.
 //!
-//! Three properties are deliberate:
+//! Five properties are deliberate:
 //!
 //! - **The handle stays here.** [`ManagedProcess`] carries the
 //!   `tokio::process::Child`, and [`ProcessManager::list`] hands back the same
@@ -20,24 +20,48 @@
 //! - **The environment survives a restart.** [`ManagedProcess`] keeps exactly the
 //!   six documented fields, so the environment a spawn was given is stored beside
 //!   the record and replayed by [`ProcessManager::restart`].
-//!
-//! Nothing here reaps children when the daemon exits, and nothing captures their
-//! output: stdin is piped (so the MCP stdio transport can write frames), stdout
-//! and stderr are inherited (so a dev server's log reaches the daemon's console
-//! instead of filling a pipe nobody reads). A daemon restart forgets the
-//! processes it started, which is recorded as the remaining half in PLAN.md.
+//! - **stdout is a pipe the manager owns.** stdin is piped (the MCP transport's
+//!   frame sink), and stdout is piped and captured per process: the MCP
+//!   handshake reads a reply and the live preview reads the URL a dev server
+//!   prints. stderr stays inherited, so a program's diagnostics still reach the
+//!   daemon's console, and a captured stdout line is re-emitted as a `tracing`
+//!   event for the same reason. A bounded ring ([`MAX_CAPTURED_LINES`]) keeps
+//!   the newest lines, so a chatty server cannot grow the daemon's memory
+//!   without bound.
+//! - **Children are reaped on request, not on drop.** [`ProcessManager::kill_all`]
+//!   kills and waits for every live child, and the daemon's shutdown is what
+//!   calls it: an OS child cannot be awaited in `Drop`, so an exit path has to
+//!   name it explicitly. A daemon restart that never runs that path forgets the
+//!   processes it started, which is recorded as the remaining half in PLAN.md.
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
-use tokio::io::AsyncWriteExt;
-use tokio::process::{Child, Command};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, ChildStdout, Command};
 use tokio::sync::Mutex;
+
+/// How many stdout lines the manager keeps per process.
+///
+/// A dev server prints its banner and then keeps logging; the ring keeps the
+/// newest lines and drops the oldest, so a server that outlives the daemon's
+/// patience cannot grow its memory without bound.
+pub const MAX_CAPTURED_LINES: usize = 500;
+
+/// How long [`LivePreviewManager::start`] waits for the dev server to print a URL.
+///
+/// A server that prints nothing in that time leaves the preview's `url` as `None`
+/// rather than guessing a port, and `status` re-reads the transcript afterwards,
+/// so a late banner still shows up.
+pub const PREVIEW_URL_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// How often that wait looks again at what the server has printed.
+const URL_POLL_INTERVAL: Duration = Duration::from_millis(20);
 
 /// Seconds since the Unix epoch, or `0` on a clock that cannot answer.
 ///
@@ -253,6 +277,22 @@ pub trait ProcessManager: Send + Sync {
     /// the same id, with the same arguments and the same environment.
     async fn restart(&self, id: &str) -> Result<String, ProcessError>;
 
+    /// The stdout lines the process has printed, oldest first, from `offset` on.
+    ///
+    /// A reader keeps its own cursor and asks for what came after it, which is
+    /// how the MCP handshake reads one reply at a time. Only the newest
+    /// [`MAX_CAPTURED_LINES`] are kept, so a reader that falls further behind
+    /// than that has lost the lines it did not ask for yet — and an offset past
+    /// the end is an empty list, not an error.
+    async fn read_stdout(&self, id: &str, offset: usize) -> Result<Vec<String>, ProcessError>;
+
+    /// Kill and reap every child that is still alive, and report how many there were.
+    ///
+    /// This is the daemon's exit path: a child of the daemon outlives it unless
+    /// something names it, and `Drop` cannot await an OS child. Each kill is
+    /// followed by a wait, so a child is reaped rather than left as a zombie.
+    async fn kill_all(&self) -> usize;
+
     /// Write bytes to the process's stdin.
     ///
     /// The MCP stdio transport frames a request with this. A manager that does
@@ -264,20 +304,25 @@ pub trait ProcessManager: Send + Sync {
     }
 }
 
-/// One managed process plus what a restart has to replay.
+/// One managed process plus what a restart has to replay and what it printed.
 ///
 /// The environment lives here rather than on [`ManagedProcess`] so that record
-/// keeps exactly the six documented fields.
+/// keeps exactly the six documented fields, and the captured stdout lives behind
+/// its own lock so a reader never waits on the entry list.
 #[derive(Debug)]
 struct Entry {
     process: ManagedProcess,
     env: HashMap<String, String>,
+    output: Arc<Mutex<VecDeque<String>>>,
 }
 
 /// The [`Command`] every spawn and restart builds.
 ///
-/// stdin is piped for the MCP transport; stdout and stderr are inherited so a dev
-/// server's output reaches the console and never deadlocks on a full pipe.
+/// stdin and stdout are pipes the manager owns: stdin is the MCP transport's
+/// frame sink, and stdout is captured ([`ProcessManager::read_stdout`]) so a
+/// reply can be read and a printed URL can be found. stderr is inherited, so a
+/// program that logs its failures to stderr still reaches the console the daemon
+/// was started from.
 fn command_for(program: &str, args: &[String], env: &HashMap<String, String>) -> Command {
     let mut command = Command::new(program);
     command.args(args);
@@ -286,9 +331,30 @@ fn command_for(program: &str, args: &[String], env: &HashMap<String, String>) ->
     }
     command
         .stdin(Stdio::piped())
-        .stdout(Stdio::inherit())
+        .stdout(Stdio::piped())
         .stderr(Stdio::inherit());
     command
+}
+
+/// Capture `stdout` into `output`, one line at a time, until the pipe closes.
+///
+/// Each line is also re-emitted as a `tracing` event: stdout used to be
+/// inherited, so this is where a dev server's log still reaches the daemon's
+/// console now that the manager holds the pipe.
+fn capture_stdout(id: String, stdout: ChildStdout, output: Arc<Mutex<VecDeque<String>>>) {
+    tokio::spawn(async move {
+        let mut lines = BufReader::new(stdout).lines();
+        // A closed pipe and a broken read are both the end of the transcript; the
+        // exit status is what says how the child ended.
+        while let Ok(Some(line)) = lines.next_line().await {
+            tracing::info!(process = %id, "{line}");
+            let mut captured = output.lock().await;
+            if captured.len() == MAX_CAPTURED_LINES {
+                captured.pop_front();
+            }
+            captured.push_back(line);
+        }
+    });
 }
 
 /// Observe `process` once: settle a finished child, promote a live `Starting`.
@@ -372,7 +438,7 @@ impl ProcessManager for InMemoryProcessManager {
         if program.is_empty() {
             return Err(ProcessError::EmptyCommand);
         }
-        let child =
+        let mut child =
             command_for(program, args, env)
                 .spawn()
                 .map_err(|source| ProcessError::Spawn {
@@ -380,6 +446,12 @@ impl ProcessManager for InMemoryProcessManager {
                     source,
                 })?;
         let id = format!("proc-{}", self.next_id.fetch_add(1, Ordering::SeqCst));
+        // The pipe goes to its own task before the child is recorded, so the
+        // first line a caller reads cannot be lost to a late reader.
+        let output = Arc::new(Mutex::new(VecDeque::new()));
+        if let Some(stdout) = child.stdout.take() {
+            capture_stdout(id.clone(), stdout, output.clone());
+        }
         let entry = Entry {
             process: ManagedProcess {
                 id: id.clone(),
@@ -391,6 +463,7 @@ impl ProcessManager for InMemoryProcessManager {
                 exit_code: None,
             },
             env: env.clone(),
+            output,
         };
         self.entries.lock().await.push(entry);
         Ok(id)
@@ -457,17 +530,57 @@ impl ProcessManager for InMemoryProcessManager {
             let _ = child.wait().await;
         }
 
-        let child = command_for(&entry.process.command, &entry.process.args, &entry.env)
+        let mut child = command_for(&entry.process.command, &entry.process.args, &entry.env)
             .spawn()
             .map_err(|source| ProcessError::Spawn {
                 command: entry.process.command.clone(),
                 source,
             })?;
+        // The transcript belongs to the process, not to the run: the new server's
+        // banner is read from an empty log, because leaving the old lines behind
+        // would let a preview report the URL of the server it replaced.
+        entry.output = Arc::new(Mutex::new(VecDeque::new()));
+        if let Some(stdout) = child.stdout.take() {
+            capture_stdout(entry.process.id.clone(), stdout, entry.output.clone());
+        }
         entry.process.child = Some(child);
         entry.process.status = ProcessStatus::Starting;
         entry.process.started_at = Some(now_epoch_secs());
         entry.process.exit_code = None;
         Ok(entry.process.id.clone())
+    }
+
+    async fn read_stdout(&self, id: &str, offset: usize) -> Result<Vec<String>, ProcessError> {
+        let entries = self.entries.lock().await;
+        let entry = entries
+            .iter()
+            .find(|entry| entry.process.id == id)
+            .ok_or_else(|| ProcessError::NotFound(id.to_string()))?;
+        let captured = entry.output.lock().await;
+        Ok(captured.iter().skip(offset).cloned().collect())
+    }
+
+    async fn kill_all(&self) -> usize {
+        let mut entries = self.entries.lock().await;
+        let mut killed = 0;
+        for entry in entries.iter_mut() {
+            // A child that already exited has nothing to signal, so the sweep
+            // settles it and moves on rather than reporting it as killed.
+            let _ = refresh(&mut entry.process);
+            let Some(mut child) = entry.process.child.take() else {
+                continue;
+            };
+            let _ = child.start_kill();
+            match child.wait().await {
+                Ok(exit) => {
+                    entry.process.exit_code = exit.code();
+                    entry.process.status = ProcessStatus::Stopped;
+                }
+                Err(_) => entry.process.status = ProcessStatus::Failed,
+            }
+            killed += 1;
+        }
+        killed
     }
 
     async fn write_stdin(&self, id: &str, bytes: &[u8]) -> Result<(), ProcessError> {
@@ -511,6 +624,42 @@ pub struct LivePreview {
     pub args: Vec<String>,
     /// The process status, observed rather than remembered.
     pub status: ProcessStatus,
+    /// The URL the server printed, or `None` when it printed none in time.
+    ///
+    /// A dev server picks its own port, so the address is read from what the
+    /// server printed rather than guessed: a wrong URL in the panel is worse than
+    /// an empty one, and `status` re-reads the transcript, so a late banner still
+    /// arrives.
+    pub url: Option<String>,
+}
+
+/// The first URL in `lines`, or `None` when none of them carries one.
+///
+/// A dev server announces itself with a line like
+/// `  ➜  Local:   http://localhost:5173/`, so this returns the first URL in the
+/// transcript exactly as printed — no normalisation and no port guessing, because
+/// the address the server printed is the address that answers. The first one wins
+/// because a banner lists the local address before any other.
+pub fn discover_url(lines: &[String]) -> Option<String> {
+    lines.iter().find_map(|line| first_url(line))
+}
+
+/// The URL inside one line, with the punctuation a banner appended removed.
+fn first_url(line: &str) -> Option<String> {
+    let (start, scheme) = ["http://", "https://"]
+        .iter()
+        .filter_map(|scheme| line.find(scheme).map(|at| (at, *scheme)))
+        .min_by_key(|(at, _)| *at)?;
+    let candidate = &line[start..];
+    let end = candidate
+        .find(|character: char| character.is_whitespace() || "\"'`<>=|,*)]}".contains(character))
+        .unwrap_or(candidate.len());
+    let url = candidate[..end].trim_end_matches(['.', ',', ';', ':', ')', ']', '}', '"', '\'']);
+    // A scheme with nothing after it names no host, so it is not a URL.
+    if url.len() <= scheme.len() {
+        return None;
+    }
+    Some(url.to_string())
 }
 
 /// The preview's record of one project, without its status.
@@ -523,10 +672,13 @@ struct PreviewEntry {
 
 /// Starts and stops one dev server per project through a [`ProcessManager`].
 ///
-/// The URL of a running dev server is not discovered here: the server chooses its
-/// own port and prints it, and this module captures no output. A caller that knows
-/// the port (because the project's script hardcodes one) supplies the URL — the
-/// preview panel's `url` prop stays the seam, as PLAN.md M5b recorded.
+/// The URL of a running dev server is not configured, it is *read*: the server
+/// chooses its own port and prints it, and [`LivePreviewManager::start`] waits up
+/// to [`PREVIEW_URL_TIMEOUT`] for a line carrying one. A server that prints
+/// nothing in that time leaves `url` as `None` — the panel shows no address
+/// rather than a wrong one — while [`LivePreviewManager::status`] and
+/// [`LivePreviewManager::list`] look again at the transcript, so a server that
+/// prints its banner late still reports its address.
 pub struct LivePreviewManager {
     processes: Arc<dyn ProcessManager>,
     previews: Mutex<Vec<(String, PreviewEntry)>>,
@@ -557,6 +709,10 @@ impl LivePreviewManager {
     /// One preview per project: a second start is refused while the first is
     /// alive, because two servers on one port is a port conflict, not a feature.
     /// A preview whose process has finished may be replaced.
+    ///
+    /// The call waits up to [`PREVIEW_URL_TIMEOUT`] for the server to print its
+    /// address, so the preview the caller gets back already carries the URL when
+    /// the server announces itself — which every real dev server does.
     pub async fn start(
         &self,
         project_id: &str,
@@ -593,22 +749,29 @@ impl LivePreviewManager {
             .spawn(&program, &args, &HashMap::new())
             .await?;
 
-        let mut previews = self.previews.lock().await;
-        previews.retain(|(id, _)| id != project);
-        previews.push((
-            project.to_string(),
-            PreviewEntry {
-                process_id: process_id.clone(),
-                command: program.clone(),
-                args: args.clone(),
-            },
-        ));
+        {
+            // The guard is scoped so the URL wait below does not hold the list:
+            // `status` and `list` have to keep answering while a server starts.
+            let mut previews = self.previews.lock().await;
+            previews.retain(|(id, _)| id != project);
+            previews.push((
+                project.to_string(),
+                PreviewEntry {
+                    process_id: process_id.clone(),
+                    command: program.clone(),
+                    args: args.clone(),
+                },
+            ));
+        }
+
+        let url = self.wait_for_url(&process_id, PREVIEW_URL_TIMEOUT).await;
         Ok(LivePreview {
             project_id: project.to_string(),
             process_id,
             command: program,
             args,
             status: ProcessStatus::Starting,
+            url,
         })
     }
 
@@ -634,12 +797,14 @@ impl LivePreviewManager {
             .status(&entry.process_id)
             .await
             .unwrap_or(ProcessStatus::Stopped);
+        let url = self.printed_url(&entry.process_id).await;
         Ok(LivePreview {
             project_id: project.to_string(),
             process_id: entry.process_id,
             command: entry.command,
             args: entry.args,
             status,
+            url,
         })
     }
 
@@ -653,12 +818,14 @@ impl LivePreviewManager {
                 .status(&entry.process_id)
                 .await
                 .unwrap_or(ProcessStatus::Stopped);
+            let url = self.printed_url(&entry.process_id).await;
             previews.push(LivePreview {
                 project_id,
                 process_id: entry.process_id,
                 command: entry.command,
                 args: entry.args,
                 status,
+                url,
             });
         }
         previews
@@ -674,12 +841,103 @@ impl LivePreviewManager {
             .map(|(_, entry)| entry.clone())
             .ok_or_else(|| ProcessError::PreviewNotFound(project_id.to_string()))
     }
+
+    /// The first URL a process has printed, waiting up to `timeout` for one.
+    ///
+    /// The wait is bounded and it is the only one: a server that never prints an
+    /// address costs this call its timeout once, and every later read answers
+    /// from the transcript as it stands.
+    async fn wait_for_url(&self, process_id: &str, timeout: Duration) -> Option<String> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if let Some(url) = self.printed_url(process_id).await {
+                return Some(url);
+            }
+            if Instant::now() >= deadline {
+                return None;
+            }
+            tokio::time::sleep(URL_POLL_INTERVAL).await;
+        }
+    }
+
+    /// The first URL the process has printed so far, without waiting.
+    ///
+    /// A process the manager no longer tracks has no transcript left to read, and
+    /// that is `None` rather than an error: the preview still reports its status.
+    async fn printed_url(&self, process_id: &str) -> Option<String> {
+        let lines = self.processes.read_stdout(process_id, 0).await.ok()?;
+        discover_url(&lines)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    /// The address the preview probe prints and the preview test expects.
+    ///
+    /// The child is this same test binary, so both halves read one constant: a
+    /// dev server that printed something else would be a different server.
+    const PROBE_URL: &str = "http://127.0.0.1:5199/";
+
+    /// The ignored test the preview tests spawn as their dev server.
+    ///
+    /// `LivePreviewManager::start` splits a whitespace-only command line and
+    /// passes no environment, so the child identifies itself by the arguments it
+    /// was started with — `--exact` names this probe — and prints the constant
+    /// above rather than anything it has to be told. `--ignored` selects an
+    /// ignored test, and `--nocapture` is what lets its `println!` reach the pipe
+    /// the manager reads instead of libtest's in-memory buffer.
+    ///
+    /// The guard makes the probe harmless if a full ignored run ever reaches it:
+    /// only a run pointed at `--exact` is a child of a test.
+    #[test]
+    #[ignore = "a child process, not a test"]
+    fn preview_url_probe() {
+        if !std::env::args().any(|arg| arg == "--exact") {
+            return;
+        }
+        println!("  ➜  Local:   {PROBE_URL}");
+        std::thread::sleep(Duration::from_secs(30));
+    }
+
+    /// The probe's `program args…` as one command line, which is what a preview takes.
+    fn probe_line() -> String {
+        probe_line_for("process_spawn::tests::preview_url_probe")
+    }
+
+    /// The ignored test the preview tests spawn as a dev server that stays up and
+    /// prints nothing, which is the case a preview must not invent a URL for.
+    #[test]
+    #[ignore = "a child process, not a test"]
+    fn preview_silent_probe() {
+        if !std::env::args().any(|arg| arg == "--exact") {
+            return;
+        }
+        std::thread::sleep(Duration::from_secs(30));
+    }
+
+    /// The command line that spawns one probe of this test binary.
+    fn probe_line_for(test: &str) -> String {
+        let exe = std::env::current_exe().expect("the test binary names itself");
+        format!("{} --exact {test} --ignored --nocapture", exe.display())
+    }
+
+    /// Poll the manager until the process has printed at least one line.
+    async fn wait_for_output(manager: &dyn ProcessManager, id: &str) -> Vec<String> {
+        for _ in 0..200 {
+            let lines = manager
+                .read_stdout(id, 0)
+                .await
+                .expect("the process is tracked");
+            if !lines.is_empty() {
+                return lines;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("process `{id}` printed nothing within four seconds");
+    }
 
     /// A command that outlives the test: `sleep` on Unix, a loopback ping on
     /// Windows, quiet on both so the test log stays readable.
@@ -698,17 +956,6 @@ mod tests {
             "sh".to_string(),
             vec!["-c".to_string(), "sleep 30".to_string()],
         )
-    }
-
-    /// The same server as one command line, which is what a preview is given.
-    fn long_running_line() -> String {
-        let (command, args) = long_running();
-        let mut line = command;
-        for arg in args {
-            line.push(' ');
-            line.push_str(&arg);
-        }
-        line
     }
 
     /// A command that exits immediately with code 0.
@@ -977,6 +1224,70 @@ mod tests {
         manager.stop(&id).await.expect("the process stops");
     }
 
+    #[tokio::test]
+    async fn read_stdout_reports_what_a_child_printed_and_advances_a_cursor() {
+        let manager = InMemoryProcessManager::new();
+        let (command, args) =
+            LivePreviewManager::split_command(&probe_line()).expect("the probe line splits");
+        let id = manager
+            .spawn(&command, &args, &HashMap::new())
+            .await
+            .expect("the probe starts");
+
+        let lines = wait_for_output(&manager, &id).await;
+        assert!(
+            lines.iter().any(|line| line.contains(PROBE_URL)),
+            "the probe's banner should be captured: {lines:?}"
+        );
+        // A caller that has read those lines is not handed them twice.
+        assert!(manager
+            .read_stdout(&id, lines.len())
+            .await
+            .expect("the process is tracked")
+            .is_empty());
+        assert!(matches!(
+            manager.read_stdout("proc-404", 0).await,
+            Err(ProcessError::NotFound(_))
+        ));
+
+        assert_eq!(manager.kill_all().await, 1);
+    }
+
+    #[tokio::test]
+    async fn kill_all_kills_and_reaps_every_live_child() {
+        let manager = InMemoryProcessManager::new();
+        let (command, args) = long_running();
+        let first = manager
+            .spawn(&command, &args, &HashMap::new())
+            .await
+            .expect("the first child starts");
+        let second = manager
+            .spawn(&command, &args, &HashMap::new())
+            .await
+            .expect("the second child starts");
+
+        // A child that already exited is not a child to kill.
+        let (done_command, done_args) = immediate_exit();
+        let done = manager
+            .spawn(&done_command, &done_args, &HashMap::new())
+            .await
+            .expect("the child that exits starts");
+        wait_for_terminal(&manager, &done).await;
+
+        assert_eq!(manager.kill_all().await, 2);
+
+        for id in [&first, &second] {
+            assert_eq!(
+                manager.status(id).await.expect("the process is tracked"),
+                ProcessStatus::Stopped,
+                "`{id}` should be settled by the sweep"
+            );
+        }
+        // Nothing is left to kill, and nothing was left behind as a zombie: a
+        // sweep that did not wait for its children would still see them here.
+        assert_eq!(manager.kill_all().await, 0);
+    }
+
     #[test]
     fn split_command_keeps_the_program_and_its_arguments() {
         let (program, args) =
@@ -990,11 +1301,94 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn discover_url_reads_the_first_address_a_transcript_carries() {
+        let banner = vec!["  ➜  Local:   http://localhost:5173/".to_string()];
+        assert_eq!(
+            discover_url(&banner),
+            Some("http://localhost:5173/".to_string())
+        );
+
+        // Punctuation a banner appended is not part of the address, and an https
+        // port is not punctuation.
+        let trailing = vec!["ready at https://example.test:8443/app).".to_string()];
+        assert_eq!(
+            discover_url(&trailing),
+            Some("https://example.test:8443/app".to_string())
+        );
+
+        // The first address wins, and a line without one is skipped.
+        let two = vec![
+            "vite v5.4.0 ready in 300 ms".to_string(),
+            "  Local:   http://first.test/   Network: https://second.test/".to_string(),
+        ];
+        assert_eq!(discover_url(&two), Some("http://first.test/".to_string()));
+
+        // A scheme with no host names nothing, and an empty transcript has none.
+        assert_eq!(discover_url(&["http://".to_string()]), None);
+        assert_eq!(discover_url(&[]), None);
+    }
+
+    #[tokio::test]
+    async fn preview_reports_the_url_the_dev_server_printed() {
+        let processes = InMemoryProcessManager::shared();
+        let previews = LivePreviewManager::new(processes.clone());
+
+        let started = previews
+            .start("project-1", &probe_line())
+            .await
+            .expect("the preview starts");
+
+        assert_eq!(started.url.as_deref(), Some(PROBE_URL));
+        // The status reads the same transcript, so a caller that polls the panel
+        // sees the address even if it never looked at the start reply.
+        assert_eq!(
+            previews
+                .status("project-1")
+                .await
+                .expect("the preview is tracked")
+                .url
+                .as_deref(),
+            Some(PROBE_URL)
+        );
+        previews.stop("project-1").await.expect("the preview stops");
+        assert_eq!(
+            processes.kill_all().await,
+            0,
+            "the server is already stopped"
+        );
+    }
+
+    #[tokio::test]
+    async fn preview_url_stays_none_when_the_server_prints_no_address() {
+        let processes = InMemoryProcessManager::shared();
+        let previews = LivePreviewManager::new(processes.clone());
+
+        let started = previews
+            .start(
+                "project-1",
+                &probe_line_for("process_spawn::tests::preview_silent_probe"),
+            )
+            .await
+            .expect("the preview starts");
+
+        // The server is up and quiet, and that is `None` rather than a guess.
+        assert_eq!(started.url, None);
+        assert_eq!(
+            processes
+                .status(&started.process_id)
+                .await
+                .expect("the server is tracked"),
+            ProcessStatus::Running
+        );
+        previews.stop("project-1").await.expect("the preview stops");
+    }
+
     #[tokio::test]
     async fn preview_starts_reports_and_stops_its_dev_server() {
         let processes = InMemoryProcessManager::shared();
         let previews = LivePreviewManager::new(processes.clone());
-        let command = long_running_line();
+        let command = probe_line();
 
         let started = previews
             .start("project-1", &command)
@@ -1024,7 +1418,7 @@ mod tests {
     async fn a_second_start_for_the_same_project_is_refused() {
         let processes = InMemoryProcessManager::shared();
         let previews = LivePreviewManager::new(processes);
-        let command = long_running_line();
+        let command = probe_line();
         previews
             .start("project-1", &command)
             .await
@@ -1063,7 +1457,7 @@ mod tests {
         let processes = InMemoryProcessManager::shared();
         let previews = LivePreviewManager::new(processes.clone());
         let started = previews
-            .start("project-1", &long_running_line())
+            .start("project-1", &probe_line())
             .await
             .expect("the preview starts");
         let status = processes
