@@ -63,7 +63,7 @@ indicatif = "0.17"
 keyring = "1.2"
 
 # Git
-gix = "0.70"
+gix = "0.90.0"
 octocrab = "0.30"
 
 # Utilities
