@@ -543,7 +543,8 @@ impl RealOrMockProvider {
         if let Some(var_name) = openai_env_var {
             let key = std::env::var(var_name).unwrap_or_default();
             if !key.trim().is_empty() {
-                let model = "gpt-4o-mini".to_string();
+                let model = std::env::var("WARSHA_REAL_PROVIDER_MODEL")
+                    .unwrap_or_else(|_| "gpt-4o-mini".to_string());
                 let api_base = std::env::var("WARSHA_REAL_PROVIDER_URL")
                     .or_else(|_| std::env::var("OPENAI_BASE_URL"))
                     .ok();
