@@ -614,6 +614,121 @@ impl BackendKit {
         Ok(())
     }
 
+    /// Apply a tool call to this backend kit.
+    pub fn apply_tool_call(
+        &mut self,
+        tool_name: &str,
+        arguments: &serde_json::Value,
+    ) -> Result<String, BackendKitError> {
+        match tool_name {
+            "create_table" | "add_table" => {
+                let name = arguments
+                    .get("name")
+                    .or_else(|| arguments.get("table_name"))
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| {
+                        BackendKitError::InvalidIdentifier("table name is required".to_string())
+                    })?;
+                let columns_raw = arguments
+                    .get("columns")
+                    .and_then(serde_json::Value::as_array)
+                    .ok_or_else(|| BackendKitError::EmptyTable(name.to_string()))?;
+                let mut columns = Vec::new();
+                for col_val in columns_raw {
+                    let col_name = col_val
+                        .get("name")
+                        .or_else(|| col_val.get("column_name"))
+                        .and_then(serde_json::Value::as_str)
+                        .ok_or_else(|| {
+                            BackendKitError::InvalidIdentifier(
+                                "column name is required".to_string(),
+                            )
+                        })?;
+                    let col_type = col_val
+                        .get("col_type")
+                        .or_else(|| col_val.get("type"))
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("TEXT");
+                    let nullable = col_val
+                        .get("nullable")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(true);
+                    columns.push(ColumnDef::new(col_name, col_type, nullable));
+                }
+                let count = columns.len();
+                self.add_table(TableDef::new(name, columns))?;
+                Ok(format!("table '{name}' created with {count} columns"))
+            }
+            "create_rls_policy" | "add_rls_policy" => {
+                let table = arguments
+                    .get("table")
+                    .or_else(|| arguments.get("table_name"))
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| {
+                        BackendKitError::InvalidIdentifier("table name is required".to_string())
+                    })?;
+                let policy_name = arguments
+                    .get("name")
+                    .or_else(|| arguments.get("policy_name"))
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| {
+                        BackendKitError::InvalidIdentifier("policy name is required".to_string())
+                    })?;
+                let operation = arguments
+                    .get("operation")
+                    .and_then(serde_json::Value::as_str)
+                    .map(|op| match op.to_lowercase().as_str() {
+                        "select" => RlsOperation::Select,
+                        "insert" => RlsOperation::Insert,
+                        "update" => RlsOperation::Update,
+                        "delete" => RlsOperation::Delete,
+                        _ => RlsOperation::All,
+                    })
+                    .unwrap_or(RlsOperation::All);
+                let expression = arguments
+                    .get("using_expr")
+                    .or_else(|| arguments.get("with_check_expr"))
+                    .or_else(|| arguments.get("expression"))
+                    .or_else(|| arguments.get("using"))
+                    .or_else(|| arguments.get("with_check"))
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| {
+                        BackendKitError::InvalidPolicyExpression(
+                            policy_name.to_string(),
+                            "missing policy expression (using_expr or with_check_expr)".to_string(),
+                        )
+                    })?;
+                self.add_rls_policy(RlsPolicy::new(table, policy_name, expression, operation))?;
+                Ok(format!("policy '{policy_name}' created on table '{table}'"))
+            }
+            "create_storage_bucket" | "add_storage_bucket" => {
+                let name = arguments
+                    .get("name")
+                    .or_else(|| arguments.get("bucket_name"))
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| {
+                        BackendKitError::InvalidIdentifier("bucket name is required".to_string())
+                    })?;
+                self.add_storage_bucket(name)?;
+                Ok(format!("storage bucket '{name}' created"))
+            }
+            "create_function" | "add_function" => {
+                let name = arguments
+                    .get("name")
+                    .or_else(|| arguments.get("function_name"))
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| {
+                        BackendKitError::InvalidIdentifier("function name is required".to_string())
+                    })?;
+                self.add_function(name)?;
+                Ok(format!("function '{name}' created"))
+            }
+            other => Err(BackendKitError::InvalidIdentifier(format!(
+                "unknown backend tool: {other}"
+            ))),
+        }
+    }
+
     /// The standard export: one SQL dump plus the storage archive path.
     ///
     /// The dump is ordered the way Postgres needs it — every `CREATE TABLE`,
@@ -865,6 +980,98 @@ fn slugify(value: &str) -> String {
         }
     }
     slug
+}
+
+/// Standard MCP tool definitions for backend operations.
+pub fn backend_mcp_tools() -> Vec<crate::mcp::McpTool> {
+    vec![
+        crate::mcp::McpTool {
+            name: "create_table".to_string(),
+            description: "Create a new database table with column definitions".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "The table name"
+                    },
+                    "columns": {
+                        "type": "array",
+                        "description": "List of columns with name, col_type, and optional nullable",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": { "type": "string" },
+                                "col_type": { "type": "string" },
+                                "nullable": { "type": "boolean" }
+                            },
+                            "required": ["name", "col_type"]
+                        }
+                    }
+                },
+                "required": ["name", "columns"]
+            }),
+            annotations: None,
+        },
+        crate::mcp::McpTool {
+            name: "create_rls_policy".to_string(),
+            description: "Create a row-level security (RLS) policy on a database table".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "table": {
+                        "type": "string",
+                        "description": "The table name the policy applies to"
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "The policy name"
+                    },
+                    "operation": {
+                        "type": "string",
+                        "description": "The operation (select, insert, update, delete, all)",
+                        "enum": ["select", "insert", "update", "delete", "all"]
+                    },
+                    "using_expr": {
+                        "type": "string",
+                        "description": "The SQL policy expression"
+                    }
+                },
+                "required": ["table", "name", "using_expr"]
+            }),
+            annotations: None,
+        },
+        crate::mcp::McpTool {
+            name: "create_storage_bucket".to_string(),
+            description: "Create a new file storage bucket".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "The storage bucket name"
+                    }
+                },
+                "required": ["name"]
+            }),
+            annotations: None,
+        },
+        crate::mcp::McpTool {
+            name: "create_function".to_string(),
+            description: "Create a new serverless backend function".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "The function name"
+                    }
+                },
+                "required": ["name"]
+            }),
+            annotations: None,
+        },
+    ]
 }
 
 #[cfg(test)]
@@ -1475,5 +1682,70 @@ mod tests {
         assert_eq!(loaded, kit);
         assert_eq!(loaded.functions, vec!["digest"]);
         assert!(loaded.config.has_feature(BackendFeature::Auth));
+    }
+
+    #[test]
+    fn test_apply_tool_call_mutations() {
+        let mut kit = kit();
+
+        // 1. create_table
+        let tbl_json = serde_json::json!({
+            "name": "products",
+            "columns": [
+                { "name": "id", "data_type": "uuid", "nullable": false },
+                { "name": "title", "data_type": "text", "nullable": false }
+            ]
+        });
+        let msg = kit
+            .apply_tool_call("create_table", &tbl_json)
+            .expect("table created");
+        assert!(msg.contains("products"));
+        assert_eq!(kit.tables.len(), 1);
+        assert_eq!(kit.tables[0].name, "products");
+        assert_eq!(kit.tables[0].columns.len(), 2);
+
+        // 2. create_rls_policy
+        let rls_json = serde_json::json!({
+            "name": "products_select",
+            "table": "products",
+            "command": "SELECT",
+            "using": "true"
+        });
+        let msg = kit
+            .apply_tool_call("create_rls_policy", &rls_json)
+            .expect("rls created");
+        assert!(msg.contains("products_select"));
+        assert_eq!(kit.rls_policies.len(), 1);
+
+        // 3. create_storage_bucket
+        let bucket_json = serde_json::json!({
+            "name": "product_images"
+        });
+        let msg = kit
+            .apply_tool_call("create_storage_bucket", &bucket_json)
+            .expect("bucket created");
+        assert!(msg.contains("product_images"));
+        assert_eq!(kit.storage_buckets, vec!["product_images"]);
+
+        // 4. create_function
+        let func_json = serde_json::json!({
+            "name": "calc_total"
+        });
+        let msg = kit
+            .apply_tool_call("create_function", &func_json)
+            .expect("function created");
+        assert!(msg.contains("calc_total"));
+        assert_eq!(kit.functions, vec!["calc_total"]);
+    }
+
+    #[test]
+    fn test_backend_mcp_tools_definitions() {
+        let tools = backend_mcp_tools();
+        assert_eq!(tools.len(), 4);
+        let names: Vec<_> = tools.iter().map(|t| t.name.as_str()).collect();
+        assert!(names.contains(&"create_table"));
+        assert!(names.contains(&"create_rls_policy"));
+        assert!(names.contains(&"create_storage_bucket"));
+        assert!(names.contains(&"create_function"));
     }
 }

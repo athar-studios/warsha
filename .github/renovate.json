@@ -14,7 +14,8 @@
     "Rust (macos-latest)",
     "Rust (windows-latest)",
     "TypeScript",
-    "Actionlint"
+    "Actionlint",
+    "Summary"
   ],
   "separateMajorMinor": true,
   "separateMinorPatch": false,

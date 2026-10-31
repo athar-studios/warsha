@@ -41,8 +41,9 @@ use warsha_core::{
 use warsha_pipeline::{
     AgentLoop, AgentMode, AskUserRequest, FilesystemToolExecutor, InMemoryCrashReportStore,
     InMemoryMcpManager, InMemoryPairingStore, InMemoryPreferenceStore, InMemoryProcessManager,
-    InMemoryStoreReviewStore, LivePreviewManager, McpManager, PipelineEngine, ProcessManager,
-    ProviderRouterAdapter, RunMode, RunModeConfig, AGENT_ROLE,
+    InMemoryStoreReviewStore, LivePreviewManager, McpManager, MockRoutineRunner, PipelineEngine,
+    ProcessManager, ProviderRouterAdapter, RoutineRegistry, RoutineRunner, RoutineScheduler,
+    RunMode, RunModeConfig, AGENT_ROLE,
 };
 use warsha_providers::{
     AnthropicProvider, ChatMessage, ChatProvider, ChatRequest, InMemorySecretStore, MessageRole,
@@ -577,8 +578,11 @@ impl RealOrMockProvider {
     }
 }
 
+static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[tokio::test]
 async fn e2e_real_arabic_request_clinic_flow() {
+    let _env_guard = ENV_LOCK.lock().await;
     // ---- 1. Check execution mode: offline MockProvider or real model API.
     let provider_mode = RealOrMockProvider::detect().await.unwrap_or_else(|err| {
         panic!("{err}");
@@ -963,6 +967,7 @@ async fn e2e_real_arabic_request_clinic_flow() {
 
 #[tokio::test]
 async fn test_real_mode_fails_cleanly_without_key() {
+    let _env_guard = ENV_LOCK.lock().await;
     // When WARSHA_E2E_REAL=1 is explicitly requested but no keys are in environment,
     // RealOrMockProvider::detect() must return an explicit error.
     let original_e2e = std::env::var("WARSHA_E2E_REAL").ok();
@@ -1071,6 +1076,10 @@ async fn daemon_state(data_dir: &Path, provider_mode: RealOrMockProvider) -> Arc
         AgentLoop::with_tool_executor(Box::new(agent_tools)).with_router(Arc::new(agent_router)),
     ));
 
+    let routines = Arc::new(RwLock::new(RoutineRegistry::new()));
+    let routine_runner: Arc<dyn RoutineRunner + Send + Sync> = Arc::new(MockRoutineRunner::new());
+    let routine_scheduler = Arc::new(RoutineScheduler::new(routines.clone(), routine_runner));
+
     Arc::new(DaemonState {
         config: DaemonConfig {
             data_dir: data_dir.to_path_buf(),
@@ -1102,6 +1111,8 @@ async fn daemon_state(data_dir: &Path, provider_mode: RealOrMockProvider) -> Arc
         stored_preferences: Arc::new(RwLock::new(HashMap::new())),
         pairings: Arc::new(RwLock::new(InMemoryPairingStore::new())),
         secrets: Arc::new(InMemorySecretStore::new()),
+        routines,
+        routine_scheduler,
     })
 }
 

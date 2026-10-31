@@ -1,6 +1,6 @@
 // Projects board — Kanban columns = stages
 import { type ProjectSummary, type RunSummary, type Stage, WarshaClient } from '@warsha/client';
-import { useDirection, useLocale } from '@warsha/i18n';
+import { useDirection, useLocale, t } from '@warsha/i18n';
 import { Box, Text, Button, Card } from '@warsha/ui';
 import React, { useState, useEffect } from 'react';
 
@@ -153,16 +153,57 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
     <Box dir={dir} className="projects-board" style={{ padding: 'var(--warsha-space-6)', minHeight: 'calc(100vh - 80px)' }}>
       <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--warsha-space-6)' }}>
         <Text size="xl" weight="bold" dir={dir}>
-          {locale === 'ar' ? 'لوحة المشاريع' : 'Projects Board'}
+          {t('projects.title', {}, locale)}
         </Text>
         <Button variant="primary" onClick={() => setShowNewProject(true)} dir={dir}>
-          + {locale === 'ar' ? 'مشروع جديد' : 'New Project'}
+          + {t('projects.new_project', {}, locale)}
         </Button>
       </Box>
 
       {loading ? (
         <Box dir={dir} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '400px' }}>
-          <Text dir={dir}>{locale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</Text>
+          <Text dir={dir}>{t('app.loading', {}, locale)}</Text>
+        </Box>
+      ) : projects.length === 0 ? (
+        <Box
+          dir={dir}
+          data-testid="projects-empty-state"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 'var(--warsha-space-12) var(--warsha-space-6)',
+            textAlign: 'center',
+            backgroundColor: 'var(--warsha-color-surface)',
+            borderRadius: '12px',
+            border: '1px dashed var(--warsha-color-border-strong)',
+            marginBlock: 'var(--warsha-space-8)',
+          }}
+        >
+          <Text size="xl" weight="bold" dir={dir} style={{ marginBottom: 'var(--warsha-space-2)' }}>
+            {t('projects.empty_title', {}, locale)}
+          </Text>
+          <Text
+            size="md"
+            dir={dir}
+            style={{
+              color: 'var(--warsha-color-text-muted)',
+              maxWidth: '420px',
+              marginBottom: 'var(--warsha-space-6)',
+            }}
+          >
+            {t('projects.empty_desc', {}, locale)}
+          </Text>
+          <Button
+            variant="primary"
+            size="lg"
+            dir={dir}
+            onClick={() => setShowNewProject(true)}
+            data-testid="projects-empty-new-btn"
+          >
+            + {t('projects.new_project', {}, locale)}
+          </Button>
         </Box>
       ) : (
         <Box dir={dir} style={{ 
@@ -192,13 +233,13 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
         }}>
           <Card dir={dir} style={{ width: '100%', maxWidth: '480px', margin: 'var(--warsha-space-4)' }}>
             <Text size="lg" weight="bold" dir={dir} style={{ marginBottom: 'var(--warsha-space-6)' }}>
-              {locale === 'ar' ? 'مشروع جديد' : 'New Project'}
+              {t('projects.new_modal_title', {}, locale)}
             </Text>
             
             <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
               <input
                 type="text"
-                placeholder={locale === 'ar' ? 'اسم المشروع' : 'Project name'}
+                placeholder={t('projects.name_placeholder', {}, locale)}
                 value={newProjectName}
                 onChange={(e) => setNewProjectName(e.target.value)}
                 style={{
@@ -210,7 +251,7 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
                 dir={dir}
               />
               <textarea
-                placeholder={locale === 'ar' ? 'صف فكرتك هنا...' : 'Describe your idea...'}
+                placeholder={t('projects.idea_placeholder', {}, locale)}
                 value={newProjectIdea}
                 onChange={(e) => setNewProjectIdea(e.target.value)}
                 rows={4}
@@ -226,10 +267,10 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
               />
               <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-3)', justifyContent: 'flex-end' }}>
                 <Button variant="secondary" onClick={() => setShowNewProject(false)} dir={dir}>
-                  {locale === 'ar' ? 'إلغاء' : 'Cancel'}
+                  {t('projects.cancel', {}, locale)}
                 </Button>
                 <Button variant="primary" onClick={handleCreateProject} dir={dir}>
-                  {locale === 'ar' ? 'إنشاء' : 'Create'}
+                  {t('projects.create', {}, locale)}
                 </Button>
               </Box>
             </Box>

@@ -52,6 +52,16 @@ pub enum AgentTool {
         /// Its arguments, already split.
         args: Vec<String>,
     },
+    /// Call an MCP tool on a connected server.
+    CallTool {
+        /// The server to call, or `None` to auto-discover among connected servers.
+        server: Option<String>,
+        /// The tool name to invoke.
+        #[serde(rename = "tool_name")]
+        tool: String,
+        /// The arguments payload passed to the tool.
+        arguments: serde_json::Value,
+    },
 }
 
 impl AgentTool {
@@ -70,6 +80,10 @@ impl AgentTool {
                     format!("run_command {command} {}", args.join(" "))
                 }
             }
+            AgentTool::CallTool { server, tool, .. } => match server {
+                Some(s) => format!("call_tool {s}/{tool}"),
+                None => format!("call_tool {tool}"),
+            },
         }
     }
 }
@@ -308,6 +322,12 @@ impl ToolExecutor for FilesystemToolExecutor {
             AgentTool::ReadFile { path } => self.read_file(path),
             AgentTool::WriteFile { path, content } => self.write_file(path, content),
             AgentTool::RunCommand { command, args } => self.run_command(command, args),
+            AgentTool::CallTool { .. } => {
+                return ToolResult::failed(
+                    tool.clone(),
+                    "call_tool is handled by the agent loop via McpManager",
+                );
+            }
         };
         match outcome {
             Ok(result) => result,

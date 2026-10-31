@@ -20,7 +20,7 @@ mod evals;
 mod guardrails;
 mod handoff;
 mod llm_cache;
-mod mcp;
+pub mod mcp;
 /// The MCP connection layer (PLAN.md M20), public as a module because
 /// [`McpTransport`] and [`McpServerConfig`] already name the M12 registry types
 /// at this crate's root: the two would collide in a flat re-export, and renaming
@@ -55,9 +55,9 @@ pub use crate::agent_workflow::{
     TodoStatus, CHARS_PER_TOKEN,
 };
 pub use crate::backend_kit::{
-    is_safe_column_type, is_safe_identifier, BackendConfig, BackendFeature, BackendKind,
-    BackendKit, BackendKitError, ColumnDef, ExportBundle, PaymentsGate, RlsOperation, RlsPolicy,
-    TableDef,
+    backend_mcp_tools, is_safe_column_type, is_safe_identifier, BackendConfig, BackendFeature,
+    BackendKind, BackendKit, BackendKitError, ColumnDef, ExportBundle, PaymentsGate, RlsOperation,
+    RlsPolicy, TableDef,
 };
 pub use crate::build_cache::{
     BuildCache, BuildCacheEntry, BuildCacheKey, BuildCacheStats, InMemoryBuildCache,
@@ -108,7 +108,7 @@ pub use crate::router_quality::{
 };
 pub use crate::routines::{
     MockRoutineRunner, Routine, RoutineAction, RoutineError, RoutineId, RoutineRegistry,
-    RoutineRunner, RoutineSchedule, RoutineState,
+    RoutineRunner, RoutineSchedule, RoutineScheduler, RoutineState,
 };
 pub use crate::run_modes::{
     is_loopback_host, InMemoryPairingStore, PairingStore, PhonePairing, RunMode, RunModeConfig,

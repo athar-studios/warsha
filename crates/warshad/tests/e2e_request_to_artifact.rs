@@ -39,8 +39,8 @@ use warsha_core::{
 use warsha_pipeline::{
     AgentLoop, AgentMode, AskUserRequest, InMemoryCrashReportStore, InMemoryMcpManager,
     InMemoryPairingStore, InMemoryPreferenceStore, InMemoryProcessManager,
-    InMemoryStoreReviewStore, LivePreviewManager, McpManager, PipelineEngine, ProcessManager,
-    RunMode, RunModeConfig,
+    InMemoryStoreReviewStore, LivePreviewManager, McpManager, MockRoutineRunner, PipelineEngine,
+    ProcessManager, RoutineRegistry, RoutineRunner, RoutineScheduler, RunMode, RunModeConfig,
 };
 use warsha_providers::{InMemorySecretStore, MockProvider, ProviderRouter};
 use warsha_remote::{DeviceIdentity, DeviceRegistry};
@@ -493,6 +493,10 @@ async fn daemon_state(data_dir: &Path) -> Arc<DaemonState> {
             .expect("the settings open"),
     );
 
+    let routines = Arc::new(RwLock::new(RoutineRegistry::new()));
+    let routine_runner: Arc<dyn RoutineRunner + Send + Sync> = Arc::new(MockRoutineRunner::new());
+    let routine_scheduler = Arc::new(RoutineScheduler::new(routines.clone(), routine_runner));
+
     Arc::new(DaemonState {
         config: DaemonConfig {
             data_dir: data_dir.to_path_buf(),
@@ -526,6 +530,8 @@ async fn daemon_state(data_dir: &Path) -> Arc<DaemonState> {
         // No provider key is stored by this flow, and a state built by hand never
         // reaches the OS keychain anyway.
         secrets: Arc::new(InMemorySecretStore::new()),
+        routines,
+        routine_scheduler,
     })
 }
 

@@ -17,7 +17,67 @@
 
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+use crate::{ChatProvider, ModelInfo, ProviderError};
+
+/// Diff resulting from checking a provider's available models against the local catalog.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelCatalogDiff {
+    /// Provider identifier (e.g., `ollama`, `open_router`).
+    pub provider: String,
+    /// Newly discovered models that were not in the local catalog.
+    pub new_models: Vec<ModelInfo>,
+    /// Number of previously known models retained without modification.
+    pub retained_count: usize,
+    /// Total models in updated catalog.
+    pub total_count: usize,
+    /// Complete merged catalog preserving existing model configurations and appending new models.
+    pub updated_catalog: Vec<ModelInfo>,
+}
+
+/// Reconciles an existing model list with newly discovered models from a provider.
+///
+/// Preserves all existing models (and any custom configurations or pricing attached to them)
+/// and appends newly discovered models. Existing configurations are never overwritten or deleted.
+pub fn reconcile_model_catalog(
+    provider_id: &str,
+    current_catalog: &[ModelInfo],
+    discovered_models: Vec<ModelInfo>,
+) -> ModelCatalogDiff {
+    let mut updated = current_catalog.to_vec();
+    let mut new_models = Vec::new();
+
+    for model in discovered_models {
+        if !updated.iter().any(|m| m.id == model.id) {
+            new_models.push(model.clone());
+            updated.push(model);
+        }
+    }
+
+    ModelCatalogDiff {
+        provider: provider_id.to_string(),
+        retained_count: current_catalog.len(),
+        total_count: updated.len(),
+        new_models,
+        updated_catalog: updated,
+    }
+}
+
+/// Checks for model catalog updates from a provider and updates the local catalog
+/// without breaking existing configuration or role routing.
+pub async fn check_provider_model_updates(
+    provider: &dyn ChatProvider,
+    current_catalog: &[ModelInfo],
+) -> Result<ModelCatalogDiff, ProviderError> {
+    let discovered = provider.list_models().await?;
+    Ok(reconcile_model_catalog(
+        provider.id(),
+        current_catalog,
+        discovered,
+    ))
+}
 
 /// What Warsha may do about a provider whose release channel moved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -605,5 +665,84 @@ mod tests {
         let versions = latest_versions(&checker, &partial.detect());
         assert_eq!(versions.len(), 1);
         assert_eq!(versions.get("ollama").map(String::as_str), Some("0.6.0"));
+    }
+
+    #[test]
+    fn reconcile_model_catalog_appends_new_models_without_overwriting() {
+        let existing = vec![crate::ModelInfo {
+            id: "llama3.2:3b".to_string(),
+            name: "Llama 3.2 3B".to_string(),
+            provider: "ollama".to_string(),
+            context_window: 128_000,
+            max_output: 4_096,
+            pricing: warsha_core::ModelPricing {
+                input_per_million_cents: 0,
+                output_per_million_cents: 0,
+            },
+        }];
+
+        let discovered = vec![
+            crate::ModelInfo {
+                id: "llama3.2:3b".to_string(),
+                name: "Llama 3.2 3B Overridden".to_string(),
+                provider: "ollama".to_string(),
+                context_window: 64_000,
+                max_output: 2_048,
+                pricing: warsha_core::ModelPricing {
+                    input_per_million_cents: 10,
+                    output_per_million_cents: 20,
+                },
+            },
+            crate::ModelInfo {
+                id: "qwen2.5-coder:7b".to_string(),
+                name: "Qwen 2.5 Coder 7B".to_string(),
+                provider: "ollama".to_string(),
+                context_window: 32_000,
+                max_output: 8_192,
+                pricing: warsha_core::ModelPricing {
+                    input_per_million_cents: 0,
+                    output_per_million_cents: 0,
+                },
+            },
+        ];
+
+        let diff = reconcile_model_catalog("ollama", &existing, discovered);
+        assert_eq!(diff.provider, "ollama");
+        assert_eq!(diff.retained_count, 1);
+        assert_eq!(diff.total_count, 2);
+        assert_eq!(diff.new_models.len(), 1);
+        assert_eq!(diff.new_models[0].id, "qwen2.5-coder:7b");
+
+        // The existing model's configuration was NOT overwritten
+        assert_eq!(diff.updated_catalog[0].id, "llama3.2:3b");
+        assert_eq!(diff.updated_catalog[0].name, "Llama 3.2 3B");
+        assert_eq!(diff.updated_catalog[0].context_window, 128_000);
+        assert_eq!(diff.updated_catalog[1].id, "qwen2.5-coder:7b");
+    }
+
+    #[tokio::test]
+    async fn check_provider_model_updates_discovers_from_provider() {
+        let mock_provider =
+            crate::MockProvider::new("ollama").with_models(vec![crate::ModelInfo {
+                id: "deepseek-coder-v2:16b".to_string(),
+                name: "DeepSeek Coder V2 16B".to_string(),
+                provider: "ollama".to_string(),
+                context_window: 64_000,
+                max_output: 4_096,
+                pricing: warsha_core::ModelPricing {
+                    input_per_million_cents: 0,
+                    output_per_million_cents: 0,
+                },
+            }]);
+
+        let diff = check_provider_model_updates(&mock_provider, &[])
+            .await
+            .expect("check_provider_model_updates succeeds");
+
+        assert_eq!(diff.provider, "ollama");
+        assert_eq!(diff.retained_count, 0);
+        assert_eq!(diff.total_count, 1);
+        assert_eq!(diff.new_models.len(), 1);
+        assert_eq!(diff.new_models[0].id, "deepseek-coder-v2:16b");
     }
 }

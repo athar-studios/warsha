@@ -45,6 +45,8 @@ use crate::agent_workflow::{
     MessageBus, ModeManager, ModeTransition, OutputCompressor, SlashCommand, SlashCommandRegistry,
     TodoItem, TodoList, TodoStatus,
 };
+use crate::backend_kit::BackendKit;
+use crate::mcp_transport::{McpManager, McpTransportError};
 
 /// The transcript budget a turn is compacted to, in estimated tokens.
 ///
@@ -242,6 +244,10 @@ pub struct AgentLoop {
     pub tool_executor: Box<dyn ToolExecutor>,
     /// The model call an Agent-mode turn makes. `None` means the response says so.
     pub router: Option<Arc<dyn Router>>,
+    /// The MCP manager handling tool calls.
+    pub mcp_manager: Option<Arc<dyn McpManager>>,
+    /// The backend kit updated on backend tool mutations.
+    pub backend_kit: Option<Arc<RwLock<BackendKit>>>,
     /// The transcript the compactor works on, oldest first.
     context: Vec<String>,
 }
@@ -269,6 +275,8 @@ impl AgentLoop {
             compressor: OutputCompressor,
             tool_executor,
             router: None,
+            mcp_manager: None,
+            backend_kit: None,
             context: Vec::new(),
         }
     }
@@ -276,6 +284,18 @@ impl AgentLoop {
     /// The same loop with the model call wired.
     pub fn with_router(mut self, router: Arc<dyn Router>) -> Self {
         self.router = Some(router);
+        self
+    }
+
+    /// The same loop with the MCP manager wired.
+    pub fn with_mcp(mut self, mcp: Arc<dyn McpManager>) -> Self {
+        self.mcp_manager = Some(mcp);
+        self
+    }
+
+    /// The same loop with the BackendKit wired.
+    pub fn with_backend_kit(mut self, backend_kit: Arc<RwLock<BackendKit>>) -> Self {
+        self.backend_kit = Some(backend_kit);
         self
     }
 
@@ -409,6 +429,165 @@ impl AgentLoop {
 
         let mut tools = Vec::new();
         match parse_tool_request(input) {
+            Some(AgentTool::CallTool {
+                server,
+                tool,
+                arguments,
+            }) => {
+                let call_tool_obj = AgentTool::CallTool {
+                    server: server.clone(),
+                    tool: tool.clone(),
+                    arguments: arguments.clone(),
+                };
+                let result = if let Some(mcp) = &self.mcp_manager {
+                    let target_server = if let Some(s) = server {
+                        s
+                    } else {
+                        // Find connected server that advertises this tool
+                        let list = mcp.list().await;
+                        let found = list.into_iter().find(|conn| {
+                            conn.status.is_connected()
+                                && (conn.tools.iter().any(|t| t == &tool)
+                                    || conn.tool_definitions.iter().any(|td| td.name == tool))
+                        });
+                        match found {
+                            Some(conn) => conn.config.name,
+                            None => {
+                                let res = ToolResult::failed(
+                                    call_tool_obj.clone(),
+                                    format!("no connected MCP server advertises tool `{tool}`"),
+                                );
+                                lines.push(format!(
+                                    "- tool: {} — {}",
+                                    res.tool.summary(),
+                                    res.status()
+                                ));
+                                lines.push("- output:".to_string());
+                                lines.push(format!("  {}", res.output));
+                                tools.push(res);
+                                lines[0] =
+                                    format!("Summary (tool execution): {}", first_line(input));
+                                lines.push(format!(
+                                    "- todo: {}",
+                                    todo_line(todo.as_deref(), "done")
+                                ));
+                                return (lines.join("\n"), tools);
+                            }
+                        }
+                    };
+
+                    match mcp
+                        .call_tool(&target_server, &tool, arguments.clone())
+                        .await
+                    {
+                        Ok(tool_res) => {
+                            if tool_res.is_error {
+                                let text = tool_res
+                                    .content
+                                    .iter()
+                                    .map(|c| match c {
+                                        crate::mcp::McpContent::Text { text } => text.clone(),
+                                        crate::mcp::McpContent::Image { mime_type, .. } => {
+                                            format!("[image ({mime_type})]")
+                                        }
+                                        crate::mcp::McpContent::Resource { resource } => {
+                                            format!("[resource ({})]", resource.uri)
+                                        }
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join("\n");
+                                let out = if text.is_empty() {
+                                    format!("tool `{tool}` returned an error")
+                                } else {
+                                    text
+                                };
+                                ToolResult::failed(call_tool_obj, out)
+                            } else {
+                                let text_parts = tool_res
+                                    .content
+                                    .iter()
+                                    .map(|c| match c {
+                                        crate::mcp::McpContent::Text { text } => text.clone(),
+                                        crate::mcp::McpContent::Image { mime_type, .. } => {
+                                            format!("[image ({mime_type})]")
+                                        }
+                                        crate::mcp::McpContent::Resource { resource } => {
+                                            format!("[resource ({})]", resource.uri)
+                                        }
+                                    })
+                                    .collect::<Vec<_>>();
+                                let base_out = if text_parts.is_empty() {
+                                    format!("tool `{tool}` succeeded")
+                                } else {
+                                    text_parts.join("\n")
+                                };
+
+                                let is_backend_mutation = matches!(
+                                    tool.as_str(),
+                                    "create_table"
+                                        | "add_table"
+                                        | "create_rls_policy"
+                                        | "add_rls_policy"
+                                        | "create_storage_bucket"
+                                        | "add_storage_bucket"
+                                        | "create_function"
+                                        | "add_function"
+                                );
+                                if is_backend_mutation {
+                                    if let Some(kit_lock) = &self.backend_kit {
+                                        let mut kit = kit_lock.write().await;
+                                        match kit.apply_tool_call(&tool, &arguments) {
+                                            Ok(msg) => ToolResult::ok(
+                                                call_tool_obj,
+                                                format!("{base_out}\n{msg}").trim().to_string(),
+                                            ),
+                                            Err(e) => ToolResult::failed(
+                                                call_tool_obj,
+                                                format!("backend update failed: {e}"),
+                                            ),
+                                        }
+                                    } else {
+                                        ToolResult::ok(call_tool_obj, base_out)
+                                    }
+                                } else {
+                                    ToolResult::ok(call_tool_obj, base_out)
+                                }
+                            }
+                        }
+                        Err(McpTransportError::Timeout { seconds, .. }) => ToolResult::failed(
+                            call_tool_obj,
+                            format!("MCP tool call `{tool}` timed out after {seconds}s"),
+                        ),
+                        Err(McpTransportError::Protocol { problem, .. }) => ToolResult::failed(
+                            call_tool_obj,
+                            format!("MCP protocol error calling `{tool}`: {problem}"),
+                        ),
+                        Err(err) => ToolResult::failed(
+                            call_tool_obj,
+                            format!("MCP tool call `{tool}` failed: {err}"),
+                        ),
+                    }
+                } else {
+                    ToolResult::failed(
+                        call_tool_obj,
+                        "no MCP manager is wired into this agent loop",
+                    )
+                };
+
+                lines.push(format!(
+                    "- tool: {} — {}",
+                    result.tool.summary(),
+                    result.status()
+                ));
+                lines.push("- output:".to_string());
+                let output =
+                    OutputCompressor::compress(result.output.trim_end(), MAX_TOOL_OUTPUT_LINES);
+                for line in output.text.lines() {
+                    lines.push(format!("  {line}"));
+                }
+                tools.push(result);
+                lines[0] = format!("Summary (tool execution): {}", first_line(input));
+            }
             Some(tool) => {
                 let result = self.tool_executor.execute(&tool);
                 lines.push(format!(
@@ -511,13 +690,17 @@ const READ_FILE_PREFIX: &str = "read file ";
 const WRITE_FILE_PREFIX: &str = "write file ";
 /// `run command <program> [args…]`: the turn runs one program.
 const RUN_COMMAND_PREFIX: &str = "run command ";
+/// `call tool <target> [json_args]`: call an MCP tool.
+const CALL_TOOL_PREFIX: &str = "call tool ";
+/// `call mcp <target> [json_args]`: call an MCP tool.
+const CALL_MCP_PREFIX: &str = "call mcp ";
 
 /// The tool a turn asks for, or `None` when the turn is a request to the model.
 ///
 /// This is a plain reading of the owner's words, not a model's tool call, so its
 /// limits are worth stating exactly:
 ///
-/// - the turn has to **start** with one of the three verbs (case-insensitively);
+/// - the turn has to **start** with one of the tool verbs (case-insensitively);
 ///   `please read file notes.md` is a request to the model, not a tool call;
 /// - the first line names the target, and only the first line. A `write file`
 ///   turn takes its content from after the first `:` plus every following line,
@@ -525,6 +708,8 @@ const RUN_COMMAND_PREFIX: &str = "run command ";
 ///   empty file;
 /// - a `run command` turn splits its line on whitespace, with no shell and no
 ///   quoting, exactly like the daemon's `process.spawn`;
+/// - a `call tool` / `call mcp` turn splits the target (which may be `server/tool`
+///   or `tool`) and parses trailing JSON arguments, defaulting to `{}`;
 /// - a blank target is not a tool request at all, so `read file ` falls through to
 ///   the model rather than running a tool that cannot work;
 /// - an `@file src/main.rs` mention is *not* a tool request: a mention is context
@@ -578,6 +763,51 @@ fn parse_tool_request(input: &str) -> Option<AgentTool> {
         return Some(AgentTool::RunCommand {
             command: command.to_string(),
             args: parts.map(str::to_string).collect(),
+        });
+    }
+
+    if let Some(rest) = rest_after_prefix(head, CALL_TOOL_PREFIX)
+        .or_else(|| rest_after_prefix(head, CALL_MCP_PREFIX))
+    {
+        let rest = rest.trim();
+        if rest.is_empty() {
+            return None;
+        }
+
+        let (target_part, trailing_head) = match rest.split_once(|c: char| c.is_whitespace()) {
+            Some((target, trailing)) => (target, trailing),
+            None => (rest, ""),
+        };
+        let target = trim_quotes(target_part);
+        if target.is_empty() {
+            return None;
+        }
+
+        let (server, tool) = if let Some((s, t)) = target.split_once('/') {
+            (Some(s.trim().to_string()), t.trim().to_string())
+        } else {
+            (None, target.to_string())
+        };
+
+        let mut args_str = trailing_head.trim().to_string();
+        if !rest_of_input.is_empty() {
+            if !args_str.is_empty() {
+                args_str.push('\n');
+            }
+            args_str.push_str(rest_of_input);
+        }
+
+        let arguments = if args_str.trim().is_empty() {
+            serde_json::json!({})
+        } else {
+            serde_json::from_str::<serde_json::Value>(args_str.trim())
+                .unwrap_or_else(|_| serde_json::json!({}))
+        };
+
+        return Some(AgentTool::CallTool {
+            server,
+            tool,
+            arguments,
         });
     }
 
@@ -1288,5 +1518,127 @@ mod tests {
         assert_eq!(turn.command, None);
         assert!(turn.response.contains("(empty input)"));
         assert_eq!(turn.todos.len(), 1);
+    }
+
+    #[test]
+    fn parse_call_tool_and_call_mcp() {
+        let t1 = parse_tool_request("call tool echo {\"msg\":\"hi\"}").expect("parses call tool");
+        match t1 {
+            AgentTool::CallTool {
+                server,
+                tool,
+                arguments,
+            } => {
+                assert_eq!(server, None);
+                assert_eq!(tool, "echo");
+                assert_eq!(arguments["msg"], "hi");
+            }
+            _ => panic!("expected CallTool"),
+        }
+
+        let t2 = parse_tool_request("call mcp files/read_file {\"path\":\"a.txt\"}")
+            .expect("parses call mcp");
+        match t2 {
+            AgentTool::CallTool {
+                server,
+                tool,
+                arguments,
+            } => {
+                assert_eq!(server, Some("files".to_string()));
+                assert_eq!(tool, "read_file");
+                assert_eq!(arguments["path"], "a.txt");
+            }
+            _ => panic!("expected CallTool"),
+        }
+    }
+
+    struct MockAgentLoopMcpManager;
+    #[async_trait]
+    impl McpManager for MockAgentLoopMcpManager {
+        async fn connect(
+            &self,
+            _config: crate::mcp_transport::McpServerConfig,
+        ) -> Result<(), McpTransportError> {
+            Ok(())
+        }
+        async fn disconnect(&self, _name: &str) -> Result<(), McpTransportError> {
+            Ok(())
+        }
+        async fn list(&self) -> Vec<crate::mcp_transport::McpConnection> {
+            vec![crate::mcp_transport::McpConnection {
+                config: crate::mcp_transport::McpServerConfig {
+                    name: "test_srv".to_string(),
+                    transport: crate::mcp_transport::McpTransport::Stdio,
+                    command: Some("dummy".to_string()),
+                    args: vec![],
+                },
+                status: crate::mcp_transport::McpStatus::Connected,
+                process_id: Some("p1".to_string()),
+                tools: vec!["create_table".to_string(), "echo".to_string()],
+                tool_definitions: vec![],
+            }]
+        }
+        async fn send(&self, _name: &str, _payload: &str) -> Result<String, McpTransportError> {
+            Ok(String::new())
+        }
+        async fn call_tool(
+            &self,
+            _name: &str,
+            tool: &str,
+            arguments: serde_json::Value,
+        ) -> Result<crate::mcp::McpToolResult, McpTransportError> {
+            if tool == "create_table" {
+                let tbl_name = arguments
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("users");
+                Ok(crate::mcp::McpToolResult {
+                    content: vec![crate::mcp::McpContent::Text {
+                        text: format!("Table {tbl_name} created"),
+                    }],
+                    is_error: false,
+                })
+            } else if tool == "echo" {
+                let msg = arguments.get("msg").and_then(|v| v.as_str()).unwrap_or("");
+                Ok(crate::mcp::McpToolResult {
+                    content: vec![crate::mcp::McpContent::Text {
+                        text: msg.to_string(),
+                    }],
+                    is_error: false,
+                })
+            } else {
+                Err(McpTransportError::NotFound(tool.to_string()))
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn agent_loop_executes_call_tool_and_mutates_backend_kit() {
+        let mut agent_loop = approved_loop();
+        let mcp = Arc::new(MockAgentLoopMcpManager);
+        let backend_kit = Arc::new(RwLock::new(BackendKit::from_project(
+            "test",
+            "http://localhost",
+            crate::backend_kit::BackendKind::PocketBase,
+        )));
+
+        agent_loop = agent_loop
+            .with_mcp(mcp)
+            .with_backend_kit(backend_kit.clone());
+
+        let turn = agent_loop
+            .run_turn(
+                "call tool create_table {\"name\": \"users\", \"columns\": [{\"name\": \"id\", \"data_type\": \"uuid\"}]}",
+                &catalog(),
+            )
+            .await;
+
+        assert_eq!(turn.tools.len(), 1);
+        assert!(turn.tools[0].success);
+        assert!(turn.tools[0].output.contains("Table users created"));
+
+        let kit = backend_kit.read().await;
+        assert_eq!(kit.tables.len(), 1);
+        assert_eq!(kit.tables[0].name, "users");
     }
 }

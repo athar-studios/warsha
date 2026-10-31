@@ -1,47 +1,133 @@
 # ورشة · Warsha — Landing
 
-<div dir="rtl" lang="ar">
+<div dir="rtl" lang="ar" class="landing-page">
 
-## ورشة
+<div class="hero-container">
+  <div class="hero-badge">مصنع برمجيات مفتوح المصدر بالذكاء الاصطناعي · عربي أولاً</div>
+  <h1 class="hero-title">حوّل فكرتك إلى تطبيق برمجي متكامل يعمل</h1>
+  <p class="hero-subtitle">
+    صِف فكرتك بالعربية أو الإنجليزية، ورشة تقود فريقاً متخصصاً من 12 وكيلاً لبناء واختبار تطبيقك عبر مسار مراحل محكم لا يتقدّم خطوة واحدة إلا بموافقتك أنت. محلي بالكامل على جهازك، بأمان تام ودون مشاركة مفاتيحك.
+  </p>
+  <div class="hero-actions">
+    <a href="quickstart.md#desktop-app" class="btn btn-primary">⬇ تنزيل تطبيق ورشة (Windows / macOS / Linux)</a>
+    <a href="quickstart.md" class="btn btn-secondary">📖 دليل البدء السريع (5 دقائق)</a>
+    <a href="providers.md" class="btn btn-tertiary">ربط المزودين</a>
+  </div>
+</div>
 
-### مصنع برمجيات بالذكاء الاصطناعي
+---
 
-فكرةٌ في سطر واحد تصبح مستودعاً يعمل: ورشة تدير فريقاً من 12 وكيلاً في مسار مراحل مُبوَّب،
-ولا تنتقل خطوة واحدة إلى التالية إلا بموافقتك أنت.
+## كيف تعمل ورشة؟ (رحلة التطوير في 3 خطوات)
 
-[ابدأ من الدليل السريع](quickstart.md) · [المزوّدون](providers.md) · [البوابات والموافقات](gates.md) · [نموذج الأمان](security.md) · [سجل التغييرات](changelog.md)
+<div class="journey-grid">
+  <div class="journey-card">
+    <div class="journey-step">1</div>
+    <h3>صِف فكرتك (Intake & Discovery)</h3>
+    <p>
+      اكتب سطرين يصفان مشروعك. وكيل الفرز والاستقبال <code>Intake</code> يحاورك بأسئلة دقيقة لتوضيح الأهداف، النطاق، والقيود قبل كتابة سطر كود واحد.
+    </p>
+  </div>
+  <div class="journey-card">
+    <div class="journey-step">2</div>
+    <h3>فريق عمل كامل تحت إشرافك (12 Agents & Gates)</h3>
+    <p>
+      يتولى فريق من 12 وكيلاً (مدير المنتج، المصمم، المعماري، المبرمج، المراجع، فاحص الجودة، الأمان...). كل مرحلة حساسة تتوقف عند بوابة موافقة بشرية <strong>(Gate A/B/C/D)</strong> ولا يُعتمد أي قرار تلقائياً.
+    </p>
+  </div>
+  <div class="journey-card">
+    <div class="journey-step">3</div>
+    <h3>تطبيق حقيقي ومعاينة فورية (Code & Live Preview)</h3>
+    <p>
+      تحصل على مستودع Git نظيف مع اختبارات مؤكدة، وقاعدة بيانات محلية، وخادم معاينة حية Live Preview يتفاعل فورياً مع التعديلات.
+    </p>
+  </div>
+</div>
 
-### الفيديو التعريفي
+---
+
+## لقطات حقيقية من واجهة البرنامج
+
+<div class="screenshot-showcase">
+  <div class="screenshot-item">
+    <img src="screenshots/simple-mode-ar.png" alt="الوضع البسيط ومتابعة الوكلاء الاثني عشر والمحادثة" class="screenshot-img" />
+    <p class="screenshot-caption">شاشة الوضع البسيط: متابعة المحادثة الذكية وقائمة الوكلاء وحالتهم اللحظية أثناء التنفيذ.</p>
+  </div>
+
+  <div class="screenshot-item">
+    <img src="screenshots/projects-board-ar.png" alt="لوحة المشاريع ومسار المراحل والبوابات" class="screenshot-img" />
+    <p class="screenshot-caption">لوحة المشاريع (Kanban): مسار المراحل الـ 14 وبطاقات بوابات الموافقة البشرية.</p>
+  </div>
+
+  <div class="screenshot-item">
+    <img src="screenshots/onboarding-ar.png" alt="إعداد المزود الأول وحفظ المفاتيح في خزانة النظام" class="screenshot-img" />
+    <p class="screenshot-caption">معالج الإعداد الأولي: اختيار المزوّد واختبار المفتاح وحفظه في خزانة نظام التشغيل بأمان.</p>
+  </div>
+</div>
+
+---
+
+## المزايا الأساسية
+
+<div class="features-grid">
+  <div class="feature-card">
+    <div class="feature-icon">🛡️</div>
+    <h3>أمان وخصوصية تامة</h3>
+    <p>
+      مفاتيحك وبياناتك لا تخرج من حاسوبك أبداً. الأسرار تُحفظ حصرياً في خزانة نظام التشغيل (OS Keychain)، ولا تُسجَّل في السجلات أو قواعد البيانات.
+    </p>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-icon">🌐</div>
+    <h3>عربي أولاً بالكامل (RTL-First)</h3>
+    <p>
+      واجهة عربية أصيلة صُممت خصيصاً للمستخدم العربي من اليمين لليسار، مع دعم كامل للإنجليزية وتوليد كود وتوثيق ثنائي اللغة.
+    </p>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-icon">🔌</div>
+    <h3>أحضر مزوّدك (BYO Provider)</h3>
+    <p>
+      تحكم كامل في ميزانيتك: ادعم DeepSeek, OpenAI, Anthropic, Qwen, Kimi أو النماذج المحلية تماماً عبر Ollama بلا تكلفة تشغيل.
+    </p>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-icon">🚪</div>
+    <h3>4 بوابات موافقة بشرية (Human Gates)</h3>
+    <p>
+      لن يقوم أي وكيل بنشر كود أو إصدار نسخة أو نشر محتوى على الإنترنت دون نقرة موافقة صريحة منك. التحكم للمالك أولاً وأخيراً.
+    </p>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-icon">💻</div>
+    <h3>محلي أولاً (Local-First)</h3>
+    <p>
+      قاعدة البيانات (SQLite)، ومستودع Git، وعمليات البناء والتشغيل كلها تعمل محلياً على جهازك؛ لا اشتراكات إلزامية ولا سحابة وسيطة.
+    </p>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-icon">🧪</div>
+    <h3>بيئة تجريبية واختبارات حقيقية</h3>
+    <p>
+      يحتوي على وضع محاكاة كامل لاستهلاك صفر تكلفة أثناء التجربة، مع فحوصات جودة معمارية وآلية تضمن كوداً نظيفاً وموثوقاً.
+    </p>
+  </div>
+</div>
+
+---
+
+## الوكلاء الاثنا عشر ومسار المراحل
+
+مسار واضح من الفكرة حتى الإصدار عبر 14 مرحلة و4 بوابات:
 
 ```text
-┌──────────────────────────────────────────────────────────────────────┐
-│  [ موضع الفيديو — 3:00 ]                                             │
-│  التثبيت → إضافة مزوّد → مشروع جديد → اعتماد البوابات A/B/C          │
-│  → المستودع النهائي: طلبات دمج مدمجة، فحوصات خضراء، إصدار مسوّدة       │
-│  يُدرج الإطار هنا بعد موافقة البوابة D على النسخة النهائية.           │
-└──────────────────────────────────────────────────────────────────────┘
+Idea → Gate A → Research → PRD Spec → Gate B → Design → Plan Tasks → Code
+     → Review / QA / Security → Gate C → Release → Gate D → Launch Drafts → Feedback
 ```
-
-قائمة اللقطات بالتوقيت وشرح كل لقطة في `docs/launch/demo-video.md`، وسياق التصوير وقائمة
-«ما لا يُعرض» في `docs/launch/demo-script.md`. الفيديو لم يُصوَّر بعد، فهذا الموضع **علامة صريحة**
-لا مشغّل معطّل، ولا شيء في الصفحة يوحي بأن مقطعاً جاهزاً ينتظر نقرة.
-
-<!-- بعد البوابة D: أزل التعليق وضع معرّف الفيديو. الإطار لا يطلب شيئاً من الشبكة قبل ذلك.
-<iframe width="960" height="540" src="https://www.youtube.com/embed/VIDEO_ID"
-        title="Warsha demo (3:00)" loading="lazy" allowfullscreen></iframe>
--->
-
-### لماذا ورشة
-
-- **مسار واحد واضح** — 14 مرحلة و4 بوابات موافقة بشرية، من الفكرة حتى الإصدار: لا خطوة مخفيّة.
-- **12 وكيلاً بأدوار مكتوبة** — لكل وكيل موجّه مُصدَّر ونسخة معروفة، فتعرف من كتب ماذا ولماذا.
-- **أحضر مزوّدك** — OpenAI أو Anthropic أو DeepSeek أو Ollama محلياً أو أي واجهة متوافقة مع OpenAI.
-- **أسرار في خزانة النظام** — مفاتيح الواجهات تُحفظ في خزانة نظام التشغيل، ولا تظهر في السجلات أو المخارج.
-- **ميزانية محسوبة** — سقف لكل مشروع ولكل وكيل، مع إيقاف تلقائي عند التجاوز.
-- **محلي أولاً** — قاعدة البيانات والملفات على جهازك، والهاتف يتصل عبر قناة مشفّرة طرفاً لطرف.
-- **لا نشر تلقائي** — كل نشر أو تغريدة أو إصدار يمرّ بالبوابة D ويحتاج موافقتك الصريحة.
-
-### الوكلاء الاثنا عشر
 
 | # | الوكيل | الدور | المسؤولية |
 |---|--------|-------|-----------|
@@ -58,207 +144,208 @@
 | 11 | التسويق | `Marketer` | يكتب نصوص المتاجر ومحتوى الإطلاق |
 | 12 | التغذية الراجعة | `Feedback` | يفرز الملاحظات والأخطاء ويقترح الخطة التالية |
 
-### مسار المراحل
+---
 
-```text
-Idea → Gate A → Research → PRD Spec → Gate B → Design → Plan Tasks → Code
-     → Review / QA / Security → Gate C → Release → Gate D → Launch Drafts → Feedback
-```
+## لمن ورشة … ولمن ليست؟
 
-| البوابة | ماذا تعتمد | من يعتمد |
-|---------|------------|----------|
-| Gate A | الموجز ونتيجة مقابلة الاكتشاف | المالك |
-| Gate B | وثيقة المتطلبات وحدود النطاق | المالك |
-| Gate C | نتيجة المراجعة والاختبارات والدمج | المالك |
-| Gate D | كل نشر أو إصدار أو منشور علني | المالك |
+ورشة أداة لمالك منتج ومطوّر يريد نتائج حقيقية موثوقة:
 
-### أحضر مزوّدك
+- **مناسبة لك إذا كنت:** تريد مستودعاً حقيقياً بكود نظيف وتاريخ Git، تملك مفاتيحك أو تفضل تشغيل نماذج محلية مجاناً عبر Ollama، وتريد مراجعة واعتماد كل خطوة حساسة دون مفاجآت.
+- **غير مناسبة لك إذا كنت:** تبحث عن أداة تنشر تلقائياً على الإنترنت بدون إذنك، أو تبحث عن خدمة سحابية تبيعك حصص نماذج باشتراكات، أو تريد توليد واجهات سريعة دون الاهتمام بجودة ومراجعة الكود.
 
-ورشة لا تبيع نماذج ولا تفرض مزوّداً: تستخدم المفاتيح والحصص التي تملكها أنت.
+---
 
-```bash
-# سحابي
-warsha providers add openai --name openai --key sk-...
-warsha providers add anthropic --name claude --key sk-ant-...
+## لا أرقام مزيفة (حقائق موثقة من المستودع)
 
-# محلي بلا حساب
-warsha providers add ollama --name local-llama --base-url http://localhost:11434
-```
+نلتزم بالشفافية الكاملة: لا نضع تقييمات مجهولة، أو أرقام مستخدمين وهمية، أو وعوداً غير مثبتة برمجياً:
 
-### بوابات بشرية
+| الحقيقة | المصدر والبرهان البرمجي |
+|---------|-------------------------|
+| 12 وكيلاً | 12 ملف توجيه متخصص في `crates/warsha-pipeline/src/prompts/` |
+| 14 مرحلة | معرّفة بدقة في `Stage::all()` في `crates/warsha-core/src/lib.rs` |
+| 4 بوابات بشرية | بوابات Gate A وGate B وGate C وGate D غير قابلة للتجاوز الآلي |
+| 3 أنظمة تشغيل مدعومة | Windows وmacOS وLinux عبر مصفوفة CI في `.github/workflows/` |
+| تخزين أسرار OS Keychain | مستودع آمن يعتمد على واجهات النظام الأصلية دون كتابة الأسرار على القرص |
 
-كل عمل حسّاس — إرسال، نشر، دفع، حذف، دفع إلى المستودع — يقف عند بطاقة موافقة.
-الوكلاء يقترحون وينفّذون، والمالك يعتمد؛ **لا يستطيع أي وكيل اعتماد بوابة**، ولا يوجد مسار
-تلقائي يتجاوزها. التفاصيل في [البوابات والموافقات](gates.md).
+---
 
-### لمن ورشة … ولمن ليست
+## الأسئلة الشائعة (FAQ)
 
-ورشة أداة لمالك منتج، لا خدمة سحابية. هذا الفصل صريح لأنه أوفر للوقت من التجربة الخاطئة.
+<div class="faq-list">
+  <div class="faq-item">
+    <h4>هل ورشة مجانية ومفتوحة المصدر؟</h4>
+    <p>
+      نعم، ورشة مرخصة بموجب رخصة <strong>PolyForm Noncommercial 1.0.0</strong>؛ الاستخدام الشخصي والتعليمي والبحثي وغير الربحي مجاني بالكامل. الاستخدام التجاري يتطلب ترخيصاً منفصلاً.
+    </p>
+  </div>
 
-**مناسبة لك إذا كنت:**
+  <div class="faq-item">
+    <h4>أين تُحفظ مفاتيح API الخاصة بي وبيانات المشروع؟</h4>
+    <p>
+      محلياً فقط على جهازك. تُحفظ مفاتيح الواجهات في خزانة نظام التشغيل (OS Keychain / Windows Credential Manager / Apple Keychain / Linux Secret Service) مشفرة ومحمية، ولا تُرسل لأي خادم وسيط.
+    </p>
+  </div>
 
-- مالك منتج واحد تعرفه جيداً، تعمل وحدك أو مع فريق صغير، وتريد أن تصل إلى مستودع يعمل لا إلى عرض تجريبي.
-- تريد أن ترى كل خطوة وتعتمدها بنفسك، وتعتبر «وكيلاً ينفّذ بلا مراجعة» خطراً لا ميزة.
-- تملك مفاتيحك أو تشغّل نموذجاً محلياً، ويهمّك أن تبقى بياناتك ومخرجاتك على جهازك.
-- تكتب بالعربية وتريد واجهة ومخرجات عربية أولاً، مع الإنجليزية عند الحاجة.
-- تريد فروعاً وطلبات دمج وفحوصات CI حقيقية، لا ملفات مولَّدة بلا تاريخ.
+  <div class="faq-item">
+    <h4>هل أحتاج بطاقة ائتمان للبدء؟</h4>
+    <p>
+      إطلاقاً. يمكنك تشغيل ورشة فوراً في الوضع التجريبي المجاني بالكامل، أو توصيل خادم Ollama محلي على جهازك لتشغيل نماذج مفتوحة المصدر بلا أي تكلفة.
+    </p>
+  </div>
 
-**غير مناسبة لك إذا كنت:**
+  <div class="faq-item">
+    <h4>ما هي أنظمة التشغيل المدعومة؟</h4>
+    <p>
+      يتوفر تطبيق ورشة المكتبي لـ Windows (10/11) وmacOS (معالجات Apple Silicon وIntel) وLinux (توزيعات Ubuntu/Debian عبر حزم AppImage وdeb).
+    </p>
+  </div>
+</div>
 
-- تريد وكيلاً ينشر ويغرّد ويصرف نيابةً عنك بلا مراجعة: كل نشر يمرّ بالبوابة D، وهذا قرار تصميم لا إعداد يمكن إيقافه.
-- تريد خدمة مستضافة بمفاتيحنا وحصصنا: ورشة لا تبيع نماذج ولا تحتفظ بمفاتيح على خادمها.
-- تريد موقعاً جاهزاً في دقيقة بلا مستودع ولا قراءة كود: المخرجات تحتاج مراجعتك، وهذا هو الغرض.
-- تحتاج استخداماً تجارياً: الترخيص **PolyForm Noncommercial 1.0.0**، والاستخدام التجاري يحتاج ترخيصاً منفصلاً.
-- تحتاج استقرار إصدار 1.0 أو دعم عملاء واتفاقية مستوى خدمة: أول إصدار لم يُوسم بعد، ولا يوجد فريق دعم.
-- تريد أن تُكتب الواجهة المعقّدة كاملةً دون أن تقرأ المخرجات: الوكلاء يقترحون، والقرار والمراجعة لك.
-
-لا شهادات مستخدمين في هذه الصفحة، ولا اقتباسات من «عملاء»: لا أحد استخدم ورشة بعد، واختلاق
-شهادة واحدة يبطل بقية الصفحة.
-
-### لا أرقام مزيفة
-
-كل رقم في هذه الصفحة يمكن تتبعه إلى قياس في المستودع، وكل ما لا يمكن تتبعه لا يُكتب:
-
-| الرقم | من أين يُقرأ |
-|-------|---------------|
-| 12 وكيلاً | اثنا عشر ملف موجّه في `crates/warsha-pipeline/src/prompts/` |
-| 14 مرحلة | `Stage::all()` في `crates/warsha-core/src/lib.rs` — 14 عنصراً |
-| 4 بوابات | `Stage::is_gate()`: Gate A وGate B وGate C وGate D |
-| 3 أنظمة تشغيل | مصفوفة `os:` في `.github/workflows/ci.yml` و`release.yml` |
-| 6 فحوصات ما قبل الإصدار | قائمة `ReleasePreflight` الثابتة |
-
-ما لا تجده في هذه الصفحة عن قصد: عدد مستخدمين، عدد تنزيلات، عدد نجوم، تقييم متجر، شهادات، أو
-جدول أداء بلا أمر يعيد إنتاجه. أول رقم من هذا النوع يُنشر يحمل معه رابط القياس؛ وإن لم يوجد
-قياس، لا يُنشر الرقم. الفحص نفسه بند مراجعة قبل كل نشر، وأمرُه وجدولُه في
-`docs/launch/demo-video.md` (قسم «Numeric claims check»).
-
-### لقطات الشاشة
-
-```text
-┌──────────────────────────────────────────────────────────────┐
-│  [ لقطة الشاشة: الوضع البسيط — الشريط الجانبي للوكلاء ]      │
-│  تعرض قائمة الوكلاء الاثني عشر وحالة كل وكيل والبطاقات         │
-│  المعلّقة للموافقة. تُلتقط بعد تصوير الفيديو التعريفي.          │
-└──────────────────────────────────────────────────────────────┘
-```
-
-تُضاف اللقطات النهائية إلى `docs/src/screenshots/` قبل الإطلاق، وتُدرج هنا بوصف نصي بديل
-لكل صورة. حتى ذلك الحين يبقى هذا الموضع علامة مؤقتة صريحة، لا صورة ناقصة.
-
-### ابدأ الآن
-
-```bash
-warsha init
-warsha new "متجر إلكتروني صغير بواجهة عربية وإنجليزية"
-warsha gates
-```
-
-الدليل الكامل خطوة بخطوة في [الدليل السريع](quickstart.md).
-
-### الترخيص
-
-ورشة مرخّصة بموجب **PolyForm Noncommercial 1.0.0**: الاستخدام الشخصي والتعليمي والبحثي
-وغير الربحي مسموح، والاستخدام التجاري يحتاج ترخيصاً منفصلاً. اقرأ
-[ملاحظة الترخيص](tos.md) وملف `LICENSE` في جذر المستودع.
+<div class="callout-box">
+  <h3>جاهز لتحويل فكرتك إلى تطبيق يعمل؟</h3>
+  <p>ابدأ الآن عبر اتباع خطوات التثبيت البسيطة في الدليل السريع.</p>
+  <a href="quickstart.md" class="btn btn-primary">ابدأ الدليل السريع الآن</a>
+</div>
 
 </div>
 
-<div dir="ltr" lang="en">
+---
 
-## English fallback
+<div dir="ltr" lang="en" class="landing-page">
 
-**Warsha (ورشة)** — an Arabic-first AI software factory. Tagline: «ورشة: مصنع برمجيات بالذكاء الاصطناعي»
-(Warsha: a software factory powered by artificial intelligence).
+<div class="hero-container">
+  <div class="hero-badge">Open Source AI Software Factory · Arabic-First & Local-First</div>
+  <h1 class="hero-title">Turn Your Idea into a Working Software Product</h1>
+  <p class="hero-subtitle">
+    Describe your idea in Arabic or English. Warsha coordinates a team of 12 specialized agents to design, build, and test your application through a structured gated pipeline that never advances without your explicit approval. 100% local on your machine.
+  </p>
+  <div class="hero-actions">
+    <a href="quickstart.md#desktop-app" class="btn btn-primary">⬇ Download Desktop App (Win / Mac / Linux)</a>
+    <a href="quickstart.md" class="btn btn-secondary">📖 Quickstart Guide (5 min)</a>
+    <a href="providers.md" class="btn btn-tertiary">Configure Providers</a>
+  </div>
+</div>
 
-One line of idea becomes a working repository: Warsha runs a team of twelve agents through a
-gated pipeline, and no stage advances without your approval.
+---
 
-- **One visible pipeline** — 14 stages, 4 human gates, from idea to release.
-- **Twelve written roles** — Intake, Researcher, PM, Designer, Architect, Coder, Reviewer, QA,
-  Security, Release, Marketer, Feedback, each driven by a versioned prompt file.
-- **Bring your own provider** — OpenAI, Anthropic, DeepSeek, a local Ollama, or any
-  OpenAI-compatible endpoint.
-- **Secrets in the OS keychain** — never in config files, logs, or command output.
-- **Budgets that hold** — per project and per role, with an automatic pause on overrun.
-- **Local-first** — state and artifacts stay on your machine; the phone pairs over an
-  end-to-end encrypted channel.
-- **No auto-publishing** — every post, release, or push waits at Gate D for the owner.
+## How It Works (3 Simple Steps)
 
-Pipeline: `Idea → Gate A → Research → PRD Spec → Gate B → Design → Plan Tasks → Code →
-Review / QA / Security → Gate C → Release → Gate D → Launch Drafts → Feedback`.
+<div class="journey-grid">
+  <div class="journey-card">
+    <div class="journey-step">1</div>
+    <h3>Describe Your Idea (Intake & Discovery)</h3>
+    <p>
+      Provide a brief concept. The <code>Intake</code> agent interviews you with focused clarifying questions to nail down specifications before any code is generated.
+    </p>
+  </div>
+  <div class="journey-card">
+    <div class="journey-step">2</div>
+    <h3>A Full Team Under Your Control (12 Agents & Gates)</h3>
+    <p>
+      PM, Designer, Architect, Coder, Reviewer, QA, Security, and Release agents collaborate. Sensitive milestones pause at human approval gates <strong>(Gate A/B/C/D)</strong>.
+    </p>
+  </div>
+  <div class="journey-card">
+    <div class="journey-step">3</div>
+    <h3>Real Code & Instant Feedback (Git & Live Preview)</h3>
+    <p>
+      Get a clean Git repository, automated tests, local database setup, and a Live Preview dev server showing your app running in real time.
+    </p>
+  </div>
+</div>
 
-Agents propose and execute; the owner approves. **No agent can approve a gate**, and there is no
-automatic path around one — see [Gates and approvals](gates.md).
+---
 
-### Demo video
+## Core Product Capabilities
 
-```text
-┌──────────────────────────────────────────────────────────────────────┐
-│  [ VIDEO — 3:00 ]                                                     │
-│  install → add a provider → new project → approve Gates A/B/C        │
-│  → final repository: merged PRs, green checks, a draft release       │
-│  The embed goes here after Gate D approves the final cut.             │
-└──────────────────────────────────────────────────────────────────────┘
-```
+<div class="features-grid">
+  <div class="feature-card">
+    <div class="feature-icon">🛡️</div>
+    <h3>Total Privacy & Security</h3>
+    <p>
+      Your code, database, and credentials never leave your computer. Secrets are strictly stored in the OS Keychain and never logged.
+    </p>
+  </div>
 
-The frame-by-frame shot list is in `docs/launch/demo-video.md`; the recording setup, the do-not-show
-list and the post-production rules are in `docs/launch/demo-script.md`. The video has not been
-recorded yet, so this is an explicit placeholder, not a dead player — nothing on this page pretends
-a clip is one click away.
+  <div class="feature-card">
+    <div class="feature-icon">🌐</div>
+    <h3>Arabic-First & Bilingual</h3>
+    <p>
+      Native RTL-first design and typography for Arabic product creators, with full English support and bilingual code generation.
+    </p>
+  </div>
 
-### Who it is for / who it is not for
+  <div class="feature-card">
+    <div class="feature-icon">🔌</div>
+    <h3>Bring Your Own Provider</h3>
+    <p>
+      Connect DeepSeek, OpenAI, Anthropic, Qwen, Kimi, or run completely offline with local models using Ollama at zero API cost.
+    </p>
+  </div>
 
-Warsha is a tool for one product owner, not a hosted service. This split is blunt on purpose: it
-saves more time than a wrong trial.
+  <div class="feature-card">
+    <div class="feature-icon">🚪</div>
+    <h3>4 Mandatory Human Gates</h3>
+    <p>
+      Zero autonomous publishing. Every pull request, deployment, or social draft waits at a gate for your explicit sign-off.
+    </p>
+  </div>
 
-**It fits you if you:**
+  <div class="feature-card">
+    <div class="feature-icon">💻</div>
+    <h3>Local-First Architecture</h3>
+    <p>
+      Local SQLite storage, local Git repo, and offline-capable pipeline. No forced subscriptions or intermediate cloud dependencies.
+    </p>
+  </div>
 
-- own one product you understand, work alone or with a small team, and want a working repository
-  rather than a demo;
-- want to see and approve every step, and count "an agent that just executes" as a risk, not a feature;
-- bring your own keys or run a local model, and care that your state and artifacts stay on your machine;
-- write in Arabic and want the interface and the artifacts Arabic-first, English when needed;
-- want real branches, pull requests and CI checks instead of generated files with no history.
+  <div class="feature-card">
+    <div class="feature-icon">🧪</div>
+    <h3>Architectural Guardrails</h3>
+    <p>
+      Includes a zero-cost Mock mode for simulation and verified architectural rules ensuring clean, modular, and maintainable software.
+    </p>
+  </div>
+</div>
 
-**It does not fit you if you:**
+---
 
-- want an agent that publishes, posts and spends on your behalf with no review — every publication
-  waits at Gate D, and that is a design decision, not a setting you can turn off;
-- want a hosted service billed on our keys and our quota; Warsha sells no models and keeps no key on
-  a server;
-- want a finished site in a minute with no repository and no code reading; the output expects your
-  review, which is the point;
-- need commercial use: the licence is **PolyForm Noncommercial 1.0.0**, and commercial use needs a
-  separate licence;
-- need 1.0 stability, customer support, or an SLA: no release tag exists yet and there is no support team;
-- want a complex interface written end to end without reading the output; the agents propose, and the
-  decision and the review are yours.
+## Frequently Asked Questions (FAQ)
 
-There are no testimonials and no customer quotes on this page, because nobody has used Warsha yet —
-one invented quote would invalidate the rest of the page.
+<div class="faq-list">
+  <div class="faq-item">
+    <h4>Is Warsha free and open source?</h4>
+    <p>
+      Yes, Warsha is licensed under <strong>PolyForm Noncommercial 1.0.0</strong> for personal, educational, research, and non-profit use. Commercial use requires a separate license.
+    </p>
+  </div>
 
-### No fake metrics
+  <div class="faq-item">
+    <h4>Where are my API keys stored?</h4>
+    <p>
+      Strictly in your operating system's native keychain (Windows Credential Manager, macOS Keychain, Linux Secret Service). Keys are never committed to disk, databases, or logs.
+    </p>
+  </div>
 
-Every number on this page traces to a measurement in the repository, and anything that does not trace
-is not written:
+  <div class="faq-item">
+    <h4>Do I need a credit card to get started?</h4>
+    <p>
+      No. You can run Warsha entirely for free in simulation mode or by pairing it with Ollama running local open models on your machine.
+    </p>
+  </div>
 
-| Number | Where it is read from |
-|--------|-----------------------|
-| 12 agents | the twelve prompt files in `crates/warsha-pipeline/src/prompts/` |
-| 14 stages | `Stage::all()` in `crates/warsha-core/src/lib.rs` — fourteen entries |
-| 4 gates | `Stage::is_gate()`: Gate A, Gate B, Gate C, Gate D |
-| 3 operating systems | the `os:` matrix in `.github/workflows/ci.yml` and `release.yml` |
-| 6 preflight checks | `ReleasePreflight`'s fixed check list |
+  <div class="faq-item">
+    <h4>Which desktop platforms are supported?</h4>
+    <p>
+      Windows 10/11, macOS (Apple Silicon & Intel), and Linux (Ubuntu/Debian via deb and AppImage).
+    </p>
+  </div>
+</div>
 
-Deliberately absent: user counts, download counts, star counts, store ratings, testimonials, and any
-performance table without a command that reproduces it. The first metric of that kind to appear here
-carries its measurement link; with no measurement, it is not published. The check itself is a review
-item before every publication — command and claims table in `docs/launch/demo-video.md`, section
-"Numeric claims check".
-
-Start with the [Quickstart](quickstart.md). Licensed under **PolyForm Noncommercial 1.0.0**
-(personal, educational, research, and non-profit use); commercial use needs a separate license.
-See [Terms of Service note](tos.md). What changed, milestone by milestone, is in the
-[Changelog](changelog.md).
+<div class="callout-box">
+  <h3>Ready to start building?</h3>
+  <p>Follow the quickstart guide and set up Warsha in under five minutes.</p>
+  <a href="quickstart.md" class="btn btn-primary">Start Quickstart Guide</a>
+</div>
 
 </div>

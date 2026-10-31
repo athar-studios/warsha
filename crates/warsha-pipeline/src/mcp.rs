@@ -3,9 +3,14 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 use thiserror::Error;
+use tokio::sync::RwLock;
 use ulid::Ulid;
 use warsha_core::*;
+
+use crate::backend_kit::BackendKit;
+use crate::mcp_transport::{McpManager, McpTransportError};
 
 #[derive(Error, Debug)]
 pub enum McpError {
@@ -21,6 +26,8 @@ pub enum McpError {
     Io(#[from] std::io::Error),
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
+    #[error("Transport error: {0}")]
+    Transport(#[from] McpTransportError),
 }
 
 pub type Result<T> = std::result::Result<T, McpError>;
@@ -101,7 +108,7 @@ impl McpServerConfig {
 }
 
 /// MCP tool definition
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct McpTool {
     pub name: String,
     pub description: String,
@@ -109,7 +116,7 @@ pub struct McpTool {
     pub annotations: Option<McpToolAnnotations>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct McpToolAnnotations {
     pub title: Option<String>,
     pub read_only: Option<bool>,
@@ -118,7 +125,7 @@ pub struct McpToolAnnotations {
 }
 
 /// MCP tool call request
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct McpToolCall {
     pub tool_name: String,
     pub arguments: serde_json::Value,
@@ -127,13 +134,13 @@ pub struct McpToolCall {
 }
 
 /// MCP tool call result
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct McpToolResult {
     pub content: Vec<McpContent>,
     pub is_error: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum McpContent {
     Text { text: String },
@@ -141,7 +148,7 @@ pub enum McpContent {
     Resource { resource: McpResource },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct McpResource {
     pub uri: String,
     pub mime_type: Option<String>,
@@ -334,20 +341,69 @@ impl McpRegistry {
 
 /// MCP client for daemon to connect to servers
 pub struct McpClient {
-    registry: McpRegistry,
+    pub registry: McpRegistry,
+    pub manager: Option<Arc<dyn McpManager>>,
+    pub backend_kit: Option<Arc<RwLock<BackendKit>>>,
 }
 
 impl McpClient {
     pub fn new(registry: McpRegistry) -> Self {
-        Self { registry }
+        Self {
+            registry,
+            manager: None,
+            backend_kit: None,
+        }
+    }
+
+    pub fn with_manager(mut self, manager: Arc<dyn McpManager>) -> Self {
+        self.manager = Some(manager);
+        self
+    }
+
+    pub fn with_backend_kit(mut self, backend_kit: Arc<RwLock<BackendKit>>) -> Self {
+        self.backend_kit = Some(backend_kit);
+        self
     }
 
     /// Call a tool on an MCP server
     pub async fn call_tool(&self, call: McpToolCall) -> Result<McpToolResult> {
+        let (server_id, tool_name) = if let Some((server, tool)) = call.tool_name.split_once('/') {
+            (server.to_string(), tool.to_string())
+        } else {
+            // Find server in registry tools if registered
+            let found_server = self.registry.tools.keys().find_map(|key| {
+                if let Some((s, t)) = key.split_once("::") {
+                    if t == call.tool_name {
+                        return Some(s.to_string());
+                    }
+                }
+                None
+            });
+            let server = if let Some(s) = found_server {
+                s
+            } else if let Some(manager) = &self.manager {
+                let list = manager.list().await;
+                list.into_iter()
+                    .find(|conn| {
+                        conn.status.is_connected()
+                            && (conn.tools.iter().any(|t| t == &call.tool_name)
+                                || conn
+                                    .tool_definitions
+                                    .iter()
+                                    .any(|td| td.name == call.tool_name))
+                    })
+                    .map(|conn| conn.config.name)
+                    .unwrap_or_else(|| call.tool_name.clone())
+            } else {
+                call.tool_name.clone()
+            };
+            (server, call.tool_name.clone())
+        };
+
         // Check permission
-        let perm =
-            self.registry
-                .check_permission(&call.tool_name, &call.tool_name, call.caller_role);
+        let perm = self
+            .registry
+            .check_permission(&server_id, &tool_name, call.caller_role);
         match perm {
             ToolPermission::Allowed => {}
             ToolPermission::Pending => {
@@ -370,14 +426,45 @@ impl McpClient {
             }
         }
 
-        // In real implementation, connect via stdio/HTTP/WebSocket
-        // For now, return mock result
-        Ok(McpToolResult {
-            content: vec![McpContent::Text {
-                text: format!("Mock result for tool {}", call.tool_name),
-            }],
-            is_error: false,
-        })
+        let mut result = if let Some(manager) = &self.manager {
+            manager
+                .call_tool(&server_id, &tool_name, call.arguments.clone())
+                .await?
+        } else {
+            McpToolResult {
+                content: vec![McpContent::Text {
+                    text: format!("Mock result for tool {}", call.tool_name),
+                }],
+                is_error: false,
+            }
+        };
+
+        if !result.is_error {
+            let is_mutation = matches!(
+                tool_name.as_str(),
+                "create_table"
+                    | "add_table"
+                    | "create_rls_policy"
+                    | "add_rls_policy"
+                    | "create_storage_bucket"
+                    | "add_storage_bucket"
+                    | "create_function"
+                    | "add_function"
+            );
+            if is_mutation {
+                if let Some(backend_kit) = &self.backend_kit {
+                    let mut kit = backend_kit.write().await;
+                    if let Err(e) = kit.apply_tool_call(&tool_name, &call.arguments) {
+                        result.is_error = true;
+                        result.content.push(McpContent::Text {
+                            text: format!("BackendKit error: {e}"),
+                        });
+                    }
+                }
+            }
+        }
+
+        Ok(result)
     }
 
     /// List available tools for a role
@@ -461,5 +548,83 @@ mod tests {
             registry.check_permission(&server_id, &tool_name, role),
             ToolPermission::Revoked
         );
+    }
+
+    struct MockClientMcpManager;
+    #[async_trait::async_trait]
+    impl McpManager for MockClientMcpManager {
+        async fn connect(
+            &self,
+            _config: crate::mcp_transport::McpServerConfig,
+        ) -> std::result::Result<(), McpTransportError> {
+            Ok(())
+        }
+        async fn disconnect(&self, _name: &str) -> std::result::Result<(), McpTransportError> {
+            Ok(())
+        }
+        async fn list(&self) -> Vec<crate::mcp_transport::McpConnection> {
+            vec![]
+        }
+        async fn send(
+            &self,
+            _name: &str,
+            _payload: &str,
+        ) -> std::result::Result<String, McpTransportError> {
+            Ok(String::new())
+        }
+        async fn call_tool(
+            &self,
+            _name: &str,
+            tool: &str,
+            _arguments: serde_json::Value,
+        ) -> std::result::Result<McpToolResult, McpTransportError> {
+            Ok(McpToolResult {
+                content: vec![McpContent::Text {
+                    text: format!("executed {tool}"),
+                }],
+                is_error: false,
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn test_mcp_client_call_tool_with_backend_kit() {
+        let mut registry = McpRegistry::new();
+        let server_id = "backend";
+        let tool_name = "create_table";
+        let role = Role::Coder;
+        let device = DeviceId::new();
+
+        registry.request_approval(server_id, tool_name, role, device);
+        registry
+            .grant_approval(server_id, tool_name, role, device, PermissionScope::Role)
+            .unwrap();
+
+        let backend_kit = Arc::new(RwLock::new(BackendKit::from_project(
+            "test",
+            "http://localhost",
+            crate::backend_kit::BackendKind::PocketBase,
+        )));
+        let client = McpClient::new(registry)
+            .with_manager(Arc::new(MockClientMcpManager))
+            .with_backend_kit(backend_kit.clone());
+
+        let res = client
+            .call_tool(McpToolCall {
+                tool_name: format!("{server_id}/{tool_name}"),
+                arguments: serde_json::json!({
+                    "name": "todos",
+                    "columns": [{ "name": "id", "data_type": "uuid" }]
+                }),
+                caller_role: role,
+                caller_device: device,
+            })
+            .await
+            .expect("call_tool succeeds");
+
+        assert!(!res.is_error);
+        let kit = backend_kit.read().await;
+        assert_eq!(kit.tables.len(), 1);
+        assert_eq!(kit.tables[0].name, "todos");
     }
 }

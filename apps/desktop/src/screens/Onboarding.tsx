@@ -227,11 +227,47 @@ export function Onboarding({ client, onComplete }: OnboardingProps) {
           style={{
             color: 'var(--warsha-color-text-muted)',
             textAlign: 'center',
-            marginBottom: 'var(--warsha-space-8)',
+            marginBottom: 'var(--warsha-space-4)',
           }}
         >
           {t('app.tagline', {}, locale)}
         </Text>
+
+        <div
+          dir={dir}
+          data-testid="onboarding-steps-hint"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 'var(--warsha-space-1)',
+            marginBottom: 'var(--warsha-space-6)',
+            padding: 'var(--warsha-space-3)',
+            backgroundColor: 'var(--warsha-color-surface-muted)',
+            borderRadius: '8px',
+            textAlign: 'center',
+          }}
+        >
+          <div
+            style={{
+              fontSize: 'var(--warsha-font-size-xs)',
+              fontWeight: 600,
+              color: 'var(--warsha-color-accent-strong)',
+            }}
+          >
+            {t('onboarding.step_of', { current: 1, total: 5 }, locale)}
+          </div>
+          <div
+            style={{
+              fontSize: 'var(--warsha-font-size-sm)',
+              color: 'var(--warsha-color-text-muted)',
+              textAlign: 'center',
+              lineHeight: 1.5,
+            }}
+          >
+            {t('onboarding.steps_hint', {}, locale)}
+          </div>
+        </div>
 
         <Text size="sm" weight="medium" dir={dir} style={{ marginBottom: 'var(--warsha-space-4)' }}>
           {t('onboarding.language', {}, locale)}
@@ -295,29 +331,48 @@ export function Onboarding({ client, onComplete }: OnboardingProps) {
   const renderChoice = (option: ProviderChoice) => {
     const selected = choice?.name === option.name;
     const name = choiceLabel(option, locale);
+    const isDeepSeek = option.kind === 'deep_seek' || option.name === 'deep_seek';
+    const hintKey = `onboarding.provider_hint.${option.kind}`;
+    const hint = t(hintKey, {}, locale);
+    const hasHint = hint !== hintKey;
+
     return (
-      <Button
-        key={option.name}
-        variant={selected ? 'primary' : 'secondary'}
-        size="md"
-        dir={dir}
-        aria-pressed={selected}
-        data-testid={`onboarding-provider-${option.name}`}
-        onClick={() => setChoice(option)}
-        style={{ width: '100%', justifyContent: 'space-between' }}
-      >
-        <span style={styles.choiceLabel}>
-          <span>{name}</span>
-          {option.name !== name ? (
-            <span dir="ltr" style={styles.choiceName}>
-              {option.name}
+      <div key={option.name} style={styles.choiceWrapper}>
+        <Button
+          variant={selected ? 'primary' : 'secondary'}
+          size="md"
+          dir={dir}
+          aria-pressed={selected}
+          data-testid={`onboarding-provider-${option.name}`}
+          onClick={() => setChoice(option)}
+          style={{
+            width: '100%',
+            justifyContent: 'space-between',
+            ...(isDeepSeek && !selected ? styles.recommendedChoice : {}),
+          }}
+        >
+          <span style={styles.choiceLabel}>
+            <span>{name}</span>
+            {option.name !== name ? (
+              <span dir="ltr" style={styles.choiceName}>
+                {option.name}
+              </span>
+            ) : null}
+          </span>
+          {option.configured ? (
+            <span style={styles.pill}>{t('onboarding.provider_configured', {}, locale)}</span>
+          ) : isDeepSeek ? (
+            <span style={styles.recommendedBadge}>
+              {t('onboarding.provider_recommended', {}, locale)}
             </span>
           ) : null}
-        </span>
-        {option.configured ? (
-          <span style={styles.pill}>{t('onboarding.provider_configured', {}, locale)}</span>
+        </Button>
+        {hasHint ? (
+          <div dir={dir} style={styles.choiceHint}>
+            {hint}
+          </div>
         ) : null}
-      </Button>
+      </div>
     );
   };
 
@@ -642,17 +697,36 @@ export function Onboarding({ client, onComplete }: OnboardingProps) {
         </label>
 
         {projectFailed ? (
-          <Text
-            size="sm"
+          <Box
             dir={dir}
             style={{
-              color: 'var(--warsha-color-error)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 'var(--warsha-space-2)',
               marginTop: 'var(--warsha-space-3)',
-              textAlign: 'center',
             }}
           >
-            {t('onboarding.project_failed', {}, locale)}
-          </Text>
+            <Text
+              size="sm"
+              dir={dir}
+              style={{
+                color: 'var(--warsha-color-error)',
+                textAlign: 'center',
+              }}
+            >
+              {t('onboarding.project_failed', {}, locale)}
+            </Text>
+            <Button
+              variant="secondary"
+              size="sm"
+              dir={dir}
+              data-testid="onboarding-project-retry"
+              onClick={() => void createFirstProject()}
+            >
+              {t('onboarding.project_retry', {}, locale)}
+            </Button>
+          </Box>
         ) : null}
 
         <Box
@@ -732,6 +806,31 @@ const styles = {
     width: '100%',
   } as const,
   choices: { display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' } as const,
+  choiceWrapper: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 'var(--warsha-space-1)',
+  } as const,
+  choiceHint: {
+    fontSize: 'var(--warsha-font-size-xs)',
+    color: 'var(--warsha-color-text-muted)',
+    paddingInlineStart: 'var(--warsha-space-2)',
+    textAlign: 'start',
+  } as const,
+  recommendedBadge: {
+    paddingInline: 'var(--warsha-space-2)',
+    paddingBlock: '1px',
+    borderRadius: '999px',
+    backgroundColor: 'var(--warsha-color-surface-muted)',
+    color: 'var(--warsha-color-text)',
+    border: '1px solid var(--warsha-color-border-strong)',
+    fontSize: 'var(--warsha-font-size-xs)',
+    fontWeight: 600,
+    whiteSpace: 'nowrap',
+  } as const,
+  recommendedChoice: {
+    borderColor: 'var(--warsha-color-border-strong)',
+  } as const,
   choiceLabel: {
     display: 'flex',
     alignItems: 'baseline',

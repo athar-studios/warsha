@@ -41,8 +41,9 @@ use warsha_pipeline::{
     InMemoryMcpManager, InMemoryPairingStore, InMemoryPreferenceStore, InMemoryProcessManager,
     InMemoryStoreReviewStore, LivePreview, LivePreviewManager, ManagedProcess, McpConnection,
     McpManager, PairingStore, PhonePairing, PipelineEngine, Preference, PreferenceSignal,
-    PreferenceStore, ProcessManager, ProcessStatus, ProcessSummary, ProviderRouterAdapter, RunMode,
-    RunModeConfig, SlashCommand, SlashCommandRegistry, StoreReview, StoreReviewStore, AGENT_ROLE,
+    PreferenceStore, ProcessManager, ProcessStatus, ProcessSummary, ProviderRouterAdapter, Routine,
+    RoutineRegistry, RoutineRunner, RoutineScheduler, RunMode, RunModeConfig, SlashCommand,
+    SlashCommandRegistry, StoreReview, StoreReviewStore, AGENT_ROLE,
 };
 use warsha_providers::{
     probe_endpoint, HealthCheck, KeychainSecretStore, OneClickProvider, ProviderRouter,
@@ -281,6 +282,9 @@ pub struct DaemonArgs {
     pub socket: Option<PathBuf>,
 }
 
+/// App state alias for DaemonState
+pub type AppState = DaemonState;
+
 /// Daemon state
 pub struct DaemonState {
     pub config: DaemonConfig,
@@ -362,6 +366,16 @@ pub struct DaemonState {
     /// a row in [`DaemonState::settings`], read per call, so nothing in memory can
     /// disagree with what a restart would see.
     pub secrets: Arc<dyn SecretStore>,
+    /// The scheduled routines (`routines.*`), behind the same lock the scheduler
+    /// drives, so an owner action and a background tick cannot disagree.
+    pub routines: Arc<RwLock<RoutineRegistry>>,
+    /// The background loop that ticks [`DaemonState::routines`].
+    ///
+    /// `routines.run_now`/`pause`/`resume` go through it rather than through the
+    /// registry, which is what lets the runner see each owner action. The loop is
+    /// started after the state exists (`routines.start`) and stopped by
+    /// [`DaemonHandle::shutdown`].
+    pub routine_scheduler: Arc<RoutineScheduler>,
 }
 
 /// JSON-RPC API trait
@@ -443,6 +457,13 @@ pub trait WarshaApi {
     /// message says why and whose `data` carries the [`HealthCheck`].
     #[method(name = "providers.test")]
     async fn test_provider(&self, name: String) -> RpcResult<HealthCheck>;
+
+    /// Check a registered provider for model catalog updates without overwriting existing settings.
+    #[method(name = "providers.check_models")]
+    async fn check_provider_models(
+        &self,
+        name: String,
+    ) -> RpcResult<warsha_providers::ModelCatalogDiff>;
 
     #[method(name = "devices.list")]
     async fn list_devices(&self) -> RpcResult<Vec<warsha_remote::DeviceIdentity>>;
@@ -533,6 +554,14 @@ pub trait WarshaApi {
     #[method(name = "mcp.send")]
     async fn send_mcp(&self, name: String, payload: String) -> RpcResult<String>;
 
+    #[method(name = "mcp.call")]
+    async fn call_mcp(
+        &self,
+        name: String,
+        tool: String,
+        arguments: serde_json::Value,
+    ) -> RpcResult<warsha_pipeline::mcp::McpToolResult>;
+
     // Live preview dev server (PLAN.md M5b + M20)
     #[method(name = "preview.start")]
     async fn start_preview(&self, project_id: String, command: String) -> RpcResult<LivePreview>;
@@ -573,6 +602,22 @@ pub trait WarshaApi {
 
     #[method(name = "pairing.revoke")]
     async fn revoke_pairing(&self, device_id: String) -> RpcResult<PhonePairing>;
+
+    // Routines (PLAN.md M16)
+    #[method(name = "routines.list")]
+    async fn list_routines(&self) -> RpcResult<Vec<Routine>>;
+
+    #[method(name = "routines.get")]
+    async fn get_routine(&self, id: String) -> RpcResult<Option<Routine>>;
+
+    #[method(name = "routines.run_now")]
+    async fn run_routine_now(&self, id: String) -> RpcResult<Routine>;
+
+    #[method(name = "routines.pause")]
+    async fn pause_routine(&self, id: String) -> RpcResult<Routine>;
+
+    #[method(name = "routines.resume")]
+    async fn resume_routine(&self, id: String) -> RpcResult<Routine>;
 }
 
 /// Health response
@@ -1057,6 +1102,17 @@ impl WarshaApiServer for WarshaRpc {
         Err(ErrorObject::owned(-32000, reason, Some(health)))
     }
 
+    async fn check_provider_models(
+        &self,
+        name: String,
+    ) -> RpcResult<warsha_providers::ModelCatalogDiff> {
+        let router = self.state.providers.read().await;
+        router
+            .check_model_updates(&name, &[])
+            .await
+            .map_err(|e| rpc_error(e.to_string()))
+    }
+
     async fn list_devices(&self) -> RpcResult<Vec<warsha_remote::DeviceIdentity>> {
         Ok(self.state.devices.list_devices().await)
     }
@@ -1351,6 +1407,19 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|error| rpc_error(error.to_string()))
     }
 
+    async fn call_mcp(
+        &self,
+        name: String,
+        tool: String,
+        arguments: serde_json::Value,
+    ) -> RpcResult<warsha_pipeline::mcp::McpToolResult> {
+        self.state
+            .mcp
+            .call_tool(&name, &tool, arguments)
+            .await
+            .map_err(|error| rpc_error(error.to_string()))
+    }
+
     // Live preview dev server (PLAN.md M5b + M20)
     async fn start_preview(&self, project_id: String, command: String) -> RpcResult<LivePreview> {
         // The command line is split on whitespace by the pipeline (no shell), so
@@ -1496,6 +1565,55 @@ impl WarshaApiServer for WarshaRpc {
         };
         self.save_pairings().await?;
         Ok(pairing)
+    }
+
+    async fn list_routines(&self) -> RpcResult<Vec<Routine>> {
+        let registry = self.state.routines.read().await;
+        Ok(registry.list().into_iter().cloned().collect())
+    }
+
+    async fn get_routine(&self, id: String) -> RpcResult<Option<Routine>> {
+        let registry = self.state.routines.read().await;
+        Ok(registry.get(&id).cloned())
+    }
+
+    async fn run_routine_now(&self, id: String) -> RpcResult<Routine> {
+        self.state
+            .routine_scheduler
+            .run_now(&id)
+            .await
+            .map_err(|error| rpc_error(error.to_string()))?;
+        let registry = self.state.routines.read().await;
+        registry
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| rpc_error(format!("routine {id} not found")))
+    }
+
+    async fn pause_routine(&self, id: String) -> RpcResult<Routine> {
+        self.state
+            .routine_scheduler
+            .pause(&id)
+            .await
+            .map_err(|error| rpc_error(error.to_string()))?;
+        let registry = self.state.routines.read().await;
+        registry
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| rpc_error(format!("routine {id} not found")))
+    }
+
+    async fn resume_routine(&self, id: String) -> RpcResult<Routine> {
+        self.state
+            .routine_scheduler
+            .resume(&id)
+            .await
+            .map_err(|error| rpc_error(error.to_string()))?;
+        let registry = self.state.routines.read().await;
+        registry
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| rpc_error(format!("routine {id} not found")))
     }
 }
 
@@ -1646,11 +1764,16 @@ const AGENT_METER_KEY: &str = "agent-loop";
 fn build_agent_loop(
     data_dir: &Path,
     providers: Arc<RwLock<ProviderRouter>>,
+    mcp: Arc<dyn McpManager>,
+    backend_kit: Arc<RwLock<BackendKit>>,
 ) -> Arc<RwLock<AgentLoop>> {
     let tools = FilesystemToolExecutor::new(data_dir.join(AGENT_WORKSPACE_DIR));
     let router = ProviderRouterAdapter::new(providers, AGENT_ROLE, AGENT_METER_KEY);
     Arc::new(RwLock::new(
-        AgentLoop::with_tool_executor(Box::new(tools)).with_router(Arc::new(router)),
+        AgentLoop::with_tool_executor(Box::new(tools))
+            .with_router(Arc::new(router))
+            .with_mcp(mcp)
+            .with_backend_kit(backend_kit),
     ))
 }
 
@@ -1737,7 +1860,13 @@ pub async fn start_daemon_with_secrets(
     // The agent loop's two seams, wired to the real thing: its file tools run
     // inside `<data_dir>/workspace`, and its model calls go out through the same
     // router the pipeline stages use.
-    let agent_loop = build_agent_loop(&config.data_dir, providers.clone());
+    let default_kit = Arc::new(RwLock::new(default_backend_kit("default")));
+    let agent_loop = build_agent_loop(
+        &config.data_dir,
+        providers.clone(),
+        mcp.clone(),
+        default_kit,
+    );
 
     // Seed the four settings records from the file before the RPC surface opens.
     // A daemon that answered the first request from an empty switch while the
@@ -1747,6 +1876,10 @@ pub async fn start_daemon_with_secrets(
     let backend_kits = seed_backend_kits(&store, &settings).await?;
     let stored_preferences = seed_preferences(&store, &settings).await?;
     let pairings = seed_pairings(&settings).await?;
+    let routines = Arc::new(RwLock::new(RoutineRegistry::new()));
+    let routine_runner: Arc<dyn RoutineRunner + Send + Sync> =
+        Arc::new(warsha_pipeline::MockRoutineRunner::new());
+    let routine_scheduler = Arc::new(RoutineScheduler::new(routines.clone(), routine_runner));
 
     let state = Arc::new(DaemonState {
         config: config.clone(),
@@ -1770,6 +1903,8 @@ pub async fn start_daemon_with_secrets(
         stored_preferences: Arc::new(RwLock::new(stored_preferences)),
         pairings: Arc::new(RwLock::new(pairings)),
         secrets,
+        routines,
+        routine_scheduler,
     });
 
     // Start JSON-RPC server (TCP for cross-platform compatibility)
@@ -2146,12 +2281,18 @@ mod tests {
         let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared();
         let mcp: Arc<dyn McpManager> = Arc::new(InMemoryMcpManager::new(processes.clone()));
         let previews = Arc::new(LivePreviewManager::new(processes.clone()));
-        let agent_loop = build_agent_loop(data_dir, providers.clone());
+        let default_kit = Arc::new(RwLock::new(default_backend_kit("default")));
+        let agent_loop = build_agent_loop(data_dir, providers.clone(), mcp.clone(), default_kit);
         let settings = Arc::new(
             SettingsStore::open(&data_dir.join("warsha.db"))
                 .await
                 .expect("the settings open"),
         );
+
+        let routines = Arc::new(RwLock::new(RoutineRegistry::new()));
+        let routine_runner: Arc<dyn RoutineRunner + Send + Sync> =
+            Arc::new(warsha_pipeline::MockRoutineRunner::new());
+        let routine_scheduler = Arc::new(RoutineScheduler::new(routines.clone(), routine_runner));
 
         let state = Arc::new(DaemonState {
             config,
@@ -2184,6 +2325,8 @@ mod tests {
             // A state built by hand is a state under test: no OS keychain is
             // reached, and a test that adds a provider can read its key back.
             secrets: Arc::new(InMemorySecretStore::new()),
+            routines,
+            routine_scheduler,
         });
         (state, store)
     }
@@ -2584,6 +2727,24 @@ mod tests {
                         "result": { "tools": [{ "name": PROBE_TOOL }] },
                     })
                 ),
+                Some("tools/call") => {
+                    let tool_name = request
+                        .get("params")
+                        .and_then(|p| p.get("name"))
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("");
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "content": [{ "type": "text", "text": format!("mcp called {tool_name}") }],
+                                "isError": false,
+                            }
+                        })
+                    );
+                }
                 _ => println!(
                     "{}",
                     serde_json::json!({
@@ -2715,6 +2876,23 @@ mod tests {
             frame
         );
 
+        let call_res = rpc
+            .call_mcp(
+                "files".to_string(),
+                PROBE_TOOL.to_string(),
+                serde_json::json!({}),
+            )
+            .await
+            .expect("call_mcp succeeds");
+        assert!(!call_res.is_error);
+        assert_eq!(call_res.content.len(), 1);
+        match &call_res.content[0] {
+            warsha_pipeline::mcp::McpContent::Text { text } => {
+                assert_eq!(text, &format!("mcp called {PROBE_TOOL}"));
+            }
+            _ => panic!("expected text content"),
+        }
+
         rpc.disconnect_mcp("files".to_string())
             .await
             .expect("the server disconnects");
@@ -2808,5 +2986,120 @@ mod tests {
         let listed = rpc.list_processes().await.expect("the list is served");
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].status, ProcessStatus::Stopped);
+    }
+
+    #[tokio::test]
+    async fn routines_rpcs_list_get_run_now_pause_and_resume() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state.clone());
+
+        // Empty at start
+        let list = rpc.list_routines().await.expect("list routines");
+        assert!(list.is_empty());
+
+        // Register routines
+        {
+            let mut reg = state.routines.write().await;
+            reg.register(Routine::new(
+                "task-manual",
+                "Manual Routine",
+                warsha_pipeline::RoutineSchedule::Manual,
+            ))
+            .expect("register manual");
+            reg.register(Routine::new(
+                "task-interval",
+                "Interval Routine",
+                warsha_pipeline::RoutineSchedule::IntervalSeconds(60),
+            ))
+            .expect("register interval");
+        }
+
+        // List
+        let list = rpc.list_routines().await.expect("list routines");
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].id, "task-interval");
+        assert_eq!(list[1].id, "task-manual");
+
+        // Get
+        let item = rpc
+            .get_routine("task-manual".to_string())
+            .await
+            .expect("get routine");
+        assert!(item.is_some());
+        assert_eq!(item.unwrap().name, "Manual Routine");
+
+        let ghost = rpc
+            .get_routine("ghost".to_string())
+            .await
+            .expect("get ghost routine");
+        assert!(ghost.is_none());
+
+        // Run now
+        let updated = rpc
+            .run_routine_now("task-manual".to_string())
+            .await
+            .expect("run routine now");
+        assert_eq!(updated.id, "task-manual");
+        assert_eq!(updated.state, warsha_pipeline::RoutineState::Idle);
+        assert!(updated.last_run_unix.is_some());
+
+        // Pause
+        let paused = rpc
+            .pause_routine("task-interval".to_string())
+            .await
+            .expect("pause routine");
+        assert_eq!(paused.state, warsha_pipeline::RoutineState::Paused);
+
+        // Resume
+        let resumed = rpc
+            .resume_routine("task-interval".to_string())
+            .await
+            .expect("resume routine");
+        assert_eq!(resumed.state, warsha_pipeline::RoutineState::Idle);
+
+        // Not found error
+        assert!(rpc.run_routine_now("ghost".to_string()).await.is_err());
+        assert!(rpc.pause_routine("ghost".to_string()).await.is_err());
+        assert!(rpc.resume_routine("ghost".to_string()).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn providers_check_models_rpc() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state.clone());
+
+        {
+            let mut router = state.providers.write().await;
+            router.register_provider(Box::new(
+                warsha_providers::MockProvider::new("ollama_test").with_models(vec![
+                    warsha_providers::ModelInfo {
+                        id: "qwen2.5-coder:7b".to_string(),
+                        name: "Qwen 2.5 Coder 7B".to_string(),
+                        provider: "ollama_test".to_string(),
+                        context_window: 32_000,
+                        max_output: 8_192,
+                        pricing: warsha_core::ModelPricing {
+                            input_per_million_cents: 0,
+                            output_per_million_cents: 0,
+                        },
+                    },
+                ]),
+            ));
+        }
+
+        let diff = rpc
+            .check_provider_models("ollama_test".to_string())
+            .await
+            .expect("check_provider_models succeeds");
+        assert_eq!(diff.provider, "ollama_test");
+        assert_eq!(diff.new_models.len(), 1);
+        assert_eq!(diff.new_models[0].id, "qwen2.5-coder:7b");
+
+        assert!(rpc
+            .check_provider_models("non_existent".to_string())
+            .await
+            .is_err());
     }
 }

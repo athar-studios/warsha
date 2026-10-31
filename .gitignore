@@ -77,4 +77,7 @@ test_create.txt
 test_write.txt
 run.flag
 RUN_TRIGGER
+graphify-out/
+.graphify*
+
 

@@ -11,10 +11,13 @@
 //! seconds|minutes|hours` and `daily at HH:MM` (UTC). Full cron is deferred to
 //! the Goose-backed scheduler rather than duplicated here.
 
-use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tokio::sync::{watch, RwLock};
 
 /// Seconds in a minute.
 const SECONDS_PER_MINUTE: u64 = 60;
@@ -27,7 +30,8 @@ const SECONDS_PER_DAY: u64 = 86_400;
 pub type RoutineId = String;
 
 /// When a routine comes due.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RoutineSchedule {
     /// A minimal cron expression; see the module docs for the accepted forms.
     Cron(String),
@@ -38,7 +42,8 @@ pub enum RoutineSchedule {
 }
 
 /// Where a routine is in its lifecycle.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RoutineState {
     /// Registered and eligible for scheduling.
     Idle,
@@ -63,7 +68,8 @@ impl RoutineState {
 }
 
 /// An owner action on a registered routine.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RoutineAction {
     /// Run once now, regardless of the schedule.
     RunNow,
@@ -75,7 +81,8 @@ pub enum RoutineAction {
 
 /// A scheduled task: what it does is [`Routine::description`], the runner
 /// decides the how.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct Routine {
     /// Unique identifier.
     pub id: RoutineId,
@@ -163,10 +170,10 @@ pub trait RoutineRunner {
 /// Test double that records the calls it receives.
 #[derive(Debug, Default)]
 pub struct MockRoutineRunner {
-    runs: RefCell<Vec<RoutineId>>,
-    pauses: RefCell<Vec<RoutineId>>,
-    resumes: RefCell<Vec<RoutineId>>,
-    fail_next_run: Cell<bool>,
+    runs: Mutex<Vec<RoutineId>>,
+    pauses: Mutex<Vec<RoutineId>>,
+    resumes: Mutex<Vec<RoutineId>>,
+    fail_next_run: AtomicBool,
 }
 
 impl MockRoutineRunner {
@@ -177,31 +184,39 @@ impl MockRoutineRunner {
 
     /// Make the next [`RoutineRunner::run`] fail with [`RoutineError::Runner`].
     pub fn failing(self) -> Self {
-        self.fail_next_run.set(true);
+        self.fail_next_run.store(true, Ordering::SeqCst);
         self
     }
 
     /// Ids passed to [`RoutineRunner::run`], in call order.
     pub fn run_ids(&self) -> Vec<RoutineId> {
-        self.runs.borrow().clone()
+        self.runs.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 
     /// Ids passed to [`RoutineRunner::pause`], in call order.
     pub fn pause_ids(&self) -> Vec<RoutineId> {
-        self.pauses.borrow().clone()
+        self.pauses
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     /// Ids passed to [`RoutineRunner::resume`], in call order.
     pub fn resume_ids(&self) -> Vec<RoutineId> {
-        self.resumes.borrow().clone()
+        self.resumes
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 }
 
 impl RoutineRunner for MockRoutineRunner {
     fn run(&self, routine: &Routine) -> Result<(), RoutineError> {
-        self.runs.borrow_mut().push(routine.id.clone());
-        if self.fail_next_run.get() {
-            self.fail_next_run.set(false);
+        self.runs
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(routine.id.clone());
+        if self.fail_next_run.swap(false, Ordering::SeqCst) {
             return Err(RoutineError::Runner(format!(
                 "mock failure for {}",
                 routine.id
@@ -211,12 +226,18 @@ impl RoutineRunner for MockRoutineRunner {
     }
 
     fn pause(&self, routine: &Routine) -> Result<(), RoutineError> {
-        self.pauses.borrow_mut().push(routine.id.clone());
+        self.pauses
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(routine.id.clone());
         Ok(())
     }
 
     fn resume(&self, routine: &Routine) -> Result<(), RoutineError> {
-        self.resumes.borrow_mut().push(routine.id.clone());
+        self.resumes
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(routine.id.clone());
         Ok(())
     }
 }
@@ -349,6 +370,11 @@ impl RoutineRegistry {
         self.set_state(id, state)
     }
 
+    /// Record the outcome of a routine handed out by [`Self::tick`]; alias for [`Self::complete`].
+    pub fn finish(&mut self, id: &str, failure: Option<String>) -> Result<(), RoutineError> {
+        self.complete(id, failure)
+    }
+
     fn set_state(&mut self, id: &str, state: RoutineState) -> Result<(), RoutineError> {
         let routine = self
             .routines
@@ -364,6 +390,117 @@ impl RoutineRegistry {
             action: action.to_string(),
             state: routine.state.label().to_string(),
         }
+    }
+}
+
+/// Schedules and executes routines periodically in the background.
+#[derive(Clone)]
+pub struct RoutineScheduler {
+    registry: Arc<RwLock<RoutineRegistry>>,
+    runner: Arc<dyn RoutineRunner + Send + Sync>,
+    shutdown_tx: watch::Sender<bool>,
+    shutdown_rx: watch::Receiver<bool>,
+}
+
+impl RoutineScheduler {
+    /// Create a new routine scheduler driving `registry` using `runner`.
+    pub fn new(
+        registry: Arc<RwLock<RoutineRegistry>>,
+        runner: Arc<dyn RoutineRunner + Send + Sync>,
+    ) -> Self {
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        Self {
+            registry,
+            runner,
+            shutdown_tx,
+            shutdown_rx,
+        }
+    }
+
+    /// Reference to the inner registry lock.
+    pub fn registry(&self) -> &Arc<RwLock<RoutineRegistry>> {
+        &self.registry
+    }
+
+    /// Reference to the routine runner.
+    pub fn runner(&self) -> &Arc<dyn RoutineRunner + Send + Sync> {
+        &self.runner
+    }
+
+    /// Acquires write lock on registry, ticks the registry, runs any due routines
+    /// with runner, and records completion via `finish`.
+    pub async fn tick_once(&self, now_unix: u64) -> Vec<RoutineId> {
+        let mut registry = self.registry.write().await;
+        let due_ids = registry.tick(now_unix);
+        for id in &due_ids {
+            if let Some(routine) = registry.get(id).cloned() {
+                let res = self.runner.run(&routine);
+                let failure = res.err().map(|e| e.to_string());
+                let _ = registry.finish(id, failure);
+            }
+        }
+        due_ids
+    }
+
+    /// Spawns a background task calling `tick_once` periodically until stopped.
+    pub fn start(&self, interval: std::time::Duration) -> tokio::task::JoinHandle<()> {
+        let scheduler = self.clone();
+        let mut shutdown_rx = self.shutdown_rx.clone();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(interval);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tokio::select! {
+                    _ = shutdown_rx.changed() => {
+                        if *shutdown_rx.borrow() {
+                            break;
+                        }
+                    }
+                    _ = ticker.tick() => {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
+                        scheduler.tick_once(now).await;
+                    }
+                }
+            }
+        })
+    }
+
+    /// Signals the background loop to exit.
+    pub fn stop(&self) {
+        let _ = self.shutdown_tx.send(true);
+    }
+
+    /// Applies `RoutineAction::RunNow`.
+    pub async fn run_now(&self, id: &str) -> Result<(), RoutineError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let mut registry = self.registry.write().await;
+        registry.apply(id, RoutineAction::RunNow, now, self.runner.as_ref())
+    }
+
+    /// Applies `RoutineAction::Pause`.
+    pub async fn pause(&self, id: &str) -> Result<(), RoutineError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let mut registry = self.registry.write().await;
+        registry.apply(id, RoutineAction::Pause, now, self.runner.as_ref())
+    }
+
+    /// Applies `RoutineAction::Resume`.
+    pub async fn resume(&self, id: &str) -> Result<(), RoutineError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let mut registry = self.registry.write().await;
+        registry.apply(id, RoutineAction::Resume, now, self.runner.as_ref())
     }
 }
 
@@ -764,5 +901,135 @@ mod tests {
         let runner = MockRoutineRunner::new();
         let outcome = registry.apply("ghost", RoutineAction::RunNow, 0, &runner);
         assert_eq!(outcome, Err(RoutineError::NotFound("ghost".into())));
+    }
+
+    #[tokio::test]
+    async fn scheduler_interval_ticking() {
+        let mut registry = RoutineRegistry::new();
+        registry
+            .register(Routine::new(
+                "task1",
+                "Periodic Task",
+                RoutineSchedule::IntervalSeconds(10),
+            ))
+            .unwrap();
+
+        let registry = Arc::new(RwLock::new(registry));
+        let runner = Arc::new(MockRoutineRunner::new());
+        let scheduler = RoutineScheduler::new(Arc::clone(&registry), runner.clone());
+
+        // At t=0, interval task is due immediately on first tick
+        let ticked = scheduler.tick_once(0).await;
+        assert_eq!(ticked, vec!["task1".to_string()]);
+        assert_eq!(runner.run_ids(), vec!["task1".to_string()]);
+
+        // At t=5, not due yet
+        let ticked = scheduler.tick_once(5).await;
+        assert!(ticked.is_empty());
+        assert_eq!(runner.run_ids(), vec!["task1".to_string()]);
+
+        // At t=10, due again
+        let ticked = scheduler.tick_once(10).await;
+        assert_eq!(ticked, vec!["task1".to_string()]);
+        assert_eq!(
+            runner.run_ids(),
+            vec!["task1".to_string(), "task1".to_string()]
+        );
+
+        // Verify routine returned to idle state with updated last_run_unix
+        let reg = registry.read().await;
+        let r = reg.get("task1").unwrap();
+        assert_eq!(r.state, RoutineState::Idle);
+        assert_eq!(r.last_run_unix, Some(10));
+    }
+
+    #[tokio::test]
+    async fn scheduler_immediate_execution_via_run_now() {
+        let mut registry = RoutineRegistry::new();
+        registry
+            .register(Routine::new(
+                "manual1",
+                "Manual Routine",
+                RoutineSchedule::Manual,
+            ))
+            .unwrap();
+
+        let registry = Arc::new(RwLock::new(registry));
+        let runner = Arc::new(MockRoutineRunner::new());
+        let scheduler = RoutineScheduler::new(Arc::clone(&registry), runner.clone());
+
+        // Manual routine is never due on tick
+        let ticked = scheduler.tick_once(100).await;
+        assert!(ticked.is_empty());
+
+        // Run now triggers execution
+        scheduler.run_now("manual1").await.unwrap();
+        assert_eq!(runner.run_ids(), vec!["manual1".to_string()]);
+
+        let reg = registry.read().await;
+        let r = reg.get("manual1").unwrap();
+        assert_eq!(r.state, RoutineState::Idle);
+        assert!(r.last_run_unix.is_some());
+    }
+
+    #[tokio::test]
+    async fn scheduler_pausing_and_resuming() {
+        let mut registry = RoutineRegistry::new();
+        registry
+            .register(Routine::new(
+                "task_pause",
+                "Pausable Task",
+                RoutineSchedule::IntervalSeconds(10),
+            ))
+            .unwrap();
+
+        let registry = Arc::new(RwLock::new(registry));
+        let runner = Arc::new(MockRoutineRunner::new());
+        let scheduler = RoutineScheduler::new(Arc::clone(&registry), runner.clone());
+
+        // Pause
+        scheduler.pause("task_pause").await.unwrap();
+        assert_eq!(runner.pause_ids(), vec!["task_pause".to_string()]);
+
+        {
+            let reg = registry.read().await;
+            assert_eq!(reg.get("task_pause").unwrap().state, RoutineState::Paused);
+        }
+
+        // Ticking while paused does not run it
+        let ticked = scheduler.tick_once(100).await;
+        assert!(ticked.is_empty());
+        assert!(runner.run_ids().is_empty());
+
+        // Resume
+        scheduler.resume("task_pause").await.unwrap();
+        assert_eq!(runner.resume_ids(), vec!["task_pause".to_string()]);
+
+        {
+            let reg = registry.read().await;
+            assert_eq!(reg.get("task_pause").unwrap().state, RoutineState::Idle);
+        }
+
+        // Now ticking runs it
+        let ticked = scheduler.tick_once(100).await;
+        assert_eq!(ticked, vec!["task_pause".to_string()]);
+        assert_eq!(runner.run_ids(), vec!["task_pause".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn scheduler_graceful_stop() {
+        let registry = Arc::new(RwLock::new(RoutineRegistry::new()));
+        let runner = Arc::new(MockRoutineRunner::new());
+        let scheduler = RoutineScheduler::new(registry, runner);
+
+        let handle = scheduler.start(std::time::Duration::from_millis(5));
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        scheduler.stop();
+        let result = tokio::time::timeout(std::time::Duration::from_millis(200), handle).await;
+        assert!(
+            result.is_ok(),
+            "scheduler background task should exit promptly after stop"
+        );
     }
 }

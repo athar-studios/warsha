@@ -3310,5 +3310,134 @@ Checks:
 | Full 21-Check Gate | WSL Ubuntu | `bash scripts/wsl-setup.sh` | PASS, 21 PASS, 0 FAIL, `RESULT: M0 validation PASSED` (exit 0) |
 | Playwright Visual | WSL Ubuntu | `pnpm visual` | PASS, 240 passed (exit 0) |
 
+### MCP Client & BackendKit Integration ✅ DONE (validated 2026-10-31, exit=0, all checks green)
+
+- **MCP Client Transport & Tool Execution**:
+  - `McpManager` trait extended with `call_tool(&self, name: &str, tool: &str, arguments: serde_json::Value) -> Result<McpToolResult, McpTransportError>`.
+  - `InMemoryMcpManager` implements JSON-RPC 2.0 `tools/call` over stdio with monotonic `AtomicU64` request IDs, response correlation, timeout bounded by `RESPONSE_TIMEOUT` (5s), and protocol error parsing.
+  - Robust content decoding in `McpToolResult`: parses `text`, `image` (base64 + mime_type), `resource`, and primitive string fallbacks, tracking `isError` / `is_error`.
+  - Tool discovery in `handshake` captures and retains full `McpTool` definitions (`tool_definitions: Vec<McpTool>`) in `McpConnection` while maintaining existing `pub tools: Vec<String>` compatibility.
+- **BackendKit Tool Support**:
+  - `BackendKit::apply_tool_call` handles dynamic mutations: `create_table`/`add_table`, `create_rls_policy`/`add_rls_policy`, `create_storage_bucket`/`add_storage_bucket`, and `create_function`/`add_function`.
+  - `backend_mcp_tools() -> Vec<McpTool>` exports formal MCP schemas for the four backend primitives.
+  - `McpClient` wired with `Arc<dyn McpManager>` and `Arc<tokio::sync::RwLock<BackendKit>>`, checking permissions and applying backend mutations on successful tool responses.
+- **AgentLoop & Tool Dispatch**:
+  - `AgentTool::CallTool { server: Option<String>, tool: String, arguments: serde_json::Value }` variant added with summary rendering.
+  - `AgentLoop` accepts `with_mcp` and `with_backend_kit`, routing `call tool <target> [json]` and `call mcp <target> [json]` commands through connected MCP servers and syncing mutations to `BackendKit`.
+  - Automated server discovery when `server` is omitted: resolves among active connections reporting the requested tool.
+- **Daemon RPC Layer**:
+  - `mcp.call` method exposed in `WarshaApiServer` and wired in `WarshaRpc`, delegating to `state.mcp.call_tool`.
+  - `build_agent_loop` in `warshad` wires `state.mcp` and default `BackendKit` into the daemon's agent loop.
+- **Tests & Quality Verification**:
+  - Unit tests for tool calls, timeouts, and JSON-RPC protocol errors (`test_mcp_call_tool_success`, `test_mcp_call_tool_timeout`, `test_mcp_call_tool_protocol_error`).
+  - Unit tests for `BackendKit::apply_tool_call` and `backend_mcp_tools`.
+  - Integration tests for `AgentLoop` executing `CallTool` and updating `BackendKit`.
+  - Integration tests for `mcp.call` via `WarshaRpc`.
+  - Strict compliance with architecture boundary rules R1-R6 (`node scripts/check-arch.mjs`: 0 violations). Zero real network calls made in tests.
+
+Checks:
+| Check | Environment | Command | Result |
+|---|---|---|---|
+| Pipeline Tests | WSL Ubuntu | `cargo test -p warsha-pipeline` | PASS, 298 passed, 0 failed, 7 ignored (exit 0) |
+| Daemon Tests | WSL Ubuntu | `cargo test -p warshad` | PASS, 31 passed, 0 failed, 3 ignored (exit 0) |
+| Format Check | WSL Ubuntu | `cargo fmt --all --check` | PASS (exit 0) |
+| Clippy Clean | WSL Ubuntu | `cargo clippy --workspace --all-targets -- -D warnings` | PASS, 0 warnings (exit 0) |
+| Architecture Rules | WSL Ubuntu | `node scripts/check-arch.mjs` | PASS, 5 rules, 0 violations (exit 0) |
+| Architecture Self-Test | WSL Ubuntu | `node scripts/check-arch.mjs --self-test` | PASS, 5/5 rules fire, clean fixture clean (exit 0) |
+
+### UI/UX Simplification & Website Overhaul ✅ DONE (validated 2026-10-31, exit=0, all 240 visual tests green)
+
+- **UX Issue Analysis & Resolutions**:
+  1. *Issue 1 (Onboarding cognitive load & mystery)*: Users didn't know what Warsha was doing or how many steps remained. Added explicit step counter (`Step 1 of 5`) and clear explanatory hint (`onboarding.steps_hint`) in `Onboarding.tsx`.
+  2. *Issue 2 (Provider choice paralysis)*: New users were faced with a flat list of 9 unguided provider options. Highlighted DeepSeek as the recommended starter option with badge and contextual hints explaining speed, cost, and strengths.
+  3. *Issue 3 (Dead-end on project creation failure)*: If daemon failed to create initial project during onboarding, users were stuck with red text and no way forward. Added explicit retry button (`onboarding-project-retry`) to recover without restarting wizard.
+  4. *Issue 4 (Sidebar cognitive clutter in SimpleMode)*: All 12 agents (even 11 idle ones) competed for attention. Reorganized to highlight the currently active agent (`simple-active-agent`) with status indicator, and collapsed idle agents behind a clean toggle (`simple-toggle-agents`).
+  5. *Issue 5 (Empty state abandonment in ProjectsBoard)*: A new user visiting the Projects Board without projects saw a barren empty grid. Implemented an inviting empty state card (`projects-empty-state`) with explanatory copy and a direct primary CTA button to create a first project.
+- **Website & Documentation Overhaul (`docs/src/index.md` & `custom.css`)**:
+  - Redesigned landing page inspired by Qoder's structural clarity without copying assets or text.
+  - Arabic-first presentation with genuine RTL typography, structured into Hero, 3-Step Journey (Intake -> Team/Gates -> Code/Preview), real screenshots from the actual app, verified 6 core capabilities, honest "For whom / Not for whom" distinction, and fully verified FAQ.
+  - Integrated real UI screenshots into `docs/src/screenshots/`:
+    - `simple-mode-ar.png` (Simple Mode chat & 12-agent sidebar)
+    - `projects-board-ar.png` (Kanban stages and human gates)
+    - `onboarding-ar.png` (Keychain provider onboarding wizard)
+  - Responsive, dark-mode-ready styling in `custom.css` (custom cards, hero gradients, buttons, and callouts).
+  - Bilingual coverage: Arabic-first section followed by clean English section with identical structure.
+  - Strict compliance with anti-fabrication rules: zero fake reviews, zero fake download metrics, zero invented price tags.
+- **Graphify Integration (`graphifyy`)**:
+  - Installed and configured `graphifyy` (deterministic AST knowledge graph engine).
+  - Extracted complete repository knowledge graph: 4,701 nodes, 10,997 edges, 209 communities.
+  - Extracted top god-nodes (`useDirection`, `useLocale`, `t`, `WarshaClient`, `Button`, `LocaleProvider`, `WarshaRpc`, `WarshaApi`, `BackendKit`, `AppContent`).
+- **Comprehensive Quality Gates**:
+  - `pnpm visual`: 240/240 passed (0 failed) across 1440x900 and 390x844 viewports in Arabic RTL, English LTR, Light and Dark themes.
+  - `pnpm -r test`: 200 unit tests passed across all frontend packages (`@warsha/client`, `@warsha/crypto`, `@warsha/i18n`, `@warsha/ui`, `desktop`).
+  - `pnpm -r typecheck`: clean across all 8 workspace projects.
+  - `pnpm lint`: clean.
+  - `mdbook test`: all documentation chapters verified.
+
+Checks:
+| Check | Environment | Command | Result |
+|---|---|---|---|
+| Complete Visual Suite | WSL Ubuntu | `pnpm visual` | PASS, 240 passed, 0 failed (exit 0) |
+| Frontend Tests | WSL Ubuntu | `pnpm -r test` | PASS, 200 passed across 28 files (exit 0) |
+| TypeScript Strict Check | WSL Ubuntu | `pnpm -r typecheck` | PASS, 8/8 projects clean (exit 0) |
+| ESLint Check | WSL Ubuntu | `pnpm lint` | PASS (exit 0) |
+| Documentation Tests | WSL Ubuntu | `pnpm -C docs test` | PASS, 22 chapters tested (exit 0) |
+| Rust Pipeline Suite | WSL Ubuntu | `cargo test -p warsha-pipeline` | PASS, 298 passed (exit 0) |
+| Rust Daemon Suite | WSL Ubuntu | `cargo test -p warshad` | PASS, 31 passed (exit 0) |
+| Architecture Guardrails | WSL Ubuntu | `node scripts/check-arch.mjs` | PASS, 5 rules, 0 violations (exit 0) |
+
+### Continuous Evolution Automation (M16) ✅ DONE (validated 2026-10-31, exit=0 across full workspace)
+
+- **Renovate Dependency Automation (`.github/renovate.json`)**:
+  - Full workspace coverage: monitors `Cargo.toml`, `package.json`, `pnpm-lock.yaml`, and GitHub Actions workflows (`.github/workflows/*.yml`).
+  - Required status checks updated to mandate all CI validation gates: `Rust (ubuntu-latest)`, `Rust (macos-latest)`, `Rust (windows-latest)`, `TypeScript`, `Actionlint`, and `Summary`.
+  - Zero auto-merging: `automerge: false` across all managers; minor/patch grouped; majors segregated.
+  - Dedicated Goose tracking: Custom regex manager watches pinned Goose tag in `Cargo.toml`; major/minor bumps require full workspace green suite and 3-day minimum release age.
+  - **Human-Only Steps (Repo Owner)**:
+    1. *Renovate GitHub App Installation*: Must be installed manually on the GitHub repository or organization by the repository owner (no programmatic API token creation).
+    2. *Branch Protection Rules*: Branch protection for `main` must be enabled manually in repository settings requiring status checks (`Summary`, `Rust (*)`, `TypeScript`, `Actionlint`) and restricting direct pushes.
+- **Goose Routines Scheduler (`crates/warsha-pipeline/src/routines.rs` & `crates/warshad/src/lib.rs`)**:
+  - Implemented `RoutineScheduler` driving periodic routine execution via `RwLock<RoutineRegistry>` and `RoutineRunner`:
+    - Periodic background ticking loop via `start(interval)` with graceful shutdown via `stop()`.
+    - `tick_once(now_unix)` applies due routines, executes via runner, and stamps completion.
+    - Owner commands: `run_now(id)`, `pause(id)`, `resume(id)`.
+  - JSON-RPC daemon wiring in `WarshaApi`:
+    - `routines.list` -> lists all registered routines with state and schedule.
+    - `routines.get` -> retrieves specific routine by id.
+    - `routines.run_now` -> triggers immediate execution and returns updated routine.
+    - `routines.pause` -> pauses routine schedule and returns updated routine.
+    - `routines.resume` -> resumes routine schedule and returns updated routine.
+  - Thorough unit and integration testing (`scheduler_interval_ticking`, `scheduler_immediate_execution_via_run_now`, `scheduler_pausing_and_resuming`, `scheduler_graceful_stop`, `routines_rpcs_list_get_run_now_pause_and_resume`).
+- **Provider Auto-Update & Model Catalog Discovery (`crates/warsha-providers/src/provider_update.rs`)**:
+  - Added `reconcile_model_catalog` and `check_provider_model_updates` to inspect upstream provider model lists (e.g. Ollama tags, OpenRouter models).
+  - Appends newly discovered models without overwriting or resetting existing models, pricing, or custom configurations.
+  - Added `check_model_updates` to `ProviderRouter` and `providers.check_models` JSON-RPC method in `warshad`.
+  - Unit tests verifying catalog reconciliation, non-destructive merging, and RPC functionality.
+- **Comprehensive Verification Suite**:
+  - `cargo fmt --all --check`: clean (exit 0).
+  - `cargo clippy --workspace --all-targets -- -D warnings`: clean, 0 warnings (exit 0).
+  - `cargo test --workspace`: 412 tests passed, 0 failed, 12 ignored (exit 0).
+  - `node scripts/check-arch.mjs` & `--self-test`: 5/5 rules fire, clean fixture clean (exit 0).
+  - `pnpm -r typecheck`: clean across all workspace projects (exit 0).
+  - `pnpm -r test`: 200 passed across 28 test files (exit 0).
+  - `pnpm lint`: clean, 0 errors (exit 0).
+  - `pnpm visual`: 240/240 passed (exit 0).
+
+Checks:
+| Check | Environment | Command | Result |
+|---|---|---|---|
+| Complete Visual Suite | WSL Ubuntu | `pnpm visual` | PASS, 240 passed, 0 failed (exit 0) |
+| Frontend Tests | WSL Ubuntu | `pnpm -r test` | PASS, 200 passed across 28 files (exit 0) |
+| TypeScript Strict Check | WSL Ubuntu | `pnpm -r typecheck` | PASS, 8/8 projects clean (exit 0) |
+| ESLint Check | WSL Ubuntu | `pnpm lint` | PASS, 0 errors (exit 0) |
+| Workspace Rust Tests | WSL Ubuntu | `cargo test --workspace` | PASS, 412 passed, 0 failed, 12 ignored (exit 0) |
+| Clippy Strict Check | WSL Ubuntu | `cargo clippy --workspace --all-targets -- -D warnings` | PASS, 0 warnings (exit 0) |
+| Rust Formatting Check | WSL Ubuntu | `cargo fmt --all --check` | PASS (exit 0) |
+| Architecture Guardrails | WSL Ubuntu | `node scripts/check-arch.mjs` | PASS, 5 rules, 0 violations (exit 0) |
+| Architecture Self-Test | WSL Ubuntu | `node scripts/check-arch.mjs --self-test` | PASS, 5/5 rules fire, clean fixture clean (exit 0) |
+
+
+
+
 
 

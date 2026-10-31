@@ -20,9 +20,10 @@ pub use provider_setup::{
     probe_endpoint, ConnectionTestResult, OneClickProvider, ProviderSetupWizard, PROBE_TIMEOUT,
 };
 pub use provider_update::{
-    latest_versions, DetectedProvider, MockChecker, MockDetector, ProviderDetector,
-    ProviderUpdateAction, ProviderUpdateChecker, ProviderUpdateError, ProviderUpdateMode,
-    ProviderUpdatePlanner, ProviderUpdatePolicy, SkipReason,
+    check_provider_model_updates, latest_versions, reconcile_model_catalog, DetectedProvider,
+    MockChecker, MockDetector, ModelCatalogDiff, ProviderDetector, ProviderUpdateAction,
+    ProviderUpdateChecker, ProviderUpdateError, ProviderUpdateMode, ProviderUpdatePlanner,
+    ProviderUpdatePolicy, SkipReason,
 };
 pub use secrets::{
     InMemorySecretStore, KeychainSecretStore, SecretStore, PROVIDER_KEYCHAIN_SERVICE,
@@ -114,7 +115,7 @@ pub struct ChatMessageDelta {
 }
 
 /// Model information
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelInfo {
     pub id: String,
     pub name: String,
@@ -193,6 +194,11 @@ impl MockProvider {
     pub fn with_failure(mut self, err: ProviderError) -> Self {
         self.should_fail = true;
         self.fail_with = Some(err);
+        self
+    }
+
+    pub fn with_models(mut self, models: Vec<ModelInfo>) -> Self {
+        self.models = models;
         self
     }
 }
@@ -296,6 +302,23 @@ impl ProviderRouter {
 
     pub fn register_provider(&mut self, provider: Box<dyn ChatProvider>) {
         self.providers.insert(provider.id().to_string(), provider);
+    }
+
+    /// Access a registered provider by its identifier.
+    pub fn get_provider(&self, id: &str) -> Option<&dyn ChatProvider> {
+        self.providers.get(id).map(|p| p.as_ref())
+    }
+
+    /// Check for model catalog updates from a registered provider.
+    pub async fn check_model_updates(
+        &self,
+        provider_id: &str,
+        current_catalog: &[ModelInfo],
+    ) -> Result<ModelCatalogDiff> {
+        let provider = self
+            .get_provider(provider_id)
+            .ok_or_else(|| ProviderError::NotFound(provider_id.to_string()))?;
+        check_provider_model_updates(provider, current_catalog).await
     }
 
     pub fn set_role_routing(&mut self, routing: RoleRouting) {

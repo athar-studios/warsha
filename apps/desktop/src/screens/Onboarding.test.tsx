@@ -132,12 +132,23 @@ describe('provider step', () => {
 
   it('offers its own kinds when the daemon reports no providers at all', async () => {
     await renderWizard(fakeClient({ providers: [] }));
+    // Problem 1 check: language step shows progress indicator and steps hint
+    expect(screen.getByTestId('onboarding-steps-hint')).toBeInTheDocument();
+    expect(screen.getByText(t('onboarding.step_of', { current: 1, total: 5 }, 'ar'))).toBeInTheDocument();
+    expect(screen.getByText(t('onboarding.steps_hint', {}, 'ar'))).toBeInTheDocument();
+
     fireEvent.click(screen.getByTestId('onboarding-language-next'));
 
     expect(await screen.findByTestId('onboarding-provider-open_router')).toHaveTextContent(
       'OpenRouter'
     );
     expect(screen.getByTestId('onboarding-provider-qwen')).toBeInTheDocument();
+
+    // Problem 2 check: DeepSeek shows recommended badge and provider hint
+    expect(screen.getByTestId('onboarding-provider-deep_seek')).toHaveTextContent(
+      t('onboarding.provider_recommended', {}, 'ar')
+    );
+    expect(screen.getByText(t('onboarding.provider_hint.deep_seek', {}, 'ar'))).toBeInTheDocument();
     // The one preset the wizard does not offer: it needs a base URL, which Settings → Providers owns.
     expect(screen.queryByTestId('onboarding-provider-custom')).not.toBeInTheDocument();
   });
@@ -240,6 +251,12 @@ describe('first project', () => {
 
     expect(await screen.findByText(t('onboarding.project_failed', {}, 'ar'))).toBeInTheDocument();
     expect(onComplete).not.toHaveBeenCalled();
+
+    // Problem 3 fix: retry button is present and retries createFirstProject
+    const retryBtn = screen.getByTestId('onboarding-project-retry');
+    expect(retryBtn).toBeInTheDocument();
+    fireEvent.click(retryBtn);
+    expect(createProject).toHaveBeenCalledTimes(2);
   });
 });
 

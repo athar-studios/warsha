@@ -39,6 +39,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -212,6 +213,9 @@ pub struct McpConnection {
     /// Only the names travel: a description is the server's to show, and nothing
     /// here has a screen to show it on.
     pub tools: Vec<String>,
+    /// Full tool definitions parsed from the server's `tools/list` reply.
+    #[serde(default)]
+    pub tool_definitions: Vec<crate::mcp::McpTool>,
 }
 
 /// Everything that can go wrong connecting, sending or disconnecting.
@@ -312,6 +316,14 @@ pub trait McpManager: Send + Sync {
 
     /// Write one frame to a connected server, returning the frame that went out.
     async fn send(&self, name: &str, payload: &str) -> Result<String, McpTransportError>;
+
+    /// Call a tool on an MCP server.
+    async fn call_tool(
+        &self,
+        name: &str,
+        tool: &str,
+        arguments: serde_json::Value,
+    ) -> Result<crate::mcp::McpToolResult, McpTransportError>;
 }
 
 /// An [`McpManager`] over the daemon's [`ProcessManager`].
@@ -328,6 +340,7 @@ pub struct InMemoryMcpManager {
     processes: Arc<dyn ProcessManager>,
     connections: Mutex<Vec<McpConnection>>,
     cursors: Mutex<HashMap<String, usize>>,
+    next_request_id: AtomicU64,
 }
 
 impl InMemoryMcpManager {
@@ -337,6 +350,7 @@ impl InMemoryMcpManager {
             processes,
             connections: Mutex::new(Vec::new()),
             cursors: Mutex::new(HashMap::new()),
+            next_request_id: AtomicU64::new(100),
         }
     }
 
@@ -432,10 +446,23 @@ impl InMemoryMcpManager {
         frame: &Value,
         method: &str,
     ) -> Result<Value, McpTransportError> {
+        self.request_with_timeout(name, process_id, frame, method, RESPONSE_TIMEOUT)
+            .await
+    }
+
+    /// Send one request and wait for the reply with a specified timeout.
+    async fn request_with_timeout(
+        &self,
+        name: &str,
+        process_id: &str,
+        frame: &Value,
+        method: &str,
+        timeout: Duration,
+    ) -> Result<Value, McpTransportError> {
         let id = frame.get("id").cloned().unwrap_or(Value::Null);
         self.write_frame(name, process_id, frame).await?;
 
-        let deadline = Instant::now() + RESPONSE_TIMEOUT;
+        let deadline = Instant::now() + timeout;
         loop {
             for line in self.read_new_lines(name, process_id).await? {
                 let Ok(reply) = serde_json::from_str::<Value>(&line) else {
@@ -458,7 +485,7 @@ impl InMemoryMcpManager {
                 return Err(McpTransportError::Timeout {
                     name: name.to_string(),
                     method: method.to_string(),
-                    seconds: RESPONSE_TIMEOUT.as_secs(),
+                    seconds: timeout.as_secs(),
                 });
             }
             tokio::time::sleep(RESPONSE_POLL_INTERVAL).await;
@@ -476,7 +503,7 @@ impl InMemoryMcpManager {
         &self,
         name: &str,
         process_id: &str,
-    ) -> Result<Vec<String>, McpTransportError> {
+    ) -> Result<(Vec<String>, Vec<crate::mcp::McpTool>), McpTransportError> {
         let initialize = json!({
             "jsonrpc": "2.0",
             "id": INITIALIZE_REQUEST_ID,
@@ -530,11 +557,179 @@ impl InMemoryMcpManager {
                 method: "tools/list".to_string(),
                 problem: "a reply with no `tools` array".to_string(),
             })?;
-        Ok(tools
+
+        let mut tool_names = Vec::new();
+        let mut tool_definitions = Vec::new();
+
+        for tool_val in tools {
+            let tool_name = tool_val
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            if !tool_name.is_empty() {
+                tool_names.push(tool_name.clone());
+            }
+            let description = tool_val
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let input_schema = tool_val
+                .get("inputSchema")
+                .or_else(|| tool_val.get("input_schema"))
+                .cloned()
+                .unwrap_or_else(|| json!({ "type": "object" }));
+            let annotations = tool_val
+                .get("annotations")
+                .and_then(|a| serde_json::from_value(a.clone()).ok());
+
+            tool_definitions.push(crate::mcp::McpTool {
+                name: tool_name,
+                description,
+                input_schema,
+                annotations,
+            });
+        }
+
+        Ok((tool_names, tool_definitions))
+    }
+
+    /// Call a tool with a specific timeout.
+    pub async fn call_tool_with_timeout(
+        &self,
+        name: &str,
+        tool: &str,
+        arguments: Value,
+        timeout: Duration,
+    ) -> Result<crate::mcp::McpToolResult, McpTransportError> {
+        let connection = self
+            .connections
+            .lock()
+            .await
             .iter()
-            .filter_map(|tool| tool.get("name").and_then(Value::as_str))
-            .map(str::to_string)
-            .collect())
+            .find(|connection| connection.config.name == name)
+            .cloned()
+            .ok_or_else(|| McpTransportError::NotFound(name.to_string()))?;
+
+        if !connection.config.is_wired() {
+            return Err(McpTransportError::NotWired(name.to_string()));
+        }
+        let status = self.observed_status(&connection).await;
+        let (Some(process_id), McpStatus::Connected) = (connection.process_id.as_deref(), &status)
+        else {
+            self.set_status(name, status.clone()).await;
+            return Err(McpTransportError::NotConnected {
+                name: name.to_string(),
+                status: status.as_str().to_string(),
+            });
+        };
+
+        let id = self.next_request_id.fetch_add(1, Ordering::SeqCst);
+        let frame = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "tools/call",
+            "params": {
+                "name": tool,
+                "arguments": arguments,
+            }
+        });
+
+        let reply = self
+            .request_with_timeout(name, process_id, &frame, "tools/call", timeout)
+            .await?;
+
+        let result_val = reply
+            .get("result")
+            .ok_or_else(|| McpTransportError::Protocol {
+                name: name.to_string(),
+                method: "tools/call".to_string(),
+                problem: "a reply with no `result`".to_string(),
+            })?;
+
+        let is_error = result_val
+            .get("isError")
+            .or_else(|| result_val.get("is_error"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        let mut content = Vec::new();
+        if let Some(items) = result_val.get("content").and_then(Value::as_array) {
+            for item in items {
+                let item_type = item.get("type").and_then(Value::as_str).unwrap_or("text");
+                match item_type {
+                    "text" => {
+                        let text = item
+                            .get("text")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        content.push(crate::mcp::McpContent::Text { text });
+                    }
+                    "image" => {
+                        let data = item
+                            .get("data")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        let mime_type = item
+                            .get("mimeType")
+                            .or_else(|| item.get("mime_type"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("image/png")
+                            .to_string();
+                        content.push(crate::mcp::McpContent::Image { data, mime_type });
+                    }
+                    "resource" => {
+                        if let Some(resource_val) = item.get("resource") {
+                            let uri = resource_val
+                                .get("uri")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .to_string();
+                            let mime_type = resource_val
+                                .get("mimeType")
+                                .or_else(|| resource_val.get("mime_type"))
+                                .and_then(Value::as_str)
+                                .map(str::to_string);
+                            let text = resource_val
+                                .get("text")
+                                .and_then(Value::as_str)
+                                .map(str::to_string);
+                            content.push(crate::mcp::McpContent::Resource {
+                                resource: crate::mcp::McpResource {
+                                    uri,
+                                    mime_type,
+                                    text,
+                                },
+                            });
+                        }
+                    }
+                    _ => {
+                        if let Some(text) = item.get("text").and_then(Value::as_str) {
+                            content.push(crate::mcp::McpContent::Text {
+                                text: text.to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        } else if let Some(text) = result_val.as_str() {
+            content.push(crate::mcp::McpContent::Text {
+                text: text.to_string(),
+            });
+        } else if let Some(text) = result_val.get("text").and_then(Value::as_str) {
+            content.push(crate::mcp::McpContent::Text {
+                text: text.to_string(),
+            });
+        } else if !result_val.is_null() && !result_val.as_object().is_some_and(|o| o.is_empty()) {
+            content.push(crate::mcp::McpContent::Text {
+                text: result_val.to_string(),
+            });
+        }
+
+        Ok(crate::mcp::McpToolResult { content, is_error })
     }
 }
 
@@ -565,6 +760,7 @@ impl McpManager for InMemoryMcpManager {
                 status: McpStatus::Disconnected,
                 process_id: None,
                 tools: Vec::new(),
+                tool_definitions: Vec::new(),
             });
             return Ok(());
         }
@@ -590,18 +786,20 @@ impl McpManager for InMemoryMcpManager {
                     status: McpStatus::Error(message),
                     process_id: None,
                     tools: Vec::new(),
+                    tool_definitions: Vec::new(),
                 });
                 return Err(McpTransportError::Spawn { name, source });
             }
         };
 
         match self.handshake(&name, &process_id).await {
-            Ok(tools) => {
+            Ok((tools, tool_definitions)) => {
                 self.connections.lock().await.push(McpConnection {
                     config,
                     status: McpStatus::Connected,
                     process_id: Some(process_id),
                     tools,
+                    tool_definitions,
                 });
                 Ok(())
             }
@@ -617,6 +815,7 @@ impl McpManager for InMemoryMcpManager {
                     status: McpStatus::Error(error.to_string()),
                     process_id: None,
                     tools: Vec::new(),
+                    tool_definitions: Vec::new(),
                 });
                 Err(error)
             }
@@ -664,6 +863,7 @@ impl McpManager for InMemoryMcpManager {
             connection.status = McpStatus::Disconnected;
             connection.process_id = None;
             connection.tools.clear();
+            connection.tool_definitions.clear();
         }
         Ok(())
     }
@@ -724,6 +924,16 @@ impl McpManager for InMemoryMcpManager {
             }
         }
     }
+
+    async fn call_tool(
+        &self,
+        name: &str,
+        tool: &str,
+        arguments: Value,
+    ) -> Result<crate::mcp::McpToolResult, McpTransportError> {
+        self.call_tool_with_timeout(name, tool, arguments, RESPONSE_TIMEOUT)
+            .await
+    }
 }
 
 #[cfg(test)]
@@ -737,7 +947,7 @@ mod tests {
     ///
     /// The child is this same test binary, so both halves read one list: a server
     /// that answered something else would be a different server.
-    const PROBE_TOOLS: [&str; 2] = ["read_file", "write_file"];
+    const PROBE_TOOLS: [&str; 4] = ["read_file", "write_file", "echo", "create_table"];
 
     /// A stdio MCP server, run as a child of this test binary.
     ///
@@ -774,9 +984,160 @@ mod tests {
                 "tools/list" => json!({
                     "tools": PROBE_TOOLS
                         .iter()
-                        .map(|name| json!({ "name": name }))
+                        .map(|name| json!({
+                            "name": name,
+                            "description": format!("{name} description"),
+                            "inputSchema": { "type": "object" },
+                        }))
                         .collect::<Vec<Value>>(),
                 }),
+                "tools/call" => {
+                    let tool_name = request
+                        .get("params")
+                        .and_then(|p| p.get("name"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    let arguments = request
+                        .get("params")
+                        .and_then(|p| p.get("arguments"))
+                        .cloned()
+                        .unwrap_or(json!({}));
+                    match tool_name {
+                        "echo" => json!({
+                            "content": [{
+                                "type": "text",
+                                "text": arguments
+                                    .get("msg")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("echoed")
+                            }],
+                            "isError": false,
+                        }),
+                        "create_table" => json!({
+                            "content": [{
+                                "type": "text",
+                                "text": format!(
+                                    "table '{}' created",
+                                    arguments
+                                        .get("name")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("users")
+                                )
+                            }],
+                            "isError": false,
+                        }),
+                        _ => json!({
+                            "content": [{
+                                "type": "text",
+                                "text": format!("called {tool_name}")
+                            }],
+                            "isError": false,
+                        }),
+                    }
+                }
+                _ => {
+                    println!(
+                        "{}",
+                        json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": { "code": -32601, "message": "unknown method" },
+                        })
+                    );
+                    continue;
+                }
+            };
+            println!(
+                "{}",
+                json!({ "jsonrpc": "2.0", "id": id, "result": result })
+            );
+        }
+    }
+
+    /// A stdio server that completes handshake, but times out on tools/call.
+    #[test]
+    #[ignore = "a child process, not a test"]
+    fn mcp_server_call_timeout_probe() {
+        if !std::env::args().any(|arg| arg == "--exact") {
+            return;
+        }
+        for line in std::io::stdin().lock().lines() {
+            let Ok(line) = line else { break };
+            let Ok(request) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
+            let Some(id) = request.get("id").cloned() else {
+                continue;
+            };
+            let method = request.get("method").and_then(Value::as_str).unwrap_or("");
+            let result = match method {
+                "initialize" => json!({
+                    "protocolVersion": MCP_PROTOCOL_VERSION,
+                    "capabilities": { "tools": {} },
+                    "serverInfo": { "name": "warsha-test-server", "version": "1.0.0" },
+                }),
+                "tools/list" => json!({
+                    "tools": [{ "name": "echo", "description": "echo tool", "inputSchema": { "type": "object" } }],
+                }),
+                "tools/call" => {
+                    std::thread::sleep(Duration::from_secs(30));
+                    continue;
+                }
+                _ => {
+                    println!(
+                        "{}",
+                        json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": { "code": -32601, "message": "unknown method" },
+                        })
+                    );
+                    continue;
+                }
+            };
+            println!(
+                "{}",
+                json!({ "jsonrpc": "2.0", "id": id, "result": result })
+            );
+        }
+    }
+
+    /// A stdio server that completes handshake, but answers tools/call with a protocol error.
+    #[test]
+    #[ignore = "a child process, not a test"]
+    fn mcp_server_call_error_probe() {
+        if !std::env::args().any(|arg| arg == "--exact") {
+            return;
+        }
+        for line in std::io::stdin().lock().lines() {
+            let Ok(line) = line else { break };
+            let Ok(request) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
+            let Some(id) = request.get("id").cloned() else {
+                continue;
+            };
+            let method = request.get("method").and_then(Value::as_str).unwrap_or("");
+            let result = match method {
+                "initialize" => json!({
+                    "protocolVersion": MCP_PROTOCOL_VERSION,
+                    "capabilities": { "tools": {} },
+                    "serverInfo": { "name": "warsha-test-server", "version": "1.0.0" },
+                }),
+                "tools/list" => json!({
+                    "tools": [{ "name": "echo", "description": "echo tool", "inputSchema": { "type": "object" } }],
+                }),
+                "tools/call" => {
+                    println!(
+                        "{}",
+                        json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": { "code": -32000, "message": "tool execution failed internally" },
+                        })
+                    );
+                    continue;
+                }
                 _ => {
                     println!(
                         "{}",
@@ -870,6 +1231,8 @@ mod tests {
             PROBE_TOOLS.map(str::to_string).to_vec(),
             "the tools come from the server's own `tools/list` reply"
         );
+        assert_eq!(connection.tool_definitions.len(), PROBE_TOOLS.len());
+        assert_eq!(connection.tool_definitions[0].name, PROBE_TOOLS[0]);
         let process_id = connection
             .process_id
             .clone()
@@ -1162,5 +1525,68 @@ mod tests {
             mcp.send("files", "{}").await,
             Err(McpTransportError::NotConnected { .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn test_mcp_call_tool_success() {
+        let (_processes, mcp) = manager();
+        mcp.connect(server_config("files", "mcp_server_probe"))
+            .await
+            .expect("the server connects");
+
+        let res = mcp
+            .call_tool("files", "echo", json!({ "msg": "hello from test" }))
+            .await
+            .expect("call_tool succeeds");
+
+        assert!(!res.is_error);
+        assert_eq!(res.content.len(), 1);
+        match &res.content[0] {
+            crate::mcp::McpContent::Text { text } => assert_eq!(text, "hello from test"),
+            _ => panic!("expected text content"),
+        }
+        mcp.disconnect("files").await.expect("the server closes");
+    }
+
+    #[tokio::test]
+    async fn test_mcp_call_tool_timeout() {
+        let (_processes, mcp) = manager();
+        mcp.connect(server_config("slow", "mcp_server_call_timeout_probe"))
+            .await
+            .expect("the server connects");
+
+        let err = mcp
+            .call_tool_with_timeout("slow", "echo", json!({}), Duration::from_millis(150))
+            .await
+            .expect_err("calling a hanging tool must timeout");
+
+        assert!(
+            matches!(&err, McpTransportError::Timeout { method, .. } if method == "tools/call"),
+            "got {err:?}"
+        );
+        mcp.disconnect("slow").await.expect("the server closes");
+    }
+
+    #[tokio::test]
+    async fn test_mcp_call_tool_protocol_error() {
+        let (_processes, mcp) = manager();
+        mcp.connect(server_config("bad", "mcp_server_call_error_probe"))
+            .await
+            .expect("the server connects");
+
+        let err = mcp
+            .call_tool("bad", "echo", json!({}))
+            .await
+            .expect_err("calling a failing tool must report protocol error");
+
+        assert!(
+            matches!(
+                &err,
+                McpTransportError::Protocol { method, problem, .. }
+                    if method == "tools/call" && problem.contains("tool execution failed internally")
+            ),
+            "got {err:?}"
+        );
+        mcp.disconnect("bad").await.expect("the server closes");
     }
 }

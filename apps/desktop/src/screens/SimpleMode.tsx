@@ -140,6 +140,7 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
   const locale = useLocale();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
+  const [showAllAgents, setShowAllAgents] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   // The two composer autocompletes. `null` is "closed"; a string is what was typed after the
@@ -308,6 +309,14 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
     }
   };
 
+  const activeAgent = agents.find(a => a.status === 'working');
+  const activeAgentName = activeAgent
+    ? (locale === 'ar' ? ROLE_NAMES[activeAgent.role]?.ar || activeAgent.name : activeAgent.name)
+    : null;
+  const activeAgents = agents.filter(a => a.status !== 'idle');
+  const visibleAgents = showAllAgents ? agents : (activeAgents.length > 0 ? activeAgents : agents);
+  const idleCount = agents.filter(a => a.status === 'idle').length;
+
   return (
     <Box dir={dir} className="simple-mode" style={{ display: 'flex', height: '100%', minHeight: '600px' }}>
       {/* Left Sidebar — Agents List */}
@@ -331,8 +340,41 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
           </Text>
         </Box>
 
+        {activeAgentName && (
+          <div
+            dir={dir}
+            data-testid="simple-active-agent"
+            style={{
+              paddingInline: 'var(--warsha-space-4)',
+              paddingBlock: 'var(--warsha-space-2)',
+              backgroundColor: 'var(--warsha-color-surface-muted)',
+              borderBottom: '1px solid var(--warsha-color-border)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--warsha-space-2)',
+            }}
+          >
+            <span
+              style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                backgroundColor: 'var(--warsha-color-success)',
+                display: 'inline-block',
+                flexShrink: 0,
+              }}
+            />
+            <Text size="xs" weight="bold" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
+              {t('simple.active_agent', {}, locale)}:
+            </Text>
+            <Text size="xs" weight="bold" dir={dir} style={{ color: 'var(--warsha-color-text)' }}>
+              {activeAgentName}
+            </Text>
+          </div>
+        )}
+
         <Box dir={dir} style={{ flex: 1, overflowY: 'auto', padding: 'var(--warsha-space-2)' }}>
-          {agents.map(agent => (
+          {visibleAgents.map(agent => (
             <Box
               key={agent.id}
               dir={dir}
@@ -404,6 +446,23 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
               </Box>
             </Box>
           ))}
+
+          {idleCount > 0 && (
+            <Box dir={dir} style={{ padding: 'var(--warsha-space-2)', textAlign: 'center' }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                dir={dir}
+                data-testid="simple-toggle-agents"
+                onClick={() => setShowAllAgents(!showAllAgents)}
+                style={{ width: '100%', fontSize: 'var(--warsha-font-size-xs)' }}
+              >
+                {showAllAgents
+                  ? t('simple.hide_agents', {}, locale)
+                  : t('simple.show_all_agents', { count: agents.length }, locale)}
+              </Button>
+            </Box>
+          )}
         </Box>
       </Box>
 
