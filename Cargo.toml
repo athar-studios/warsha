@@ -42,7 +42,7 @@ sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "migrate
 
 # Crypto
 ring = "0.17"
-snow = "0.9"
+snow = "0.10.0"
 x25519-dalek = { version = "2.0", features = ["static_secrets"] }
 chacha20poly1305 = "0.10"
 rand = "0.9"
