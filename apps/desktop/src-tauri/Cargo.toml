@@ -28,7 +28,7 @@ tauri-build = { version = "2", features = [] }
 # No Tauri plugin crate is declared on purpose: the frontend reaches the daemon over
 # loopback HTTP/WebSocket and the shell's own commands over `invoke`, so it uses no
 # plugin permission at all. Adding one would put a capability in the ACL for nothing.
-tauri = { version = "2", features = ["macos-private-api"] }
+tauri = { version = "2.12.5", features = ["macos-private-api"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
