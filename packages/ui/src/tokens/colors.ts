@@ -31,7 +31,15 @@ export const colorTokens = {
   /** Primary text. */
   text: { light: '#111827', dark: '#f5f5f5' },
   /** Secondary text: captions, hints, metadata. */
-  textMuted: { light: '#6b7280', dark: '#a3a3a3' },
+  /**
+   * Secondary copy — the quietest colour a word may be painted in.
+   *
+   * B4 moved the light value one step down the same grey ramp (`#6b7280` → `#4b5563`) after axe measured
+   * `text-muted` on a recessed bench plate at 4.39:1: the compounds paint an unselected control-group
+   * label, a stream line and a terminal hint on that plate, so §9's "worst allowed text colour" had to
+   * clear 4.5:1 *there*, not only on `surface`. The dark value already cleared it on both.
+   */
+  textMuted: { light: '#4b5563', dark: '#a3a3a3' },
   /** Hairline borders and dividers. */
   border: { light: '#e5e7eb', dark: '#2e2e2e' },
   /** Borders that must be seen: inputs, dashed empty states, focused rings. */

@@ -1,31 +1,44 @@
-// Run view — Live event stream, diffs, costs
-import { WarshaClient, type RunSummary, type WarshaEvent } from '@warsha/client';
-import { useDirection, useLocale } from '@warsha/i18n';
-import { Box, Text, Button, Card } from '@warsha/ui';
-import React, { useState, useEffect, useRef } from 'react';
+// Run view — the run's own record: stream, artifacts, preview, handoff, router (PLAN.md M5, redrawn
+// for Bench & Signal in B3-core).
+//
+// §5 puts this screen on stacked plates: the header names the run in machine type, the pane strip rules the
+// four surfaces, the event feed is a `Stream` (mono, one line per thing that happened, gate lines lit),
+// and the artifacts are a ruled `Ledger` — not a grid of cards. Loading is a `Skeleton` with a named
+// reason, an unresponsive daemon is a `Banner` with a retry, and an empty queue says what to do next
+// (§7). Nothing here animates for its own sake (§8).
+//
+// Every word comes from `@warsha/i18n`: the fourteen literals AUDIT-1 counted in this file, the
+// `locale === 'ar' ? … : …` branches, and the `alert('Advance stage...')` that spoke to no screen reader
+// at all, are gone.
+import {
+  type RunSummary,
+  type Stage,
+  type WarshaClient,
+  type WarshaEvent,
+} from '@warsha/client';
+import { t, useDirection, useLocale, type MessageValues } from '@warsha/i18n';
+import {
+  Banner,
+  Box,
+  Button,
+  Chip,
+  ChipMeta,
+  EmptyState,
+  Ledger,
+  Panel,
+  Skeleton,
+  Stream,
+  Text,
+  type StreamKind,
+  tabPanelProps,
+} from '@warsha/ui';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { EcoModeToggle } from '../components/EcoModeToggle';
 import { HandoffDialog, type HandoffPhase } from '../components/HandoffDialog';
 import { LivePreview, type PreviewStatus } from '../components/LivePreview';
 import { LocalCloudBadge, type TargetKind } from '../components/LocalCloudBadge';
 import { ReviewApplyPanel, type HandoffChangedFile } from '../components/ReviewApplyPanel';
-
-const STAGE_LABELS: Record<string, string> = {
-  'idea': 'Idea',
-  'gate_a': 'Gate A',
-  'research': 'Research',
-  'prd_spec': 'PRD Spec',
-  'gate_b': 'Gate B',
-  'design': 'Design',
-  'plan_tasks': 'Plan Tasks',
-  'code': 'Code',
-  'review_qa_security': 'Review/QA/Sec',
-  'gate_c': 'Gate C',
-  'release': 'Release',
-  'gate_d': 'Gate D',
-  'launch_drafts': 'Launch Drafts',
-  'feedback': 'Feedback',
-};
 
 interface RunViewProps {
   client: WarshaClient;
@@ -36,14 +49,7 @@ interface RunViewProps {
 /** Which pane the run view shows. */
 type RunTab = 'stream' | 'preview' | 'handoff' | 'router';
 
-const RUN_TABS: RunTab[] = ['stream', 'preview', 'handoff', 'router'];
-
-const TAB_LABELS: Record<RunTab, { ar: string; en: string }> = {
-  stream: { ar: 'السجل والمصنوعات', en: 'Stream & artifacts' },
-  preview: { ar: 'المعاينة المباشرة', en: 'Live preview' },
-  handoff: { ar: 'المتابعة على الخادم', en: 'Continue on server' },
-  router: { ar: 'التوجيه والتكلفة', en: 'Router & cost' },
-};
+const RUN_TABS: readonly RunTab[] = ['stream', 'preview', 'handoff', 'router'];
 
 /** One router target as the router/cost view shows it (mirrors `RouterTarget` in Rust). */
 export interface RouterTargetView {
@@ -52,107 +58,167 @@ export interface RouterTargetView {
   model: string;
 }
 
+/**
+ * The feed's glyph-and-tone channel for a daemon event kind (§9: never colour alone).
+ *
+ * The kind itself stays on the line in mono — this only decides how the bench marks it.
+ */
+function streamKind(kind: string): StreamKind {
+  if (kind.toLowerCase().includes('gate')) return 'gate';
+  if (kind.toLowerCase().includes('error')) return 'fail';
+  if (kind.toLowerCase().includes('cost')) return 'ok';
+  if (kind.toLowerCase().includes('tool') || kind.toLowerCase().includes('agent')) return 'tool';
+  return 'default';
+}
+
 export function RunView({ run, onBack }: RunViewProps) {
   const dir = useDirection();
   const locale = useLocale();
   const [events, setEvents] = useState<WarshaEvent[]>([]);
-  const [, setLoading] = useState(true);
+  const [eventsLoading, setEventsLoading] = useState(true);
   const [following, setFollowing] = useState(false);
   const [artifacts, setArtifacts] = useState<Record<string, string>>({});
-  const subscriptionRef = useRef<{ close: () => void } | null>(null);
-  const eventsEndRef = useRef<HTMLDivElement>(null);
+  const [artifactsLoading, setArtifactsLoading] = useState(true);
   const [tab, setTab] = useState<RunTab>('stream');
-  // Live preview (M5b): the dev server is started and supervised by the daemon, so the
-  // URL stays null until one is reported; `onRun`/`onStop` are the seams.
+  const [advanceNotice, setAdvanceNotice] = useState(false);
+  // Live preview (M5b): the dev server is started and supervised by the daemon, so the URL stays null
+  // until one is reported; `onRun`/`onStop` are the seams.
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus>('idle');
   const [previewUrl] = useState<string | null>(null);
-  // Continue on server (M6a): the dialog reports intent, the phase and the remote URL
-  // are what the daemon tells the caller, and the changed files are what it brings back.
+  // Continue on server (M6a): the dialog reports intent, the phase and the remote URL are what the
+  // daemon tells the caller, and the changed files are what it brings back.
   const [handoffOpen, setHandoffOpen] = useState(false);
   const [handoffPhase] = useState<HandoffPhase>('idle');
   const [handoffRemoteUrl] = useState('');
   const [handoffFiles] = useState<HandoffChangedFile[]>([]);
-  // Router & cost (M14b): Eco mode and one local/cloud badge per target. The battery,
-  // the network and the target list are caller-supplied until a router RPC exists.
+  // Router & cost (M14b): Eco mode and one local/cloud badge per target. The battery, the network and
+  // the target list are caller-supplied until a router RPC exists.
   const [ecoEnabled, setEcoEnabled] = useState(false);
   const [onBattery] = useState(false);
   const [batteryPct] = useState(100);
   const [networkOk] = useState(true);
   const [routerTargets] = useState<RouterTargetView[]>([]);
+  const eventsEndRef = useRef<HTMLDivElement>(null);
+  const tablistRef = useRef<HTMLDivElement>(null);
 
-  // The loaders are declared below as function expressions and are guarded by `run.id` only, so
-  // listing them here would re-run this effect on every render. Behaviour is unchanged.
-  useEffect(() => {
-    loadEvents();
-    loadArtifacts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- loaders are re-created per render; keyed by run.id
-  }, [run.id]);
+  const label = useCallback(
+    (key: string, values?: MessageValues) => t(key, values ?? {}, locale),
+    [locale]
+  );
 
+  /** A stage or an event kind is machine data, but a stage also has a word in the catalog (§11). */
+  const stageWord = useCallback(
+    (stage: Stage | string) => {
+      const key = `run.stage.${stage}`;
+      const translated = t(key, {}, locale);
+      return translated === key ? stage : translated;
+    },
+    [locale]
+  );
+
+  // The run's events and artifacts are still fixtures (`runs.logs` and the artifact bodies are the seams
+  // the daemon fills in), and both load through the same async path so the `Skeleton` is what the owner
+  // sees for a moment rather than a plate that never answers.
   useEffect(() => {
-    if (following) {
-      // In real app, connect to WebSocket
-      // subscriptionRef.current = subscribeEvents({
-      //   url: 'ws://localhost:8766',
-      //   token: 'token',
-      //   onEvent: (event) => setEvents(prev => [...prev, event]),
-      //   onError: (error) => console.error('Event stream error:', error),
-      // });
-    }
-    return () => {
-      subscriptionRef.current?.close();
+    let cancelled = false;
+
+    const load = async () => {
+      const nextEvents: WarshaEvent[] = [
+        {
+          id: '1',
+          runId: run.id,
+          stage: 'idea',
+          role: 'intake',
+          kind: 'StageStarted',
+          payload: { action: 'start_run' },
+          costCents: null,
+          createdAt: run.startedAt,
+          deviceId: null,
+        },
+        {
+          id: '2',
+          runId: run.id,
+          stage: 'research',
+          role: 'researcher',
+          kind: 'AgentStep',
+          payload: { action: 'research' },
+          costCents: 150,
+          createdAt: new Date().toISOString(),
+          deviceId: null,
+        },
+      ];
+      const nextArtifacts: Record<string, string> = {
+        idea: '# Project Idea\n\nBuild a todo app with React and TypeScript.',
+        research:
+          '# Research Report\n\n## Competitors\n- Todoist\n- Microsoft To Do\n\n## Tech Stack\n- React 18\n- TypeScript\n- Vite',
+      };
+
+      await Promise.resolve();
+      if (cancelled) return;
+      setEvents(nextEvents);
+      setArtifacts(nextArtifacts);
+      setEventsLoading(false);
+      setArtifactsLoading(false);
     };
-  }, [following]);
 
-  const loadEvents = async () => {
-    try {
-      // In real app: const eventsData = await client.getRunLogs(run.id);
-      // For now, mock some events
-      setEvents([
-        { id: '1', runId: run.id, stage: 'idea', role: 'intake', kind: 'StageStarted', payload: { action: 'start_run' }, costCents: null, createdAt: run.startedAt, deviceId: null },
-        { id: '2', runId: run.id, stage: 'research', role: 'researcher', kind: 'AgentStep', payload: { action: 'research' }, costCents: 150, createdAt: new Date().toISOString(), deviceId: null },
-      ]);
-    } catch (error) {
-      console.error('Failed to load events:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadArtifacts = async () => {
-    // Mock artifacts
-    setArtifacts({
-      idea: '# Project Idea\n\nBuild a todo app with React and TypeScript.',
-      research: '# Research Report\n\n## Competitors\n- Todoist\n- Microsoft To Do\n\n## Tech Stack\n- React 18\n- TypeScript\n- Vite',
-    });
-  };
-
-  const scrollToBottom = () => {
-    eventsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [run.id, run.startedAt]);
 
   useEffect(() => {
-    if (following) {
-      scrollToBottom();
-    }
+    if (!following) return;
+    eventsEndRef.current?.scrollIntoView({ behavior: 'auto' });
   }, [events, following]);
 
-  const formatEventTime = (isoString: string) => {
-    return new Date(isoString).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  };
-
-  const getEventIcon = (kind: string) => {
-    switch (kind) {
-      case 'StageStarted': return '▶';
-      case 'AgentStep': return '🤖';
-      case 'ArtifactCreated': return '📄';
-      case 'CostRecorded': return '💰';
-      case 'GateDecision': return '⚖';
-      default: return '•';
+  /**
+   * The tab strip's roving tabindex (§9, AUDIT-1 §4.3): one tab is in the Tab order, the arrows move
+   * between the rest, and the ends wrap. In RTL the arrow meanings mirror — the bench is a reflected
+   * layout, so `ArrowLeft` advances.
+   */
+  const onTabsKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    const rtl = document.documentElement.dir === 'rtl';
+    const nodes = tablistRef.current?.querySelectorAll<HTMLButtonElement>('button[role="tab"]');
+    if (!nodes || nodes.length === 0) return;
+    const order = [...nodes];
+    const current = order.indexOf(document.activeElement as HTMLButtonElement);
+    const forward = event.key === 'ArrowRight' ? !rtl : event.key === 'ArrowLeft' ? rtl : false;
+    const target =
+      event.key === 'Home'
+        ? order[0]
+        : event.key === 'End'
+          ? order[order.length - 1]
+          : forward
+            ? order[(current + 1) % order.length]
+            : event.key === 'ArrowLeft' || event.key === 'ArrowRight'
+              ? order[(current - 1 + order.length) % order.length]
+              : undefined;
+    if (target) {
+      event.preventDefault();
+      target.focus();
     }
-  };
+  }, []);
 
-  // Live preview (M5b): the daemon starts and stops the dev server, so these only move
-  // the status the panel renders. The URL arrives with the server, which is why it is null.
+  /**
+   * A stream timestamp in the owner's locale, with Western digits (§11).
+   *
+   * Arabic locales would otherwise render `١٠:٠٠:٠٠`, and machine data is the one place the direction
+   * keeps 0–9 so two lines of a feed can be compared at a glance.
+   */
+  const formatTime = useCallback(
+    (iso: string) =>
+      new Intl.DateTimeFormat(locale === 'ar' ? 'ar-u-nu-latn' : locale, {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }).format(new Date(iso)),
+    [locale]
+  );
+
+  // Live preview (M5b): the daemon starts and stops the dev server, so these only move the status the
+  // panel renders. The URL arrives with the server, which is why it is null.
   const handlePreviewRun = () => {
     // TODO(M20 wiring): call the daemon's dev-server start RPC once it exists.
     setPreviewStatus('running');
@@ -167,8 +233,8 @@ export function RunView({ run, onBack }: RunViewProps) {
     // TODO(M20 wiring): hand `elementMention(selector)` to the composer once RunView has one.
   };
 
-  // Continue on server (M6a): the handoff and the apply both need a daemon RPC, so the
-  // dialog and the review panel report intent and nothing is written from here.
+  // Continue on server (M6a): the handoff and the apply both need a daemon RPC, so the dialog and the
+  // review panel report intent and nothing is written from here.
   const handleHandOff = (_url: string) => {
     // TODO(M20 wiring): call the daemon's handoff RPC once it exists.
   };
@@ -177,213 +243,317 @@ export function RunView({ run, onBack }: RunViewProps) {
     // TODO(M20 wiring): apply through the daemon after it writes the backup bundle.
   };
 
-  return (
-    <Box dir={dir} className="run-view" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 80px)' }}>
-      {/* Header */}
-      <Box dir={dir} style={{ 
-        display: 'flex', 
-        alignItems: 'center', 
-        gap: 'var(--warsha-space-4)', 
-        padding: 'var(--warsha-space-4) var(--warsha-space-6)', 
-        borderBottom: '1px solid var(--warsha-color-border)',
-        backgroundColor: 'var(--warsha-color-surface)',
-      }}>
-        <Button variant="ghost" size="sm" onClick={onBack} dir={dir}>
-          ← {locale === 'ar' ? 'رجوع' : 'Back'}
-        </Button>
-        <Box dir={dir} style={{ flex: 1 }}>
-          <Text size="lg" weight="bold" dir={dir}>{run.projectId}</Text>
-          <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-3)', marginTop: 'var(--warsha-space-1)', flexWrap: 'wrap' }}>
-            <span style={{
-              padding: 'var(--warsha-space-1) 10px',
-              backgroundColor: 'var(--warsha-color-surface-muted)',
-              color: 'var(--warsha-color-accent-strong)',
-              borderRadius: '9999px',
-              fontSize: 'var(--warsha-font-size-xs)',
-              fontWeight: 500,
-            }}>
-              {STAGE_LABELS[run.stage] || run.stage}
-            </span>
-            <span style={{
-              padding: 'var(--warsha-space-1) 10px',
-              backgroundColor: 'var(--warsha-color-surface-muted)',
-              color: run.status === 'running' ? 'var(--warsha-color-success)' : 'var(--warsha-color-warning)',
-              borderRadius: '9999px',
-              fontSize: 'var(--warsha-font-size-xs)',
-              fontWeight: 500,
-            }}>
-              {run.status}
-            </span>
-          </Box>
-        </Box>
-        <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)' }}>
-          <Button 
-            variant={following ? 'primary' : 'secondary'} 
-            onClick={() => setFollowing(!following)} 
-            dir={dir}
-            size="sm"
-          >
-            {following 
-              ? (locale === 'ar' ? 'إيقاف المتابعة' : 'Stop Following')
-              : (locale === 'ar' ? 'متابعة مباشرة' : 'Follow Live')}
-          </Button>
-          <Button variant="primary" size="sm" dir={dir} onClick={() => alert('Advance stage...')}>
-            {locale === 'ar' ? 'تقدم' : 'Advance'}
-          </Button>
-          {/* Continue on server (M6a): opens the handoff dialog. */}
-          <Button
-            variant="secondary"
-            size="sm"
-            dir={dir}
-            data-testid="handoff-open"
-            onClick={() => setHandoffOpen(true)}
-          >
-            {locale === 'ar' ? 'المتابعة على الخادم' : 'Hand off'}
-          </Button>
-        </Box>
-      </Box>
+  const spentCents = events.reduce((total, event) => total + (event.costCents ?? 0), 0);
 
-      {/* Tabs: the event stream, the live preview, the handoff, and the router/cost view */}
-      <div
+  return (
+    <Box
+      dir={dir}
+      className="run-view"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: 'calc(100vh - 80px)',
+        backgroundColor: 'var(--warsha-color-bg)',
+        color: 'var(--warsha-color-text)',
+        minInlineSize: 0,
+      }}
+    >
+      {/* ---------------------------------------------------------------------- the header plate */}
+      <header
         dir={dir}
-        role="tablist"
-        data-testid="run-view-tabs"
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 'var(--warsha-space-2)',
-          paddingInline: 'var(--warsha-space-6)',
-          paddingBlock: 'var(--warsha-space-2)',
-          backgroundColor: 'var(--warsha-color-surface)',
-          borderBottom: '1px solid var(--warsha-color-border)',
+          gap: 'var(--warsha-space-4)',
           flexWrap: 'wrap',
+          paddingInline: 'var(--warsha-space-6)',
+          paddingBlock: 'var(--warsha-space-3)',
+          borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+          backgroundColor: 'var(--warsha-color-surface)',
+          minInlineSize: 0,
         }}
       >
-        {RUN_TABS.map((candidate) => (
-          <Button
-            key={candidate}
-            role="tab"
-            aria-selected={tab === candidate}
-            variant={tab === candidate ? 'primary' : 'ghost'}
-            size="sm"
-            dir={dir}
-            data-testid={`run-tab-${candidate}`}
-            onClick={() => setTab(candidate)}
+        <Button variant="ghost" size="sm" dir={dir} onClick={onBack}>
+          {label('run.back')}
+        </Button>
+
+        <Box style={{ flex: '1', minInlineSize: 0 }}>
+          {/* The project id is the run's name on this screen: mono, isolated, never translated (§11). */}
+          <Text
+            size="lg"
+            weight="bold"
+            dir="ltr"
+            style={{
+              fontFamily: 'var(--warsha-font-mono)',
+              fontVariantNumeric: 'tabular-nums',
+              unicodeBidi: 'isolate',
+              textAlign: 'start',
+              overflowWrap: 'anywhere',
+            }}
           >
-            {TAB_LABELS[candidate][locale]}
+            <span translate="no">{run.projectId}</span>
+          </Text>
+          <Box
+            style={{
+              display: 'flex',
+              gap: 'var(--warsha-space-2)',
+              marginTop: 'var(--warsha-space-1)',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+            }}
+          >
+            <Chip>{stageWord(run.stage)}</Chip>
+            {spentCents > 0 && (
+              // Cost is machine data. The word beside it is what a meter alone could not say (§9).
+              <ChipMeta>${(spentCents / 100).toFixed(2)}</ChipMeta>
+            )}
+          </Box>
+        </Box>
+
+        <Box style={{ display: 'flex', gap: 'var(--warsha-space-2)', flexWrap: 'wrap' }}>
+          <Button
+            variant={following ? 'primary' : 'secondary'}
+            dir={dir}
+            onClick={() => setFollowing(!following)}
+            aria-pressed={following}
+          >
+            {following ? label('run.stop_follow') : label('run.follow_live')}
           </Button>
-        ))}
-      </div>
-
-      {/* Main content — the event stream and the artifacts (the original run view) */}
-      {tab === 'stream' && (
-        <Box dir={dir} style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Event stream */}
-        <Box dir={dir} style={{ 
-          flex: '0 0 400px', 
-          maxWidth: '400px',
-          borderInlineEnd: '1px solid var(--warsha-color-border)',
-          backgroundColor: 'var(--warsha-color-bg)',
-          display: 'flex',
-          flexDirection: 'column',
-        }}>
-          <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', borderBottom: '1px solid var(--warsha-color-border)' }}>
-            <Text weight="bold" dir={dir}>
-              {locale === 'ar' ? 'سجل الأحداث' : 'Event Stream'}
-            </Text>
-          </Box>
-          
-          <Box dir={dir} style={{ flex: 1, overflowY: 'auto', padding: 'var(--warsha-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-3)' }}>
-            {events.map(event => (
-              <Card key={event.id} dir={dir} style={{ backgroundColor: 'var(--warsha-color-surface)' }}>
-                <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)', marginBottom: 'var(--warsha-space-2)' }}>
-                  <Text size="sm" weight="bold" dir={dir} style={{ color: 'var(--warsha-color-accent-strong)' }}>
-                    {getEventIcon(event.kind)}
-                  </Text>
-                  <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
-                    {formatEventTime(event.createdAt)}
-                  </Text>
-                  <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-muted)', marginInlineStart: 'auto' }}>
-                    {STAGE_LABELS[event.stage] || event.stage}
-                  </Text>
-                </Box>
-                <Text size="sm" dir={dir}>
-                  {event.kind}: {JSON.stringify(event.payload).slice(0, 100)}
-                </Text>
-                {event.costCents && (
-                  <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-success)', marginTop: 'var(--warsha-space-1)' }}>
-                    💰 ${(event.costCents / 100).toFixed(2)}
-                  </Text>
-                )}
-              </Card>
-            ))}
-            <div ref={eventsEndRef} />
-          </Box>
+          <Button variant="secondary" dir={dir} onClick={() => setAdvanceNotice(true)}>
+            {label('run.advance')}
+          </Button>
+          {/* Continue on server (M6a): opens the handoff dialog. */}
+          <Button variant="secondary" dir={dir} data-testid="handoff-open" onClick={() => setHandoffOpen(true)}>
+            {label('run.handoff')}
+          </Button>
         </Box>
+      </header>
 
-        {/* Artifacts panel */}
-        <Box dir={dir} style={{ 
-          flex: 1, 
-          padding: 'var(--warsha-space-6)', 
-          overflowY: 'auto',
-          backgroundColor: 'var(--warsha-color-surface)',
-        }}>
-          <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--warsha-space-6)' }}>
-            <Text size="xl" weight="bold" dir={dir}>
-              {locale === 'ar' ? 'المصنوعات' : 'Artifacts'}
-            </Text>
-            <Button variant="secondary" size="sm" dir={dir}>
-              {locale === 'ar' ? 'تصدير الكل' : 'Export All'}
+      {advanceNotice && (
+        <Banner
+          tone="info"
+          action={
+            <Button variant="ghost" size="sm" dir={dir} onClick={() => setAdvanceNotice(false)}>
+              {label('common.close')}
             </Button>
-          </Box>
-
-          {Object.entries(artifacts).length === 0 ? (
-            <Card dir={dir} style={{ textAlign: 'center', padding: 'var(--warsha-space-16) var(--warsha-space-8)' }}>
-              <Text size="md" dir={dir} style={{ color: 'var(--warsha-color-muted)' }}>
-                {locale === 'ar' ? 'لا توجد مصنوعات بعد' : 'No artifacts yet'}
-              </Text>
-            </Card>
-          ) : (
-            <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
-              {Object.entries(artifacts).map(([name, content]) => (
-                <Card key={name} dir={dir}>
-                  <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--warsha-space-3)' }}>
-                    <Text weight="medium" dir={dir} style={{ textTransform: 'capitalize' }}>
-                      {name.replace(/_/g, ' ')}
-                    </Text>
-                    <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)' }}>
-                      <Button variant="ghost" size="sm" dir={dir}>
-                        {locale === 'ar' ? 'نسخ' : 'Copy'}
-                      </Button>
-                      <Button variant="ghost" size="sm" dir={dir}>
-                        {locale === 'ar' ? 'تحميل' : 'Download'}
-                      </Button>
-                    </Box>
-                  </Box>
-                  <pre style={{
-                    backgroundColor: 'var(--warsha-color-surface-muted)',
-                    color: 'var(--warsha-color-text)',
-                    padding: 'var(--warsha-space-4)',
-                    borderRadius: '8px',
-                    overflowX: 'auto',
-                    fontSize: 'var(--warsha-font-size-sm)',
-                    lineHeight: '1.6',
-                    maxHeight: '400px',
-                    direction: 'ltr',
-                  }}>
-                    {content}
-                  </pre>
-                </Card>
-              ))}
-            </Box>
-          )}
-        </Box>
-      </Box>
+          }
+        >
+          {label('run.advance_notice')}
+        </Banner>
       )}
 
-      {/* Live preview (M5b): the panel takes the URL and the status from here */}
+      {/* --------------------------------------------------------------------- the pane strip */}
+      <div
+        dir={dir}
+        ref={tablistRef}
+        role="tablist"
+        aria-label={label('run.tabs_label')}
+        data-testid="run-view-tabs"
+        onKeyDown={onTabsKeyDown}
+        style={{
+          display: 'flex',
+          alignItems: 'stretch',
+          gap: 'var(--warsha-space-1)',
+          paddingInline: 'var(--warsha-space-6)',
+          backgroundColor: 'var(--warsha-color-surface)',
+          borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+          overflowX: 'auto',
+          minInlineSize: 0,
+        }}
+      >
+        {RUN_TABS.map((candidate) => {
+          const selected = tab === candidate;
+          return (
+            <Button
+              key={candidate}
+              role="tab"
+              aria-selected={selected}
+              // Roving tabindex: the strip is one stop for Tab, and the arrows do the rest (§9).
+              tabIndex={selected ? 0 : -1}
+              aria-controls={`run-panel-${candidate}`}
+              // `tabPanelProps` derives the panel's label from `${panelId}-tab`, so the tab's own id is
+              // that — the pair cannot drift apart.
+              id={`run-panel-${candidate}-tab`}
+              variant="ghost"
+              dir={dir}
+              data-testid={`run-tab-${candidate}`}
+              onClick={() => setTab(candidate)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 'var(--warsha-space-2)',
+                flex: 'none',
+                borderRadius: 0,
+                borderBlockEnd: selected
+                  ? '3px solid var(--warsha-signal-text)'
+                  : '3px solid transparent',
+                backgroundColor: 'transparent',
+                color: 'var(--warsha-color-text)',
+                fontWeight: selected ? 700 : 500,
+                paddingInline: 'var(--warsha-space-3)',
+                minHeight: 'var(--warsha-size-touch)',
+              }}
+            >
+              {label(`run.tab_${candidate}`)}
+            </Button>
+          );
+        })}
+      </div>
+
+      {/* ------------------------------------------------- the stream and the artifacts ledger */}
+      {tab === 'stream' && (
+        <div
+          dir={dir}
+          {...tabPanelProps('run-panel-stream')}
+          style={{ display: 'flex', flex: '1', overflow: 'hidden', minInlineSize: 0, flexWrap: 'wrap' }}
+        >
+          <Box
+            dir={dir}
+            style={{
+              /* §10: 400px is the stream's preferred column, not a promise — at 320/390 it takes the whole
+                  line and the artifact plate follows underneath, instead of being squeezed to zero. */
+              flex: '1 1 400px',
+              maxWidth: '400px',
+              borderInlineEnd: '1px solid var(--warsha-bench-rule)',
+              backgroundColor: 'var(--warsha-color-surface)',
+              display: 'flex',
+              flexDirection: 'column',
+              minInlineSize: 0,
+            }}
+          >
+            <Box dir={dir} p={4} style={{ borderBlockEnd: '1px solid var(--warsha-bench-rule)' }}>
+              <Text weight="bold" size="sm" dir={dir}>
+                {label('run.event_stream')}
+              </Text>
+            </Box>
+
+            <div style={{ flex: '1', overflowY: 'auto', minInlineSize: 0 }}>
+              {eventsLoading ? (
+                <Box p={4}>
+                  <Skeleton label={label('run.events_loading')} variant="row" lines={4} />
+                </Box>
+              ) : events.length === 0 ? (
+                <Box p={4}>
+                  <Text size="sm" dir={dir}>
+                    {label('run.events_empty')}
+                  </Text>
+                </Box>
+              ) : (
+                <Stream label={label('run.event_stream')}>
+                  {events.map((event) => (
+                    <Stream.Line
+                      key={event.id}
+                      time={formatTime(event.createdAt)}
+                      kind={streamKind(event.kind)}
+                      lane={stageWord(event.stage)}
+                    >
+                      {`${event.kind} ${JSON.stringify(event.payload).slice(0, 100)}`}
+                      {event.costCents !== null ? ` · $${(event.costCents / 100).toFixed(2)}` : ''}
+                    </Stream.Line>
+                  ))}
+                </Stream>
+              )}
+              <div ref={eventsEndRef} />
+            </div>
+          </Box>
+
+          {/* Artifacts: a ruled ledger on a plate, with the body of the one that is open beneath it. */}
+          <Box
+            dir={dir}
+            style={{
+              flex: '1',
+              paddingInline: 'var(--warsha-space-6)',
+              paddingBlock: 'var(--warsha-space-6)',
+              overflowY: 'auto',
+              backgroundColor: 'var(--warsha-color-bg)',
+              minInlineSize: 0,
+            }}
+          >
+            <Panel
+              title={label('run.artifacts')}
+              actions={
+                <Button variant="secondary" size="sm" dir={dir} disabled={Object.keys(artifacts).length === 0}>
+                  {label('run.export_all')}
+                </Button>
+              }
+            >
+              {artifactsLoading ? (
+                <Skeleton label={label('run.artifacts_loading')} variant="line" lines={3} />
+              ) : Object.keys(artifacts).length === 0 ? (
+                <EmptyState
+                  title={label('run.no_artifacts')}
+                  action={
+                    <Button variant="secondary" dir={dir} onClick={() => setFollowing(true)}>
+                      {label('run.follow_live')}
+                    </Button>
+                  }
+                />
+              ) : (
+                <Ledger label={label('run.artifacts')} recessed>
+                  {Object.entries(artifacts).map(([name, content]) => (
+                    <Ledger.Row key={name} meta={<ChipMeta>{`${(content.length / 1000).toFixed(1)}k`}</ChipMeta>}>
+                      <Text size="sm" weight="medium" dir={dir}>
+                        {stageWord(name)}
+                      </Text>
+                      <pre
+                        // A document body is machine text: mono, its own horizontal scroll, and never
+                        // re-shaped by the interface direction (§11). B4: a region that scrolls must also
+                        // be reachable and named — `scrollable-region-focusable` is a serious AA rule, and
+                        // a keyboard owner otherwise cannot read past the first 400px of an artifact at all.
+                        dir="ltr"
+                        translate="no"
+                        role="region"
+                        tabIndex={0}
+                        aria-label={stageWord(name)}
+                        style={{
+                          margin: 0,
+                          marginBlockStart: 'var(--warsha-space-2)',
+                          padding: 'var(--warsha-space-4)',
+                          borderRadius: 'var(--warsha-radius-sm)',
+                          backgroundColor: 'var(--warsha-bench-plate)',
+                          border: '1px solid var(--warsha-bench-rule)',
+                          color: 'var(--warsha-color-text)',
+                          fontFamily: 'var(--warsha-font-mono)',
+                          fontSize: 'var(--warsha-font-size-sm)',
+                          lineHeight: 'var(--warsha-line-height-base)',
+                          maxHeight: '400px',
+                          overflowX: 'auto',
+                          overflowY: 'auto',
+                          unicodeBidi: 'isolate',
+                        }}
+                      >
+                        {content}
+                      </pre>
+                      <Box
+                        style={{
+                          display: 'flex',
+                          gap: 'var(--warsha-space-2)',
+                          marginBlockStart: 'var(--warsha-space-2)',
+                        }}
+                      >
+                        <Button variant="ghost" size="sm" dir={dir}>
+                          {label('common.copy')}
+                        </Button>
+                        <Button variant="ghost" size="sm" dir={dir}>
+                          {label('common.download')}
+                        </Button>
+                      </Box>
+                    </Ledger.Row>
+                  ))}
+                </Ledger>
+              )}
+            </Panel>
+          </Box>
+        </div>
+      )}
+
+      {/* Live preview (M5b): the panel takes the URL and the status from here. */}
       {tab === 'preview' && (
-        <Box dir={dir} style={{ flex: 1, overflowY: 'auto', padding: 'var(--warsha-space-6)', backgroundColor: 'var(--warsha-color-bg)' }}>
+        <div
+          dir={dir}
+          {...tabPanelProps('run-panel-preview')}
+          style={{ flex: '1', overflowY: 'auto', paddingInline: 'var(--warsha-space-6)', paddingBlock: 'var(--warsha-space-6)', backgroundColor: 'var(--warsha-color-bg)', minInlineSize: 0 }}
+        >
           <LivePreview
             url={previewUrl}
             status={previewStatus}
@@ -391,26 +561,54 @@ export function RunView({ run, onBack }: RunViewProps) {
             onStop={handlePreviewStop}
             onElementClick={handleElementClick}
           />
-        </Box>
+        </div>
       )}
 
-      {/* Continue on server (M6a): the handoff entry point and the review & apply dry run */}
+      {/* Continue on server (M6a): the handoff entry point and the review & apply dry run. */}
       {tab === 'handoff' && (
-        <Box dir={dir} style={{ flex: 1, overflowY: 'auto', padding: 'var(--warsha-space-6)', backgroundColor: 'var(--warsha-color-bg)', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
-          <Button variant="secondary" size="sm" dir={dir} onClick={() => setHandoffOpen(true)}>
-            {locale === 'ar' ? 'المتابعة على الخادم' : 'Hand off'}
+        <div
+          dir={dir}
+          {...tabPanelProps('run-panel-handoff')}
+          style={{
+            flex: '1',
+            overflowY: 'auto',
+            paddingInline: 'var(--warsha-space-6)',
+            paddingBlock: 'var(--warsha-space-6)',
+            backgroundColor: 'var(--warsha-color-bg)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--warsha-space-4)',
+            minInlineSize: 0,
+          }}
+        >
+          <Button variant="secondary" dir={dir} onClick={() => setHandoffOpen(true)}>
+            {label('run.handoff')}
           </Button>
-          {/* `files` stays empty until the remote run brings changes back, so the panel
-              shows its empty state; applying needs the daemon's backup + apply RPC. */}
+          {/* `files` stays empty until the remote run brings changes back, so the panel shows its empty
+              state; applying needs the daemon's backup + apply RPC. */}
           <ReviewApplyPanel files={handoffFiles} backupName="" onApply={handleApplyChanges} />
-        </Box>
+        </div>
       )}
 
-      {/* Router & cost (M14b): Eco mode and the local/cloud badge per target */}
+      {/* Router & cost (M14b): Eco mode and the local/cloud badge per target. */}
       {tab === 'router' && (
-        <Box dir={dir} style={{ flex: 1, overflowY: 'auto', padding: 'var(--warsha-space-6)', backgroundColor: 'var(--warsha-color-surface)', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
+        <div
+          dir={dir}
+          {...tabPanelProps('run-panel-router')}
+          style={{
+            flex: '1',
+            overflowY: 'auto',
+            paddingInline: 'var(--warsha-space-6)',
+            paddingBlock: 'var(--warsha-space-6)',
+            backgroundColor: 'var(--warsha-color-bg)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--warsha-space-4)',
+            minInlineSize: 0,
+          }}
+        >
           <Text size="xl" weight="bold" dir={dir}>
-            {locale === 'ar' ? 'التوجيه والتكلفة' : 'Router & cost'}
+            {label('run.tab_router')}
           </Text>
           {/* The battery and network values are caller-supplied until a router RPC exists. */}
           <EcoModeToggle
@@ -421,24 +619,25 @@ export function RunView({ run, onBack }: RunViewProps) {
             onChange={setEcoEnabled}
           />
           {routerTargets.length === 0 ? (
-            <Text size="sm" dir={dir} style={{ color: 'var(--warsha-color-muted)' }}>
-              {locale === 'ar' ? 'لا توجد أهداف توجيه بعد' : 'No router targets yet'}
+            <Text size="sm" dir={dir}>
+              {label('run.router_empty')}
             </Text>
           ) : (
-            <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' }}>
+            <Ledger label={label('run.tab_router')}>
               {routerTargets.map((target) => (
-                <Card key={target.name} dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-3)' }}>
+                <Ledger.Row key={target.name} meta={<ChipMeta>{target.model}</ChipMeta>}>
                   <LocalCloudBadge kind={target.kind} targetName={target.name} model={target.model} />
-                  <Text size="sm" dir={dir}>{target.name}</Text>
-                  <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>{target.model}</Text>
-                </Card>
+                  <Text size="sm" dir={dir}>
+                    {target.name}
+                  </Text>
+                </Ledger.Row>
               ))}
-            </Box>
+            </Ledger>
           )}
-        </Box>
+        </div>
       )}
 
-      {/* Continue on server dialog (M6a): mounted once, opened from the header or the tab */}
+      {/* Continue on server dialog (M6a): mounted once, opened from the header or the tab. */}
       <HandoffDialog
         open={handoffOpen}
         phase={handoffPhase}

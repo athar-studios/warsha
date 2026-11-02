@@ -1,105 +1,316 @@
-// Settings screen — routines, connected subscriptions, mode preference
+// Settings — the owner's preferences plate (PLAN.md M8, redrawn for Bench & Signal in B3-secondary).
+//
+// REDESIGN §5 gives this screen "language segmented control, theme segmented control (owner choice), eco
+// mode switch; subscriptions ledger" on two plates. What it had was two columns of rounded rows built from
+// `t('…') || 'literal'` fallbacks and a routines list that duplicated the Routines screen — so the same
+// setting read differently depending on which screen the owner reached first.
+//
+// The bench shape:
+//
+//   * two plates fastened by hairlines, each with its own ruled head (§1.1);
+//   * one choice per row, and each row's control is the same component the rest of the app uses:
+//     `Segmented` for the language, `ThemeToggle` for the theme, `EcoModeToggle` for eco mode. Settings and
+//     the top bar cannot drift apart because they are literally the same switch (requirement: coherence);
+//   * the subscriptions are a ledger, and the lamp is lit only where the owner is actually needed — a
+//     subscription that is not connected is the owner's to connect (§1);
+//   * no routine list here: routines live on their own tab, and a copy of them here would be a second
+//     source of truth for the same registry (§3's disclosure ladder adds detail, it never duplicates).
+//
+// Every word is `@warsha/i18n`: the fallbacks, the `locale === 'ar' ? routine.ar : routine.en` branches and
+// the `{ ar, en }` fixture tables are gone.
 import { type WarshaClient } from '@warsha/client';
-import { useLocale, useDirection, t } from '@warsha/i18n';
-import { Box, Text, Button, Card } from '@warsha/ui';
-import React from 'react';
+import { isLocale, t, useDirection, useLocale, useLocaleControl } from '@warsha/i18n';
+import { Box, Button, Chip, Lamp, Ledger, Panel, Segmented } from '@warsha/ui';
+import React, { useCallback, useState } from 'react';
+
+import { EcoModeToggle } from '../components/EcoModeToggle';
+import { ThemeToggle } from '../components/ThemeToggle';
+import { useTheme } from '../theme';
 
 interface SettingsScreenProps {
   client: WarshaClient;
   onBack?: () => void;
 }
 
-export function SettingsScreen({ client, onBack }: SettingsScreenProps) {
-  const dir = useDirection();
-  const locale = useLocale();
+/** One third-party connection the daemon knows about (`subscriptions.list` is the seam). */
+interface Subscription {
+  id: string;
+  /** A service's own name is a proper noun: it never gets translated (§11). */
+  name: string;
+  connected: boolean;
+}
 
-  // Dismiss unused prop warning without changing the public API.
+const SUBSCRIPTIONS: Subscription[] = [
+  { id: 'github', name: 'GitHub', connected: true },
+  { id: 'openai', name: 'OpenAI', connected: true },
+  { id: 'anthropic', name: 'Anthropic', connected: true },
+  { id: 'slack', name: 'Slack', connected: false },
+];
+
+export function SettingsScreen({ client, onBack }: SettingsScreenProps) {
+  // The preferences on this plate need no daemon call yet; `client` stays in the signature because the
+  // shell passes it and the subscriptions RPC will use it when it lands.
   void client;
 
-  const routines = [
-    { id: 'daily-standup', ar: 'اجتماع يومي', en: 'Daily standup', schedule: '09:00' },
-    { id: 'weekly-review', ar: 'مراجعة أسبوعية', en: 'Weekly review', schedule: 'Mon 10:00' },
-    { id: 'release-check', ar: 'فحص الإصدار', en: 'Release check', schedule: 'Fri 16:00' },
-  ];
+  const dir = useDirection();
+  const locale = useLocale();
+  const { setLocale } = useLocaleControl();
+  const { preference, setPreference } = useTheme();
 
-  const subscriptions = [
-    { id: 'github', name: 'GitHub', status: 'connected' },
-    { id: 'openai', name: 'OpenAI', status: 'connected' },
-    { id: 'anthropic', name: 'Anthropic', status: 'connected' },
-    { id: 'slack', name: 'Slack', status: 'disconnected' },
-  ];
+  const [subscriptions, setSubscriptions] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(SUBSCRIPTIONS.map((subscription) => [subscription.id, subscription.connected]))
+  );
+  // TODO(M20 wiring): eco mode lives in `warsha-pipeline`'s `EcoMode`; the daemon has no settings RPC for
+  // it yet, so the switch reports intent and the battery/network readings are the caller's own.
+  const [ecoEnabled, setEcoEnabled] = useState(false);
+  const [onBattery] = useState(false);
+  const [batteryPct] = useState(100);
+  const [networkOk] = useState(true);
+  const [intent, setIntent] = useState<string | null>(null);
+
+  const label = useCallback((key: string, values?: Record<string, string | number>) => t(key, values ?? {}, locale), [locale]);
+
+  const toggleSubscription = (subscription: Subscription) => {
+    const next = !subscriptions[subscription.id];
+    setSubscriptions((previous) => ({ ...previous, [subscription.id]: next }));
+    // §7: a control that cannot write yet says so, in the same words, rather than pretending.
+    setIntent(`${subscription.name} — ${label('common.local_only')}`);
+  };
 
   return (
-    <Box dir={dir} className="settings-screen" style={{ padding: 'var(--warsha-space-4)', maxWidth: '900px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
-      <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-3)' }}>
+    <Box
+      dir={dir}
+      className="settings-screen"
+      style={{
+        paddingInline: 'var(--warsha-space-4)',
+        paddingBlock: 'var(--warsha-space-6)',
+        maxInlineSize: '900px',
+        margin: '0 auto',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--warsha-space-4)',
+        minInlineSize: 0,
+      }}
+    >
+      <header dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-3)', flexWrap: 'wrap' }}>
         {onBack && (
           <Button variant="ghost" size="sm" dir={dir} onClick={onBack}>
-            ← {t('common.back') || 'Back'}
+            {label('common.back')}
           </Button>
         )}
-        <Text size="xl" weight="bold" dir={dir}>
-          {t('settings.title') || 'Settings'}
-        </Text>
+        <h1
+          dir={dir}
+          style={{
+            margin: 0,
+            fontSize: 'var(--warsha-font-size-xl)',
+            fontWeight: 'var(--warsha-font-weight-bold)',
+            color: 'var(--warsha-color-text)',
+            minInlineSize: 0,
+          }}
+        >
+          {label('nav.settings')}
+        </h1>
+      </header>
+
+      {/* ------------------------------------------------------------------ the preferences plate */}
+      <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
+        <section
+          dir={dir}
+          aria-label={label('settings.preferences')}
+          style={{
+            backgroundColor: 'var(--warsha-color-surface)',
+            border: '1px solid var(--warsha-bench-rule)',
+            borderRadius: 'var(--warsha-radius-md)',
+            minInlineSize: 0,
+          }}
+        >
+          <h2
+            dir={dir}
+            style={{
+              margin: 0,
+              paddingInline: 'var(--warsha-space-4)',
+              paddingBlock: 'var(--warsha-space-3)',
+              borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+              fontSize: 'var(--warsha-font-size-sm)',
+              fontWeight: 'var(--warsha-font-weight-semibold)',
+              color: 'var(--warsha-color-text)',
+            }}
+          >
+            {label('settings.preferences')}
+          </h2>
+
+          {/* One row per choice: the label leads, the control answers, the hint says what it costs. */}
+          <PreferenceRow
+            groupLabel={label('settings.language')}
+            hint={label('settings.language_hint')}
+            control={
+              <Segmented
+                label={label('settings.language')}
+                size="sm"
+                value={locale}
+                // The guard is the cast: `Segmented` hands back a string, and only the two locales this
+                // package accepts are ever written.
+                onChange={(next) => {
+                  if (isLocale(next)) setLocale(next);
+                }}
+                options={[
+                  { value: 'ar', label: label('onboarding.lang_ar'), glyph: 'AR' },
+                  { value: 'en', label: label('onboarding.lang_en'), glyph: 'EN' },
+                ]}
+              />
+            }
+          />
+
+          <PreferenceRow
+            groupLabel={label('theme.group')}
+            hint={label('settings.theme_hint')}
+            control={<ThemeToggle preference={preference} onChange={setPreference} />}
+          />
+
+          <PreferenceRow
+            groupLabel={label('router.eco.title')}
+            hint={label('router.eco.hint')}
+            control={
+              <EcoModeToggle
+                enabled={ecoEnabled}
+                onBattery={onBattery}
+                batteryPct={batteryPct}
+                networkOk={networkOk}
+                onChange={setEcoEnabled}
+              />
+            }
+          />
+        </section>
+
+        {/* --------------------------------------------------------------- the subscriptions ledger */}
+        <Panel
+          title={label('settings.subscriptions')}
+          label={label('settings.subscriptions')}
+          recessed
+          style={{ border: '1px solid var(--warsha-bench-rule)', borderRadius: 'var(--warsha-radius-md)' }}
+        >
+          <Ledger
+            label={label('settings.subscriptions')}
+            style={{ borderBlockStart: 'none' }}
+          >
+            {SUBSCRIPTIONS.map((subscription) => {
+              const connected = subscriptions[subscription.id] === true;
+              return (
+                <Ledger.Row
+                  key={subscription.id}
+                  meta={
+                    // The service names itself in its own letters, isolated LTR inside an Arabic line (§11).
+                    <Chip label={subscription.name}>
+                      <span dir="ltr" translate="no" style={{ fontFamily: 'var(--warsha-font-mono)' }}>
+                        {subscription.name}
+                      </span>
+                    </Chip>
+                  }
+                  actions={
+                    <Button
+                      variant={connected ? 'ghost' : 'secondary'}
+                      size="sm"
+                      dir={dir}
+                      onClick={() => toggleSubscription(subscription)}
+                    >
+                      {label(connected ? 'common.disconnect' : 'common.connect')}
+                    </Button>
+                  }
+                >
+                  {/* A lit lamp is the owner's queue: an unconnected subscription is theirs to connect (§1). */}
+                  {connected ? (
+                    <Lamp state="ok" size="sm">
+                      {label('settings.subscription.connected')}
+                    </Lamp>
+                  ) : (
+                    <Lamp state="waiting" size="sm">
+                      {label('settings.subscription.disconnected')}
+                    </Lamp>
+                  )}
+                </Ledger.Row>
+              );
+            })}
+          </Ledger>
+
+          {intent && (
+            // §7: the switch says what it did — an intent the daemon has not been told yet, in words.
+            <p
+              role="status"
+              aria-live="polite"
+              dir={dir}
+              style={{
+                margin: 0,
+                marginBlockStart: 'var(--warsha-space-2)',
+                fontSize: 'var(--warsha-font-size-xs)',
+                color: 'var(--warsha-color-text)',
+              }}
+            >
+              {intent}
+            </p>
+          )}
+        </Panel>
       </Box>
-
-      <Card dir={dir}>
-        <Text weight="bold" dir={dir} style={{ marginBottom: 'var(--warsha-space-3)' }}>
-          {t('settings.routines') || 'Routines'}
-        </Text>
-        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' }}>
-          {routines.map(routine => (
-            <Box key={routine.id} dir={dir} style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: 'var(--warsha-space-3)',
-              backgroundColor: 'var(--warsha-color-bg)',
-              borderRadius: '8px',
-            }}>
-              <Box dir={dir}>
-                <Text weight="medium" dir={dir}>{locale === 'ar' ? routine.ar : routine.en}</Text>
-                <Text size="sm" style={{ color: 'var(--warsha-color-text-muted)' }} dir={dir}>{routine.schedule}</Text>
-              </Box>
-              <Button variant="secondary" size="sm" dir={dir}>
-                {t('common.edit') || 'Edit'}
-              </Button>
-            </Box>
-          ))}
-        </Box>
-      </Card>
-
-      <Card dir={dir}>
-        <Text weight="bold" dir={dir} style={{ marginBottom: 'var(--warsha-space-3)' }}>
-          {t('settings.subscriptions') || 'Connected Subscriptions'}
-        </Text>
-        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' }}>
-          {subscriptions.map(sub => (
-            <Box key={sub.id} dir={dir} style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: 'var(--warsha-space-3)',
-              backgroundColor: 'var(--warsha-color-bg)',
-              borderRadius: '8px',
-            }}>
-              <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-2)' }}>
-                <Box dir={dir} style={{
-                  width: '10px',
-                  height: '10px',
-                  borderRadius: '50%',
-                  backgroundColor: sub.status === 'connected' ? 'var(--warsha-color-success)' : 'var(--warsha-color-muted)',
-                }} />
-                <Text dir={dir}>{sub.name}</Text>
-              </Box>
-              <Button variant={sub.status === 'connected' ? 'ghost' : 'primary'} size="sm" dir={dir}>
-                {sub.status === 'connected'
-                  ? (t('common.disconnect') || 'Disconnect')
-                  : (t('common.connect') || 'Connect')}
-              </Button>
-            </Box>
-          ))}
-        </Box>
-      </Card>
     </Box>
+  );
+}
+
+/**
+ * One preference: its name, its control, and the line that says what the choice does.
+ *
+ * The row is a `<div>` with a `role="group"`-named control inside it, not a `<fieldset>`: the controls
+ * here are already grouped by the component that renders them (`Segmented`, `ThemeToggle`), and a second
+ * group around a single control would be announced twice (§9).
+ */
+function PreferenceRow({
+  groupLabel,
+  hint,
+  control,
+}: {
+  groupLabel: string;
+  hint: string;
+  control: React.ReactNode;
+}) {
+  const dir = useDirection();
+
+  return (
+    <div
+      dir={dir}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 'var(--warsha-space-4)',
+        flexWrap: 'wrap',
+        paddingInline: 'var(--warsha-space-4)',
+        paddingBlock: 'var(--warsha-space-3)',
+        borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+        minInlineSize: 0,
+      }}
+    >
+      <span
+        dir={dir}
+        style={{
+          fontSize: 'var(--warsha-font-size-sm)',
+          fontWeight: 'var(--warsha-font-weight-medium)',
+          color: 'var(--warsha-color-text)',
+          flex: '1 1 12rem',
+          minInlineSize: 0,
+        }}
+      >
+        {groupLabel}
+        <span
+          dir={dir}
+          style={{
+            display: 'block',
+            fontSize: 'var(--warsha-font-size-xs)',
+            color: 'var(--warsha-color-text-muted)',
+            lineHeight: 'var(--warsha-line-height-relaxed)',
+            fontWeight: 'var(--warsha-font-weight-normal)',
+          }}
+        >
+          {hint}
+        </span>
+      </span>
+      <span style={{ flex: 'none' }}>{control}</span>
+    </div>
   );
 }

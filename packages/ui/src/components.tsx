@@ -10,6 +10,7 @@
 
 import React from 'react';
 
+import { CONTROL_CLASS, CONTROL_COMPACT_CLASS, cx } from './compounds/internal';
 import { colorVar, duration, easing, fontSize, fontWeight, radius, shadow, space } from './tokens';
 
 /** Font sizes per `Text` size step. A token name, never a rem value. */
@@ -149,7 +150,10 @@ export function Button({ children, variant = 'primary', size = 'md', dir = 'auto
   return (
     <button
       dir={dir}
-      className={className}
+      // `.warsha-control` is the touch contract (REDESIGN §9): a 32px floor on a fine pointer and the WCAG
+      // 44px minimum under `pointer: coarse`, both stated once in `tokens.css` because a pointer type is not
+      // a prop. A `sm` button names itself compact so the stylesheet can tell it from a `md`.
+      className={cx('warsha-button', CONTROL_CLASS, size === 'sm' && CONTROL_COMPACT_CLASS, className)}
       style={{
         ...baseStyle,
         ...BUTTON_VARIANT[variant],

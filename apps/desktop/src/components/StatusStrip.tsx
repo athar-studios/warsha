@@ -1,8 +1,20 @@
-// Ship status strip — "Code checks → Builds → Tests → Store-ready" (PLAN.md M5a).
-// The strip only renders the four delivery stages; it never runs a check itself.
-// The statuses come from the existing CI/GitHub check status, so this component
-// stays a pure function of its `stages` prop and re-renders when the feed updates.
-import { t, useDirection, useLocale, type Locale } from '@warsha/i18n';
+// Ship status strip — "Code checks → Builds → Tests → Store-ready" (PLAN.md M5a), redrawn for the bench.
+//
+// The strip only renders the four delivery stages; it never runs a check itself. The statuses come from
+// the existing CI/GitHub check status, so this component stays a pure function of its `stages` prop and
+// re-renders when the feed updates.
+//
+// The bench shape (docs/design/REDESIGN.md §1, §9): a ruled row of lamps on a plate, in ship order, with
+// a direction-following separator between them. Each stage says itself three ways — the dot, a glyph and
+// the state word — because a check that is only green is a check nobody with a colour-vision deficiency
+// can read. The `working` lamp breathes, and only because `tokens.css` gates that animation on
+// `prefers-reduced-motion: no-preference` (§8); there is no spinner to own here.
+//
+// Every word is `@warsha/i18n` (`status_strip.*`): the local `{ ar, en }` tables and the
+// `translated === key ? fallback : translated` shim they needed are gone.
+import { t, useDirection, useLocale } from '@warsha/i18n';
+import { Lamp, type LampState } from '@warsha/ui';
+import React from 'react';
 
 export type StageStatus = 'pending' | 'running' | 'pass' | 'fail';
 
@@ -17,62 +29,31 @@ export const deliveryStageNames = ['code_checks', 'builds', 'tests', 'store_read
 
 export type DeliveryStageName = (typeof deliveryStageNames)[number];
 
-const stageLabels: Record<DeliveryStageName, Record<Locale, string>> = {
-  code_checks: { ar: 'فحوصات الكود', en: 'Code checks' },
-  builds: { ar: 'البناء', en: 'Builds' },
-  tests: { ar: 'الاختبارات', en: 'Tests' },
-  store_ready: { ar: 'جاهز للمتجر', en: 'Store-ready' },
-};
-
-const stripLabel = { ar: 'حالة الشحن', en: 'Ship status' };
-
-interface StatusMeta {
-  /** Glyph for every status except `running`, which renders a spinner instead. */
-  glyph: string;
-  background: string;
-  color: string;
-  label: Record<Locale, string>;
-  hint: Record<Locale, string>;
+/**
+ * The lamp a check status lights.
+ *
+ * `waiting` is deliberately absent: §1 reserves the lit lamp for the owner's queue, and a build that is
+ * running is the machine's business until it fails or the whole strip is green.
+ */
+export function stageLamp(status: StageStatus): LampState {
+  switch (status) {
+    case 'running':
+      return 'working';
+    case 'pass':
+      return 'ok';
+    case 'fail':
+      return 'fail';
+    case 'pending':
+      return 'idle';
+  }
 }
 
-const statusMeta: Record<StageStatus, StatusMeta> = {
-  pending: {
-    glyph: '○',
-    background: 'var(--warsha-color-surface-muted)',
-    color: 'var(--warsha-color-text-muted)',
-    label: { ar: 'في الانتظار', en: 'Pending' },
-    hint: { ar: 'لم يبدأ بعد', en: 'Not started yet' },
-  },
-  running: {
-    glyph: '',
-    background: 'var(--warsha-color-surface-muted)',
-    color: 'var(--warsha-color-accent-strong)',
-    label: { ar: 'قيد التنفيذ', en: 'Running' },
-    hint: { ar: 'يعمل الآن', en: 'Running now' },
-  },
-  pass: {
-    glyph: '✓',
-    background: 'var(--warsha-color-surface-muted)',
-    color: 'var(--warsha-color-success)',
-    label: { ar: 'ناجح', en: 'Pass' },
-    hint: { ar: 'نجح', en: 'Passed' },
-  },
-  fail: {
-    glyph: '✗',
-    background: 'var(--warsha-color-surface-muted)',
-    color: 'var(--warsha-color-error)',
-    label: { ar: 'فاشل', en: 'Fail' },
-    hint: { ar: 'فشل ويحتاج إصلاحًا', en: 'Failed and needs a fix' },
-  },
-};
-
-/**
- * Translate a key, falling back to the local label when the catalog has no
- * entry yet (`t` returns the key itself for a missing message).
- */
-function localized(key: string, fallback: string, locale: Locale): string {
-  const translated = t(key, {}, locale);
-  return translated === key ? fallback : translated;
+/** The catalog key a stage is named by, or `null` for a name the bench does not know. */
+function stageKey(name: string): string | null {
+  const normalized = normalizeStageName(name);
+  return (deliveryStageNames as readonly string[]).includes(normalized)
+    ? `status_strip.stage.${normalized}`
+    : null;
 }
 
 /** `Code checks` → `code_checks`; unknown names keep their words, lowercased. */
@@ -93,41 +74,6 @@ export function allStagesGreen(stages: readonly DeliveryStage[]): boolean {
   return stages.length > 0 && stages.every((stage) => stage.status === 'pass');
 }
 
-function Spinner() {
-  // SVG + SMIL keeps the spin out of the stylesheets: no @keyframes to inject,
-  // which also keeps jsdom (the test DOM) from choking on a CSS parse.
-  return (
-    <svg
-      data-testid="status-strip-spinner"
-      aria-hidden="true"
-      width="10"
-      height="10"
-      viewBox="0 0 10 10"
-      style={{ display: 'inline-block', flex: '0 0 auto' }}
-    >
-      <circle
-        cx="5"
-        cy="5"
-        r="4"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeDasharray="8 17"
-        strokeLinecap="round"
-      />
-      <animateTransform
-        attributeName="transform"
-        attributeType="XML"
-        type="rotate"
-        from="0 5 5"
-        to="360 5 5"
-        dur="0.9s"
-        repeatCount="indefinite"
-      />
-    </svg>
-  );
-}
-
 export interface StatusStripProps {
   /** Delivery stages in ship order; re-render with new statuses to update live. */
   stages: DeliveryStage[];
@@ -139,85 +85,67 @@ export function StatusStrip({ stages }: StatusStripProps) {
 
   // In RTL the flow runs right-to-left, so the separator has to point the other way.
   const arrow = dir === 'rtl' ? '←' : '→';
-  const label = localized('status_strip.label', stripLabel[locale], locale);
+  const label = t('status_strip.label', {}, locale);
 
   return (
-    <ol
-      dir={dir}
-      aria-label={label}
-      data-testid="status-strip"
-      style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        alignItems: 'center',
-        gap: 'var(--warsha-space-2)',
-        listStyle: 'none',
-        margin: 0,
-        padding: 0,
-      }}
-    >
-      {stages.map((stage, index) => {
-        const normalized = normalizeStageName(stage.name);
-        const known = (deliveryStageNames as readonly string[]).includes(normalized);
-        const stageName = known
-          ? localized(
-              `status_strip.stage.${normalized}`,
-              stageLabels[normalized as DeliveryStageName][locale],
-              locale
-            )
-          : stage.name;
-        const meta = statusMeta[stage.status];
-        const statusLabel = localized(
-          `status_strip.status.${stage.status}`,
-          meta.label[locale],
-          locale
-        );
-        const hint = localized(`status_strip.hint.${stage.status}`, meta.hint[locale], locale);
+    <div dir={dir} role="status" aria-live="polite">
+      <ol
+        dir={dir}
+        aria-label={label}
+        data-testid="status-strip"
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: 'var(--warsha-space-2)',
+          listStyle: 'none',
+          margin: 0,
+          padding: 0,
+          minInlineSize: 0,
+        }}
+      >
+        {stages.map((stage, index) => {
+          const normalized = normalizeStageName(stage.name);
+          const known = stageKey(stage.name) !== null;
+          const stageName = known
+            ? t(`status_strip.stage.${normalized}`, {}, locale)
+            : stage.name;
+          const statusLabel = t(`status_strip.status.${stage.status}`, {}, locale);
+          const hint = t(`status_strip.hint.${stage.status}`, {}, locale);
 
-        return (
-          <li
-            key={`${normalized}-${index}`}
-            data-stage={normalized}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--warsha-space-2)' }}
-          >
-            <span
-              data-testid={`status-strip-stage-${normalized}`}
-              data-status={stage.status}
-              title={`${stageName} — ${hint}`}
-              aria-label={`${stageName} — ${statusLabel}`}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                paddingInline: '10px',
-                paddingBlock: 'var(--warsha-space-1)',
-                borderRadius: '999px',
-                fontSize: '0.8125rem',
-                fontWeight: 600,
-                whiteSpace: 'nowrap',
-                backgroundColor: meta.background,
-                color: meta.color,
-              }}
+          return (
+            <li
+              key={`${normalized}-${index}`}
+              data-stage={normalized}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--warsha-space-2)', minInlineSize: 0 }}
             >
-              {stage.status === 'running' ? (
-                <Spinner />
-              ) : (
-                <span aria-hidden="true">{meta.glyph}</span>
-              )}
-              <span>{stageName}</span>
-            </span>
-            {index < stages.length - 1 && (
               <span
-                aria-hidden="true"
-                data-testid="status-strip-arrow"
-                style={{ color: 'var(--warsha-color-muted)' }}
+                data-testid={`status-strip-stage-${normalized}`}
+                data-status={stage.status}
+                title={`${stageName} — ${hint}`}
+                aria-label={`${stageName} — ${statusLabel}`}
+                style={{ display: 'inline-flex', alignItems: 'center', minInlineSize: 0 }}
               >
-                {arrow}
+                <Lamp state={stageLamp(stage.status)} size="xs">
+                  {stageName}
+                </Lamp>
               </span>
-            )}
-          </li>
-        );
-      })}
-    </ol>
+              {index < stages.length - 1 && (
+                <span
+                  aria-hidden="true"
+                  data-testid="status-strip-arrow"
+                  style={{
+                    color: 'var(--warsha-color-text)',
+                    fontFamily: 'var(--warsha-font-mono)',
+                  }}
+                >
+                  {arrow}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }

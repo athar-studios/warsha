@@ -1,11 +1,24 @@
-// Settings → Providers — one provider row (PLAN.md M8b).
+// Settings → Providers — one provider row, redrawn for Bench & Signal (PLAN.md M8b, B3-core).
 //
-// Every provider (a coding CLI, a runtime, a model endpoint) is off by default.
-// The row owns no state: mode, enabled and the pinned version come from props and
-// every change goes straight back through `onModeChange`/`onToggle`/`onPinVersion`.
-// "Test connection" is a seam (`onTest`); nothing here reads a key or opens a socket.
-import { t, useDirection, useLocale, type Locale } from '@warsha/i18n';
-import { Button } from '@warsha/ui';
+// Every provider (a coding CLI, a runtime, a model endpoint) is off by default. The row owns no state:
+// mode, enabled and the pinned version come from props and every change goes straight back through
+// `onModeChange`/`onToggle`/`onPinVersion`. "Test connection" is a seam (`onTest`); nothing here reads a
+// key or opens a socket.
+//
+// The bench shape (§1.2): this is a ruled ledger line on a plate, not a rounded card — a hairline under
+// the row, the name leading, and the controls in a second line so a long Arabic label never pushes a
+// control off the plate. The state is a `Lamp` plus its word (never colour alone, §9), and the pinned
+// version is machine data: mono, tabular, isolated left-to-right (§11).
+//
+// The DOM contract stays: the row is an `<li>` (the screen's `<ul>` is the list), it carries
+// `data-testid`/`data-mode`/`data-enabled`, and every control keeps an accessible name that includes the
+// provider's name — `Mode — Ollama`, `Enabled — Codex CLI`, `Pinned version — Claude Code` — because a
+// screen of six identical controls otherwise announces "combobox, combobox, combobox" to a screen
+// reader. The `<select>` and the checkbox keep their native roles so the keyboard and the platform's own
+// switch semantics come free.
+import { t, useDirection, useLocale } from '@warsha/i18n';
+import { Button, Lamp } from '@warsha/ui';
+import React from 'react';
 
 export type ProviderMode = 'off' | 'notify' | 'auto';
 
@@ -20,28 +33,18 @@ export interface ProviderEntry {
 /** Selector order: the safest option first. */
 export const providerModes: ProviderMode[] = ['off', 'notify', 'auto'];
 
-const modeLabels: Record<ProviderMode, Record<Locale, string>> = {
-  off: { ar: 'معطّل', en: 'Off' },
-  notify: { ar: 'إشعار فقط', en: 'Notify only' },
-  auto: { ar: 'تحديث تلقائي', en: 'Auto' },
+/** The skin every control on this plate wears: the bench's edge, `sm` type, the 44px floor. */
+const CONTROL_STYLE: React.CSSProperties = {
+  paddingInline: 'var(--warsha-space-2)',
+  paddingBlock: 'var(--warsha-space-2)',
+  borderRadius: 'var(--warsha-radius-sm)',
+  border: '1px solid var(--warsha-bench-edge)',
+  backgroundColor: 'var(--warsha-color-surface)',
+  color: 'var(--warsha-color-text)',
+  fontFamily: 'inherit',
+  fontSize: 'var(--warsha-font-size-sm)',
+  minBlockSize: 'var(--warsha-size-touch)',
 };
-
-const fieldLabels = {
-  mode: { ar: 'الوضع', en: 'Mode' },
-  enabled: { ar: 'مفعّل', en: 'Enabled' },
-  pin: { ar: 'نسخة مثبّتة', en: 'Pinned version' },
-  pinPlaceholder: { ar: 'الأحدث', en: 'latest' },
-  test: { ar: 'اختبر الاتصال', en: 'Test connection' },
-} satisfies Record<string, Record<Locale, string>>;
-
-/**
- * Translate a key, falling back to the local label when the catalog has no
- * entry yet (`t` returns the key itself for a missing message).
- */
-function localized(key: string, fallback: string, locale: Locale): string {
-  const translated = t(key, {}, locale);
-  return translated === key ? fallback : translated;
-}
 
 export interface ProviderRowProps extends ProviderEntry {
   onModeChange: (mode: ProviderMode) => void;
@@ -64,10 +67,14 @@ export function ProviderRow({
   const dir = useDirection();
   const locale = useLocale();
 
-  const label = (field: keyof typeof fieldLabels): string =>
-    localized(`simple.providers.${field}`, fieldLabels[field][locale], locale);
-
+  /** `<control label> — <provider>`, so each of the row's three controls names what it belongs to. */
   const withName = (text: string): string => `${text} — ${name}`;
+
+  const modeWord = t('providers.mode', {}, locale);
+  const enabledWord = t('providers.enabled', {}, locale);
+  const disabledWord = t('providers.mode_off', {}, locale);
+  const pinWord = t('providers.pinned', {}, locale);
+  const pinPlaceholder = t('providers.pin_placeholder', {}, locale);
 
   return (
     <li
@@ -79,53 +86,85 @@ export function ProviderRow({
         display: 'flex',
         flexDirection: 'column',
         gap: 'var(--warsha-space-2)',
-        paddingInline: '14px',
+        paddingInline: 'var(--warsha-space-4)',
         paddingBlock: 'var(--warsha-space-3)',
-        borderRadius: '10px',
-        border: '1px solid var(--warsha-color-border)',
-        backgroundColor: 'var(--warsha-color-surface)',
         listStyle: 'none',
-        opacity: enabled ? 1 : 0.72,
+        borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+        backgroundColor: 'var(--warsha-color-surface)',
+        color: 'var(--warsha-color-text)',
+        minInlineSize: 0,
       }}
     >
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 'var(--warsha-space-2)',
+          gap: 'var(--warsha-space-3)',
+          flexWrap: 'wrap',
+          minInlineSize: 0,
         }}
       >
-        <span style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{name}</span>
+        {/* The lamp says whether this provider is in the team's way of working; the word says it again. */}
+        <Lamp state={enabled ? 'ok' : 'idle'} size="xs">
+          {enabled ? enabledWord : disabledWord}
+        </Lamp>
+
+        <span
+          style={{
+            flex: '1',
+            minInlineSize: 0,
+            fontSize: 'var(--warsha-font-size-sm)',
+            fontWeight: 600,
+            overflowWrap: 'anywhere',
+          }}
+        >
+          {name}
+        </span>
 
         <label
+          className="warsha-control"
           style={{
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '6px',
-            fontSize: '0.8125rem',
+            gap: 'var(--warsha-space-2)',
+            fontSize: 'var(--warsha-font-size-sm)',
+            color: 'var(--warsha-color-text)',
+            minInlineSize: 0,
           }}
         >
           <input
             type="checkbox"
             checked={enabled}
-            aria-label={withName(label('enabled'))}
+            aria-label={withName(enabledWord)}
             onChange={(event) => onToggle(event.target.checked)}
+            style={{
+              inlineSize: 'var(--warsha-size-badge)',
+              blockSize: 'var(--warsha-size-badge)',
+              accentColor: 'var(--warsha-color-accent-strong)',
+            }}
           />
-          <span>{label('enabled')}</span>
+          {enabledWord}
         </label>
       </div>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 'var(--warsha-space-2)' }}>
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: 'var(--warsha-space-2)',
+          minInlineSize: 0,
+        }}
+      >
         <select
-          aria-label={withName(label('mode'))}
+          aria-label={withName(modeWord)}
           value={mode}
           onChange={(event) => onModeChange(event.target.value as ProviderMode)}
-          style={styles.input}
+          style={CONTROL_STYLE}
         >
           {providerModes.map((option) => (
             <option key={option} value={option}>
-              {localized(`simple.providers.mode.${option}`, modeLabels[option][locale], locale)}
+              {t(`providers.mode_${option}`, {}, locale)}
             </option>
           ))}
         </select>
@@ -133,34 +172,26 @@ export function ProviderRow({
         <input
           type="text"
           dir="ltr"
-          aria-label={withName(label('pin'))}
-          placeholder={label('pinPlaceholder')}
-          title={label('pinPlaceholder')}
+          translate="no"
+          aria-label={withName(pinWord)}
+          placeholder={pinPlaceholder}
+          title={pinPlaceholder}
           value={pinnedVersion ?? ''}
           onChange={(event) => onPinVersion(event.target.value)}
+          // A version id is machine data: mono, tabular, isolated so it never scrambles in Arabic (§11).
           style={{
-            ...styles.input,
+            ...CONTROL_STYLE,
             fontFamily: 'var(--warsha-font-mono)',
+            fontVariantNumeric: 'tabular-nums',
             unicodeBidi: 'isolate',
-            maxWidth: '140px',
+            maxInlineSize: '9rem',
           }}
         />
 
         <Button type="button" variant="secondary" size="sm" dir={dir} onClick={() => onTest?.()}>
-          {label('test')}
+          {t('providers.test_connection', {}, locale)}
         </Button>
       </div>
     </li>
   );
 }
-
-const styles = {
-  input: {
-    paddingInline: 'var(--warsha-space-2)',
-    paddingBlock: '6px',
-    borderRadius: '6px',
-    border: '1px solid var(--warsha-color-border-strong)',
-    fontFamily: 'inherit',
-    fontSize: 'var(--warsha-font-size-sm)',
-  } as const,
-};

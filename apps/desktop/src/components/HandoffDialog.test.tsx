@@ -177,4 +177,50 @@ describe('HandoffDialog', () => {
     expect(handoffStatusText('applied', 'en')).toBe('The changes were applied, with a backup');
     expect(handoffStatusText('applied', 'ar')).toBe('تم تطبيق التغييرات مع نسخة احتياطية');
   });
+
+  // AUDIT-1 §4.2: a modal that lets Tab walk out behind the scrim, never answers Escape, and leaves the
+  // owner's focus on `document.body` is not a keyboard path. B3-core closed all three gaps.
+  it('moves focus in on open, wraps the Tab ring, and closes on Escape', () => {
+    const onClose = vi.fn();
+    renderIn('en', <HandoffDialog {...harness({ onClose })} />);
+
+    // The first thing the owner needs is the field, not the title.
+    expect(screen.getByTestId('handoff-remote-url')).toHaveFocus();
+
+    const close = screen.getByTestId('handoff-close');
+    close.focus();
+    // Tab on the last control wraps to the first, so nothing escapes into the bench behind it.
+    fireEvent.keyDown(close, { key: 'Tab' });
+    expect(screen.getByTestId('handoff-remote-url')).toHaveFocus();
+
+    fireEvent.keyDown(screen.getByTestId('handoff-remote-url'), { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives focus back to whatever opened the dialog', () => {
+    const opener = document.createElement('button');
+    opener.textContent = 'open';
+    document.body.appendChild(opener);
+    opener.focus();
+
+    const view = renderIn('en', <HandoffDialog {...harness()} />);
+    expect(screen.getByTestId('handoff-remote-url')).toHaveFocus();
+
+    view.rerender(
+      <LocaleProvider initialLocale="en">
+        <HandoffDialog {...harness({ open: false })} />
+      </LocaleProvider>
+    );
+
+    expect(opener).toHaveFocus();
+    opener.remove();
+  });
+
+  it('reads the phase as a lamp, so the state is not colour alone', () => {
+    renderIn('ar', <HandoffDialog {...harness({ phase: 'applied' })} />);
+
+    const status = screen.getByTestId('handoff-status');
+    expect(status.querySelector('[data-warsha-lamp="ok"]')).not.toBeNull();
+    expect(status).toHaveTextContent('تم تطبيق التغييرات مع نسخة احتياطية');
+  });
 });

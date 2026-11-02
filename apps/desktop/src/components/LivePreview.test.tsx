@@ -182,6 +182,58 @@ describe('LivePreview', () => {
     expect(screen.getByTestId('live-preview-pick-input')).toHaveAttribute('dir', 'ltr');
   });
 
+  it('says the dev-server state in a lamp and a word, and lights nothing (§1, §9)', () => {
+    const view = renderIn('en', <LivePreview {...harness({ status: 'idle' })} />);
+
+    expect(screen.getByText('not started')).toBeInTheDocument();
+    expect(view.container.querySelector('[data-warsha-lamp="waiting"]')).toBeNull();
+
+    view.rerender(
+      <LocaleProvider initialLocale="en">
+        <LivePreview {...harness({ url: PREVIEW_URL, status: 'running' })} />
+      </LocaleProvider>
+    );
+    expect(screen.getByText('running')).toBeInTheDocument();
+    // A running preview is work in motion, so its lamp breathes; the yellow one is the gate queue alone.
+    expect(view.container.querySelector('[data-warsha-lamp="working"]')).not.toBeNull();
+    expect(view.container.querySelector('[data-warsha-lamp="waiting"]')).toBeNull();
+
+    view.rerender(
+      <LocaleProvider initialLocale="en">
+        <LivePreview {...harness({ url: PREVIEW_URL, status: 'error' })} />
+      </LocaleProvider>
+    );
+    expect(screen.getByText('stopped with an error')).toBeInTheDocument();
+  });
+
+  it('is a plate, not a card: hairline fastener, bench radius, no shadow (§1.1)', () => {
+    const view = renderIn('en', <LivePreview {...harness()} />);
+
+    const panel = screen.getByTestId('live-preview');
+    expect(panel).toHaveStyle({
+      border: '1px solid var(--warsha-bench-rule)',
+      borderRadius: 'var(--warsha-radius-md)',
+    });
+    expect(view.container.querySelector('[data-testid="live-preview"]')).not.toHaveStyle(
+      'box-shadow: var(--warsha-shadow-md)'
+    );
+  });
+
+  it('shows the previewed origin as machine data, isolated from the line direction', () => {
+    renderIn('ar', <LivePreview {...harness({ url: PREVIEW_URL, status: 'running' })} />);
+
+    const chip = screen.getByText(PREVIEW_URL);
+    expect(chip).toHaveAttribute('dir', 'ltr');
+    expect(chip).toHaveAttribute('translate', 'no');
+  });
+
+  it('gives the selector field a visible label, not only an aria-label (AUDIT-1 §3.2)', () => {
+    renderIn('en', <LivePreview {...harness({ url: PREVIEW_URL, status: 'running' })} />);
+
+    fireEvent.click(screen.getByTestId('preview-pick-element-button'));
+    expect(screen.getByLabelText('Element selector')).toBe(screen.getByTestId('live-preview-pick-input'));
+  });
+
   it('builds the structured mention the composer appends', () => {
     expect(elementMention('#submit')).toBe('@element(#submit)');
     expect(elementMention('  .card > a  ')).toBe('@element(.card > a)');

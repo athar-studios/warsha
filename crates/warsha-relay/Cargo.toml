@@ -23,6 +23,7 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 ulid = { workspace = true }
 futures = { workspace = true }
+keyring = { workspace = true }
 
 [[bin]]
 name = "warsha-relay"

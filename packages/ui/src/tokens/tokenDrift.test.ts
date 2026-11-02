@@ -3,16 +3,24 @@
 // Three things are checked, and all of them fail the build:
 //
 //   1. No component in this package writes a design value. Colours, lengths, radii, shadows and
-//      durations may only reach a component through a typed token helper (`colorVar`, `space`,
-//      `radius`, `shadow`, `fontSize`, `fontWeight`, `duration`, `easing`), so a literal cannot
-//      slip into the product and forget to follow the dark theme.
+//      durations may only reach a component through a typed token helper (`colorVar`, `aliasVar`,
+//      `size`, `space`, `radius`, `shadow`, `fontSize`, `fontWeight`, `duration`, `easing`), so a
+//      literal cannot slip into the product and forget to follow the dark theme.
 //   2. The TypeScript token layer and `tokens.css` declare exactly the same names with exactly the
 //      same values — including which values the dark theme overrides. A token added to one half and
 //      forgotten in the other fails here instead of rendering as `var()`-less nothing at runtime.
+//      That now covers the Bench & Signal families too: the semantic aliases (`aliases.ts`) and the
+//      bench sizes (`sizes.ts`), because a `--warsha-focus-ring` the CSS does not define is an
+//      invisible focus ring, and a `--warsha-size-touch` the CSS does not define is a 0px target.
 //   3. The two app sources (`apps/desktop/src/**`, `apps/remote/src/**`) carry no colour, spacing or
 //      type literal either. Apps are not this package, so they consume tokens as CSS custom
 //      properties (`var(--warsha-color-accent)`) rather than through the typed helpers — the helper
 //      import is allowed, the literal is not.
+//
+// Two more things the redesign made worth policing: a raw colour may appear in `tokens.css` only
+// inside the two theme blocks (REDESIGN §12), and every exported component — compound or part — has a
+// story, since an unstories component is an unviewed one in a package whose review surface is
+// Storybook.
 //
 // The scanners are themselves tested against a planted violation, the same way
 // `scripts/check-arch.mjs --self-test` plants one per architecture rule: a rule that silently
@@ -24,6 +32,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import { aliasTokenNames, aliasTokens, aliasVarName } from './aliases';
 import { colorTokenNames, colorTokens, colorVarName } from './colors';
 import {
   durationNames,
@@ -35,6 +44,7 @@ import {
 } from './motion';
 import { radiusTokenNames, radiusTokens, radiusVarName } from './radius';
 import { shadowTokenNames, shadowTokens, shadowVarName } from './shadow';
+import { sizeTokenNames, sizeTokens, sizeVarName } from './sizes';
 import { SPACING_STEPS, spacingTokens, spacingVarName } from './spacing';
 import {
   fontFamilies,
@@ -65,15 +75,42 @@ const REPO_ROOT = join(HERE, '..', '..', '..', '..');
 /** The two app sources R6 reads, relative to the repository root. */
 const APP_DIRECTORIES = ['apps/desktop/src', 'apps/remote/src'] as const;
 
-/** Files that render UI and must therefore be literal-free. */
-function componentFiles(): string[] {
+/**
+ * The directories this package renders components from.
+ *
+ * `components.tsx` holds the four primitives the redesign keeps, `src/components/` holds their stories,
+ * and `src/compounds/` holds the Bench & Signal inventory (REDESIGN §6) — a file per component family,
+ * so `Ledger` and `Ledger.Row` are read together rather than found in a 2000-line file.
+ */
+const COMPOUND_DIRECTORY = join(UI_SRC, 'compounds');
+
+/** The files that *are* the component catalog: primitives, compounds, one file per family. */
+function componentSources(): string[] {
   const files = [join(UI_SRC, 'components.tsx')];
   for (const entry of readdirSync(join(UI_SRC, 'components'), { withFileTypes: true })) {
     if (!entry.isFile() || !entry.name.endsWith('.tsx')) continue;
     if (entry.name.includes('.stories.') || entry.name.includes('.test.')) continue;
     files.push(join(UI_SRC, 'components', entry.name));
   }
-  return files;
+  for (const entry of readdirSync(COMPOUND_DIRECTORY, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    if (!entry.name.endsWith('.tsx') && !entry.name.endsWith('.ts')) continue;
+    // The barrel only re-exports; `internal.ts` only names things the compounds share.
+    if (entry.name === 'index.ts' || entry.name === 'internal.ts') continue;
+    files.push(join(COMPOUND_DIRECTORY, entry.name));
+  }
+  return files.sort();
+}
+
+/**
+ * Files that render UI and must therefore be literal-free.
+ *
+ * `storySupport.tsx` is on the list because a story shell is still a rendered surface: if it wrote a
+ * hex, every story would inherit the drift. It is not on the component list, because it is not a
+ * component.
+ */
+function componentFiles(): string[] {
+  return [...componentSources(), join(UI_SRC, 'storySupport.tsx')];
 }
 
 /** Every story file, so "a component without a story" is a failing build too. */
@@ -81,6 +118,25 @@ function storyFiles(): string[] {
   return readdirSync(join(UI_SRC, 'components'))
     .filter((name) => name.endsWith('.stories.tsx'))
     .sort();
+}
+
+/**
+ * Every component name this package exports.
+ *
+ * Both declaration forms count: `export function Lamp` and `export const Meter` (a compound attaches
+ * its parts with `Object.assign`, so the parts travel under the root's name and are not a second
+ * export). A `LAMP_STATES`-style constant is not a component and the PascalCase-with-no-underscore
+ * shape is what tells them apart. The barrel files are skipped — they only re-export.
+ */
+function exportedComponents(): string[] {
+  const names = new Set<string>();
+  for (const file of componentSources()) {
+    const source = stripComments(readFileSync(file, 'utf8'));
+    for (const match of source.matchAll(/export (?:function|const|class) ([A-Z][A-Za-z0-9]*)\b/g)) {
+      names.add(match[1]);
+    }
+  }
+  return [...names].sort();
 }
 
 /**
@@ -329,26 +385,36 @@ export function scanAppForLiterals(source: string): Offence[] {
 interface CssBlock {
   readonly selector: string;
   readonly declarations: Map<string, string>;
+  /** The rule's own text, so a scan can see what a *value* says and not only what it names. */
+  readonly body: string;
+  /** The 1-based line the rule's body starts on, so an offence can be reported. */
+  readonly startLine: number;
 }
 
 /** Top-level (not inside `@media`) rules, with their custom-property declarations. */
 function parseCssBlocks(css: string): CssBlock[] {
   const blocks: CssBlock[] = [];
   const stack: string[] = [];
+  const lineStack: number[] = [];
   let buffer = '';
+  let line = 1;
 
   for (const char of css) {
+    if (char === '\n') line += 1;
+
     if (char === '{') {
       stack.push(buffer.trim());
+      lineStack.push(line);
       buffer = '';
       continue;
     }
     if (char === '}') {
       const selector = stack.pop() ?? '';
+      const startLine = lineStack.pop() ?? line;
       // `stack.length === 0` after the pop means this rule is top-level, so a `@media` wrapper is
       // skipped together with its contents.
       if (stack.length === 0 && selector !== '' && !selector.startsWith('@')) {
-        blocks.push({ selector, declarations: parseDeclarations(buffer) });
+        blocks.push({ selector, declarations: parseDeclarations(buffer), body: buffer, startLine });
       }
       buffer = '';
       continue;
@@ -377,7 +443,9 @@ function normalise(value: string): string {
 function declaredByTypeScript(): Set<string> {
   const names = new Set<string>();
   for (const name of colorTokenNames) names.add(colorVarName(name));
+  for (const name of aliasTokenNames) names.add(aliasVarName(name));
   for (const step of SPACING_STEPS) names.add(spacingVarName(step));
+  for (const name of sizeTokenNames) names.add(sizeVarName(name));
   for (const name of radiusTokenNames) names.add(radiusVarName(name));
   for (const name of shadowTokenNames) names.add(shadowVarName(name));
   for (const name of fontFamilyNames) names.add(fontFamilyVarName(name));
@@ -391,9 +459,14 @@ function declaredByTypeScript(): Set<string> {
 
 describe('R6 token drift', () => {
   const css = readFileSync(TOKENS_CSS, 'utf8');
-  const blocks = parseCssBlocks(css);
-  const lightBlock = blocks.find((block) => block.selector.includes(':root'));
-  const darkBlock = blocks.find((block) => block.selector.includes("[data-theme='dark']"));
+  // Comments are prose: they name tokens ("`--warsha-focus-ring` is the AUDIT-1 fix") without declaring
+  // them. Parsing them as CSS would both invent declarations and bury selectors inside a comment block.
+  const blocks = parseCssBlocks(stripComments(css));
+  /** The theme blocks are the ones carrying declarations; `:root :focus-visible` also names `:root`. */
+  const withTokenCount = (selectorTest: (selector: string) => boolean) =>
+    blocks.find((block) => selectorTest(block.selector) && block.declarations.size > 0);
+  const lightBlock = withTokenCount((selector) => selector.includes(':root'));
+  const darkBlock = withTokenCount((selector) => selector.includes("[data-theme='dark']"));
 
   /** One declaration, compared the way a reader compares it: hex case and quoting do not count. */
   function declared(block: CssBlock | undefined, name: string): string | undefined {
@@ -413,13 +486,114 @@ describe('R6 token drift', () => {
   });
 
   it('gives every exported component a story', () => {
-    const source = readFileSync(join(UI_SRC, 'components.tsx'), 'utf8');
-    const exported = [...source.matchAll(/export function (\w+)/g)].map((match) => match[1]).sort();
+    const exported = exportedComponents();
     const stories = storyFiles().map((name) => name.replace('.stories.tsx', ''));
 
-    // The story set may carry foundations entries (`Tokens`) that no component exports; the reverse
-    // is what fails: a component without a story.
-    expect(stories.filter((name) => exported.includes(name)).sort()).toEqual(exported);
+    // There has to be something to check: a barrel that exports nothing would pass by being empty.
+    expect(exported.length).toBeGreaterThanOrEqual(20);
+
+    // A story file covers its own component *and its parts*: `Ledger.stories.tsx` is where
+    // `Ledger.Row` is demonstrated, because a part without its compound is not a renderable thing.
+    const covered = (name: string) =>
+      stories.some(
+        (story) => name === story || (name.startsWith(story) && /^[A-Z]/.test(name.slice(story.length)))
+      );
+    expect(exported.filter((name) => !covered(name))).toEqual([]);
+
+    // The reverse is deliberate: the story set carries foundations entries (`Tokens`) that no
+    // component exports, and those are a review surface rather than a component.
+    expect(stories).toContain('Tokens');
+  });
+
+  it('keeps every raw colour inside the two theme blocks (REDESIGN §12)', () => {
+    const offenders: string[] = [];
+    for (const block of blocks) {
+      if (block.selector.includes(':root') || block.selector.includes('[data-theme')) continue;
+      const found = stripComments(block.body).match(COLOUR_LITERAL);
+      if (found) {
+        offenders.push(
+          `R6: packages/ui/src/tokens/tokens.css:${block.startLine} raw colour \`${found[0]}\` in \`${block.selector}\``
+        );
+      }
+    }
+    expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+
+  it('gives every semantic alias the light and dark value the TypeScript layer carries', () => {
+    for (const name of aliasTokenNames) {
+      const varName = aliasVarName(name);
+      expect(declared(lightBlock, varName), varName).toBe(normalise(aliasTokens[name].light));
+      expect(declared(darkBlock, varName), varName).toBe(normalise(aliasTokens[name].dark));
+    }
+  });
+
+  it('resolves every alias to a token that exists, in both themes', () => {
+    const colourVarNames = new Set(colorTokenNames.map(colorVarName));
+    for (const name of aliasTokenNames) {
+      for (const theme of ['light', 'dark'] as const) {
+        for (const reference of aliasTokens[name][theme].matchAll(/var\((--warsha-[\w-]+)\)/g)) {
+          expect(colourVarNames.has(reference[1]), `${name} (${theme}) → ${reference[1]}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('names the focus ring and the signal, because the direction depends on them', () => {
+    // REDESIGN §9/§12: the ring is `accent-strong` on light (5.03:1 on `bg`) and `accent` on dark; the
+    // lamp is the accent with ink on it. If either flips, the AUDIT-1 defect is back.
+    const ref = (name: keyof typeof colorTokens) => `var(${colorVarName(name)})`;
+    expect(aliasTokens.focusRing.light).toBe(ref('accentStrong'));
+    expect(aliasTokens.focusRing.dark).toBe(ref('accent'));
+    expect(aliasTokens.signal.light).toBe(ref('accent'));
+    expect(aliasTokens.signalInk.light).toBe(ref('accentInk'));
+    expect(aliasTokens.signalText.light).toBe(ref('accentStrong'));
+    expect(aliasTokens.signalText.dark).toBe(ref('accent'));
+    expect(aliasTokens.lampWorking.light).toBe(ref('accentStrong'));
+    expect(aliasTokens.lampWorking.dark).toBe(ref('accent'));
+    expect(aliasTokens.lampWaiting.light).toBe(ref('accent'));
+  });
+
+  it('gives the bench sizes the values the TypeScript layer carries', () => {
+    for (const name of sizeTokenNames) {
+      expect(declared(lightBlock, sizeVarName(name)), sizeVarName(name)).toBe(
+        normalise(sizeTokens[name])
+      );
+    }
+    // The two accessibility floors are the reason this family exists; a typo here is a silent WCAG
+    // failure, so it is pinned by value as well as by drift.
+    expect(sizeTokens.touch).toBe('44px');
+    expect(sizeTokens.inscribe).toBe('2px');
+    expect(sizeTokens.rule).toBe('1px');
+  });
+
+  it('gives the loop durations the values the TypeScript layer carries', () => {
+    // A lamp breathes and a skeleton shimmers with these, and `tokens.css` zeroes them with the rest.
+    expect(declared(lightBlock, durationVarName('breathe')), 'breathe').toBe(durations.breathe);
+    expect(declared(lightBlock, durationVarName('shimmer')), 'shimmer').toBe(durations.shimmer);
+  });
+
+  it('declares the one global focus rule, in the ring token, not in a colour', () => {
+    const focusRules = blocks.filter((block) => block.selector.includes(':focus-visible'));
+    expect(focusRules).toHaveLength(1);
+    const focusRule = focusRules[0];
+    // Scoped under `:root` so it outranks the app-level rings AUDIT-1 §1.3 found, at equal specificity.
+    expect(focusRule.selector).toContain(':root');
+    expect(focusRule.body).toContain('var(--warsha-focus-ring)');
+    expect(focusRule.body).toContain('outline-offset');
+  });
+
+  it('keeps permitted motion inside the stylesheet and out of the components (§8)', () => {
+    const animations = blocks
+      .filter((block) => block.body.includes('animation'))
+      .map((block) => block.selector);
+    expect(animations).toEqual([]);
+
+    const cssWithoutComments = stripComments(css);
+    expect(cssWithoutComments).toContain('@keyframes warsha-lamp-breathe');
+    expect(cssWithoutComments).toContain('@keyframes warsha-skeleton-slide');
+    expect(cssWithoutComments).toContain('prefers-reduced-motion: no-preference');
+    // Nothing that moves is allowed to be decorative: these are the only three loops in the file.
+    expect(cssWithoutComments.match(/animation:/g) ?? []).toHaveLength(3);
   });
 
   it('catches a planted violation of every rule', () => {

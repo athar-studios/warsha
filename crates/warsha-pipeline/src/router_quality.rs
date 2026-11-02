@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
 use warsha_core::Role;
 
@@ -222,17 +222,95 @@ impl RouterPolicy {
 }
 
 /// A response cache keyed by a deterministic hash of (role, model, prompt).
-#[derive(Debug, Clone, Default)]
+///
+/// Storage is bounded (H-06): at most [`ResponseCache::capacity`] entries, each
+/// living [`ResponseCache::ttl_secs`] seconds of the store's clock. A `recency`
+/// deque orders least- to most-recently-used so a full cache evicts
+/// deterministically, and an expired entry is never returned — a lookup reaps it
+/// and counts a miss — while `insert` sweeps stale entries before adding. Time is
+/// a plain forward-only clock advanced with [`ResponseCache::advance_to`], so the
+/// expiry tests fabricate time instead of sleeping. This is the router's per-run
+/// in-process memo; the paid output it holds is bounded in both count and age.
+#[derive(Debug, Clone)]
 pub struct ResponseCache {
-    entries: HashMap<u64, String>,
+    entries: HashMap<u64, CachedResponse>,
+    /// Keys front-to-back, least- to most-recently-used; exactly the keys present
+    /// in `entries`, once each.
+    recency: VecDeque<u64>,
+    capacity: usize,
+    ttl_secs: u64,
+    now: u64,
     hits: u64,
     misses: u64,
+    evictions: u64,
+    expirations: u64,
+}
+
+/// One cached response with the store time it was written at.
+#[derive(Debug, Clone)]
+struct CachedResponse {
+    response: String,
+    created_at: u64,
+}
+
+/// Read `key` from the environment as a number, ignoring a missing or unparseable
+/// value so a stray setting never turns the cache into nothing.
+fn env_number<T: std::str::FromStr>(key: &str) -> Option<T> {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.trim().parse::<T>().ok())
+}
+
+impl Default for ResponseCache {
+    fn default() -> Self {
+        Self::with_capacity_and_ttl(
+            crate::llm_cache::DEFAULT_LLM_CACHE_MAX_ENTRIES,
+            crate::llm_cache::DEFAULT_LLM_CACHE_TTL_SECS,
+        )
+    }
 }
 
 impl ResponseCache {
-    /// Create an empty cache.
+    /// Create an empty cache at the default capacity and TTL, clock at `0`.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A cache holding at most `max_entries` (LRU-evicted), at the default TTL.
+    pub fn with_capacity(max_entries: usize) -> Self {
+        Self::with_capacity_and_ttl(max_entries, crate::llm_cache::DEFAULT_LLM_CACHE_TTL_SECS)
+    }
+
+    /// A cache whose entries expire after `ttl_secs` store seconds, at the
+    /// default capacity. `u64::MAX` disables age expiry.
+    pub fn with_ttl(ttl_secs: u64) -> Self {
+        Self::with_capacity_and_ttl(crate::llm_cache::DEFAULT_LLM_CACHE_MAX_ENTRIES, ttl_secs)
+    }
+
+    /// A cache with an explicit bound and lifetime, clock at `0`.
+    pub fn with_capacity_and_ttl(max_entries: usize, ttl_secs: u64) -> Self {
+        Self {
+            entries: HashMap::new(),
+            recency: VecDeque::new(),
+            capacity: max_entries,
+            ttl_secs,
+            now: 0,
+            hits: 0,
+            misses: 0,
+            evictions: 0,
+            expirations: 0,
+        }
+    }
+
+    /// Build the cache from `WARSHA_ROUTER_CACHE_MAX_ENTRIES` and
+    /// `WARSHA_ROUTER_CACHE_TTL_SECS`, each falling back to the shared cache
+    /// default when unset or unparseable.
+    pub fn from_env() -> Self {
+        let capacity = env_number::<usize>("WARSHA_ROUTER_CACHE_MAX_ENTRIES")
+            .unwrap_or(crate::llm_cache::DEFAULT_LLM_CACHE_MAX_ENTRIES);
+        let ttl = env_number::<u64>("WARSHA_ROUTER_CACHE_TTL_SECS")
+            .unwrap_or(crate::llm_cache::DEFAULT_LLM_CACHE_TTL_SECS);
+        Self::with_capacity_and_ttl(capacity, ttl)
     }
 
     /// The deterministic cache key for a (role, model, prompt) triple.
@@ -244,25 +322,148 @@ impl ResponseCache {
         hasher.finish()
     }
 
-    /// Store `response` under the key for (role, model, prompt).
-    pub fn insert(&mut self, role: Role, model: &str, prompt: &str, response: String) {
-        self.entries
-            .insert(Self::key(role, model, prompt), response);
+    /// The capacity bound in entries.
+    pub fn capacity(&self) -> usize {
+        self.capacity
     }
 
-    /// Look up a cached response, counting the hit or the miss.
-    pub fn get(&mut self, role: Role, model: &str, prompt: &str) -> Option<String> {
-        match self.entries.get(&Self::key(role, model, prompt)) {
-            Some(cached) => {
-                let response = cached.clone();
-                self.hits += 1;
-                Some(response)
-            }
-            None => {
-                self.misses += 1;
-                None
+    /// The lifetime in store seconds (`u64::MAX` when age expiry is disabled).
+    pub fn ttl_secs(&self) -> u64 {
+        self.ttl_secs
+    }
+
+    /// The store's current clock reading.
+    pub fn now(&self) -> u64 {
+        self.now
+    }
+
+    /// Move the clock forward to `now`; a value in the past is ignored. Lets a
+    /// test age entries without sleeping.
+    pub fn advance_to(&mut self, now: u64) {
+        if now > self.now {
+            self.now = now;
+        }
+    }
+
+    /// True when `created_at` has aged past the TTL against the store clock.
+    fn is_expired(&self, created_at: u64) -> bool {
+        if self.ttl_secs == u64::MAX {
+            return false;
+        }
+        created_at.saturating_add(self.ttl_secs) <= self.now
+    }
+
+    /// Remove `cache_key` from storage and the recency deque. Counters are the
+    /// caller's business.
+    fn reap(&mut self, cache_key: u64) {
+        self.entries.remove(&cache_key);
+        self.recency.retain(|held| *held != cache_key);
+    }
+
+    /// Mark `cache_key` most-recently-used.
+    fn touch(&mut self, cache_key: u64) {
+        self.recency.retain(|held| *held != cache_key);
+        self.recency.push_back(cache_key);
+    }
+
+    /// Evict least-recently-used entries until the cache fits the bound.
+    fn enforce_capacity(&mut self) {
+        while self.entries.len() > self.capacity {
+            match self.recency.front().copied() {
+                Some(lru) => {
+                    self.reap(lru);
+                    self.evictions = self.evictions.saturating_add(1);
+                }
+                None => break,
             }
         }
+    }
+
+    /// Reap every expired entry, count them and return how many went. `insert`
+    /// calls this so a run cannot hoard stale responses under the bound.
+    pub fn purge_expired(&mut self) -> usize {
+        if self.ttl_secs == u64::MAX {
+            return 0;
+        }
+        let expired: Vec<u64> = self
+            .entries
+            .iter()
+            .filter(|(_, cached)| self.is_expired(cached.created_at))
+            .map(|(cache_key, _)| *cache_key)
+            .collect();
+        let removed = expired.len();
+        for cache_key in expired {
+            self.reap(cache_key);
+        }
+        self.expirations = self.expirations.saturating_add(removed as u64);
+        removed
+    }
+
+    /// Store `response` under the key for (role, model, prompt), stamped with the
+    /// current store clock. Sweeps expired entries and enforces the bound.
+    pub fn insert(&mut self, role: Role, model: &str, prompt: &str, response: String) {
+        self.purge_expired();
+        let cache_key = Self::key(role, model, prompt);
+        self.entries.insert(
+            cache_key,
+            CachedResponse {
+                response,
+                created_at: self.now,
+            },
+        );
+        self.touch(cache_key);
+        self.enforce_capacity();
+    }
+
+    /// Look up a cached response, counting the hit or the miss. A stale entry is
+    /// never returned: it is reaped, counted as an expiration and reported as a
+    /// miss.
+    pub fn get(&mut self, role: Role, model: &str, prompt: &str) -> Option<String> {
+        let cache_key = Self::key(role, model, prompt);
+        // Snapshot (present, stale, response) first so the immutable map borrow
+        // is released before any `reap`/`touch` mutates the store.
+        let (present, stale, response) = match self.entries.get(&cache_key) {
+            Some(cached) => (
+                true,
+                self.is_expired(cached.created_at),
+                Some(cached.response.clone()),
+            ),
+            None => (false, false, None),
+        };
+
+        if !present {
+            self.misses = self.misses.saturating_add(1);
+            return None;
+        }
+        if stale {
+            self.reap(cache_key);
+            self.expirations = self.expirations.saturating_add(1);
+            self.misses = self.misses.saturating_add(1);
+            return None;
+        }
+        self.touch(cache_key);
+        self.hits = self.hits.saturating_add(1);
+        response
+    }
+
+    /// Drop the entry for (role, model, prompt), returning whether one was there.
+    pub fn invalidate(&mut self, role: Role, model: &str, prompt: &str) -> bool {
+        let cache_key = Self::key(role, model, prompt);
+        let present = self.entries.contains_key(&cache_key);
+        if present {
+            self.reap(cache_key);
+        }
+        present
+    }
+
+    /// Drop every response, the recency order and all counters.
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.recency.clear();
+        self.hits = 0;
+        self.misses = 0;
+        self.evictions = 0;
+        self.expirations = 0;
     }
 
     /// Number of cache hits so far.
@@ -273,6 +474,16 @@ impl ResponseCache {
     /// Number of cache misses so far.
     pub fn misses(&self) -> u64 {
         self.misses
+    }
+
+    /// Entries dropped by the capacity bound.
+    pub fn evictions(&self) -> u64 {
+        self.evictions
+    }
+
+    /// Entries dropped because their TTL lapsed.
+    pub fn expirations(&self) -> u64 {
+        self.expirations
     }
 
     /// Number of cached responses.
@@ -772,6 +983,86 @@ mod tests {
         assert_eq!(
             ResponseCache::key(Role::Coder, "mock-small", "write a test"),
             ResponseCache::key(Role::Coder, "mock-small", "write a test")
+        );
+    }
+
+    #[test]
+    fn response_cache_capacity_evicts_the_least_recently_used() {
+        let mut cache = ResponseCache::with_capacity(2);
+        assert_eq!(cache.capacity(), 2);
+
+        cache.insert(Role::Coder, "m", "a", "A".to_string());
+        cache.insert(Role::Coder, "m", "b", "B".to_string());
+        // Touch "a" so "b" becomes the oldest surviving entry.
+        assert_eq!(cache.get(Role::Coder, "m", "a").as_deref(), Some("A"));
+        cache.insert(Role::Coder, "m", "c", "C".to_string());
+
+        assert_eq!(cache.len(), 2);
+        assert_eq!(cache.get(Role::Coder, "m", "b"), None, "`b` was the LRU");
+        assert_eq!(cache.get(Role::Coder, "m", "a").as_deref(), Some("A"));
+        assert_eq!(cache.get(Role::Coder, "m", "c").as_deref(), Some("C"));
+        assert_eq!(cache.evictions(), 1);
+        assert_eq!(cache.expirations(), 0);
+    }
+
+    #[test]
+    fn response_cache_never_returns_an_expired_entry() {
+        let mut cache = ResponseCache::with_ttl(30);
+        cache.insert(Role::Coder, "m", "write a test", "done".to_string());
+        assert_eq!(
+            cache.get(Role::Coder, "m", "write a test").as_deref(),
+            Some("done")
+        );
+
+        // Age it out by advancing the store clock, then it is a miss and gone.
+        cache.advance_to(40);
+        assert_eq!(cache.get(Role::Coder, "m", "write a test"), None);
+        assert_eq!(cache.expirations(), 1);
+        assert_eq!(cache.evictions(), 0);
+        assert_eq!(cache.len(), 0);
+    }
+
+    #[test]
+    fn response_cache_insert_sweeps_expired_under_the_bound() {
+        let mut cache = ResponseCache::with_capacity_and_ttl(50, 10);
+        cache.insert(Role::Coder, "m", "old", "stale".to_string());
+        cache.advance_to(100);
+        // Inserting now purges the entry created at 0 (0 + 10 <= 100).
+        cache.insert(Role::Coder, "m", "new", "fresh".to_string());
+
+        assert_eq!(cache.len(), 1);
+        assert_eq!(cache.expirations(), 1);
+        assert_eq!(cache.get(Role::Coder, "m", "old"), None);
+        assert_eq!(cache.get(Role::Coder, "m", "new").as_deref(), Some("fresh"));
+    }
+
+    #[test]
+    fn response_cache_invalidate_and_clear_drop_entries() {
+        let mut cache = ResponseCache::new();
+        cache.insert(Role::Coder, "m", "write a test", "done".to_string());
+        assert!(cache.invalidate(Role::Coder, "m", "write a test"));
+        assert!(!cache.invalidate(Role::Coder, "m", "write a test"));
+        assert!(cache.is_empty());
+        assert_eq!(cache.get(Role::Coder, "m", "write a test"), None);
+
+        cache.insert(Role::Coder, "m", "x", "y".to_string());
+        cache.clear();
+        assert!(cache.is_empty());
+        assert_eq!(cache.hits(), 0);
+        assert_eq!(cache.misses(), 0);
+    }
+
+    #[test]
+    fn response_cache_from_env_uses_the_shared_defaults() {
+        // Env unset in the test harness, so `from_env` matches the defaults.
+        let cache = ResponseCache::from_env();
+        assert_eq!(
+            cache.capacity(),
+            crate::llm_cache::DEFAULT_LLM_CACHE_MAX_ENTRIES
+        );
+        assert_eq!(
+            cache.ttl_secs(),
+            crate::llm_cache::DEFAULT_LLM_CACHE_TTL_SECS
         );
     }
 

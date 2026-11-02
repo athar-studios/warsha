@@ -1,32 +1,25 @@
-// Settings → Providers (PLAN.md M8b).
+// Settings → Providers (PLAN.md M8b), redrawn for Bench & Signal (B3-secondary).
 //
-// "Nothing updates or connects on its own unless you turn it on here." The screen
-// is the list: a header, the off-by-default note, one `ProviderRow` per provider
-// and an empty state. All state lives in the caller (`providers`), so every change
-// travels back out as `onModeChange`/`onToggle`/`onPinVersion`.
-import { t, useDirection, useLocale, type Locale } from '@warsha/i18n';
+// "Nothing updates or connects on its own unless you turn it on here." The screen is the ledger: a ruled
+// head, the off-by-default note, one `ProviderRow` per provider on the recessed plate, and an empty state
+// that says what is missing. All state lives in the caller (`providers`), so every change travels back out
+// as `onModeChange`/`onToggle`/`onPinVersion`.
+//
+// Why the rows are not a `Ledger.Row` each: `ProviderRow` owns its own controls (mode select, enabled
+// switch, pinned-version field) and its own DOM contract (`provider-row-<name>`, `data-mode`,
+// `data-enabled`) that `SettingsProviders.test.tsx` and `App.test.tsx` assert. `Ledger` supplies the ruled
+// container; the row keeps its `<li>`, which is the same element the ledger's own row renders (§3 of
+// REDESIGN: compounds where they fit, a screen-local node where a test pins the id).
+//
+// Every word comes from `@warsha/i18n` (`settings_providers.*`): the `{ ar, en }` table and the
+// `translated === key ? fallback : translated` shim are gone, so an Arabic session cannot fall back into
+// English copy.
+import { t, useDirection, useLocale } from '@warsha/i18n';
+import { Ledger } from '@warsha/ui';
 
 import { ProviderRow, type ProviderEntry, type ProviderMode } from '../components/ProviderRow';
 
 export type { ProviderEntry, ProviderMode } from '../components/ProviderRow';
-
-const screenLabels = {
-  title: { ar: 'المزوّدون', en: 'Providers' },
-  note: {
-    ar: 'معطّلة افتراضياً — لا شيء يتحدّث أو يتّصل من تلقاء نفسه حتى تفعّله هنا.',
-    en: 'Off by default — nothing updates or connects on its own unless you turn it on here.',
-  },
-  empty: { ar: 'لا يوجد مزوّدون بعد.', en: 'No providers yet.' },
-} satisfies Record<string, Record<Locale, string>>;
-
-/**
- * Translate a key, falling back to the local label when the catalog has no
- * entry yet (`t` returns the key itself for a missing message).
- */
-function localized(key: string, fallback: string, locale: Locale): string {
-  const translated = t(key, {}, locale);
-  return translated === key ? fallback : translated;
-}
 
 export interface SettingsProvidersProps {
   providers: ProviderEntry[];
@@ -44,9 +37,9 @@ export function SettingsProviders({
   const dir = useDirection();
   const locale = useLocale();
 
-  const title = localized('simple.providers.title', screenLabels.title[locale], locale);
-  const note = localized('simple.providers.note', screenLabels.note[locale], locale);
-  const empty = localized('simple.providers.empty', screenLabels.empty[locale], locale);
+  const title = t('settings_providers.title', {}, locale);
+  const note = t('settings_providers.note', {}, locale);
+  const empty = t('settings_providers.empty', {}, locale);
 
   return (
     <section
@@ -56,16 +49,39 @@ export function SettingsProviders({
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: '10px',
+        gap: 'var(--warsha-space-3)',
         paddingInline: 'var(--warsha-space-4)',
         paddingBlock: 'var(--warsha-space-3)',
+        minInlineSize: 0,
       }}
     >
-      <header style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-        <h2 style={{ margin: 0, fontSize: 'var(--warsha-font-size-lg)', fontWeight: 700 }}>{title}</h2>
+      <header style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-1)' }}>
+        {/* A real heading, so the screen is in the document outline (§4). */}
+        {/* B4 §9 (axe `page-has-heading-one`): a settings sub-screen IS the page while its tab is
+           selected — §4 gives all six one tab strip — so it opens with the page's own heading, not a
+           sub-heading under a page that has none. */}
+        <h1
+          dir={dir}
+          style={{
+            margin: 0,
+            fontSize: 'var(--warsha-font-size-lg)',
+            fontWeight: 'var(--warsha-font-weight-bold)',
+            color: 'var(--warsha-color-text)',
+          }}
+        >
+          {title}
+        </h1>
+        {/* The off-by-default rule is the screen's one promise, so it is prose, not a badge (§7). */}
         <p
           data-testid="settings-providers-note"
-          style={{ margin: 0, fontSize: 'var(--warsha-font-size-sm)', color: 'var(--warsha-color-text-muted)' }}
+          dir={dir}
+          style={{
+            margin: 0,
+            fontSize: 'var(--warsha-font-size-sm)',
+            color: 'var(--warsha-color-text)',
+            lineHeight: 'var(--warsha-line-height-relaxed)',
+            maxInlineSize: 'var(--warsha-size-measure)',
+          }}
         >
           {note}
         </p>
@@ -74,22 +90,21 @@ export function SettingsProviders({
       {providers.length === 0 ? (
         <p
           data-testid="settings-providers-empty"
-          style={{ margin: 0, fontSize: 'var(--warsha-font-size-sm)', color: 'var(--warsha-color-text-muted)' }}
+          dir={dir}
+          style={{
+            margin: 0,
+            padding: 'var(--warsha-space-6)',
+            fontSize: 'var(--warsha-font-size-sm)',
+            color: 'var(--warsha-color-text)',
+            backgroundColor: 'var(--warsha-bench-plate)',
+            border: '1px solid var(--warsha-bench-rule)',
+            borderRadius: 'var(--warsha-radius-md)',
+          }}
         >
           {empty}
         </p>
       ) : (
-        <ul
-          data-testid="settings-providers-list"
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--warsha-space-2)',
-            margin: 0,
-            padding: 0,
-            listStyle: 'none',
-          }}
-        >
+        <Ledger label={title} recessed>
           {providers.map((provider) => (
             <ProviderRow
               key={provider.name}
@@ -99,7 +114,7 @@ export function SettingsProviders({
               onPinVersion={(version) => onPinVersion(provider.name, version)}
             />
           ))}
-        </ul>
+        </Ledger>
       )}
     </section>
   );

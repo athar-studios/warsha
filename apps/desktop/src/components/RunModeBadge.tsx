@@ -1,10 +1,14 @@
-// Run modes — the badge for the mode this daemon is running in (PLAN.md M20).
+// Run modes — the badge for the mode this daemon is running in (PLAN.md M20), redrawn for the bench.
 //
-// Mirrors `RunMode` in `crates/warsha-pipeline/src/run_modes.rs`: the tags are the
-// serde tags the daemon serialises, and `loopbackOnly` is that module's
-// `is_loopback_only` rule, so the badge and the config cannot disagree about
-// which mode exposes a socket.
+// Mirrors `RunMode` in `crates/warsha-pipeline/src/run_modes.rs`: the tags are the serde tags the daemon
+// serialises, and `loopbackOnly` is that module's `is_loopback_only` rule, so the badge and the config
+// cannot disagree about which mode exposes a socket.
+//
+// The bench reading (§1, §9): which interface the daemon binds is machine truth, so the badge says it in
+// a word and a shape — the icon is the colour-free channel, and an exposed socket is called out in the
+// hint rather than signalled in red. Every word is `@warsha/i18n` (`run_modes.*`).
 import { t, useDirection, useLocale, type Locale } from '@warsha/i18n';
+import React from 'react';
 
 /** Where the daemon runs — the three serde tags of `RunMode`. */
 export type RunMode = 'local' | 'self_hosted' | 'hosted';
@@ -12,62 +16,21 @@ export type RunMode = 'local' | 'self_hosted' | 'hosted';
 /** Every mode, in the order `RunMode::all` returns them. */
 export const RUN_MODES: readonly RunMode[] = ['local', 'self_hosted', 'hosted'];
 
-const labels: Record<RunMode, Record<Locale, string>> = {
-  local: { ar: 'محلي', en: 'Local' },
-  self_hosted: { ar: 'استضافة ذاتية', en: 'Self-hosted' },
-  hosted: { ar: 'مُستضاف', en: 'Hosted' },
-};
-
-const hints: Record<RunMode, Record<Locale, string>> = {
-  local: {
-    ar: 'الخادم يستمع على 127.0.0.1 فقط، ولا شيء في الشبكة يصل إليه.',
-    en: 'The daemon listens on 127.0.0.1 only, so nothing on the network can reach it.',
-  },
-  self_hosted: {
-    ar: 'الخادم يستمع على واجهة صريحة، ولا يرد إلا على قائمة المضيفين المسموح بها.',
-    en: 'The daemon listens on an explicit interface and answers only the allowed-host list.',
-  },
-  hosted: {
-    ar: 'الواجهة تبقى على 127.0.0.1، والجهاز البعيد يصل عبر المرحّل المشفّر.',
-    en: 'The API stays on 127.0.0.1; remote devices arrive through the encrypted relay.',
-  },
-};
-
-/** One accent per mode: local is quiet, self-hosted asks for care, hosted is the brand accent. */
-const colours: Record<RunMode, { background: string; ink: string; border: string }> = {
-  local: { background: 'var(--warsha-color-surface-muted)', ink: 'var(--warsha-color-success)', border: '1px solid var(--warsha-color-border-strong)' },
-  self_hosted: { background: 'var(--warsha-color-surface-muted)', ink: 'var(--warsha-color-warning)', border: '1px solid var(--warsha-color-border-strong)' },
-  hosted: {
-    background: 'var(--warsha-color-accent)',
-    ink: 'var(--warsha-color-accent-ink)',
-    border: '1px solid var(--warsha-color-accent)',
-  },
-};
-
-/**
- * Translate a key, falling back to the local label when the catalog has no
- * entry yet (`t` returns the key itself for a missing message).
- */
-function localized(key: string, fallback: string, locale: Locale): string {
-  const translated = t(key, {}, locale);
-  return translated === key ? fallback : translated;
-}
-
 /** True when this mode's socket is unreachable from another machine. */
 export function loopbackOnly(mode: RunMode): boolean {
-  // Hosted binds loopback too: remote devices arrive through the relay, not
-  // through a listening port. Only Self-hosted exposes an interface.
+  // Hosted binds loopback too: remote devices arrive through the relay, not through a listening port.
+  // Only Self-hosted exposes an interface.
   return mode !== 'self_hosted';
 }
 
 /** The mode's label in the active locale. */
 export function runModeLabel(mode: RunMode, locale: Locale): string {
-  return localized(`run_modes.mode.${mode}`, labels[mode][locale], locale);
+  return t(`run_modes.mode.${mode}`, {}, locale);
 }
 
 /** What the mode means for reachability, in the active locale. */
 export function runModeHint(mode: RunMode, locale: Locale): string {
-  return localized(`run_modes.hint.${mode}`, hints[mode][locale], locale);
+  return t(`run_modes.hint.${mode}`, {}, locale);
 }
 
 export interface RunModeBadgeProps {
@@ -85,28 +48,36 @@ export function RunModeBadge({ mode, detail }: RunModeBadgeProps) {
   const hint = runModeHint(mode, locale);
   const trimmed = typeof detail === 'string' ? detail.trim() : '';
   const title = trimmed === '' ? hint : `${hint} — ${trimmed}`;
-  const palette = colours[mode];
+  const exposed = !loopbackOnly(mode);
 
   return (
     <span
       dir={dir}
+      // B4: the badge is one object — a glyph and a word — so it is named as one. `aria-label` on a bare
+      // `<span>` is the thing axe could not decide (`aria-prohibited-attr`: no role to carry a name), and
+      // `role="img"` is the role a glyph-plus-word badge actually has: the label is the name, the picture
+      // inside is decoration, and `title` stays as the visual tooltip.
+      role="img"
       data-testid="run-mode-badge"
       data-mode={mode}
-      data-loopback={loopbackOnly(mode) ? 'true' : 'false'}
+      data-loopback={exposed ? 'false' : 'true'}
       title={title}
       aria-label={`${label} — ${title}`}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: '6px',
-        paddingInline: '10px',
-        paddingBlock: '3px',
-        borderRadius: '999px',
-        border: palette.border,
-        backgroundColor: palette.background,
-        color: palette.ink,
+        gap: 'var(--warsha-space-2)',
+        paddingInline: 'var(--warsha-space-3)',
+        minBlockSize: 'var(--warsha-size-chip)',
+        borderRadius: 'var(--warsha-radius-full)',
+        // An exposed socket is the one case the bench marks structurally: an inscribed edge, not a colour.
+        border: exposed
+          ? 'var(--warsha-size-inscribe) solid var(--warsha-signal-text)'
+          : 'var(--warsha-size-rule) solid var(--warsha-bench-edge)',
+        backgroundColor: 'var(--warsha-bench-plate)',
+        color: 'var(--warsha-color-text)',
         fontSize: 'var(--warsha-font-size-xs)',
-        fontWeight: 700,
+        fontWeight: 'var(--warsha-font-weight-semibold)',
         unicodeBidi: 'isolate',
         whiteSpace: 'nowrap',
       }}
@@ -116,36 +87,18 @@ export function RunModeBadge({ mode, detail }: RunModeBadgeProps) {
         width="12"
         height="12"
         viewBox="0 0 12 12"
-        style={{ flex: '0 0 auto' }}
+        style={{ flex: '0 0 auto', display: 'block' }}
       >
         {mode === 'local' ? (
           // A single screen: one machine.
           <>
-            <rect
-              x="1.5"
-              y="2"
-              width="9"
-              height="6"
-              rx="1"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.2"
-            />
+            <rect x="1.5" y="2" width="9" height="6" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2" />
             <path d="M4 10.5h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
           </>
         ) : mode === 'self_hosted' ? (
           // A server with two bays: the owner's own host, on an explicit bind.
           <>
-            <rect
-              x="2"
-              y="1.5"
-              width="8"
-              height="9"
-              rx="1.2"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.2"
-            />
+            <rect x="2" y="1.5" width="8" height="9" rx="1.2" fill="none" stroke="currentColor" strokeWidth="1.2" />
             <path d="M4 4.5h4M4 7.5h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
           </>
         ) : (
@@ -160,6 +113,12 @@ export function RunModeBadge({ mode, detail }: RunModeBadgeProps) {
         )}
       </svg>
       <span>{label}</span>
+      {exposed && (
+        // The word, not the colour, is the announcement: an exposed bind needs the owner to know it.
+        <span style={{ fontFamily: 'var(--warsha-font-mono)' }} aria-hidden="true">
+          !
+        </span>
+      )}
     </span>
   );
 }

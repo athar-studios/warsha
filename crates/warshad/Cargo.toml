@@ -26,6 +26,7 @@ tower-http = { workspace = true }
 jsonrpsee = { workspace = true }
 clap = { workspace = true }
 dirs = { workspace = true }
+futures = { workspace = true }
 keyring = { workspace = true }
 ulid = { workspace = true }
 uuid = { workspace = true }

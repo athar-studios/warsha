@@ -142,10 +142,16 @@ async fn e2e_request_to_artifact() {
     let project_dir = temp.path().join(PACKAGE_NAME);
     let state = daemon_state(&data_dir).await;
     let rpc = WarshaRpc::new(state.clone());
+    // The session a request arrives with. Over the wire the transport builds it
+    // from the bearer credential; in-process, these extensions are that session,
+    // and `owner` is the device the daemon records a decision against.
+    let owner = DeviceId::new();
+    let ext = warshad::owner_session(owner);
 
     // ---- 2. The written request becomes a project and a run.
     let project = rpc
         .create_project(
+            &ext,
             PACKAGE_NAME.to_string(),
             HELLO_REQUEST.to_string(),
             "en".to_string(),
@@ -154,7 +160,7 @@ async fn e2e_request_to_artifact() {
         .expect("projects.create succeeds");
     assert_eq!(project.name, PACKAGE_NAME);
     let run = rpc
-        .start_run(project.id, HELLO_REQUEST.to_string())
+        .start_run(&ext, project.id, HELLO_REQUEST.to_string())
         .await
         .expect("runs.start succeeds");
     assert_eq!(run.current_stage, Stage::Idea);
@@ -168,7 +174,7 @@ async fn e2e_request_to_artifact() {
     // The run's append-only log is written before any gate decision, so it is
     // readable here: one `stage_started` event carrying the request.
     let started = rpc
-        .get_events(run.id)
+        .get_events(&ext, run.id)
         .await
         .expect("the run's events are readable");
     assert_eq!(started.len(), 1, "unexpected events: {started:?}");
@@ -226,9 +232,9 @@ async fn e2e_request_to_artifact() {
     assert_eq!(approval.to, AgentMode::Agent);
 
     // Gate A: the owner's approval of the brief, through the daemon's RPC layer.
-    let device = DeviceId::new();
+    let device = owner;
     let run = rpc
-        .approve_gate(run.id, Stage::GateA, device)
+        .approve_gate(&ext, run.id, Stage::GateA, Some(device))
         .await
         .expect("gate A approves");
     assert!(
@@ -256,7 +262,7 @@ async fn e2e_request_to_artifact() {
         .expect("PRD spec -> Gate B");
     assert_eq!(run.current_stage, Stage::GateB);
     let run = rpc
-        .approve_gate(run.id, Stage::GateB, device)
+        .approve_gate(&ext, run.id, Stage::GateB, Some(device))
         .await
         .expect("gate B approves");
     assert!(
@@ -409,11 +415,14 @@ async fn e2e_request_to_artifact() {
     // used to fail on (`append_event` binds a 16-byte UUID blob, `event_from_row`
     // read it as an integer). A green `get_events` over a log holding two decisions
     // is the regression evidence for that store defect.
-    let stored = rpc.get_run(run.id).await.expect("the run is readable");
+    let stored = rpc
+        .get_run(&ext, run.id)
+        .await
+        .expect("the run is readable");
     assert_eq!(stored.current_stage, Stage::ReviewQaSecurity);
 
     let events = rpc
-        .get_events(run.id)
+        .get_events(&ext, run.id)
         .await
         .expect("the run's whole event log is readable");
     let decisions: Vec<&Event> = events
@@ -497,6 +506,8 @@ async fn daemon_state(data_dir: &Path) -> Arc<DaemonState> {
     let routine_runner: Arc<dyn RoutineRunner + Send + Sync> = Arc::new(MockRoutineRunner::new());
     let routine_scheduler = Arc::new(RoutineScheduler::new(routines.clone(), routine_runner));
 
+    let local_device = identity.device_id;
+
     Arc::new(DaemonState {
         config: DaemonConfig {
             data_dir: data_dir.to_path_buf(),
@@ -532,6 +543,12 @@ async fn daemon_state(data_dir: &Path) -> Arc<DaemonState> {
         secrets: Arc::new(InMemorySecretStore::new()),
         routines,
         routine_scheduler,
+        sessions: Arc::new(warshad::Sessions::new("e2e-token", local_device)),
+        rates: Arc::new(warshad::RateGovernor::default()),
+        role_routings: Arc::new(RwLock::new(HashMap::new())),
+        // The offline factory: this test routes the mock it registers itself, so no
+        // configured-provider path is taken and nothing reaches a network.
+        provider_factory: Arc::new(warshad::MockProviderFactory::new()),
     })
 }
 

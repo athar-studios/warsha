@@ -1,269 +1,431 @@
-// Roles settings — Set role routing (provider/model per role)
-import { WarshaClient, type RoleRoutingConfig, type Role } from '@warsha/client';
-import { useDirection, useLocale } from '@warsha/i18n';
-import { Box, Text, Button, Card } from '@warsha/ui';
-import React, { useState, useEffect } from 'react';
+// Roles settings — the routing table, as a ledger with an inline editor (PLAN.md M10, redrawn for Bench &
+// Signal in B3-secondary).
+//
+// REDESIGN §5 gives the roles screen "roles routing table as ledger rows (provider/model/weight), edit
+// inline". What it had was a column of cards, three invented provider names, and a save that wrote to no
+// daemon at all.
+//
+// What the direction asks of this file:
+//
+//   * one ruled row per role, the role's word in the catalog's plain language (§3's first rung) and the
+//     routing targets as machine data: `provider/model` in mono, isolated, tabular weights (§11);
+//   * no lamp at all: a role that is not configured is not waiting on the owner's hand in the way a gate
+//     is — it is a piece of configuration, and the `غير مهيأ` word plus the `تهيئة` button say it (§1);
+//   * the editor is a plate under the row it edits, not a modal, and it writes through
+//     `roles.set-config` for real, reporting what the daemon said (§7);
+//   * every word comes from `@warsha/i18n`: the `ROLE_LABELS` table and the thirty-odd
+//     `locale === 'ar' ? … : …` branches AUDIT-1 §3.3 counted here are gone.
+import { type ProviderConfig, type Role, type RoleRoutingConfig, type WarshaClient } from '@warsha/client';
+import { t, useDirection, useLocale, type MessageValues } from '@warsha/i18n';
+import {
+  Banner,
+  Box,
+  Button,
+  Chip,
+  Field,
+  Ledger,
+  Panel,
+  Skeleton,
+  Stamp,
+  Text,
+  fieldControl,
+} from '@warsha/ui';
+import React, { useCallback, useEffect, useState } from 'react';
 
 interface RolesSettingsProps {
   client: WarshaClient;
   onBack: () => void;
 }
 
-const ROLES: Role[] = [
-  'intake', 'researcher', 'pm', 'designer', 'architect', 
-  'coder', 'reviewer', 'qa', 'security', 'release', 'marketer', 'feedback'
+/** The roles the pipeline can route, in the order the owner reads them. */
+const ROLES: readonly Role[] = [
+  'intake',
+  'researcher',
+  'pm',
+  'designer',
+  'architect',
+  'coder',
+  'reviewer',
+  'qa',
+  'security',
+  'release',
+  'marketer',
+  'feedback',
 ];
 
-const ROLE_LABELS: Record<Role, { ar: string; en: string }> = {
-  intake: { ar: 'الاستقبال', en: 'Intake' },
-  researcher: { ar: 'الباحث', en: 'Researcher' },
-  pm: { ar: 'مدير المنتج', en: 'Product Manager' },
-  designer: { ar: 'المصمم', en: 'Designer' },
-  architect: { ar: 'المهندس المعماري', en: 'Architect' },
-  coder: { ar: 'المبرمج', en: 'Coder' },
-  reviewer: { ar: 'المراجع', en: 'Reviewer' },
-  qa: { ar: 'ضمان الجودة', en: 'QA' },
-  security: { ar: 'الأمان', en: 'Security' },
-  release: { ar: 'الإصدار', en: 'Release' },
-  marketer: { ar: 'المسوق', en: 'Marketer' },
-  feedback: { ar: 'التغذية الراجعة', en: 'Feedback' },
-};
+/** One target as the editor holds it — the wire shape is `RoutingTargetConfig`. */
+interface TargetDraft {
+  provider: string;
+  model: string;
+  weight: number;
+}
 
-export function RolesSettings({ onBack }: RolesSettingsProps) {
+export function RolesSettings({ client, onBack }: RolesSettingsProps) {
   const dir = useDirection();
   const locale = useLocale();
-  const [roles, setRoles] = useState<RoleRoutingConfig[]>([]);
+
+  const [routing, setRouting] = useState<Record<string, RoleRoutingConfig>>({});
+  /**
+   * The roles the ledger rules, in pipeline order.
+   *
+   * `roles.list` is the answer when the daemon gives one; the twelve this build knows are the fallback, so
+   * an unresponsive daemon still shows the owner the whole table with its retry banner above it (§7).
+   */
+  const [roleList, setRoleList] = useState<readonly Role[]>(ROLES);
+  const [providers, setProviders] = useState<ProviderConfig[]>([]);
   const [loading, setLoading] = useState(true);
-  const [providers] = useState([{ id: 'openai-gpt4', name: 'OpenAI GPT-4' }, { id: 'anthropic-claude', name: 'Anthropic Claude' }, { id: 'ollama-local', name: 'Ollama Local' }]);
-  const [editingRole, setEditingRole] = useState<Role | null>(null);
-  const [editTargets, setEditTargets] = useState<Array<{ provider: string; model: string; weight: number }>>([]);
+  const [failed, setFailed] = useState(false);
+  const [reload, setReload] = useState(0);
+  const [editing, setEditing] = useState<Role | null>(null);
+  const [targets, setTargets] = useState<TargetDraft[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
+  const label = useCallback((key: string, values?: MessageValues) => t(key, values ?? {}, locale), [locale]);
+
+  // The routing table and the provider list are read together: the editor offers the providers the daemon
+  // actually knows, never a made-up shortlist (§7: no promise the bench cannot keep).
   useEffect(() => {
-    loadRoles();
-  }, []);
+    let cancelled = false;
+    setLoading(true);
 
-  const loadRoles = async () => {
-    try {
-      // const data = await client.listRoles();
-      // Mock data
-      setRoles([
-        { role: 'intake', targets: [{ provider_id: 'openai-gpt4', model_id: 'gpt-4o', weight: 100 }], fallback_enabled: true, budget_cents_per_run: 500 },
-        { role: 'researcher', targets: [{ provider_id: 'openai-gpt4', model_id: 'gpt-4o', weight: 100 }], fallback_enabled: true, budget_cents_per_run: 1000 },
-        { role: 'pm', targets: [{ provider_id: 'anthropic-claude', model_id: 'claude-3-5-sonnet', weight: 100 }], fallback_enabled: true, budget_cents_per_run: 1000 },
-      ]);
-    } catch (error) {
-      console.error('Failed to load roles:', error);
-    } finally {
+    const load = async () => {
+      let known: ProviderConfig[] = [];
+      let table: [Role, RoleRoutingConfig | null][] | null = null;
+      try {
+        known = await client.listProviders();
+      } catch {
+        known = [];
+      }
+      try {
+        const roles = await client.listRoles();
+        const known = roles.length > 0 ? roles : [...ROLES];
+        const settled = await Promise.all(
+          known.map(async (role): Promise<[Role, RoleRoutingConfig | null]> => {
+            try {
+              return [role, await client.getRoleConfig(role)];
+            } catch {
+              return [role, null];
+            }
+          })
+        );
+        table = settled;
+        setRoleList(known);
+      } catch {
+        table = null;
+      }
+
+      if (cancelled) return;
+      if (table === null) {
+        setFailed(true);
+        setRouting({});
+      } else {
+        setFailed(false);
+        setRouting(
+          Object.fromEntries(table.filter((entry): entry is [Role, RoleRoutingConfig] => entry[1] !== null))
+        );
+      }
+      setProviders(known);
       setLoading(false);
-    }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [client, reload]);
+
+  const startEdit = (role: Role) => {
+    const config = routing[role];
+    setEditing(role);
+    setSaved(null);
+    setSaveError(null);
+    setTargets(
+      config
+        ? config.targets.map((target) => ({ provider: target.provider_id, model: target.model_id, weight: target.weight }))
+        : [{ provider: providers[0]?.name ?? '', model: '', weight: 100 }]
+    );
   };
 
-  const startEdit = (roleConfig: RoleRoutingConfig) => {
-    setEditingRole(roleConfig.role);
-    setEditTargets(roleConfig.targets.map(t => ({ provider: t.provider_id, model: t.model_id, weight: t.weight })));
-  };
+  const addTarget = () =>
+    setTargets((previous) => [...previous, { provider: providers[0]?.name ?? '', model: '', weight: 100 }]);
 
-  const handleSave = async () => {
-    if (!editingRole) return;
-    
+  const removeTarget = (index: number) =>
+    setTargets((previous) => previous.filter((_, position) => position !== index));
+
+  const save = async () => {
+    if (editing === null) return;
+    setSaving(true);
+    setSaveError(null);
+    const previous = routing[editing];
+    const config: RoleRoutingConfig = {
+      role: editing,
+      targets: targets.map((target) => ({ provider_id: target.provider, model_id: target.model, weight: target.weight })),
+      fallback_enabled: previous?.fallback_enabled ?? true,
+      budget_cents_per_run: previous?.budget_cents_per_run ?? 500,
+    };
     try {
-      const config: RoleRoutingConfig = {
-        role: editingRole,
-        targets: editTargets.map(t => ({ provider_id: t.provider, model_id: t.model, weight: t.weight })),
-        fallback_enabled: true,
-        budget_cents_per_run: 500,
-      };
-      // await client.setRole(config);
-      setRoles(prev => prev.map(r => r.role === editingRole ? config : r));
-      setEditingRole(null);
-    } catch (error) {
-      console.error('Failed to save role:', error);
+      await client.setRoleConfig(config);
+      setRouting((current) => ({ ...current, [editing]: config }));
+      setSaved(label(`role.${editing}`));
+      setEditing(null);
+    } catch {
+      // The row stays, the error stays beside it, and the owner's words are not thrown away (§7).
+      setSaveError(label('roles.failed'));
+    } finally {
+      setSaving(false);
     }
-  };
-
-  const addTarget = () => {
-    setEditTargets(prev => [...prev, { provider: providers[0]?.id || '', model: '', weight: 100 }]);
-  };
-
-  const removeTarget = (index: number) => {
-    setEditTargets(prev => prev.filter((_, i) => i !== index));
   };
 
   return (
-    <Box dir={dir} className="roles-settings" style={{ padding: 'var(--warsha-space-6)', minHeight: 'calc(100vh - 80px)', maxWidth: '1000px' }}>
-      <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--warsha-space-6)' }}>
+    <Box
+      dir={dir}
+      className="roles-settings"
+      style={{
+        paddingInline: 'var(--warsha-space-6)',
+        paddingBlock: 'var(--warsha-space-6)',
+        minHeight: 'calc(100vh - 80px)',
+        maxInlineSize: '1000px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--warsha-space-4)',
+        minInlineSize: 0,
+      }}
+    >
+      <header dir={dir} style={{ minInlineSize: 0 }}>
+        <Button variant="ghost" size="sm" dir={dir} onClick={onBack} style={{ paddingInlineStart: 0 }}>
+          {label('common.back')}
+        </Button>
+        <h1
+          dir={dir}
+          style={{
+            margin: 0,
+            fontSize: 'var(--warsha-font-size-xl)',
+            fontWeight: 'var(--warsha-font-weight-bold)',
+            color: 'var(--warsha-color-text)',
+          }}
+        >
+          {label('roles.title')}
+        </h1>
+        <Text size="sm" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
+          {label('roles.desc')}
+        </Text>
+      </header>
+
+      {failed && (
+        <Banner
+          tone="error"
+          action={
+            <Button variant="secondary" size="sm" dir={dir} onClick={() => setReload((n) => n + 1)}>
+              {label('common.retry')}
+            </Button>
+          }
+        >
+          {label('roles.failed')}
+        </Banner>
+      )}
+
+      {saved && (
         <Box dir={dir}>
-          <Button variant="ghost" size="sm" onClick={onBack} dir={dir} style={{ marginBottom: 'var(--warsha-space-2)' }}>
-            ← {locale === 'ar' ? 'رجوع' : 'Back'}
-          </Button>
-          <Text size="xl" weight="bold" dir={dir}>
-            {locale === 'ar' ? 'إعدادات الأدوار' : 'Role Settings'}
-          </Text>
-          <Text size="md" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
-            {locale === 'ar' ? 'تعيين توجيه المزود/النموذج لكل دور' : 'Assign provider/model routing per role'}
-          </Text>
+          <Stamp tone="ok">{`${saved} — ${label('roles.saved')}`}</Stamp>
         </Box>
-      </Box>
+      )}
 
       {loading ? (
-        <Box dir={dir} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px' }}>
-          <Text dir={dir}>{locale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</Text>
+        <Box dir={dir} p={4}>
+          <Skeleton label={label('roles.loading')} variant="row" lines={6} />
         </Box>
       ) : (
-        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
-          {editingRole ? (
-            <Card dir={dir}>
-              <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--warsha-space-6)' }}>
-                <Text size="lg" weight="bold" dir={dir}>
-                  {locale === 'ar' ? 'تحرير' : 'Editing'}: {ROLE_LABELS[editingRole]?.[locale] || editingRole}
-                </Text>
-                <Button variant="secondary" onClick={() => setEditingRole(null)} dir={dir}>
-                  {locale === 'ar' ? 'إلغاء' : 'Cancel'}
-                </Button>
-              </Box>
-
+        <>
+          {editing !== null && (
+            <Panel title={`${label('roles.editing')} — ${label(`role.${editing}`)}`} label={label('roles.editing')}>
               <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
-                {editTargets.map((target, index) => (
-                  <Card key={index} dir={dir} style={{ backgroundColor: 'var(--warsha-color-bg)' }}>
-                    <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-3)', alignItems: 'center', flexWrap: 'wrap' }}>
-                      <Box dir={dir} style={{ flex: 1, minWidth: '150px' }}>
-                        <Text size="xs" weight="medium" dir={dir} style={{ marginBottom: 'var(--warsha-space-1)', color: 'var(--warsha-color-text-muted)' }}>
-                          {locale === 'ar' ? 'المزود' : 'Provider'}
-                        </Text>
-                        <select
-                          value={target.provider}
-                          onChange={(e) => {
-                            setEditTargets(prev => prev.map((t, i) => i === index ? { ...t, provider: e.target.value } : t));
-                          }}
-                          style={{
-                            width: '100%',
-                            padding: 'var(--warsha-space-2) var(--warsha-space-3)',
-                            border: '1px solid var(--warsha-color-border-strong)',
-                            borderRadius: '6px',
-                            fontSize: 'var(--warsha-font-size-sm)',
-                          }}
-                          dir={dir}
-                        >
-                          {providers.map(p => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
-                          ))}
-                        </select>
-                      </Box>
-                      
-                      <Box dir={dir} style={{ flex: 1, minWidth: '150px' }}>
-                        <Text size="xs" weight="medium" dir={dir} style={{ marginBottom: 'var(--warsha-space-1)', color: 'var(--warsha-color-text-muted)' }}>
-                          {locale === 'ar' ? 'النموذج' : 'Model'}
-                        </Text>
-                        <input
-                          type="text"
-                          placeholder="gpt-4o"
-                          value={target.model}
-                          onChange={(e) => {
-                            setEditTargets(prev => prev.map((t, i) => i === index ? { ...t, model: e.target.value } : t));
-                          }}
-                          style={{
-                            width: '100%',
-                            padding: 'var(--warsha-space-2) var(--warsha-space-3)',
-                            border: '1px solid var(--warsha-color-border-strong)',
-                            borderRadius: '6px',
-                            fontSize: 'var(--warsha-font-size-sm)',
-                            direction: 'ltr',
-                          }}
-                          dir="ltr"
-                        />
-                      </Box>
-                      
-                      <Box dir={dir} style={{ width: '100px' }}>
-                        <Text size="xs" weight="medium" dir={dir} style={{ marginBottom: 'var(--warsha-space-1)', color: 'var(--warsha-color-text-muted)' }}>
-                          {locale === 'ar' ? 'الوزن' : 'Weight'}
-                        </Text>
-                        <input
-                          type="number"
-                          min="1"
-                          max="100"
-                          value={target.weight}
-                          onChange={(e) => {
-                            setEditTargets(prev => prev.map((t, i) => i === index ? { ...t, weight: parseInt(e.target.value) || 100 } : t));
-                          }}
-                          style={{
-                            width: '100%',
-                            padding: 'var(--warsha-space-2) var(--warsha-space-3)',
-                            border: '1px solid var(--warsha-color-border-strong)',
-                            borderRadius: '6px',
-                            fontSize: 'var(--warsha-font-size-sm)',
-                            direction: 'ltr',
-                          }}
-                          dir="ltr"
-                        />
-                      </Box>
-                      
-                      <Button variant="ghost" size="sm" onClick={() => removeTarget(index)} dir={dir} style={{ color: 'var(--warsha-color-error)' }}>
-                        ✗
-                      </Button>
-                    </Box>
-                  </Card>
+                <Text size="sm" dir={dir}>
+                  {label('roles.targets')}
+                </Text>
+
+                {targets.map((target, index) => (
+                  <Box
+                    key={`${editing}-${index}`}
+                    dir={dir}
+                    style={{
+                      display: 'flex',
+                      gap: 'var(--warsha-space-3)',
+                      alignItems: 'flex-end',
+                      flexWrap: 'wrap',
+                      paddingBlockStart: 'var(--warsha-space-2)',
+                      borderBlockStart: '1px solid var(--warsha-bench-rule)',
+                      minInlineSize: 0,
+                    }}
+                  >
+                    <Field
+                      id={`role-target-provider-${index}`}
+                      label={label('roles.provider')}
+                      style={{ flex: '1 1 12rem', marginBlockEnd: 0 }}
+                    >
+                      <select
+                        {...fieldControl(`role-target-provider-${index}`)}
+                        dir={dir}
+                        value={target.provider}
+                        onChange={(event) =>
+                          setTargets((previous) =>
+                            previous.map((row, position) =>
+                              position === index ? { ...row, provider: event.target.value } : row
+                            )
+                          )
+                        }
+                      >
+                        {target.provider === '' && <option value="">{label('providers.select_type')}</option>}
+                        {providers.map((provider) => (
+                          <option key={provider.name} value={provider.name}>
+                            {provider.name}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+
+                    <Field
+                      id={`role-target-model-${index}`}
+                      label={label('roles.model')}
+                      style={{ flex: '1 1 12rem', marginBlockEnd: 0 }}
+                    >
+                      <input
+                        {...fieldControl(`role-target-model-${index}`)}
+                        dir="ltr"
+                        type="text"
+                        autoComplete="off"
+                        spellCheck={false}
+                        placeholder={label('roles.model_placeholder')}
+                        value={target.model}
+                        onChange={(event) =>
+                          setTargets((previous) =>
+                            previous.map((row, position) =>
+                              position === index ? { ...row, model: event.target.value } : row
+                            )
+                          )
+                        }
+                      />
+                    </Field>
+
+                    <Field
+                      id={`role-target-weight-${index}`}
+                      label={label('roles.weight')}
+                      hint={label('roles.weight_hint')}
+                      style={{ flex: '0 0 7rem', marginBlockEnd: 0 }}
+                    >
+                      <input
+                        {...fieldControl(`role-target-weight-${index}`, { hint: true })}
+                        dir="ltr"
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={target.weight}
+                        onChange={(event) =>
+                          setTargets((previous) =>
+                            previous.map((row, position) =>
+                              position === index
+                                ? { ...row, weight: Number(event.target.value) || 100 }
+                                : row
+                            )
+                          )
+                        }
+                      />
+                    </Field>
+
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      dir={dir}
+                      disabled={targets.length === 1}
+                      onClick={() => removeTarget(index)}
+                    >
+                      {label('roles.remove_target')}
+                    </Button>
+                  </Box>
                 ))}
 
-                <Button variant="ghost" onClick={addTarget} dir={dir} style={{ width: 'fit-content' }}>
-                  + {locale === 'ar' ? 'إضافة هدف' : 'Add Target'}
-                </Button>
-
-                <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-3)', justifyContent: 'flex-end', marginTop: 'var(--warsha-space-4)' }}>
-                  <Button variant="secondary" onClick={() => setEditingRole(null)} dir={dir}>
-                    {locale === 'ar' ? 'إلغاء' : 'Cancel'}
+                <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-3)', flexWrap: 'wrap' }}>
+                  <Button variant="ghost" size="sm" dir={dir} onClick={addTarget}>
+                    {label('roles.add_target')}
                   </Button>
-                  <Button variant="primary" onClick={handleSave} dir={dir}>
-                    {locale === 'ar' ? 'حفظ' : 'Save'}
+                </Box>
+
+                {saveError && <Banner tone="error">{saveError}</Banner>}
+
+                <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-3)', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                  <Button variant="secondary" dir={dir} onClick={() => setEditing(null)}>
+                    {label('common.cancel')}
+                  </Button>
+                  <Button variant="primary" dir={dir} disabled={saving} onClick={() => void save()}>
+                    {saving ? label('roles.saving') : label('roles.save')}
                   </Button>
                 </Box>
               </Box>
-            </Card>
-          ) : (
-            <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-3)' }}>
-              {ROLES.map(role => {
-                const config = roles.find(r => r.role === role);
-                const targets = config?.targets || [];
-                return (
-                  <Card key={role} dir={dir} style={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center',
-                    backgroundColor: config ? 'var(--warsha-color-surface)' : 'var(--warsha-color-bg)',
-                  }}>
-                    <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-3)', flex: 1 }}>
-                      <Text weight="bold" dir={dir}>{ROLE_LABELS[role]?.[locale] || role}</Text>
-                      {config && targets.length > 0 && (
-                        <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)', flexWrap: 'wrap' }}>
-                          {targets.map((t, i) => (
-                            <span key={i} style={{
-                              padding: '2px var(--warsha-space-2)',
-                              backgroundColor: 'var(--warsha-color-surface-muted)',
-                              color: 'var(--warsha-color-accent-strong)',
-                              borderRadius: '9999px',
-                              fontSize: 'var(--warsha-font-size-xs)',
-                              fontWeight: 500,
-                            }}>
-                              {t.provider_id}:{t.model_id}
-                            </span>
-                          ))}
-                        </Box>
-                      )}
-                      {!config && (
-                        <Text size="sm" dir={dir} style={{ color: 'var(--warsha-color-muted)' }}>
-                          {locale === 'ar' ? 'غير مهيأ' : 'Not configured'}
-                        </Text>
-                      )}
-                    </Box>
-                    
-                    <Button variant={config ? 'secondary' : 'primary'} size="sm" onClick={() => startEdit(config || { role, targets: [], fallback_enabled: true, budget_cents_per_run: 500 })} dir={dir}>
-                      {config ? (locale === 'ar' ? 'تعديل' : 'Edit') : (locale === 'ar' ? 'تهيئة' : 'Configure')}
-                    </Button>
-                  </Card>
-                );
-              })}
-            </Box>
+            </Panel>
           )}
-        </Box>
+
+          <Ledger label={label('roles.title')} recessed>
+            {roleList.map((role) => {
+              const config = routing[role];
+              const targets = config?.targets ?? [];
+              return (
+                <Ledger.Row
+                  key={role}
+                  meta={
+                    targets.length > 0 ? (
+                      <Chip label={label('roles.targets')}>
+                        {label('roles.target_count', { count: targets.length })}
+                      </Chip>
+                    ) : null
+                  }
+                  actions={
+                    // Secondary on every row: nine lit buttons would be decoration, and the lamp is the
+                    // owner's queue alone (§1). The word `تهيئة` / `تعديل` is what says which is which.
+                    <Button variant="secondary" size="sm" dir={dir} onClick={() => startEdit(role)}>
+                      {label(config ? 'roles.edit' : 'roles.configure')}
+                    </Button>
+                  }
+                >
+                  <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-1)', minInlineSize: 0 }}>
+                    <Text size="sm" weight="medium" dir={dir}>
+                      {label(`role.${role}`)}
+                    </Text>
+                    {targets.length === 0 ? (
+                      // Not configured is a word and a button, never a colour (§9).
+                      <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
+                        {label('roles.not_configured')}
+                      </Text>
+                    ) : (
+                      <Box dir={dir} style={{ display: 'inline-flex', gap: 'var(--warsha-space-2)', flexWrap: 'wrap' }}>
+                        {targets.map((target) => (
+                          <span
+                            key={`${target.provider_id}-${target.model_id}`}
+                            dir="ltr"
+                            translate="no"
+                            style={{
+                              fontFamily: 'var(--warsha-font-mono)',
+                              fontVariantNumeric: 'tabular-nums',
+                              unicodeBidi: 'isolate',
+                              fontSize: 'var(--warsha-font-size-xs)',
+                              color: 'var(--warsha-color-text)',
+                              border: '1px solid var(--warsha-bench-edge)',
+                              borderRadius: 'var(--warsha-radius-sm)',
+                              paddingInline: 'var(--warsha-space-2)',
+                              paddingBlock: '2px',
+                            }}
+                          >
+                            {`${target.provider_id}/${target.model_id} · ${target.weight}`}
+                          </span>
+                        ))}
+                      </Box>
+                    )}
+                  </Box>
+                </Ledger.Row>
+              );
+            })}
+          </Ledger>
+        </>
       )}
     </Box>
   );

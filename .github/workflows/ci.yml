@@ -122,6 +122,15 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
 
+      # The baselines beside apps/desktop/e2e/*.spec.ts-snapshots were captured on a Linux host that has
+      # IBM Plex installed, and the token stacks lead with it while the app bundles no font bytes. On a
+      # bare ubuntu-latest image every case would fall through to a substitute face and fail on metrics
+      # instead of on a design change. This puts the same nine pinned OFL faces on the runner and refuses
+      # to continue unless fc-match resolves them from those files, so the pixel compare below is
+      # measuring the design rather than a fallback. See bridge-io/audit/visual.md §1 and finding #10.
+      - name: Install capture fonts
+        run: bash scripts/ci/install-capture-fonts.sh
+
       - name: Visual regression
         run: pnpm visual
 

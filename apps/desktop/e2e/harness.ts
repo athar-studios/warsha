@@ -1,28 +1,36 @@
-// @warsha/desktop — the browser harness for the visual and layout checks.
+// @warsha/desktop — the browser harness for the visual, layout and accessibility checks.
 //
 // The desktop app is a Tauri + SPA: it reaches its shell only when `invoke('get_config', …)` succeeds
 // and a daemon answers its JSON-RPC. A browser has neither, so this module stubs exactly those two
 // edges — nothing else about the app is mocked, which is what makes the screenshots worth trusting.
 //
-// The layout invariants themselves live in `./support/layout.ts`, shared with the remote app's
-// smoke check; this file is the desktop half: the stubs, the fixtures and the screen list.
+// The invariants live in `./support/` and are re-exported here so a spec imports one module, not three:
+//
+//   * `layout.ts` — box geometry (undefined tokens, horizontal scroll, oversize, overlap, empty boxes);
+//   * `a11y.ts`   — axe-core WCAG 2.1 AA, the keyboard walk, and the clip pass;
+//   * `fonts.ts`  — proof that chromium laid the page out with the design's own faces.
+//
+// This file is the desktop half: the stubs, the fixtures, the screen list and the §7 states.
 //
 // Every case is deterministic by construction:
 //
-//   * fonts.googleapis.com is aborted, so the fallback stack from `tokens.css` is what renders (no
-//     network, no font version drift);
-//   * the theme and the locale are written into `localStorage` before the first paint, exactly as
-//     the app reads them (`warsha.theme`, `warsha.locale`);
-//   * the clock is pinned by `playwright.config.ts` (`timezoneId: 'UTC'`), and every fixture date is
-//     a fixed ISO string;
+//   * fonts.googleapis.com is aborted, so no capture depends on the network. The families the token
+//     stack names first come from the capture host's fontconfig instead, and `auditUsedFonts` proves
+//     chromium really drew with them — which is what closes REDESIGN §14's caveat that "final font
+//     metrics are not verified". The app bundle carries no font bytes;
+//   * the theme and the locale are written into `localStorage` before the first paint, exactly as the
+//     app reads them (`warsha.theme`, `warsha.locale`);
+//   * the clock is pinned by `playwright.config.ts` (`timezoneId: 'UTC'`) plus `clock.setFixedTime`,
+//     and every fixture date is a fixed ISO string;
 //   * animations and transitions are zeroed twice — `prefers-reduced-motion` (which the token layer
 //     honours) and a stylesheet override;
-//   * the event-stream WebSocket is mocked open-and-silent, so no screen waits on a daemon.
+//   * the `/events` socket is mocked open and answers a fixed transcript, so the Simple and Advanced
+//     benches show real lanes, costs and a gate event without a daemon.
 import type { Page } from '@playwright/test';
 
 import type { Locale, Theme, Viewport } from './support/layout';
+import { CORE_VIEWPORT_NAMES, viewportsNamed } from './support/layout';
 
-// The layout invariants are re-exported so a spec imports one module, not two.
 export {
   auditIsClean,
   auditLayout,
@@ -30,8 +38,105 @@ export {
   LOCALES,
   THEMES,
   VIEWPORTS,
+  viewportsNamed,
 } from './support/layout';
-export type { LayoutAudit, Locale, Theme, Viewport } from './support/layout';
+export type { LayoutAudit, Locale, Theme, Viewport, ViewportName } from './support/layout';
+
+export {
+  auditClipping,
+  auditFocusWalk,
+  axeIsClean,
+  clipsAreClean,
+  describeAxe,
+  describeAxeReport,
+  describeClips,
+  describeFocus,
+  focusIsClean,
+  runAxe,
+} from './support/a11y';
+export type { A11yAudit, AxeFinding, ClipAudit, FocusAudit, FocusStop } from './support/a11y';
+
+export {
+  auditUsedFonts,
+  describeFonts,
+  describeFontNotes,
+  FONT_INSTALL_HINT,
+  formatFonts,
+  MONO_FAMILY,
+  SANS_FAMILY,
+} from './support/fonts';
+export type { FontAudit, FontProbeResult } from './support/fonts';
+
+/**
+ * Every screen key the shell can route to (`apps/desktop/src/App.tsx`, `Screen`), plus one key per
+ * first-run wizard state the owner can be in.
+ */
+export type ScreenId =
+  | 'projects'
+  | 'run'
+  | 'gates'
+  | 'artifacts'
+  | 'providers'
+  | 'roles'
+  | 'budgets'
+  | 'devices'
+  | 'simple'
+  | 'advanced'
+  | 'settings'
+  | 'routines'
+  | 'settings-providers'
+  | 'crash-reports'
+  | 'store-reviews'
+  | 'backend-kit'
+  | 'onboarding-language'
+  | 'onboarding-provider'
+  | 'onboarding-provider-first-run'
+  | 'onboarding-key'
+  | 'onboarding-test-ok'
+  | 'onboarding-test-failed'
+  | 'onboarding-project';
+
+/** The RPC methods `@warsha/client` can put on the wire; the stub table is checked against it. */
+export const RPC_METHODS = [
+  'agent.approve_mode',
+  'agent.plan_mode',
+  'agent.state',
+  'agent.turn',
+  'backend.export',
+  'budget.get',
+  'budget.set',
+  'devices.list',
+  'devices.pair',
+  'devices.remove',
+  'gates.approve',
+  'gates.changes',
+  'gates.list',
+  'gates.reject',
+  'handoff.apply',
+  'handoff.create',
+  'health',
+  'postlaunch.crashes',
+  'postlaunch.reviews',
+  'projects.create',
+  'projects.delete',
+  'projects.get',
+  'projects.list',
+  'providers.add',
+  'providers.budget',
+  'providers.budget.status',
+  'providers.list',
+  'providers.remove',
+  'providers.test',
+  'roles.assign',
+  'roles.list',
+  'roles.set',
+  'runs.get',
+  'runs.list',
+  'runs.logs',
+  'runs.start',
+  'runs.status',
+] as const;
+export type RpcMethod = (typeof RPC_METHODS)[number];
 
 /**
  * Daemon endpoint the app's client falls back to in a browser (`apps/desktop/src/App.tsx`,
@@ -64,8 +169,56 @@ export type WizardDrive =
   | 'project'
   | 'created';
 
+/** One method's answer for one case. */
+export interface RpcBehaviour {
+  /** Answer this instead of the default fixture. */
+  result?: unknown;
+  /** Answer a JSON-RPC error carrying this message (the daemon's own words, never UI copy). */
+  error?: string;
+  /** Wait this long before answering, so a screen's in-flight state is reachable. */
+  delayMs?: number;
+  /** Never answer at all: the transport fails, which is what "the daemon is not there" means. */
+  unreachable?: boolean;
+}
+
+/** The §7 states, as the ids `states.spec.ts` and the evidence file use. */
+export type ScenarioId =
+  | 'default'
+  | 'empty'
+  | 'loading'
+  | 'screen-loading'
+  | 'error'
+  | 'offline'
+  | 'permission'
+  | 'success'
+  | 'dense';
+
 /**
- * One screen the visual suite checks.
+ * One of REDESIGN §7's states, expressed as what the daemon does.
+ *
+ * A state is not a class the harness paints: `empty` is a daemon that answers with nothing, `error`
+ * is a daemon that refuses, `offline` is a daemon that is not there, `loading` is a daemon that has
+ * not answered yet, and `permission` / `success` are gate and provider readings the owner really
+ * sees. The screen's own code decides what each one looks like — which is the point of testing them.
+ */
+export interface Scenario {
+  id: ScenarioId;
+  /** What the evidence file says this state is. */
+  note: string;
+  /** Per-method overrides of the default fixtures. */
+  fixtures: Partial<Record<RpcMethod, RpcBehaviour>>;
+  /**
+   * Whether to wait for the daemon to answer before measuring.
+   *
+   * `settled` is the normal case: every request has been answered, so the screen shows its content.
+   * `pending` stops at the first paint, which is the only way to photograph a loading state without
+   * inventing one.
+   */
+  settle: 'settled' | 'pending';
+}
+
+/**
+ * One screen the suite checks.
  *
  * `rpc` is what the case must have called by the time it is measured: the stub records every method,
  * and a case that renders without reaching the daemon is exactly the failure this list exists to
@@ -78,6 +231,14 @@ export interface ScreenCase {
   root: string;
   /** JSON-RPC methods the screen must have called before it can be measured. */
   rpc: readonly string[];
+  /**
+   * The widths this screen is photographed at.
+   *
+   * §10 gives every screen a different shape at 390/768/1440; only the benches change again at 320
+   * (rails collapse to strips) and 1024 (the end panel appears), so those two are named per screen
+   * rather than applied everywhere and photographed twice for the same layout.
+   */
+  viewports: readonly Viewport[];
   /** `location.search` for the case; `?screen=<id>` when absent. */
   search?: string;
   /** Tauri config the case answers `get_config` with, merged over the defaults. */
@@ -90,22 +251,107 @@ export interface ScreenCase {
   providers?: readonly ProviderFixture[];
 }
 
+/** The three widths §10 says every screen changes at. */
+const CORE: readonly Viewport[] = viewportsNamed(CORE_VIEWPORT_NAMES);
+
+/** The five widths §10 gives the benches a different shape at. */
+const BENCH: readonly Viewport[] = viewportsNamed([
+  '320x568',
+  '390x844',
+  '768x1024',
+  '1024x768',
+  '1440x900',
+]);
+
+/** The widths the run-shaped screens change at (no end panel, so no 1024 row). */
+const TALL: readonly Viewport[] = viewportsNamed(['320x568', '390x844', '768x1024', '1440x900']);
+
 /**
- * Every screen and wizard state the checks cover.
+ * The calls the shell puts on the wire before a screen mounts.
+ *
+ * `App.tsx` resolves the deep link first: a screen the shell had to select a project for has already
+ * asked for the projects and, to pick the run inside it, the project's runs.
+ */
+const STARTUP = ['projects.list', 'runs.list'] as const;
+
+/** A screen that renders one run: the shell read its gates and its budget before it mounted. */
+const RUN_RPC = ['projects.list', 'runs.list', 'gates.list', 'budget.get'] as const;
+
+/**
+ * Every screen and wizard state the checks cover, with the widths §10 says it changes at and the calls
+ * the screen really makes.
  *
  * The selector is the screen's own anchor — a `className` or `data-testid` the component already
  * carries — so a check fails loudly if a screen stops rendering instead of silently measuring
  * nothing. `?screen=` is how a screen is opened (the shell routes on state, not on URLs); the wizard
  * is the exception, because the shell decides it from `onboarding_complete` and nothing else.
+ *
+ * The `rpc` lists are what the shell and the screen put on the wire together, read off a driven
+ * session: `App.tsx` resolves the deep link before anything mounts, so `projects.list` is always there
+ * and `runs.list` joins it for a screen the shell had to select a project or a run for. A screen that
+ * stops reaching its data — the failure a screenshot alone cannot see — drops one of these and fails.
  */
-export const SCREENS = [
-  { id: 'projects', root: '.projects-board', rpc: ['projects.list'] },
-  { id: 'run', root: '.run-view', rpc: ['projects.list'] },
-  { id: 'simple', root: '.simple-mode', rpc: ['projects.list'] },
-  { id: 'routines', root: '[data-testid="routines"]', rpc: ['projects.list'] },
-  { id: 'settings', root: '.settings-screen', rpc: ['projects.list'] },
-  { id: 'crash-reports', root: '[data-testid="crash-reports"]', rpc: ['projects.list'] },
-  { id: 'store-reviews', root: '[data-testid="store-reviews"]', rpc: ['projects.list'] },
+export const SCREENS: readonly ScreenCase[] = [
+  // The benches: every width §10 reshapes them at.
+  {
+    id: 'simple',
+    root: '.simple-mode',
+    rpc: [...STARTUP, 'budget.get', 'gates.list'],
+    viewports: BENCH,
+  },
+  {
+    id: 'advanced',
+    root: '.bench-advanced',
+    rpc: [...STARTUP, 'budget.get', 'agent.state', 'runs.logs'],
+    config: { app_mode: 'advanced' },
+    viewports: BENCH,
+  },
+  { id: 'gates', root: '.gates-inbox', rpc: RUN_RPC, viewports: TALL },
+  {
+    id: 'projects',
+    root: '.projects-board',
+    rpc: [...STARTUP, 'budget.get'],
+    viewports: TALL,
+  },
+  { id: 'run', root: '.run-view', rpc: RUN_RPC, viewports: TALL },
+  { id: 'artifacts', root: '.artifact-viewer', rpc: RUN_RPC, viewports: TALL },
+
+  // The settings family: phone, tablet, reference desktop.
+  { id: 'settings', root: '.settings-screen', rpc: ['projects.list'], viewports: CORE },
+  { id: 'providers', root: '.providers-settings', rpc: ['projects.list', 'providers.list'], viewports: CORE },
+  {
+    id: 'roles',
+    root: '.roles-settings',
+    rpc: ['projects.list', 'providers.list', 'roles.list'],
+    viewports: CORE,
+  },
+  { id: 'budgets', root: '.budgets', rpc: ['projects.list', 'budget.get'], viewports: CORE },
+  { id: 'devices', root: '.devices', rpc: ['projects.list', 'devices.list'], viewports: CORE },
+  {
+    id: 'settings-providers',
+    root: '[data-testid="settings-providers"]',
+    rpc: ['projects.list'],
+    viewports: CORE,
+  },
+  { id: 'routines', root: '[data-testid="routines"]', rpc: ['projects.list'], viewports: CORE },
+  {
+    id: 'crash-reports',
+    root: '[data-testid="crash-reports"]',
+    rpc: ['projects.list', 'postlaunch.crashes'],
+    viewports: CORE,
+  },
+  {
+    id: 'store-reviews',
+    root: '[data-testid="store-reviews"]',
+    rpc: ['projects.list', 'postlaunch.reviews'],
+    viewports: CORE,
+  },
+  {
+    id: 'backend-kit',
+    root: '[data-testid="backend-kit-panel"]',
+    rpc: ['projects.list'],
+    viewports: CORE,
+  },
 
   // The first-run wizard: one case per state the owner can be in.
   {
@@ -115,6 +361,7 @@ export const SCREENS = [
     search: '',
     config: { onboarding_complete: 'false' },
     drive: 'language',
+    viewports: CORE,
   },
   {
     id: 'onboarding-provider',
@@ -123,6 +370,7 @@ export const SCREENS = [
     search: '',
     config: { onboarding_complete: 'false' },
     drive: 'provider',
+    viewports: CORE,
   },
   {
     // The true first run: the daemon reports no providers, so the wizard offers its own kinds.
@@ -133,6 +381,7 @@ export const SCREENS = [
     config: { onboarding_complete: 'false' },
     drive: 'provider',
     providers: [],
+    viewports: CORE,
   },
   {
     id: 'onboarding-key',
@@ -141,6 +390,7 @@ export const SCREENS = [
     search: '',
     config: { onboarding_complete: 'false' },
     drive: 'key',
+    viewports: CORE,
   },
   {
     id: 'onboarding-test-ok',
@@ -149,6 +399,7 @@ export const SCREENS = [
     search: '',
     config: { onboarding_complete: 'false' },
     drive: 'test-ok',
+    viewports: CORE,
   },
   {
     id: 'onboarding-test-failed',
@@ -157,6 +408,7 @@ export const SCREENS = [
     search: '',
     config: { onboarding_complete: 'false' },
     drive: 'test-failed',
+    viewports: CORE,
   },
   {
     id: 'onboarding-project',
@@ -165,14 +417,20 @@ export const SCREENS = [
     search: '',
     config: { onboarding_complete: 'false' },
     drive: 'project',
+    viewports: CORE,
   },
-] as const;
-export type ScreenId = (typeof SCREENS)[number]['id'];
+];
 
-/** The case for `id`, widened so an optional field can be read off any member. */
-export function screenCase(id: ScreenId): ScreenCase | undefined {
+/** The case for `id`, so a spec can look one up without a cast. */
+export function screenCase(id: ScreenId): ScreenCase {
   const found = SCREENS.find((candidate) => candidate.id === id);
-  return found as ScreenCase | undefined;
+  if (found === undefined) throw new Error(`no screen case is named "${id}"`);
+  return found;
+}
+
+/** The methods a case must have called by the time it can be measured. */
+export function requiredRpc(screen: ScreenCase): string[] {
+  return [...new Set(screen.rpc)];
 }
 
 /**
@@ -204,11 +462,19 @@ const CREATED_AT = '2026-10-05T07:20:00.000Z';
  */
 const FIXED_NOW = new Date(RUN_STARTED);
 
-/** Two projects, so the board shows more than one card. Arabic and Latin names both render. */
+/**
+ * Two projects, named the way the owner names them.
+ *
+ * The Arabic name is §11's long-string case on purpose: long enough that a truncating ledger row has
+ * to prove it carries a `title`, and it keeps its shape in either direction. The Latin name is the
+ * other half of the same screen. The ids stay stable across scenarios, because the shell selects the
+ * first project and then its runs — a scenario that renamed the ids would move the bench to a run
+ * that does not exist.
+ */
 const PROJECTS = [
   {
     id: 'proj-ui',
-    name: 'متجر ورشة',
+    name: 'متجر ورشة للأثاث المكتبي',
     createdAt: '2026-10-01T08:00:00.000Z',
     updatedAt: '2026-10-02T09:30:00.000Z',
   },
@@ -270,19 +536,174 @@ export interface ProviderFixture {
   name: string;
   kind: string;
   enabled: boolean;
+  api_base?: string;
 }
 
 /**
  * What `providers.list` reports when a case does not say otherwise.
  *
  * A daemon that has been used once: one provider the wizard's catalog names by its kind, and one the
- * owner named something else. The wizard shows both, which is what the `onboarding-provider` case
- * pins; `onboarding-provider-first-run` overrides this with `[]`.
+ * owner named something else and gave an endpoint of its own (machine data: mono, `translate="no"`).
+ * The wizard shows both, which is what the `onboarding-provider` case pins;
+ * `onboarding-provider-first-run` overrides this with `[]`.
  */
 const DAEMON_PROVIDERS: readonly ProviderFixture[] = [
   { name: 'warsha-router', kind: 'open_router', enabled: true },
-  { name: 'my-ollama', kind: 'ollama', enabled: true },
+  { name: 'my-ollama', kind: 'ollama', enabled: true, api_base: 'http://127.0.0.1:11434/v1' },
 ];
+
+/** The routing table `roles.list` answers with: three routed roles, in the pipeline's own order. */
+const ROLE_ROUTINGS = [
+  {
+    role: 'pm',
+    targets: [{ provider_id: 'warsha-router', model_id: 'claude-sonnet-4-5', weight: 100 }],
+    fallback_enabled: true,
+    budget_cents_per_run: 500,
+  },
+  {
+    role: 'coder',
+    targets: [
+      { provider_id: 'warsha-router', model_id: 'gpt-5-codex', weight: 70 },
+      { provider_id: 'my-ollama', model_id: 'qwen3-coder:30b', weight: 30 },
+    ],
+    fallback_enabled: false,
+    // "no ceiling" is a fact the screen has to be able to tell from zero cents (§11's data honesty).
+    budget_cents_per_run: null,
+  },
+  {
+    role: 'reviewer',
+    targets: [{ provider_id: 'warsha-router', model_id: 'gemini-3-pro', weight: 100 }],
+    fallback_enabled: true,
+    budget_cents_per_run: 120,
+  },
+];
+
+/** Two paired devices: the owner's laptop and the phone that decides gates. */
+const DEVICES = [
+  {
+    id: 'dev-laptop',
+    name: 'Warsha-Desktop',
+    pairedAt: '2026-10-01T08:00:00.000Z',
+    lastSeen: '2026-10-05T09:40:00.000Z',
+  },
+  {
+    id: 'dev-phone',
+    name: 'هاتف المالك',
+    pairedAt: '2026-10-02T10:00:00.000Z',
+    lastSeen: '2026-10-05T09:44:00.000Z',
+  },
+];
+
+/** The reading `budget.get` answers with, in the shape `BudgetStatus` declares. */
+const BUDGET = { totalBudgetUsd: 12, spentUsd: 4.37, remainingUsd: 7.63 };
+
+/**
+ * The run's log lines — the terminal dock's and the run view's content.
+ *
+ * These are machine data by §11's definition ("what the machines did"), so they carry commands, paths
+ * and counts; the one Arabic line is a tool's own output rather than UI copy.
+ */
+const RUN_LOGS = [
+  '$ cargo test --workspace',
+  'test result: ok. 240 passed; 0 failed; 0 ignored',
+  'wrote src/screens/SimpleMode.tsx',
+  'جارٍ تنفيذ المهمة: مراجعة الكود',
+  '$ git commit -m "feat: bench"',
+  ' 3 files changed, 412 insertions(+), 88 deletions(-)',
+];
+
+/** One `/events` frame in the daemon's own wire shape. */
+interface EventFixture {
+  id: string;
+  run_id: string;
+  stage: string;
+  role: string | null;
+  kind: string;
+  payload: { summary: string };
+  cost_cents: number | null;
+  created_at: string;
+  device_id: string | null;
+}
+
+/**
+ * The run's event transcript — the feed the Simple chat and the Advanced lanes fold out of.
+ *
+ * An idle socket would photograph an empty bench, and an empty bench proves nothing about §3's
+ * disclosure ladder. The frames are the daemon's wire shape (snake_case, one JSON object per frame),
+ * which is what `parseWarshaEvent` reads; costs and a gate event and an error are all in here so the
+ * filter chips, the lane costs and the lit lamp have something real to show.
+ */
+const EVENT_FIXTURES: readonly EventFixture[] = [
+  {
+    id: 'evt-0001',
+    run_id: 'run-code',
+    stage: 'plan_tasks',
+    role: 'pm',
+    kind: 'tool_call',
+    payload: { summary: 'spec.md' },
+    cost_cents: 4,
+    created_at: '2026-10-05T07:16:00.000Z',
+    device_id: 'dev-laptop',
+  },
+  {
+    id: 'evt-0002',
+    run_id: 'run-code',
+    stage: 'code',
+    role: 'coder',
+    kind: 'tool_call',
+    payload: { summary: 'cargo build --offline' },
+    cost_cents: 17,
+    created_at: '2026-10-05T07:22:00.000Z',
+    device_id: 'dev-laptop',
+  },
+  {
+    id: 'evt-0003',
+    run_id: 'run-code',
+    stage: 'code',
+    role: 'coder',
+    kind: 'tool_result',
+    payload: { summary: 'ok: 240 tests passed' },
+    cost_cents: null,
+    created_at: '2026-10-05T07:31:00.000Z',
+    device_id: 'dev-laptop',
+  },
+  {
+    id: 'evt-0004',
+    run_id: 'run-code',
+    stage: 'code',
+    role: 'researcher',
+    kind: 'error',
+    payload: { summary: 'provider refused: rate_limited' },
+    cost_cents: null,
+    created_at: '2026-10-05T07:33:00.000Z',
+    device_id: null,
+  },
+  {
+    id: 'evt-0005',
+    run_id: 'run-code',
+    stage: 'gate_c',
+    role: null,
+    kind: 'gate_pending',
+    payload: { summary: 'بانتظار موافقة المالك على مراجعة الجودة والأمان' },
+    cost_cents: null,
+    created_at: '2026-10-05T07:40:00.000Z',
+    device_id: 'dev-phone',
+  },
+  {
+    id: 'evt-0006',
+    run_id: 'run-code',
+    stage: 'review_qa_security',
+    role: 'reviewer',
+    kind: 'tool_call',
+    payload: { summary: 'cargo clippy --all-targets -- -D warnings' },
+    cost_cents: 9,
+    created_at: '2026-10-05T07:44:00.000Z',
+    device_id: 'dev-laptop',
+  },
+];
+
+/** The frames the mocked socket pushes, in the order the daemon would have sent them. */
+const EVENT_FRAMES: readonly string[] = EVENT_FIXTURES.map((frame) => JSON.stringify(frame));
 
 /** What the stubs observed, so a test can assert the app really talked to them. */
 export interface StubReport {
@@ -299,6 +720,8 @@ export interface StubReport {
    * (`onboarding_complete`) can only be asserted from here.
    */
   configWrites: { key: string; value: string }[];
+  /** Frames the mocked `/events` socket pushed at the page. */
+  eventsSent: number;
 }
 
 export interface OpenScreenOptions {
@@ -307,10 +730,14 @@ export interface OpenScreenOptions {
   viewport: Viewport;
   locale: Locale;
   theme: Theme;
+  /** Which §7 state the daemon is in for this case; `default` when omitted. */
+  scenario?: ScenarioId;
   /** Override the Tauri config, e.g. `{ onboarding_complete: 'false' }` to see onboarding. */
   config?: Record<string, string>;
   /** Replace the default `?screen=…` query, e.g. `''` to let the shell choose its own screen. */
   search?: string;
+  /** Absolute origin for a page that has no `baseURL` (a context the test made itself). */
+  origin?: string;
   /** How far to drive the first-run wizard; overrides the case's own `drive`. */
   drive?: WizardDrive;
   /**
@@ -322,6 +749,26 @@ export interface OpenScreenOptions {
   ready?: string;
   /** What `providers.list` answers for this case; the daemon fixture by default. */
   providers?: readonly ProviderFixture[];
+  /** Per-method overrides on top of the scenario's, for a case no scenario covers. */
+  fixtures?: Partial<Record<RpcMethod, RpcBehaviour>>;
+  /** Push the fixture transcript at the page; `open` for an idle daemon, `close` for §7's dropped feed. */
+  events?: EventStubMode;
+}
+
+/**
+ * Put every scroll container back to its start, so a screenshot is the same picture every time it is
+ * taken. See the `overflow-anchor: none` note in each app's stylesheet: the suite keeps
+ * `maxDiffPixelRatio: 0`, and that is only fair while nothing in the frame drifts.
+ */
+export async function settleScroll(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    window.scrollTo(0, 0);
+    for (const node of Array.from(document.querySelectorAll('*'))) {
+      const element = node as HTMLElement;
+      if (typeof element.scrollTop === 'number' && element.scrollTop !== 0) element.scrollTop = 0;
+      if (typeof element.scrollLeft === 'number' && element.scrollLeft !== 0) element.scrollLeft = 0;
+    }
+  });
 }
 
 /** Zero out motion: the token layer honours reduced motion, this catches anything that does not. */
@@ -336,15 +783,32 @@ const NO_MOTION_CSS = `
 `;
 
 /**
- * The daemon the stub models for one case: the providers it reports, and the keys it has been given.
+ * The daemon the stub models for one case.
  *
  * `providers.test` answers from `addedKeys`, which is what makes the wizard's refusal state
  * reachable without inventing it in the app: the key the case types is the whole difference between
- * the two test cases.
+ * the two test cases. `fixtures` is what a §7 state is written in.
  */
-interface StubDaemon {
+export interface StubDaemon {
   readonly providers: readonly ProviderFixture[];
   readonly addedKeys: Map<string, string>;
+  readonly fixtures: Partial<Record<RpcMethod, RpcBehaviour>>;
+}
+
+/** The daemon a case runs against: its providers, the keys it holds, and the scenario's overrides. */
+export function createDaemon(
+  options: { providers?: readonly ProviderFixture[]; fixtures?: Partial<Record<RpcMethod, RpcBehaviour>> } = {}
+): StubDaemon {
+  return {
+    providers: options.providers ?? DAEMON_PROVIDERS,
+    addedKeys: new Map<string, string>(),
+    fixtures: options.fixtures ?? {},
+  };
+}
+
+/** A fresh stub report, so an app-specific harness can start the same record. */
+export function createStubReport(): StubReport {
+  return { rpcMethods: [], unauthorized: 0, unimplemented: [], configWrites: [], eventsSent: 0 };
 }
 
 /** One argument of the RPC request as text, when the case sent one. */
@@ -366,7 +830,13 @@ type StubOutcome = { ok: true; result: unknown } | { ok: false; code: number; me
  * `StubReport.unimplemented` and fails a case, and it is deliberately different from an error the
  * daemon is modelled as returning (a refused API key), which a screen is supposed to render.
  */
-function rpcResult(method: string, params: unknown, daemon: StubDaemon): StubOutcome | null {
+function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): StubOutcome | null {
+  const override = daemon.fixtures[method];
+  if (override !== undefined && (override.result !== undefined || override.error !== undefined)) {
+    if (override.error !== undefined) return { ok: false, code: -32001, message: override.error };
+    return { ok: true, result: override.result };
+  }
+
   switch (method) {
     case 'projects.list':
       return { ok: true, result: PROJECTS };
@@ -377,27 +847,44 @@ function rpcResult(method: string, params: unknown, daemon: StubDaemon): StubOut
         result: projectId === null ? RUNS : RUNS.filter((run) => run.projectId === projectId),
       };
     }
-    case 'gates.list':
-      return { ok: true, result: GATES };
+    case 'runs.get':
+    case 'runs.status': {
+      const id = paramValue(params, 'id');
+      return { ok: true, result: RUNS.find((run) => run.id === id) ?? RUNS[0] };
+    }
+    case 'runs.logs':
+      return { ok: true, result: RUN_LOGS };
+    case 'runs.start':
+      return { ok: true, result: RUNS[0] };
+    case 'projects.get': {
+      const id = paramValue(params, 'id');
+      return { ok: true, result: PROJECTS.find((project) => project.id === id) ?? PROJECTS[0] };
+    }
     case 'projects.create': {
       const name = paramValue(params, 'name') ?? '';
       return {
         ok: true,
-        result: {
-          id: 'proj-created',
-          name,
-          createdAt: CREATED_AT,
-          updatedAt: CREATED_AT,
-        },
+        result: { id: 'proj-created', name, createdAt: CREATED_AT, updatedAt: CREATED_AT },
       };
     }
+    case 'projects.delete':
+      return { ok: true, result: null };
+    case 'gates.list':
+      return { ok: true, result: GATES };
+    case 'gates.approve':
+    case 'gates.reject':
+    case 'gates.changes':
+      return { ok: true, result: null };
     case 'providers.list':
       return { ok: true, result: daemon.providers };
     case 'providers.add': {
       const name = paramValue(params, 'name');
       const key = paramValue(params, 'key');
       if (name !== null && key !== null) daemon.addedKeys.set(name, key);
-      return { ok: true, result: null };
+      return {
+        ok: true,
+        result: { name: name ?? '', kind: paramValue(params, 'kind') ?? '', enabled: true },
+      };
     }
     case 'providers.test': {
       const name = paramValue(params, 'name');
@@ -408,6 +895,115 @@ function rpcResult(method: string, params: unknown, daemon: StubDaemon): StubOut
       }
       return { ok: true, result: null };
     }
+    case 'providers.remove':
+    case 'providers.budget':
+    case 'budget.set':
+    case 'roles.set':
+    case 'roles.assign':
+    case 'devices.remove':
+      return { ok: true, result: null };
+    case 'providers.budget.status':
+    case 'budget.get':
+      return { ok: true, result: BUDGET };
+    case 'roles.list':
+      return { ok: true, result: ROLE_ROUTINGS };
+    case 'devices.list':
+      return { ok: true, result: DEVICES };
+    case 'devices.pair':
+      return {
+        ok: true,
+        result: { id: 'dev-new', name: 'جهاز جديد', pairedAt: CREATED_AT, lastSeen: CREATED_AT },
+      };
+    case 'health':
+      return { ok: true, result: { status: 'ok', version: '0.2.0' } };
+    case 'agent.state':
+      return {
+        ok: true,
+        result: {
+          mode: 'plan',
+          approvals: [
+            { from: 'plan', to: 'agent', approved_by: 'dev-laptop', approved_at: 1764939300 },
+          ],
+          todos: [
+            { id: 'todo-1', description: 'توصيف المتطلبات', status: 'done' },
+            { id: 'todo-2', description: 'بناء الواجهة', status: 'in_progress' },
+            { id: 'todo-3', description: 'المراجعة النهائية', status: 'pending' },
+          ],
+          model_wired: true,
+        },
+      };
+    case 'agent.turn':
+      return {
+        ok: true,
+        result: {
+          mode: 'plan',
+          mentions: [],
+          command: null,
+          response: 'تم تجهيز الخطة، وهي بانتظار موافقتك للمتابعة.',
+          todos: [{ id: 'todo-1', description: 'توصيف المتطلبات', status: 'done' }],
+          tools: [{ tool: 'read_file', success: true, output: 'src/App.tsx' }],
+        },
+      };
+    case 'agent.approve_mode':
+    case 'agent.plan_mode':
+      return {
+        ok: true,
+        result: { from: 'plan', to: 'agent', approved_by: 'dev-laptop', approved_at: 1764939300 },
+      };
+    case 'postlaunch.crashes':
+      return {
+        ok: true,
+        result: {
+          crashes: [
+            {
+              id: 'crash-9f3a',
+              run_id: 'run-code',
+              message: 'تعطلت المعاينة بعد تحميل الحزمة، ولم تُحفظ المراجعة',
+              stack_trace: '    at BenchPreview.render (src/components/LivePreview.tsx:118:9)',
+              occurred_at: 1764939300,
+              sent: false,
+            },
+            {
+              id: 'crash-4b71',
+              run_id: 'run-gate-a',
+              message: 'WebSocket closed while the run was waiting on a gate',
+              stack_trace: null,
+              occurred_at: 1764935700,
+              sent: true,
+            },
+          ],
+        },
+      };
+    case 'postlaunch.reviews':
+      return {
+        ok: true,
+        result: {
+          reviews: [
+            {
+              id: 'rev-1',
+              store: 'play',
+              rating: 5,
+              body: 'أفضل أداة متابعة للعمل، عربية من البداية إلى النهاية',
+              author: 'Maha',
+              received_at: 1764939300,
+            },
+            {
+              id: 'rev-2',
+              store: 'ios',
+              rating: 3,
+              body: 'Works well, but I would like a darker theme for night shifts.',
+              author: 'Omar',
+              received_at: 1764935700,
+            },
+          ],
+        },
+      };
+    case 'backend.export':
+      return { ok: true, result: { path: '/tmp/warsha/backend-kit' } };
+    case 'handoff.create':
+      return { ok: true, result: { path: '/tmp/warsha/handoff.zip' } };
+    case 'handoff.apply':
+      return { ok: true, result: { summary: '{"files":3,"conflicts":0}' } };
     default:
       return null;
   }
@@ -416,6 +1012,19 @@ function rpcResult(method: string, params: unknown, daemon: StubDaemon): StubOut
 /** The page-side record the Tauri stub writes into, so a write survives the page boundary. */
 interface StubWindow {
   __WARSHA_STUB__?: { configWrites: { key: string; value: string }[] };
+}
+
+/**
+ * The `set_config` writes the page has made so far.
+ *
+ * `openScreen` returns a snapshot taken when the screen was ready; a flow that acts *after* that has to
+ * read the page again, or it asserts on a record of the moment it opened rather than the moment it
+ * pressed. The first-run flag and the saved mode travel this way and nowhere else.
+ */
+export function readConfigWrites(page: Page): Promise<{ key: string; value: string }[]> {
+  return page.evaluate(
+    () => (window as unknown as StubWindow).__WARSHA_STUB__?.configWrites ?? []
+  );
 }
 
 /** The two elements every wizard step walks through, addressed by the testids they carry. */
@@ -465,35 +1074,27 @@ async function driveWizard(page: Page, target: WizardDrive): Promise<void> {
 }
 
 /**
- * Open one screen in a deterministic browser state.
+ * The RPC surface both browser apps are tested against.
  *
- * @param page the page to drive
- * @param options what to open and how
- * @returns what the stubs observed
+ * Extracted from `openScreen` so `apps/remote/e2e/harness.ts` installs the *same* stub over the same
+ * fixture table: the phone and the desktop read one daemon, and two stubs that can drift would let a
+ * screen pass on the desktop and fail on the phone for a reason that is not in the product.
+ *
+ * @param page the page to intercept
+ * @param daemon what the modelled daemon reports and has been told
+ * @param report where what the stubs observed is recorded
+ * @param token the bearer token the client is expected to send
  */
-export async function openScreen(page: Page, options: OpenScreenOptions): Promise<StubReport> {
-  const report: StubReport = {
-    rpcMethods: [],
-    unauthorized: 0,
-    unimplemented: [],
-    configWrites: [],
-  };
-  const screen = screenCase(options.screen);
-  const daemon: StubDaemon = {
-    providers: options.providers ?? screen?.providers ?? DAEMON_PROVIDERS,
-    addedKeys: new Map<string, string>(),
-  };
-
-  await page.setViewportSize({ width: options.viewport.width, height: options.viewport.height });
-  // `colorScheme` is pinned too, so a `system` preference could never disagree with the case.
-  await page.emulateMedia({ colorScheme: options.theme, reducedMotion: 'reduce' });
-  // Before anything the app can run, so the first `new Date()` it reads is already the fixed instant.
-  await page.clock.setFixedTime(FIXED_NOW);
-
-  // The daemon answers JSON-RPC over HTTP; nothing listens on 8766, and nothing has to.
+export async function installDaemonStub(
+  page: Page,
+  daemon: StubDaemon,
+  report: StubReport,
+  token = DAEMON_TOKEN
+): Promise<void> {
+  // The daemon answers JSON-RPC over HTTP; nothing listens on its port, and nothing has to.
   await page.route('**/rpc', async (route) => {
     const request = route.request();
-    if (request.headers()['authorization'] !== `Bearer ${DAEMON_TOKEN}`) {
+    if (request.headers()['authorization'] !== `Bearer ${token}`) {
       report.unauthorized += 1;
     }
 
@@ -514,7 +1115,22 @@ export async function openScreen(page: Page, options: OpenScreenOptions): Promis
     }
 
     report.rpcMethods.push(method);
-    const outcome = rpcResult(method, params, daemon);
+    const behaviour = daemon.fixtures[method as RpcMethod];
+
+    // "the daemon is not there" is a transport failure, not a JSON-RPC error: the client's own catch
+    // path is what a screen then shows as offline.
+    if (behaviour?.unreachable === true) {
+      await route.abort('connectionrefused');
+      return;
+    }
+
+    if (behaviour?.delayMs !== undefined) {
+      await new Promise((resolve) => {
+        setTimeout(resolve, behaviour.delayMs);
+      });
+    }
+
+    const outcome = rpcResult(method as RpcMethod, params, daemon);
     if (outcome === null) report.unimplemented.push(method);
 
     await route.fulfill({
@@ -529,21 +1145,83 @@ export async function openScreen(page: Page, options: OpenScreenOptions): Promis
       ),
     });
   });
+}
 
-  // The event stream: mocked open and silent. `routeWebSocket` without `connectToServer` keeps the
-  // socket alive and sends nothing, which is what an idle daemon looks like.
-  await page.routeWebSocket(/\/events$/, () => {
-    // Deliberately empty: no upstream connection, no messages, no error path.
+/**
+ * The `/events` surface, mocked.
+ *
+ * `open` keeps the socket alive and sends nothing, which is an idle daemon; `send` pushes the fixture
+ * transcript, which is what makes a bench that folds lanes out of the feed (Simple, Advanced, the
+ * phone's queue) worth photographing; `close` drops the connection, which is §7's "a dropped feed is
+ * not a lost queue" — the only way a screen's reconnect path is reachable without a real daemon.
+ */
+export type EventStubMode = 'send' | 'open' | 'close' | 'refuse';
+
+export async function installEventStub(
+  page: Page,
+  report: StubReport,
+  mode: EventStubMode = 'send'
+): Promise<void> {
+  // 'refuse' installs nothing at all: the socket goes to a port where nothing listens, which is
+  // exactly the daemon's feed being down.
+  if (mode === 'refuse') return;
+  await page.routeWebSocket(/\/events$/, (route) => {
+    if (mode === 'close') {
+      // After the current task: the client is still inside `new WebSocket(...)` when this handler
+      // runs, and a close delivered before its `onclose` exists is a feed that never dropped.
+      setTimeout(() => route.close({ code: 1006, reason: 'daemon dropped the feed' }), 400);
+      return;
+    }
+    if (mode !== 'send') return;
+    for (const frame of EVENT_FRAMES) {
+      route.send(frame);
+      report.eventsSent += 1;
+    }
   });
+}
 
-  // Fonts are the one remote dependency of these pages; the fallback stack must do the rendering.
+/**
+ * Open one screen in a deterministic browser state.
+ *
+ * @param page the page to drive
+ * @param options what to open and how
+ * @returns what the stubs observed
+ */
+export async function openScreen(page: Page, options: OpenScreenOptions): Promise<StubReport> {
+  const report: StubReport = {
+    rpcMethods: [],
+    unauthorized: 0,
+    unimplemented: [],
+    configWrites: [],
+    eventsSent: 0,
+  };
+  const screen = screenCase(options.screen);
+  const scenario = scenarioById(options.scenario ?? 'default');
+  const daemon: StubDaemon = {
+    providers: options.providers ?? screen.providers ?? DAEMON_PROVIDERS,
+    addedKeys: new Map<string, string>(),
+    fixtures: { ...scenario.fixtures, ...options.fixtures },
+  };
+
+  await page.setViewportSize({ width: options.viewport.width, height: options.viewport.height });
+  // `colorScheme` is pinned too, so a `system` preference could never disagree with the case.
+  await page.emulateMedia({ colorScheme: options.theme, reducedMotion: 'reduce' });
+  // Before anything the app can run, so the first `new Date()` it reads is already the fixed instant.
+  await page.clock.setFixedTime(FIXED_NOW);
+
+  await installDaemonStub(page, daemon, report);
+  await installEventStub(page, report, options.events ?? 'send');
+
+  // Fonts are the one remote dependency of these pages. They are refused so a capture never depends on
+  // the network, and so the families the token stack names first have to come from the capture host —
+  // which is what `auditUsedFonts` then proves. The app bundle carries no font bytes.
   await page.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
 
-  const search = options.search ?? screen?.search ?? `?screen=${options.screen}`;
+  const search = options.search ?? screen.search ?? `?screen=${options.screen}`;
   const config = {
     onboarding_complete: 'true',
     app_mode: 'simple',
-    ...(screen?.config ?? {}),
+    ...(screen.config ?? {}),
     ...(options.config ?? {}),
   };
 
@@ -581,30 +1259,248 @@ export async function openScreen(page: Page, options: OpenScreenOptions): Promis
     { locale: options.locale, theme: options.theme, merged: config }
   );
 
-  await page.goto(`/${search}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${options.origin ?? ''}/${search}`, { waitUntil: 'domcontentloaded' });
   await page.addStyleTag({ content: NO_MOTION_CSS });
 
-  const drive = options.drive ?? screen?.drive;
+  const drive = options.drive ?? screen.drive;
   if (drive !== undefined) {
     await driveWizard(page, drive);
   }
 
   // A driven case is ready when the step it drove to is on screen. The exception is a finished first
   // run: the wizard has left the screen, so what has to be visible is the shell it left for.
-  const ready =
-    options.ready ?? screen?.ready ?? (drive === 'created' ? '.simple-mode' : screen?.root);
+  const ready = options.ready ?? screen.ready ?? (drive === 'created' ? '.simple-mode' : screen.root);
   if (ready !== undefined) {
     await page.locator(ready).first().waitFor({ state: 'visible' });
   }
 
   // The async start-up (onboarding flag, saved mode, projects) has to be finished before the audit:
-  // the RPCs are answered instantly, so "nothing in flight" is reached here.
-  await page.waitForLoadState('networkidle');
+  // the RPCs are answered instantly, so "nothing in flight" is reached here. A `pending` case IS the
+  // loading state, which is the one thing that must not be waited out.
+  if (scenario.settle === 'settled') {
+    await page.waitForLoadState('networkidle');
+  }
   await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  await settleScroll(page);
 
   report.configWrites = await page.evaluate(
     () => (window as unknown as StubWindow).__WARSHA_STUB__?.configWrites ?? []
   );
 
   return report;
+}
+
+/** The §7 states, as what the stubbed daemon has to do to produce them. */
+export const SCENARIOS: readonly Scenario[] = [
+  {
+    id: 'default',
+    note: 'a daemon that has been used: two projects, four runs, one gate waiting, one approved',
+    fixtures: {},
+    settle: 'settled',
+  },
+  {
+    id: 'empty',
+    note: 'a daemon with nothing in it — every list answers empty, so each empty state is the screen\'s own',
+    fixtures: {
+      'projects.list': { result: [] },
+      'runs.list': { result: [] },
+      'gates.list': { result: [] },
+      'providers.list': { result: [] },
+      'roles.list': { result: [] },
+      'devices.list': { result: [] },
+      'postlaunch.crashes': { result: { crashes: [] } },
+      'postlaunch.reviews': { result: { reviews: [] } },
+    },
+    settle: 'settled',
+  },
+  {
+    id: 'loading',
+    note: 'a daemon that has not answered yet — skeletons and the role="status" line, not an invented state',
+    fixtures: {
+      'projects.list': { delayMs: 30_000 },
+      'runs.list': { delayMs: 30_000 },
+      'gates.list': { delayMs: 30_000 },
+      'budget.get': { delayMs: 30_000 },
+      'providers.list': { delayMs: 30_000 },
+      'roles.list': { delayMs: 30_000 },
+      'devices.list': { delayMs: 30_000 },
+      'postlaunch.crashes': { delayMs: 30_000 },
+      'postlaunch.reviews': { delayMs: 30_000 },
+      health: { delayMs: 30_000 },
+    },
+    settle: 'pending',
+  },
+  {
+    id: 'screen-loading',
+    // The shell's own start-up answers, so the screen mounts; only the list *that screen* reads is
+    // still in flight. This is the difference between "the app is loading" and "this plate is loading",
+    // and §7 asks for the second one to have its own words and skeleton.
+    note: 'the screen is up and its own list has not answered yet — the per-plate loading state',
+    fixtures: {
+      'postlaunch.crashes': { delayMs: 30_000 },
+      'postlaunch.reviews': { delayMs: 30_000 },
+      'roles.list': { delayMs: 30_000 },
+      'devices.list': { delayMs: 30_000 },
+      'providers.list': { delayMs: 30_000 },
+      'budget.get': { delayMs: 30_000 },
+    },
+    settle: 'pending',
+  },
+  {
+    id: 'error',
+    note: 'a daemon that refuses — §7: the error names the problem and the next action beside it',
+    fixtures: {
+      'runs.list': { error: 'project proj-ui has no runs yet' },
+      'gates.list': { error: 'run run-code is not accepting gate decisions' },
+      'budget.get': { error: 'budget for proj-ui is not recorded' },
+      'roles.list': { error: 'routing table is locked while a run is writing' },
+      'devices.list': { error: 'device registry refused: pairing token expired' },
+      'providers.list': { error: 'provider registry read failed: database is locked' },
+      'postlaunch.crashes': { error: 'post-launch store unread' },
+      'postlaunch.reviews': { error: 'store API returned 503' },
+    },
+    settle: 'settled',
+  },
+  {
+    id: 'offline',
+    note: 'no daemon at all — the transport fails, the strip says offline, queued work is not implied lost',
+    fixtures: {
+      'projects.list': { unreachable: true },
+      'runs.list': { unreachable: true },
+      'gates.list': { unreachable: true },
+      'budget.get': { unreachable: true },
+      'providers.list': { unreachable: true },
+      'roles.list': { unreachable: true },
+      'devices.list': { unreachable: true },
+      'postlaunch.crashes': { unreachable: true },
+      'postlaunch.reviews': { unreachable: true },
+      health: { unreachable: true },
+    },
+    settle: 'settled',
+  },
+  {
+    id: 'permission',
+    note: 'two gates waiting on the owner at once — the lit lamp is the queue (§1)',
+    fixtures: {
+      'gates.list': {
+        result: [
+          { stage: 'gate_a', state: { state: 'pending' } },
+          { stage: 'gate_c', state: { state: 'pending' } },
+          {
+            stage: 'gate_b',
+            state: {
+              state: 'changes_requested',
+              by: 'dev-phone',
+              at: '2026-10-05T09:20:00.000Z',
+              notes: 'أعد مراجعة حساب التكاليف قبل الاعتماد',
+            },
+          },
+        ],
+      },
+    },
+    settle: 'settled',
+  },
+  {
+    id: 'success',
+    note: 'nothing waiting: both gates decided, budget well under its ceiling, providers answering',
+    fixtures: {
+      'gates.list': {
+        result: [
+          {
+            stage: 'gate_a',
+            state: { state: 'approved', by: 'dev-laptop', at: '2026-10-05T08:10:00.000Z' },
+          },
+          {
+            stage: 'gate_b',
+            state: { state: 'approved', by: 'dev-phone', at: '2026-10-05T09:30:00.000Z' },
+          },
+        ],
+      },
+      'budget.get': { result: { totalBudgetUsd: 12, spentUsd: 2.1, remainingUsd: 9.9 } },
+    },
+    settle: 'settled',
+  },
+  {
+    id: 'dense',
+    note: 'the §11 stress — the longest Arabic strings and the mixed-direction identifiers an owner can type',
+    fixtures: {
+      'projects.list': {
+        result: [
+          {
+            id: 'proj-ui',
+            name: 'لوحة متابعة الطلبات لمصنع الأثاث المكتبي مع ربط المخزون ونظام الدفع الإلكتروني',
+            createdAt: '2026-10-01T08:00:00.000Z',
+            updatedAt: '2026-10-02T09:30:00.000Z',
+          },
+          {
+            id: 'proj-store',
+            name: 'أطلس-7b1c — release/v2.4 (cargo test) للمراجعة النهائية',
+            createdAt: '2026-10-03T08:00:00.000Z',
+            updatedAt: '2026-10-04T09:30:00.000Z',
+          },
+        ],
+      },
+      'gates.list': {
+        result: [
+          {
+            stage: 'gate_a',
+            state: {
+              state: 'pending',
+              summary:
+                'تحتاج مراجعة الجودة والأمان إلى توقيعك قبل النشر إلى المتجر الإلكتروني، لأن الميزانية تجاوزت الحد المسموح به لهذا الشهر',
+            },
+          },
+        ],
+      },
+      'providers.list': {
+        result: [
+          {
+            name: 'مزود الاحتياط المحلي',
+            kind: 'ollama',
+            enabled: true,
+            api_base: 'http://192.168.1.20:11434/v1/chat/completions',
+          },
+        ],
+      },
+      'postlaunch.reviews': {
+        result: {
+          reviews: [
+            {
+              id: 'rev-long',
+              store: 'play',
+              rating: 4,
+              body: 'أستخدم التطبيق لمتابعة أعمال الورشة منذ إصداره الأول وهو ممتاز، لكنني أتمنى إضافة تقارير مفصلة عن التكاليف لكل مشروع مع إمكانية تصديرها إلى جدول بيانات مباشرة من الهاتف دون الحاجة إلى اتصال بالإنترنت',
+              author: 'عبدالرحمن',
+              received_at: 1764939300,
+            },
+          ],
+        },
+      },
+      'postlaunch.crashes': {
+        result: {
+          crashes: [
+            {
+              id: 'crash-bidi',
+              run_id: 'run-code',
+              message:
+                'فشل تحميل المعاينة عند المسار src/components/LivePreview.tsx:118 بينما كان الأمر cargo test --workspace يعمل',
+              stack_trace: 'thread main panicked at src/main.rs:42',
+              occurred_at: 1764939300,
+              sent: false,
+            },
+          ],
+        },
+      },
+    },
+    settle: 'settled',
+  },
+];
+
+/** One scenario by id, with a message that says how many there are. */
+export function scenarioById(id: ScenarioId): Scenario {
+  const found = SCENARIOS.find((scenario) => scenario.id === id);
+  if (found === undefined) {
+    throw new Error(`no scenario is named "${id}" (there are ${SCENARIOS.length})`);
+  }
+  return found;
 }

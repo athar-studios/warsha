@@ -214,7 +214,7 @@ describe('client', () => {
     expect(health).toEqual({ status: 'ok', version: '0.1.0' });
   });
 
-  it('sends approveGate with correct params', async () => {
+  it('sends approveGate with the daemon argument names and no claimed device', async () => {
     fetchMock.mockResolvedValueOnce(okResponse(undefined));
 
     await client.approveGate('run-1' as RunId, 'gate_c' as Stage);
@@ -225,11 +225,15 @@ describe('client', () => {
         'Content-Type': 'application/json',
         Authorization: 'Bearer test-token',
       },
+      // `run_id` and `stage` are the daemon's own parameter names (jsonrpsee matches
+      // them exactly), and `device_id` is sent as `null`: the approver the gate records
+      // is the device the bearer token authenticated as, and a client that named a
+      // different one is refused with -32003 rather than being believed (audit H-03).
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 1,
         method: 'gates.approve',
-        params: { runId: 'run-1', stage: 'gate_c' },
+        params: { run_id: 'run-1', stage: 'gate_c', device_id: null },
       }),
     });
   });
@@ -249,8 +253,27 @@ describe('client', () => {
         jsonrpc: '2.0',
         id: 1,
         method: 'gates.reject',
-        params: { runId: 'run-1', stage: 'gate_c', reason: 'Needs more tests' },
+        params: {
+          run_id: 'run-1',
+          stage: 'gate_c',
+          reason: 'Needs more tests',
+          device_id: null,
+        },
       }),
+    });
+  });
+
+  it('sends requestChanges with notes and no claimed device', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(undefined));
+
+    await client.requestChanges('run-1' as RunId, 'gate_c' as Stage, 'Rename the field');
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(body.params).toEqual({
+      run_id: 'run-1',
+      stage: 'gate_c',
+      notes: 'Rename the field',
+      device_id: null,
     });
   });
 
@@ -324,6 +347,140 @@ describe('client', () => {
     };
 
     expect([project, run, gate, provider, budget, event]).toHaveLength(6);
+  });
+});
+
+describe('configured provider and agent wiring (C2)', () => {
+  /** The last body `fetch` was called with, parsed. */
+  function lastBody(): { method: string; params?: unknown } {
+    const call = fetchMock.mock.calls[fetchMock.mock.calls.length - 1];
+    if (call === undefined) throw new Error('no request was made');
+    const init = call[1] as { body: string };
+    return JSON.parse(init.body) as { method: string; params?: unknown };
+  }
+
+  it('adds a provider with the daemon argument names and never reads a key back', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse({ name: 'my-qwen', kind: 'qwen', enabled: true })
+    );
+
+    await client.addProvider({ name: 'my-qwen', kind: 'qwen', key: 'sk-secret-123' });
+
+    expect(lastBody().method).toBe('providers.add');
+    expect(lastBody().params).toEqual({
+      name: 'my-qwen',
+      kind: 'qwen',
+      key: 'sk-secret-123',
+      // `api_base` is an Option the daemon matches by name; sending it explicitly as
+      // null is the owner saying "use the kind's own endpoint" rather than omitting an
+      // argument the wire shape still has to parse.
+      api_base: null,
+    });
+  });
+
+  it('routes a role inside one config argument, as roles.set declares it', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(null));
+
+    await client.setRoleConfig({
+      role: 'intake',
+      targets: [{ provider_id: 'my-qwen', model_id: 'gpt-4o-mini', weight: 100 }],
+      fallback_enabled: false,
+      budget_cents_per_run: 25,
+    });
+
+    expect(lastBody().method).toBe('roles.set');
+    expect(lastBody().params).toEqual({
+      config: {
+        role: 'intake',
+        targets: [{ provider_id: 'my-qwen', model_id: 'gpt-4o-mini', weight: 100 }],
+        fallback_enabled: false,
+        budget_cents_per_run: 25,
+      },
+    });
+  });
+
+  it('reads the routing table back and answers listRoles with the routed roles', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse([
+        {
+          role: 'intake',
+          targets: [{ provider_id: 'my-qwen', model_id: 'gpt-4o-mini', weight: 100 }],
+          fallback_enabled: false,
+          budget_cents_per_run: null,
+        },
+        {
+          role: 'coder',
+          targets: [{ provider_id: 'my-qwen', model_id: 'gpt-4o-mini', weight: 100 }],
+          fallback_enabled: true,
+          budget_cents_per_run: 40,
+        },
+      ])
+    );
+
+    const roles = await client.listRoles();
+    expect(roles).toEqual(['intake', 'coder']);
+
+    fetchMock.mockResolvedValueOnce(
+      okResponse([
+        {
+          role: 'intake',
+          targets: [{ provider_id: 'my-qwen', model_id: 'gpt-4o-mini', weight: 100 }],
+          fallback_enabled: false,
+          budget_cents_per_run: null,
+        },
+      ])
+    );
+    const routing = await client.getRoleConfig('intake');
+    // The daemon's `None` ceiling becomes this client's `0`: no ceiling, and a screen
+    // that adds to it is not surprised by `null`.
+    expect(routing.budget_cents_per_run).toBe(0);
+
+    fetchMock.mockResolvedValueOnce(okResponse([]));
+    await expect(client.getRoleConfig('qa')).rejects.toThrow('no routing is set for role qa');
+  });
+
+  it('drives the agent through the three methods that reach the loop', async () => {
+    const turn = {
+      mode: 'plan',
+      mentions: [],
+      command: null,
+      response: 'Plan (nothing executed): build it',
+      todos: [{ id: 'todo-1', description: 'plan the turn: build it', status: 'pending' }],
+      tools: [],
+    };
+    fetchMock.mockResolvedValueOnce(okResponse(turn));
+    await expect(client.agentTurn('build it')).resolves.toEqual(turn);
+    expect(lastBody().method).toBe('agent.turn');
+    expect(lastBody().params).toEqual({ input: 'build it' });
+
+    // Approving the mode that edits carries no approver: the session is the approver.
+    const transition = { from: 'plan', to: 'agent', approved_by: 'device-1', approved_at: 1 };
+    fetchMock.mockResolvedValueOnce(okResponse(transition));
+    await expect(client.approveAgentMode()).resolves.toEqual(transition);
+    expect(lastBody().method).toBe('agent.approve_mode');
+    expect(lastBody().params).toBeUndefined();
+
+    fetchMock.mockResolvedValueOnce(
+      okResponse({ from: 'agent', to: 'plan', approved_by: 'device-1', approved_at: 2 })
+    );
+    await client.returnAgentToPlanMode();
+    expect(lastBody().method).toBe('agent.plan_mode');
+
+    fetchMock.mockResolvedValueOnce(
+      okResponse({ mode: 'plan', approvals: [], todos: [], model_wired: true })
+    );
+    await expect(client.agentState()).resolves.toMatchObject({ model_wired: true });
+    expect(lastBody().method).toBe('agent.state');
+  });
+
+  it('keeps a provider key out of every message this client can produce', async () => {
+    const secret = 'sk-never-print-this';
+    fetchMock.mockResolvedValueOnce(errorResponse(-32000, `provider rejected the key`));
+
+    const failure = await captureError(
+      client.addProvider({ name: 'my-qwen', kind: 'qwen', key: secret })
+    );
+    expect(failure.message).not.toContain(secret);
   });
 });
 

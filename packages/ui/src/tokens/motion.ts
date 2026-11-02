@@ -15,6 +15,14 @@ export const durations = {
   normal: '180ms',
   /** Panels, expanding rows. */
   slow: '240ms',
+  /**
+   * One breath of a working lamp or a thinking dot — a *loop*, so it is deliberately longer than any
+   * transition, and zeroed with the rest under `prefers-reduced-motion: reduce` like every other
+   * duration here (REDESIGN §8: the animation rules live in the stylesheet, never in a component).
+   */
+  breathe: '1600ms',
+  /** One pass of a loading skeleton's shimmer. Same rule as `breathe`. */
+  shimmer: '1400ms',
 } as const;
 
 /** The name of a duration token. */

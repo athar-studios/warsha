@@ -45,7 +45,9 @@ describe('SettingsProviders', () => {
   it('renders one row per provider', () => {
     renderScreen();
 
-    const list = screen.getByTestId('settings-providers-list');
+    // The ledger names itself, so the list is found by role rather than by a `data-testid`: `Ledger`
+    // renders the ruled container the rows fasten to (B3-secondary, Bench & Signal §1.2).
+    const list = screen.getByRole('list', { name: 'Providers' });
     expect(within(list).getAllByRole('listitem')).toHaveLength(3);
     expect(screen.getByTestId('provider-row-Claude Code')).toHaveAttribute('data-mode', 'notify');
     expect(screen.getByTestId('provider-row-Codex CLI')).toHaveAttribute('data-enabled', 'false');
@@ -55,7 +57,7 @@ describe('SettingsProviders', () => {
     renderScreen([]);
 
     expect(screen.getByTestId('settings-providers-empty')).toBeInTheDocument();
-    expect(screen.queryByTestId('settings-providers-list')).toBeNull();
+    expect(screen.queryByRole('list', { name: 'Providers' })).toBeNull();
   });
 
   it('reports a mode change with the provider name', () => {

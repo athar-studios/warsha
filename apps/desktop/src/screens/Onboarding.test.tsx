@@ -4,7 +4,7 @@
 // this file pins the details that would be invisible there: which method is called with which
 // arguments, what the wizard does when the daemon reports nothing at all, and that the API key never
 // comes back out of the screen.
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import {
   createClient,
@@ -261,6 +261,41 @@ describe('first project', () => {
 });
 
 describe('the wizard’s own rules', () => {
+  it('shows the five rungs as a ruled ledger with the fraction of setup done', async () => {
+    await renderWizard(fakeClient({ providers: [] }));
+
+    const rail = screen.getByRole('navigation', { name: t('onboarding.steps_title', {}, 'ar') });
+    const rungs = ['language', 'provider', 'key', 'test', 'project'];
+    for (const rung of rungs) {
+      expect(
+        within(rail).getByText(t(`onboarding.step.${rung}`, {}, 'ar'))
+      ).toBeInTheDocument();
+    }
+
+    // The meter always carries its readout: a bar alone cannot say step 1 of 5 (§9).
+    expect(within(rail).getByRole('meter')).toHaveAttribute('aria-valuenow', '1');
+    expect(within(rail).getByRole('meter')).toHaveAttribute('aria-valuemax', '5');
+    expect(
+      within(rail).getByText(t('onboarding.step_of', { current: 1, total: 5 }, 'ar'))
+    ).toBeInTheDocument();
+  });
+
+  it('gives every field a label the control answers to', async () => {
+    await renderWizard(fakeClient({ providers: [router] }));
+    await reachKeyStep();
+
+    const key = screen.getByTestId('onboarding-key-input');
+    expect(key).toHaveAccessibleName(t('onboarding.key_label', {}, 'ar'));
+    expect(key).toHaveAttribute('aria-required', 'true');
+    // A key is machine input: left-to-right and never translated, even on an Arabic bench (§11).
+    expect(key).toHaveAttribute('dir', 'ltr');
+    expect(key).toHaveAttribute('translate', 'no');
+
+    const hint = document.getElementById('onboarding-key-input-hint');
+    expect(hint).not.toBeNull();
+    expect(hint?.textContent).toBe(t('onboarding.key_hint', {}, 'ar'));
+  });
+
   it('offers the URL-carrying one-click presets, so one pasted key is the whole input', () => {
     expect(builtInProviderChoices.map((choice) => choice.kind)).toEqual([
       'open_router',

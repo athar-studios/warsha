@@ -1,7 +1,7 @@
 // Tests for the slash command picker (PLAN.md M18).
 import '@testing-library/jest-dom';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { LocaleProvider } from '@warsha/i18n';
+import { LocaleProvider, t } from '@warsha/i18n';
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -93,5 +93,29 @@ describe('SlashCommandPicker', () => {
     expect(
       filterSlashCommands([{ name: 'deploy', description: 'Draft a release' }], '/de')
     ).toEqual([{ name: 'deploy', description: 'Draft a release' }]);
+  });
+
+  it('walks the commands with the arrows and closes on Escape', () => {
+    const onClose = vi.fn();
+    renderIn('en', <SlashCommandPicker commands={commands} onSelect={() => undefined} onClose={onClose} />);
+
+    const first = screen.getByRole('button', { name: /\/deploy/ });
+    first.focus();
+
+    fireEvent.keyDown(first, { key: 'ArrowDown' });
+    expect(screen.getByRole('button', { name: /\/refactor/ })).toHaveFocus();
+
+    fireEvent.keyDown(screen.getByRole('button', { name: /\/refactor/ }), { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('takes every word from the catalog', () => {
+    renderIn('ar', <SlashCommandPicker commands={commands} onSelect={() => undefined} />);
+
+    expect(screen.getByTestId('slash-command-picker')).toHaveAttribute(
+      'aria-label',
+      t('agent_workflow.slash.title', {}, 'ar')
+    );
+    expect(screen.getByText(t('agent_workflow.picker_hint', {}, 'ar'))).toBeInTheDocument();
   });
 });

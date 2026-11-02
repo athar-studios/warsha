@@ -50,6 +50,14 @@ vi.mock('@warsha/client', async (importOriginal) => {
       client.listProjects = () => Promise.resolve([project]);
       client.listRuns = () => Promise.resolve([run]);
       client.getGates = () => Promise.resolve([]);
+      // The shell's own readings, so no deep-link case opens a socket or reaches a port (§7 states are
+      // exercised at the screen level, not by a live daemon here).
+      client.getProjectBudget = () =>
+        Promise.resolve({ totalBudgetUsd: 10, spentUsd: 2.5, remainingUsd: 7.5 });
+      client.agentState = () => Promise.resolve({ mode: 'plan', approvals: [], todos: [], model_wired: false });
+      client.getRunLogs = () => Promise.resolve([]);
+      client.listCrashReports = () => Promise.resolve([]);
+      client.listStoreReviews = () => Promise.resolve([]);
       return client;
     },
   };
@@ -120,8 +128,19 @@ describe('opening a screen from the query parameter', () => {
     renderAt('?screen=run');
 
     expect(await screen.findByTestId('run-view-tabs')).toBeInTheDocument();
-    // The run view header names the run's project, so the selection really was loaded.
-    expect(screen.getByText(project.id)).toBeInTheDocument();
+    // The bench's contextual identity names what the deep link selected (§4).
+    expect(screen.getByTestId('bench-project-id')).toHaveTextContent(project.id);
+    expect(screen.getByTestId('bench-run-id')).toHaveTextContent(run.id);
+  });
+
+  it('opens the advanced bench with the project selected', async () => {
+    renderAt('?screen=advanced');
+
+    expect(await screen.findByTestId('advanced-mode')).toBeInTheDocument();
+    expect(screen.getByTestId('advanced-project-name')).toHaveTextContent(project.name);
+    // The rail and the pane strip are the bench's own regions (§5).
+    expect(screen.getByTestId('advanced-rail')).toBeInTheDocument();
+    expect(screen.getByTestId('advanced-tabs')).toHaveAttribute('role', 'tablist');
   });
 
   it('opens a settings screen', async () => {
@@ -129,6 +148,9 @@ describe('opening a screen from the query parameter', () => {
 
     expect(await screen.findByTestId('crash-reports')).toBeInTheDocument();
     expect(screen.getByTestId('settings-tabs')).toBeInTheDocument();
+    // The tab that opened is the panel's named label, and only one tab is in the Tab order (§9).
+    expect(screen.getByTestId('settings-tab-crash-reports')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', 'settings-panel-crash-reports-tab');
   });
 
   it('opens simple mode with the project selected', async () => {

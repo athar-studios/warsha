@@ -1,14 +1,29 @@
-// Router additions — one-click provider setup with a network-free
-// "Test connection" (PLAN.md M14b).
+// Router additions — one-click provider setup with a network-free "Test connection" (PLAN.md M14b,
+// redrawn for Bench & Signal in B3-core).
 //
 // Mirrors `crates/warsha-providers/src/provider_setup.rs`:
 //   * `OneClickProvider` → the six choices, five with a default base URL;
-//   * `ConnectionTestResult` → the same snake_case shape the daemon returns,
-//     so a real result can be dropped straight into this component;
+//   * `ConnectionTestResult` → the same snake_case shape the daemon returns, so a real result can be
+//     dropped straight into this component;
 //   * `testConnection` → the same three checks, no network call.
+//
+// What the redraw changed, and what it deliberately did not:
+//
+//   * every word now resolves through `@warsha/i18n` (`router.setup.*`). The old local
+//     `Record<Locale, string>` tables are gone: they were 20+ literals the catalog could not audit
+//     (AUDIT-1 §3.3, REDESIGN §13), and a wizard that keeps its own strings is a wizard that ships
+//     Arabic copy in one place and English in another;
+//   * each input is a `Field` with a real `<label for>`, so the label is persistent and clickable and
+//     `aria-describedby` reaches the hint and the error nodes (AUDIT-1 §3.2's `aria-label`-only forms);
+//   * the three checks are a ruled `Ledger`, not a bullet list: glyph + word + reason, one line each,
+//     and the reason is the next action rather than a colour (§7);
+//   * the DOM contract the suite depends on is unchanged: the four controls keep their accessible names
+//     (`Provider`, `Base URL`, `API key`, `Model`), the two buttons keep `Test connection` /
+//     `Save provider`, `Save` stays disabled until all three checks pass, and `onTest` still receives
+//     `(input, result)`.
 import { t, useDirection, useLocale, type Locale } from '@warsha/i18n';
-import { Button } from '@warsha/ui';
-import { useState } from 'react';
+import { Button, Field, Ledger, fieldControl } from '@warsha/ui';
+import React, { useState } from 'react';
 
 export type OneClickProvider =
   | 'open_router'
@@ -38,33 +53,6 @@ export const defaultBaseUrls: Record<OneClickProvider, string | null> = {
   custom: null,
 };
 
-const providerLabels: Record<OneClickProvider, Record<Locale, string>> = {
-  open_router: { ar: 'OpenRouter', en: 'OpenRouter' },
-  deep_seek: { ar: 'DeepSeek', en: 'DeepSeek' },
-  kimi: { ar: 'Kimi (Moonshot)', en: 'Kimi (Moonshot)' },
-  glm: { ar: 'GLM (Zhipu)', en: 'GLM (Zhipu)' },
-  qwen: { ar: 'Qwen (DashScope)', en: 'Qwen (DashScope)' },
-  custom: { ar: 'نقطة نهاية مخصّصة', en: 'Custom endpoint' },
-};
-
-const fieldLabels: Record<
-  'provider' | 'url' | 'key' | 'model' | 'test' | 'save',
-  Record<Locale, string>
-> = {
-  provider: { ar: 'المزوّد', en: 'Provider' },
-  url: { ar: 'عنوان URL الأساسي', en: 'Base URL' },
-  key: { ar: 'مفتاح API', en: 'API key' },
-  model: { ar: 'معرّف النموذج', en: 'Model' },
-  test: { ar: 'اختبر الاتصال', en: 'Test connection' },
-  save: { ar: 'احفظ المزوّد', en: 'Save provider' },
-};
-
-const checkLabels: Record<'url' | 'key' | 'model', Record<Locale, string>> = {
-  url: { ar: 'URL', en: 'URL' },
-  key: { ar: 'مفتاح API', en: 'API key' },
-  model: { ar: 'النموذج', en: 'Model' },
-};
-
 /** Why a field failed, as a code so the text can follow the locale. */
 type ReasonCode =
   | 'url_empty'
@@ -75,22 +63,6 @@ type ReasonCode =
   | 'key_space'
   | 'model_empty';
 
-const reasonText: Record<ReasonCode, Record<Locale, string>> = {
-  url_empty: {
-    ar: 'أدخل عنوان URL الأساسي للمزوّد.',
-    en: 'Enter the base URL of the provider.',
-  },
-  url_space: { ar: 'عنوان URL يحتوي مسافة.', en: 'The URL contains a space.' },
-  url_scheme: {
-    ar: 'يجب أن يبدأ عنوان URL بـ http:// أو https://.',
-    en: 'The URL must start with http:// or https://.',
-  },
-  url_host: { ar: 'عنوان URL بلا مضيف.', en: 'The URL has no host.' },
-  key_empty: { ar: 'أدخل مفتاح API.', en: 'Enter the API key.' },
-  key_space: { ar: 'مفتاح API يحتوي مسافة.', en: 'The API key contains a space.' },
-  model_empty: { ar: 'أدخل معرّف النموذج.', en: 'Enter the model id.' },
-};
-
 /** The three inputs the owner types. */
 export interface ProviderSetupInput {
   provider: OneClickProvider;
@@ -100,8 +72,8 @@ export interface ProviderSetupInput {
 }
 
 /**
- * The same structured result the Rust side returns: one flag and one reason per
- * input, so the UI can show three checkmarks instead of one generic failure.
+ * The same structured result the Rust side returns: one flag and one reason per input, so the UI can
+ * show three checks instead of one generic failure.
  */
 export interface ConnectionTestResult {
   url_ok: boolean;
@@ -145,33 +117,41 @@ function validateModel(model: string): ReasonCode | null {
 /**
  * Check the three inputs without touching the network.
  *
- * Reason text follows `locale`; the flags and the snake_case keys are identical
- * to `ProviderSetupWizard::test_connection` in `warsha-providers`.
+ * Reason text comes from the catalog for `locale`; the flags and the snake_case keys are identical to
+ * `ProviderSetupWizard::test_connection` in `warsha-providers`.
  */
 export function testConnection(
   input: ProviderSetupInput,
   locale: Locale = 'en'
 ): ConnectionTestResult {
+  const reasonText = (code: ReasonCode | null): string | null =>
+    code === null ? null : t(`router.setup.reason.${code}`, {}, locale);
+
   const urlReason = validateUrl(input.url);
   const keyReason = validateKey(input.key);
   const modelReason = validateModel(input.model);
-
-  const text = (code: ReasonCode | null): string | null =>
-    code === null ? null : reasonText[code][locale];
 
   return {
     url_ok: urlReason === null,
     key_ok: keyReason === null,
     model_ok: modelReason === null,
-    url_reason: text(urlReason),
-    key_reason: text(keyReason),
-    model_reason: text(modelReason),
+    url_reason: reasonText(urlReason),
+    key_reason: reasonText(keyReason),
+    model_reason: reasonText(modelReason),
   };
 }
 
 function allOk(result: ConnectionTestResult | null): boolean {
   return result !== null && result.url_ok && result.key_ok && result.model_ok;
 }
+
+/** The field ids this form owns, so a label, a control and its messages always agree. */
+const FIELD_IDS = {
+  provider: 'router-setup-provider',
+  url: 'router-setup-url',
+  key: 'router-setup-key',
+  model: 'router-setup-model',
+} as const;
 
 export interface ProviderSetupWizardProps {
   /** Provider picked on first render; defaults to OpenRouter. */
@@ -197,9 +177,6 @@ export function ProviderSetupWizard({
   const [result, setResult] = useState<ConnectionTestResult | null>(null);
 
   const input: ProviderSetupInput = { provider, url, key, model };
-
-  const label = (field: keyof typeof fieldLabels): string =>
-    localized(`router.setup.${field}`, fieldLabels[field][locale], locale);
 
   const onProviderChange = (next: OneClickProvider) => {
     setProvider(next);
@@ -229,69 +206,97 @@ export function ProviderSetupWizard({
         event.preventDefault();
         runTest();
       }}
-      style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)', maxWidth: '420px' }}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--warsha-space-1)',
+        maxInlineSize: '26rem',
+        minInlineSize: 0,
+      }}
     >
-      <label style={styles.field}>
-        <span style={styles.caption}>{label('provider')}</span>
+      <Field id={FIELD_IDS.provider} label={t('router.setup.provider', {}, locale)}>
         <select
-          aria-label={label('provider')}
+          {...fieldControl(FIELD_IDS.provider)}
           value={provider}
           onChange={(event) => onProviderChange(event.target.value as OneClickProvider)}
-          style={styles.input}
         >
           {oneClickProviders.map((option) => (
             <option key={option} value={option}>
-              {providerLabels[option][locale]}
+              {t(`providers.kind.${option}`, {}, locale)}
             </option>
           ))}
         </select>
-      </label>
+      </Field>
 
-      <label style={styles.field}>
-        <span style={styles.caption}>{label('url')}</span>
+      {/* An endpoint is machine data: it reads left-to-right and is never translated, whatever the
+          interface direction is (§11). */}
+      <Field id={FIELD_IDS.url} label={t('router.setup.url', {}, locale)}>
         <input
+          {...fieldControl(FIELD_IDS.url)}
           type="text"
-          aria-label={label('url')}
+          dir="ltr"
+          translate="no"
+          spellCheck={false}
+          autoComplete="off"
           value={url}
           onChange={(event) => {
             setUrl(event.target.value);
             setResult(null);
           }}
-          style={styles.input}
+          style={{
+            ...fieldControl(FIELD_IDS.url).style,
+            fontFamily: 'var(--warsha-font-mono)',
+            unicodeBidi: 'isolate',
+          }}
         />
-      </label>
+      </Field>
 
-      <label style={styles.field}>
-        <span style={styles.caption}>{label('key')}</span>
+      <Field
+        id={FIELD_IDS.key}
+        label={t('router.setup.key', {}, locale)}
+        hint={t('onboarding.key_hint', {}, locale)}
+      >
         <input
+          {...fieldControl(FIELD_IDS.key, { hint: true })}
           type="password"
-          aria-label={label('key')}
+          dir="ltr"
+          translate="no"
+          spellCheck={false}
+          autoComplete="off"
           value={key}
           onChange={(event) => {
             setKey(event.target.value);
             setResult(null);
           }}
-          style={styles.input}
         />
-      </label>
+      </Field>
 
-      <label style={styles.field}>
-        <span style={styles.caption}>{label('model')}</span>
+      <Field id={FIELD_IDS.model} label={t('router.setup.model', {}, locale)}>
         <input
+          {...fieldControl(FIELD_IDS.model)}
           type="text"
-          aria-label={label('model')}
+          dir="ltr"
+          translate="no"
+          spellCheck={false}
+          autoComplete="off"
           value={model}
           onChange={(event) => {
             setModel(event.target.value);
             setResult(null);
           }}
-          style={styles.input}
+          style={{
+            ...fieldControl(FIELD_IDS.model).style,
+            fontFamily: 'var(--warsha-font-mono)',
+            unicodeBidi: 'isolate',
+          }}
         />
-      </label>
+      </Field>
 
-      <div style={{ display: 'flex', gap: 'var(--warsha-space-2)' }}>
+      <div style={{ display: 'flex', gap: 'var(--warsha-space-2)', flexWrap: 'wrap' }}>
+        {/* `type="button"` with its own handler: the form's submit runs the same check, and a submit
+            button here would run it twice. */}
         <Button type="button" variant="secondary" size="sm" dir={dir} onClick={runTest}>
-          {label('test')}
+          {t('router.setup.test', {}, locale)}
         </Button>
         <Button
           type="button"
@@ -300,44 +305,35 @@ export function ProviderSetupWizard({
           disabled={!allOk(result)}
           onClick={() => onSave?.(input)}
         >
-          {label('save')}
+          {t('router.setup.save', {}, locale)}
         </Button>
       </div>
 
-      {result !== null && (
-        <ul
-          data-testid="connection-result"
-          style={{ listStyle: 'none', paddingInline: 0, margin: 0, fontSize: 'var(--warsha-font-size-sm)' }}
+      {/* Why `Save` is off, said in words rather than by a button that does not answer (§7). */}
+      {!allOk(result) && (
+        <p
+          role="status"
+          style={{
+            marginBlock: 0,
+            marginInline: 0,
+            color: 'var(--warsha-color-text)',
+            fontSize: 'var(--warsha-font-size-xs)',
+          }}
         >
+          {t('router.setup.save_hint', {}, locale)}
+        </p>
+      )}
+
+      {result !== null && (
+        <Ledger label={t('router.setup.result', {}, locale)} recessed>
           {rows.map((row) => (
-            <li key={row.field} data-ok={row.ok} style={{ paddingBlock: '2px' }}>
-              {`${row.ok ? '✓' : '✗'} ${checkLabels[row.field][locale]}`}
+            <Ledger.Row key={row.field}>
+              {`${row.ok ? '✓' : '✗'} ${t(`router.setup.check.${row.field}`, {}, locale)}`}
               {row.reason !== null ? ` — ${row.reason}` : ''}
-            </li>
+            </Ledger.Row>
           ))}
-        </ul>
+        </Ledger>
       )}
     </form>
   );
 }
-
-/**
- * Translate a key, falling back to the local label when the catalog has no
- * entry yet (`t` returns the key itself for a missing message).
- */
-function localized(key: string, fallback: string, locale: Locale): string {
-  const translated = t(key, {}, locale);
-  return translated === key ? fallback : translated;
-}
-
-const styles = {
-  field: { display: 'flex', flexDirection: 'column', gap: '2px' } as const,
-  caption: { fontSize: 'var(--warsha-font-size-xs)', opacity: 0.8 } as const,
-  input: {
-    paddingInline: 'var(--warsha-space-2)',
-    paddingBlock: '6px',
-    borderRadius: '6px',
-    border: '1px solid var(--warsha-color-border-strong)',
-    fontFamily: 'inherit',
-  } as const,
-};

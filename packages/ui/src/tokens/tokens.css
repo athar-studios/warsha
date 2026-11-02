@@ -28,7 +28,13 @@
   --warsha-color-surface: #ffffff;
   --warsha-color-surface-muted: #f3f4f6;
   --warsha-color-text: #111827;
-  --warsha-color-text-muted: #6b7280;
+  /*
+   * The quietest colour a word may be painted in. B4 moved this light value one step down the same grey
+   * ramp (#6b7280 → #4b5563): axe measured `text-muted` on the recessed bench plate at 4.39:1, under the
+   * 4.5:1 §9 promises, and the compounds paint an unselected control-group label, a stream line and a
+   * terminal hint on exactly that plate. See `contrast.test.ts`, which now carries the plate pair as text.
+   */
+  --warsha-color-text-muted: #4b5563;
   --warsha-color-border: #e5e7eb;
   --warsha-color-border-strong: #d1d5db;
   --warsha-color-accent: #ffd60a;
@@ -38,6 +44,60 @@
   --warsha-color-warning: #b45309;
   --warsha-color-error: #b42318;
   --warsha-color-muted: #9ca3af;
+
+  /*
+   * ------------------------------------------------------ semantic aliases
+   * The Bench & Signal layer (docs/design/REDESIGN.md §12): no new raw colours, only names for the
+   * roles the direction speaks — the lamp, the plate, the rule, the edge, the state a lamp is in, and
+   * the focus ring. A component reaches these before it reaches a colour, which is what stops "I need
+   * a yellow" from becoming five different yellows. The dark block below re-declares every one of them
+   * so a theme can be re-tuned here without touching a component.
+   */
+
+  /* the signal: lit means "this needs the owner's hand" */
+  --warsha-signal: var(--warsha-color-accent);
+  --warsha-signal-ink: var(--warsha-color-accent-ink);
+  --warsha-signal-text: var(--warsha-color-accent-strong); /* AA-safe yellow-as-text on light */
+  --warsha-signal-wash: color-mix(in srgb, var(--warsha-color-accent) 12%, transparent);
+
+  /* the bench: plates fastened with hairlines */
+  --warsha-bench-plate: var(--warsha-color-surface-muted); /* rails, instrument beds, terminal dock */
+  --warsha-bench-rule: var(--warsha-color-border); /* hairline fasteners between plates */
+  --warsha-bench-edge: var(--warsha-color-border-strong); /* control borders, meter tracks */
+
+  /* the four agent states and the run's two outcomes */
+  --warsha-lamp-idle: var(--warsha-color-muted);
+  --warsha-lamp-working: var(--warsha-color-accent-strong);
+  --warsha-lamp-waiting: var(--warsha-color-accent);
+  --warsha-lamp-ok: var(--warsha-color-success);
+  --warsha-lamp-fail: var(--warsha-color-error);
+
+  /* diff and focus */
+  --warsha-diff-add-bg: var(--warsha-color-surface-muted); /* the `+` gutter glyph carries the rest */
+  --warsha-focus-ring: var(--warsha-color-accent-strong); /* 5.03:1 on bg — AUDIT-1 §1.3 */
+
+  /* ------------------------------------------------------------------ sizes */
+  --warsha-size-rule: 1px;
+  --warsha-size-edge: 3px;
+  --warsha-size-inscribe: 2px;
+  --warsha-size-touch: 44px;
+  --warsha-size-touch-compact: 32px;
+  --warsha-size-chip: 24px;
+  --warsha-size-badge: 20px;
+  --warsha-size-lamp: 10px;
+  --warsha-size-lamp-small: 6px;
+  --warsha-size-nut: 22px;
+  --warsha-size-mark: 48px;
+  --warsha-size-avatar: 36px;
+  --warsha-size-topbar: 56px;
+  --warsha-size-strip: 36px;
+  --warsha-size-rail: 264px;
+  --warsha-size-rail-compact: 224px;
+  --warsha-size-panel: 300px;
+  --warsha-size-diff-gutter: 24px;
+  --warsha-size-stream-time: 76px;
+  --warsha-size-composer-max: 132px;
+  --warsha-size-measure: 68ch;
 
   /* --------------------------------------------------------------- spacing */
   --warsha-space-0: 0px;
@@ -95,6 +155,8 @@
   --warsha-duration-fast: 120ms;
   --warsha-duration-normal: 180ms;
   --warsha-duration-slow: 240ms;
+  --warsha-duration-breathe: 1600ms;
+  --warsha-duration-shimmer: 1400ms;
   --warsha-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --warsha-ease-entrance: cubic-bezier(0, 0, 0.2, 1);
   --warsha-ease-exit: cubic-bezier(0.4, 0, 1, 1);
@@ -117,11 +179,33 @@
   --warsha-color-warning: #d29922;
   --warsha-color-error: #f85149;
   --warsha-color-muted: #737373;
+
+  /*
+   * The night shift, not an inversion (REDESIGN §1.6). Every alias is re-declared here even when it
+   * resolves to the same token, because the *choice* is the theme's: `signal-text`, `lamp-working` and
+   * `focus-ring` no longer need the dark gold — the brand yellow is already AA-readable on this plate —
+   * so they name `accent` directly. `muted` stays `muted`: it is a non-text token (§9).
+   */
+  --warsha-signal: var(--warsha-color-accent);
+  --warsha-signal-ink: var(--warsha-color-accent-ink);
+  --warsha-signal-text: var(--warsha-color-accent);
+  --warsha-signal-wash: color-mix(in srgb, var(--warsha-color-accent) 12%, transparent);
+  --warsha-bench-plate: var(--warsha-color-surface-muted);
+  --warsha-bench-rule: var(--warsha-color-border);
+  --warsha-bench-edge: var(--warsha-color-border-strong);
+  --warsha-lamp-idle: var(--warsha-color-muted);
+  --warsha-lamp-working: var(--warsha-color-accent);
+  --warsha-lamp-waiting: var(--warsha-color-accent);
+  --warsha-lamp-ok: var(--warsha-color-success);
+  --warsha-lamp-fail: var(--warsha-color-error);
+  --warsha-diff-add-bg: var(--warsha-color-surface-muted);
+  --warsha-focus-ring: var(--warsha-color-accent);
 }
 
 /*
  * Motion is a preference, not a decoration. Zeroing the durations here means every component that
- * used a duration token stops animating without knowing this rule exists.
+ * used a duration token stops animating without knowing this rule exists. The two loop durations are
+ * zeroed with them: an animation with no duration has no frames to show.
  */
 @media (prefers-reduced-motion: reduce) {
   :root,
@@ -130,5 +214,150 @@
     --warsha-duration-fast: 0ms;
     --warsha-duration-normal: 0ms;
     --warsha-duration-slow: 0ms;
+    --warsha-duration-breathe: 0ms;
+    --warsha-duration-shimmer: 0ms;
+  }
+}
+
+/*
+ * ========================================================================== base layer
+ *
+ * The rest of this file is the smallest possible global stylesheet, kept here because `tokens.css` is
+ * the one stylesheet every Warsha surface already imports, and because three of the rules below cannot
+ * be written any other way:
+ *
+ *   1. `:focus-visible` is a *pseudo-class* — React inline styles have no way to express it. REDESIGN
+ *      §9 asks for exactly one global ring: 2px `--warsha-focus-ring` with a 2px offset. It is scoped
+ *      under `:root` so it wins the equal-specificity contest against the app-level rings AUDIT-1 §1.3
+ *      found (the desktop one measured 1.35:1 against `bg`, which is not a visible focus indicator).
+ *   2. `pointer: coarse` and `dir` are *media/attribute conditions* — the touch floor and the stamp's
+ *      mirrored tilt must follow the device and the document direction, not a prop a screen remembers
+ *      to pass. Inline styles carry the default; these rules are the floor, never a ceiling.
+ *   3. `@keyframes` exist only in a stylesheet. The two loops below are permitted motion (§8), are
+ *      declared inside `prefers-reduced-motion: no-preference`, and use loop *duration tokens* so the
+ *      reduced-motion block above is a second, redundant guarantee rather than the only defence.
+ *
+ * No component rule belongs here. A component's skin is its own inline style, built from tokens.
+ */
+
+:root :focus-visible {
+  outline: var(--warsha-size-inscribe) solid var(--warsha-focus-ring);
+  outline-offset: var(--warsha-size-inscribe);
+}
+
+/* Every interactive element in the system carries `.warsha-control`: a 32px floor on a fine pointer,
+   the WCAG 44px minimum on a touch one (REDESIGN §9), with the row-shaped controls already asking
+   for 44 inline. */
+.warsha-control {
+  min-block-size: var(--warsha-size-touch-compact);
+}
+
+@media (pointer: coarse) {
+  .warsha-control,
+  .warsha-control-sm,
+  .warsha-control-chip {
+    min-block-size: var(--warsha-size-touch);
+    block-size: auto;
+  }
+}
+
+/* The instrument strip's readings align to their own baseline; the strip itself is inline-flexible. */
+.warsha-statusstrip-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--warsha-space-1);
+  min-inline-size: 0;
+  flex: none;
+}
+
+/* Progressive disclosure (§10): below 768px the strip keeps the daemon and the budget and lets the
+   readings an item marked `data-warsha-hide-narrow` go. A viewport is not a prop, so this is CSS. */
+@media (max-width: 767px) {
+  [data-warsha-hide-narrow='true'] {
+    display: none;
+  }
+}
+
+/* §10 at the phone widths a ledger row collapses to two lines: the name and its state on the first, the
+   machine meta under it. Without the wrap a nowrap meta starved the row's label to zero width, and B4's
+   box audit found project names in 0px-tall-by-0px-wide boxes. */
+.warsha-rail-row {
+  flex-wrap: wrap;
+  row-gap: var(--warsha-space-1);
+}
+
+/* Shared compounds that scroll in their own axis: same reason as the app-level rules above — a
+   scrollbar that appears between one capture and the next moves text that has not changed. */
+.warsha-statusstrip,
+.warsha-stream,
+.warsha-ledger,
+.warsha-diff-view {
+  scrollbar-gutter: stable;
+}
+
+
+/* A control's hover is a pseudo-class: the only two hover skins the bench allows, both plates. */
+.warsha-hover-plate:hover {
+  background-color: var(--warsha-color-surface);
+}
+
+.warsha-hover-recess:hover {
+  background-color: var(--warsha-bench-plate);
+}
+
+/* The pressed-metal stamp tilts against the reading direction; §1.4 calls it a physical record. */
+.warsha-stamp {
+  transform: rotate(-2deg);
+}
+
+[dir='rtl'] .warsha-stamp {
+  transform: rotate(2deg);
+}
+
+/* A working lamp breathes; a skeleton shimmers. Both are loading/state feedback, never decoration,
+   and both stop for a user who asked for no motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .warsha-lamp-working {
+    animation: warsha-lamp-breathe var(--warsha-duration-breathe) var(--warsha-ease-standard) infinite;
+  }
+
+  .warsha-thinking i {
+    animation: warsha-lamp-breathe var(--warsha-duration-breathe) var(--warsha-ease-standard) infinite;
+  }
+
+  .warsha-thinking i:nth-child(2) {
+    animation-delay: 200ms;
+  }
+
+  .warsha-thinking i:nth-child(3) {
+    animation-delay: 400ms;
+  }
+
+  .warsha-skeleton {
+    background-image: linear-gradient(
+      90deg,
+      var(--warsha-bench-plate) 25%,
+      var(--warsha-color-surface) 50%,
+      var(--warsha-bench-plate) 75%
+    );
+    background-size: 200% 100%;
+    animation: warsha-skeleton-slide var(--warsha-duration-shimmer) linear infinite;
+  }
+}
+
+@keyframes warsha-lamp-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@keyframes warsha-skeleton-slide {
+  to {
+    background-position: -200% 0;
   }
 }

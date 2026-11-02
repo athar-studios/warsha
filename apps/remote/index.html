@@ -2,13 +2,26 @@
 <html lang="ar" dir="rtl">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Warsha Remote — ورشة</title>
+    <!--
+      `viewport-fit=cover` is here because the phone's navigation is sticky at the block end and
+      `src/index.css` keeps it clear of the home indicator with `env(safe-area-inset-bottom)` — which
+      reads as zero unless the document opts into the display cutout.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>ورشة — Warsha Remote</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;500;700&family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="manifest" href="/manifest.webmanifest">
-    <meta name="theme-color" content="#2563eb">
+    <!--
+      The browser chrome follows the bench's own plates (`--warsha-color-bg`: #fafafa light, #0e0e0e
+      dark), not a brand blue. That is the platform's status bar, not the app's theme: the theme stays an
+      owner choice written to `data-theme` by `src/theme.tsx`, and `tokens.css` never asks the device
+      which palette to paint (docs/design/REDESIGN.md §12).
+    -->
+    <meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#0e0e0e" media="(prefers-color-scheme: dark)">
+    <meta name="description" content="ورشة — طاولة العمل عن بُعد">
   </head>
   <body>
     <div id="root"></div>

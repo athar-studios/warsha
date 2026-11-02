@@ -23,12 +23,44 @@ export type Locale = (typeof LOCALES)[number];
 export const THEMES = ['light', 'dark'] as const;
 export type Theme = (typeof THEMES)[number];
 
-/** The two viewports the visual checks cover. */
+/**
+ * The five widths `docs/design/REDESIGN.md` §10 gives the bench a different shape at.
+ *
+ * `320` is the floor the rails collapse to horizontal strips on, `390` the primary phone, `768` where
+ * a rail returns and forms go side-by-side, `1024` where the full bench (and Simple's end panel) fits,
+ * and `1440` the reference desktop. The heights are the real device heights so a sticky composer or a
+ * decision bar is measured against the screen it actually has to share.
+ *
+ * The two names carried over from the previous matrix (`1440x900`, `390x844`) are unchanged on purpose:
+ * they are part of every stored baseline's file name.
+ */
 export const VIEWPORTS = [
-  { name: '1440x900', width: 1440, height: 900 },
+  { name: '320x568', width: 320, height: 568 },
   { name: '390x844', width: 390, height: 844 },
+  { name: '768x1024', width: 768, height: 1024 },
+  { name: '1024x768', width: 1024, height: 768 },
+  { name: '1440x900', width: 1440, height: 900 },
 ] as const;
 export type Viewport = (typeof VIEWPORTS)[number];
+export type ViewportName = Viewport['name'];
+
+/** The three widths every screen is measured at: phone, tablet, reference desktop. */
+export const CORE_VIEWPORT_NAMES = ['390x844', '768x1024', '1440x900'] as const satisfies readonly ViewportName[];
+
+/** The two extra widths only the screens that change shape at them are photographed at (§10). */
+export const EDGE_VIEWPORT_NAMES = ['320x568', '1024x768'] as const satisfies readonly ViewportName[];
+
+/** Every viewport by its name, so a screen can name the widths it changes at. */
+const VIEWPORT_BY_NAME = new Map<string, Viewport>(VIEWPORTS.map((viewport) => [viewport.name, viewport]));
+
+/** The viewports for a list of names, in the order given, failing loudly on an unknown name. */
+export function viewportsNamed(names: readonly ViewportName[]): readonly Viewport[] {
+  return names.map((name) => {
+    const viewport = VIEWPORT_BY_NAME.get(name);
+    if (viewport === undefined) throw new Error(`no viewport is named "${name}"`);
+    return viewport;
+  });
+}
 
 /** Every problem one case can report. All of them fail the case. */
 export interface LayoutAudit {
@@ -109,6 +141,24 @@ export async function auditLayout(
       const round = (value: number): number => Math.round(value * 10) / 10;
       const isOpaque = (colour: string): boolean =>
         colour !== '' && colour !== 'transparent' && colour !== 'rgba(0, 0, 0, 0)';
+
+      /**
+       * Is this box actually on screen?
+       *
+       * `getComputedStyle(el).display` answers `inline-flex` for a span inside a `display: none` strip —
+       * the computed value is the element's own, and the ancestor's hiding is not in it. Only
+       * `checkVisibility` follows the whole chain, and `checkVisibility` is what §10's progressive
+       * disclosure is written in: a reading the phone does not show is *gone*, not "a zero box with
+       * words in it". Every geometric check below asks this first, or the disclosure reads as a defect.
+       */
+      const onScreen = (element: Element): boolean => {
+        const html = element as HTMLElement;
+        if (typeof html.checkVisibility === 'function') {
+          return html.checkVisibility({ opacityProperty: false, visibilityProperty: true });
+        }
+        const style = getComputedStyle(html);
+        return style.display !== 'none' && style.visibility !== 'hidden';
+      };
 
       const root = document.querySelector(selector);
       if (root === null) {
@@ -210,6 +260,7 @@ export async function auditLayout(
       };
 
       for (const element of Array.from(document.querySelectorAll('body *'))) {
+        if (!onScreen(element)) continue;
         const rect = element.getBoundingClientRect();
         if (rect.width > viewportWidth + 1 && !isClipped(element)) {
           audit.oversized.push(
@@ -229,6 +280,7 @@ export async function auditLayout(
 
         const style = getComputedStyle(element);
         if (style.display === 'none' || style.visibility === 'hidden') continue;
+        if (!onScreen(element)) continue;
 
         const rect = element.getBoundingClientRect();
         if (rect.width < 1 || rect.height < 1) {
@@ -245,8 +297,8 @@ export async function auditLayout(
 
       for (const container of containers) {
         const candidates = Array.from(container.children).filter((element) => {
+          if (!onScreen(element)) return false;
           const style = getComputedStyle(element);
-          if (style.display === 'none' || style.visibility === 'hidden') return false;
           if (style.position === 'absolute' || style.position === 'fixed') return false;
           if ((element.textContent ?? '').trim() === '') return false;
           const rect = element.getBoundingClientRect();

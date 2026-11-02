@@ -1,11 +1,20 @@
 import '@testing-library/jest-dom';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { createClient, type ProjectId, type ProjectSummary, type WarshaClient } from '@warsha/client';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import {
+  createClient,
+  type GateSummary,
+  type ProjectId,
+  type ProjectSummary,
+  type RunId,
+  type RunSummary,
+  type Stage,
+  type WarshaClient,
+} from '@warsha/client';
 import { LocaleProvider, t } from '@warsha/i18n';
 import React from 'react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
-import { SimpleMode } from './SimpleMode';
+import { SimpleMode, composerTriggerFor, insertComposerToken, simpleSlashCommands } from './SimpleMode';
 
 class MockWebSocket {
   onopen: (() => void) | null = null;
@@ -58,5 +67,154 @@ describe('SimpleMode agent list', () => {
     // Clicking toggle expands all agents
     fireEvent.click(toggleBtn);
     expect(toggleBtn).toHaveTextContent(t('simple.hide_agents', {}, 'ar'));
+  });
+
+  it('names the team as a navigation landmark in the owner’s language', async () => {
+    const client = createMockClient();
+    render(
+      <LocaleProvider initialLocale="ar" storage={null}>
+        <SimpleMode client={client} project={mockProject} />
+      </LocaleProvider>
+    );
+
+    const rail = await screen.findByRole('navigation', { name: t('simple.team', {}, 'ar') });
+    expect(rail).toHaveAttribute('dir', 'rtl');
+    // The role word is a catalog entry, not a per-locale table in the screen (§13).
+    expect(within(rail).getAllByText(t('role.orchestrator', {}, 'ar')).length).toBeGreaterThan(0);
+  });
+});
+
+/** The run the gates belong to. */
+const run: RunSummary = {
+  id: 'run-9' as RunId,
+  projectId: mockProject.id,
+  stage: 'gate_a',
+  status: 'running',
+  startedAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+};
+
+function clientWithGates(gates: GateSummary[]) {
+  const client = createClient('http://127.0.0.1:8766', 'test-token');
+  client.listRuns = vi.fn(async () => [run]);
+  client.getGates = vi.fn(async () => gates);
+  client.approveGate = vi.fn(async () => undefined);
+  client.rejectGate = vi.fn(async () => undefined);
+  client.requestChanges = vi.fn(async () => undefined);
+  return client;
+}
+
+describe('SimpleMode gates', () => {
+  beforeEach(() => {
+    vi.stubGlobal('WebSocket', MockWebSocket);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('shows a pending gate as the one card that interrupts the transcript', async () => {
+    const pending: GateSummary[] = [{ stage: 'gate_a' as Stage, state: { state: 'pending' } }];
+    render(
+      <LocaleProvider initialLocale="ar" storage={null}>
+        <SimpleMode client={clientWithGates(pending)} project={mockProject} />
+      </LocaleProvider>
+    );
+
+    const approve = await screen.findByRole('button', { name: t('gates.approve', {}, 'ar') });
+    expect(screen.getByRole('button', { name: t('gates.reject', {}, 'ar') })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: t('gates.request_changes', {}, 'ar') })
+    ).toBeInTheDocument();
+    fireEvent.click(approve);
+  });
+
+  it('sends the approved gate to the daemon with the run it belongs to', async () => {
+    const pending: GateSummary[] = [{ stage: 'gate_a' as Stage, state: { state: 'pending' } }];
+    const client = clientWithGates(pending);
+    render(
+      <LocaleProvider initialLocale="ar" storage={null}>
+        <SimpleMode client={client} project={mockProject} />
+      </LocaleProvider>
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: t('gates.approve', {}, 'ar') }));
+
+    await waitFor(() => expect(client.approveGate).toHaveBeenCalledWith(run.id, 'gate_a'));
+  });
+
+  it('keeps the card when the decision RPC fails, and says so inline', async () => {
+    const pending: GateSummary[] = [{ stage: 'gate_b' as Stage, state: { state: 'pending' } }];
+    const client = clientWithGates(pending);
+    client.approveGate = vi.fn(async () => {
+      throw new Error('RPC error -32001: refused');
+    });
+
+    render(
+      <LocaleProvider initialLocale="ar" storage={null}>
+        <SimpleMode client={client} project={mockProject} />
+      </LocaleProvider>
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: t('gates.approve', {}, 'ar') }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(t('gates.failed', {}, 'ar'));
+    // A failed decision is not a lost one: the actions stay on the card (§7).
+    expect(screen.getByRole('button', { name: t('gates.approve', {}, 'ar') })).toBeEnabled();
+  });
+});
+
+describe('SimpleMode composer', () => {
+  beforeEach(() => {
+    vi.stubGlobal('WebSocket', MockWebSocket);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('sends on Enter and keeps Shift+Enter for a newline', async () => {
+    render(
+      <LocaleProvider initialLocale="ar" storage={null}>
+        <SimpleMode client={createMockClient()} project={mockProject} />
+      </LocaleProvider>
+    );
+
+    const field = await screen.findByTestId('simple-composer-input');
+    fireEvent.change(field, { target: { value: 'أريد تقريراً' } });
+
+    const log = screen.getByRole('log');
+    fireEvent.keyDown(field, { key: 'Enter', shiftKey: true });
+    expect(within(log).queryByText('أريد تقريراً')).toBeNull();
+
+    fireEvent.keyDown(field, { key: 'Enter' });
+    expect(await within(log).findByText('أريد تقريراً')).toBeInTheDocument();
+    // The draft is cleared by the send, so the next message starts clean.
+    expect(field).toHaveValue('');
+  });
+
+  it('gives the field a label the owner never sees but a screen reader always does', async () => {
+    render(
+      <LocaleProvider initialLocale="ar" storage={null}>
+        <SimpleMode client={createMockClient()} project={mockProject} />
+      </LocaleProvider>
+    );
+
+    expect(
+      await screen.findByRole('textbox', { name: t('simple.composer_label', {}, 'ar') })
+    ).toBeInTheDocument();
+  });
+
+  it('keeps the trigger rules and the command catalog together', () => {
+    expect(composerTriggerFor('@fi')).toEqual({ kind: 'mention', query: 'fi' });
+    expect(composerTriggerFor('@file:src/main.rs')).toBeNull();
+    expect(composerTriggerFor('/dr')).toEqual({ kind: 'slash', query: 'dr' });
+    expect(insertComposerToken('@fi', '@file')).toBe('@file ');
+
+    const commands = simpleSlashCommands('ar');
+    expect(commands.map((command) => command.name)).toContain('/review');
+    expect(commands[0]?.description).toBe(t('simple.command.review', {}, 'ar'));
+    expect(simpleSlashCommands('en')[0]?.description).toBe(t('simple.command.review', {}, 'en'));
   });
 });

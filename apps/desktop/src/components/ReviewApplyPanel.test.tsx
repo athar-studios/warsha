@@ -44,23 +44,28 @@ describe('ReviewApplyPanel', () => {
     renderIn('en', <ReviewApplyPanel {...harness()} />);
 
     expect(screen.getByTestId('review-apply-summary')).toHaveTextContent(
-      '3 files changed · 1 conflict(s)'
+      '3 files changed · 1 conflict'
     );
     expect(screen.getByTestId('review-file-0')).toHaveAttribute('data-conflict', 'false');
     expect(screen.getByTestId('review-file-1')).toHaveAttribute('data-conflict', 'true');
 
-    // A file this machine does not have is marked as new, and its diff is all additions.
+    // A file this machine does not have is marked as new, in a word and a glyph (§9).
     expect(screen.getByTestId('review-file-new-0')).toHaveTextContent('new');
-    const created = screen.getByTestId('review-file-diff-0');
-    expect(created.querySelectorAll('[data-kind="added"]')).toHaveLength(1);
-    expect(created.querySelectorAll('[data-kind="removed"]')).toHaveLength(0);
-
-    // An edit shows the unchanged lines as context around the changed one.
-    const edited = screen.getByTestId('review-file-diff-2');
-    expect(edited.querySelectorAll('[data-kind="context"]')).toHaveLength(2);
-    expect(edited.querySelectorAll('[data-kind="added"]')).toHaveLength(1);
-    expect(edited.textContent).toContain('+ c');
     expect(screen.getByTestId('review-file-conflict-1')).toHaveTextContent('conflict');
+
+    // The conflict opens first: it is the file the owner has to read (§7).
+    expect(screen.getByTestId('review-diff-path')).toHaveTextContent('src/lib.rs');
+    const diff = screen.getByRole('region', { name: /File diffs — src\/lib\.rs/ });
+    expect(diff.querySelectorAll('[data-kind="del"]')).toHaveLength(1);
+    expect(diff.querySelectorAll('[data-kind="add"]')).toHaveLength(1);
+
+    // Choosing another file moves the pane, and its edit shows the unchanged lines as context.
+    fireEvent.click(screen.getByTestId('review-file-diff-toggle-2'));
+    expect(screen.getByTestId('review-diff-path')).toHaveTextContent('README.md');
+    const edited = screen.getByRole('region', { name: /File diffs — README\.md/ });
+    expect(edited.querySelectorAll('[data-kind="context"]')).toHaveLength(2);
+    expect(edited.querySelectorAll('[data-kind="add"]')).toHaveLength(1);
+    expect(edited.textContent).toContain('c');
   });
 
   it('applies every path with Apply all', () => {
@@ -159,7 +164,7 @@ describe('ReviewApplyPanel', () => {
       </LocaleProvider>
     );
     expect(screen.getByTestId('review-apply-empty')).toHaveTextContent('No changes to apply');
-    expect(screen.queryByTestId('review-apply-list')).toBeNull();
+    expect(screen.queryAllByRole('listitem')).toHaveLength(0);
     expect(screen.getByTestId('review-apply-all')).toBeDisabled();
     expect(screen.getByTestId('review-apply-selected')).toBeDisabled();
   });
@@ -173,8 +178,10 @@ describe('ReviewApplyPanel', () => {
     expect(screen.getByTestId('review-apply-backup-notice')).toHaveTextContent(
       'تُحفظ نسخة احتياطية قبل الكتابة فوق أي ملف'
     );
-    // A path and a diff read left-to-right in both languages.
-    expect(screen.getByTestId('review-file-diff-0')).toHaveAttribute('dir', 'ltr');
+    // A path and a diff line read left-to-right in both languages (§11).
+    expect(screen.getByTestId('review-diff-path')).toHaveAttribute('dir', 'ltr');
+    const line = document.querySelector('[data-kind="del"]');
+    expect(line).toHaveAttribute('dir', 'ltr');
     expect(screen.getByTestId('review-file-checkbox-0')).toHaveAttribute(
       'aria-label',
       'src/new.rs'
@@ -214,10 +221,10 @@ describe('ReviewApplyPanel', () => {
       <ReviewApplyPanel {...harness({ files: [{ path: 'big.txt', local: null, remote: long }] })} />
     );
 
-    const hidden = screen.getByTestId('review-file-hidden-0');
+    const hidden = screen.getByTestId('review-file-hidden');
     expect(hidden).toHaveTextContent('5 more lines not shown');
-    expect(screen.getByTestId('review-file-diff-0').querySelectorAll('[data-kind]')).toHaveLength(
-      MAX_DIFF_LINES
-    );
+    expect(
+      screen.getByRole('region', { name: /File diffs — big\.txt/ }).querySelectorAll('[data-kind]')
+    ).toHaveLength(MAX_DIFF_LINES);
   });
 });

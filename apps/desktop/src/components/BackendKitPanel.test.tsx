@@ -142,6 +142,30 @@ describe('BackendKitPanel', () => {
     expect(open).toHaveTextContent('Enabled — approved by owner @ 1700000000');
   });
 
+  it('moves the backend choice with the arrows, in reading order (§9)', () => {
+    const onKindChange = vi.fn();
+    renderIn('en', <BackendKitPanel {...props({ onKindChange })} />);
+
+    // Roving tabindex: the selected radio is the group's single Tab stop.
+    expect(screen.getByRole('radio', { name: 'PocketBase' })).toHaveAttribute('tabIndex', '0');
+    expect(screen.getByRole('radio', { name: 'Supabase' })).toHaveAttribute('tabIndex', '-1');
+
+    screen.getByRole('radio', { name: 'PocketBase' }).focus();
+    fireEvent.keyDown(screen.getByRole('radio', { name: 'PocketBase' }), { key: 'ArrowRight' });
+
+    // A radio group selects as it moves, so the callback fires and focus follows.
+    expect(onKindChange).toHaveBeenCalledWith('supabase');
+  });
+
+  it('gives every service line a 44px row and a tick beside the word', () => {
+    renderIn('en', <BackendKitPanel {...props()} />);
+
+    const auth = screen.getByRole('checkbox', { name: 'Auth' });
+    expect(auth).toBeChecked();
+    // The label wraps the row, so the whole line is the touch target (§9).
+    expect(auth.closest('label')).toHaveStyle({ minBlockSize: 'var(--warsha-size-touch)' });
+  });
+
   it('follows the locale and mirrors for RTL', () => {
     renderIn('ar', <BackendKitPanel {...props()} />);
 

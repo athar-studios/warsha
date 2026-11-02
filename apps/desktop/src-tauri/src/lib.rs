@@ -75,6 +75,20 @@ pub struct ShellState {
 }
 
 impl ShellState {
+    /// The webview's preferences, with a poisoned lock read as the map it holds.
+    ///
+    /// A `Mutex` is poisoned when its holder panicked, and the map behind it is a plain
+    /// `BTreeMap` that did not participate: answering "no settings" (on a read) or
+    /// "cannot save" (on a write) would throw away the owner's mode and theme because of
+    /// a panic somewhere else in the shell. This is the same reading
+    /// `InMemorySecretStore` applies to its own map.
+    fn preferences(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, String>> {
+        match self.settings.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
     /// The value `get_config` answers for `key`.
     ///
     /// The three daemon keys are answered from the endpoint the shell started, never from the
@@ -87,47 +101,85 @@ impl ShellState {
             CONFIG_DAEMON_WS_URL => self.endpoint.ws_url.clone(),
             CONFIG_DAEMON_TOKEN => self.endpoint.token.clone(),
             _ => self
-                .settings
-                .lock()
-                .map(|settings| settings.get(key).cloned().unwrap_or_default())
+                .preferences()
+                .get(key)
+                .cloned()
                 .unwrap_or_default(),
         }
     }
 
     /// Persist `key = value` for the webview's own keys.
+    ///
+    /// Three things a stored preference owes its owner, only one of which the first
+    /// version of this shell did:
+    ///
+    /// - **the write is atomic** (see [`write_settings`]), because an app killed mid-write left
+    ///   a file that does not parse, and [`read_settings`] answers that with an empty map — so
+    ///   the owner's mode and theme would come back as "never set" after the crash that lost
+    ///   them;
+    /// - **it does not lose what it did not write**: the file is read again and merged, so a key
+    ///   the owner set from another window of the same install survives;
+    /// - **a failure is said**, in the error string the webview shows and in `desktop.log`.
     fn set(&self, key: &str, value: &str) -> Result<(), String> {
         if SHELL_OWNED_KEYS.contains(&key) {
             return Err(format!("{key} is reported by the shell and cannot be set"));
         }
+        if key.trim().is_empty() {
+            return Err("a setting needs a name".to_string());
+        }
         let snapshot = {
-            let mut settings = self
-                .settings
-                .lock()
-                .map_err(|_| "the settings lock was poisoned".to_string())?;
+            let mut settings = self.preferences();
             settings.insert(key.to_string(), value.to_string());
             settings.clone()
         };
-        write_settings(&self.settings_path, &snapshot)
+        let mut merged = read_settings(&self.settings_path);
+        // This process's map wins on the keys it holds: it is the state the owner is looking
+        // at, and it is the write that was just asked for.
+        for (name, value) in snapshot {
+            merged.insert(name, value);
+        }
+        write_settings(&self.settings_path, &merged).map_err(|error| {
+            self.note(&format!("could not store {key}: {error}"));
+            error
+        })
     }
 
     /// Append one line to the shell's log, best effort: a log that cannot be written must not be
     /// the reason the app fails to start.
     fn note(&self, message: &str) {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_secs())
-            .unwrap_or_default();
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.log_path)
-        {
-            let _ = writeln!(file, "[{stamp}] {message}");
-        }
+        append_note(&self.log_path, message);
+    }
+}
+
+/// Append one stamped line to a log file, creating it and its directory when they are not there.
+///
+/// Shared by [`ShellState::note`] and [`daemon_for`], because the one message an owner needs
+/// about a daemon that refused to start is written before there is a shell state to write it
+/// with.
+fn append_note(path: &Path, message: &str) {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or_default();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(file, "[{stamp}] {message}");
     }
 }
 
 /// Read the shell's settings file; a missing or unreadable file is simply an empty map.
+///
+/// An empty map rather than an error is the frontend's contract: `checkOnboarding` reads
+/// `onboarding_complete` before the owner has ever set it, and a first launch must not fail
+/// because nothing was stored yet. What that means for durability is the other half — an
+/// unreadable file reads as "nothing was ever set" — which is exactly why [`write_settings`]
+/// is atomic.
 fn read_settings(path: &Path) -> BTreeMap<String, String> {
     std::fs::read_to_string(path)
         .ok()
@@ -135,13 +187,37 @@ fn read_settings(path: &Path) -> BTreeMap<String, String> {
         .unwrap_or_default()
 }
 
+/// The counter that makes each settings write's scratch file unique.
+static SETTINGS_WRITE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Write the shell's settings file, creating its directory if it is not there yet.
+///
+/// A temp file and a rename, not `fs::write` over the live file: a rename replaces the
+/// target atomically, while a write that is interrupted by a crash, a power loss or a
+/// killed process leaves the file half-written — and a half-written JSON file reads back
+/// as an empty map, which is an owner who lost their mode, their theme and their
+/// onboarding answer without a word about it.
 fn write_settings(path: &Path, settings: &BTreeMap<String, String>) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| format!("{parent:?}: {error}"))?;
-    }
+    let parent = path.parent().ok_or_else(|| format!("{path:?} has no directory"))?;
+    std::fs::create_dir_all(parent).map_err(|error| format!("{parent:?}: {error}"))?;
     let json = serde_json::to_string_pretty(settings).map_err(|error| error.to_string())?;
-    std::fs::write(path, json).map_err(|error| format!("{path:?}: {error}"))
+
+    let sequence = SETTINGS_WRITE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let scratch = parent.join(format!(
+        ".{}.{}.{}.tmp",
+        path.file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "settings".to_string()),
+        std::process::id(),
+        sequence
+    ));
+    std::fs::write(&scratch, json.as_bytes()).map_err(|error| format!("{scratch:?}: {error}"))?;
+    std::fs::rename(&scratch, path).map_err(|error| {
+        // The live file is untouched either way; the scratch file is nothing the next
+        // write should inherit.
+        let _ = std::fs::remove_file(&scratch);
+        format!("{path:?}: {error}")
+    })
 }
 
 /// The origins the daemon has to accept the webview's requests from.
@@ -219,6 +295,7 @@ fn start_shell() -> (
 /// Start the daemon `config` describes, or describe the one already running on its ports.
 fn daemon_for(config: DaemonConfig) -> Result<(DaemonEndpoint, Option<DaemonHandle>), String> {
     let config = with_webview_origins(config);
+    let log_path = config.data_dir.join(LOG_FILE);
     match tauri::async_runtime::block_on(warshad::start_daemon(config.clone())) {
         Ok(handle) => Ok((
             DaemonEndpoint {
@@ -229,7 +306,17 @@ fn daemon_for(config: DaemonConfig) -> Result<(DaemonEndpoint, Option<DaemonHand
             },
             Some(handle),
         )),
-        Err(DaemonError::Lock(_)) => Ok((configured_endpoint(&config), None)),
+        Err(DaemonError::Lock(reason)) => {
+            // The daemon's own words name the process holding the data directory. They go in the
+            // log the installer documentation points at, because this is the one start outcome an
+            // owner has no way to see from the window: the app looks normal, and a stray
+            // `warshad` from an earlier crash is what is answering it.
+            append_note(
+                &log_path,
+                &format!("using a daemon another instance already started: {reason}"),
+            );
+            Ok((configured_endpoint(&config), None))
+        }
         Err(first_failure) => {
             let mut free_ports = config.clone();
             free_ports.http_port = 0;
@@ -297,10 +384,15 @@ fn preflight_request(host: &str, origin: &str) -> String {
 /// has to be able to answer "does `warshad` start, and can the frontend reach it?".
 ///
 /// `--data-dir` points the check at a scratch directory instead of the owner's real one, which is
-/// what a CI runner wants: the check must not touch the projects of whoever runs it.
+/// what a CI runner wants: the check must not touch the projects of whoever runs it. It is also
+/// the only case that runs [`restart_safety_report`], because that check starts and stops daemons
+/// over the directory twice, and no check has any business doing that to a live install.
 pub fn self_check(scratch: Option<&Path>) -> anyhow::Result<()> {
-    let (data_dir, outcome) = match scratch {
-        None => start_shell(),
+    let (data_dir, outcome, restart_config) = match scratch {
+        None => {
+            let (data_dir, outcome) = start_shell();
+            (data_dir, outcome, None)
+        }
         Some(dir) => {
             let mut config = tauri::async_runtime::block_on(warshad::load_or_create_config(Some(
                 &dir.join("config.toml"),
@@ -310,7 +402,13 @@ pub fn self_check(scratch: Option<&Path>) -> anyhow::Result<()> {
             // run has to move all three: a config file written elsewhere is not enough.
             config.data_dir = dir.to_path_buf();
             config.socket_path = dir.join("warshad.sock");
-            (config.data_dir.clone(), daemon_for(config))
+            // And OS-chosen ports, because the check starts and stops daemons more than once and
+            // a fixed port would make the second start fail for a reason that has nothing to do
+            // with what is being proved.
+            config.http_port = 0;
+            config.ws_port = 0;
+            let (data_dir, outcome) = (config.data_dir.clone(), daemon_for(config.clone()));
+            (data_dir, outcome, Some(config))
         }
     };
     println!("data dir: {}", data_dir.display());
@@ -390,12 +488,84 @@ pub fn self_check(scratch: Option<&Path>) -> anyhow::Result<()> {
         println!("daemon was already running: left alone");
     }
 
+    // The lock is what makes a second launch and a restart safe, so it is proved here rather
+    // than assumed. Only the scratch directory is used, because this starts and stops daemons
+    // over the same data directory twice.
+    if let Some(config) = restart_config {
+        let lock_failures = restart_safety_report(&config);
+        if lock_failures.is_empty() {
+            println!("PASS  one daemon holds the data directory, and a restart gets it back");
+        } else {
+            for label in &lock_failures {
+                println!("FAIL  {label}");
+            }
+            failures.extend(lock_failures);
+        }
+    }
+
     if failures.is_empty() {
         println!("self-check: OK");
         Ok(())
     } else {
         anyhow::bail!("self-check failed: {}", failures.join(", "))
     }
+}
+
+/// Start, refuse, stop and restart a daemon over `config`'s data directory, and say what did not
+/// hold.
+///
+/// Three facts the desktop's "second window" and "it would not start again" both rest on:
+///
+/// 1. **one daemon holds the directory** while it runs — a second start is refused, and the
+///    refusal names the holder's process id rather than looking like a crash, which is what the
+///    shell reads as "there is a daemon already, and it is reachable";
+/// 2. **a shutdown gives it back** — the next start over the same data directory succeeds, so an
+///    owner who closed the app opens it again without clearing anything by hand;
+/// 3. **the file left behind is not the lock** — the lock is the operating system's advisory lock
+///    on that file, released when its holder exits, clean or not. That is why a daemon that was
+///    killed outright does not lock its own data directory out of use forever, and why the lock
+///    file is never deleted (see `warshad`'s `LockFile`: deleting it is how two instances end up
+///    locking two different inodes with the same name).
+///
+/// The failures are returned rather than exited from, so the caller decides whether a failed
+/// check ends the run.
+fn restart_safety_report(config: &DaemonConfig) -> Vec<String> {
+    let mut failures = Vec::new();
+    let Ok(first) = tauri::async_runtime::block_on(warshad::start_daemon(config.clone())) else {
+        failures.push(format!(
+            "a daemon could not start over {}",
+            config.data_dir.display()
+        ));
+        return failures;
+    };
+
+    match tauri::async_runtime::block_on(warshad::start_daemon(config.clone())) {
+        Err(warshad::DaemonError::Lock(reason)) => {
+            println!("second daemon refused, as it must: {reason}");
+        }
+        Err(other) => failures.push(format!(
+            "a second daemon on the same data directory failed for the wrong reason: {other}"
+        )),
+        Ok(duplicate) => {
+            // Two daemons over one data directory is how an owner's settings get written twice
+            // at once, so it is ended here rather than left running for the next check.
+            tauri::async_runtime::block_on(duplicate.shutdown());
+            failures.push(
+                "a second daemon started over a data directory another daemon was holding"
+                    .to_string(),
+            );
+        }
+    }
+
+    tauri::async_runtime::block_on(first.shutdown());
+
+    match tauri::async_runtime::block_on(warshad::start_daemon(config.clone())) {
+        Ok(restarted) => tauri::async_runtime::block_on(restarted.shutdown()),
+        Err(error) => failures.push(format!(
+            "the data directory was not reusable after a clean shutdown: {error}"
+        )),
+    }
+    failures
 }
 
 /// The status line of an HTTP response, for the one-line report.
@@ -466,9 +636,18 @@ pub fn run() -> anyhow::Result<()> {
         .build(tauri::generate_context!())?;
 
     app.run(|handle, event| {
-        // The daemon is this process's own: it has to be stopped here, or the next launch finds
-        // the data directory still locked. `DaemonHandle::shutdown` stops the RPC server, aborts
-        // the HTTP task, kills and reaps every child it spawned, and releases the lock file.
+        // The daemon is this process's own, so it has to be stopped here: a daemon that is
+        // dropped rather than shut down leaves its preview servers and MCP stdio processes
+        // behind, and the next launch finds a data directory whose ports are taken.
+        // `DaemonHandle::shutdown` stops the RPC server, aborts the HTTP task, kills and waits
+        // for every child it spawned, and closes the lock handle.
+        //
+        // The paths that never reach this callback — a `build()` that fails, a `?` between the
+        // start and the event loop, a panic unwinding through the shell — are covered by
+        // `DaemonHandle`'s own `Drop`, which runs the same child sweep on a thread that may
+        // block for it. And a process that is killed outright takes this daemon down with it
+        // because it was never a separate `warshad`: the shell's own exit is the daemon's exit,
+        // which is the reason there is no orphan `warshad` to find in the first place.
         if let RunEvent::Exit = event {
             let state = handle.state::<ShellState>();
             let owned = state
@@ -484,4 +663,192 @@ pub fn run() -> anyhow::Result<()> {
     });
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Keys the frontend writes today, and the ones a restart has to give back.
+    const APP_MODE: &str = "app_mode";
+    const THEME: &str = "theme";
+
+    /// A scratch directory next to the test binary, not in `%TEMP%`.
+    ///
+    /// The operating system's temp directory is the conventional choice and the one this
+    /// machine's sandbox denies to a freshly built test executable, which would make an
+    /// environment tell the owner the settings code is broken. The directory the binary
+    /// itself lives in is always writable by it, and each test gets its own name under it,
+    /// cleared before use so a run never reads a previous run's file.
+    fn scratch(tag: &str) -> PathBuf {
+        let root = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(Path::to_path_buf))
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("warsha-desktop-tests");
+        let directory = root.join(tag);
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).expect("the scratch directory is made");
+        directory
+    }
+
+    /// A shell state over one scratch directory, with no daemon in it.
+    fn shell(directory: &Path) -> ShellState {
+        ShellState {
+            endpoint: DaemonEndpoint {
+                base_url: "http://127.0.0.1:1234".to_string(),
+                ws_url: "ws://127.0.0.1:4321".to_string(),
+                token: "a-token".to_string(),
+                owned: false,
+            },
+            process: Mutex::new(None),
+            settings: Mutex::new(read_settings(&directory.join(SETTINGS_FILE))),
+            settings_path: directory.join(SETTINGS_FILE),
+            log_path: directory.join(LOG_FILE),
+        }
+    }
+
+    #[test]
+    fn a_preference_the_owner_sets_is_where_the_next_launch_looks_for_it() {
+        let directory = scratch("settings-round-trip");
+        let first = shell(&directory);
+        first.set(APP_MODE, "advanced").expect("app_mode is stored");
+        first.set(THEME, "dark").expect("theme is stored");
+
+        // The next launch: a new state, read from the same file, with nothing remembered
+        // in memory. This is the whole of "mode and theme survive a restart".
+        let second = shell(&directory);
+        assert_eq!(second.get(APP_MODE), "advanced");
+        assert_eq!(second.get(THEME), "dark");
+
+        // And the file on disk is the settings file in the daemon's data directory, so one
+        // directory is the whole install for a backup or a removal.
+        let on_disk: BTreeMap<String, String> = serde_json::from_str(
+            &std::fs::read_to_string(directory.join(SETTINGS_FILE)).expect("the file is readable"),
+        )
+        .expect("the file is the settings map");
+        assert_eq!(on_disk[APP_MODE], "advanced");
+        assert_eq!(on_disk[THEME], "dark");
+    }
+
+    #[test]
+    fn the_three_daemon_keys_are_answered_by_the_shell_and_cannot_be_written() {
+        let directory = scratch("shell-owned-keys");
+        let state = shell(&directory);
+
+        for key in SHELL_OWNED_KEYS {
+            assert_eq!(
+                state.set(key, "http://elsewhere"),
+                Err(format!("{key} is reported by the shell and cannot be set")),
+                "{key} is the shell's to answer"
+            );
+        }
+
+        // A stale `desktop.json` that names those keys anyway cannot redirect the frontend,
+        // because they are read from the endpoint, not the file.
+        let stale = r#"{"daemon_url":"http://127.0.0.1:9","daemon_token":"not-it"}"#;
+        std::fs::write(directory.join(SETTINGS_FILE), stale).expect("the stale file is placed");
+        let reloaded = shell(&directory);
+        assert_eq!(reloaded.get(CONFIG_DAEMON_URL), "http://127.0.0.1:1234");
+        assert_eq!(reloaded.get(CONFIG_DAEMON_TOKEN), "a-token");
+    }
+
+    #[test]
+    fn a_write_keeps_the_keys_another_writer_stored() {
+        let directory = scratch("settings-merge");
+        let first = shell(&directory);
+        first.set("routine_enabled", "true").expect("the first key is stored");
+
+        // A second state over the same file, which is what a second window of the same
+        // install is: it read the file at start, and its write must not be the whole file
+        // as it remembers it.
+        let second = shell(&directory);
+        second.set(THEME, "light").expect("the second key is stored");
+
+        assert_eq!(second.get("routine_enabled"), "true", "the other window's key is still there");
+        assert_eq!(second.get(THEME), "light");
+
+        // And the first writer sees the second's change on its next read of the file.
+        let reloaded = shell(&directory);
+        assert_eq!(reloaded.get(THEME), "light");
+        assert_eq!(reloaded.get("routine_enabled"), "true");
+    }
+
+    #[test]
+    fn a_write_leaves_no_scratch_file_and_an_unnamed_key_is_refused() {
+        let directory = scratch("settings-atomic");
+        let state = shell(&directory);
+        for index in 0..8 {
+            state.set("counter", &index.to_string()).expect("a rewrite");
+        }
+        assert_eq!(state.get("counter"), "7");
+
+        let mut leftovers: Vec<String> = std::fs::read_dir(&directory)
+            .expect("the directory reads")
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with('.'))
+            .collect();
+        leftovers.sort();
+        assert!(
+            leftovers.is_empty(),
+            "a completed write renames its scratch file away: {leftovers:?}"
+        );
+
+        assert!(state.set("   ", "value").is_err(), "a key has to be named");
+    }
+
+    #[test]
+    fn a_file_that_does_not_parse_reads_as_empty_which_is_why_writes_are_renamed() {
+        let directory = scratch("settings-corrupt");
+        std::fs::write(directory.join(SETTINGS_FILE), b"{\"app_mode\": \"adv")
+            .expect("the truncated file is placed");
+        // The documented consequence: an unreadable settings file is an empty map, so a
+        // half-written file would silently be an owner who never chose a mode. The atomic
+        // rename is what makes this state unreachable from a crash mid-write.
+        assert!(read_settings(&directory.join(SETTINGS_FILE)).is_empty());
+    }
+
+    #[test]
+    fn the_webview_origins_are_added_once_and_the_endpoint_matches_the_configuration() {
+        let mut config = warshad::DaemonConfig::default();
+        config.http_port = 8765;
+        config.ws_port = 8766;
+        config.auth_token = "the-token".to_string();
+        let configured = config.clone();
+
+        let once = with_webview_origins(config.clone());
+        let twice = with_webview_origins(once.clone());
+        assert_eq!(
+            once.allowed_origins, twice.allowed_origins,
+            "adding the webview's origins is idempotent: a second pass must not grow the list"
+        );
+        for origin in webview_origins() {
+            assert!(
+                once.allowed_origins.contains(&origin),
+                "{origin} is the origin the webview asks from"
+            );
+        }
+
+        // A daemon the shell does not own is described by the configuration both processes
+        // read: the RPC port is `ws_port` and the events socket is `http_port`, which is the
+        // one mapping that lets a second window reach the daemon the first one started.
+        let endpoint = configured_endpoint(&configured);
+        assert_eq!(endpoint.base_url, "http://127.0.0.1:8766");
+        assert_eq!(endpoint.ws_url, "ws://127.0.0.1:8765");
+        assert_eq!(endpoint.token, "the-token");
+        assert!(!endpoint.owned, "the shell does not own what it did not start");
+    }
+
+    #[test]
+    fn a_note_is_appended_to_the_log_the_installer_points_at() {
+        let directory = scratch("settings-log");
+        let state = shell(&directory);
+        state.note("first");
+        state.note("second");
+        let log = std::fs::read_to_string(directory.join(LOG_FILE)).expect("the log is readable");
+        assert!(log.contains("first") && log.contains("second"), "{log}");
+        // One stamped line per note, so a report can be read in order.
+        assert_eq!(log.lines().count(), 2, "{log}");
+    }
 }

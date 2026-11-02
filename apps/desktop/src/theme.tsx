@@ -7,6 +7,14 @@
 //
 // The choice is stored in `localStorage` under `warsha.theme`; `system` is the default, and a
 // value this app does not recognise is treated as `system` rather than trusted.
+//
+// REDESIGN §12's rule — "no `prefers-color-scheme` query" — is about the *stylesheet*: `tokens.css`
+// declares both themes and never asks the device which one to paint, so a stored choice can never be
+// silently overridden (the reason the file gives for the rule). The query in this module is the other
+// half of the contract: it is read only when the owner pressed `System` in the settings plate, it never
+// writes an attribute the owner did not ask for, and it is why `data-theme` holds `light` or `dark` and
+// never the word `system`. §5's settings screen is the surface that offers the three, and it is the
+// owner's hand that picks one.
 import {
   createContext,
   useCallback,

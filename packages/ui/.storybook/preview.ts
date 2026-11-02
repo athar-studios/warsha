@@ -79,7 +79,9 @@ const preview: Preview = {
     backgrounds: { disable: true },
     controls: { expanded: true },
     options: {
-      storySort: { order: ['Foundations'] },
+      // Foundations first (the tokens and the four primitives), then the bench's compounds in the order
+      // REDESIGN §6 lists them.
+      storySort: { order: ['Foundations', 'Bench'] },
     },
   },
 };

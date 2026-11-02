@@ -53,6 +53,77 @@ pnpm install
 ./target/release/warsha run
 ```
 
+## Windows
+
+The working copy is validated from WSL, but a Windows-shell install is supported and needs three
+extra steps. `scripts\windows-setup.ps1` runs the install and both binary checks; run it with
+`-Check` to verify an existing tree without installing:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\windows-setup.ps1
+```
+
+1. **Install with pnpm running on Windows.** `pnpm install` started from WSL writes POSIX shell
+   scripts into `node_modules/.bin`, so `tsc`, `vite`, `vitest` and `storybook` are "not recognized"
+   on Windows. The setup script installs on Windows and reports that state in one line.
+2. **Import the MSVC environment** for any C tooling you run by hand — `cl curve25519.c`,
+   `dumpbin /imports`, `cdb` on a crash dump. Dot-source the script so the variables stay in your
+   session; it also proves the toolchain works by compiling a one-line C file:
+
+   ```powershell
+   . .\scripts\windows-msvc-env.ps1
+   ```
+
+   To check the toolchain without keeping the environment, or to run one command inside it:
+
+   ```powershell
+   pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\windows-msvc-env.ps1
+   pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\windows-msvc-env.ps1 '{ cl /nologo probe.c }'
+   ```
+
+   The trailing command is passed as a quoted string with `-File` (a scriptblock when
+   dot-sourcing with `-Command`); its exit code becomes the script's. The script invokes
+   `System32\cmd.exe` by full path and redirects vcvars output to a temp file on purpose: a global
+   npm `cmd` shim can shadow `cmd.exe` on PATH, and an MSYS layer (Git Bash) rewrites a `>nul`
+   token to `/dev/null`, which cmd cannot open.
+
+   `cargo` itself does not need it: `cc-rs` finds the toolchain on its own. `cl.exe` 14.44 does fail
+   with `D8050 : cannot execute 'c1.dll'` on the C sources of `ring` when its object files go into
+   this repository's `target/` directory. The `-Z7` debug switch that `cc-rs` derives from the
+   profile is what triggers it, so debug info is switched off for the two crates that compile C.
+   `.cargo/` is gitignored, so add this to your own `.cargo/config.toml` (Rust debug info and the C
+   compiler's other defaults stay as they are):
+
+   ```toml
+   [profile.dev.package.ring]
+   debug = 0
+   [profile.dev.package.libsqlite3-sys]
+   debug = 0
+   [profile.test.package.ring]
+   debug = 0
+   [profile.test.package.libsqlite3-sys]
+   debug = 0
+   ```
+
+   It is removable once a newer MSVC toolset is in use.
+3. **Install the Playwright browser** once per machine — the package comes from `pnpm install`, the
+   Chromium build it drives does not:
+
+   ```powershell
+   pnpm exec playwright install chromium
+   pnpm visual   # apps/desktop/e2e + apps/remote/e2e
+   ```
+
+The docs book builds on Windows too, but `mdbook` must be the version this repository pins; an older
+or mismatched build crashes with `0xC0000005` on startup:
+
+```powershell
+cargo install mdbook --version 0.5.4 --locked --force
+cargo install mdbook-mermaid --version 0.17.1 --locked --force
+pnpm --dir docs build
+pnpm --dir docs test
+```
+
 ## Contributing and security
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) and [SECURITY.md](../SECURITY.md).

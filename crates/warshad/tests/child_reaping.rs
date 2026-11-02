@@ -95,7 +95,21 @@ fn config(data_dir: &Path) -> DaemonConfig {
         ws_port: 0,
         auth_token: TEST_TOKEN.to_string(),
         allowed_origins: vec!["http://localhost:5173".to_string()],
+        // The child this test starts is its own binary, so the daemon's configuration
+        // is what admits that exact path. An allow-list is the owner's: nothing on the
+        // RPC can add to it (audit H-05).
+        allowed_commands: current_program(),
+        rate_limits: warshad::RateLimitConfig::default(),
     }
+}
+
+/// The test binary as a program the daemon may start, or no list at all when the
+/// process cannot name itself.
+fn current_program() -> Vec<String> {
+    std::env::current_exe()
+        .ok()
+        .map(|exe| vec![exe.to_string_lossy().into_owned()])
+        .unwrap_or_default()
 }
 
 /// One daemon's RPC surface.
@@ -251,4 +265,103 @@ async fn a_child_that_already_exited_does_not_stop_a_shutdown() {
         !pid_is_alive(pid),
         "child {pid} was stopped, not left running"
     );
+}
+
+/// The handle dropped *without* a shutdown still takes its children down.
+///
+/// This is the path the desktop shell lands on when the daemon starts and the app never
+/// reaches its exit handler: a `build()` that fails, a `?` between the start and the
+/// event loop, a panic unwinding. Before C2 the children of such a daemon were simply
+/// forgotten — a preview server or an MCP stdio process holding a port after the thing
+/// that started it was gone, which is the orphan the board names.
+///
+/// It runs on a multi-thread runtime deliberately. `Drop` cannot await, so the sweep is
+/// handed to a thread that may block on the runtime; on the default single-thread
+/// `#[tokio::test]` runtime the only worker is the thread that is inside `Drop`, so the
+/// sweep would wait on the very thread waiting on it and time out. A real daemon — the
+/// `warshad` binary, or the shell's `tauri::async_runtime` — is multi-threaded, and that
+/// is the situation being proved.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_handle_dropped_without_a_shutdown_still_reaps_its_children() {
+    let dir = tempdir().expect("a temporary directory");
+    let data_dir = dir.path().to_path_buf();
+    let exe = std::env::current_exe().expect("the test binary names itself");
+
+    let handle = start_daemon(config(&data_dir))
+        .await
+        .expect("the daemon starts");
+    let rpc = Rpc::new(handle.rpc_port());
+
+    let pid_file = data_dir.join("dropped-child.pid");
+    let id = rpc.spawn_probe(&exe, &pid_file).await;
+    let pid = wait_for_pid(&pid_file).await;
+    assert!(pid_is_alive(pid), "child {pid} is running");
+    assert_eq!(
+        rpc.call("process.status", json!([id])).await,
+        json!("running")
+    );
+
+    // No `shutdown`: the handle is dropped, which is what the shell's error paths do.
+    drop(handle);
+
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while pid_is_alive(pid) && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(
+        !pid_is_alive(pid),
+        "child {pid} outlived a daemon whose handle was dropped without a shutdown"
+    );
+}
+
+/// A clean shutdown gives the data directory back, and the lock file stays where it is.
+///
+/// The lock that matters is the operating system's advisory lock on the file, not the
+/// file's existence — which is why a restart needs no cleanup step, why a daemon that
+/// was killed outright never locks its own directory out of use, and why deleting the
+/// file on exit would be the bug: an instance that unlinked it while another held a
+/// handle to the old inode lets the next one lock a *different* file under the same
+/// name, and two daemons end up sharing a data directory.
+#[tokio::test]
+async fn a_restart_takes_the_data_directory_back_and_the_lock_file_stays() {
+    let dir = tempdir().expect("a temporary directory");
+    let data_dir = dir.path().to_path_buf();
+    let lock_file = data_dir.join("warshad.lock");
+
+    let first = start_daemon(config(&data_dir))
+        .await
+        .expect("the first daemon starts");
+    assert!(
+        lock_file.is_file(),
+        "the lock file is made by the first daemon to take the directory"
+    );
+    first.shutdown().await;
+
+    // Still there, and still no obstacle: the lock it carries was released with the
+    // handle, so a second daemon over the same directory simply starts.
+    assert!(
+        lock_file.is_file(),
+        "a clean shutdown leaves the lock file in place rather than deleting it"
+    );
+    let second = start_daemon(config(&data_dir))
+        .await
+        .expect("a second daemon starts over the same data directory after a shutdown");
+
+    // And while it is held again, the refusal names the holder's process id — the one
+    // fact that turns "the app will not start" into a thing an owner can act on.
+    let held = std::process::id().to_string();
+    let refused = start_daemon(config(&data_dir)).await;
+    let error = match refused {
+        Ok(duplicate) => {
+            duplicate.shutdown().await;
+            panic!("a second daemon started while the directory was held");
+        }
+        Err(error) => error,
+    };
+    assert!(
+        error.to_string().contains(&held),
+        "the refusal says which process holds it: {error}"
+    );
+
+    second.shutdown().await;
 }

@@ -1,12 +1,26 @@
-// Review & apply panel — what the remote run changed, file by file (PLAN.md M6a).
-// LingCode-inspired ideas only: no code, text or asset was copied from it.
+// Review & apply panel — what the remote run changed, file by file (PLAN.md M6a). LingCode-inspired ideas
+// only: no code, text or asset was copied from it.
 //
-// The panel is the dry run the owner signs off: it renders the per-file diff and
-// reports which paths to apply. Nothing is written here — `onApply(paths)` is the
-// seam a daemon RPC plugs into, and the caller takes the backup bundle first.
-import { t, useDirection, useLocale, type Locale } from '@warsha/i18n';
-import { Button } from '@warsha/ui';
-import { useState } from 'react';
+// The panel is the dry run the owner signs off: it lists the changed files as a ruled ledger and shows one
+// file's diff at a time, and it reports which paths will be applied. Nothing is written here —
+// `onApply(paths)` is the seam a daemon RPC plugs into, and the caller takes the backup bundle first.
+//
+// The bench shape (docs/design/REDESIGN.md §1.2, §6, §7, §9):
+//
+//   * a plate, not a floating card: the panel keeps a hairline and no shadow, because only the gate card
+//     is allowed to interrupt the bench (§1.1);
+//   * one ledger row per file, with the decision (the checkbox), the path in mono with `translate="no"`
+//     (§11), and the marks the row needs — `new` and `conflict` say themselves in a word and a glyph, so
+//     the tint is a second channel rather than the only one;
+//   * the diff is `DiffView`: gutter glyphs `+`/`−` carry what the wash only hints at, and the pane
+//     scrolls inside itself instead of widening the page (§10);
+//   * a conflict starts unchecked (§7: the state that needs the owner is the state that is not assumed).
+//
+// Every word is `@warsha/i18n` (`review_apply.*`): the local `{ ar, en }` table and the
+// `translated === key ? fallback` shim are gone.
+import { t, useDirection, useLocale } from '@warsha/i18n';
+import { Button, Chip, DiffView, Ledger, Panel } from '@warsha/ui';
+import React, { useState } from 'react';
 
 export type DiffKind = 'context' | 'added' | 'removed';
 
@@ -19,9 +33,8 @@ export interface DiffLine {
 /**
  * One file the remote run changed.
  *
- * The pair is what makes the diff honest: `local` is the file as it is on this
- * machine (`null` when the remote run created it), `remote` is what the remote
- * daemon produced.
+ * The pair is what makes the diff honest: `local` is the file as it is on this machine (`null` when the
+ * remote run created it), `remote` is what the remote daemon produced.
  */
 export interface HandoffChangedFile {
   /** Path relative to the project root. */
@@ -34,42 +47,8 @@ export interface HandoffChangedFile {
   conflict?: boolean;
 }
 
-/** How many diff lines one row renders before it says the rest was cut off. */
+/** How many diff lines one pane renders before it says the rest was cut off. */
 export const MAX_DIFF_LINES = 80;
-
-const labels = {
-  title: { ar: 'مراجعة وتطبيق', en: 'Review & apply' },
-  summary: { ar: 'ملفات متغيرة', en: 'files changed' },
-  conflicts: { ar: 'تعارض', en: 'conflict(s)' },
-  newFile: { ar: 'جديد', en: 'new' },
-  conflict: { ar: 'تعارض', en: 'conflict' },
-  selectAll: { ar: 'تحديد الكل', en: 'Select all' },
-  applyAll: { ar: 'تطبيق الكل', en: 'Apply all' },
-  applySelected: { ar: 'تطبيق المحدد', en: 'Apply selected' },
-  backup: {
-    ar: 'تُحفظ نسخة احتياطية قبل الكتابة فوق أي ملف',
-    en: 'A backup bundle is written before anything is overwritten',
-  },
-  ownerWins: {
-    ar: 'عند التعارض يفوز ملفك المحلي ويُسجَّل تغيير الخادم',
-    en: 'On a conflict your local file wins and the remote change is recorded',
-  },
-  remoteWins: {
-    ar: 'عند التعارض يفوز تغيير الخادم بعد حفظ ملفك المحلي',
-    en: 'On a conflict the remote change wins after your local file is backed up',
-  },
-  truncated: { ar: 'أسطر أخرى لم تُعرض', en: 'more lines not shown' },
-  noFiles: { ar: 'لا توجد تغييرات لتطبيقها', en: 'No changes to apply' },
-};
-
-/**
- * Translate a key, falling back to the local label when the catalog has no entry
- * yet (`t` returns the key itself for a missing message).
- */
-function localized(key: string, fallback: string, locale: Locale): string {
-  const translated = t(key, {}, locale);
-  return translated === key ? fallback : translated;
-}
 
 /** Split content into lines; `null` and `''` are both "no lines". */
 function splitLines(content: string | null): string[] {
@@ -82,10 +61,9 @@ function splitLines(content: string | null): string[] {
 /**
  * A line diff between two versions of one file.
  *
- * Common head and tail lines are context; everything between them is removed and
- * then added, which is the shape the owner needs to decide a conflict. It is a
- * prefix/suffix trim rather than a full LCS: the run view keeps the real diff
- * viewer, and no second diff engine is introduced here.
+ * Common head and tail lines are context; everything between them is removed and then added, which is the
+ * shape the owner needs to decide a conflict. It is a prefix/suffix trim rather than a full LCS: the run
+ * view keeps the real diff viewer, and no second diff engine is introduced here.
  */
 export function diffLines(before: string | null, after: string): DiffLine[] {
   const previous = splitLines(before);
@@ -115,12 +93,11 @@ export function diffLines(before: string | null, after: string): DiffLine[] {
   ];
 }
 
-const diffGlyphs: Record<DiffKind, string> = { context: ' ', added: '+', removed: '-' };
-
-const diffColors: Record<DiffKind, { background: string; color: string }> = {
-  context: { background: 'transparent', color: 'var(--warsha-color-text-muted)' },
-  added: { background: 'var(--warsha-color-surface-muted)', color: 'var(--warsha-color-success)' },
-  removed: { background: 'var(--warsha-color-surface-muted)', color: 'var(--warsha-color-error)' },
+/** `DiffView.Line` names its kinds the way the diff compound reads them. */
+const DIFF_KIND_TO_LINE: Record<DiffKind, 'context' | 'add' | 'del'> = {
+  context: 'context',
+  added: 'add',
+  removed: 'del',
 };
 
 export interface ReviewApplyPanelProps {
@@ -149,65 +126,39 @@ export function ReviewApplyPanel({
   const dir = useDirection();
   const locale = useLocale();
 
-  // A conflict needs a decision, so it starts unchecked; everything else is the
-  // common case and starts selected. The caller remounts with a `key` to reset.
+  // A conflict needs a decision, so it starts unchecked; everything else is the common case and starts
+  // selected. The caller remounts with a `key` to reset.
   const [selected, setSelected] = useState<string[]>(() =>
     files.filter((file) => !file.conflict).map((file) => file.path)
+  );
+  // One file's diff at a time (§3: the ledger adds detail by disclosure, never all at once). A conflict is
+  // the file the owner most needs to read, so it opens first when there is one.
+  const [diffPath, setDiffPath] = useState<string>(
+    () => files.find((file) => file.conflict)?.path ?? files[0]?.path ?? ''
   );
 
   const conflictCount = files.filter((file) => file.conflict).length;
   const allSelected = files.length > 0 && files.every((file) => selected.includes(file.path));
   const canApply = !disabled && files.length > 0;
 
-  const title = localized('continue_on_server.review.title', labels.title[locale], locale);
-  const summary = localized('continue_on_server.review.summary', labels.summary[locale], locale);
-  const conflictsLabel = localized(
-    'continue_on_server.review.conflicts',
-    labels.conflicts[locale],
-    locale
-  );
-  const newFileLabel = localized(
-    'continue_on_server.review.new_file',
-    labels.newFile[locale],
-    locale
-  );
-  const conflictLabel = localized(
-    'continue_on_server.review.conflict',
-    labels.conflict[locale],
-    locale
-  );
-  const selectAllLabel = localized(
-    'continue_on_server.review.select_all',
-    labels.selectAll[locale],
-    locale
-  );
-  const applyAllLabel = localized(
-    'continue_on_server.review.apply_all',
-    labels.applyAll[locale],
-    locale
-  );
-  const applySelectedLabel = localized(
-    'continue_on_server.review.apply_selected',
-    labels.applySelected[locale],
-    locale
-  );
-  const backupNotice = localized('continue_on_server.review.backup', labels.backup[locale], locale);
-  const ownerWinsNotice = localized(
-    'continue_on_server.review.owner_wins',
-    labels.ownerWins[locale],
-    locale
-  );
-  const remoteWinsNotice = localized(
-    'continue_on_server.review.remote_wins',
-    labels.remoteWins[locale],
-    locale
-  );
-  const truncatedNotice = localized(
-    'continue_on_server.review.truncated',
-    labels.truncated[locale],
-    locale
-  );
-  const noFiles = localized('continue_on_server.review.empty', labels.noFiles[locale], locale);
+  const title = t('review_apply.title', {}, locale);
+  const summary = t('review_apply.summary', { count: files.length }, locale);
+  const conflictsLabel = t('review_apply.conflicts', { count: conflictCount }, locale);
+  const newFileLabel = t('review_apply.new_file', {}, locale);
+  const conflictLabel = t('review_apply.conflict', {}, locale);
+  const selectAllLabel = t('review_apply.select_all', {}, locale);
+  const applyAllLabel = t('review_apply.apply_all', {}, locale);
+  const applySelectedLabel = t('review_apply.apply_selected', {}, locale);
+  const backupNotice = t('review_apply.backup', {}, locale);
+  const ownerWinsNotice = t('review_apply.owner_wins', {}, locale);
+  const remoteWinsNotice = t('review_apply.remote_wins', {}, locale);
+  const noFiles = t('review_apply.empty', {}, locale);
+  const diffLabel = t('advanced.diff_label', {}, locale);
+
+  const shownFile = files.find((file) => file.path === diffPath) ?? files[0] ?? null;
+  const shownLines = shownFile === null ? [] : diffLines(shownFile.local, shownFile.remote);
+  const cut = shownLines.slice(0, MAX_DIFF_LINES);
+  const hidden = shownLines.length - cut.length;
 
   function toggle(path: string) {
     setSelected((current) =>
@@ -231,257 +182,255 @@ export function ReviewApplyPanel({
   }
 
   return (
-    <section
-      dir={dir}
-      aria-label={title}
-      data-testid="review-apply-panel"
-      data-disabled={disabled ? 'true' : 'false'}
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '10px',
-        paddingInline: 'var(--warsha-space-4)',
-        paddingBlock: '14px',
-        borderRadius: '12px',
-        backgroundColor: 'var(--warsha-color-surface)',
-        boxShadow: 'var(--warsha-shadow-md)',
-      }}
-    >
-      <header
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 'var(--warsha-space-3)',
-          flexWrap: 'wrap',
-        }}
-      >
-        <h2 style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 700 }}>{title}</h2>
-        <p
+    <Panel
+      title={title}
+      label={title}
+      actions={
+        <span
           data-testid="review-apply-summary"
-          style={{ margin: 0, fontSize: 'var(--warsha-font-size-xs)', color: 'var(--warsha-color-text-muted)' }}
-        >
-          {files.length} {summary}
-          {conflictCount > 0 ? ` · ${conflictCount} ${conflictsLabel}` : ''}
-        </p>
-      </header>
-
-      {files.length === 0 ? (
-        <p
-          data-testid="review-apply-empty"
-          style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--warsha-color-text-muted)' }}
-        >
-          {noFiles}
-        </p>
-      ) : (
-        <ul
-          data-testid="review-apply-list"
           style={{
-            listStyle: 'none',
-            margin: 0,
-            padding: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--warsha-space-2)',
+            fontFamily: 'var(--warsha-font-mono)',
+            fontVariantNumeric: 'tabular-nums',
+            fontSize: 'var(--warsha-font-size-xs)',
+            color: 'var(--warsha-color-text)',
+            whiteSpace: 'nowrap',
           }}
         >
-          {files.map((file, index) => {
-            const lines = diffLines(file.local, file.remote);
-            const shown = lines.slice(0, MAX_DIFF_LINES);
-            const hidden = lines.length - shown.length;
-            const checked = selected.includes(file.path);
+          {summary}
+          {conflictCount > 0 ? ` · ${conflictsLabel}` : ''}
+        </span>
+      }
+      style={{ minInlineSize: 0 }}
+    >
+      <div
+        dir={dir}
+        data-testid="review-apply-panel"
+        data-disabled={disabled ? 'true' : 'false'}
+        style={{ display: 'grid', gap: 'var(--warsha-space-3)', minInlineSize: 0 }}
+      >
+        {files.length === 0 ? (
+          <p data-testid="review-apply-empty" dir={dir} style={{ margin: 0, fontSize: 'var(--warsha-font-size-sm)' }}>
+            {noFiles}
+          </p>
+        ) : (
+          <>
+            <Ledger label={title} style={{ borderBlockStart: 'none' }}>
+              {files.map((file, index) => {
+                const lines = diffLines(file.local, file.remote);
+                const added = lines.filter((line) => line.kind === 'added').length;
+                const removed = lines.filter((line) => line.kind === 'removed').length;
 
-            return (
-              <li
-                key={`${file.path}-${index}`}
-                data-testid={`review-file-${index}`}
-                data-conflict={file.conflict ? 'true' : 'false'}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '6px',
-                  paddingInline: '10px',
-                  paddingBlock: 'var(--warsha-space-2)',
-                  borderRadius: '10px',
-                  border: `1px solid ${file.conflict ? 'var(--warsha-color-border-strong)' : 'var(--warsha-color-border)'}`,
-                  backgroundColor: file.conflict ? 'var(--warsha-color-surface-muted)' : 'var(--warsha-color-bg)',
-                }}
-              >
-                <label
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 'var(--warsha-space-2)',
-                    flexWrap: 'wrap',
-                    fontSize: '0.8125rem',
-                    fontWeight: 600,
-                  }}
-                >
-                  <input
-                    data-testid={`review-file-checkbox-${index}`}
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggle(file.path)}
-                    aria-label={file.path}
-                  />
-                  <code
-                    dir="ltr"
-                    style={{
-                      unicodeBidi: 'isolate',
-                      fontFamily: 'var(--warsha-font-mono)',
-                      fontSize: '0.8125rem',
-                    }}
+                return (
+                  <Ledger.Row
+                    key={`${file.path}-${index}`}
+                    selected={file.path === diffPath}
+                    meta={`${added}+ / ${removed}−`}
+                    actions={
+                      <Button
+                        variant={file.path === diffPath ? 'secondary' : 'ghost'}
+                        size="sm"
+                        dir={dir}
+                        data-testid={`review-file-diff-toggle-${index}`}
+                        aria-label={`${diffLabel} — ${file.path}`}
+                        onClick={() => setDiffPath(file.path)}
+                      >
+                        {diffLabel}
+                      </Button>
+                    }
                   >
-                    {file.path}
-                  </code>
-                  {file.local === null && (
                     <span
-                      data-testid={`review-file-new-${index}`}
+                      data-testid={`review-file-${index}`}
+                      data-conflict={file.conflict ? 'true' : 'false'}
                       style={{
-                        paddingInline: '6px',
-                        paddingBlock: '1px',
-                        borderRadius: '999px',
-                        backgroundColor: 'var(--warsha-color-surface-muted)',
-                        color: 'var(--warsha-color-accent-strong)',
-                        fontSize: '0.6875rem',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 'var(--warsha-space-2)',
+                        flexWrap: 'wrap',
+                        minWidth: 0,
                       }}
                     >
-                      {newFileLabel}
-                    </span>
-                  )}
-                  {file.conflict && (
-                    <span
-                      data-testid={`review-file-conflict-${index}`}
-                      style={{
-                        paddingInline: '6px',
-                        paddingBlock: '1px',
-                        borderRadius: '999px',
-                        backgroundColor: 'var(--warsha-color-surface-muted)',
-                        color: 'var(--warsha-color-error)',
-                        fontSize: '0.6875rem',
-                      }}
-                    >
-                      {conflictLabel}
-                    </span>
-                  )}
-                </label>
+                      <label
+                        data-testid={`review-file-label-${index}`}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 'var(--warsha-space-2)',
+                          minWidth: 0,
+                          fontSize: 'var(--warsha-font-size-sm)',
+                        }}
+                      >
+                        <input
+                          data-testid={`review-file-checkbox-${index}`}
+                          type="checkbox"
+                          checked={selected.includes(file.path)}
+                          disabled={!canApply}
+                          onChange={() => toggle(file.path)}
+                          aria-label={file.path}
+                        />
+                        {/* A path is an identifier: mono, isolated left-to-right, never translated (§11). */}
+                        <code
+                          dir="ltr"
+                          translate="no"
+                          style={{
+                            fontFamily: 'var(--warsha-font-mono)',
+                            fontSize: 'var(--warsha-font-size-sm)',
+                            unicodeBidi: 'isolate',
+                            overflowWrap: 'anywhere',
+                          }}
+                        >
+                          {file.path}
+                        </code>
+                      </label>
 
-                <pre
-                  data-testid={`review-file-diff-${index}`}
+                      {file.local === null && (
+                        <Chip glyph="＋">
+                          <span data-testid={`review-file-new-${index}`}>{newFileLabel}</span>
+                        </Chip>
+                      )}
+                      {file.conflict && (
+                        <Chip tone="fail" glyph="✗">
+                          <span data-testid={`review-file-conflict-${index}`}>{conflictLabel}</span>
+                        </Chip>
+                      )}
+                    </span>
+                  </Ledger.Row>
+                );
+              })}
+            </Ledger>
+
+            {/* ------------------------------------------------------------- the selected file's diff */}
+            {shownFile !== null && (
+              <div dir={dir} style={{ display: 'grid', gap: 'var(--warsha-space-2)', minWidth: 0 }}>
+                <span
                   dir="ltr"
+                  translate="no"
+                  data-testid="review-diff-path"
                   style={{
-                    margin: 0,
-                    paddingInline: 'var(--warsha-space-2)',
-                    paddingBlock: '6px',
-                    borderRadius: '8px',
-                    border: '1px solid var(--warsha-color-border)',
-                    backgroundColor: 'var(--warsha-color-surface)',
-                    fontSize: 'var(--warsha-font-size-xs)',
                     fontFamily: 'var(--warsha-font-mono)',
-                    overflowX: 'auto',
-                    whiteSpace: 'pre',
+                    fontSize: 'var(--warsha-font-size-xs)',
+                    color: 'var(--warsha-color-text)',
+                    unicodeBidi: 'isolate',
                   }}
                 >
-                  {shown.map((line, lineIndex) => (
-                    <div
-                      key={lineIndex}
-                      data-kind={line.kind}
-                      style={{
-                        ...diffColors[line.kind],
-                        paddingInline: '2px',
-                        borderRadius: '3px',
-                      }}
-                    >
-                      {diffGlyphs[line.kind]} {line.text}
-                    </div>
+                  {shownFile.path}
+                </span>
+                <DiffView label={`${diffLabel} — ${shownFile.path}`}>
+                  {cut.map((line, lineIndex) => (
+                    <DiffView.Line key={lineIndex} kind={DIFF_KIND_TO_LINE[line.kind]}>
+                      {line.text}
+                    </DiffView.Line>
                   ))}
-                </pre>
+                </DiffView>
                 {hidden > 0 && (
                   <p
-                    data-testid={`review-file-hidden-${index}`}
-                    style={{ margin: 0, fontSize: '0.6875rem', color: 'var(--warsha-color-text-muted)' }}
+                    data-testid="review-file-hidden"
+                    dir={dir}
+                    style={{
+                      margin: 0,
+                      fontFamily: 'var(--warsha-font-mono)',
+                      fontVariantNumeric: 'tabular-nums',
+                      fontSize: 'var(--warsha-font-size-xs)',
+                      color: 'var(--warsha-color-text)',
+                    }}
                   >
-                    {hidden} {truncatedNotice}
+                    {t('review_apply.truncated', { count: hidden }, locale)}
                   </p>
                 )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
+              </div>
+            )}
+          </>
+        )}
 
-      <label
-        data-testid="review-apply-select-all"
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '6px',
-          fontSize: 'var(--warsha-font-size-xs)',
-          color: 'var(--warsha-color-text)',
-        }}
-      >
-        <input
-          data-testid="review-apply-select-all-checkbox"
-          type="checkbox"
-          checked={allSelected}
-          disabled={!canApply}
-          onChange={toggleAll}
-        />
-        {selectAllLabel}
-      </label>
+        {/* ------------------------------------------------------------------ the decision controls */}
+        <div
+          dir={dir}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 'var(--warsha-space-3)',
+            flexWrap: 'wrap',
+            minWidth: 0,
+          }}
+        >
+          <label
+            data-testid="review-apply-select-all"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 'var(--warsha-space-2)',
+              fontSize: 'var(--warsha-font-size-sm)',
+              color: 'var(--warsha-color-text)',
+            }}
+          >
+            <input
+              data-testid="review-apply-select-all-checkbox"
+              type="checkbox"
+              checked={allSelected}
+              disabled={!canApply}
+              onChange={toggleAll}
+              aria-label={selectAllLabel}
+            />
+            {selectAllLabel}
+          </label>
+        </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-2)', flexWrap: 'wrap' }}>
-        <Button
-          size="sm"
+        <div dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-2)', flexWrap: 'wrap' }}>
+          <Button
+            variant="primary"
+            size="sm"
+            dir={dir}
+            data-testid="review-apply-all"
+            disabled={!canApply}
+            style={{ opacity: canApply ? 1 : 0.6 }}
+            onClick={applyAll}
+          >
+            {applyAllLabel}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            dir={dir}
+            data-testid="review-apply-selected"
+            disabled={!canApply || selected.length === 0}
+            onClick={applySelected}
+          >
+            {applySelectedLabel}
+            {selected.length > 0 ? ` · ${t('review_apply.selected_count', { count: selected.length }, locale)}` : ''}
+          </Button>
+        </div>
+
+        <p
+          data-testid="review-apply-backup-notice"
           dir={dir}
-          data-testid="review-apply-all"
-          disabled={!canApply}
-          style={{ opacity: canApply ? 1 : 0.6 }}
-          onClick={applyAll}
+          style={{ margin: 0, fontSize: 'var(--warsha-font-size-xs)', color: 'var(--warsha-color-text)' }}
         >
-          {applyAllLabel}
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
+          {backupNotice}
+          {backupName !== '' && (
+            <>
+              {' · '}
+              <code dir="ltr" translate="no" style={{ fontFamily: 'var(--warsha-font-mono)', unicodeBidi: 'isolate' }}>
+                {backupName}
+              </code>
+            </>
+          )}
+          {runId !== undefined && runId !== '' && (
+            <>
+              {' · '}
+              <code dir="ltr" translate="no" style={{ fontFamily: 'var(--warsha-font-mono)', unicodeBidi: 'isolate' }}>
+                {runId}
+              </code>
+            </>
+          )}
+        </p>
+        <p
+          data-testid="review-apply-conflict-policy"
+          data-owner-wins={ownerWins ? 'true' : 'false'}
           dir={dir}
-          data-testid="review-apply-selected"
-          disabled={!canApply || selected.length === 0}
-          onClick={applySelected}
+          style={{ margin: 0, fontSize: 'var(--warsha-font-size-xs)', color: 'var(--warsha-color-text)' }}
         >
-          {applySelectedLabel}
-        </Button>
+          {ownerWins ? ownerWinsNotice : remoteWinsNotice}
+        </p>
       </div>
-
-      <p
-        data-testid="review-apply-backup-notice"
-        style={{ margin: 0, fontSize: 'var(--warsha-font-size-xs)', color: 'var(--warsha-color-text)' }}
-      >
-        {backupNotice}
-        {backupName !== '' && (
-          <>
-            {': '}
-            <code dir="ltr" style={{ unicodeBidi: 'isolate', fontFamily: 'var(--warsha-font-mono)' }}>
-              {backupName}
-            </code>
-          </>
-        )}
-        {runId !== undefined && runId !== '' && (
-          <>
-            <span aria-hidden="true"> · </span>
-            <code dir="ltr" style={{ unicodeBidi: 'isolate', fontFamily: 'var(--warsha-font-mono)' }}>
-              {runId}
-            </code>
-          </>
-        )}
-      </p>
-      <p
-        data-testid="review-apply-conflict-policy"
-        data-owner-wins={ownerWins ? 'true' : 'false'}
-        style={{ margin: 0, fontSize: 'var(--warsha-font-size-xs)', color: 'var(--warsha-color-text-muted)' }}
-      >
-        {ownerWins ? ownerWinsNotice : remoteWinsNotice}
-      </p>
-    </section>
+    </Panel>
   );
 }

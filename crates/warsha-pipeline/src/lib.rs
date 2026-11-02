@@ -170,6 +170,24 @@ pub enum PipelineError {
 
 pub type Result<T> = std::result::Result<T, PipelineError>;
 
+/// The acting device a gate decision may be recorded against (security audit H-03).
+///
+/// Who is calling is decided above this layer: the daemon's transport authenticates
+/// the credential and hands the resulting device id down. What happens here is the
+/// floor under that — a decision that arrives without an acting device is refused
+/// rather than recorded, so an absent identity cannot become an approver by every
+/// layer above it forgetting to check. The nil uuid is the shape of "nobody": it is
+/// what a default, an unset field and a caller that invented an id all look like, and
+/// none of them is a device that approved something.
+fn verified_actor(device_id: DeviceId, action: &str) -> Result<DeviceId> {
+    if device_id.0.is_nil() {
+        return Err(PipelineError::Other(format!(
+            "{action} needs a verified acting device; a nil device id is not one"
+        )));
+    }
+    Ok(device_id)
+}
+
 /// Pipeline engine that drives the stage machine
 pub struct PipelineEngine {
     store: Arc<Store>,
@@ -353,8 +371,20 @@ impl PipelineEngine {
         // Render the prompt with context
         let prompt = self.render_prompt(prompt_template, &context);
 
-        // Call the provider
-        let mut providers = self.providers.write().await;
+        // Call the provider.
+        //
+        // The router is taken as a *handle* — a clone that shares the adapters, the
+        // routing, the retry policy, the concurrency bound and the spend ledger — and the
+        // daemon's lock is released before the first `await` (audit N-3). A write guard
+        // held across the whole retry walk was the finding: a second run could not reach
+        // `chat_with_fallback` at all, so the cap on simultaneous paid calls that the
+        // router's own tests prove never engaged on this path, and every `providers.*`
+        // read a paired phone wanted queued behind one run's backoff sleep. Spend is still
+        // recorded, because it goes to the ledger the handle shares.
+        let providers = {
+            let router = self.providers.read().await;
+            (*router).clone()
+        };
         let request = ChatRequest {
             model: "default".to_string(), // Will be resolved by router
             messages: vec![ChatMessage {
@@ -581,12 +611,19 @@ impl PipelineEngine {
     }
 
     /// Approve a gate
+    ///
+    /// `device_id` is the device the *daemon* authenticated as the caller — the
+    /// transport decides that and passes it down (security audit H-03). This layer's
+    /// contribution is the floor under it: a decision whose acting device is "nobody"
+    /// is refused rather than recorded, so an unverified identity cannot reach a run
+    /// even if a caller above it forgets to check.
     pub async fn approve_gate(
         &self,
         run_id: RunId,
         stage: Stage,
         device_id: DeviceId,
     ) -> Result<Run> {
+        let device_id = verified_actor(device_id, "an approval")?;
         let mut run = self.store.get_run(run_id).await?;
 
         if !stage.is_gate() {
@@ -640,6 +677,7 @@ impl PipelineEngine {
         reason: String,
         device_id: DeviceId,
     ) -> Result<Run> {
+        let device_id = verified_actor(device_id, "a rejection")?;
         let mut run = self.store.get_run(run_id).await?;
 
         if !stage.is_gate() {
@@ -695,6 +733,7 @@ impl PipelineEngine {
         notes: String,
         device_id: DeviceId,
     ) -> Result<Run> {
+        let device_id = verified_actor(device_id, "a change request")?;
         let mut run = self.store.get_run(run_id).await?;
 
         if !stage.is_gate() {
@@ -908,6 +947,93 @@ mod tests {
             .unwrap();
         assert_eq!(run.current_stage, Stage::Idea);
         assert!(run.artifacts.contains_key("idea"));
+    }
+
+    /// A run at a pending Gate C, with the store and engine that serve it.
+    async fn pending_gate_run(store: &Arc<Store>, engine: &PipelineEngine) -> Run {
+        let project = Project {
+            id: ProjectId::new(),
+            name: "Gate Project".to_string(),
+            description: "A run with a gate to decide".to_string(),
+            language: "en".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            repo_path: None,
+            repo_url: None,
+        };
+        store.create_project(&project).await.expect("a project");
+        let run = engine
+            .start_run(project.id, "Build a todo app")
+            .await
+            .expect("a run starts");
+        let mut run = store.get_run(run.id).await.expect("the run is readable");
+        run.current_stage = Stage::GateC;
+        run.gate_states.insert(Stage::GateC, GateState::Pending);
+        store.update_run(&run).await.expect("the gate is pending");
+        run
+    }
+
+    #[tokio::test]
+    async fn a_gate_decision_is_recorded_against_the_device_that_made_it() {
+        // Security audit H-03 is about *whose* decision a gate stores. The identity is
+        // decided by the caller's transport and handed down; what this layer owes the
+        // record is that the device it was given is the device that comes back out —
+        // on the gate state and on the event — and not one invented along the way.
+        let store = temp_store().await;
+        let providers = Arc::new(RwLock::new(ProviderRouter::new()));
+        let engine = PipelineEngine::new(store.clone(), providers);
+        let run = pending_gate_run(&store, &engine).await;
+
+        let approver = DeviceId::new();
+        let decided = engine
+            .approve_gate(run.id, Stage::GateC, approver)
+            .await
+            .expect("a verified device approves the gate");
+
+        assert!(
+            matches!(
+                decided.gate_states[&Stage::GateC],
+                GateState::Approved { by, .. } if by == approver
+            ),
+            "the approver recorded is not the device that decided: {:?}",
+            decided.gate_states[&Stage::GateC]
+        );
+
+        let events = store.get_events(run.id).await.expect("events are readable");
+        let decision = events
+            .iter()
+            .find(|event| event.kind == EventKind::GateDecision)
+            .expect("the decision is on the record");
+        assert_eq!(
+            decision.device_id,
+            Some(approver),
+            "the event names a different device than the gate state"
+        );
+        assert_eq!(decision.payload["by"], approver.0.to_string());
+    }
+
+    #[tokio::test]
+    async fn a_gate_that_was_already_decided_is_not_decided_twice() {
+        let store = temp_store().await;
+        let providers = Arc::new(RwLock::new(ProviderRouter::new()));
+        let engine = PipelineEngine::new(store.clone(), providers);
+        let run = pending_gate_run(&store, &engine).await;
+
+        let approver = DeviceId::new();
+        engine
+            .approve_gate(run.id, Stage::GateC, approver)
+            .await
+            .expect("the first decision is accepted");
+
+        // A second device cannot overwrite a decision that is already on the record.
+        let error = engine
+            .approve_gate(run.id, Stage::GateC, DeviceId::new())
+            .await
+            .expect_err("a decided gate is not pending");
+        assert!(
+            matches!(error, PipelineError::GateNotPending(Stage::GateC)),
+            "unexpected error: {error:?}"
+        );
     }
 
     #[tokio::test]

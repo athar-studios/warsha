@@ -1,7 +1,7 @@
 // Tests for the mention picker (PLAN.md M18).
 import '@testing-library/jest-dom';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { LocaleProvider } from '@warsha/i18n';
+import { LocaleProvider, t } from '@warsha/i18n';
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -60,5 +60,37 @@ describe('MentionPicker', () => {
     expect(filterMentionKinds('  te  ')).toEqual(['terminal']);
     expect(filterMentionKinds('@DOC')).toEqual(['docs']);
     expect(filterMentionKinds('i')).toEqual([]);
+  });
+
+  // The keyboard path REDESIGN §9 asks for: the list is walked with the arrows, jumped with Home/End, and
+  // closed with Escape through the caller's seam rather than by losing the owner's draft.
+  it('walks the rows with the arrows and closes on Escape', () => {
+    const onClose = vi.fn();
+    renderIn('en', <MentionPicker onSelect={() => undefined} onClose={onClose} />);
+
+    const file = screen.getByRole('button', { name: /@file/ });
+    file.focus();
+
+    fireEvent.keyDown(file, { key: 'ArrowDown' });
+    expect(screen.getByRole('button', { name: /@folder/ })).toHaveFocus();
+
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'End' });
+    expect(screen.getByRole('button', { name: /@docs/ })).toHaveFocus();
+
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Home' });
+    expect(screen.getByRole('button', { name: /@file/ })).toHaveFocus();
+
+    fireEvent.keyDown(screen.getByRole('button', { name: /@file/ }), { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('names itself and says how it is used', () => {
+    renderIn('ar', <MentionPicker onSelect={() => undefined} />);
+
+    expect(screen.getByTestId('mention-picker')).toHaveAttribute(
+      'aria-label',
+      t('agent_workflow.mention.title', {}, 'ar')
+    );
+    expect(screen.getByText(t('agent_workflow.picker_hint', {}, 'ar'))).toBeInTheDocument();
   });
 });

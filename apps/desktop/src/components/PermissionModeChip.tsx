@@ -1,6 +1,10 @@
-// Work protection — permission mode chip (PLAN.md M14a).
+// Work protection — permission mode chip (PLAN.md M14a), redrawn for the bench.
 // Shows the current per-session permission mode and cycles it on click:
 // ask always → ask for risky → auto inside project → ask always.
+//
+// The bench reading (§1, §9): a standing choice, not the owner's queue, so it gets no lamp and no yellow.
+// The word carries the state, the hint says what the choice costs, and the control keeps the 44px floor
+// the row-shaped controls use. Every word is `@warsha/i18n` (`work_protection.*`).
 import { t, useDirection, useLocale, type Locale } from '@warsha/i18n';
 import { Button } from '@warsha/ui';
 
@@ -13,39 +17,25 @@ export const permissionModes: PermissionMode[] = [
   'auto_inside_project',
 ];
 
-const modeLabels: Record<PermissionMode, Record<Locale, string>> = {
-  ask_always: { ar: 'اسأل دائماً', en: 'Ask always' },
-  ask_for_risky: { ar: 'اسأل عند الخطر', en: 'Ask for risky' },
-  auto_inside_project: { ar: 'تلقائي داخل المشروع', en: 'Auto inside project' },
-};
-
-const modeHints: Record<PermissionMode, Record<Locale, string>> = {
-  ask_always: {
-    ar: 'يسأل قبل كل تعديل يكتبه الوكيل',
-    en: 'Asks before every agent edit',
-  },
-  ask_for_risky: {
-    ar: 'يسأل فقط عند الكتابة خارج المشروع، أو الشبكة، أو الإنفاق',
-    en: 'Asks only for writes outside the project, network access or spend',
-  },
-  auto_inside_project: {
-    ar: 'لا يسأل ما دام الوكيل داخل مجلد المشروع',
-    en: 'Never asks while the agent stays inside the project',
-  },
-};
-
 /**
- * Translate a key, falling back to the local label when the catalog has no
- * entry yet (`t` returns the key itself for a missing message).
+ * The mode a click asks for.
+ *
+ * Exported because the cycle is the component's contract with the shell: the owner taps forward, never
+ * to a mode by name.
  */
-function localized(key: string, fallback: string, locale: Locale): string {
-  const translated = t(key, {}, locale);
-  return translated === key ? fallback : translated;
-}
-
-function nextMode(mode: PermissionMode): PermissionMode {
+export function nextPermissionMode(mode: PermissionMode): PermissionMode {
   const index = permissionModes.indexOf(mode);
   return permissionModes[(index + 1) % permissionModes.length] ?? 'ask_for_risky';
+}
+
+/** The mode's word in the active locale. */
+export function permissionModeLabel(mode: PermissionMode, locale: Locale): string {
+  return t(`work_protection.mode.${mode}`, {}, locale);
+}
+
+/** What the mode does, in the active locale. */
+export function permissionModeHint(mode: PermissionMode, locale: Locale): string {
+  return t(`work_protection.mode_hint.${mode}`, {}, locale);
 }
 
 export interface PermissionModeChipProps {
@@ -57,17 +47,24 @@ export function PermissionModeChip({ mode, onChange }: PermissionModeChipProps) 
   const dir = useDirection();
   const locale = useLocale();
 
-  const label = localized(`work_protection.mode.${mode}`, modeLabels[mode][locale], locale);
-  const hint = localized(`work_protection.mode_hint.${mode}`, modeHints[mode][locale], locale);
+  const label = permissionModeLabel(mode, locale);
+  const hint = permissionModeHint(mode, locale);
 
   return (
     <Button
-      variant="ghost"
+      variant="secondary"
       size="sm"
       dir={dir}
-      title={hint}
+      data-testid="permission-mode-chip"
+      data-mode={mode}
+      title={`${label} — ${hint}`}
       aria-label={`${label} — ${hint}`}
-      onClick={() => onChange(nextMode(mode))}
+      style={{
+        minBlockSize: 'var(--warsha-size-touch)',
+        border: 'var(--warsha-size-rule) solid var(--warsha-bench-edge)',
+        borderRadius: 'var(--warsha-radius-full)',
+      }}
+      onClick={() => onChange(nextPermissionMode(mode))}
     >
       {label}
     </Button>

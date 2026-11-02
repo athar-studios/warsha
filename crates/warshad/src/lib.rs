@@ -1,7 +1,7 @@
 //! Warshad — Daemon binary: local API (JSON-RPC over Unix socket / named pipe + localhost HTTP/WebSocket with token)
 
 use axum::{
-    extract::{ws::WebSocketUpgrade, State},
+    extract::{ws::WebSocketUpgrade, ConnectInfo, State},
     http::header::AUTHORIZATION,
     response::{IntoResponse, Json, Response},
     routing::get,
@@ -36,25 +36,70 @@ use warsha_backends::BackendFactory;
 use warsha_core::*;
 use warsha_git::GitHubClient;
 use warsha_pipeline::{
-    AgentLoop, AgentTurnResult, BackendKind, BackendKit, CrashReport, CrashReportStore,
-    FilesystemToolExecutor, HandoffBundle, HandoffManager, InMemoryCrashReportStore,
-    InMemoryMcpManager, InMemoryPairingStore, InMemoryPreferenceStore, InMemoryProcessManager,
-    InMemoryStoreReviewStore, LivePreview, LivePreviewManager, ManagedProcess, McpConnection,
-    McpManager, PairingStore, PhonePairing, PipelineEngine, Preference, PreferenceSignal,
-    PreferenceStore, ProcessManager, ProcessStatus, ProcessSummary, ProviderRouterAdapter, Routine,
-    RoutineRegistry, RoutineRunner, RoutineScheduler, RunMode, RunModeConfig, SlashCommand,
-    SlashCommandRegistry, StoreReview, StoreReviewStore, AGENT_ROLE,
+    AgentLoop, AgentMode, AgentTurnResult, AskUserQueue, BackendKind, BackendKit, CrashReport,
+    CrashReportStore, FilesystemToolExecutor, HandoffBundle, HandoffManager,
+    InMemoryCrashReportStore, InMemoryMcpManager, InMemoryPairingStore, InMemoryPreferenceStore,
+    InMemoryProcessManager, InMemoryStoreReviewStore, LivePreview, LivePreviewManager,
+    ManagedProcess, McpConnection, McpManager, MessageBus, ModeManager, ModeTransition,
+    PairingStore, PhonePairing, PipelineEngine, Preference, PreferenceSignal, PreferenceStore,
+    ProcessManager, ProcessStatus, ProcessSummary, ProviderRouterAdapter, Routine, RoutineRegistry,
+    RoutineRunner, RoutineScheduler, RunMode, RunModeConfig, SlashCommand, SlashCommandRegistry,
+    StoreReview, StoreReviewStore, TodoItem, TodoList, AGENT_ROLE,
 };
 use warsha_providers::{
     probe_endpoint, HealthCheck, KeychainSecretStore, OneClickProvider, ProviderRouter,
     ProviderSetupWizard, SecretStore,
 };
+use warsha_remote::rate_limit::rate_key;
 use warsha_remote::DeviceRegistry;
 use warsha_store::{Store, StoredProvider};
 
+mod auth;
+mod providers;
 mod settings;
 
+pub use auth::{
+    Actor, ActorRole, MethodPolicy, Policy, ProcessPolicy, QuotaConfig, RateGovernor,
+    RateLimitConfig, Sessions, Tier, DEFAULT_ALLOWED_COMMANDS, METHOD_POLICIES,
+};
+pub use providers::{
+    adapter_kind, keychain_credentials, AdapterKind, DeferredProvider, KeychainProviderFactory,
+    MockProviderFactory, ProviderFactory, RemovedProvider,
+};
 pub use settings::{SettingsError, SettingsStore};
+
+/// The `&Extensions` a `with_extensions` RPC method is handed by jsonrpsee.
+///
+/// A verified [`Actor`] travels in it, put there by the transport after it checked
+/// the caller's credential.
+pub type RpcExtensions = jsonrpsee::server::Extensions;
+
+/// The request extensions a verified session carries, for a caller that drives the
+/// RPC surface in-process rather than over the wire.
+///
+/// Over HTTP and WebSocket an actor is *only* ever produced by the transport, after it
+/// has compared the bearer credential to the daemon's token and the live pairings;
+/// nothing a client sends can put one in a request. Building the extensions by hand is
+/// therefore an act of trust available to in-process code — the daemon's own tests, and
+/// an embedded host that already holds the state — and to nobody else.
+pub fn session_extensions(actor: Actor) -> RpcExtensions {
+    let mut ext = RpcExtensions::new();
+    ext.insert(actor);
+    ext
+}
+
+/// The extensions of the owner session for a daemon whose local device is
+/// `local_device` — the same actor the transport produces when the daemon's own token
+/// presents itself.
+pub fn owner_session(local_device: DeviceId) -> RpcExtensions {
+    session_extensions(Actor::owner(local_device))
+}
+
+/// The extensions of no session at all: what a request that never authenticated
+/// carries, and what every authorized method must refuse.
+pub fn anonymous_session() -> RpcExtensions {
+    RpcExtensions::new()
+}
 
 #[derive(Error, Debug)]
 pub enum DaemonError {
@@ -108,6 +153,22 @@ pub struct DaemonConfig {
     pub ws_port: u16,
     pub auth_token: String,
     pub allowed_origins: Vec<String>,
+    /// The inbound ceilings the daemon enforces on every RPC and HTTP request, and
+    /// what happens past them (security audit H-01).
+    ///
+    /// `#[serde(default)]` because a configuration file written before this existed
+    /// names no ceilings, and a daemon that refused to start on an old `config.toml`
+    /// would be a daemon that failed its owner at the worst moment.
+    #[serde(default)]
+    pub rate_limits: RateLimitConfig,
+    /// The programs `process.spawn`, `mcp.connect` and `preview.start` may start.
+    ///
+    /// Empty means the default list ([`DEFAULT_ALLOWED_COMMANDS`]) rather than "no
+    /// restrictions": an unset allow-list is a policy the owner did not choose, and
+    /// the safe reading of that is the narrow one (audit H-05). A name here is the
+    /// only way a program joins the list — nothing on the RPC can add to it.
+    #[serde(default)]
+    pub allowed_commands: Vec<String>,
 }
 
 impl Default for DaemonConfig {
@@ -125,6 +186,8 @@ impl Default for DaemonConfig {
                 "http://localhost:5173".to_string(),
                 "tauri://localhost".to_string(),
             ],
+            rate_limits: RateLimitConfig::default(),
+            allowed_commands: Vec::new(),
         }
     }
 }
@@ -138,7 +201,21 @@ pub struct DaemonHandle {
     rpc_port: u16,
     /// The one spawner, so shutdown can take the daemon's children with it.
     processes: Arc<dyn ProcessManager>,
+    /// The runtime this daemon is running on, kept for the sweep a `Drop` has to run
+    /// without an `.await` (see [`DaemonHandle::drop`]).
+    runtime: tokio::runtime::Handle,
+    /// Whether the children have already been reaped, so the drop sweep runs once.
+    reaped: std::sync::atomic::AtomicBool,
 }
+
+/// How long a dropped-without-shutdown handle waits for its child sweep.
+///
+/// Bounded on purpose. The sweep needs the runtime to poll it, and a `Drop` that runs on
+/// the runtime's own thread cannot wait for that without deadlocking the very thing it
+/// is trying to stop — so the wait is a courtesy, and a timeout is reported rather than
+/// hidden. A daemon that exits through [`DaemonHandle::shutdown`] or
+/// [`run_daemon`]'s signal path never takes this branch.
+const DROP_REAP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
 impl std::fmt::Debug for DaemonHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -148,6 +225,10 @@ impl std::fmt::Debug for DaemonHandle {
         f.debug_struct("DaemonHandle")
             .field("http_port", &self.http_port)
             .field("rpc_port", &self.rpc_port)
+            .field(
+                "reaped",
+                &self.reaped.load(std::sync::atomic::Ordering::Relaxed),
+            )
             .finish_non_exhaustive()
     }
 }
@@ -180,18 +261,82 @@ impl DaemonHandle {
         // The RPC server is down, so nothing can start a child while the sweep
         // runs to completion.
         let killed = self.processes.kill_all().await;
+        // Recorded before the drop runs, so the sweep is paid for once.
+        self.reaped.store(true, std::sync::atomic::Ordering::SeqCst);
         if killed > 0 {
             info!("killed {killed} child process(es) on shutdown");
         }
-        // The lock file is dropped here, releasing the lock and removing the file.
+        // The lock handle closes here, releasing the lock. The lock *file* stays,
+        // deliberately: see [`LockFile`].
     }
 }
 
-/// Tower layer for RPC authentication.
-/// Checks the Authorization header for a valid Bearer token.
+impl Drop for DaemonHandle {
+    fn drop(&mut self) {
+        // The ordinary exit goes through [`DaemonHandle::shutdown`], which sets the
+        // flag and never comes here. This path is for the ones that do not: a host that
+        // returns an error after the daemon started, a `?` between the start and the
+        // shutdown, a panic unwinding through the desktop shell's build.
+        //
+        // All of them would otherwise leave a dev server or an MCP stdio process
+        // holding a port and a working tree after the daemon that started them is gone,
+        // which is the "orphan" C2 is about. The same sweep runs, on the same manager,
+        // and the only difference is that a `Drop` cannot await: the job goes to a
+        // thread that can block on the runtime, and this thread waits for it for up to
+        // [`DROP_REAP_TIMEOUT`] before giving up and saying so.
+        if self.reaped.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let _ = self.rpc_server.stop();
+        self.http_task.abort();
+
+        let processes = Arc::clone(&self.processes);
+        let runtime = self.runtime.clone();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let reaper = std::thread::Builder::new()
+            .name("warshad-reap".to_string())
+            .spawn(move || {
+                let killed = runtime.block_on(processes.kill_all());
+                let _ = done_tx.send(killed);
+            });
+        let Ok(_thread) = reaper else {
+            warn!("the child sweep on drop could not start; a child may still be running");
+            return;
+        };
+        match done_rx.recv_timeout(DROP_REAP_TIMEOUT) {
+            Ok(killed) if killed > 0 => {
+                info!("killed {killed} child process(es) when the daemon handle dropped");
+            }
+            Ok(_) => {}
+            Err(_) => warn!(
+                "the child sweep on drop did not finish within {} seconds; \
+                 a preview server or MCP process may still be running",
+                DROP_REAP_TIMEOUT.as_secs()
+            ),
+        }
+        self.reaped.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Tower layer for RPC authentication and the ceiling in front of it.
+///
+/// Two jobs, in this order (security audit H-01, H-03, H-04):
+///
+/// - **Bound the transport first**, on the key the transport actually has: the
+///   authenticated identity when the credential resolved, and one shared bounded
+///   bucket when it did not. Measuring before the credential is judged is the point —
+///   a caller spraying tokens is spending its own budget, not the daemon's CPU.
+/// - **Say who is calling**, and put that in the request for the RPC methods to read.
+///   A method never learns the caller's identity from its own params; that is the
+///   whole of H-03 and half of H-04.
+///
+/// There is no per-peer-address key here: jsonrpsee's HTTP service does not put the
+/// accepted socket's address in the request it hands a middleware, and inventing one
+/// from a header would be trusting a value the caller writes. The address-keyed
+/// ceiling is on the daemon's own HTTP listener, where axum does supply it.
 #[derive(Clone)]
 struct RpcAuthLayer {
-    expected_token: String,
+    state: Arc<DaemonState>,
 }
 
 impl<S> Layer<S> for RpcAuthLayer {
@@ -200,7 +345,7 @@ impl<S> Layer<S> for RpcAuthLayer {
     fn layer(&self, inner: S) -> Self::Service {
         RpcAuthService {
             inner,
-            expected_token: self.expected_token.clone(),
+            state: self.state.clone(),
         }
     }
 }
@@ -210,7 +355,50 @@ impl<S> Layer<S> for RpcAuthLayer {
 #[derive(Clone)]
 struct RpcAuthService<S> {
     inner: S,
-    expected_token: String,
+    state: Arc<DaemonState>,
+}
+
+/// The bearer token in a request's `Authorization` header, or an empty string.
+///
+/// An empty string is not a session: [`Sessions::resolve`] refuses it, and no caller
+/// that sends no header is answerable for the traffic of one that does.
+fn bearer_token(headers: &axum::http::HeaderMap) -> String {
+    headers
+        .get(AUTHORIZATION)
+        .and_then(|header| header.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// A refusal with a status and a body, on jsonrpsee's own response type.
+fn rpc_refusal(
+    status: axum::http::StatusCode,
+    body: serde_json::Value,
+    retry_after_secs: Option<u64>,
+) -> HttpResponse {
+    let mut response = jsonrpsee::server::http::response::ok_response(body.to_string());
+    *response.status_mut() = status;
+    response.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    if let Some(secs) = retry_after_secs {
+        response
+            .headers_mut()
+            .insert(axum::http::header::RETRY_AFTER, retry_after_header(secs));
+    }
+    response
+}
+
+/// The `Retry-After` value a bounded caller is answered with.
+///
+/// A number of seconds is always a representable header value, and a refusal that
+/// could not name its wait would be an invitation to retry at once — so the
+/// unreachable case says `1` rather than dropping the header.
+fn retry_after_header(secs: u64) -> axum::http::HeaderValue {
+    axum::http::HeaderValue::from_str(&secs.max(1).to_string())
+        .unwrap_or_else(|_| axum::http::HeaderValue::from_static("1"))
 }
 
 impl<S, B> tower::Service<HttpRequest<B>> for RpcAuthService<S>
@@ -232,28 +420,49 @@ where
     }
 
     fn call(&mut self, req: HttpRequest<B>) -> Self::Future {
-        let authorized = {
-            let expected = self.expected_token.as_str();
-            req.headers()
-                .get(AUTHORIZATION)
-                .and_then(|h| h.to_str().ok())
-                .and_then(|h| h.strip_prefix("Bearer "))
-                .is_some_and(|token| token == expected)
-        };
+        let state = self.state.clone();
+        let mut inner = self.inner.clone();
+        let token = bearer_token(req.headers());
 
-        if !authorized {
-            let body = serde_json::json!({ "error": "unauthorized" }).to_string();
-            let mut resp = jsonrpsee::server::http::response::ok_response(body);
-            *resp.status_mut() = axum::http::StatusCode::UNAUTHORIZED;
-            resp.headers_mut().insert(
-                axum::http::header::CONTENT_TYPE,
-                axum::http::HeaderValue::from_static("application/json"),
-            );
-            return Box::pin(async move { Ok(resp) });
-        }
+        Box::pin(async move {
+            // The pairing store is read at the moment of the call, so revoking a
+            // device takes effect on its next request rather than at the next start.
+            let actor = state
+                .sessions
+                .resolve(&token, &state.active_pairings().await);
+            // No peer address is available on this transport, so an unauthenticated
+            // caller falls back to one shared bounded bucket rather than to none.
+            let key = rate_key(actor.as_ref().map(|actor| actor.key()), None);
 
-        let fut = self.inner.call(req);
-        Box::pin(async move { fut.await.map_err(Into::into) })
+            let ceiling = state.rates.transport().check(&key);
+            if !ceiling.is_allowed() {
+                state.report_refusal("transport", &key);
+                return Ok(rpc_refusal(
+                    axum::http::StatusCode::TOO_MANY_REQUESTS,
+                    serde_json::json!({ "error": "rate limited" }),
+                    Some(ceiling.retry_after_secs()),
+                ));
+            }
+
+            let Some(actor) = actor else {
+                let mut response = rpc_refusal(
+                    axum::http::StatusCode::UNAUTHORIZED,
+                    serde_json::json!({ "error": "unauthorized" }),
+                    None,
+                );
+                response.headers_mut().insert(
+                    axum::http::header::WWW_AUTHENTICATE,
+                    axum::http::HeaderValue::from_static("Bearer"),
+                );
+                return Ok(response);
+            };
+
+            // The verified caller travels in the request's extensions, which is a
+            // value only this service can write: nothing on the wire reaches it.
+            let mut req = req;
+            req.extensions_mut().insert(actor);
+            inner.call(req).await.map_err(Into::into)
+        })
     }
 }
 
@@ -317,8 +526,13 @@ pub struct DaemonState {
     /// by [`build_agent_loop`] — file tools inside `<data_dir>/workspace`, model
     /// calls through the daemon's provider router.
     ///
-    /// TODO(persistence): the loop lives in memory, so a restart forgets the
-    /// approval history and the todos; `Store` persistence is a later batch.
+    /// What the conversation *is* — the mode it reached, who approved each switch,
+    /// the todos and the unanswered questions — is written to the daemon's settings
+    /// after every turn that changes it and read back at start
+    /// ([`AgentLoopSnapshot`]), so a restart continues the conversation instead of
+    /// starting a blank one. What is not written is the transcript: the compactor's
+    /// folded context is this process's working set, and a stale one replayed into a
+    /// new daemon would be a memory the owner never approved keeping.
     pub agent_loop: Arc<RwLock<AgentLoop>>,
     /// The one spawner: `process.*` drives it, the MCP stdio transport starts its
     /// server through it, and the live preview runs its dev server on it, so every
@@ -376,18 +590,82 @@ pub struct DaemonState {
     /// started after the state exists (`routines.start`) and stopped by
     /// [`DaemonHandle::shutdown`].
     pub routine_scheduler: Arc<RoutineScheduler>,
+    /// Which credential means which caller (security audit H-03, H-04).
+    ///
+    /// The daemon had one bearer token and no answer to "who is asking" — so a gate
+    /// recorded whatever approver the request named, and any token holder could write
+    /// a provider key or a budget. Every RPC that needs an actor gets it from here,
+    /// which is derived from the credential the transport checked, and from nowhere
+    /// else.
+    pub sessions: Arc<Sessions>,
+    /// The live inbound ceilings, per authenticated identity (audit H-01).
+    pub rates: Arc<RateGovernor>,
+    /// Every role the owner has routed, as `roles.list` reports it.
+    ///
+    /// This is the table the router is driven from, and the one that is stored: the
+    /// router keeps its own copy for the call path and cannot be read back out of, so
+    /// the daemon holds the authoritative one. A routing that names a provider the
+    /// owner has not configured is still here — and still refused at the call, because
+    /// nothing is registered under a name that has no row behind it.
+    pub role_routings: Arc<RwLock<HashMap<Role, RoleRoutingConfig>>>,
+    /// The seam that turns a configured provider's row into a live adapter.
+    ///
+    /// [`KeychainProviderFactory`] is what [`start_daemon`] installs: the provider's
+    /// key is read from the OS keychain, under the account `providers.add` filed it at,
+    /// by the same adapter the wizard's connection test already speaks to. A test
+    /// installs [`MockProviderFactory`] instead, which is what lets the whole
+    /// configured-provider path — row, routing, agent turn, restart — be driven with no
+    /// key, no network and no bill (AGENTS.md).
+    pub provider_factory: Arc<dyn ProviderFactory>,
+}
+
+impl DaemonState {
+    /// The pairing records that may authenticate a session right now.
+    ///
+    /// Read at the moment of the call rather than cached, so `pairing.revoke` takes
+    /// effect on the phone's next request instead of at the next restart: a revocation
+    /// that only landed on a reboot is a revocation the owner cannot use.
+    async fn active_pairings(&self) -> Vec<PhonePairing> {
+        self.pairings.read().await.active()
+    }
+
+    /// Count one limiter refusal and write the aggregate line when it is due.
+    ///
+    /// Every refusal path in the daemon comes through here (re-audit LOAD-1 finding 2).
+    /// `ceiling` is the method name whose tier bound the caller, or `transport` for the
+    /// whole-request ceiling in front of it; `key` is the limiter's own key, which is an
+    /// identity label or a peer address and is digested rather than printed — a refusal
+    /// line must carry counts a caller can act on, not the credential or the identity of
+    /// whoever held it.
+    fn report_refusal(&self, ceiling: &'static str, key: &str) {
+        if let Some(summary) = self
+            .rates
+            .refusals()
+            .note(ceiling, key, std::time::Instant::now())
+        {
+            warn!("{}", summary.message());
+        }
+    }
 }
 
 /// JSON-RPC API trait
 #[rpc(server)]
 pub trait WarshaApi {
-    #[method(name = "health")]
+    // Every method on this surface takes `with_extensions` (security re-audit, LOAD-1
+    // finding 1). Two things follow, and both are the point: the handler can reach the
+    // [`Actor`] the transport verified, so the `Tier` its [`MethodPolicy`] names is
+    // actually spent — a table entry nothing consults is a ceiling on paper — and a
+    // request that never authenticated cannot get as far as the query. Before this, the
+    // 24 read methods declared without extensions answered from the looser transport
+    // ceiling only: the spike run proved it, refusing 1.3M requests with the transport
+    // bucket while the `standard` bucket (240 burst, 1,200 a minute) never fired once.
+    #[method(name = "health", with_extensions)]
     async fn health(&self) -> RpcResult<HealthResponse>;
 
-    #[method(name = "projects.list")]
+    #[method(name = "projects.list", with_extensions)]
     async fn list_projects(&self) -> RpcResult<Vec<Project>>;
 
-    #[method(name = "projects.create")]
+    #[method(name = "projects.create", with_extensions)]
     async fn create_project(
         &self,
         name: String,
@@ -395,48 +673,57 @@ pub trait WarshaApi {
         language: String,
     ) -> RpcResult<Project>;
 
-    #[method(name = "projects.get")]
+    #[method(name = "projects.get", with_extensions)]
     async fn get_project(&self, id: ProjectId) -> RpcResult<Project>;
 
-    #[method(name = "runs.start")]
+    #[method(name = "runs.start", with_extensions)]
     async fn start_run(&self, project_id: ProjectId, idea: String) -> RpcResult<Run>;
 
-    #[method(name = "runs.get")]
+    #[method(name = "runs.get", with_extensions)]
     async fn get_run(&self, run_id: RunId) -> RpcResult<Run>;
 
-    #[method(name = "runs.list")]
+    #[method(name = "runs.list", with_extensions)]
     async fn list_runs(&self, project_id: ProjectId) -> RpcResult<Vec<Run>>;
 
-    #[method(name = "runs.events")]
+    #[method(name = "runs.events", with_extensions)]
     async fn get_events(&self, run_id: RunId) -> RpcResult<Vec<Event>>;
 
-    #[method(name = "gates.approve")]
+    // Gates (security audit H-03).
+    //
+    // The device that decided a gate is the device the *credential* authenticated —
+    // the local desktop's owner session, or the phone whose pairing secret arrived —
+    // and never a `device_id` in these params. The field is still accepted, as an
+    // `Option` in the same positional slot, so a client written against the old shape
+    // keeps parsing; its value is checked against the session and a mismatch is a
+    // `-32003` refusal rather than a recorded approver. A client that stops sending it
+    // changes nothing about what gets stored.
+    #[method(name = "gates.approve", with_extensions)]
     async fn approve_gate(
         &self,
         run_id: RunId,
         stage: Stage,
-        device_id: DeviceId,
+        device_id: Option<DeviceId>,
     ) -> RpcResult<Run>;
 
-    #[method(name = "gates.reject")]
+    #[method(name = "gates.reject", with_extensions)]
     async fn reject_gate(
         &self,
         run_id: RunId,
         stage: Stage,
         reason: String,
-        device_id: DeviceId,
+        device_id: Option<DeviceId>,
     ) -> RpcResult<Run>;
 
-    #[method(name = "gates.changes")]
+    #[method(name = "gates.changes", with_extensions)]
     async fn request_changes(
         &self,
         run_id: RunId,
         stage: Stage,
         notes: String,
-        device_id: DeviceId,
+        device_id: Option<DeviceId>,
     ) -> RpcResult<Run>;
 
-    #[method(name = "providers.list")]
+    #[method(name = "providers.list", with_extensions)]
     async fn list_providers(&self) -> RpcResult<Vec<ProviderRecord>>;
 
     /// Add a provider and put its API key in the OS keychain.
@@ -444,7 +731,7 @@ pub trait WarshaApi {
     /// Four named parameters, which is the object the wizard already sends
     /// (`{ name, kind, key, api_base }`): the key rides on this one call and
     /// nowhere else, and `api_base` is `None` when the caller sent none.
-    #[method(name = "providers.add")]
+    #[method(name = "providers.add", with_extensions)]
     async fn add_provider(
         &self,
         name: String,
@@ -455,74 +742,88 @@ pub trait WarshaApi {
 
     /// Test a stored provider's connection. A refusal is a JSON-RPC error whose
     /// message says why and whose `data` carries the [`HealthCheck`].
-    #[method(name = "providers.test")]
+    #[method(name = "providers.test", with_extensions)]
     async fn test_provider(&self, name: String) -> RpcResult<HealthCheck>;
 
     /// Check a registered provider for model catalog updates without overwriting existing settings.
-    #[method(name = "providers.check_models")]
+    #[method(name = "providers.check_models", with_extensions)]
     async fn check_provider_models(
         &self,
         name: String,
     ) -> RpcResult<warsha_providers::ModelCatalogDiff>;
 
-    #[method(name = "devices.list")]
+    #[method(name = "devices.list", with_extensions)]
     async fn list_devices(&self) -> RpcResult<Vec<warsha_remote::DeviceIdentity>>;
 
-    #[method(name = "devices.pair")]
+    #[method(name = "devices.pair", with_extensions)]
     async fn pair_device(&self, pairing_data: warsha_remote::PairingData) -> RpcResult<()>;
 
-    #[method(name = "devices.revoke")]
+    #[method(name = "devices.revoke", with_extensions)]
     async fn revoke_device(&self, device_id: DeviceId) -> RpcResult<()>;
 
     // Providers
-    #[method(name = "providers.remove")]
+    #[method(name = "providers.remove", with_extensions)]
     async fn remove_provider(&self, name: String) -> RpcResult<ProviderRecord>;
 
     // Roles
-    #[method(name = "roles.list")]
+    #[method(name = "roles.list", with_extensions)]
     async fn list_roles(&self) -> RpcResult<Vec<RoleRoutingConfig>>;
 
-    #[method(name = "roles.set")]
+    #[method(name = "roles.set", with_extensions)]
     async fn set_role(&self, config: RoleRoutingConfig) -> RpcResult<()>;
 
     // Budget
-    #[method(name = "budget.show")]
+    #[method(name = "budget.show", with_extensions)]
     async fn show_budget(&self, project_id: ProjectId) -> RpcResult<BudgetStatus>;
 
-    #[method(name = "budget.set")]
+    #[method(name = "budget.set", with_extensions)]
     async fn set_budget(&self, project_id: ProjectId, cents: u64) -> RpcResult<()>;
 
     // Backend kit (PLAN.md M19) — first wiring batch
-    #[method(name = "backend.export")]
+    #[method(name = "backend.export", with_extensions)]
     async fn export_backend(&self, run_id: String, output_dir: String) -> RpcResult<String>;
 
     // Continue on server (PLAN.md M6a) — first wiring batch
-    #[method(name = "handoff.create")]
+    #[method(name = "handoff.create", with_extensions)]
     async fn create_handoff(
         &self,
         run_id: String,
         files: Vec<(String, String)>,
     ) -> RpcResult<String>;
 
-    #[method(name = "handoff.apply")]
+    #[method(name = "handoff.apply", with_extensions)]
     async fn apply_handoff(&self, path: String, owner_wins: bool) -> RpcResult<String>;
 
     // Post-launch care (PLAN.md M17) — read halves only
-    #[method(name = "postlaunch.crashes")]
+    #[method(name = "postlaunch.crashes", with_extensions)]
     async fn list_crash_reports(&self, run_id: String) -> RpcResult<Vec<CrashReport>>;
 
-    #[method(name = "postlaunch.reviews")]
+    #[method(name = "postlaunch.reviews", with_extensions)]
     async fn list_store_reviews(&self, store: String) -> RpcResult<Vec<StoreReview>>;
 
-    // Agent workflow (PLAN.md M18) — the skills catalog and one turn
-    #[method(name = "skills.list")]
+    // Agent workflow (PLAN.md M18) — the skills catalog, one turn, and the mode the
+    // next turn runs in.
+    //
+    // The three `agent.*` writes take the session because the M18 rule is that Agent
+    // mode exists only on an owner's approval, and audit H-03 is that an approval
+    // records who gave it: the approver is the authenticated device and never a param.
+    #[method(name = "skills.list", with_extensions)]
     async fn list_skills(&self) -> RpcResult<Vec<SlashCommand>>;
 
-    #[method(name = "agent.turn")]
+    #[method(name = "agent.turn", with_extensions)]
     async fn agent_turn(&self, input: String) -> RpcResult<AgentTurnResult>;
 
+    #[method(name = "agent.approve_mode", with_extensions)]
+    async fn approve_agent_mode(&self) -> RpcResult<ModeTransition>;
+
+    #[method(name = "agent.plan_mode", with_extensions)]
+    async fn return_agent_to_plan(&self) -> RpcResult<ModeTransition>;
+
+    #[method(name = "agent.state", with_extensions)]
+    async fn agent_state(&self) -> RpcResult<AgentState>;
+
     // Process spawning and MCP transports (PLAN.md M20) — real child processes
-    #[method(name = "process.spawn")]
+    #[method(name = "process.spawn", with_extensions)]
     async fn spawn_process(
         &self,
         command: String,
@@ -530,31 +831,31 @@ pub trait WarshaApi {
         env: HashMap<String, String>,
     ) -> RpcResult<String>;
 
-    #[method(name = "process.stop")]
+    #[method(name = "process.stop", with_extensions)]
     async fn stop_process(&self, id: String) -> RpcResult<()>;
 
-    #[method(name = "process.status")]
+    #[method(name = "process.status", with_extensions)]
     async fn process_status(&self, id: String) -> RpcResult<ProcessStatus>;
 
-    #[method(name = "process.list")]
+    #[method(name = "process.list", with_extensions)]
     async fn list_processes(&self) -> RpcResult<Vec<ProcessSummary>>;
 
-    #[method(name = "mcp.connect")]
+    #[method(name = "mcp.connect", with_extensions)]
     async fn connect_mcp(
         &self,
         config: warsha_pipeline::mcp_transport::McpServerConfig,
     ) -> RpcResult<()>;
 
-    #[method(name = "mcp.disconnect")]
+    #[method(name = "mcp.disconnect", with_extensions)]
     async fn disconnect_mcp(&self, name: String) -> RpcResult<()>;
 
-    #[method(name = "mcp.list")]
+    #[method(name = "mcp.list", with_extensions)]
     async fn list_mcp(&self) -> RpcResult<Vec<McpConnection>>;
 
-    #[method(name = "mcp.send")]
+    #[method(name = "mcp.send", with_extensions)]
     async fn send_mcp(&self, name: String, payload: String) -> RpcResult<String>;
 
-    #[method(name = "mcp.call")]
+    #[method(name = "mcp.call", with_extensions)]
     async fn call_mcp(
         &self,
         name: String,
@@ -563,60 +864,67 @@ pub trait WarshaApi {
     ) -> RpcResult<warsha_pipeline::mcp::McpToolResult>;
 
     // Live preview dev server (PLAN.md M5b + M20)
-    #[method(name = "preview.start")]
+    #[method(name = "preview.start", with_extensions)]
     async fn start_preview(&self, project_id: String, command: String) -> RpcResult<LivePreview>;
 
-    #[method(name = "preview.stop")]
+    #[method(name = "preview.stop", with_extensions)]
     async fn stop_preview(&self, project_id: String) -> RpcResult<()>;
 
-    #[method(name = "preview.status")]
+    #[method(name = "preview.status", with_extensions)]
     async fn preview_status(&self, project_id: String) -> RpcResult<LivePreview>;
 
     // Settings that survive a restart (PLAN.md M20) — the four stored records.
     // Every method here writes through to the settings file before it answers, so
     // a restart sees the change; a write that could not be stored is an error the
     // caller sees rather than a change the owner believes they made.
-    #[method(name = "runmode.list")]
+    #[method(name = "runmode.list", with_extensions)]
     async fn list_run_modes(&self) -> RpcResult<Vec<RunModeConfig>>;
 
-    #[method(name = "runmode.set")]
+    #[method(name = "runmode.set", with_extensions)]
     async fn set_run_mode(&self, config: RunModeConfig) -> RpcResult<RunModeConfig>;
 
-    #[method(name = "backend.get")]
+    #[method(name = "backend.get", with_extensions)]
     async fn get_backend(&self, run_id: String) -> RpcResult<Option<BackendKit>>;
 
-    #[method(name = "backend.set")]
+    #[method(name = "backend.set", with_extensions)]
     async fn set_backend(&self, run_id: String, kit: BackendKit) -> RpcResult<()>;
 
-    #[method(name = "preferences.list")]
+    #[method(name = "preferences.list", with_extensions)]
     async fn list_preferences(&self, project_id: String) -> RpcResult<Vec<Preference>>;
 
-    #[method(name = "preferences.record")]
+    /// Record one taste signal.
+    ///
+    /// This is a **write** on the same surface as the reads, and it is measured like one
+    /// (re-audit N-8): the session's role decides whether it may write, the `standard`
+    /// tier's ceiling is spent on the way in, and the actor is the verified one rather
+    /// than absent. The legacy signature — one `PreferenceSignal`, no identity field — is
+    /// unchanged on the wire.
+    #[method(name = "preferences.record", with_extensions)]
     async fn record_preference(&self, signal: PreferenceSignal) -> RpcResult<Vec<Preference>>;
 
-    #[method(name = "pairing.list")]
+    #[method(name = "pairing.list", with_extensions)]
     async fn list_pairings(&self) -> RpcResult<Vec<PhonePairing>>;
 
-    #[method(name = "pairing.create")]
+    #[method(name = "pairing.create", with_extensions)]
     async fn create_pairing(&self, device_id: String, secret: String) -> RpcResult<PhonePairing>;
 
-    #[method(name = "pairing.revoke")]
+    #[method(name = "pairing.revoke", with_extensions)]
     async fn revoke_pairing(&self, device_id: String) -> RpcResult<PhonePairing>;
 
     // Routines (PLAN.md M16)
-    #[method(name = "routines.list")]
+    #[method(name = "routines.list", with_extensions)]
     async fn list_routines(&self) -> RpcResult<Vec<Routine>>;
 
-    #[method(name = "routines.get")]
+    #[method(name = "routines.get", with_extensions)]
     async fn get_routine(&self, id: String) -> RpcResult<Option<Routine>>;
 
-    #[method(name = "routines.run_now")]
+    #[method(name = "routines.run_now", with_extensions)]
     async fn run_routine_now(&self, id: String) -> RpcResult<Routine>;
 
-    #[method(name = "routines.pause")]
+    #[method(name = "routines.pause", with_extensions)]
     async fn pause_routine(&self, id: String) -> RpcResult<Routine>;
 
-    #[method(name = "routines.resume")]
+    #[method(name = "routines.resume", with_extensions)]
     async fn resume_routine(&self, id: String) -> RpcResult<Routine>;
 }
 
@@ -666,7 +974,11 @@ impl From<StoredProvider> for ProviderRecord {
 
 /// The endpoint `provider` is tested against: the owner's own, else its kind's
 /// published default. `None` only for a kind with neither.
-fn provider_endpoint(provider: &StoredProvider) -> Option<String> {
+///
+/// `pub(crate)` because [`providers`] builds the adapter for the same row and has to
+/// call the same endpoint: two rules about where a provider lives, in two files, are
+/// two rules that will disagree.
+pub(crate) fn provider_endpoint(provider: &StoredProvider) -> Option<String> {
     provider.api_base.clone().or_else(|| {
         OneClickProvider::from_tag(&provider.kind)
             .and_then(OneClickProvider::default_base_url)
@@ -713,6 +1025,28 @@ pub struct BudgetStatus {
     pub budget_cents: Option<u64>,
     pub spent_cents: u64,
     pub remaining_cents: Option<u64>,
+}
+
+/// The agent loop's own state, as one RPC answer.
+///
+/// C2's promise is that the conversation survives a restart, and a promise nobody can
+/// read is not one: this is what a caller compares after starting a second daemon over
+/// the same data directory. `agent.turn` also answers its todos, but it cannot answer
+/// the approval history without running a turn — and running a turn in Agent mode is
+/// spend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentState {
+    /// The mode the next turn runs in.
+    pub mode: AgentMode,
+    /// Every switch the loop recorded, oldest first, each naming the device that
+    /// approved it. This is the approval history `agent.approve_mode` appends to.
+    pub approvals: Vec<ModeTransition>,
+    /// What the loop said it would do, one item per turn.
+    pub todos: Vec<TodoItem>,
+    /// Whether a model call is wired behind an Agent-mode turn. It is the daemon's
+    /// routing table that decides whether that call reaches a provider, so a wired
+    /// loop with no routing still answers honestly that nothing was reached.
+    pub model_wired: bool,
 }
 
 /// RPC implementation
@@ -826,6 +1160,139 @@ impl WarshaRpc {
             .await
             .map_err(|error| rpc_error(error.to_string()))
     }
+
+    /// The daemon's command policy, read from its configuration (security audit H-05).
+    ///
+    /// Built per call rather than stored, because the configuration it comes from is
+    /// the daemon's own and never a request's: an RPC cannot widen the allow-list, and
+    /// a state that cached a list nothing can change would only be a second copy of it.
+    fn process_policy(&self) -> ProcessPolicy {
+        ProcessPolicy::from_config(
+            &self.state.config.allowed_commands,
+            &self.state.config.data_dir,
+        )
+    }
+
+    /// The verified caller behind this request, its ceiling spent, and its role
+    /// checked against what the method asks for.
+    ///
+    /// Everything an RPC is allowed to know about who is asking comes through here,
+    /// which is the point (security audit H-03, H-04): the actor was put in the
+    /// request's extensions by the transport after it checked the credential, and a
+    /// method that skipped this call would know nothing about its caller at all.
+    ///
+    /// Three refusals, each with its own code so a client can tell them apart:
+    /// `-32001` for no verified session, `-32004` for a caller past a ceiling (the
+    /// RPC form of the HTTP 429 the daemon's other listener answers with), and
+    /// `-32002` for a caller that is verified but not the owner.
+    fn authorize(&self, ext: &RpcExtensions, method: &str) -> RpcResult<Actor> {
+        let policy = auth::policy_of(method)
+            .ok_or_else(|| rpc_forbidden(format!("{method} is not a method this daemon serves")))?;
+
+        let actor = ext
+            .get::<Actor>()
+            .cloned()
+            .ok_or_else(|| rpc_unauthenticated(format!("{method} needs a verified session")))?;
+
+        // The tier is keyed on the authenticated identity, so one device's flood is
+        // not another device's refusal (audit H-01).
+        let ceiling = self.state.rates.check(policy.tier, actor.key());
+        if !ceiling.is_allowed() {
+            let secs = ceiling.retry_after_secs();
+            self.state.report_refusal(policy.method, actor.key());
+            return Err(rpc_rate_limited(secs));
+        }
+
+        let required = match policy.policy {
+            Policy::Session => ActorRole::Paired,
+            Policy::Owner => ActorRole::Owner,
+        };
+        if !actor.role().covers(required) {
+            return Err(rpc_forbidden(format!(
+                "{method} is the daemon owner's; this session is a paired device"
+            )));
+        }
+        Ok(actor)
+    }
+
+    /// The device a gate decision is recorded against — the session's, always.
+    ///
+    /// `claimed` is the legacy `device_id` parameter the shape of this RPC still
+    /// carries so a client that has not been updated parses. It is checked against
+    /// the authenticated session and never believed: a caller that names a different
+    /// device is refused with `-32003` rather than being recorded as that device,
+    /// which is exactly the failure audit H-03 described.
+    fn gate_approver(
+        &self,
+        actor: &Actor,
+        claimed: Option<DeviceId>,
+        method: &str,
+    ) -> RpcResult<DeviceId> {
+        let verified = actor.device_id().ok_or_else(|| {
+            rpc_identity_mismatch(format!(
+                "{method} records the deciding device, and this session's pairing does not name one"
+            ))
+        })?;
+        if let Some(claimed) = claimed {
+            if claimed != verified {
+                warn!(
+                    "{method} refused: the session is {verified} but the request named {claimed}"
+                );
+                return Err(rpc_identity_mismatch(format!(
+                    "{method} was called as {verified} with {claimed} in its params; a device id in a request does not decide who is asking"
+                )));
+            }
+        }
+        Ok(verified)
+    }
+
+    /// Write the loop's conversation to the daemon's settings.
+    async fn store_agent(&self, snapshot: &AgentLoopSnapshot) -> Result<()> {
+        store_agent_snapshot(&self.state.settings, snapshot).await
+    }
+
+    /// Ask for one of the two agent modes, on the session's own authority.
+    ///
+    /// The order is the one `roles.set` uses and for the same reason: the record has to
+    /// survive before the switch does. So the loop is switched, the history is written,
+    /// and a write that fails puts the loop back to exactly what it was and refuses —
+    /// because an approval the next daemon does not know about is an approval that lets
+    /// a tool run under a name no audit trail carries (audit H-03).
+    ///
+    /// The approver is never taken from the params. [`Self::gate_approver`] is what says
+    /// so, and it is shared with the gate methods for exactly that reason: one rule, in
+    /// one place, with one refusal code.
+    async fn agent_switch(&self, ext: &RpcExtensions, to: AgentMode) -> RpcResult<ModeTransition> {
+        let method = match to {
+            AgentMode::Agent => "agent.approve_mode",
+            AgentMode::Plan => "agent.plan_mode",
+        };
+        let actor = self.authorize(ext, method)?;
+        let approver = self.gate_approver(&actor, None, method)?.to_string();
+
+        let mut agent_loop = self.state.agent_loop.write().await;
+        let before = AgentLoopSnapshot::of(&agent_loop);
+        let transition = match to {
+            // A switch into Agent mode is the one that needs the name: the mode manager
+            // refuses a blank approver itself, so this cannot invent one.
+            AgentMode::Agent => agent_loop.approve_agent_mode(approver.as_str()),
+            AgentMode::Plan => agent_loop.return_to_plan_mode(),
+        }
+        .map_err(|error| rpc_error(error.to_string()))?;
+        let after = AgentLoopSnapshot::of(&agent_loop);
+        drop(agent_loop);
+
+        if let Err(error) = self.store_agent(&after).await {
+            // Undo the live switch, so nothing runs in a mode no record approved.
+            let mut guard = self.state.agent_loop.write().await;
+            before.restore(&mut guard);
+            return Err(rpc_error(format!(
+                "{method} could not be recorded, so the mode did not change: {error}"
+            )));
+        }
+        info!("{method} recorded for the device the session authenticated");
+        Ok(transition)
+    }
 }
 
 /// Seconds since the Unix epoch, or `0` on a clock that cannot answer.
@@ -842,7 +1309,8 @@ fn now_epoch_secs() -> u64 {
 
 #[async_trait]
 impl WarshaApiServer for WarshaRpc {
-    async fn health(&self) -> RpcResult<HealthResponse> {
+    async fn health(&self, ext: &RpcExtensions) -> RpcResult<HealthResponse> {
+        self.authorize(ext, "health")?;
         Ok(HealthResponse {
             status: "healthy".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -850,7 +1318,8 @@ impl WarshaApiServer for WarshaRpc {
         })
     }
 
-    async fn list_projects(&self) -> RpcResult<Vec<Project>> {
+    async fn list_projects(&self, ext: &RpcExtensions) -> RpcResult<Vec<Project>> {
+        self.authorize(ext, "projects.list")?;
         self.state
             .store
             .list_projects()
@@ -860,10 +1329,12 @@ impl WarshaApiServer for WarshaRpc {
 
     async fn create_project(
         &self,
+        ext: &RpcExtensions,
         name: String,
         description: String,
         language: String,
     ) -> RpcResult<Project> {
+        self.authorize(ext, "projects.create")?;
         let project = Project {
             id: ProjectId::new(),
             name,
@@ -882,7 +1353,8 @@ impl WarshaApiServer for WarshaRpc {
         Ok(project)
     }
 
-    async fn get_project(&self, id: ProjectId) -> RpcResult<Project> {
+    async fn get_project(&self, ext: &RpcExtensions, id: ProjectId) -> RpcResult<Project> {
+        self.authorize(ext, "projects.get")?;
         self.state
             .store
             .get_project(id)
@@ -890,7 +1362,13 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
     }
 
-    async fn start_run(&self, project_id: ProjectId, idea: String) -> RpcResult<Run> {
+    async fn start_run(
+        &self,
+        ext: &RpcExtensions,
+        project_id: ProjectId,
+        idea: String,
+    ) -> RpcResult<Run> {
+        self.authorize(ext, "runs.start")?;
         self.state
             .pipeline
             .start_run(project_id, &idea)
@@ -898,7 +1376,8 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
     }
 
-    async fn get_run(&self, run_id: RunId) -> RpcResult<Run> {
+    async fn get_run(&self, ext: &RpcExtensions, run_id: RunId) -> RpcResult<Run> {
+        self.authorize(ext, "runs.get")?;
         self.state
             .store
             .get_run(run_id)
@@ -906,7 +1385,8 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
     }
 
-    async fn list_runs(&self, project_id: ProjectId) -> RpcResult<Vec<Run>> {
+    async fn list_runs(&self, ext: &RpcExtensions, project_id: ProjectId) -> RpcResult<Vec<Run>> {
+        self.authorize(ext, "runs.list")?;
         self.state
             .store
             .list_runs(project_id)
@@ -914,7 +1394,8 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
     }
 
-    async fn get_events(&self, run_id: RunId) -> RpcResult<Vec<Event>> {
+    async fn get_events(&self, ext: &RpcExtensions, run_id: RunId) -> RpcResult<Vec<Event>> {
+        self.authorize(ext, "runs.events")?;
         self.state
             .store
             .get_events(run_id)
@@ -924,46 +1405,56 @@ impl WarshaApiServer for WarshaRpc {
 
     async fn approve_gate(
         &self,
+        ext: &RpcExtensions,
         run_id: RunId,
         stage: Stage,
-        device_id: DeviceId,
+        device_id: Option<DeviceId>,
     ) -> RpcResult<Run> {
+        let actor = self.authorize(ext, "gates.approve")?;
+        let approver = self.gate_approver(&actor, device_id, "gates.approve")?;
         self.state
             .pipeline
-            .approve_gate(run_id, stage, device_id)
+            .approve_gate(run_id, stage, approver)
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
     }
 
     async fn reject_gate(
         &self,
+        ext: &RpcExtensions,
         run_id: RunId,
         stage: Stage,
         reason: String,
-        device_id: DeviceId,
+        device_id: Option<DeviceId>,
     ) -> RpcResult<Run> {
+        let actor = self.authorize(ext, "gates.reject")?;
+        let approver = self.gate_approver(&actor, device_id, "gates.reject")?;
         self.state
             .pipeline
-            .reject_gate(run_id, stage, reason, device_id)
+            .reject_gate(run_id, stage, reason, approver)
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
     }
 
     async fn request_changes(
         &self,
+        ext: &RpcExtensions,
         run_id: RunId,
         stage: Stage,
         notes: String,
-        device_id: DeviceId,
+        device_id: Option<DeviceId>,
     ) -> RpcResult<Run> {
+        let actor = self.authorize(ext, "gates.changes")?;
+        let approver = self.gate_approver(&actor, device_id, "gates.changes")?;
         self.state
             .pipeline
-            .request_changes(run_id, stage, notes, device_id)
+            .request_changes(run_id, stage, notes, approver)
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
     }
 
-    async fn list_providers(&self) -> RpcResult<Vec<ProviderRecord>> {
+    async fn list_providers(&self, ext: &RpcExtensions) -> RpcResult<Vec<ProviderRecord>> {
+        self.authorize(ext, "providers.list")?;
         let stored = self
             .state
             .settings
@@ -983,14 +1474,25 @@ impl WarshaApiServer for WarshaRpc {
     /// anywhere but the store it was handed.
     async fn add_provider(
         &self,
+        ext: &RpcExtensions,
         name: String,
         kind: String,
         key: String,
         api_base: Option<String>,
     ) -> RpcResult<ProviderRecord> {
+        self.authorize(ext, "providers.add")?;
         let name = name.trim().to_string();
         if name.is_empty() {
             return Err(provider_refusal("a provider needs a name"));
+        }
+        if name == MOCK_PROVIDER_ID {
+            // The daemon's own offline adapter holds this id, and every automated test
+            // routes to it. A row that claimed it would be registered now and skipped
+            // at the next start (`register_configured_providers` leaves the id to the
+            // mock), which is a provider that works until it quietly does not.
+            return Err(provider_refusal(format!(
+                "{MOCK_PROVIDER_ID} is the daemon's own offline provider; choose another name"
+            )));
         }
         let kind = kind.trim().to_string();
         if kind.is_empty() {
@@ -1047,6 +1549,20 @@ impl WarshaApiServer for WarshaRpc {
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
 
+        // The row is the owner's half of a provider and the router is the callable half.
+        // Registering the deferred adapter here is what makes a provider usable by the
+        // next turn rather than only by the daemon after the next restart — and
+        // registering calls nothing: the adapter is built on its first use, so a fresh
+        // daemon with three configured providers still starts with no network at all.
+        self.state
+            .providers
+            .write()
+            .await
+            .register_provider(Box::new(DeferredProvider::new(
+                provider.clone(),
+                Arc::clone(&self.state.provider_factory),
+            )));
+
         info!("provider {name} configured");
         Ok(provider.into())
     }
@@ -1059,7 +1575,8 @@ impl WarshaApiServer for WarshaRpc {
     /// wizard could not tell an unhealthy result from a healthy one. The reason
     /// therefore travels in the error's message (what the wizard shows) and in its
     /// `data` as the [`HealthCheck`] the RPC declares.
-    async fn test_provider(&self, name: String) -> RpcResult<HealthCheck> {
+    async fn test_provider(&self, ext: &RpcExtensions, name: String) -> RpcResult<HealthCheck> {
+        self.authorize(ext, "providers.test")?;
         let provider = self
             .state
             .settings
@@ -1104,20 +1621,37 @@ impl WarshaApiServer for WarshaRpc {
 
     async fn check_provider_models(
         &self,
+        ext: &RpcExtensions,
         name: String,
     ) -> RpcResult<warsha_providers::ModelCatalogDiff> {
-        let router = self.state.providers.read().await;
+        self.authorize(ext, "providers.check_models")?;
+        // A handle rather than a lock held across the catalog call (audit N-3): this
+        // reaches the provider over the network, and a read guard kept through it would
+        // make an owner's `providers.add` wait for a round trip it has nothing to do with.
+        let router = {
+            let guard = self.state.providers.read().await;
+            (*guard).clone()
+        };
         router
             .check_model_updates(&name, &[])
             .await
             .map_err(|e| rpc_error(e.to_string()))
     }
 
-    async fn list_devices(&self) -> RpcResult<Vec<warsha_remote::DeviceIdentity>> {
+    async fn list_devices(
+        &self,
+        ext: &RpcExtensions,
+    ) -> RpcResult<Vec<warsha_remote::DeviceIdentity>> {
+        self.authorize(ext, "devices.list")?;
         Ok(self.state.devices.list_devices().await)
     }
 
-    async fn pair_device(&self, pairing_data: warsha_remote::PairingData) -> RpcResult<()> {
+    async fn pair_device(
+        &self,
+        ext: &RpcExtensions,
+        pairing_data: warsha_remote::PairingData,
+    ) -> RpcResult<()> {
+        self.authorize(ext, "devices.pair")?;
         let device = warsha_remote::DeviceIdentity {
             device_id: pairing_data.device_id,
             static_public: pairing_data.static_public,
@@ -1133,7 +1667,8 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
     }
 
-    async fn revoke_device(&self, device_id: DeviceId) -> RpcResult<()> {
+    async fn revoke_device(&self, ext: &RpcExtensions, device_id: DeviceId) -> RpcResult<()> {
+        self.authorize(ext, "devices.revoke")?;
         self.state
             .devices
             .revoke_device(device_id)
@@ -1142,7 +1677,12 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     // Providers
-    async fn remove_provider(&self, name: String) -> RpcResult<ProviderRecord> {
+    async fn remove_provider(
+        &self,
+        ext: &RpcExtensions,
+        name: String,
+    ) -> RpcResult<ProviderRecord> {
+        self.authorize(ext, "providers.remove")?;
         let provider = self
             .state
             .settings
@@ -1165,21 +1705,158 @@ impl WarshaApiServer for WarshaRpc {
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
 
+        // The router may already hold a built adapter with this provider's key inside
+        // its request headers, and a row that is gone does not take that back. Putting a
+        // refusal under the same id is what makes removal a removal rather than the
+        // deletion of the record that it happened.
+        self.state
+            .providers
+            .write()
+            .await
+            .register_provider(Box::new(RemovedProvider::new(&name)));
+
+        // Routings that name it go too, written through in the same order `roles.set`
+        // uses: stored first, then honoured. Leaving them would leave a role whose every
+        // call fails with a provider the owner can no longer see in `providers.list`.
+        let (table, dropped) = {
+            let current = self.state.role_routings.read().await;
+            let mut table: HashMap<Role, RoleRoutingConfig> = HashMap::clone(&current);
+            let mut dropped: Vec<String> = Vec::new();
+            table.retain(|_, config| {
+                let names = config
+                    .targets
+                    .iter()
+                    .any(|target| target.provider_id.trim() == name);
+                if names {
+                    dropped.push(config.role.clone());
+                }
+                !names
+            });
+            (table, dropped)
+        };
+        if !dropped.is_empty() {
+            store_role_routings(&self.state.settings, &table)
+                .await
+                .map_err(|error| {
+                    rpc_error(format!(
+                        "the provider is removed but its routings could not be rewritten: {error}"
+                    ))
+                })?;
+            *self.state.role_routings.write().await = table;
+            info!(
+                "routings for {} role(s) dropped with provider {name}",
+                dropped.len()
+            );
+        }
+
         info!("provider {name} removed");
         Ok(provider.into())
     }
 
-    // Roles
-    async fn list_roles(&self) -> RpcResult<Vec<RoleRoutingConfig>> {
-        Ok(vec![])
+    // Roles.
+    //
+    // The routing an owner sets is the routing a turn follows: `roles.set` hands it to
+    // the router *and* to the daemon's settings, so the model the owner chose answers
+    // the next call and every call after a restart. Both halves matter — a routing kept
+    // only in memory was C2's second gap, and one kept only on disk is a preference
+    // nobody honours.
+    async fn list_roles(&self, ext: &RpcExtensions) -> RpcResult<Vec<RoleRoutingConfig>> {
+        self.authorize(ext, "roles.list")?;
+        let routings = self.state.role_routings.read().await;
+        let mut configs: Vec<RoleRoutingConfig> = routings.values().cloned().collect();
+        configs.sort_by(|left, right| left.role.cmp(&right.role));
+        Ok(configs)
     }
 
-    async fn set_role(&self, _config: RoleRoutingConfig) -> RpcResult<()> {
+    /// Route one role, or refuse the request and change nothing.
+    ///
+    /// Three things have to hold before the router is touched (audit H-01, H-07):
+    ///
+    /// - the role is one the pipeline knows, and every target names both a provider and
+    ///   a model — an empty target resolves to nothing at the call, which is a slower
+    ///   way of saying no;
+    /// - every named provider is one the owner configured (or the daemon's own mock).
+    ///   A routing to a name with no row behind it would be a routing that silently
+    ///   never spends, and an owner who reads a `200` here is entitled to believe the
+    ///   next call reaches that provider;
+    /// - the settings write succeeds before the in-memory table is replaced, so a
+    ///   refused write leaves the daemon routing exactly what it was routing.
+    async fn set_role(&self, ext: &RpcExtensions, config: RoleRoutingConfig) -> RpcResult<()> {
+        self.authorize(ext, "roles.set")?;
+        let (role, routing) = routing_for(&config).map_err(rpc_error)?;
+        // Normalised through the core routing, so what is stored is what was honoured:
+        // a caller who sent `INTAKE` or a target with a trailing space gets the same
+        // table back from `roles.list` as the router is running.
+        let stored = routing_config(role, &routing);
+
+        for target in &stored.targets {
+            if target.provider_id == MOCK_PROVIDER_ID {
+                continue;
+            }
+            let configured = self
+                .state
+                .settings
+                .load_provider(&target.provider_id)
+                .await
+                .map_err(|error| rpc_error(error.to_string()))?;
+            if configured.is_none() {
+                return Err(rpc_policy_refused(format!(
+                    "role {} names provider {}, which is not configured",
+                    stored.role, target.provider_id
+                )));
+            }
+        }
+
+        // Order is the whole of the durability story: the table is written to the
+        // daemon's settings *before* the router is told, so a settings write that fails
+        // changes nothing at all — no live routing that a restart forgets, and no
+        // stored routing the running daemon does not honour.
+        let table = {
+            let current = self.state.role_routings.read().await;
+            let mut table: HashMap<Role, RoleRoutingConfig> = HashMap::clone(&current);
+            table.insert(role, stored.clone());
+            table
+        };
+        store_role_routings(&self.state.settings, &table)
+            .await
+            .map_err(|error| {
+                rpc_error(format!(
+                    "the routing for {} could not be stored, so nothing was changed: {error}",
+                    stored.role
+                ))
+            })?;
+
+        // The router holds the adapter a routing names by the time the routing exists,
+        // because a provider added by `providers.add` registered its adapter then. The
+        // agent role's per-run ceiling, when the owner named one, is installed against
+        // the key agent turns are metered under: the router checks it before every
+        // attempt, so the cap written here is the cap that stops a paid call (H-07).
+        //
+        // A routing that names no ceiling replaces the old one with a ceiling that cannot
+        // be reached rather than leaving the previous cap in place: the router has no way
+        // to forget a budget, and a silently retained cap is a setting the owner removed
+        // and the daemon still enforces.
+        {
+            let mut router = self.state.providers.write().await;
+            if role == AGENT_ROLE {
+                let cents = stored.budget_cents_per_run.unwrap_or(u64::MAX);
+                router.set_budget(AGENT_METER_KEY, cents);
+            }
+            router.set_role_routing(routing);
+        }
+        *self.state.role_routings.write().await = table;
+
+        info!("role {} routed", stored.role);
         Ok(())
     }
 
     // Budget
-    async fn show_budget(&self, project_id: ProjectId) -> RpcResult<BudgetStatus> {
+    async fn show_budget(
+        &self,
+        ext: &RpcExtensions,
+        project_id: ProjectId,
+    ) -> RpcResult<BudgetStatus> {
+        self.authorize(ext, "budget.show")?;
         let runs = self
             .state
             .store
@@ -1197,7 +1874,13 @@ impl WarshaApiServer for WarshaRpc {
         })
     }
 
-    async fn set_budget(&self, project_id: ProjectId, cents: u64) -> RpcResult<()> {
+    async fn set_budget(
+        &self,
+        ext: &RpcExtensions,
+        project_id: ProjectId,
+        cents: u64,
+    ) -> RpcResult<()> {
+        self.authorize(ext, "budget.set")?;
         let runs = self
             .state
             .store
@@ -1217,7 +1900,13 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     // Backend kit (PLAN.md M19)
-    async fn export_backend(&self, run_id: String, output_dir: String) -> RpcResult<String> {
+    async fn export_backend(
+        &self,
+        ext: &RpcExtensions,
+        run_id: String,
+        output_dir: String,
+    ) -> RpcResult<String> {
+        self.authorize(ext, "backend.export")?;
         // The kit is the project's, not the run's: the stored row is keyed by
         // project id, so a second run of one project exports the same schema
         // instead of starting a second, empty one. It is loaded (the daemon's copy,
@@ -1236,9 +1925,11 @@ impl WarshaApiServer for WarshaRpc {
     // Continue on server (PLAN.md M6a)
     async fn create_handoff(
         &self,
+        ext: &RpcExtensions,
         run_id: String,
         files: Vec<(String, String)>,
     ) -> RpcResult<String> {
+        self.authorize(ext, "handoff.create")?;
         let manager = HandoffManager::new();
         let captured: Vec<(&str, &str)> = files
             .iter()
@@ -1254,7 +1945,13 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
     }
 
-    async fn apply_handoff(&self, path: String, owner_wins: bool) -> RpcResult<String> {
+    async fn apply_handoff(
+        &self,
+        ext: &RpcExtensions,
+        path: String,
+        owner_wins: bool,
+    ) -> RpcResult<String> {
+        self.authorize(ext, "handoff.apply")?;
         let encoded = std::fs::read_to_string(&path).map_err(|e| {
             ErrorObject::owned(-32000, format!("could not read `{path}`: {e}"), None::<()>)
         })?;
@@ -1290,7 +1987,12 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     // Post-launch care (PLAN.md M17)
-    async fn list_crash_reports(&self, run_id: String) -> RpcResult<Vec<CrashReport>> {
+    async fn list_crash_reports(
+        &self,
+        ext: &RpcExtensions,
+        run_id: String,
+    ) -> RpcResult<Vec<CrashReport>> {
+        self.authorize(ext, "postlaunch.crashes")?;
         let reports = self.state.crash_reports.read().await.list();
         let wanted = run_id.trim();
         // A blank run id asks for every report, which is what the crash screen
@@ -1305,7 +2007,12 @@ impl WarshaApiServer for WarshaRpc {
         })
     }
 
-    async fn list_store_reviews(&self, store: String) -> RpcResult<Vec<StoreReview>> {
+    async fn list_store_reviews(
+        &self,
+        ext: &RpcExtensions,
+        store: String,
+    ) -> RpcResult<Vec<StoreReview>> {
+        self.authorize(ext, "postlaunch.reviews")?;
         let reviews = self.state.store_reviews.read().await;
         let wanted = store.trim();
         Ok(if wanted.is_empty() {
@@ -1315,28 +2022,99 @@ impl WarshaApiServer for WarshaRpc {
         })
     }
 
-    // Agent workflow (PLAN.md M18)
-    async fn list_skills(&self) -> RpcResult<Vec<SlashCommand>> {
+    // Agent workflow (PLAN.md M18, C2: the mode an owner approves is the mode that
+    // spends, and both are the conversation the next daemon reads back).
+    //
+    // The three methods here share one rule from audit H-03: *who approved* is never a
+    // value in the params. It is the device the transport authenticated, and a session
+    // whose pairing names no device is refused instead of being recorded under a name
+    // the daemon invented.
+    async fn list_skills(&self, ext: &RpcExtensions) -> RpcResult<Vec<SlashCommand>> {
+        self.authorize(ext, "skills.list")?;
         Ok(skill_catalog())
     }
 
-    async fn agent_turn(&self, input: String) -> RpcResult<AgentTurnResult> {
+    /// Run one turn of the owner's conversation, and store what it changed.
+    ///
+    /// The turn is the only way a todo, an answer or a mode note is recorded over the
+    /// wire, so the snapshot is taken while the loop's write lock is still held — the
+    /// state that is stored is exactly the state that answered. A store that fails is
+    /// warned about rather than turned into a refusal: the turn ran, and in Agent mode it
+    /// may have spent; reporting an error after a call the owner asked for would be the
+    /// worse answer. What the next restart reads is then the previous conversation, and
+    /// `agent.turn` is still the one place that says so.
+    async fn agent_turn(&self, ext: &RpcExtensions, input: String) -> RpcResult<AgentTurnResult> {
+        self.authorize(ext, "agent.turn")?;
         // The turn parses, decides and compacts; in Agent mode it may also run one
         // tool or make one model call, so the write lock is held across that await.
         // Nothing else takes this lock mid-turn, so the ordering stays one turn at a
         // time — which is what keeps the todo list and the transcript coherent.
         let skills = skill_catalog();
-        let mut agent_loop = self.state.agent_loop.write().await;
-        Ok(agent_loop.run_turn(&input, &skills).await)
+        let (result, snapshot) = {
+            let mut agent_loop = self.state.agent_loop.write().await;
+            let result = agent_loop.run_turn(&input, &skills).await;
+            (result, AgentLoopSnapshot::of(&agent_loop))
+        };
+        if let Err(error) = self.store_agent(&snapshot).await {
+            warn!("the agent conversation could not be stored, so it continues from the last turn that was: {error}");
+        }
+        Ok(result)
+    }
+
+    /// Approve Agent mode for the session that asks.
+    ///
+    /// Plan mode is what `agent.turn` starts in, and the M18 rule is absolute: nothing
+    /// edits a file or runs a tool until the owner approves. Until now the only caller
+    /// that could approve was in-process, which meant Agent mode — the mode this daemon
+    /// routes to a configured provider — was unreachable from the desktop. The approver
+    /// recorded is the authenticated device, and a blank one is refused by the mode
+    /// manager itself.
+    async fn approve_agent_mode(&self, ext: &RpcExtensions) -> RpcResult<ModeTransition> {
+        self.agent_switch(ext, AgentMode::Agent).await
+    }
+
+    /// Return the conversation to Plan mode.
+    ///
+    /// The read-only direction is always allowed, which is why an owner can end Agent
+    /// mode without another approval — and why the daemon can be put back to a state
+    /// that cannot edit or spend by any session that can reach it.
+    async fn return_agent_to_plan(&self, ext: &RpcExtensions) -> RpcResult<ModeTransition> {
+        self.agent_switch(ext, AgentMode::Plan).await
+    }
+
+    /// Report which mode the loop is in, and how it got there.
+    async fn agent_state(&self, ext: &RpcExtensions) -> RpcResult<AgentState> {
+        self.authorize(ext, "agent.state")?;
+        let agent_loop = self.state.agent_loop.read().await;
+        Ok(AgentState {
+            mode: agent_loop.mode(),
+            approvals: agent_loop.mode_manager.history.clone(),
+            todos: agent_loop.todo_list.items.clone(),
+            // The loop's router seam is wired by `build_agent_loop`, so this answers the
+            // question the owner actually has: is there a model behind the next turn.
+            model_wired: agent_loop.has_router(),
+        })
     }
 
     // Process spawning and MCP transports (PLAN.md M20)
     async fn spawn_process(
         &self,
+        ext: &RpcExtensions,
         command: String,
         args: Vec<String>,
         env: HashMap<String, String>,
     ) -> RpcResult<String> {
+        self.authorize(ext, "process.spawn")?;
+        // Audit H-05: the owner's authority over a process table is not handed to a
+        // caller that merely holds a token. The program has to be one the daemon's own
+        // configuration allows, and the environment cannot carry a variable that
+        // changes what the program is — `PATH`, `LD_PRELOAD`, `NODE_OPTIONS` and the
+        // rest are execution hijacks wearing a configuration's clothes.
+        let policy = self.process_policy();
+        policy.check_command(&command).map_err(rpc_policy_refused)?;
+        for key in env.keys() {
+            policy.check_env(key).map_err(rpc_policy_refused)?;
+        }
         self.state
             .processes
             .spawn(&command, &args, &env)
@@ -1344,7 +2122,8 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|error| rpc_error(error.to_string()))
     }
 
-    async fn stop_process(&self, id: String) -> RpcResult<()> {
+    async fn stop_process(&self, ext: &RpcExtensions, id: String) -> RpcResult<()> {
+        self.authorize(ext, "process.stop")?;
         self.state
             .processes
             .stop(&id)
@@ -1352,7 +2131,8 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|error| rpc_error(error.to_string()))
     }
 
-    async fn process_status(&self, id: String) -> RpcResult<ProcessStatus> {
+    async fn process_status(&self, ext: &RpcExtensions, id: String) -> RpcResult<ProcessStatus> {
+        self.authorize(ext, "process.status")?;
         self.state
             .processes
             .status(&id)
@@ -1360,7 +2140,8 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|error| rpc_error(error.to_string()))
     }
 
-    async fn list_processes(&self) -> RpcResult<Vec<ProcessSummary>> {
+    async fn list_processes(&self, ext: &RpcExtensions) -> RpcResult<Vec<ProcessSummary>> {
+        self.authorize(ext, "process.list")?;
         // `list` hands back the record without its child handle; the summary is the
         // same facts in a type an RPC result (which must be clonable) can carry.
         Ok(self
@@ -1375,8 +2156,31 @@ impl WarshaApiServer for WarshaRpc {
 
     async fn connect_mcp(
         &self,
+        ext: &RpcExtensions,
         config: warsha_pipeline::mcp_transport::McpServerConfig,
     ) -> RpcResult<()> {
+        self.authorize(ext, "mcp.connect")?;
+        // Audit H-05: an MCP server is a child process or an outbound endpoint, so the
+        // same policy that bounds `process.spawn` bounds the transports here. A stdio
+        // server's program is checked as a program; an HTTP or WebSocket server's URL
+        // is checked as a transport — TLS anywhere, plain http/ws only on loopback.
+        let policy = self.process_policy();
+        match &config.transport {
+            warsha_pipeline::mcp_transport::McpTransport::Stdio => {
+                let command = config.command.as_deref().ok_or_else(|| {
+                    rpc_policy_refused("a stdio MCP server names no program to start")
+                })?;
+                policy.check_command(command).map_err(rpc_policy_refused)?;
+            }
+            transport => {
+                let url = transport.url().ok_or_else(|| {
+                    rpc_policy_refused("an MCP transport names no endpoint to reach")
+                })?;
+                policy
+                    .check_transport_url(url)
+                    .map_err(rpc_policy_refused)?;
+            }
+        }
         // An `Http`/`WebSocket` config succeeds without connecting: the transport
         // is recorded and `mcp.list` reports it as disconnected (see
         // `McpServerConfig::is_wired`).
@@ -1387,7 +2191,8 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|error| rpc_error(error.to_string()))
     }
 
-    async fn disconnect_mcp(&self, name: String) -> RpcResult<()> {
+    async fn disconnect_mcp(&self, ext: &RpcExtensions, name: String) -> RpcResult<()> {
+        self.authorize(ext, "mcp.disconnect")?;
         self.state
             .mcp
             .disconnect(&name)
@@ -1395,11 +2200,18 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|error| rpc_error(error.to_string()))
     }
 
-    async fn list_mcp(&self) -> RpcResult<Vec<McpConnection>> {
+    async fn list_mcp(&self, ext: &RpcExtensions) -> RpcResult<Vec<McpConnection>> {
+        self.authorize(ext, "mcp.list")?;
         Ok(self.state.mcp.list().await)
     }
 
-    async fn send_mcp(&self, name: String, payload: String) -> RpcResult<String> {
+    async fn send_mcp(
+        &self,
+        ext: &RpcExtensions,
+        name: String,
+        payload: String,
+    ) -> RpcResult<String> {
+        self.authorize(ext, "mcp.send")?;
         self.state
             .mcp
             .send(&name, &payload)
@@ -1409,10 +2221,12 @@ impl WarshaApiServer for WarshaRpc {
 
     async fn call_mcp(
         &self,
+        ext: &RpcExtensions,
         name: String,
         tool: String,
         arguments: serde_json::Value,
     ) -> RpcResult<warsha_pipeline::mcp::McpToolResult> {
+        self.authorize(ext, "mcp.call")?;
         self.state
             .mcp
             .call_tool(&name, &tool, arguments)
@@ -1421,9 +2235,20 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     // Live preview dev server (PLAN.md M5b + M20)
-    async fn start_preview(&self, project_id: String, command: String) -> RpcResult<LivePreview> {
+    async fn start_preview(
+        &self,
+        ext: &RpcExtensions,
+        project_id: String,
+        command: String,
+    ) -> RpcResult<LivePreview> {
+        self.authorize(ext, "preview.start")?;
         // The command line is split on whitespace by the pipeline (no shell), so
         // `npm run dev` runs `npm` with `run dev` and nothing else is interpreted.
+        // The policy judges the program the pipeline will start, which is its first
+        // word (audit H-05).
+        let policy = self.process_policy();
+        let program = command.split_whitespace().next().unwrap_or_default();
+        policy.check_command(program).map_err(rpc_policy_refused)?;
         self.state
             .previews
             .start(&project_id, &command)
@@ -1431,7 +2256,8 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|error| rpc_error(error.to_string()))
     }
 
-    async fn stop_preview(&self, project_id: String) -> RpcResult<()> {
+    async fn stop_preview(&self, ext: &RpcExtensions, project_id: String) -> RpcResult<()> {
+        self.authorize(ext, "preview.stop")?;
         self.state
             .previews
             .stop(&project_id)
@@ -1439,7 +2265,12 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|error| rpc_error(error.to_string()))
     }
 
-    async fn preview_status(&self, project_id: String) -> RpcResult<LivePreview> {
+    async fn preview_status(
+        &self,
+        ext: &RpcExtensions,
+        project_id: String,
+    ) -> RpcResult<LivePreview> {
+        self.authorize(ext, "preview.status")?;
         self.state
             .previews
             .status(&project_id)
@@ -1448,7 +2279,8 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     // Settings that survive a restart (PLAN.md M20)
-    async fn list_run_modes(&self) -> RpcResult<Vec<RunModeConfig>> {
+    async fn list_run_modes(&self, ext: &RpcExtensions) -> RpcResult<Vec<RunModeConfig>> {
+        self.authorize(ext, "runmode.list")?;
         // Mode order, not insertion order: the caller renders a switch, and a
         // switch whose rows move when one of them is saved is a switch that
         // reorders itself under the pointer.
@@ -1459,7 +2291,12 @@ impl WarshaApiServer for WarshaRpc {
             .collect())
     }
 
-    async fn set_run_mode(&self, config: RunModeConfig) -> RpcResult<RunModeConfig> {
+    async fn set_run_mode(
+        &self,
+        ext: &RpcExtensions,
+        config: RunModeConfig,
+    ) -> RpcResult<RunModeConfig> {
+        self.authorize(ext, "runmode.set")?;
         // The rule a daemon has to pass before it binds is applied before the
         // config is stored: a mode that cannot be served is not a setting.
         config
@@ -1478,7 +2315,12 @@ impl WarshaApiServer for WarshaRpc {
         Ok(config)
     }
 
-    async fn get_backend(&self, run_id: String) -> RpcResult<Option<BackendKit>> {
+    async fn get_backend(
+        &self,
+        ext: &RpcExtensions,
+        run_id: String,
+    ) -> RpcResult<Option<BackendKit>> {
+        self.authorize(ext, "backend.get")?;
         let (key, _project_name) = self.project_for_run(&run_id).await;
         // A project that never exported has no stored row, and reporting the
         // default as if it were one would invent a kit the owner never reviewed.
@@ -1493,12 +2335,23 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|error| rpc_error(error.to_string()))
     }
 
-    async fn set_backend(&self, run_id: String, kit: BackendKit) -> RpcResult<()> {
+    async fn set_backend(
+        &self,
+        ext: &RpcExtensions,
+        run_id: String,
+        kit: BackendKit,
+    ) -> RpcResult<()> {
+        self.authorize(ext, "backend.set")?;
         let (key, _project_name) = self.project_for_run(&run_id).await;
         self.remember_backend_kit(&key, &kit).await
     }
 
-    async fn list_preferences(&self, project_id: String) -> RpcResult<Vec<Preference>> {
+    async fn list_preferences(
+        &self,
+        ext: &RpcExtensions,
+        project_id: String,
+    ) -> RpcResult<Vec<Preference>> {
+        self.authorize(ext, "preferences.list")?;
         let preferences = self.state.stored_preferences.read().await;
         Ok(preferences
             .get(project_id.trim())
@@ -1506,7 +2359,15 @@ impl WarshaApiServer for WarshaRpc {
             .unwrap_or_default())
     }
 
-    async fn record_preference(&self, signal: PreferenceSignal) -> RpcResult<Vec<Preference>> {
+    async fn record_preference(
+        &self,
+        ext: &RpcExtensions,
+        signal: PreferenceSignal,
+    ) -> RpcResult<Vec<Preference>> {
+        // A write on the read surface (re-audit N-8): the session's role decides whether
+        // it may write, the tier is spent on the way in, and the actor is the verified one
+        // rather than absent. The signal itself is unchanged on the wire.
+        self.authorize(ext, "preferences.record")?;
         let project_id = signal.project_id.trim().to_string();
         {
             let mut store = self.state.preferences.write().await;
@@ -1541,11 +2402,18 @@ impl WarshaApiServer for WarshaRpc {
         Ok(rows)
     }
 
-    async fn list_pairings(&self) -> RpcResult<Vec<PhonePairing>> {
+    async fn list_pairings(&self, ext: &RpcExtensions) -> RpcResult<Vec<PhonePairing>> {
+        self.authorize(ext, "pairing.list")?;
         Ok(self.state.pairings.read().await.list())
     }
 
-    async fn create_pairing(&self, device_id: String, secret: String) -> RpcResult<PhonePairing> {
+    async fn create_pairing(
+        &self,
+        ext: &RpcExtensions,
+        device_id: String,
+        secret: String,
+    ) -> RpcResult<PhonePairing> {
+        self.authorize(ext, "pairing.create")?;
         let pairing = {
             let mut pairings = self.state.pairings.write().await;
             pairings
@@ -1556,7 +2424,12 @@ impl WarshaApiServer for WarshaRpc {
         Ok(pairing)
     }
 
-    async fn revoke_pairing(&self, device_id: String) -> RpcResult<PhonePairing> {
+    async fn revoke_pairing(
+        &self,
+        ext: &RpcExtensions,
+        device_id: String,
+    ) -> RpcResult<PhonePairing> {
+        self.authorize(ext, "pairing.revoke")?;
         let pairing = {
             let mut pairings = self.state.pairings.write().await;
             pairings
@@ -1567,17 +2440,20 @@ impl WarshaApiServer for WarshaRpc {
         Ok(pairing)
     }
 
-    async fn list_routines(&self) -> RpcResult<Vec<Routine>> {
+    async fn list_routines(&self, ext: &RpcExtensions) -> RpcResult<Vec<Routine>> {
+        self.authorize(ext, "routines.list")?;
         let registry = self.state.routines.read().await;
         Ok(registry.list().into_iter().cloned().collect())
     }
 
-    async fn get_routine(&self, id: String) -> RpcResult<Option<Routine>> {
+    async fn get_routine(&self, ext: &RpcExtensions, id: String) -> RpcResult<Option<Routine>> {
+        self.authorize(ext, "routines.get")?;
         let registry = self.state.routines.read().await;
         Ok(registry.get(&id).cloned())
     }
 
-    async fn run_routine_now(&self, id: String) -> RpcResult<Routine> {
+    async fn run_routine_now(&self, ext: &RpcExtensions, id: String) -> RpcResult<Routine> {
+        self.authorize(ext, "routines.run_now")?;
         self.state
             .routine_scheduler
             .run_now(&id)
@@ -1590,7 +2466,8 @@ impl WarshaApiServer for WarshaRpc {
             .ok_or_else(|| rpc_error(format!("routine {id} not found")))
     }
 
-    async fn pause_routine(&self, id: String) -> RpcResult<Routine> {
+    async fn pause_routine(&self, ext: &RpcExtensions, id: String) -> RpcResult<Routine> {
+        self.authorize(ext, "routines.pause")?;
         self.state
             .routine_scheduler
             .pause(&id)
@@ -1603,7 +2480,8 @@ impl WarshaApiServer for WarshaRpc {
             .ok_or_else(|| rpc_error(format!("routine {id} not found")))
     }
 
-    async fn resume_routine(&self, id: String) -> RpcResult<Routine> {
+    async fn resume_routine(&self, ext: &RpcExtensions, id: String) -> RpcResult<Routine> {
+        self.authorize(ext, "routines.resume")?;
         self.state
             .routine_scheduler
             .resume(&id)
@@ -1623,6 +2501,40 @@ impl WarshaApiServer for WarshaRpc {
 /// `thiserror` rendering, which names the process, server or project involved.
 fn rpc_error(message: String) -> ErrorObjectOwned {
     ErrorObject::owned(-32000, message, None::<()>)
+}
+
+/// The caller has no verified session: the transport could not say who it was.
+fn rpc_unauthenticated(message: impl Into<String>) -> ErrorObjectOwned {
+    ErrorObject::owned(auth::rpc_codes::UNAUTHENTICATED, message.into(), None::<()>)
+}
+
+/// The caller is verified and not allowed: audit H-04's method-level refusal.
+fn rpc_forbidden(message: impl Into<String>) -> ErrorObjectOwned {
+    ErrorObject::owned(auth::rpc_codes::FORBIDDEN, message.into(), None::<()>)
+}
+
+/// The caller named an identity that is not the one it authenticated as (audit H-03).
+fn rpc_identity_mismatch(message: impl Into<String>) -> ErrorObjectOwned {
+    ErrorObject::owned(
+        auth::rpc_codes::IDENTITY_MISMATCH,
+        message.into(),
+        None::<()>,
+    )
+}
+
+/// The caller passed a ceiling — the RPC form of HTTP 429, carrying the wait so a
+/// client can honour it (audit H-01).
+fn rpc_rate_limited(retry_after_secs: u64) -> ErrorObjectOwned {
+    ErrorObject::owned(
+        auth::rpc_codes::RATE_LIMITED,
+        format!("rate limited: retry after {retry_after_secs}s"),
+        Some(serde_json::json!({ "retry_after_secs": retry_after_secs })),
+    )
+}
+
+/// A command or transport the daemon will not start (audit H-05).
+fn rpc_policy_refused(message: impl Into<String>) -> ErrorObjectOwned {
+    ErrorObject::owned(auth::rpc_codes::POLICY_REFUSED, message.into(), None::<()>)
 }
 
 /// The slash commands `skills.list` reports: `/review`, `/refactor`, `/test`,
@@ -1777,6 +2689,303 @@ fn build_agent_loop(
     ))
 }
 
+/// The settings document the role routing table is kept in.
+const ROLE_ROUTINGS_DOCUMENT: &str = "role-routings";
+
+/// The settings document the agent loop's conversation state is kept in.
+const AGENT_LOOP_DOCUMENT: &str = "agent-loop";
+
+/// The provider id the daemon's own offline provider is registered under.
+///
+/// A routing may name it, and it is the only adapter that answers without a key or a
+/// network — which is why it is the one thing every daemon starts with.
+const MOCK_PROVIDER_ID: &str = "mock";
+
+/// What of the agent loop survives a restart.
+///
+/// Four pieces, and only the four the owner can see: the mode and every switch that
+/// got it there (the approval history the AC asks for), the todo list, the questions
+/// the loop asked and the answers it was given, and the notes on the message bus. The
+/// transcript is deliberately absent — the loop's own compactor holds it and hands out
+/// no way to put one back, so a restart starts a bounded context rather than replaying
+/// a memory nobody approved keeping.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AgentLoopSnapshot {
+    /// Plan ↔ Agent state, with every approved switch.
+    pub modes: ModeManager,
+    /// What the loop said it would do, one item per turn.
+    pub todos: TodoList,
+    /// The `ask_user` questions and their answers.
+    pub questions: AskUserQueue,
+    /// The `send_message` notes.
+    pub notes: MessageBus,
+}
+
+impl AgentLoopSnapshot {
+    /// The current state of `loop_`, as one document.
+    fn of(loop_: &AgentLoop) -> Self {
+        Self {
+            modes: loop_.mode_manager.clone(),
+            todos: loop_.todo_list.clone(),
+            questions: loop_.ask_queue.clone(),
+            notes: loop_.message_bus.clone(),
+        }
+    }
+
+    /// Put this state into a freshly built loop.
+    fn restore(self, loop_: &mut AgentLoop) {
+        let Self {
+            modes,
+            todos,
+            questions,
+            notes,
+        } = self;
+        loop_.mode_manager = modes;
+        loop_.todo_list = todos;
+        loop_.ask_queue = questions;
+        loop_.message_bus = notes;
+    }
+}
+
+/// The routing table as it was stored, or empty when nothing was stored.
+///
+/// A document that cannot be read is a warning and an empty table rather than a failed
+/// start: a daemon that refused to boot would leave the owner with no way to see or fix
+/// what it wrote, and an unrouted role already refuses every call it would have made.
+async fn seed_role_routings(settings: &SettingsStore) -> Result<HashMap<Role, RoleRoutingConfig>> {
+    let stored = match settings.load_document(ROLE_ROUTINGS_DOCUMENT).await {
+        Ok(stored) => stored,
+        Err(error) => {
+            warn!("the routing table could not be read and starts empty: {error}");
+            return Ok(HashMap::new());
+        }
+    };
+    let Some(stored) = stored else {
+        return Ok(HashMap::new());
+    };
+    let configs: Vec<RoleRoutingConfig> = match serde_json::from_value(stored) {
+        Ok(configs) => configs,
+        Err(error) => {
+            warn!("the routing table is not a routing table and starts empty: {error}");
+            return Ok(HashMap::new());
+        }
+    };
+    let mut routings = HashMap::new();
+    for config in configs {
+        match routing_key(&config) {
+            Ok(role) => {
+                routings.insert(role, config);
+            }
+            Err(reason) => {
+                // A row the daemon cannot honour is dropped here rather than kept and
+                // refused at every call: the owner sees it the next time they set it.
+                warn!("a stored routing is not usable and was dropped: {reason}");
+            }
+        }
+    }
+    Ok(routings)
+}
+
+/// The loop's stored conversation, if there is one.
+async fn seed_agent_snapshot(settings: &SettingsStore) -> Result<Option<AgentLoopSnapshot>> {
+    let stored = match settings.load_document(AGENT_LOOP_DOCUMENT).await {
+        Ok(stored) => stored,
+        Err(error) => {
+            warn!("the agent conversation could not be read and starts fresh: {error}");
+            return Ok(None);
+        }
+    };
+    let Some(stored) = stored else {
+        return Ok(None);
+    };
+    match serde_json::from_value::<AgentLoopSnapshot>(stored) {
+        Ok(snapshot) => Ok(Some(snapshot)),
+        Err(error) => {
+            warn!("the agent conversation is not one this daemon can hold: {error}");
+            Ok(None)
+        }
+    }
+}
+
+/// Give the router an adapter for every provider the owner has configured.
+///
+/// Nothing here calls a provider: what is registered is a [`DeferredProvider`], which
+/// holds the row and the factory and builds the real adapter on the first call. That is
+/// what lets a restart bring the configured providers back with no network at all — a
+/// daemon that phoned home on boot would be slow, and one that started offline would
+/// come up broken.
+///
+/// The count it answers is what a start-up log line carries, and nothing else: no key,
+/// no endpoint, no provider name beyond the ones the owner chose to type.
+async fn register_configured_providers(
+    providers: &Arc<RwLock<ProviderRouter>>,
+    settings: &SettingsStore,
+    factory: &Arc<dyn ProviderFactory>,
+) -> Result<usize> {
+    let stored = settings.load_providers().await?;
+    let mut registered = 0;
+    for provider in stored {
+        if !provider.enabled {
+            continue;
+        }
+        if provider.name == MOCK_PROVIDER_ID {
+            // The daemon's own offline provider owns this id; a row that tries to take
+            // it is refused rather than silently replacing what every test routes to.
+            warn!("a stored provider is named {MOCK_PROVIDER_ID} and was not registered");
+            continue;
+        }
+        let deferred = DeferredProvider::new(provider.clone(), Arc::clone(factory));
+        providers
+            .write()
+            .await
+            .register_provider(Box::new(deferred));
+        registered += 1;
+    }
+    Ok(registered)
+}
+
+/// Hand the router the owner's routing table.
+///
+/// Each role gets its targets in the order the owner set them (the router walks them
+/// as a fallback list), and the agent role's per-run ceiling, when it names one, is
+/// installed against [`AGENT_METER_KEY`] — the key every agent turn is metered under —
+/// so the cap an owner writes is the cap the router enforces before it spends.
+async fn apply_role_routings(
+    providers: &Arc<RwLock<ProviderRouter>>,
+    routings: &HashMap<Role, RoleRoutingConfig>,
+) {
+    let mut router = providers.write().await;
+    for config in routings.values() {
+        let Ok((role, routing)) = routing_for(config) else {
+            continue;
+        };
+        if role == AGENT_ROLE {
+            if let Some(cents) = routing.budget_cents_per_run {
+                router.set_budget(AGENT_METER_KEY, cents);
+            }
+        }
+        router.set_role_routing(routing);
+    }
+}
+
+/// The role a config names, or the reason it names nothing.
+fn role_from_name(name: &str) -> std::result::Result<Role, String> {
+    serde_json::from_value::<Role>(serde_json::Value::String(name.trim().to_string()))
+        .map_err(|_| format!("{name} is not one of the roles the pipeline knows"))
+}
+
+/// The name a role is stored and answered under.
+fn role_name(role: Role) -> String {
+    serde_json::to_value(role)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+/// The role and validation of a routing request, before anything is written.
+///
+/// The role has to be one the pipeline knows, and every target has to name both a
+/// provider and a model: a routing with an empty provider id is a routing that resolves
+/// to nothing at the call, and refusing it here is what makes `roles.set` mean what it
+/// says it means.
+fn routing_key(config: &RoleRoutingConfig) -> std::result::Result<Role, String> {
+    let role = role_from_name(&config.role)?;
+    if config.targets.is_empty() {
+        return Err(format!("role {} has no target", config.role));
+    }
+    for target in &config.targets {
+        if target.provider_id.trim().is_empty() {
+            return Err(format!(
+                "role {} names a target with no provider",
+                config.role
+            ));
+        }
+        if target.model_id.trim().is_empty() {
+            return Err(format!("role {} names a target with no model", config.role));
+        }
+    }
+    Ok(role)
+}
+
+/// The routing the router is given, from the validated config.
+fn routing_for(config: &RoleRoutingConfig) -> std::result::Result<(Role, RoleRouting), String> {
+    let role = routing_key(config)?;
+    let targets = config
+        .targets
+        .iter()
+        .map(|target| RoutingTarget {
+            provider_id: target.provider_id.trim().to_string(),
+            model_id: target.model_id.trim().to_string(),
+            weight: target.weight,
+        })
+        .collect();
+    Ok((
+        role,
+        RoleRouting {
+            role,
+            targets,
+            fallback_enabled: config.fallback_enabled,
+            budget_cents_per_run: config.budget_cents_per_run,
+        },
+    ))
+}
+
+/// The config a stored routing is reported as.
+fn routing_config(role: Role, routing: &RoleRouting) -> RoleRoutingConfig {
+    RoleRoutingConfig {
+        role: role_name(role),
+        targets: routing
+            .targets
+            .iter()
+            .map(|target| RoutingTargetConfig {
+                provider_id: target.provider_id.clone(),
+                model_id: target.model_id.clone(),
+                weight: target.weight,
+            })
+            .collect(),
+        fallback_enabled: routing.fallback_enabled,
+        budget_cents_per_run: routing.budget_cents_per_run,
+    }
+}
+
+/// Write the routing table to the daemon's settings.
+///
+/// An owner's routing is only worth having if the next daemon reads the same table, so
+/// every change is written through rather than kept in memory: a routing that dies with
+/// the process is a routing that has to be set again by whoever restarts it.
+async fn store_role_routings(
+    settings: &SettingsStore,
+    routings: &HashMap<Role, RoleRoutingConfig>,
+) -> Result<()> {
+    let mut configs: Vec<RoleRoutingConfig> = routings.values().cloned().collect();
+    // Sorted so the document a daemon writes is comparable across runs: the same table
+    // written twice is the same bytes, which is what makes it reviewable.
+    configs.sort_by(|left, right| left.role.cmp(&right.role));
+    let document = serde_json::to_value(configs).map_err(|error| {
+        DaemonError::Config(format!("the routing table could not be encoded: {error}"))
+    })?;
+    settings
+        .save_document(ROLE_ROUTINGS_DOCUMENT, &document)
+        .await?;
+    Ok(())
+}
+
+/// Write the loop's conversation to the daemon's settings.
+async fn store_agent_snapshot(
+    settings: &SettingsStore,
+    snapshot: &AgentLoopSnapshot,
+) -> Result<()> {
+    let document = serde_json::to_value(snapshot).map_err(|error| {
+        DaemonError::Config(format!(
+            "the agent conversation could not be encoded: {error}"
+        ))
+    })?;
+    settings
+        .save_document(AGENT_LOOP_DOCUMENT, &document)
+        .await?;
+    Ok(())
+}
+
 /// HTTP server for REST API and WebSocket
 async fn health_handler() -> impl IntoResponse {
     Json(HealthResponse {
@@ -1800,9 +3009,32 @@ pub async fn start_daemon(config: DaemonConfig) -> Result<DaemonHandle> {
 /// `PlatformFailure`, and an integration test that drove `providers.add` through
 /// it would be testing the runner. The daemon's behaviour is otherwise identical,
 /// and the key that a test writes is the key `providers.test` reads back.
+///
+/// It installs [`KeychainProviderFactory`], the production adapter factory: a test
+/// that wants the *provider construction* to be offline as well uses
+/// [`start_daemon_with_provider_factory`].
 pub async fn start_daemon_with_secrets(
     config: DaemonConfig,
     secrets: Arc<dyn SecretStore>,
+) -> Result<DaemonHandle> {
+    start_daemon_with_provider_factory(config, secrets, Arc::new(KeychainProviderFactory::new()))
+        .await
+}
+
+/// Start the daemon with both of its injectable seams named: where keys live, and
+/// what builds an adapter for a configured provider.
+///
+/// The second seam is what closes C2's real-provider gap offline. The daemon's
+/// production behaviour is [`KeychainProviderFactory`], which reads the OS keychain —
+/// so an integration test that used it would need a keychain, and one that got a
+/// keychain would be making a real call. [`MockProviderFactory`] answers the same
+/// rows with the workspace's mock adapter under the same ids, which lets a test drive
+/// the whole path a configured provider takes: row, routing, registered adapter,
+/// agent turn, restart, and the routing and the turn still there afterwards.
+pub async fn start_daemon_with_provider_factory(
+    config: DaemonConfig,
+    secrets: Arc<dyn SecretStore>,
+    provider_factory: Arc<dyn ProviderFactory>,
 ) -> Result<DaemonHandle> {
     // Ensure single instance lock
     let lock_file = acquire_lock(&config.data_dir)?;
@@ -1828,7 +3060,27 @@ pub async fn start_daemon_with_secrets(
     providers
         .write()
         .await
-        .register_provider(Box::new(warsha_providers::MockProvider::new("mock")));
+        .register_provider(Box::new(warsha_providers::MockProvider::new(
+            MOCK_PROVIDER_ID,
+        )));
+
+    // The providers the owner configured, before anything is served. This is the
+    // bridge C2 was missing: `providers.add` stores a row and files a key, and a
+    // router that never learns about them answers every turn with "no model is
+    // wired" — including the turn that comes after a restart, which is the one the
+    // owner has no way to explain. Registration calls nothing: what is handed to
+    // the router is a deferred adapter that builds on the first call.
+    let configured =
+        register_configured_providers(&providers, &settings, &provider_factory).await?;
+    if configured > 0 {
+        info!("registered {configured} configured provider(s)");
+    }
+
+    // The owner's routing table, read from the settings and handed to the router.
+    // A role with no routing refuses its calls, which is the honest answer to a
+    // daemon that was never told which provider speaks for it.
+    let role_routings = seed_role_routings(&settings).await?;
+    apply_role_routings(&providers, &role_routings).await;
 
     // Initialize pipeline
     let pipeline = Arc::new(PipelineEngine::new(store.clone(), providers.clone()));
@@ -1859,7 +3111,9 @@ pub async fn start_daemon_with_secrets(
 
     // The agent loop's two seams, wired to the real thing: its file tools run
     // inside `<data_dir>/workspace`, and its model calls go out through the same
-    // router the pipeline stages use.
+    // router the pipeline stages use — a router that now holds the configured
+    // providers and the owner's routing, so an Agent-mode turn reaches a model
+    // rather than reporting that nothing is wired.
     let default_kit = Arc::new(RwLock::new(default_backend_kit("default")));
     let agent_loop = build_agent_loop(
         &config.data_dir,
@@ -1867,6 +3121,15 @@ pub async fn start_daemon_with_secrets(
         mcp.clone(),
         default_kit,
     );
+
+    // The conversation the last daemon was having, if any: the mode it reached, who
+    // approved each switch, the todos and the questions. Restored before the RPC
+    // surface opens, so the first `agent.turn` after a restart is the next turn of
+    // one conversation rather than the first turn of a new one.
+    if let Some(snapshot) = seed_agent_snapshot(&settings).await? {
+        let mut guard = agent_loop.write().await;
+        snapshot.restore(&mut guard);
+    }
 
     // Seed the four settings records from the file before the RPC surface opens.
     // A daemon that answered the first request from an empty switch while the
@@ -1880,6 +3143,17 @@ pub async fn start_daemon_with_secrets(
     let routine_runner: Arc<dyn RoutineRunner + Send + Sync> =
         Arc::new(warsha_pipeline::MockRoutineRunner::new());
     let routine_scheduler = Arc::new(RoutineScheduler::new(routines.clone(), routine_runner));
+
+    // Which credential means which caller, and how often it may ask (audit H-01,
+    // H-03, H-04). The owner session speaks as the daemon's own device, which is what
+    // keeps the local desktop workflow exactly as it was: the app holds the daemon's
+    // token, so it is the owner, and a gate it approves is recorded against this
+    // machine. A phone joins that set only through a pairing secret the owner issued.
+    let sessions = Arc::new(Sessions::new(
+        config.auth_token.clone(),
+        devices.local_identity().device_id,
+    ));
+    let rates = Arc::new(RateGovernor::new(&config.rate_limits));
 
     let state = Arc::new(DaemonState {
         config: config.clone(),
@@ -1905,6 +3179,10 @@ pub async fn start_daemon_with_secrets(
         secrets,
         routines,
         routine_scheduler,
+        sessions,
+        rates,
+        role_routings: Arc::new(RwLock::new(role_routings)),
+        provider_factory,
     });
 
     // Start JSON-RPC server (TCP for cross-platform compatibility)
@@ -1931,7 +3209,7 @@ pub async fn start_daemon_with_secrets(
         .allow_methods(Any)
         .allow_headers(Any);
     let rpc_auth_layer = RpcAuthLayer {
-        expected_token: config.auth_token.clone(),
+        state: state.clone(),
     };
     let rpc_server = ServerBuilder::default()
         .set_http_middleware(
@@ -1960,16 +3238,9 @@ pub async fn start_daemon_with_secrets(
         .allow_methods(Any)
         .allow_headers(Any);
 
-    // Auth middleware: require Bearer token on all routes except /health
-    let auth_token = config.auth_token.clone();
-    let auth_middleware = axum::middleware::from_fn(
-        move |headers: axum::http::HeaderMap,
-              request: axum::http::Request<axum::body::Body>,
-              next: axum::middleware::Next| {
-            let token = auth_token.clone();
-            async move { auth_handler_inner(token, headers, request, next).await }
-        },
-    );
+    // Auth middleware: a bounded ceiling on every route, and a verified bearer token
+    // on every route except /health (security audit H-01, H-03, H-04).
+    let auth_middleware = axum::middleware::from_fn_with_state(state.clone(), auth_handler_inner);
 
     let app = Router::new()
         .route("/health", get(health_handler))
@@ -1986,8 +3257,17 @@ pub async fn start_daemon_with_secrets(
         actual_http_port
     );
 
+    // The HTTP listener is the daemon's surface that knows the peer address, and it
+    // is the one that has to: a rate limit with no identity to key on falls back to
+    // the address, and an unbounded `/events` is a socket-occupying denial of service
+    // with no response code for it (audit H-01).
     let http_task = tokio::spawn(async move {
-        if let Err(e) = axum::serve(http_listener, app).await {
+        if let Err(e) = axum::serve(
+            http_listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        {
             error!("HTTP server error: {}", e);
         }
     });
@@ -2001,6 +3281,11 @@ pub async fn start_daemon_with_secrets(
         // The daemon's own spawner, not a second one: the sweep at shutdown has to
         // see the children the RPCs started.
         processes: state.processes.clone(),
+        // The runtime the servers are being driven on, kept so a handle that is
+        // dropped without `shutdown` can still take its children with it. An `async fn`
+        // only ever runs on a runtime, so asking for the current one cannot fail here.
+        runtime: tokio::runtime::Handle::current(),
+        reaped: std::sync::atomic::AtomicBool::new(false),
     })
 }
 
@@ -2018,12 +3303,16 @@ pub async fn run_daemon(args: DaemonArgs) -> Result<()> {
     }
 
     let handle = start_daemon(config).await?;
+    // The listener lines are `start_daemon`'s to write — it is the one that knows the
+    // ports it ended up on — and they are written there exactly once. Repeating them here
+    // is what the load run recorded as a startup log with two of each line
+    // (`bridge-io/security/load/report.md`, finding 3): a log a reviewer has to dedupe by
+    // hand is a log that hides the lines that matter. The mode line stays, because which
+    // mode the process came up in is a fact about *this* entry point, not about the
+    // listeners.
     info!(
-        "HTTP server listening on http://127.0.0.1:{}",
-        handle.http_port()
-    );
-    info!(
-        "JSON-RPC server listening on 127.0.0.1:{}",
+        "warshad serving on http://127.0.0.1:{} and RPC 127.0.0.1:{}",
+        handle.http_port(),
         handle.rpc_port()
     );
 
@@ -2039,10 +3328,39 @@ pub async fn run_daemon(args: DaemonArgs) -> Result<()> {
     // daemon: a signal that could not be listened for is waited out as an error
     // *after* the children are reaped, rather than returning early and leaving a
     // dev server holding its port.
-    let interrupted = tokio::signal::ctrl_c().await;
+    let interrupted = wait_for_shutdown_signal().await;
     handle.shutdown().await;
     interrupted?;
     Ok(())
+}
+
+/// Wait for the signal that says "stop this daemon".
+///
+/// Ctrl-C is what a terminal sends. On a service manager, in a container, or under a
+/// plain `kill`, what arrives is SIGTERM — and a daemon that listened only for Ctrl-C
+/// ignored it, so the stop that followed was a SIGKILL after a timeout: children kept
+/// their ports, the lock was released only by the operating system, and the shutdown
+/// path the code documents never ran. Both signals are answered the same way here:
+/// return, and let [`run_daemon`] take the children down through the one shutdown.
+///
+/// Windows has no SIGTERM to catch, and a console close is the operating system's to
+/// report; what covers a process that never gets to run its own code is
+/// [`DaemonHandle`]'s drop sweep, plus the fact that the desktop shell runs the daemon
+/// *inside* its own process, so an app that dies takes the daemon with it.
+async fn wait_for_shutdown_signal() -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut terminate = signal(SignalKind::terminate())?;
+        tokio::select! {
+            interrupted = tokio::signal::ctrl_c() => interrupted,
+            _ = terminate.recv() => Ok(()),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c().await
+    }
 }
 
 pub async fn load_or_create_config(config_path: Option<&Path>) -> Result<DaemonConfig> {
@@ -2086,14 +3404,67 @@ pub async fn load_or_create_config(config_path: Option<&Path>) -> Result<DaemonC
     }
 }
 
+/// Take the daemon's single-instance lock over `data_dir`.
+///
+/// The directory is made first: the lock lives in it, so a data directory the owner
+/// named in a config file and never created would otherwise fail the start with an
+/// I/O error that reads like a refusal to run twice.
+///
+/// The holder's process id is written into the file (see [`LockFile`]) so a second
+/// daemon — or the desktop shell that found one already running — can say *which*
+/// process has the directory, which is the difference between "restart the app" and a
+/// half-hour of hunting a stray `warshad`.
 fn acquire_lock(data_dir: &Path) -> Result<LockFile> {
+    std::fs::create_dir_all(data_dir)?;
     let lock_path = data_dir.join("warshad.lock");
-    let mut lock = LockFile::new(lock_path)?;
-    lock.try_lock()
-        .map_err(|e| DaemonError::Lock(format!("Failed to acquire lock: {e}")))?;
+    let mut lock = LockFile::new(lock_path.clone());
+    lock.acquire().map_err(|_error| {
+        // The operating system's own reason (`WouldBlock`, almost always) says nothing
+        // an owner can act on; who holds the lock does.
+        DaemonError::Lock(format!(
+            "another warshad holds {lock_path:?} ({}); this daemon will not share a data directory",
+            lock_holder(&lock_path)
+        ))
+    })?;
     Ok(lock)
 }
 
+/// Who the lock file says holds the lock, as a hint for an error message.
+///
+/// A pid in a file is a *hint*: the operating system releases the advisory lock when a
+/// process dies, so a stale file can name a process that has been gone for years and a
+/// recycled pid can name something that has nothing to do with Warsha. Nothing here acts
+/// on it — no signal is sent and no lock is taken over another's — because the safe way
+/// to stop a daemon the owner cannot see is to ask them, with the number to look at.
+fn lock_holder(path: &Path) -> String {
+    match std::fs::read_to_string(path) {
+        Ok(text) => {
+            let pid = text.split_whitespace().next().unwrap_or_default();
+            if pid.is_empty() {
+                "no pid recorded".to_string()
+            } else {
+                format!("pid {pid}")
+            }
+        }
+        Err(_) => "no pid recorded".to_string(),
+    }
+}
+
+/// The daemon's single-instance lock.
+///
+/// Two things a restart depends on, both of them deliberate:
+///
+/// - **The advisory lock, not the file's existence, is what decides.** `fs2`'s
+///   exclusive lock is held by the *open file description* (Unix) or the file handle
+///   (Windows), so the operating system drops it when the holder exits — cleanly, by
+///   panic, or by `kill -9`. A lock that had to be deleted by its holder is a lock that
+///   has to be cleaned up by whoever comes after.
+/// - **The file is never deleted.** Removing it is the one way a restart can end up with
+///   two daemons on one data directory: instance A unlinks the path while instance B
+///   still holds a handle to the old inode and instance C creates a new file at the same
+///   name, and B and C both lock successfully because they locked different files. The
+///   next bind to the RPC port is then a crash, or two databases in one directory.
+///   Leaving the file costs one inode and makes every instance contend on the same one.
 #[derive(Debug)]
 struct LockFile {
     path: PathBuf,
@@ -2101,26 +3472,32 @@ struct LockFile {
 }
 
 impl LockFile {
-    fn new(path: PathBuf) -> Result<Self> {
-        Ok(Self { path, file: None })
+    fn new(path: PathBuf) -> Self {
+        Self { path, file: None }
     }
 
-    fn try_lock(&mut self) -> std::io::Result<()> {
+    /// Take the exclusive lock and record this process as the holder.
+    fn acquire(&mut self) -> std::io::Result<()> {
         use std::fs::OpenOptions;
-        // `truncate(false)` is deliberate: the lock file's contents are irrelevant,
-        // and truncating a file another instance may be holding would be the wrong
-        // semantic for a lock.
+        use std::io::Write;
+        // `truncate(false)` is deliberate at *open* time: truncating a file another
+        // instance may be holding would be the wrong semantic for a lock. Once this
+        // process holds the lock exclusively, overwriting its contents is not.
         let file = OpenOptions::new()
             .create(true)
             .truncate(false)
             .write(true)
             .open(&self.path)?;
 
-        // Take an exclusive advisory lock (blocking). On Unix this uses flock(2),
-        // on Windows LockFileEx. The lock is released when the file is closed or
-        // the process exits. If another instance holds the lock, this returns
-        // WouldBlock which we convert to a Lock error.
+        // An exclusive advisory lock, without blocking. On Unix this is flock(2), on
+        // Windows LockFileEx. A lock another instance holds answers `WouldBlock`, which
+        // `acquire_lock` turns into the refusal the desktop shell reads as "there is
+        // already a daemon, and it is reachable on the ports we both configured".
         file.try_lock_exclusive()?;
+
+        let pid = std::process::id().to_string();
+        file.set_len(0)?;
+        (&file).write_all(pid.as_bytes())?;
 
         self.file = Some(file);
         Ok(())
@@ -2130,12 +3507,12 @@ impl LockFile {
 impl Drop for LockFile {
     fn drop(&mut self) {
         if let Some(file) = self.file.take() {
-            // Release the lock before dropping
+            // Release the lock, then let the handle close. The file stays: that is the
+            // point of `LockFile`, and the next instance truncates it to its own pid
+            // the moment it holds the lock.
             let _ = file.unlock();
             drop(file);
         }
-        // Remove the lock file on clean shutdown
-        let _ = std::fs::remove_file(&self.path);
     }
 }
 
@@ -2147,34 +3524,94 @@ fn get_github_token() -> Result<String> {
         .map_err(|_| DaemonError::Config("GitHub token not in keychain".to_string()))
 }
 
-/// Auth middleware: require Bearer token on all routes except /health
+/// The HTTP listener's ceiling and authentication: a bounded answer for every route,
+/// and a verified caller for every route but `/health`.
+///
+/// Three things the audit asked for happen here (H-01, H-03, H-04):
+///
+/// - **A 429 with a `Retry-After`.** The listener used to have no overload path at
+///   all: `/events` would take as many sockets as a caller could open.
+/// - **A ceiling keyed on who is calling.** This listener knows the peer address (the
+///   RPC transport's middleware does not), so an authenticated identity decides the
+///   bucket and the address is the fallback for a caller that never got authenticated.
+/// - **The verified caller, in the request.** A handler that wants to know who asked
+///   reads the [`Actor`] the credential produced — never a field of its own params.
 async fn auth_handler_inner(
-    expected_token: String,
+    State(state): State<Arc<DaemonState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: axum::http::HeaderMap,
-    request: axum::http::Request<axum::body::Body>,
+    mut request: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> Response {
     let path = request.uri().path();
+    let token = bearer_token(&headers);
+
     if path == "/health" {
+        // The one route that answers without a credential is still bounded, per peer:
+        // an unauthenticated free path is a limiter an attacker routes around.
+        let ceiling = state.rates.transport().check(&rate_key(None, Some(peer)));
+        if !ceiling.is_allowed() {
+            return http_refusal(
+                axum::http::StatusCode::TOO_MANY_REQUESTS,
+                serde_json::json!({ "error": "rate limited" }),
+                Some(ceiling.retry_after_secs()),
+            );
+        }
         return next.run(request).await;
     }
 
-    let token = headers
-        .get(AUTHORIZATION)
-        .and_then(|h| h.to_str().ok())
-        .and_then(|h| h.strip_prefix("Bearer "));
+    let actor = state
+        .sessions
+        .resolve(&token, &state.active_pairings().await);
+    let key = rate_key(actor.as_ref().map(|actor| actor.key()), Some(peer));
 
-    match token {
-        Some(token) if token == expected_token => next.run(request).await,
-        Some(_) => {
-            warn!("Invalid token for {}", path);
-            Json(serde_json::json!({"error": "invalid token"})).into_response()
-        }
-        None => {
-            warn!("Unauthorized request to {}", path);
-            Json(serde_json::json!({"error": "unauthorized"})).into_response()
-        }
+    let ceiling = state.rates.transport().check(&key);
+    if !ceiling.is_allowed() {
+        state.report_refusal("http-transport", &key);
+        return http_refusal(
+            axum::http::StatusCode::TOO_MANY_REQUESTS,
+            serde_json::json!({ "error": "rate limited" }),
+            Some(ceiling.retry_after_secs()),
+        );
     }
+
+    let Some(actor) = actor else {
+        warn!("Unauthorized request to {path}");
+        return http_refusal(
+            axum::http::StatusCode::UNAUTHORIZED,
+            serde_json::json!({ "error": "unauthorized" }),
+            None,
+        );
+    };
+
+    request.extensions_mut().insert(actor);
+    next.run(request).await
+}
+
+/// A refusal on the daemon's HTTP listener, with the wait a rate-limited caller must
+/// honour before trying again.
+fn http_refusal(
+    status: axum::http::StatusCode,
+    body: serde_json::Value,
+    retry_after_secs: Option<u64>,
+) -> Response {
+    let mut builder = axum::http::Response::builder().status(status);
+    if let Some(secs) = retry_after_secs {
+        builder = builder.header(axum::http::header::RETRY_AFTER, retry_after_header(secs));
+    }
+    builder
+        .header(
+            axum::http::header::CONTENT_TYPE,
+            axum::http::HeaderValue::from_static("application/json"),
+        )
+        .body(axum::body::Body::from(body.to_string()))
+        .unwrap_or_else(|_| {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                body.to_string(),
+            )
+                .into_response()
+        })
 }
 
 /// WebSocket handler for /events endpoint
@@ -2261,12 +3698,25 @@ mod tests {
     /// A daemon state over a temporary store, plus the store so a test can write
     /// the project and run the RPC reads.
     async fn test_state(data_dir: &Path) -> (Arc<DaemonState>, Arc<Store>) {
+        test_state_with(data_dir, |_| {}).await
+    }
+
+    /// The same state with a configuration the test names.
+    ///
+    /// `configure` runs before the sessions and the ceilings are built from the
+    /// configuration, so a test that wants a command allowed by the process policy or
+    /// a bucket small enough to overflow in one loop gets exactly that.
+    async fn test_state_with(
+        data_dir: &Path,
+        configure: impl FnOnce(&mut DaemonConfig),
+    ) -> (Arc<DaemonState>, Arc<Store>) {
         std::fs::create_dir_all(data_dir).expect("the data directory is made");
-        let config = DaemonConfig {
+        let mut config = DaemonConfig {
             data_dir: data_dir.to_path_buf(),
             auth_token: "test-token".to_string(),
             ..Default::default()
         };
+        configure(&mut config);
         let store = Arc::new(
             Store::open_at(data_dir.join("warsha.db"))
                 .await
@@ -2293,6 +3743,12 @@ mod tests {
         let routine_runner: Arc<dyn RoutineRunner + Send + Sync> =
             Arc::new(warsha_pipeline::MockRoutineRunner::new());
         let routine_scheduler = Arc::new(RoutineScheduler::new(routines.clone(), routine_runner));
+
+        // A hand-built state carries the same session and ceiling wiring a real one
+        // does: the daemon's own token is the owner session and speaks as the daemon's
+        // device, which is exactly the desktop's situation.
+        let sessions = Arc::new(Sessions::new(config.auth_token.clone(), identity.device_id));
+        let rates = Arc::new(RateGovernor::new(&config.rate_limits));
 
         let state = Arc::new(DaemonState {
             config,
@@ -2327,8 +3783,416 @@ mod tests {
             secrets: Arc::new(InMemorySecretStore::new()),
             routines,
             routine_scheduler,
+            sessions,
+            rates,
+            // The offline factory and no routing: a hand-built state is a state under
+            // test, and a test that wants a routing sets one through `roles.set`.
+            role_routings: Arc::new(RwLock::new(HashMap::new())),
+            provider_factory: Arc::new(MockProviderFactory::new()),
         });
         (state, store)
+    }
+
+    /// The request extensions a verified **owner** session arrives with.
+    ///
+    /// This is what the daemon's transport puts on a request after it checked the
+    /// bearer credential, so a test that calls an RPC with these extensions is in the
+    /// same position as the desktop app holding the daemon's own token.
+    fn owner_ext() -> RpcExtensions {
+        owner_ext_as(DeviceId::new())
+    }
+
+    /// The owner session speaking as a particular device, so a test can name the
+    /// approver it expects to be recorded.
+    fn owner_ext_as(device_id: DeviceId) -> RpcExtensions {
+        let mut ext = RpcExtensions::new();
+        ext.insert(Actor::owner(device_id));
+        ext
+    }
+
+    /// The extensions a **paired device** session arrives with.
+    fn paired_ext(device_id: &str) -> RpcExtensions {
+        let mut ext = RpcExtensions::new();
+        ext.insert(Actor::paired(&PhonePairing::new(
+            device_id,
+            "a-pairing-secret",
+            1_700_000_000,
+        )));
+        ext
+    }
+
+    /// The extensions of a request that never authenticated: an empty map, because
+    /// nothing but the transport can put an actor in one.
+    fn anonymous_ext() -> RpcExtensions {
+        RpcExtensions::new()
+    }
+
+    /// The `code` of a JSON-RPC error, for asserting *which* refusal a caller got.
+    fn rpc_error_code(error: &jsonrpsee::types::ErrorObjectOwned) -> i32 {
+        error.code()
+    }
+
+    // ---- Security audit S1a: identity, authorization and the policy floor.
+
+    /// Every method the server registers has a policy, and every policy names a
+    /// method the server registers.
+    ///
+    /// This is the check that the authorization table is the whole surface rather than
+    /// a list of the methods someone remembered: an RPC added later without an entry
+    /// fails here instead of shipping unauthenticated-by-omission.
+    #[tokio::test]
+    async fn every_registered_method_has_a_policy_and_no_policy_names_a_missing_one() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, _store) = test_state(temp.path()).await;
+        let module = WarshaRpc::new(state).into_rpc();
+
+        let registered: std::collections::BTreeSet<&str> = module.method_names().collect();
+        let table: std::collections::BTreeSet<&str> = auth::METHOD_POLICIES
+            .iter()
+            .map(|entry| entry.method)
+            .collect();
+
+        let unpoliced: Vec<&str> = registered.difference(&table).copied().collect();
+        assert!(
+            unpoliced.is_empty(),
+            "methods the daemon serves with no entry in the policy table: {unpoliced:?}"
+        );
+        let unknown: Vec<&str> = table.difference(&registered).copied().collect();
+        assert!(
+            unknown.is_empty(),
+            "the policy table names methods the daemon does not serve: {unknown:?}"
+        );
+
+        // The structural half of re-audit LOAD-1 finding 1. A method that is not handed
+        // its caller cannot reach `authorize()`, and a `Tier` nobody spends is a ceiling
+        // on paper — that is exactly how 24 read methods ended up bounded only by the
+        // transport. Scanning the declarations is the check that keeps a new method from
+        // joining that set by accident, which is what the behaviour tests below cannot see
+        // until someone remembers to write one.
+        let source = include_str!("lib.rs");
+        let trait_body = source
+            .split("pub trait WarshaApi {")
+            .nth(1)
+            .expect("the RPC trait is declared")
+            .split("\n}")
+            .next()
+            .expect("the RPC trait has an end");
+        let declared: Vec<&str> = trait_body
+            .lines()
+            .filter(|line| line.trim_start().starts_with("#[method(name ="))
+            .collect();
+        let without_session: Vec<&&str> = declared
+            .iter()
+            .filter(|line| !line.contains("with_extensions"))
+            .collect();
+        assert!(
+            without_session.is_empty(),
+            "methods declared without `with_extensions`, so their handlers cannot see the \
+             caller and cannot spend their tier: {without_session:?}"
+        );
+        assert_eq!(
+            declared.len(),
+            auth::METHOD_POLICIES.len(),
+            "the trait declares {} methods and the policy table names {}",
+            declared.len(),
+            auth::METHOD_POLICIES.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn an_authorized_method_refuses_no_session_and_a_paired_device_differently() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let project = ProjectId::new();
+
+        // No verified session: the caller is nobody.
+        let no_session = rpc
+            .set_budget(&anonymous_ext(), project, 500)
+            .await
+            .expect_err("a caller with no session set a budget");
+        assert_eq!(
+            rpc_error_code(&no_session),
+            auth::rpc_codes::UNAUTHENTICATED,
+            "an unauthenticated caller got the wrong refusal"
+        );
+
+        // A verified session that is not the owner: somebody, but not that.
+        let phone = uuid::Uuid::new_v4().to_string();
+        let paired = rpc
+            .set_budget(&paired_ext(&phone), project, 500)
+            .await
+            .expect_err("a paired device set a budget");
+        assert_eq!(
+            rpc_error_code(&paired),
+            auth::rpc_codes::FORBIDDEN,
+            "a paired device was allowed an owner's mutation"
+        );
+
+        // The same refusal shape on the other privileged surfaces.
+        for (method, result) in [
+            (
+                "roles.set",
+                rpc.set_role(&paired_ext(&phone), role_config())
+                    .await
+                    .map(|_| ()),
+            ),
+            (
+                "backend.set",
+                rpc.set_backend(
+                    &paired_ext(&phone),
+                    "run".to_string(),
+                    default_backend_kit("Shop"),
+                )
+                .await
+                .map(|_| ()),
+            ),
+        ] {
+            let error = result.expect_err(&format!("{method} accepted a paired device"));
+            assert_eq!(
+                rpc_error_code(&error),
+                auth::rpc_codes::FORBIDDEN,
+                "{method} refused a paired device for the wrong reason"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_gate_decision_refuses_a_device_id_that_is_not_the_session() {
+        // Audit H-03, at the seam: the legacy param is accepted, and a value that is
+        // not the authenticated device is refused without touching the run.
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, store) = test_state(temp.path()).await;
+        let run = stored_run_with_gate(&store, "Shop").await;
+        let rpc = WarshaRpc::new(state.clone());
+
+        let session_device = DeviceId::new();
+        let ext = owner_ext_as(session_device);
+        let claimed = DeviceId::new();
+
+        let error = rpc
+            .approve_gate(&ext, run.id, Stage::GateA, Some(claimed))
+            .await
+            .expect_err("a spoofed approver was recorded");
+        assert_eq!(
+            rpc_error_code(&error),
+            auth::rpc_codes::IDENTITY_MISMATCH,
+            "a claimed device id was not refused as a mismatch"
+        );
+
+        let untouched = store.get_run(run.id).await.expect("the run is readable");
+        assert!(
+            matches!(untouched.gate_states[&Stage::GateA], GateState::Pending),
+            "the refused decision still moved the gate"
+        );
+
+        // The session's own id, sent the old way, is accepted — and what is recorded is
+        // the session's device either way.
+        let approved = rpc
+            .approve_gate(&ext, run.id, Stage::GateA, Some(session_device))
+            .await
+            .expect("the session's own device id is accepted");
+        assert!(
+            matches!(
+                approved.gate_states[&Stage::GateA],
+                GateState::Approved { by, .. } if by == session_device
+            ),
+            "the approver recorded is not the session's device"
+        );
+
+        let omitted = rpc
+            .reject_gate(&ext, run.id, Stage::GateB, "not yet".to_string(), None)
+            .await
+            .expect("a decision with no legacy param is served");
+        assert!(
+            matches!(
+                omitted.gate_states[&Stage::GateB],
+                GateState::Rejected { by, .. } if by == session_device
+            ),
+            "a decision without the legacy field lost its decider"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_session_with_no_device_id_cannot_be_recorded_as_an_approver() {
+        // A pairing whose id is not a device id is a real session for reads, and has no
+        // approver to record: the daemon says so rather than storing an invented uuid.
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, store) = test_state(temp.path()).await;
+        let run = stored_run_with_gate(&store, "Shop").await;
+        let rpc = WarshaRpc::new(state);
+
+        let error = rpc
+            .approve_gate(
+                &paired_ext("a-phone-that-named-itself"),
+                run.id,
+                Stage::GateA,
+                None,
+            )
+            .await
+            .expect_err("a session with no device id approved a gate");
+        assert_eq!(
+            rpc_error_code(&error),
+            auth::rpc_codes::IDENTITY_MISMATCH,
+            "an unrecordable approver was accepted"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_pipeline_refuses_a_gate_decision_for_no_device() {
+        // The floor under the daemon (audit H-03): even a caller that reached the
+        // pipeline directly cannot record the nil device as an approver.
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, store) = test_state(temp.path()).await;
+        let run = stored_run_with_gate(&store, "Shop").await;
+
+        let nobody = DeviceId(uuid::Uuid::nil());
+        let error = state
+            .pipeline
+            .approve_gate(run.id, Stage::GateA, nobody)
+            .await
+            .expect_err("a nil device approved a gate");
+        assert!(
+            error.to_string().contains("verified acting device"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn process_and_mcp_control_refuse_an_unlisted_program_and_a_remote_transport() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        // Only `cargo` is admitted, by configuration rather than by a caller.
+        let (state, _store) = test_state_with(temp.path(), |config| {
+            config.allowed_commands = vec!["cargo".to_string()];
+        })
+        .await;
+        let rpc = WarshaRpc::new(state);
+        let ext = owner_ext();
+
+        for (command, args) in [
+            ("rm", vec!["-rf".to_string()]),
+            ("sh", vec![]),
+            ("npm", vec![]),
+            ("", vec![]),
+        ] {
+            let error = rpc
+                .spawn_process(&ext, command.to_string(), args, HashMap::new())
+                .await
+                .expect_err(&format!("`{command}` was started"));
+            assert_eq!(
+                rpc_error_code(&error),
+                auth::rpc_codes::POLICY_REFUSED,
+                "`{command}` was refused for a reason other than the policy"
+            );
+        }
+
+        // An environment variable that changes execution is refused on its own.
+        for key in ["PATH", "LD_PRELOAD", "NODE_OPTIONS"] {
+            let mut env = HashMap::new();
+            env.insert(key.to_string(), "/tmp".to_string());
+            let error = rpc
+                .spawn_process(&ext, "cargo".to_string(), vec![], env)
+                .await
+                .expect_err(&format!("{key} was handed to a child"));
+            assert_eq!(
+                rpc_error_code(&error),
+                auth::rpc_codes::POLICY_REFUSED,
+                "{key} reached a child process"
+            );
+        }
+
+        // An allowed program is still startable: the policy restricts, it does not
+        // disable the daemon's own workflow.
+        let started = rpc
+            .spawn_process(
+                &ext,
+                "cargo".to_string(),
+                vec!["--version".to_string()],
+                HashMap::new(),
+            )
+            .await
+            .expect("an allowed program starts");
+        rpc.stop_process(&ext, started).await.ok();
+
+        // MCP transports: a stdio program is bounded like a spawn, and a remote one is
+        // bounded to a secure or loopback endpoint.
+        let unlisted =
+            warsha_pipeline::mcp_transport::McpServerConfig::new_stdio("bad", "sh", Vec::new());
+        let error = rpc
+            .connect_mcp(&ext, unlisted)
+            .await
+            .expect_err("an unlisted stdio MCP server connected");
+        assert_eq!(rpc_error_code(&error), auth::rpc_codes::POLICY_REFUSED);
+
+        for url in [
+            "http://evil.example/mcp",
+            "file:///etc/passwd",
+            "http://169.254.169.254/latest",
+        ] {
+            let error = rpc
+                .connect_mcp(
+                    &ext,
+                    warsha_pipeline::mcp_transport::McpServerConfig::new_http("remote", url),
+                )
+                .await
+                .expect_err(&format!("{url} was recorded"));
+            assert_eq!(
+                rpc_error_code(&error),
+                auth::rpc_codes::POLICY_REFUSED,
+                "{url} passed the transport policy"
+            );
+        }
+        rpc.connect_mcp(
+            &ext,
+            warsha_pipeline::mcp_transport::McpServerConfig::new_http(
+                "secure",
+                "https://mcp.example/mcp",
+            ),
+        )
+        .await
+        .expect("an https MCP endpoint is allowed");
+        rpc.connect_mcp(
+            &ext,
+            warsha_pipeline::mcp_transport::McpServerConfig::new_http(
+                "local",
+                "http://127.0.0.1:9100/mcp",
+            ),
+        )
+        .await
+        .expect("a loopback MCP endpoint is allowed");
+
+        // None of it is reachable without the owner's role.
+        let phone = uuid::Uuid::new_v4().to_string();
+        let error = rpc
+            .spawn_process(
+                &paired_ext(&phone),
+                "cargo".to_string(),
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .expect_err("a paired device reached the process table");
+        assert_eq!(rpc_error_code(&error), auth::rpc_codes::FORBIDDEN);
+    }
+
+    /// A role-routing config with no targets, for a test that only needs it to parse.
+    fn role_config() -> RoleRoutingConfig {
+        RoleRoutingConfig {
+            role: "coder".to_string(),
+            targets: Vec::new(),
+            fallback_enabled: false,
+            budget_cents_per_run: None,
+        }
+    }
+
+    /// A stored run sitting at its first two pending gates.
+    async fn stored_run_with_gate(store: &Arc<Store>, name: &str) -> Run {
+        let run = stored_run(store, name, None).await;
+        let mut run = store.get_run(run.id).await.expect("the run is readable");
+        run.gate_states.insert(Stage::GateA, GateState::Pending);
+        run.gate_states.insert(Stage::GateB, GateState::Pending);
+        store.update_run(&run).await.expect("the gates are pending");
+        run
     }
 
     #[test]
@@ -2477,7 +4341,7 @@ mod tests {
 
         let rpc = WarshaRpc::new(state);
         let summary = rpc
-            .apply_handoff(path, false)
+            .apply_handoff(&owner_ext(), path, false)
             .await
             .expect("a bundle with a project repo is applied");
         let result: ApplyResult = serde_json::from_str(&summary).expect("the summary is a result");
@@ -2523,7 +4387,7 @@ mod tests {
             .expect("the bundle is written");
 
         let error = WarshaRpc::new(state)
-            .apply_handoff(path, true)
+            .apply_handoff(&owner_ext(), path, true)
             .await
             .expect_err("an apply needs a working tree to write into");
         let message = format!("{error:?}");
@@ -2544,6 +4408,7 @@ mod tests {
         let output_dir = temp.path().join("export");
         let path = WarshaRpc::new(state)
             .export_backend(
+                &owner_ext(),
                 run.id.0.to_string(),
                 output_dir.to_string_lossy().into_owned(),
             )
@@ -2563,7 +4428,7 @@ mod tests {
         let (state, _store) = test_state(temp.path()).await;
 
         let skills = WarshaRpc::new(state)
-            .list_skills()
+            .list_skills(&owner_ext())
             .await
             .expect("the catalog is served");
 
@@ -2593,7 +4458,10 @@ mod tests {
         let rpc = WarshaRpc::new(state.clone());
 
         let planned = rpc
-            .agent_turn("/review the diff of @file src/main.rs".to_string())
+            .agent_turn(
+                &owner_ext(),
+                "/review the diff of @file src/main.rs".to_string(),
+            )
             .await
             .expect("a plan turn answers");
         assert_eq!(planned.mode, AgentMode::Plan);
@@ -2618,7 +4486,7 @@ mod tests {
             .expect("the approval is accepted");
 
         let executed = rpc
-            .agent_turn("now apply it".to_string())
+            .agent_turn(&owner_ext(), "now apply it".to_string())
             .await
             .expect("an agent turn answers");
         assert_eq!(executed.mode, AgentMode::Agent);
@@ -2648,7 +4516,10 @@ mod tests {
             .expect("the approval is accepted");
 
         let executed = rpc
-            .agent_turn("write file notes/hello.md: written by the agent".to_string())
+            .agent_turn(
+                &owner_ext(),
+                "write file notes/hello.md: written by the agent".to_string(),
+            )
             .await
             .expect("a tool turn answers");
 
@@ -2669,7 +4540,7 @@ mod tests {
 
         // A path that leaves the workspace is refused, not written.
         let refused = rpc
-            .agent_turn("write file ../escape.md: no".to_string())
+            .agent_turn(&owner_ext(), "write file ../escape.md: no".to_string())
             .await
             .expect("a refused tool turn still answers");
         assert_eq!(refused.tools.len(), 1);
@@ -2817,51 +4688,73 @@ mod tests {
     #[tokio::test]
     async fn process_rpcs_spawn_list_report_and_stop_a_real_process() {
         let temp = tempfile::tempdir().expect("a temporary directory");
-        let (state, _store) = test_state(temp.path()).await;
+        // The owner's own configuration is what admits a program: this test's
+        // long-running stand-in is `cmd`/`sh`, which the default list deliberately
+        // does not carry.
+        let (state, _store) = test_state_with(temp.path(), |config| {
+            config.allowed_commands = vec!["cmd".to_string(), "sh".to_string()];
+        })
+        .await;
         let rpc = WarshaRpc::new(state);
         let (command, args) = long_running();
 
         let id = rpc
-            .spawn_process(command.clone(), args.clone(), HashMap::new())
+            .spawn_process(&owner_ext(), command.clone(), args.clone(), HashMap::new())
             .await
             .expect("the process starts");
         assert_eq!(
-            rpc.process_status(id.clone()).await.unwrap(),
+            rpc.process_status(&owner_ext(), id.clone()).await.unwrap(),
             ProcessStatus::Running
         );
-        let listed = rpc.list_processes().await.expect("the list is served");
+        let listed = rpc
+            .list_processes(&owner_ext())
+            .await
+            .expect("the list is served");
         let process = listed.first().expect("the process is listed");
         assert_eq!(process.id, id);
         assert_eq!(process.command, command);
         assert_eq!(process.args, args);
         assert!(process.started_at.is_some());
 
-        rpc.stop_process(id.clone())
+        rpc.stop_process(&owner_ext(), id.clone())
             .await
             .expect("the process stops");
         assert_eq!(
-            rpc.process_status(id.clone()).await.unwrap(),
+            rpc.process_status(&owner_ext(), id.clone()).await.unwrap(),
             ProcessStatus::Stopped
         );
 
         // A second stop has nothing left to signal, and an unknown id is refused.
-        assert!(rpc.stop_process(id).await.is_err());
-        assert!(rpc.process_status("proc-404".to_string()).await.is_err());
+        assert!(rpc.stop_process(&owner_ext(), id).await.is_err());
+        assert!(rpc
+            .process_status(&owner_ext(), "proc-404".to_string())
+            .await
+            .is_err());
     }
 
     #[tokio::test]
     async fn mcp_rpcs_connect_send_and_disconnect_a_stdio_server() {
         let temp = tempfile::tempdir().expect("a temporary directory");
-        let (state, _store) = test_state(temp.path()).await;
-        let rpc = WarshaRpc::new(state);
         let (command, args) = probe_command("mcp_probe_server");
+        // The stdio transport starts this test's own binary as the MCP server, and the
+        // daemon's configuration is what admits that exact program.
+        let allowed = command.clone();
+        let (state, _store) = test_state_with(temp.path(), move |config| {
+            config.allowed_commands = vec![allowed];
+        })
+        .await;
+        let rpc = WarshaRpc::new(state);
 
-        rpc.connect_mcp(warsha_pipeline::mcp_transport::McpServerConfig::new_stdio(
-            "files", command, args,
-        ))
+        rpc.connect_mcp(
+            &owner_ext(),
+            warsha_pipeline::mcp_transport::McpServerConfig::new_stdio("files", command, args),
+        )
         .await
         .expect("the server connects");
-        let listed = rpc.list_mcp().await.expect("the list is served");
+        let listed = rpc
+            .list_mcp(&owner_ext())
+            .await
+            .expect("the list is served");
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].status, warsha_pipeline::McpStatus::Connected);
         assert!(listed[0].process_id.is_some());
@@ -2870,7 +4763,7 @@ mod tests {
 
         let frame = r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;
         assert_eq!(
-            rpc.send_mcp("files".to_string(), frame.to_string())
+            rpc.send_mcp(&owner_ext(), "files".to_string(), frame.to_string())
                 .await
                 .expect("the frame is written"),
             frame
@@ -2878,6 +4771,7 @@ mod tests {
 
         let call_res = rpc
             .call_mcp(
+                &owner_ext(),
                 "files".to_string(),
                 PROBE_TOOL.to_string(),
                 serde_json::json!({}),
@@ -2893,15 +4787,18 @@ mod tests {
             _ => panic!("expected text content"),
         }
 
-        rpc.disconnect_mcp("files".to_string())
+        rpc.disconnect_mcp(&owner_ext(), "files".to_string())
             .await
             .expect("the server disconnects");
-        let listed = rpc.list_mcp().await.expect("the list is served");
+        let listed = rpc
+            .list_mcp(&owner_ext())
+            .await
+            .expect("the list is served");
         assert_eq!(listed[0].status, warsha_pipeline::McpStatus::Disconnected);
         assert_eq!(listed[0].process_id, None);
         // Nothing is dialled for a *wired* name after the disconnect.
         assert!(rpc
-            .send_mcp("files".to_string(), "{}".to_string())
+            .send_mcp(&owner_ext(), "files".to_string(), "{}".to_string())
             .await
             .is_err());
     }
@@ -2912,24 +4809,30 @@ mod tests {
         let (state, _store) = test_state(temp.path()).await;
         let rpc = WarshaRpc::new(state);
 
-        rpc.connect_mcp(warsha_pipeline::mcp_transport::McpServerConfig::new_http(
-            "remote",
-            "https://mcp.example/mcp",
-        ))
+        rpc.connect_mcp(
+            &owner_ext(),
+            warsha_pipeline::mcp_transport::McpServerConfig::new_http(
+                "remote",
+                "https://mcp.example/mcp",
+            ),
+        )
         .await
         .expect("the config is recorded");
 
-        let listed = rpc.list_mcp().await.expect("the list is served");
+        let listed = rpc
+            .list_mcp(&owner_ext())
+            .await
+            .expect("the list is served");
         assert_eq!(listed[0].status, warsha_pipeline::McpStatus::Disconnected);
         assert_eq!(listed[0].process_id, None);
         assert!(rpc
-            .list_processes()
+            .list_processes(&owner_ext())
             .await
             .expect("the list is served")
             .is_empty());
         // The transport is recorded, not wired, and the error says so.
         let error = rpc
-            .send_mcp("remote".to_string(), "{}".to_string())
+            .send_mcp(&owner_ext(), "remote".to_string(), "{}".to_string())
             .await
             .expect_err("nothing dials an http transport yet");
         assert!(format!("{error:?}").contains("not wired"));
@@ -2938,19 +4841,29 @@ mod tests {
     #[tokio::test]
     async fn preview_rpcs_start_report_and_stop_one_dev_server_per_project() {
         let temp = tempfile::tempdir().expect("a temporary directory");
-        let (state, _store) = test_state(temp.path()).await;
-        let rpc = WarshaRpc::new(state.clone());
         let command = probe_line("preview_probe");
+        // A preview's command line names this test binary as its program, so the
+        // owner's configuration is what admits that exact path.
+        let program = command
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        let (state, _store) = test_state_with(temp.path(), move |config| {
+            config.allowed_commands = vec![program];
+        })
+        .await;
+        let rpc = WarshaRpc::new(state.clone());
 
         let started = rpc
-            .start_preview("project-1".to_string(), command.clone())
+            .start_preview(&owner_ext(), "project-1".to_string(), command.clone())
             .await
             .expect("the preview starts");
         assert_eq!(started.project_id, "project-1");
         // The dev server prints its address, and `preview.start` reports it (D4).
         assert_eq!(started.url.as_deref(), Some(PROBE_URL));
         let status = rpc
-            .preview_status("project-1".to_string())
+            .preview_status(&owner_ext(), "project-1".to_string())
             .await
             .expect("the preview is tracked");
         assert_eq!(status.process_id, started.process_id);
@@ -2958,7 +4871,7 @@ mod tests {
         assert_eq!(status.url.as_deref(), Some(PROBE_URL));
         // The dev server is a real child, so `process.list` sees it too.
         assert_eq!(
-            rpc.list_processes()
+            rpc.list_processes(&owner_ext())
                 .await
                 .expect("the list is served")
                 .len(),
@@ -2967,23 +4880,29 @@ mod tests {
 
         // One preview per project, and an unknown project is refused.
         assert!(rpc
-            .start_preview("project-1".to_string(), command)
+            .start_preview(&owner_ext(), "project-1".to_string(), command)
             .await
             .is_err());
-        assert!(rpc.preview_status("nobody".to_string()).await.is_err());
+        assert!(rpc
+            .preview_status(&owner_ext(), "nobody".to_string())
+            .await
+            .is_err());
 
-        rpc.stop_preview("project-1".to_string())
+        rpc.stop_preview(&owner_ext(), "project-1".to_string())
             .await
             .expect("the preview stops");
         assert_eq!(
-            rpc.preview_status("project-1".to_string())
+            rpc.preview_status(&owner_ext(), "project-1".to_string())
                 .await
                 .expect("the preview is still tracked")
                 .status,
             ProcessStatus::Stopped
         );
         // The process stays in the list as a stopped record.
-        let listed = rpc.list_processes().await.expect("the list is served");
+        let listed = rpc
+            .list_processes(&owner_ext())
+            .await
+            .expect("the list is served");
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].status, ProcessStatus::Stopped);
     }
@@ -2995,7 +4914,10 @@ mod tests {
         let rpc = WarshaRpc::new(state.clone());
 
         // Empty at start
-        let list = rpc.list_routines().await.expect("list routines");
+        let list = rpc
+            .list_routines(&owner_ext())
+            .await
+            .expect("list routines");
         assert!(list.is_empty());
 
         // Register routines
@@ -3016,28 +4938,31 @@ mod tests {
         }
 
         // List
-        let list = rpc.list_routines().await.expect("list routines");
+        let list = rpc
+            .list_routines(&owner_ext())
+            .await
+            .expect("list routines");
         assert_eq!(list.len(), 2);
         assert_eq!(list[0].id, "task-interval");
         assert_eq!(list[1].id, "task-manual");
 
         // Get
         let item = rpc
-            .get_routine("task-manual".to_string())
+            .get_routine(&owner_ext(), "task-manual".to_string())
             .await
             .expect("get routine");
         assert!(item.is_some());
         assert_eq!(item.unwrap().name, "Manual Routine");
 
         let ghost = rpc
-            .get_routine("ghost".to_string())
+            .get_routine(&owner_ext(), "ghost".to_string())
             .await
             .expect("get ghost routine");
         assert!(ghost.is_none());
 
         // Run now
         let updated = rpc
-            .run_routine_now("task-manual".to_string())
+            .run_routine_now(&owner_ext(), "task-manual".to_string())
             .await
             .expect("run routine now");
         assert_eq!(updated.id, "task-manual");
@@ -3046,22 +4971,31 @@ mod tests {
 
         // Pause
         let paused = rpc
-            .pause_routine("task-interval".to_string())
+            .pause_routine(&owner_ext(), "task-interval".to_string())
             .await
             .expect("pause routine");
         assert_eq!(paused.state, warsha_pipeline::RoutineState::Paused);
 
         // Resume
         let resumed = rpc
-            .resume_routine("task-interval".to_string())
+            .resume_routine(&owner_ext(), "task-interval".to_string())
             .await
             .expect("resume routine");
         assert_eq!(resumed.state, warsha_pipeline::RoutineState::Idle);
 
         // Not found error
-        assert!(rpc.run_routine_now("ghost".to_string()).await.is_err());
-        assert!(rpc.pause_routine("ghost".to_string()).await.is_err());
-        assert!(rpc.resume_routine("ghost".to_string()).await.is_err());
+        assert!(rpc
+            .run_routine_now(&owner_ext(), "ghost".to_string())
+            .await
+            .is_err());
+        assert!(rpc
+            .pause_routine(&owner_ext(), "ghost".to_string())
+            .await
+            .is_err());
+        assert!(rpc
+            .resume_routine(&owner_ext(), "ghost".to_string())
+            .await
+            .is_err());
     }
 
     #[tokio::test]
@@ -3090,7 +5024,7 @@ mod tests {
         }
 
         let diff = rpc
-            .check_provider_models("ollama_test".to_string())
+            .check_provider_models(&owner_ext(), "ollama_test".to_string())
             .await
             .expect("check_provider_models succeeds");
         assert_eq!(diff.provider, "ollama_test");
@@ -3098,8 +5032,509 @@ mod tests {
         assert_eq!(diff.new_models[0].id, "qwen2.5-coder:7b");
 
         assert!(rpc
-            .check_provider_models("non_existent".to_string())
+            .check_provider_models(&owner_ext(), "non_existent".to_string())
             .await
             .is_err());
+    }
+
+    // ---- Re-audit LOAD-1 finding 1: the tier table has to bind the read surface too.
+    //
+    // 24 of the 56 methods were declared without `with_extensions`, so their handlers had
+    // no `RpcExtensions` to read and never reached `authorize()` — the only place a tier
+    // token is spent. Their `Tier::Standard` rows in `METHOD_POLICIES` were dead on the
+    // RPC surface and the spike run proved it: 1.34M requests, zero `-32004`, and the
+    // admitted total landed exactly on the far looser transport ceiling. These tests are
+    // the two claims the fix has to hold: a method-level ceiling now fires on a read, and
+    // no read answers a caller that never authenticated.
+
+    /// Every read method, refused for want of a session.
+    ///
+    /// Driven in-process, which is the floor under the transport: a paired device, an
+    /// unpaired caller or an embedded host that forgets to build the extensions must not
+    /// get data out of a handler that no longer has an identity to check. The wire
+    /// half — a request with no credential never reaches a handler at all — is
+    /// `security_identity.rs` and `security_rate_limits.rs`.
+    #[tokio::test]
+    async fn every_read_method_refuses_a_caller_with_no_session() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let anonymous = anonymous_session();
+        let project = ProjectId::new();
+        let run = RunId::new();
+
+        let outcomes = [
+            ("health", rpc.health(&anonymous).await.map(|_| ())),
+            (
+                "projects.list",
+                rpc.list_projects(&anonymous).await.map(|_| ()),
+            ),
+            (
+                "projects.get",
+                rpc.get_project(&anonymous, project).await.map(|_| ()),
+            ),
+            ("runs.get", rpc.get_run(&anonymous, run).await.map(|_| ())),
+            (
+                "runs.list",
+                rpc.list_runs(&anonymous, project).await.map(|_| ()),
+            ),
+            (
+                "runs.events",
+                rpc.get_events(&anonymous, run).await.map(|_| ()),
+            ),
+            (
+                "providers.list",
+                rpc.list_providers(&anonymous).await.map(|_| ()),
+            ),
+            ("roles.list", rpc.list_roles(&anonymous).await.map(|_| ())),
+            (
+                "budget.show",
+                rpc.show_budget(&anonymous, project).await.map(|_| ()),
+            ),
+            (
+                "devices.list",
+                rpc.list_devices(&anonymous).await.map(|_| ()),
+            ),
+            (
+                "pairing.list",
+                rpc.list_pairings(&anonymous).await.map(|_| ()),
+            ),
+            (
+                "backend.get",
+                rpc.get_backend(&anonymous, "run".to_string())
+                    .await
+                    .map(|_| ()),
+            ),
+            (
+                "runmode.list",
+                rpc.list_run_modes(&anonymous).await.map(|_| ()),
+            ),
+            (
+                "preferences.list",
+                rpc.list_preferences(&anonymous, "project".to_string())
+                    .await
+                    .map(|_| ()),
+            ),
+            (
+                "preferences.record",
+                rpc.record_preference(
+                    &anonymous,
+                    PreferenceSignal::new(
+                        "signal-1",
+                        "project",
+                        "owner",
+                        warsha_pipeline::SignalKind::Approve,
+                        "button",
+                        1_700_000_000,
+                    ),
+                )
+                .await
+                .map(|_| ()),
+            ),
+            (
+                "postlaunch.crashes",
+                rpc.list_crash_reports(&anonymous, "run".to_string())
+                    .await
+                    .map(|_| ()),
+            ),
+            (
+                "postlaunch.reviews",
+                rpc.list_store_reviews(&anonymous, "apple".to_string())
+                    .await
+                    .map(|_| ()),
+            ),
+            ("skills.list", rpc.list_skills(&anonymous).await.map(|_| ())),
+            (
+                "process.status",
+                rpc.process_status(&anonymous, "proc-1".to_string())
+                    .await
+                    .map(|_| ()),
+            ),
+            (
+                "process.list",
+                rpc.list_processes(&anonymous).await.map(|_| ()),
+            ),
+            ("mcp.list", rpc.list_mcp(&anonymous).await.map(|_| ())),
+            (
+                "preview.status",
+                rpc.preview_status(&anonymous, "project".to_string())
+                    .await
+                    .map(|_| ()),
+            ),
+            (
+                "routines.list",
+                rpc.list_routines(&anonymous).await.map(|_| ()),
+            ),
+            (
+                "routines.get",
+                rpc.get_routine(&anonymous, "task".to_string())
+                    .await
+                    .map(|_| ()),
+            ),
+        ];
+
+        assert_eq!(
+            outcomes.len(),
+            24,
+            "the read surface the re-audit counted is what this asserts over"
+        );
+        for (method, outcome) in outcomes {
+            let error = outcome.expect_err(&format!("{method} served a caller with no session"));
+            assert_eq!(
+                rpc_error_code(&error),
+                auth::rpc_codes::UNAUTHENTICATED,
+                "{method} refused an unauthenticated caller for the wrong reason"
+            );
+        }
+    }
+
+    /// The `standard` tier is spent by a read now, which is the finding's actual claim:
+    /// `projects.list` can be refused with the method-tier code while the transport
+    /// ceiling in front of it is still serving traffic normally.
+    #[tokio::test]
+    async fn a_read_is_measured_by_its_own_tier_and_not_only_by_the_transport() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, _store) = test_state_with(temp.path(), |config| {
+            // The transport stays wide — the refusal below has to come from the method
+            // tier, not from the whole-request bucket in front of it.
+            config.rate_limits = RateLimitConfig {
+                transport: QuotaConfig {
+                    burst: 600,
+                    sustained: 600,
+                    window_secs: 60,
+                },
+                standard: QuotaConfig {
+                    burst: 3,
+                    sustained: 3,
+                    window_secs: 60,
+                },
+                ..RateLimitConfig::default()
+            };
+        })
+        .await;
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+
+        for _ in 0..3 {
+            rpc.list_projects(&owner)
+                .await
+                .expect("the standard burst is served");
+        }
+
+        let refused = rpc
+            .list_projects(&owner)
+            .await
+            .map(|_| ())
+            .expect_err("a read past the standard ceiling was served");
+        assert_eq!(
+            rpc_error_code(&refused),
+            auth::rpc_codes::RATE_LIMITED,
+            "the method tier did not bind the method tier's own caller"
+        );
+
+        // A second identity is not refused for the first one's flood.
+        let phone = uuid::Uuid::new_v4().to_string();
+        rpc.list_projects(&paired_ext(&phone))
+            .await
+            .expect("one caller's ceiling is not another's");
+
+        // The refusal is the tier's, not the method's: `health` sits in `standard` with
+        // the other reads, so the same caller that drained the bucket is refused there too
+        // — which is what the table claiming one ceiling per tier has to mean.
+        let health_refused = rpc
+            .health(&owner)
+            .await
+            .map(|_| ())
+            .expect_err("the standard tier refueled between two calls in one test");
+        assert_eq!(
+            rpc_error_code(&health_refused),
+            auth::rpc_codes::RATE_LIMITED,
+            "the tier is not per identity and ceiling"
+        );
+    }
+
+    /// Re-audit N-8 on the one write that sat on the read surface: `preferences.record`
+    /// now needs a session, spends its tier and records its actor — and a paired device is
+    /// still allowed to record taste, which is what the table has always said.
+    #[tokio::test]
+    async fn recording_a_preference_is_a_write_with_a_ceiling_and_an_actor() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, _store) = test_state_with(temp.path(), |config| {
+            config.rate_limits = RateLimitConfig {
+                standard: QuotaConfig {
+                    burst: 1,
+                    sustained: 1,
+                    window_secs: 60,
+                },
+                ..RateLimitConfig::default()
+            };
+        })
+        .await;
+        let rpc = WarshaRpc::new(state);
+        let phone = uuid::Uuid::new_v4().to_string();
+        let paired = paired_ext(&phone);
+        let signal = || {
+            PreferenceSignal::new(
+                uuid::Uuid::new_v4().to_string(),
+                "project-1",
+                "owner-1",
+                warsha_pipeline::SignalKind::Approve,
+                "button",
+                1_700_000_000,
+            )
+        };
+
+        // Served once, and its own ceiling binds the next one rather than the caller
+        // writing the settings file forever.
+        rpc.record_preference(&paired, signal())
+            .await
+            .expect("a paired device records taste");
+        let refused = rpc
+            .record_preference(&paired, signal())
+            .await
+            .map(|_| ())
+            .expect_err("an unbounded write on the read surface");
+        assert_eq!(
+            rpc_error_code(&refused),
+            auth::rpc_codes::RATE_LIMITED,
+            "the standard tier did not bind the write it names"
+        );
+
+        // A caller with no session writes nothing at all.
+        let anonymous = rpc
+            .record_preference(&anonymous_session(), signal())
+            .await
+            .map(|_| ())
+            .expect_err("no session recorded a preference");
+        assert_eq!(
+            rpc_error_code(&anonymous),
+            auth::rpc_codes::UNAUTHENTICATED,
+            "an unauthenticated caller persisted a preference"
+        );
+    }
+
+    /// The log lines a daemon wrote, kept by a test subscriber.
+    ///
+    /// Two of this batch's findings are about the *shape* of the log rather than the value
+    /// of any field: a startup line written twice, and a refusal line written 1.3 million
+    /// times. Neither is assertable from a handler's return value, so the daemon's own
+    /// output is captured and counted.
+    #[derive(Clone, Default)]
+    struct LogCapture(Arc<std::sync::Mutex<Vec<String>>>);
+
+    impl LogCapture {
+        /// Every line written so far.
+        fn lines(&self) -> Vec<String> {
+            self.0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone()
+        }
+
+        /// How many lines carry `needle`.
+        fn count_matching(&self, needle: &str) -> usize {
+            self.lines()
+                .iter()
+                .filter(|line| line.contains(needle))
+                .count()
+        }
+    }
+
+    /// The one field of an event a log-shape test needs: its message.
+    #[derive(Default)]
+    struct MessageVisitor {
+        message: String,
+    }
+
+    impl tracing::field::Visit for MessageVisitor {
+        fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+            if field.name() == "message" {
+                self.message = value.to_string();
+            }
+        }
+
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+            if field.name() == "message" {
+                self.message = format!("{value:?}");
+            }
+        }
+    }
+
+    /// A subscriber layer that appends each event's level and message to a [`LogCapture`].
+    struct CaptureLayer(LogCapture);
+
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for CaptureLayer {
+        fn on_event(
+            &self,
+            event: &tracing::Event<'_>,
+            _ctx: tracing_subscriber::layer::Context<'_, S>,
+        ) {
+            let mut visitor = MessageVisitor::default();
+            event.record(&mut visitor);
+            self.0
+                 .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(format!("{} {}", event.metadata().level(), visitor.message));
+        }
+    }
+
+    /// The capture, with a filter mounted beside it.
+    ///
+    /// The filter is not decoration. tracing caches, per callsite, whether it is *ever*
+    /// enabled, and a callsite first reached by another test running in parallel — with no
+    /// subscriber of its own — is cached as "never", which blinds a thread-local capture to
+    /// exactly the line it is looking for. A subscriber that answers `Interest::sometimes()`
+    /// bypasses that cache, so the capture sees the events whatever the rest of the suite
+    /// has already done to the callsite: without the filter these two tests pass under
+    /// `--test-threads=1` and fail in a parallel run.
+    fn capture_subscriber(
+        capture: &LogCapture,
+    ) -> impl tracing::Subscriber + Send + Sync + 'static {
+        use tracing_subscriber::layer::SubscriberExt;
+
+        tracing_subscriber::Registry::default()
+            .with(CaptureLayer(capture.clone()))
+            .with(tracing_subscriber::filter::Targets::new().with_default(tracing::Level::TRACE))
+    }
+
+    /// Re-audit LOAD-1 finding 3: the listener lines are written once per daemon start.
+    ///
+    /// The measured startup log carried each of them twice — once from `start_daemon`,
+    /// which is the code that knows the ports, and once from `run_daemon`, which only
+    /// repeats them. Asserted two ways on purpose: the runtime capture proves one start
+    /// writes one of each, and the source scan proves nothing has grown a second format
+    /// string for the same line, which is how the duplicate came back the first time.
+    #[test]
+    fn the_startup_listener_lines_are_written_once() {
+        let capture = LogCapture::default();
+        let subscriber = capture_subscriber(&capture);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a current-thread runtime");
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let data_dir = temp.path().to_path_buf();
+
+        tracing::subscriber::with_default(subscriber, || {
+            runtime.block_on(async move {
+                let config = DaemonConfig {
+                    data_dir,
+                    auth_token: "one-line-token".to_string(),
+                    http_port: 0,
+                    ws_port: 0,
+                    ..Default::default()
+                };
+                let handle =
+                    start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))
+                        .await
+                        .expect("the daemon starts");
+                assert!(handle.http_port() > 0 && handle.rpc_port() > 0);
+                handle.shutdown().await;
+            });
+        });
+
+        assert_eq!(
+            capture.count_matching("HTTP server listening"),
+            1,
+            "the HTTP listener line was written more than once: {:?}",
+            capture.lines()
+        );
+        assert_eq!(
+            capture.count_matching("JSON-RPC server listening"),
+            1,
+            "the RPC listener line was written more than once: {:?}",
+            capture.lines()
+        );
+
+        // The source-level guard: exactly one format string each, in the production part of
+        // the crate. The duplicate this batch removed was a second call site in
+        // `run_daemon`, and a second call site is exactly what this catches — the runtime
+        // count above only sees the one start this test performed.
+        let source = include_str!("lib.rs");
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("the crate has a test module to exclude");
+        for shape in ["HTTP server listening on", "JSON-RPC server listening on"] {
+            let sites = production
+                .lines()
+                .filter(|line| line.contains(shape))
+                .count();
+            assert_eq!(
+                sites, 1,
+                "`{shape}` is written from {sites} places; a listener line has one owner"
+            );
+        }
+    }
+
+    /// Re-audit LOAD-1 finding 2 at the daemon: a flood of refusals is a count, and one
+    /// line — not a line per refusal.
+    ///
+    /// Asserted on the meter the handler actually drives (refusals counted, lines handed
+    /// out, tallies kept) rather than on a log the test process intercepts. A subscriber
+    /// installed inside one test of a parallel suite only sees the events whose callsites
+    /// route to it, and the callsite here is shared with the other refusal tests in this
+    /// binary, so a capture assertion is flaky by construction; a counter is not. What the
+    /// line *says* — counts, a ceiling, a one-way digest, never an identity or a token —
+    /// is asserted next to the function that builds it, in `warsha-remote`.
+    #[test]
+    fn a_flood_of_refusals_is_counted_and_earns_one_line() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a current-thread runtime");
+        let temp = tempfile::tempdir().expect("a temporary directory");
+
+        runtime.block_on(async {
+            let (state, _store) = test_state_with(temp.path(), |config| {
+                config.rate_limits = RateLimitConfig {
+                    standard: QuotaConfig {
+                        burst: 1,
+                        sustained: 1,
+                        window_secs: 60,
+                    },
+                    ..RateLimitConfig::default()
+                };
+            })
+            .await;
+            let rpc = WarshaRpc::new(state.clone());
+            let owner = owner_ext();
+
+            // The first call is served; every one after it is a refusal.
+            rpc.list_projects(&owner).await.expect("the burst");
+            for _ in 0..500 {
+                let refused = rpc
+                    .list_projects(&owner)
+                    .await
+                    .map(|_| ())
+                    .expect_err("a caller past its ceiling was served");
+                assert_eq!(rpc_error_code(&refused), auth::rpc_codes::RATE_LIMITED);
+            }
+
+            let meter = state.rates.refusals();
+            assert_eq!(meter.refusals_total(), 500, "every refusal is counted");
+            assert_eq!(
+                meter.lines_written(),
+                1,
+                "500 refusals earned one line, not 500 of them"
+            );
+            assert_eq!(meter.tracked(), 1, "one caller earned one tally");
+            assert_eq!(meter.untracked(), 0, "the meter overflowed its bound");
+
+            // And nothing about the caller survives in the state that prints: the limiter
+            // keys, the identity labels and the daemon's own credential are all absent, so
+            // a `debug!` of the governor cannot leak what the refusal line already refuses
+            // to print.
+            let printed = format!("{:?}", state.rates);
+            assert!(
+                !printed.contains("test-token"),
+                "the ceilings printed the owner credential: {printed}"
+            );
+            assert!(
+                !printed.contains("identity:") && !printed.contains("peer:"),
+                "the ceilings printed a limiter key: {printed}"
+            );
+        });
     }
 }

@@ -1,33 +1,26 @@
-// Router additions — local-vs-cloud badge for a model target (PLAN.md M14b).
-// Mirrors `TargetKind` in `crates/warsha-pipeline/src/router_quality.rs`, so the
-// router and cost views can label every target the same way.
+// Router additions — local-vs-cloud badge for a model target (PLAN.md M14b), redrawn for the bench.
+// Mirrors `TargetKind` in `crates/warsha-pipeline/src/router_quality.rs`, so the router and cost views can
+// label every target the same way.
+//
+// The bench reading (§1, §9): where a model runs is a *fact about the machine*, not something waiting on
+// the owner, so it takes a rule and a glyph rather than the signal yellow. The word is the accessible
+// channel; the dot is the second one. Every word is `@warsha/i18n` (`router.kind.*`).
 import { t, useDirection, useLocale, type Locale } from '@warsha/i18n';
 
 export type TargetKind = 'local' | 'cloud';
 
-const kindLabels: Record<TargetKind, Record<Locale, string>> = {
-  local: { ar: 'محلي', en: 'Local' },
-  cloud: { ar: 'سحابي', en: 'Cloud' },
-};
-
-const kindHints: Record<TargetKind, Record<Locale, string>> = {
-  local: { ar: 'يعمل على هذا الجهاز', en: 'Runs on this device' },
-  cloud: { ar: 'يعمل على خوادم المزوّد', en: 'Runs on the provider servers' },
-};
-
-const kindColors: Record<TargetKind, { background: string; color: string }> = {
-  local: { background: 'var(--warsha-color-surface-muted)', color: 'var(--warsha-color-success)' },
-  cloud: { background: 'var(--warsha-color-surface-muted)', color: 'var(--warsha-color-accent-strong)' },
-};
-
-/**
- * Translate a key, falling back to the local label when the catalog has no
- * entry yet (`t` returns the key itself for a missing message).
- */
-function localized(key: string, fallback: string, locale: Locale): string {
-  const translated = t(key, {}, locale);
-  return translated === key ? fallback : translated;
+/** The kind's word in the active locale. */
+export function targetKindLabel(kind: TargetKind, locale: Locale): string {
+  return t(`router.kind.${kind}`, {}, locale);
 }
+
+/** Where the target runs, in the active locale. */
+export function targetKindHint(kind: TargetKind, locale: Locale): string {
+  return t(`router.kind_hint.${kind}`, {}, locale);
+}
+
+/** The colour-free half of the state: this device, or somebody else's server. */
+const KIND_GLYPH: Record<TargetKind, string> = { local: '▪', cloud: '☁' };
 
 export interface LocalCloudBadgeProps {
   /** Where the target runs. */
@@ -42,31 +35,39 @@ export function LocalCloudBadge({ kind, targetName, model }: LocalCloudBadgeProp
   const dir = useDirection();
   const locale = useLocale();
 
-  const label = localized(`router.kind.${kind}`, kindLabels[kind][locale], locale);
-  const hint = localized(`router.kind_hint.${kind}`, kindHints[kind][locale], locale);
+  const label = targetKindLabel(kind, locale);
+  const hint = targetKindHint(kind, locale);
+  // Names and model ids are identifiers: they stay in the order the daemon reported them, isolated from
+  // the surrounding Arabic (§11).
   const detail = [targetName, model].filter((part) => typeof part === 'string' && part !== '');
   const title = detail.length > 0 ? `${hint} — ${detail.join(' · ')}` : hint;
-  const colors = kindColors[kind];
 
   return (
     <span
       dir={dir}
+      data-testid="local-cloud-badge"
       data-kind={kind}
       title={title}
       aria-label={title}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
+        gap: 'var(--warsha-space-1)',
         paddingInline: 'var(--warsha-space-2)',
-        paddingBlock: '2px',
-        borderRadius: '999px',
+        minBlockSize: 'var(--warsha-size-chip)',
+        borderRadius: 'var(--warsha-radius-sm)',
+        border: 'var(--warsha-size-rule) solid var(--warsha-bench-edge)',
+        backgroundColor: 'var(--warsha-bench-plate)',
+        color: 'var(--warsha-color-text)',
         fontSize: 'var(--warsha-font-size-xs)',
-        fontWeight: 600,
-        backgroundColor: colors.background,
-        color: colors.color,
+        fontWeight: 'var(--warsha-font-weight-medium)',
         whiteSpace: 'nowrap',
+        unicodeBidi: 'isolate',
       }}
     >
+      <span aria-hidden="true" style={{ fontFamily: 'var(--warsha-font-mono)' }}>
+        {KIND_GLYPH[kind]}
+      </span>
       {label}
     </span>
   );

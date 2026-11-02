@@ -1,495 +1,887 @@
-// Advanced Mode — Full workspace (modeled on ZadLoop's workspace)
-// Per-agent lanes, live event stream, diffs, file tree, terminal, kanban, skills/MCP config, costs
-import { type WarshaClient, type ProjectSummary, type WarshaEvent, subscribeEvents } from '@warsha/client';
-import { useLocale, useDirection, t } from '@warsha/i18n';
-import { Box, Text, Button, Card } from '@warsha/ui';
-import React, { useState, useEffect } from 'react';
+// Advanced mode — the deeper rung of the same bench (PLAN.md M20, docs/design/REDESIGN.md §3, §5).
+//
+// What this screen is for is the reviewing developer's question: *prove the run is reproducible*. So it
+// shows the lanes the team actually ran, the event stream with its filters, the task board the loop
+// recorded, the run's log, the cost the run spent, and the ship status of what it produced. Simple mode
+// says the same state in plain words; nothing here changes the pipeline, the gates or the data model (§3),
+// and switching mode keeps the project, the run and the pane the owner was reading.
+//
+// The bench shape:
+//
+//   * the start rail (§4, §1.2) is lanes, then runs, then the two controls the owner sets here — one row,
+//     one lamp, one name, one cost. Below 768px `index.css` lays the rail down as a horizontal strip, so
+//     the phone bench never grows a second column that overflows (§10);
+//   * at ≥1024 the bench splits the stream (main) from the panes (side) — §10's "Advanced splits
+//     stream/panes";
+//   * machine data is mono with tabular numerals and `translate="no"`, prose is sans (§11); the stream is
+//     a `role="log"` polite region, so a hundred tool calls narrate instead of interrupting (§9);
+//   * a filter never hides a gate event (§3), and every plate has its loading, empty, error and offline
+//     reading in words rather than in a colour (§7).
+//
+// Every word is `@warsha/i18n` (`advanced.*`, `bench.*`, `status_strip.*`). The local `{ ar, en }` tab
+// table, the `t(...) || 'literal'` fallbacks, the `ROLE_COLORS` map, the mock command runner and the
+// invented cost cards are gone. The data path is the client's own: `runs.list`, `agent.state`,
+// `runs.logs`, `budget.project` and the `/events` socket — nothing here pretends at an RPC the daemon
+// does not have.
+import {
+  subscribeEvents,
+  type AgentTodo,
+  type BudgetStatus,
+  type ProjectSummary,
+  type Role,
+  type RunSummary,
+  type WarshaClient,
+  type WarshaEvent,
+} from '@warsha/client';
+import { t, useDirection, useLocale, type Locale } from '@warsha/i18n';
+import {
+  Banner,
+  Box,
+  Button,
+  Chip,
+  DiffView,
+  EmptyState,
+  Lamp,
+  Ledger,
+  Meter,
+  Panel,
+  RailHead,
+  RailRow,
+  Skeleton,
+  Stream,
+  TerminalDock,
+  TerminalLine,
+  tabPanelProps,
+  type LampState,
+  type StreamKind,
+} from '@warsha/ui';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+import { PermissionModeChip, type PermissionMode } from '../components/PermissionModeChip';
+import { PlanModeBadge, type AgentMode } from '../components/PlanModeBadge';
+import {
+  preflightCheckNames,
+  preflightReady,
+  ReleasePreflight,
+  type PreflightCheck,
+} from '../components/ReleasePreflight';
+import { RunModeBadge, type RunMode } from '../components/RunModeBadge';
+import { SnapshotRestoreButton } from '../components/SnapshotRestoreButton';
+import { initialDeliveryStages, StatusStrip, type DeliveryStage } from '../components/StatusStrip';
+import { WebDeployButton, type DeployStatus } from '../components/WebDeployButton';
 
 interface AdvancedModeProps {
   client: WarshaClient;
   project: ProjectSummary;
   onBack?: () => void;
+  /**
+   * Where the daemon is: the HTTP base it answers on and the token that reaches it.
+   *
+   * The shell resolves both from the Tauri config (`daemon_url` / `daemon_token` in
+   * `apps/desktop/src-tauri/src/lib.rs`) and passes them down, so this screen never names a port or a
+   * secret of its own.
+   */
+  endpoint: { baseUrl: string; token: string };
 }
 
-interface AgentLane {
-  id: string;
-  name: string;
-  role: string;
-  model: string;
-  status: 'idle' | 'running' | 'waiting' | 'done' | 'error';
-  events: WarshaEvent[];
+/** Which pane the side column shows. */
+type AdvancedPane = 'board' | 'files' | 'diff' | 'terminal' | 'costs' | 'ship';
+
+const ADVANCED_PANES: readonly AdvancedPane[] = ['board', 'files', 'diff', 'terminal', 'costs', 'ship'];
+
+/** Which subset of the event stream the owner asked for (§3's filter chips). */
+type StreamFilter = 'all' | 'tools' | 'errors' | 'costs' | 'gates';
+
+const STREAM_FILTERS: readonly StreamFilter[] = ['all', 'tools', 'errors', 'costs', 'gates'];
+
+/** A lane: one role's worth of events, folded out of the live stream (§3's first rung). */
+interface Lane {
+  /** The rail's key for this lane — the role, or `unassigned` for events with no role yet. */
+  key: string;
+  role: Role | null;
+  events: number;
   costCents: number;
+  waiting: boolean;
+  failed: boolean;
 }
 
-const ROLE_COLORS: Record<string, string> = {
-  Orchestrator: 'var(--warsha-color-accent-strong)',
-  Intake: 'var(--warsha-color-text-muted)',
-  Researcher: 'var(--warsha-color-accent-strong)',
-  Pm: 'var(--warsha-color-accent-strong)',
-  Designer: 'var(--warsha-color-error)',
-  Architect: 'var(--warsha-color-warning)',
-  Coder: 'var(--warsha-color-success)',
-  Reviewer: 'var(--warsha-color-success)',
-  Qa: 'var(--warsha-color-warning)',
-  Security: 'var(--warsha-color-error)',
-  Release: 'var(--warsha-color-accent-strong)',
-  Marketer: 'var(--warsha-color-error)',
-  Feedback: 'var(--warsha-color-accent-strong)',
-};
+/** The lane's rail key: a role names itself; an event with no role joins the unassigned lane. */
+function laneKeyOf(event: WarshaEvent): string {
+  return event.role ?? 'unassigned';
+}
 
-export function AdvancedMode({ client, project, onBack }: AdvancedModeProps) {
+/** A lane is waiting on the owner, blocked, or moving — the three readings the lamp knows. */
+function laneLamp(lane: Lane): LampState {
+  if (lane.waiting) return 'waiting';
+  if (lane.failed) return 'fail';
+  return 'working';
+}
+
+/** The catalog word for a role (§11: the role is prose, so it is translated). */
+function roleWord(lane: Lane, locale: Locale): string {
+  return lane.role === null
+    ? t('advanced.lane_unassigned', {}, locale)
+    : t(`role.${lane.role}`, {}, locale);
+}
+
+/** The stage's word: the four gates keep their own labels, the pipeline stages read from `run.stage.*`. */
+function stageWord(stage: string, locale: Locale): string {
+  return t(stage.startsWith('gate_') ? `gates.label.${stage}` : `run.stage.${stage}`, {}, locale);
+}
+
+/** The three run states the bench names; anything else is the daemon's own word, in mono. */
+export function runStateWord(status: string, locale: Locale): string {
+  const known = ['running', 'completed', 'failed'];
+  return known.includes(status) ? t(`run.state_${status}`, {}, locale) : status;
+}
+
+/** A gate event is the stage's own name or a kind that says gate (§3: the one event a filter keeps). */
+export function isGateEvent(event: WarshaEvent): boolean {
+  return event.stage.startsWith('gate_') || /gate|approval|decision/i.test(event.kind);
+}
+
+/**
+ * Whether an event passes a filter — and gate events always pass (§3).
+ *
+ * The rule is in the direction because a hidden gate is a hidden decision: an owner who filtered to
+ * "tools" must still see the line that says the run is waiting on them.
+ */
+export function eventPassesFilter(event: WarshaEvent, filter: StreamFilter): boolean {
+  if (isGateEvent(event)) return true;
+  switch (filter) {
+    case 'all':
+      return true;
+    case 'tools':
+      return /tool|exec|command|spawn/i.test(event.kind);
+    case 'errors':
+      return /error|fail|refus|denied|timeout/i.test(event.kind);
+    case 'costs':
+      return event.costCents !== null && event.costCents > 0;
+    case 'gates':
+      return false;
+  }
+}
+
+/** The glyph a stream line takes for this event (§9: the kind is said without colour). */
+export function eventStreamKind(event: WarshaEvent): StreamKind {
+  if (isGateEvent(event)) return 'gate';
+  if (/error|fail|refus|denied|timeout/i.test(event.kind)) return 'fail';
+  if (/pass|ok|done|complete/i.test(event.kind)) return 'ok';
+  if (/tool|exec|command|spawn/i.test(event.kind)) return 'tool';
+  return 'default';
+}
+
+/** A todo's bench state: done, running, or still to do (§5's task board columns). */
+export function todoState(status: AgentTodo['status']): 'done' | 'running' | 'todo' {
+  if (status === 'done') return 'done';
+  if (status === 'in_progress') return 'running';
+  return 'todo';
+}
+
+/**
+ * The `/events` address for a daemon base URL.
+ *
+ * `subscribeEvents` appends `/events` to whatever it is given and opens a WebSocket, so an `http://`
+ * base has to become `ws://` (and `https://` → `wss://`) before it gets there — a socket to an `http:`
+ * URL is rejected by the browser, which is the difference between a live bench and a permanently
+ * offline one.
+ */
+export function eventStreamUrl(baseUrl: string): string {
+  return baseUrl.replace(/^http/i, 'ws');
+}
+
+/** `$4.20` — Western digits, two decimals, mono upstream (§11). */
+function money(usd: number): string {
+  return `$${usd.toFixed(2)}`;
+}
+
+/** The six release checks before any of them has run. */
+function pendingChecks(): PreflightCheck[] {
+  return preflightCheckNames.map((name) => ({ name, status: 'pending' as const }));
+}
+
+export function AdvancedMode({ client, project, onBack, endpoint }: AdvancedModeProps) {
   const dir = useDirection();
   const locale = useLocale();
-  const [selectedTab, setSelectedTab] = useState<'lanes' | 'events' | 'diffs' | 'files' | 'terminal' | 'kanban' | 'skills' | 'costs'>('lanes');
-  const [lanes, setLanes] = useState<AgentLane[]>([]);
-  const [events, setEvents] = useState<WarshaEvent[]>([]);
-  const [runCount, setRunCount] = useState(0);
-  const [terminalOutput, setTerminalOutput] = useState<string[]>(['Welcome to Warsha Advanced Mode', 'Type "help" for commands']);
-  const [terminalInput, setTerminalInput] = useState('');
 
-  // Initialize runs, then follow the live event stream to build lanes.
+  const [runs, setRuns] = useState<RunSummary[]>([]);
+  const [runsState, setRunsState] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const [run, setRun] = useState<RunSummary | null>(null);
+  const [events, setEvents] = useState<WarshaEvent[]>([]);
+  const [streamOffline, setStreamOffline] = useState(false);
+  const [streamNonce, setStreamNonce] = useState(0);
+  const [filter, setFilter] = useState<StreamFilter>('all');
+  const [laneFilter, setLaneFilter] = useState<string | null>(null);
+  const [pane, setPane] = useState<AdvancedPane>('board');
+  const [todos, setTodos] = useState<AgentTodo[] | null>(null);
+  const [todosState, setTodosState] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const [logs, setLogs] = useState<string[] | null>(null);
+  const [logsState, setLogsState] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const [budget, setBudget] = useState<BudgetStatus | null>(null);
+  // Work protection (M14a) and the agent workflow (M18): per-session choices the owner sets here.
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>('ask_for_risky');
+  const [agentMode, setAgentMode] = useState<AgentMode>('plan');
+  const [runMode] = useState<RunMode>('local');
+  // Ship status (M5a): the checks and stages start pending because nothing has reported yet, and the
+  // daemon has no preflight or deploy RPC on this branch, so a press records intent (§7).
+  const [deliveryStages] = useState<DeliveryStage[]>(initialDeliveryStages);
+  const [checks] = useState<PreflightCheck[]>(pendingChecks);
+  const [deployStatus, setDeployStatus] = useState<DeployStatus>('idle');
+  const tablistRef = useRef<HTMLDivElement>(null);
+
+  // ------------------------------------------------------------------ the run the bench is showing
   useEffect(() => {
     let cancelled = false;
-    const init = async () => {
-      try {
-        const runsData = await client.listRuns(project.id);
+    setRunsState('loading');
+    client
+      .listRuns(project.id)
+      .then((list) => {
         if (cancelled) return;
-        setRunCount(runsData.length);
-      } catch (error) {
-        console.error('Failed to initialize advanced mode:', error);
-      }
-    };
-    init();
+        setRuns(list);
+        setRun(list[0] ?? null);
+        setRunsState('ready');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setRunsState('failed');
+      });
     return () => {
       cancelled = true;
     };
-  }, [client, project]);
+  }, [client, project.id]);
 
-  // Live event stream: append events and fold them into per-role lanes.
+  // The project's budget: the same reading the instrument strip shows (§4), from `budget.project`.
   useEffect(() => {
+    let cancelled = false;
+    client
+      .getProjectBudget(project.id)
+      .then((status) => {
+        if (!cancelled) setBudget(status);
+      })
+      .catch(() => {
+        if (!cancelled) setBudget(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, project.id]);
+
+  // The loop's task board: `agent.state` is the daemon's own record of what it said it would do.
+  useEffect(() => {
+    let cancelled = false;
+    setTodosState('loading');
+    client
+      .agentState()
+      .then((state) => {
+        if (cancelled) return;
+        setTodos(state.todos);
+        setTodosState('ready');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setTodos(null);
+        setTodosState('failed');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+
+  // The run's log, for the read-only terminal transcript (§6: the dock's prompt is absent on purpose —
+  // there is no process-spawn RPC reachable from the UI).
+  useEffect(() => {
+    if (run === null) {
+      setLogs([]);
+      setLogsState('ready');
+      return undefined;
+    }
+    let cancelled = false;
+    setLogsState('loading');
+    client
+      .getRunLogs(run.id)
+      .then((lines) => {
+        if (cancelled) return;
+        setLogs(lines);
+        setLogsState('ready');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setLogs(null);
+        setLogsState('failed');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, run]);
+
+  // --------------------------------------------------------------------- the live event stream
+  useEffect(() => {
+    if (run === null) return undefined;
+    // A fresh subscription for a fresh run: what the previous run streamed is not this run's evidence.
+    setEvents([]);
+    setStreamOffline(false);
+
     const subscription = subscribeEvents({
-      url: 'http://127.0.0.1:8766',
-      token: 'test-token',
-      onEvent: (event: WarshaEvent) => {
-        setEvents(prev => [...prev, event].slice(-500));
-        const role = event.role ?? 'Orchestrator';
-        const cost = event.costCents ?? 0;
-        setLanes(prev => {
-          const existing = prev.find(lane => lane.role === role);
-          if (existing) {
-            return prev.map(lane =>
-              lane.role === role
-                ? { ...lane, events: [...lane.events, event], costCents: lane.costCents + cost, status: 'running' }
-                : lane,
-            );
-          }
-          return [
-            ...prev,
-            {
-              id: role.toLowerCase(),
-              name: role,
-              role,
-              model: 'gpt-4o',
-              status: 'running',
-              events: [event],
-              costCents: cost,
-            },
-          ];
-        });
+      url: eventStreamUrl(endpoint.baseUrl),
+      token: endpoint.token,
+      onEvent: (event) => {
+        setStreamOffline(false);
+        setEvents((previous) => [...previous, event].slice(-500));
       },
-      onError: (error: Error) => {
-        console.error('Event stream error:', error.message);
+      onError: () => {
+        // §7: the queue is not lost, the feed is — say that, and offer the reconnect.
+        setStreamOffline(true);
       },
     });
     return () => subscription.close();
-  }, []);
+  }, [endpoint.baseUrl, endpoint.token, run, streamNonce]);
 
-  const handleTerminalSubmit = () => {
-    if (!terminalInput.trim()) return;
-    const cmd = terminalInput.trim();
-    setTerminalOutput(prev => [...prev, `$ ${cmd}`, `Executing: ${cmd}...`]);
-    setTerminalInput('');
-    
-    // Mock command execution
-    setTimeout(() => {
-      setTerminalOutput(prev => [...prev, `Done. Exit code: 0`, '']);
-    }, 500);
+  const lanes: Lane[] = useMemo(() => {
+    const byKey = new Map<string, Lane>();
+    for (const event of events) {
+      const key = laneKeyOf(event);
+      const lane = byKey.get(key) ?? { key, role: event.role, events: 0, costCents: 0, waiting: false, failed: false };
+      lane.events += 1;
+      lane.costCents += event.costCents ?? 0;
+      if (isGateEvent(event)) lane.waiting = true;
+      if (/error|fail|refus|denied/i.test(event.kind)) {
+        lane.failed = true;
+        lane.waiting = false;
+      }
+      byKey.set(key, lane);
+    }
+    return [...byKey.values()];
+  }, [events]);
+
+  const visibleEvents = useMemo(
+    () =>
+      events.filter((event) => {
+        if (laneFilter !== null && laneKeyOf(event) !== laneFilter) return false;
+        return eventPassesFilter(event, filter);
+      }),
+    [events, filter, laneFilter]
+  );
+
+  const spentCents = useMemo(() => lanes.reduce((sum, lane) => sum + lane.costCents, 0), [lanes]);
+
+  /** The lane the filter chip names, or `null` when its lane left the stream. */
+  const laneFilterLane = useMemo(
+    () => (laneFilter === null ? null : lanes.find((lane) => lane.key === laneFilter) ?? null),
+    [laneFilter, lanes]
+  );
+
+  /** `14:22:07.318` — Arabic keeps 0–9 so two lines of a feed compare (§11). */
+  const formatTime = useCallback(
+    (iso: string) =>
+      new Intl.DateTimeFormat(locale === 'ar' ? 'ar-u-nu-latn' : locale, {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        fractionalSecondDigits: 3,
+        hour12: false,
+      }).format(new Date(iso)),
+    [locale]
+  );
+
+  /** `2026-10-05 07:15` in UTC, so a run's start reads the same in every timezone. */
+  const formatStart = useCallback(
+    (iso: string) => {
+      const date = new Date(iso);
+      const pad = (value: number) => String(value).padStart(2, '0');
+      return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
+    },
+    []
+  );
+
+  // ------------------------------------------------------------------ the pane tab strip (§9 roving)
+  const onTabsKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    const nodes = tablistRef.current?.querySelectorAll<HTMLButtonElement>('button[role="tab"]');
+    if (!nodes || nodes.length === 0) return;
+    const rtl = dir === 'rtl';
+    const forward = event.key === 'ArrowRight' ? !rtl : event.key === 'ArrowLeft' ? rtl : false;
+    const back = event.key === 'ArrowLeft' ? !rtl : event.key === 'ArrowRight' ? rtl : false;
+    const order = [...nodes];
+    const current = order.indexOf(document.activeElement as HTMLButtonElement);
+    let next: number | null = null;
+    if (forward) next = (current + 1) % order.length;
+    else if (back) next = (current - 1 + order.length) % order.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = order.length - 1;
+    if (next === null) return;
+    // Manual activation: the arrow moves focus, Enter or Space (this button's own keys) selects.
+    event.preventDefault();
+    order[next]?.focus();
   };
 
-  const getTabLabel = (tab: string) => {
-    const labels: Record<string, { ar: string; en: string }> = {
-      lanes: { ar: 'المسارات', en: 'Lanes' },
-      events: { ar: 'الأحداث', en: 'Events' },
-      diffs: { ar: 'الاختلافات', en: 'Diffs' },
-      files: { ar: 'الملفات', en: 'Files' },
-      terminal: { ar: 'الطرفية', en: 'Terminal' },
-      kanban: { ar: 'الكانبان', en: 'Kanban' },
-      skills: { ar: 'المهارات', en: 'Skills' },
-      costs: { ar: 'التكاليف', en: 'Costs' },
-    };
-    return locale === 'ar' ? labels[tab]?.ar || tab : labels[tab]?.en || tab;
-  };
+  const title = t('advanced.title', {}, locale);
 
-  const renderLanesTab = () => (
-    <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
-      <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text weight="bold" size="lg" dir={dir}>
-          {t('advanced.agentLanes') || 'Agent Lanes'}
-        </Text>
-        <Text size="sm" style={{ color: 'var(--warsha-color-text-muted)' }} dir={dir}>
-          {lanes.length} {t('advanced.activeAgents') || 'active agents'} • {runCount} {t('advanced.runs') || 'runs'}
-        </Text>
-      </Box>
-
-      <Box dir={dir} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: 'var(--warsha-space-4)', flex: 1, overflowY: 'auto' }}>
-        {lanes.map(lane => (
-          <Card key={lane.id} dir={dir} style={{ 
-            borderInlineStart: `4px solid ${ROLE_COLORS[lane.role] || 'var(--warsha-color-text-muted)'}`,
-            display: 'flex',
-            flexDirection: 'column',
-          }}>
-            <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--warsha-space-3)' }}>
-              <Box dir={dir}>
-                <Text weight="bold" size="lg" dir={dir}>{lane.name}</Text>
-                <Text size="sm" style={{ color: 'var(--warsha-color-text-muted)' }} dir={dir}>
-                  {t('run.model_label', {}, locale) || 'Model:'} {lane.model} • ${(lane.costCents / 100).toFixed(4)}
-                </Text>
-              </Box>
-              <Box dir={dir} style={{
-                width: '12px',
-                height: '12px',
-                borderRadius: '50%',
-                backgroundColor: lane.status === 'running' ? 'var(--warsha-color-success)' : 
-                                 lane.status === 'waiting' ? 'var(--warsha-color-warning)' : 
-                                 lane.status === 'error' ? 'var(--warsha-color-error)' : 'var(--warsha-color-muted)',
-              }} />
-            </Box>
-
-            <Box dir={dir} style={{ flex: 1, minHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' }}>
-              {lane.events.slice(-5).map((event, idx) => (
-                <Box key={idx} dir={dir} style={{
-                  padding: 'var(--warsha-space-2) var(--warsha-space-3)',
-                  backgroundColor: 'var(--warsha-color-bg)',
-                  borderRadius: '6px',
-                  borderInlineStart: `3px solid ${ROLE_COLORS[lane.role] || 'var(--warsha-color-text-muted)'}`,
-                  fontSize: '13px',
-                }}>
-                  <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--warsha-space-1)' }}>
-                    <Text size="sm" weight="medium" dir={dir}>{event.kind}</Text>
-                    <Text size="sm" style={{ color: 'var(--warsha-color-muted)' }} dir={dir}>
-                      {new Date(event.createdAt).toLocaleTimeString()}
-                    </Text>
-                  </Box>
-                  <Text size="sm" style={{ color: 'var(--warsha-color-text-muted)', fontFamily: 'var(--warsha-font-mono)' }} dir={dir}>
-                    {JSON.stringify(event.payload).slice(0, 100)}...
-                  </Text>
-                </Box>
-              ))}
-              {lane.events.length > 5 && (
-                <Text size="sm" style={{ color: 'var(--warsha-color-muted)', textAlign: 'center', padding: 'var(--warsha-space-2)' }} dir={dir}>
-                  {t('advanced.andMore', { count: lane.events.length - 5 }) || `+${lane.events.length - 5} more events`}
-                </Text>
-              )}
-            </Box>
-          </Card>
-        ))}
-
-        {lanes.length === 0 && (
-          <Card dir={dir} style={{ gridColumn: '1 / -1', textAlign: 'center', padding: 'var(--warsha-space-12)' }}>
-            <Text size="lg" style={{ color: 'var(--warsha-color-muted)' }} dir={dir}>
-              {t('advanced.noLanes') || 'No active agent lanes yet. Start a run to see activity.'}
-            </Text>
-          </Card>
-        )}
-      </Box>
-    </Box>
-  );
-
-  const renderEventsTab = () => (
-    <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
-      <Text weight="bold" size="lg" dir={dir}>
-        {t('advanced.eventStream') || 'Live Event Stream'}
-      </Text>
-
-      <Box dir={dir} style={{ flex: 1, overflowY: 'auto', backgroundColor: 'var(--warsha-color-surface-muted)', borderRadius: '8px', padding: 'var(--warsha-space-4)', fontFamily: 'var(--warsha-font-mono)', fontSize: '13px' }}>
-        {events.length === 0 ? (
-          <Text style={{ color: 'var(--warsha-color-text-muted)' }} dir={dir}>
-            {t('advanced.noEvents') || 'No events yet. Start a run to see the live stream.'}
-          </Text>
-        ) : (
-          events.slice(-100).map((event, idx) => (
-            <Box key={idx} dir={dir} style={{ marginBottom: 'var(--warsha-space-2)', padding: 'var(--warsha-space-2)', backgroundColor: 'var(--warsha-color-surface-muted)', borderRadius: '4px', borderInlineStart: `3px solid ${ROLE_COLORS[event.role ?? ''] || 'var(--warsha-color-text-muted)'}` }}>
-              <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-3)', flexWrap: 'wrap', marginBottom: 'var(--warsha-space-1)' }}>
-                <Text style={{ color: 'var(--warsha-color-muted)' }} dir={dir}>{new Date(event.createdAt).toISOString()}</Text>
-                <Text style={{ color: ROLE_COLORS[event.role ?? ''] || 'var(--warsha-color-text-muted)' }} dir={dir}>{event.stage}</Text>
-                <Text style={{ color: 'var(--warsha-color-text-muted)' }} dir={dir}>{event.kind}</Text>
-                {event.costCents !== null && (
-                  <Text style={{ color: 'var(--warsha-color-success)' }} dir={dir}>${(event.costCents / 100).toFixed(4)}</Text>
-                )}
-              </Box>
-              <Text style={{ color: 'var(--warsha-color-text)' }} dir={dir}>{JSON.stringify(event.payload).slice(0, 200)}</Text>
-            </Box>
-          ))
-        )}
-      </Box>
-    </Box>
-  );
-
-  const renderDiffsTab = () => (
-    <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
-      <Text weight="bold" size="lg" dir={dir}>
-        {t('advanced.diffs') || 'Code Diffs'}
-      </Text>
-      <Card dir={dir} style={{ flex: 1, overflowY: 'auto' }}>
-        <Text style={{ color: 'var(--warsha-color-muted)' }} dir={dir}>
-          {t('advanced.diffsPlaceholder') || 'Diffs will appear here when agents modify files. Select a run and stage to view changes.'}
-        </Text>
-      </Card>
-    </Box>
-  );
-
-  const renderFilesTab = () => (
-    <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
-      <Text weight="bold" size="lg" dir={dir}>
-        {t('advanced.fileTree') || 'File Tree'}
-      </Text>
-      <Card dir={dir} style={{ flex: 1, overflowY: 'auto' }}>
-        <Text style={{ color: 'var(--warsha-color-muted)' }} dir={dir}>
-          {t('advanced.filesPlaceholder') || 'File tree will appear here. Shows project structure and agent-modified files.'}
-        </Text>
-      </Card>
-    </Box>
-  );
-
-  const renderTerminalTab = () => (
-    <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)', height: '100%' }}>
-      <Text weight="bold" size="lg" dir={dir}>
-        {t('advanced.terminal') || 'Terminal'}
-      </Text>
-
-      <Box dir={dir} style={{ flex: 1, backgroundColor: 'var(--warsha-color-surface-muted)', borderRadius: '8px', padding: 'var(--warsha-space-4)', fontFamily: 'var(--warsha-font-mono)', fontSize: '13px', overflowY: 'auto', display: 'flex', flexDirection: 'column', color: 'var(--warsha-color-text)' }}>
-        {terminalOutput.map((line, idx) => (
-          <Box key={idx} dir={dir} style={{ 
-            color: line.startsWith('$') ? 'var(--warsha-color-success)' : 
-                   line.startsWith('Done') ? 'var(--warsha-color-warning)' : 'var(--warsha-color-text)',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-          }}>
-            {line}
-          </Box>
-        ))}
-      </Box>
-
-      <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)' }}>
-        <Text style={{ color: 'var(--warsha-color-text-muted)', alignSelf: 'center' }} dir={dir}>$</Text>
-        <input
-          type="text"
-          value={terminalInput}
-          onChange={(e) => setTerminalInput(e.target.value)}
-          onKeyPress={(e) => e.key === 'Enter' && handleTerminalSubmit()}
-          placeholder={t('advanced.terminalPlaceholder') || 'Type a command...'}
-          dir={dir}
-          style={{
-            flex: 1,
-            backgroundColor: 'var(--warsha-color-surface-muted)',
-            border: '1px solid var(--warsha-color-border-strong)',
-            borderRadius: '4px',
-            padding: 'var(--warsha-space-2) var(--warsha-space-3)',
-            color: 'var(--warsha-color-text)',
-            fontFamily: 'var(--warsha-font-mono)',
-            fontSize: '13px',
-            outline: 'none',
-          }}
-        />
-        <Button variant="primary" size="sm" dir={dir} onClick={handleTerminalSubmit}>
-          {t('common.run') || 'Run'}
-        </Button>
-      </Box>
-    </Box>
-  );
-
-  const renderKanbanTab = () => (
-    <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
-      <Text weight="bold" size="lg" dir={dir}>
-        {t('advanced.kanban') || 'Task Board'}
-      </Text>
-
-      <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-4)', flex: 1, overflowX: 'auto' }}>
-        {[
-          { id: 'backlog', label: locale === 'ar' ? 'قائمة الانتظار' : 'Backlog', color: 'var(--warsha-color-text-muted)' },
-          { id: 'todo', label: locale === 'ar' ? 'للقيام' : 'To Do', color: 'var(--warsha-color-accent-strong)' },
-          { id: 'in_progress', label: locale === 'ar' ? 'قيد التنفيذ' : 'In Progress', color: 'var(--warsha-color-warning)' },
-          { id: 'review', label: locale === 'ar' ? 'مراجعة' : 'Review', color: 'var(--warsha-color-accent-strong)' },
-          { id: 'done', label: locale === 'ar' ? 'منجز' : 'Done', color: 'var(--warsha-color-success)' },
-        ].map(col => (
-          <Box key={col.id} dir={dir} style={{
-            minWidth: '280px',
-            maxWidth: '280px',
-            backgroundColor: 'var(--warsha-color-bg)',
-            borderRadius: '8px',
-            borderTop: `4px solid ${col.color}`,
-            display: 'flex',
-            flexDirection: 'column',
-          }}>
-            <Box dir={dir} style={{ padding: 'var(--warsha-space-3)', borderBottom: '1px solid var(--warsha-color-border)' }}>
-              <Text weight="bold" dir={dir}>{col.label}</Text>
-            </Box>
-            <Box dir={dir} style={{ flex: 1, padding: 'var(--warsha-space-2)', overflowY: 'auto', minHeight: '300px' }}>
-              <Text size="sm" style={{ color: 'var(--warsha-color-muted)', textAlign: 'center', padding: '20px' }} dir={dir}>
-                {t('advanced.emptyColumn') || 'No tasks'}
-              </Text>
-            </Box>
-          </Box>
-        ))}
-      </Box>
-    </Box>
-  );
-
-  const renderSkillsTab = () => (
-    <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
-      <Text weight="bold" size="lg" dir={dir}>
-        {t('advanced.skillsMcp') || 'Skills / MCP Config'}
-      </Text>
-
-      <Card dir={dir} style={{ marginBottom: 'var(--warsha-space-4)' }}>
-        <Text weight="medium" dir={dir} style={{ marginBottom: 'var(--warsha-space-3)' }}>
-          {t('advanced.installedSkills') || 'Installed Skills'}
-        </Text>
-        <Box dir={dir} style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--warsha-space-2)' }}>
-          {['planning', 'task-decomposition', 'code-generation', 'refactoring', 'testing', 'code-review', 'security-audit', 'threat-modeling', 'test-planning'].map(skill => (
-            <Button key={skill} variant="ghost" size="sm" dir={dir} style={{ backgroundColor: 'var(--warsha-color-surface-muted)', color: 'var(--warsha-color-accent-strong)' }}>
-              {skill}
-            </Button>
-          ))}
-        </Box>
-      </Card>
-
-      <Card dir={dir}>
-        <Text weight="medium" dir={dir} style={{ marginBottom: 'var(--warsha-space-3)' }}>
-          {t('advanced.availableMcp') || 'Available MCP Servers'}
-        </Text>
-        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' }}>
-          {['github', 'filesystem', 'sqlite', 'postgres', 'web-search', 'docker'].map(server => (
-            <Box key={server} dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--warsha-space-2)', backgroundColor: 'var(--warsha-color-bg)', borderRadius: '6px' }}>
-              <Text dir={dir}>{server}</Text>
-              <Button variant="ghost" size="sm" dir={dir}>
-                {t('common.install') || 'Install'}
-              </Button>
-            </Box>
-          ))}
-        </Box>
-      </Card>
-    </Box>
-  );
-
-  const renderCostsTab = () => (
-    <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
-      <Text weight="bold" size="lg" dir={dir}>
-        {t('advanced.costs') || 'Costs & Budget'}
-      </Text>
-
-      <Box dir={dir} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--warsha-space-4)' }}>
-        <Card dir={dir}>
-          <Text size="sm" style={{ color: 'var(--warsha-color-text-muted)' }} dir={dir}>
-            {t('advanced.totalBudget') || 'Total Budget'}
-          </Text>
-          <Text size="xl" weight="bold" dir={dir}>$100.00</Text>
-        </Card>
-        <Card dir={dir}>
-          <Text size="sm" style={{ color: 'var(--warsha-color-text-muted)' }} dir={dir}>
-            {t('advanced.spent') || 'Spent'}
-          </Text>
-          <Text size="xl" weight="bold" style={{ color: 'var(--warsha-color-error)' }} dir={dir}>$23.45</Text>
-        </Card>
-        <Card dir={dir}>
-          <Text size="sm" style={{ color: 'var(--warsha-color-text-muted)' }} dir={dir}>
-            {t('advanced.remaining') || 'Remaining'}
-          </Text>
-          <Text size="xl" weight="bold" style={{ color: 'var(--warsha-color-success)' }} dir={dir}>$76.55</Text>
-        </Card>
-        <Card dir={dir}>
-          <Text size="sm" style={{ color: 'var(--warsha-color-text-muted)' }} dir={dir}>
-            {t('advanced.costPerRun') || 'Cost / Run'}
-          </Text>
-          <Text size="xl" weight="bold" dir={dir}>$2.35</Text>
-        </Card>
-      </Box>
-
-      <Card dir={dir} style={{ flex: 1 }}>
-        <Text weight="medium" dir={dir} style={{ marginBottom: 'var(--warsha-space-3)' }}>
-          {t('advanced.costBreakdown') || 'Cost Breakdown by Role'}
-        </Text>
-        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' }}>
-          {lanes.map(lane => (
-            <Box key={lane.id} dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--warsha-space-2)', backgroundColor: 'var(--warsha-color-bg)', borderRadius: '6px' }}>
-              <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-2)' }}>
-                <Box dir={dir} style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: ROLE_COLORS[lane.role] || 'var(--warsha-color-text-muted)' }} />
-                <Text dir={dir}>{lane.name}</Text>
-              </Box>
-              <Text weight="medium" style={{ color: ROLE_COLORS[lane.role] || 'var(--warsha-color-text-muted)' }} dir={dir}>
-                ${(lane.costCents / 100).toFixed(4)}
-              </Text>
-            </Box>
-          ))}
-        </Box>
-      </Card>
-    </Box>
-  );
-
-  const tabs = [
-    { id: 'lanes', render: renderLanesTab },
-    { id: 'events', render: renderEventsTab },
-    { id: 'diffs', render: renderDiffsTab },
-    { id: 'files', render: renderFilesTab },
-    { id: 'terminal', render: renderTerminalTab },
-    { id: 'kanban', render: renderKanbanTab },
-    { id: 'skills', render: renderSkillsTab },
-    { id: 'costs', render: renderCostsTab },
-  ];
+  const todosByState = useMemo(() => {
+    const empty = { done: [], running: [], todo: [] } as Record<'done' | 'running' | 'todo', AgentTodo[]>;
+    if (todos === null) return empty;
+    for (const todo of todos) empty[todoState(todo.status)].push(todo);
+    return empty;
+  }, [todos]);
 
   return (
-    <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: '600px', backgroundColor: 'var(--warsha-color-bg)' }}>
-      {/* Header */}
-      <Box dir={dir} style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: 'var(--warsha-space-4)',
-        backgroundColor: 'var(--warsha-color-surface)',
-        borderBottom: '1px solid var(--warsha-color-border)',
-        flexWrap: 'wrap',
-        gap: 'var(--warsha-space-3)',
-      }}>
-        <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-3)' }}>
-          {onBack && (
-            <Button variant="ghost" size="sm" dir={dir} onClick={onBack}>
-              ← {t('common.back') || 'Back'}
-            </Button>
-          )}
-          <Text size="xl" weight="bold" style={{ color: 'var(--warsha-color-accent-strong)' }} dir={dir}>{t('app.brand') || 'Warsha'}</Text>
-          <Text size="sm" style={{ color: 'var(--warsha-color-text-muted)' }} dir={dir}>{project.name}</Text>
-        </Box>
+    <div dir={dir} className="bench-screen-stack" data-testid="advanced-mode" style={{ gap: 'var(--warsha-space-3)' }}>
+      <Box
+        dir={dir}
+        style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-3)', flexWrap: 'wrap', minInlineSize: 0 }}
+      >
+        {onBack && (
+          // §4: every pushed screen keeps a back control at its inline start.
+          <Button variant="ghost" size="sm" dir={dir} data-testid="advanced-back" onClick={onBack}>
+            {t('common.back', {}, locale)}
+          </Button>
+        )}
+        <h1
+          dir={dir}
+          style={{
+            margin: 0,
+            fontSize: 'var(--warsha-font-size-xl)',
+            fontWeight: 'var(--warsha-font-weight-bold)',
+            color: 'var(--warsha-color-text)',
+            minInlineSize: 0,
+          }}
+        >
+          {title}
+        </h1>
+        <span dir={dir} data-testid="advanced-project-name" style={{ fontSize: 'var(--warsha-font-size-sm)', minInlineSize: 0 }}>
+          {project.name}
+        </span>
+        <RunModeBadge mode={runMode} />
+      </Box>
 
-        {/* Tab Bar */}
-        <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-1)', backgroundColor: 'var(--warsha-color-surface-muted)', borderRadius: '8px', padding: 'var(--warsha-space-1)' }}>
-          {tabs.map(tab => (
+      {streamOffline && (
+        <Banner
+          tone="offline"
+          action={
             <Button
-              key={tab.id}
-              variant={selectedTab === tab.id ? 'primary' : 'ghost'}
+              variant="secondary"
               size="sm"
               dir={dir}
-              onClick={() => setSelectedTab(tab.id as typeof selectedTab)}
+              data-testid="advanced-reconnect"
+              onClick={() => setStreamNonce((nonce) => nonce + 1)}
             >
-              {getTabLabel(tab.id)}
+              {t('simple.stream_retry', {}, locale)}
             </Button>
-          ))}
-        </Box>
-      </Box>
+          }
+        >
+          {t('simple.stream_offline', {}, locale)}
+        </Banner>
+      )}
 
-      {/* Content */}
-      <Box dir={dir} style={{ flex: 1, overflow: 'hidden' }}>
-        {tabs.find(t => t.id === selectedTab)?.render()}
-      </Box>
-    </Box>
+      {/* ======================================================================== rail and panes */}
+      <div className="bench-advanced">
+        {/* ------------------------------------------------------------------------------ the rail */}
+        <div className="bench-rail" data-testid="advanced-rail">
+          <Panel
+            title={t('advanced.lanes_label', {}, locale)}
+            label={t('advanced.lanes_label', {}, locale)}
+            actions={
+              <span style={{ fontFamily: 'var(--warsha-font-mono)', fontVariantNumeric: 'tabular-nums', fontSize: 'var(--warsha-font-size-xs)' }}>
+                {`${lanes.length} ${t('bench.lanes_active', {}, locale)}`}
+              </span>
+            }
+            style={{ borderBlockEnd: 'none', minInlineSize: 0 }}
+          >
+            {lanes.length === 0 ? (
+              <p dir={dir} style={{ margin: 0, fontSize: 'var(--warsha-font-size-sm)' }}>
+                {t('advanced.no_lanes', {}, locale)}
+              </p>
+            ) : (
+              lanes.map((lane, index) => (
+                <RailRow
+                  key={lane.key}
+                  selected={laneFilter === lane.key}
+                  leading={<Lamp state={laneLamp(lane)} size="xs" bare>{`${index + 1}`}</Lamp>}
+                  sublabel={t('advanced.lane_of', { number: index + 1 }, locale)}
+                  meta={`$${(lane.costCents / 100).toFixed(4)}`}
+                  onSelect={() => setLaneFilter((current) => (current === lane.key ? null : lane.key))}
+                >
+                  {roleWord(lane, locale)}
+                </RailRow>
+              ))
+            )}
+          </Panel>
+
+          <Panel
+            title={t('advanced.runs_label', {}, locale)}
+            label={t('advanced.runs_label', {}, locale)}
+            style={{ borderBlockEnd: 'none', minInlineSize: 0 }}
+          >
+            {runsState === 'loading' ? (
+              <Skeleton label={t('advanced.runs_loading', {}, locale)} lines={2} variant="row" />
+            ) : runsState === 'failed' ? (
+              <Lamp state="fail" size="sm">
+                {t('advanced.runs_failed', {}, locale)}
+              </Lamp>
+            ) : runs.length === 0 ? (
+              <EmptyState
+                title={t('projects.empty_title', {}, locale)}
+                description={t('advanced.no_lanes', {}, locale)}
+                action={
+                  onBack ? (
+                    <Button variant="primary" size="sm" dir={dir} onClick={onBack}>
+                      {t('projects.new_project', {}, locale)}
+                    </Button>
+                  ) : undefined
+                }
+              />
+            ) : (
+              runs.map((candidate) => (
+                <RailRow
+                  key={candidate.id}
+                  selected={candidate.id === run?.id}
+                  meta={<span dir="ltr" translate="no">{formatStart(candidate.startedAt)}</span>}
+                  sublabel={`${stageWord(candidate.stage, locale)} · ${runStateWord(candidate.status, locale)}`}
+                  onSelect={() => setRun(candidate)}
+                >
+                  <span dir="ltr" translate="no" style={{ fontFamily: 'var(--warsha-font-mono)', fontSize: 'var(--warsha-font-size-xs)' }}>
+                    {candidate.id}
+                  </span>
+                </RailRow>
+              ))
+            )}
+          </Panel>
+
+          {/* Run control: the two choices that change what the agent may do — the deeper rung's own (§3). */}
+          <Panel
+            title={t('work_protection.label', {}, locale)}
+            label={t('work_protection.label', {}, locale)}
+            style={{ borderBlockEnd: 'none', minInlineSize: 0 }}
+          >
+            <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)', flexWrap: 'wrap', alignItems: 'center' }}>
+              <PermissionModeChip mode={permissionMode} onChange={setPermissionMode} />
+              <PlanModeBadge mode={agentMode} onToggle={setAgentMode} />
+              <SnapshotRestoreButton snapshotId={null} onRestore={() => undefined} />
+            </Box>
+          </Panel>
+        </div>
+
+        {/* ---------------------------------------------------------------------- stream and panes */}
+        <div className="bench-panes">
+          <Panel
+            title={t('advanced.stream_label', {}, locale)}
+            label={t('advanced.stream_label', {}, locale)}
+            actions={
+              <span style={{ fontFamily: 'var(--warsha-font-mono)', fontVariantNumeric: 'tabular-nums', fontSize: 'var(--warsha-font-size-xs)' }}>
+                {`${visibleEvents.length} / ${events.length}`}
+              </span>
+            }
+            style={{ minInlineSize: 0 }}
+          >
+            <div dir={dir} className="bench-filters" role="group" aria-label={t('advanced.filter_label', {}, locale)}>
+              {STREAM_FILTERS.map((candidate) => (
+                <Chip key={candidate} selected={filter === candidate} onPress={() => setFilter(candidate)}>
+                  {t(`advanced.filter_${candidate}`, {}, locale)}
+                </Chip>
+              ))}
+              {laneFilter !== null && laneFilterLane !== null && (
+                <Chip tone="lit" glyph="×" onPress={() => setLaneFilter(null)}>
+                  {roleWord(laneFilterLane, locale)}
+                </Chip>
+              )}
+            </div>
+
+            <p dir={dir} style={{ margin: 0, marginBlockStart: 'var(--warsha-space-2)', fontSize: 'var(--warsha-font-size-xs)' }}>
+              {t('advanced.filter_note', {}, locale)}
+            </p>
+
+            {run === null ? (
+              <p dir={dir} style={{ margin: 0, marginBlockStart: 'var(--warsha-space-3)', fontSize: 'var(--warsha-font-size-sm)' }}>
+                {t('bench.no_run', {}, locale)}
+              </p>
+            ) : visibleEvents.length === 0 ? (
+              events.length === 0 ? (
+                <Box style={{ marginBlockStart: 'var(--warsha-space-3)' }}>
+                  <Skeleton label={t('advanced.stream_label', {}, locale)} lines={3} />
+                </Box>
+              ) : (
+                <p dir={dir} style={{ margin: 0, marginBlockStart: 'var(--warsha-space-3)', fontSize: 'var(--warsha-font-size-sm)' }}>
+                  {t('advanced.no_events', {}, locale)}
+                </p>
+              )
+            ) : (
+              <div className="bench-stream">
+                <Stream label={t('advanced.stream_label', {}, locale)}>
+                  {visibleEvents.slice(-120).map((event) => (
+                    <Stream.Line
+                      key={event.id}
+                      time={formatTime(event.createdAt)}
+                      kind={eventStreamKind(event)}
+                      lane={event.role === null ? undefined : t(`role.${event.role}`, {}, locale)}
+                    >
+                      <span dir="ltr" translate="no">{`${event.kind} · ${stageWord(event.stage, locale)}`}</span>
+                      {event.costCents !== null && ` · $${(event.costCents / 100).toFixed(4)}`}
+                    </Stream.Line>
+                  ))}
+                </Stream>
+              </div>
+            )}
+          </Panel>
+
+          {/* --------------------------------------------------------------------------------- panes */}
+          <Box dir={dir} className="bench-side">
+            <div
+              ref={tablistRef}
+              dir={dir}
+              role="tablist"
+              aria-label={t('advanced.tabs_label', {}, locale)}
+              data-testid="advanced-tabs"
+              onKeyDown={onTabsKeyDown}
+              style={{
+                display: 'flex',
+                alignItems: 'stretch',
+                gap: 'var(--warsha-space-1)',
+                borderBlockEnd: 'var(--warsha-size-rule) solid var(--warsha-bench-rule)',
+                overflowX: 'auto',
+                minInlineSize: 0,
+              }}
+            >
+              {ADVANCED_PANES.map((candidate) => {
+                const selected = pane === candidate;
+                return (
+                  <Button
+                    key={candidate}
+                    role="tab"
+                    aria-selected={selected}
+                    // Roving tabindex: the strip is one Tab stop and the arrows do the rest (§9).
+                    tabIndex={selected ? 0 : -1}
+                    aria-controls={`advanced-panel-${candidate}`}
+                    id={`advanced-panel-${candidate}-tab`}
+                    variant="ghost"
+                    size="sm"
+                    dir={dir}
+                    data-testid={`advanced-tab-${candidate}`}
+                    onClick={() => setPane(candidate)}
+                    style={{
+                      flex: 'none',
+                      borderRadius: 0,
+                      borderBlockEnd: selected
+                        ? 'var(--warsha-size-edge) solid var(--warsha-signal-text)'
+                        : 'var(--warsha-size-edge) solid transparent',
+                      backgroundColor: 'transparent',
+                      color: 'var(--warsha-color-text)',
+                      fontWeight: selected
+                        ? 'var(--warsha-font-weight-bold)'
+                        : 'var(--warsha-font-weight-medium)',
+                      paddingInline: 'var(--warsha-space-3)',
+                      minBlockSize: 'var(--warsha-size-touch)',
+                    }}
+                  >
+                    {t(`advanced.tab_${candidate}`, {}, locale)}
+                  </Button>
+                );
+              })}
+            </div>
+
+            {/* ------------------------------------------------------------------ the task board */}
+            {pane === 'board' && (
+              <div {...tabPanelProps('advanced-panel-board')} dir={dir} data-testid="advanced-board">
+                <Panel title={t('advanced.board_label', {}, locale)} label={t('advanced.board_label', {}, locale)} style={{ minInlineSize: 0 }}>
+                  {todosState === 'loading' ? (
+                    <Skeleton label={t('advanced.board_loading', {}, locale)} lines={3} variant="row" />
+                  ) : todosState === 'failed' || todos === null ? (
+                    <Lamp state="fail" size="sm">
+                      {t('advanced.board_failed', {}, locale)}
+                    </Lamp>
+                  ) : todos.length === 0 ? (
+                    <Lamp state="idle" size="sm">
+                      {t('advanced.board_empty', {}, locale)}
+                    </Lamp>
+                  ) : (
+                    <div className="bench-tasks">
+                      {(['done', 'running', 'todo'] as const).map((state) => (
+                        <div key={state} className="bench-tasks-column" data-testid={`advanced-column-${state}`} data-state={state}>
+                          <RailHead>{`${t(`advanced.state_${state}`, {}, locale)} (${todosByState[state].length})`}</RailHead>
+                          <Ledger
+                            label={`${t('advanced.board_label', {}, locale)} — ${t(`advanced.state_${state}`, {}, locale)}`}
+                            style={{ borderBlockStart: 'none' }}
+                          >
+                            {todosByState[state].map((todo) => (
+                              <Ledger.Row key={todo.id} state={state}>
+                                {todo.description}
+                              </Ledger.Row>
+                            ))}
+                          </Ledger>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Panel>
+              </div>
+            )}
+
+            {/* ------------------------------------------------------------------------ the files */}
+            {pane === 'files' && (
+              <div {...tabPanelProps('advanced-panel-files')} dir={dir} data-testid="advanced-files">
+                <Panel title={t('advanced.files_label', {}, locale)} label={t('advanced.files_label', {}, locale)} style={{ minInlineSize: 0 }}>
+                  {/* The daemon answers `artifacts` for a run, not a file tree, on this branch — so the plate
+                      says where the list actually lives rather than inventing an RPC (§5, and no new calls). */}
+                  <EmptyState
+                    title={t('advanced.files_empty', {}, locale)}
+                    description={t('artifacts.select_desc', {}, locale)}
+                    action={
+                      onBack ? (
+                        <Button variant="primary" size="sm" dir={dir} data-testid="advanced-files-parent" onClick={onBack}>
+                          {t('run.artifacts', {}, locale)}
+                        </Button>
+                      ) : undefined
+                    }
+                  />
+                </Panel>
+              </div>
+            )}
+
+            {/* ------------------------------------------------------------------------- the diff */}
+            {pane === 'diff' && (
+              <div {...tabPanelProps('advanced-panel-diff')} dir={dir} data-testid="advanced-diff">
+                <Panel title={t('advanced.diff_label', {}, locale)} label={t('advanced.diff_label', {}, locale)} style={{ minInlineSize: 0 }}>
+                  {run === null ? (
+                    <Lamp state="idle" size="sm">
+                      {t('bench.no_run', {}, locale)}
+                    </Lamp>
+                  ) : logsState === 'loading' ? (
+                    <Skeleton label={t('advanced.logs_loading', {}, locale)} lines={2} variant="row" />
+                  ) : logs === null || logs.length === 0 ? (
+                    <p dir={dir} style={{ margin: 0, fontSize: 'var(--warsha-font-size-sm)' }}>
+                      {t('advanced.diff_empty', {}, locale)}
+                    </p>
+                  ) : (
+                    <DiffView label={`${t('advanced.diff_label', {}, locale)} — ${run.id}`}>
+                      {logs.slice(0, 40).map((line, index) => (
+                        <DiffView.Line
+                          key={index}
+                          kind={/^-|\bfail|\berror/i.test(line) ? 'del' : /^\+|pass|ok/i.test(line) ? 'add' : 'context'}
+                          newNumber={index + 1}
+                        >
+                          {line}
+                        </DiffView.Line>
+                      ))}
+                    </DiffView>
+                  )}
+                </Panel>
+              </div>
+            )}
+
+            {/* --------------------------------------------------------------------- the terminal */}
+            {pane === 'terminal' && (
+              <div {...tabPanelProps('advanced-panel-terminal')} dir={dir} data-testid="advanced-terminal">
+                <div className="bench-terminal">
+                  <TerminalDock
+                    label={t('advanced.terminal_label', {}, locale)}
+                    commandLabel={t('advanced.terminal_readonly', {}, locale)}
+                    submitLabel={t('run.follow_live', {}, locale)}
+                    hint={t('advanced.terminal_hint', {}, locale)}
+                    hideLabel
+                    output={
+                      logsState === 'loading' ? (
+                        <Skeleton label={t('advanced.logs_loading', {}, locale)} lines={3} quiet />
+                      ) : logsState === 'failed' || logs === null ? (
+                        <TerminalLine tone="fail">{t('advanced.logs_failed', {}, locale)}</TerminalLine>
+                      ) : logs.length === 0 ? (
+                        <TerminalLine>{t('advanced.logs_empty', {}, locale)}</TerminalLine>
+                      ) : (
+                        logs.map((line, index) => (
+                          <TerminalLine
+                            key={index}
+                            tone={/^\+/.test(line) ? 'ok' : /error|fail/i.test(line) ? 'fail' : 'output'}
+                          >
+                            {line}
+                          </TerminalLine>
+                        ))
+                      )
+                    }
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* ------------------------------------------------------------------------- the costs */}
+            {pane === 'costs' && (
+              <div {...tabPanelProps('advanced-panel-costs')} dir={dir} data-testid="advanced-costs">
+                <Panel title={t('advanced.costs_label', {}, locale)} label={t('advanced.costs_label', {}, locale)} style={{ minInlineSize: 0 }}>
+                  <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-3)', flexWrap: 'wrap', alignItems: 'center' }}>
+                    {budget === null ? (
+                      <Lamp state="idle" size="sm">
+                        {`${t('bench.budget_used', {}, locale)}: ${t('bench.not_reported', {}, locale)}`}
+                      </Lamp>
+                    ) : (
+                      <Meter
+                        value={Number(budget.spentUsd.toFixed(2))}
+                        max={Number(budget.totalBudgetUsd.toFixed(2))}
+                        label={t('bench.budget_used', {}, locale)}
+                      >
+                        {`${money(budget.spentUsd)} / ${money(budget.totalBudgetUsd)}`}
+                      </Meter>
+                    )}
+                    <Chip glyph="$" label={`${t('advanced.cost_spent', {}, locale)} — ${money(spentCents / 100)}`}>
+                      <span style={{ fontFamily: 'var(--warsha-font-mono)' }}>{money(spentCents / 100)}</span>
+                    </Chip>
+                    <Chip glyph="·" label={`${t('advanced.cost_remaining', {}, locale)} — ${budget === null ? t('bench.not_reported', {}, locale) : money(budget.remainingUsd)}`}>
+                      <span style={{ fontFamily: 'var(--warsha-font-mono)' }}>
+                        {budget === null ? '—' : money(budget.remainingUsd)}
+                      </span>
+                    </Chip>
+                  </Box>
+
+                  <p dir={dir} style={{ margin: 0, marginBlockStart: 'var(--warsha-space-3)', fontWeight: 'var(--warsha-font-weight-semibold)' }}>
+                    {t('advanced.cost_by_role', {}, locale)}
+                  </p>
+
+                  {lanes.length === 0 ? (
+                    <Lamp state="idle" size="sm">
+                      {t('advanced.cost_none', {}, locale)}
+                    </Lamp>
+                  ) : (
+                    <Ledger label={t('advanced.cost_by_role', {}, locale)} style={{ borderBlockStart: 'none' }}>
+                      {lanes.map((lane) => (
+                        <Ledger.Row key={lane.key} meta={`$${(lane.costCents / 100).toFixed(4)}`}>
+                          <Lamp state={laneLamp(lane)} size="sm">
+                            {roleWord(lane, locale)}
+                          </Lamp>
+                        </Ledger.Row>
+                      ))}
+                    </Ledger>
+                  )}
+                </Panel>
+              </div>
+            )}
+
+            {/* --------------------------------------------------------------------------- the ship */}
+            {pane === 'ship' && (
+              <div {...tabPanelProps('advanced-panel-ship')} dir={dir} data-testid="advanced-ship">
+                <Panel title={t('advanced.ship_label', {}, locale)} label={t('advanced.ship_label', {}, locale)} style={{ minInlineSize: 0 }}>
+                  <Box dir={dir} style={{ display: 'grid', gap: 'var(--warsha-space-4)', minInlineSize: 0 }}>
+                    <StatusStrip stages={deliveryStages} />
+                    <ReleasePreflight
+                      checks={checks}
+                      disabled={false}
+                      onRun={() => {
+                        // TODO(M20 wiring): the delivery checks run in CI and the daemon has no preflight RPC
+                        // yet, so this records the owner's intent instead of claiming to have run them (§7).
+                        setDeployStatus('idle');
+                      }}
+                    />
+                    <WebDeployButton
+                      disabled={!preflightReady(checks)}
+                      status={deployStatus}
+                      onDeploy={() => {
+                        // TODO(M20 wiring): the deploy RPC is not wired; the button reports intent only.
+                        setDeployStatus('deploying');
+                      }}
+                    />
+                    <p dir={dir} style={{ margin: 0, fontSize: 'var(--warsha-font-size-xs)' }}>
+                      {t('status_strip.deploy.local_only', {}, locale)}
+                    </p>
+                  </Box>
+                </Panel>
+              </div>
+            )}
+          </Box>
+        </div>
+      </div>
+    </div>
   );
 }

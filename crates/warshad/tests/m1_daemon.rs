@@ -94,6 +94,9 @@ async fn restart_survives_with_state_intact() {
         ws_port: 0,
         auth_token: TEST_TOKEN.to_string(),
         allowed_origins: vec!["http://localhost:5173".to_string()],
+        // The daemon's own ceilings and command policy: a test that wants to see a
+        // refusal names its own.
+        ..DaemonConfig::default()
     };
 
     // First daemon instance
@@ -184,6 +187,9 @@ async fn unauthenticated_calls_are_rejected() {
         ws_port: 0,
         auth_token: TEST_TOKEN.to_string(),
         allowed_origins: vec!["http://localhost:5173".to_string()],
+        // The daemon's own ceilings and command policy: a test that wants to see a
+        // refusal names its own.
+        ..DaemonConfig::default()
     };
 
     let handle = start_daemon(config).await.expect("start_daemon");
@@ -195,15 +201,16 @@ async fn unauthenticated_calls_are_rejected() {
     let health = http_get(&no_auth, http_port, "/health").await;
     assert_eq!(health.status(), StatusCode::OK);
 
-    // 2. GET /events without auth -> 200 with error body (observed current middleware behaviour)
-    // Note: the axum middleware returns 200 + JSON {"error":"unauthorized"} rather than 401.
-    // This is a pre-existing behaviour; the middleware rejects the request by returning an
-    // error body instead of upgrading to WebSocket. A stronger rejection would be 401.
+    // 2. GET /events without auth -> 401.
+    // The middleware used to answer 200 + `{"error":"unauthorized"}` — a refusal a
+    // client could only find by reading the body, and one that any proxy or retry
+    // policy would treat as a success. It now answers the status the refusal means
+    // (security audit H-01/H-04: the credential is checked and answered honestly).
     let events = http_get(&no_auth, http_port, "/events").await;
     assert_eq!(
         events.status(),
-        StatusCode::OK,
-        "/events without auth returns 200 (observed)"
+        StatusCode::UNAUTHORIZED,
+        "/events without auth must answer 401"
     );
     let body = events
         .json::<serde_json::Value>()
@@ -277,6 +284,9 @@ async fn second_instance_is_locked_out() {
         ws_port: 0,
         auth_token: TEST_TOKEN.to_string(),
         allowed_origins: vec!["http://localhost:5173".to_string()],
+        // The daemon's own ceilings and command policy: a test that wants to see a
+        // refusal names its own.
+        ..DaemonConfig::default()
     };
 
     // First instance

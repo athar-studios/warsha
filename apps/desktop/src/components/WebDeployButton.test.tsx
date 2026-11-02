@@ -29,21 +29,24 @@ describe('WebDeployButton', () => {
     expect(onDeploy).toHaveBeenCalledTimes(1);
   });
 
-  it('shows a spinner and swallows clicks while deploying', () => {
+  it('says it is busy and swallows clicks while deploying', () => {
     const onDeploy = vi.fn();
     renderIn('en', <WebDeployButton disabled={false} status="deploying" onDeploy={onDeploy} />);
 
     const button = screen.getByTestId('web-deploy-button');
     expect(button).toHaveAttribute('data-status', 'deploying');
     expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('aria-busy', 'true');
     expect(button).toHaveTextContent('Deploying…');
-    expect(screen.getByTestId('web-deploy-spinner')).toBeInTheDocument();
+    // §8: the bench has no spinner of its own — the working lamp is the busy reading, and `tokens.css`
+    // stops its breathe for an owner who asked for no motion.
+    expect(screen.getByTestId('web-deploy-status').querySelector('[data-warsha-lamp="working"]')).toBeInTheDocument();
 
     fireEvent.click(button);
     expect(onDeploy).not.toHaveBeenCalled();
   });
 
-  it('marks a finished deploy and a failed one with a different icon', () => {
+  it('marks a finished deploy and a failed one with a lamp and a word', () => {
     const onDeploy = vi.fn();
     const { rerender } = renderIn(
       'en',
@@ -52,8 +55,9 @@ describe('WebDeployButton', () => {
 
     const done = screen.getByTestId('web-deploy-button');
     expect(done).toHaveAttribute('data-status', 'done');
-    expect(done).toHaveTextContent('✓Deployed');
+    expect(done).toHaveTextContent('Deployed');
     expect(screen.getByTestId('web-deploy-status')).toHaveTextContent('Deployed.');
+    expect(screen.getByTestId('web-deploy-status').querySelector('[data-warsha-lamp="ok"]')).toBeInTheDocument();
     // A finished deploy is still clickable: the owner may deploy again.
     expect(done).toBeEnabled();
     fireEvent.click(done);
@@ -67,8 +71,9 @@ describe('WebDeployButton', () => {
 
     const failed = screen.getByTestId('web-deploy-button');
     expect(failed).toHaveAttribute('data-status', 'error');
-    expect(failed).toHaveTextContent('✗Deploy failed');
+    expect(failed).toHaveTextContent('Deploy failed');
     expect(screen.getByTestId('web-deploy-status')).toBeInTheDocument();
+    expect(screen.getByTestId('web-deploy-status').querySelector('[data-warsha-lamp="fail"]')).toBeInTheDocument();
     expect(screen.queryByTestId('web-deploy-spinner')).not.toBeInTheDocument();
   });
 

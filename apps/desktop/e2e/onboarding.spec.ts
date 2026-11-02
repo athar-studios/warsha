@@ -17,8 +17,11 @@ import {
   openScreen,
   REJECTED_KEY,
   THEMES,
-  VIEWPORTS,
+  viewportsNamed,
 } from './harness';
+
+const DESKTOP = viewportsNamed(['1440x900'])[0];
+const PHONE = viewportsNamed(['390x844'])[0];
 
 /** The methods the first run itself calls, in the order the flow calls them. */
 function wizardCalls(methods: readonly string[]): string[] {
@@ -44,7 +47,7 @@ test('the first run lists providers, tests the key, creates the project and leav
 }) => {
   const stubs = await openScreen(page, {
     screen: 'onboarding-project',
-    viewport: VIEWPORTS[0],
+    viewport: DESKTOP,
     locale: 'ar',
     theme: THEMES[0],
     drive: 'created',
@@ -75,7 +78,7 @@ test('a refused key is reported as a failure, and the key is nowhere it could le
 }) => {
   const stubs = await openScreen(page, {
     screen: 'onboarding-test-failed',
-    viewport: VIEWPORTS[1],
+    viewport: PHONE,
     locale: 'en',
     theme: THEMES[1],
   });
@@ -107,7 +110,7 @@ test('a refused key is reported as a failure, and the key is nowhere it could le
 test('the owner is told the test passed, and only then can name a project', async ({ page }) => {
   const stubs = await openScreen(page, {
     screen: 'onboarding-project',
-    viewport: VIEWPORTS[1],
+    viewport: PHONE,
     locale: 'ar',
     theme: THEMES[1],
   });

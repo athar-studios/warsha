@@ -1,238 +1,364 @@
-// Budgets — Per-project budget with spend tracking
-import { WarshaClient, type BudgetStatus, type ProjectId, type ProjectSummary } from '@warsha/client';
-import { t, useDirection, useLocale } from '@warsha/i18n';
-import { Box, Text, Button, Card } from '@warsha/ui';
-import React, { useState, useEffect } from 'react';
+// Budgets — one meter per project, on the bench (PLAN.md M12, redrawn for Bench & Signal in B3-secondary).
+//
+// REDESIGN §5 gives the budgets screen "budget ledger per project: meter, remaining, set-budget plate".
+// What it had was a column of cards, a hand-rolled progress bar that animated its own width, a fill colour
+// chosen by a `getProgressColor` table of raw colour tokens, and a budget that was written to no daemon at
+// all.
+//
+// What the direction asks of this file:
+//
+//   * rows on a plate, hairline each, and the meter is the shared `Meter` compound: track, fill and a
+//     **mandatory numeric readout**, because a 3px bar cannot tell an owner whether they are at 76% or 99%
+//     (§9);
+//   * no motion of its own — §8 forbids animation on anything the instrument strip reports, and the fill is
+//     a percentage, not a transition;
+//   * money is machine data: mono, tabular numerals, Western digits in both locales, isolated LTR so an
+//     Arabic paragraph never re-orders a `$12.00` (§11);
+//   * one lit thing, and only when it is genuinely the owner's call: a project that has reached its cap
+//     (§1). Everything else reads in words;
+//   * every word comes from `@warsha/i18n`: the `locale === 'ar' ? … : …` branches and the
+//     `t('projects.id_label', {}, locale) || 'ID:'` fallback are gone.
+import {
+  type BudgetStatus,
+  type ProjectId,
+  type ProjectSummary,
+  type WarshaClient,
+} from '@warsha/client';
+import { t, useDirection, useLocale, type MessageValues } from '@warsha/i18n';
+import {
+  Banner,
+  Box,
+  Button,
+  Chip,
+  EmptyState,
+  Field,
+  Ledger,
+  Meter,
+  Panel,
+  Skeleton,
+  Stamp,
+  Text,
+  fieldControl,
+} from '@warsha/ui';
+import React, { useCallback, useEffect, useState } from 'react';
 
 interface BudgetsProps {
   client: WarshaClient;
   onBack: () => void;
 }
 
-export function Budgets({ onBack }: BudgetsProps) {
+/** One project's money, as the ledger reads it. */
+interface BudgetRow {
+  project: ProjectSummary;
+  budget: BudgetStatus | null;
+}
+
+/** Money in the one shape the bench shows it: two decimals, Western digits, a dollar sign (§11). */
+function money(usd: number): string {
+  return `$${usd.toFixed(2)}`;
+}
+
+export function Budgets({ client, onBack }: BudgetsProps) {
   const dir = useDirection();
   const locale = useLocale();
-  const [budgets, setBudgets] = useState<Record<string, BudgetStatus & { projectName: string }>>({});
-  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+
+  const [rows, setRows] = useState<BudgetRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAdd, setShowAdd] = useState(false);
-  const [newBudget, setNewBudget] = useState({ projectId: '', cents: 10000 });
+  const [failed, setFailed] = useState(false);
+  const [reload, setReload] = useState(0);
+  const [showSet, setShowSet] = useState(false);
+  const [draft, setDraft] = useState({ projectId: '', dollars: 100 });
+  const [touched, setTouched] = useState({ projectId: false, dollars: false });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
+  const label = useCallback((key: string, values?: MessageValues) => t(key, values ?? {}, locale), [locale]);
+
+  // Projects first, then each project's budget. A project the daemon gives no budget for still gets a row —
+  // with the meter absent rather than invented (§7).
   useEffect(() => {
-    loadData();
-  }, []);
+    let cancelled = false;
+    setLoading(true);
 
-  const loadData = async () => {
-    try {
-      // const projectsData = await client.listProjects();
-      // for (const project of projectsData) {
-      //   const budget = await client.getBudget(project.id);
-      //   budgets[project.id] = { ...budget, projectName: project.name };
-      // }
-      // Mock data
-      const mockProjects: ProjectSummary[] = [
-        { id: 'proj-1' as ProjectId, name: 'Todo App', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-        { id: 'proj-2' as ProjectId, name: 'Blog Platform', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-      ];
-      setProjects(mockProjects);
-      
-      const mockBudgets: Record<string, BudgetStatus & { projectName: string }> = {
-        'proj-1': { totalBudgetUsd: 100, spentUsd: 23.45, remainingUsd: 76.55, projectName: 'Todo App' },
-        'proj-2': { totalBudgetUsd: 50, spentUsd: 12.00, remainingUsd: 38.00, projectName: 'Blog Platform' },
-      };
-      setBudgets(mockBudgets);
-    } catch (error) {
-      console.error('Failed to load budgets:', error);
-    } finally {
+    const load = async () => {
+      let projects: ProjectSummary[] | null = null;
+      try {
+        projects = await client.listProjects();
+      } catch {
+        projects = null;
+      }
+      if (cancelled) return;
+      if (projects === null) {
+        setFailed(true);
+        setRows([]);
+        setLoading(false);
+        return;
+      }
+
+      const settled = await Promise.all(
+        projects.map(async (project): Promise<BudgetRow> => {
+          try {
+            return { project, budget: await client.getProjectBudget(project.id) };
+          } catch {
+            return { project, budget: null };
+          }
+        })
+      );
+
+      if (cancelled) return;
+      setRows(settled);
+      setFailed(false);
       setLoading(false);
-    }
-  };
+    };
 
-  const handleSetBudget = async () => {
-    if (!newBudget.projectId || newBudget.cents <= 0) return;
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [client, reload]);
+
+  const projectError =
+    touched.projectId && draft.projectId === '' ? label('budgets.project_needed') : undefined;
+  const amountError =
+    touched.dollars && !(draft.dollars > 0) ? label('budgets.amount_hint') : undefined;
+
+  const unset = rows.filter((row) => row.budget === null);
+
+  const setBudget = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setTouched({ projectId: true, dollars: true });
+    if (draft.projectId === '' || !(draft.dollars > 0)) return;
+
+    setSaving(true);
+    setSaveError(null);
+    const projectId = draft.projectId as ProjectId;
     try {
-      // await client.setBudget(newBudget.projectId, newBudget.cents);
-      const project = projects.find(p => p.id === newBudget.projectId);
-      setBudgets(prev => ({
-        ...prev,
-        [newBudget.projectId]: {
-          totalBudgetUsd: newBudget.cents / 100,
-          spentUsd: 0,
-          remainingUsd: newBudget.cents / 100,
-          projectName: project?.name || 'Unknown',
-        }
-      }));
-      setShowAdd(false);
-      setNewBudget({ projectId: '', cents: 10000 });
-    } catch (error) {
-      console.error('Failed to set budget:', error);
+      await client.setProjectBudget(projectId, Math.round(draft.dollars * 100));
+      const spent = rows.find((row) => row.project.id === projectId)?.budget?.spentUsd ?? 0;
+      // The write is the answer: the ledger takes the new cap and keeps what has already been spent,
+      // rather than asking the daemon to confirm a number it has just been told (§7).
+      setRows((previous) =>
+        previous.map((row) =>
+          row.project.id === projectId
+            ? {
+                ...row,
+                budget: {
+                  totalBudgetUsd: draft.dollars,
+                  spentUsd: spent,
+                  remainingUsd: Math.max(0, draft.dollars - spent),
+                },
+              }
+            : row
+        )
+      );
+      setSaved(rows.find((row) => row.project.id === projectId)?.project.name ?? projectId);
+      setShowSet(false);
+      setDraft({ projectId: '', dollars: 100 });
+      setTouched({ projectId: false, dollars: false });
+    } catch {
+      setSaveError(label('budgets.failed'));
+    } finally {
+      setSaving(false);
     }
-  };
-
-  const formatMoney = (cents: number) => `$${(cents / 100).toFixed(2)}`;
-
-  const getProgressColor = (spent: number, total: number) => {
-    const pct = total > 0 ? (spent / total) * 100 : 0;
-    if (pct >= 90) return 'var(--warsha-color-error)';
-    if (pct >= 70) return 'var(--warsha-color-warning)';
-    return 'var(--warsha-color-success)';
   };
 
   return (
-    <Box dir={dir} className="budgets" style={{ padding: 'var(--warsha-space-6)', minHeight: 'calc(100vh - 80px)', maxWidth: '1000px' }}>
-      <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--warsha-space-6)' }}>
-        <Box dir={dir}>
-          <Button variant="ghost" size="sm" onClick={onBack} dir={dir} style={{ marginBottom: 'var(--warsha-space-2)' }}>
-            ← {locale === 'ar' ? 'رجوع' : 'Back'}
+    <Box
+      dir={dir}
+      className="budgets"
+      style={{
+        paddingInline: 'var(--warsha-space-6)',
+        paddingBlock: 'var(--warsha-space-6)',
+        minHeight: 'calc(100vh - 80px)',
+        maxInlineSize: '1000px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--warsha-space-4)',
+        minInlineSize: 0,
+      }}
+    >
+      <header dir={dir} style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--warsha-space-4)', flexWrap: 'wrap' }}>
+        <Box dir={dir} style={{ flex: '1', minInlineSize: 0 }}>
+          <Button variant="ghost" size="sm" dir={dir} onClick={onBack} style={{ paddingInlineStart: 0 }}>
+            {label('common.back')}
           </Button>
-          <Text size="xl" weight="bold" dir={dir}>
-            {locale === 'ar' ? 'الميزانيات' : 'Budgets'}
-          </Text>
-          <Text size="md" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
-            {locale === 'ar' ? 'تتبع الإنفاق لكل مشروع' : 'Track spending per project'}
+          <h1
+            dir={dir}
+            style={{
+              margin: 0,
+              fontSize: 'var(--warsha-font-size-xl)',
+              fontWeight: 'var(--warsha-font-weight-bold)',
+              color: 'var(--warsha-color-text)',
+            }}
+          >
+            {label('budgets.title')}
+          </h1>
+          <Text size="sm" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
+            {label('budgets.desc')}
           </Text>
         </Box>
-        <Button variant="primary" onClick={() => setShowAdd(true)} dir={dir}>
-          + {locale === 'ar' ? 'تعيين ميزانية' : 'Set Budget'}
+        <Button
+          variant={showSet ? 'secondary' : 'primary'}
+          dir={dir}
+          aria-expanded={showSet}
+          onClick={() => {
+            setShowSet((open) => !open);
+            setSaveError(null);
+          }}
+        >
+          {label('budgets.set')}
         </Button>
-      </Box>
+      </header>
 
-      {loading ? (
-        <Box dir={dir} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px' }}>
-          <Text dir={dir}>{locale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</Text>
-        </Box>
-      ) : (
-        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
-          {Object.entries(budgets).length === 0 ? (
-            <Card dir={dir} style={{ textAlign: 'center', padding: 'var(--warsha-space-12) var(--warsha-space-6)' }}>
-              <Text size="md" dir={dir} style={{ color: 'var(--warsha-color-muted)', marginBottom: 'var(--warsha-space-4)' }}>
-                {locale === 'ar' ? 'لا توجد ميزانيات محددة' : 'No budgets set'}
-              </Text>
-              <Button variant="primary" onClick={() => setShowAdd(true)} dir={dir}>
-                {locale === 'ar' ? 'تعيين أول ميزانية' : 'Set First Budget'}
-              </Button>
-            </Card>
-          ) : (
-            Object.entries(budgets).map(([projectId, budget]) => {
-              const pct = budget.totalBudgetUsd > 0 ? (budget.spentUsd / budget.totalBudgetUsd) * 100 : 0;
-              const color = getProgressColor(budget.spentUsd * 100, budget.totalBudgetUsd * 100);
-              return (
-                <Card key={projectId} dir={dir}>
-                  <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--warsha-space-4)' }}>
-                    <Box dir={dir}>
-                      <Text weight="bold" size="lg" dir={dir}>{budget.projectName}</Text>
-                      <Text size="sm" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>{t('projects.id_label', {}, locale) || 'ID:'} {projectId.slice(0, 8)}...</Text>
-                    </Box>
-                    <Box dir={dir} style={{ textAlign: dir === 'rtl' ? 'right' : 'left' }}>
-                      <Text size="sm" weight="bold" dir={dir} style={{ color }}>
-                        {formatMoney(Math.round(budget.spentUsd * 100))} / {formatMoney(Math.round(budget.totalBudgetUsd * 100))}
-                      </Text>
-                      <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)', marginTop: 'var(--warsha-space-1)' }}>
-                        {locale === 'ar' ? 'متبقي' : 'Remaining'}: {formatMoney(Math.round(budget.remainingUsd * 100))}
-                      </Text>
-                    </Box>
-                  </Box>
+      {failed && (
+        <Banner
+          tone="error"
+          action={
+            <Button variant="secondary" size="sm" dir={dir} onClick={() => setReload((n) => n + 1)}>
+              {label('common.retry')}
+            </Button>
+          }
+        >
+          {label('budgets.failed')}
+        </Banner>
+      )}
 
-                  <Box dir={dir} style={{ height: '8px', backgroundColor: 'var(--warsha-color-border)', borderRadius: '4px', overflow: 'hidden' }}>
-                    <div style={{
-                      width: `${Math.min(pct, 100)}%`,
-                      height: '100%',
-                      backgroundColor: color,
-                      transition: 'width 0.3s ease',
-                    }} />
-                  </Box>
-
-                  <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', marginTop: 'var(--warsha-space-2)' }}>
-                    <Text size="xs" dir={dir} style={{ color: color, fontWeight: 500 }}>
-                      {pct.toFixed(1)}% {locale === 'ar' ? 'مستخدمة' : 'used'}
-                    </Text>
-                    <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
-                      {locale === 'ar' ? 'محددة' : 'Set'}: {formatMoney(Math.round(budget.totalBudgetUsd * 100))}
-                    </Text>
-                  </Box>
-                </Card>
-              );
-            })
-          )}
+      {saved && (
+        <Box dir={dir}>
+          <Stamp tone="ok">{`${saved} — ${label('budgets.updated')}`}</Stamp>
         </Box>
       )}
 
-      {showAdd && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          insetInlineStart: 0,
-          insetInlineEnd: 0,
-          bottom: 0,
-          backgroundColor: 'var(--warsha-color-muted)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-          direction: dir,
-        }}>
-          <Card dir={dir} style={{ width: '100%', maxWidth: '480px', margin: 'var(--warsha-space-4)' }}>
-            <Text size="lg" weight="bold" dir={dir} style={{ marginBottom: 'var(--warsha-space-6)' }}>
-              {locale === 'ar' ? 'تعيين ميزانية جديدة' : 'Set New Budget'}
-            </Text>
-            
-            <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)' }}>
-              <Box dir={dir}>
-                <Text size="sm" weight="medium" dir={dir} style={{ marginBottom: 'var(--warsha-space-2)' }}>
-                  {locale === 'ar' ? 'المشروع' : 'Project'}
-                </Text>
-                <select
-                  value={newBudget.projectId}
-                  onChange={(e) => setNewBudget({ ...newBudget, projectId: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: 'var(--warsha-space-3)',
-                    border: '1px solid var(--warsha-color-border-strong)',
-                    borderRadius: '6px',
-                    fontSize: 'var(--warsha-font-size-md)',
-                  }}
-                  dir={dir}
-                >
-                  <option value="">{locale === 'ar' ? 'اختر مشروع...' : 'Select project...'}</option>
-                  {projects.filter(p => !budgets[p.id]).map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              </Box>
-              
-              <Box dir={dir}>
-                <Text size="sm" weight="medium" dir={dir} style={{ marginBottom: 'var(--warsha-space-2)' }}>
-                  {locale === 'ar' ? 'الميزانية (دولار)' : 'Budget (USD)'}
-                </Text>
-                <input
-                  type="number"
-                  min="1"
-                  max="100000"
-                  value={newBudget.cents / 100}
-                  onChange={(e) => setNewBudget({ ...newBudget, cents: Math.round(parseFloat(e.target.value) * 100) })}
-                  style={{
-                    width: '100%',
-                    padding: 'var(--warsha-space-3)',
-                    border: '1px solid var(--warsha-color-border-strong)',
-                    borderRadius: '6px',
-                    fontSize: 'var(--warsha-font-size-md)',
-                    direction: 'ltr',
-                  }}
-                  dir="ltr"
-                />
-              </Box>
-              
-              <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-3)', justifyContent: 'flex-end' }}>
-                <Button variant="secondary" onClick={() => setShowAdd(false)} dir={dir}>
-                  {locale === 'ar' ? 'إلغاء' : 'Cancel'}
-                </Button>
-                <Button variant="primary" onClick={handleSetBudget} disabled={!newBudget.projectId} dir={dir}>
-                  {locale === 'ar' ? 'تعيين' : 'Set'}
-                </Button>
-              </Box>
+      {showSet && (
+        <Panel title={label('budgets.set_title')} label={label('budgets.set_title')}>
+          <form onSubmit={setBudget} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' }}>
+            <Field id="budget-project" label={label('budgets.project')} error={projectError} required>
+              <select
+                {...fieldControl('budget-project', { error: Boolean(projectError) })}
+                dir={dir}
+                value={draft.projectId}
+                onChange={(event) => setDraft({ ...draft, projectId: event.target.value })}
+                onBlur={() => setTouched({ ...touched, projectId: true })}
+              >
+                <option value="">{label('budgets.select_project')}</option>
+                {unset.map((row) => (
+                  <option key={row.project.id} value={row.project.id}>
+                    {row.project.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field id="budget-amount" label={label('budgets.amount')} hint={label('budgets.amount_hint')} error={amountError} required>
+              <input
+                {...fieldControl('budget-amount', { hint: !amountError, error: Boolean(amountError) })}
+                // Digits and a currency sign stay left-to-right in an Arabic paragraph (§11).
+                dir="ltr"
+                type="number"
+                min="1"
+                max="100000"
+                step="1"
+                value={draft.dollars}
+                onChange={(event) => setDraft({ ...draft, dollars: Number(event.target.value) })}
+                onBlur={() => setTouched({ ...touched, dollars: true })}
+              />
+            </Field>
+
+            {saveError && <Banner tone="error">{saveError}</Banner>}
+
+            <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-3)', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <Button type="button" variant="secondary" dir={dir} onClick={() => setShowSet(false)}>
+                {label('common.cancel')}
+              </Button>
+              <Button type="submit" variant="primary" dir={dir} disabled={saving}>
+                {saving ? label('roles.saving') : label('budgets.set_btn')}
+              </Button>
             </Box>
-          </Card>
-        </div>
+          </form>
+        </Panel>
+      )}
+
+      {loading ? (
+        <Box dir={dir} p={4}>
+          <Skeleton label={label('budgets.loading')} variant="row" lines={4} />
+        </Box>
+      ) : rows.length === 0 && !failed ? (
+        <EmptyState
+          title={label('budgets.no_budgets')}
+          description={label('budgets.desc')}
+          action={
+            <Button variant="primary" dir={dir} onClick={() => setShowSet(true)}>
+              {label('budgets.set_first')}
+            </Button>
+          }
+        />
+      ) : (
+        <Ledger label={label('budgets.title')} recessed>
+          {rows.map(({ project, budget }) => {
+            const spent = budget?.spentUsd ?? 0;
+            const cap = budget?.totalBudgetUsd ?? 0;
+            const reached = budget !== null && cap > 0 && spent >= cap;
+            return (
+              <Ledger.Row key={project.id}>
+                <Box
+                  dir={dir}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 'var(--warsha-space-2)',
+                    minInlineSize: 0,
+                  }}
+                >
+                  <Box dir={dir} style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--warsha-space-3)', flexWrap: 'wrap' }}>
+                    <Text size="sm" weight="medium" dir={dir}>
+                      {project.name}
+                    </Text>
+                    {reached && (
+                      // The one lit thing on this screen: the cap is spent, and only the owner can raise it
+                      // or stop the run (§1).
+                      <Chip tone="lit" glyph="!">
+                        {label('budgets.cap_reached')}
+                      </Chip>
+                    )}
+                  </Box>
+
+                  {budget ? (
+                    <>
+                      <Meter
+                        value={Number(spent.toFixed(2))}
+                        max={Number(cap.toFixed(2))}
+                        label={label('bench.budget_used')}
+                        trackSize="var(--warsha-space-32)"
+                      >
+                        {`${money(spent)} / ${money(cap)}`}
+                      </Meter>
+                      <Box dir={dir} style={{ display: 'inline-flex', gap: 'var(--warsha-space-4)', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 'var(--warsha-font-size-xs)', color: 'var(--warsha-color-text)' }}>
+                          {label('budgets.remaining')}{' '}
+                          <span dir="ltr" translate="no" style={{ fontFamily: 'var(--warsha-font-mono)', fontVariantNumeric: 'tabular-nums' }}>
+                            {money(Math.max(0, budget.remainingUsd))}
+                          </span>
+                        </span>
+                        <span style={{ fontSize: 'var(--warsha-font-size-xs)', color: 'var(--warsha-color-text)' }}>
+                          {label('budgets.spent')}{' '}
+                          <span dir="ltr" translate="no" style={{ fontFamily: 'var(--warsha-font-mono)', fontVariantNumeric: 'tabular-nums' }}>
+                            {`${((cap > 0 ? spent / cap : 0) * 100).toFixed(1)}%`}
+                          </span>
+                        </span>
+                      </Box>
+                    </>
+                  ) : (
+                    // No daemon answer, no invented meter: the row says what is missing (§7).
+                    <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
+                      {label('budgets.no_budgets')}
+                    </Text>
+                  )}
+                </Box>
+              </Ledger.Row>
+            );
+          })}
+        </Ledger>
       )}
     </Box>
   );

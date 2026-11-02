@@ -1,8 +1,18 @@
-/* Warsha Desktop — Global styles
+/* Warsha Desktop — global styles and the bench's layout (docs/design/REDESIGN.md §4, §9, §10)
  *
  * The design tokens live in @warsha/ui (`packages/ui/src/tokens/tokens.css`) and are imported once,
- * here. Nothing below invents a colour or a font: it references a token, so flipping
+ * here. Nothing below invents a colour, a length or a font: every value is a token, so flipping
  * `data-theme="dark"` on <html> restyles the whole app without touching this file.
+ *
+ * What belongs in this file is exactly what a component cannot express inline — a pseudo-class
+ * (`:focus-visible`, `:hover`), a viewport (`@media`), a pointer type (`pointer: coarse`) or the
+ * document's reading direction (`[dir]`). `tokens.css` owns the same four conditions for the shared
+ * system (REDESIGN §6, "no component-level media query"); this file adds the *desktop bench's*
+ * regions: the top bar, the instrument strip, the rails, the panes and the settings body, at the
+ * breakpoints §10 names (320 / 390 / 768 / 1024 / 1440).
+ *
+ * Layout uses logical properties only (`inline-size`, `padding-inline`, `inset-inline-start`,
+ * `border-block-end`, `margin-inline`), so Arabic mirrors without a second rule.
  */
 @import '@warsha/ui/tokens/tokens.css';
 
@@ -29,6 +39,11 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* §11: RTL body copy reads at the relaxed leading; headings keep `snug` in both directions. */
+html[dir='rtl'] body {
+  line-height: var(--warsha-line-height-relaxed);
+}
+
 a {
   color: var(--warsha-color-accent-strong);
   text-decoration: none;
@@ -49,12 +64,519 @@ select {
   font-size: var(--warsha-font-size-md);
 }
 
+/*
+ * One focus ring for the whole app (AUDIT-1 §1.3, REDESIGN §9).
+ *
+ * This rule used to draw `--warsha-color-accent` — 1.35:1 against `bg`, which is not a visible focus
+ * indicator and failed WCAG 1.4.11. `--warsha-focus-ring` is the theme's answer: dark gold on the
+ * light plate (5.03:1), brand yellow on the dark one. `tokens.css` declares the same ring under
+ * `:root`, which outranks this selector; both agree, and neither may name a colour.
+ */
 :focus-visible {
-  outline: 2px solid var(--warsha-color-accent);
-  outline-offset: 2px;
+  outline: var(--warsha-size-inscribe) solid var(--warsha-focus-ring);
+  outline-offset: var(--warsha-size-inscribe);
+  /*
+   * §9: "sticky composer and decision bars reserve padding so a focused element is never obscured".
+   * B4 found the promise kept in CSS and broken in the browser: the browser scrolls a focused control
+   * to the *edge* of the viewport, and the sticky top bar and instrument strip sit exactly there — so
+   * "Back" and "Task board" took the ring while hidden under the chrome. `scroll-margin` is the rule
+   * that makes the two cooperate: the browser stops scrolling one sticky band earlier.
+   */
+  scroll-margin-block-start: calc(
+    var(--warsha-size-topbar) * 2 + var(--warsha-size-strip) + var(--warsha-space-4)
+  );
+  scroll-margin-block-end: calc(var(--warsha-size-touch) * 2 + var(--warsha-space-6));
+}
+
+/* Visual determinism, not a layout opinion: the capture must start from the same scroll offset every
+   time, and anchoring moves content inside a scroll container without any scroll event to see it. */
+html {
+  overflow-anchor: none;
 }
 
 ::selection {
   background-color: var(--warsha-color-surface-muted);
   color: var(--warsha-color-accent-strong);
+}
+
+/* ===================================================================================== the bench */
+
+/* The shell column: top bar, instrument strip, then the screen. `100dvh` so a mobile browser's
+   shrinking chrome never pushes the strip off the visible area. */
+.bench {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-block-size: 100vh;
+  min-block-size: 100dvh;
+  /* B4 §9: the bench is the height of the window, and the *screen* scrolls inside it. While the
+     document itself scrolled, a focused control could sit under the sticky top bar with the browser
+     seeing no reason to scroll further — `scroll-margin` only moves a scroll that happens. */
+  block-size: 100dvh;
+  overflow: hidden;
+  background-color: var(--warsha-color-bg);
+}
+
+/* A screen that is not a workbench (the first-run wizard) has to scroll on its own. */
+.bench--wizard {
+  overflow-y: auto;
+}
+
+/* §4: the top bar is 56px and sticky. Below 768 it wraps and the contextual id goes (§10). */
+.bench-topbar {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: var(--warsha-space-4);
+  flex-wrap: wrap;
+  row-gap: var(--warsha-space-2);
+  min-block-size: var(--warsha-size-topbar);
+  padding-inline: var(--warsha-space-3);
+  padding-block: var(--warsha-space-2);
+  background-color: var(--warsha-color-surface);
+  border-block-end: var(--warsha-size-rule) solid var(--warsha-bench-rule);
+}
+
+.bench-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--warsha-space-2);
+  min-inline-size: 0;
+  color: var(--warsha-color-text);
+  font-weight: var(--warsha-font-weight-bold);
+  font-size: var(--warsha-font-size-lg);
+}
+
+.bench-brand-mark {
+  flex: none;
+  inline-size: var(--warsha-size-nut);
+  block-size: var(--warsha-size-nut);
+}
+
+/* The contextual identity — machine data, so mono with tabular numerals (§11). */
+.bench-identity {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--warsha-space-2);
+  min-inline-size: 0;
+  flex: 1 1 auto;
+  font-family: var(--warsha-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--warsha-font-size-xs);
+  color: var(--warsha-color-text);
+}
+
+.bench-topbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--warsha-space-2);
+  flex-wrap: wrap;
+  row-gap: var(--warsha-space-2);
+  margin-inline-start: auto;
+}
+
+/* The instrument strip (§4) is 36px and recessed; `StatusStrip` paints itself, this only fastens it. */
+.bench-strip {
+  /* The strip scrolls in the inline axis inside itself (§10's overflow gate), so it must be allowed to
+     shrink to the column. Without this the sum of its `flex: none` readings — 329px at the 320 floor —
+     became the grid column's minimum, and the whole bench took sideways scroll with it. */
+  min-inline-size: 0;
+  border-block-end: var(--warsha-size-rule) solid var(--warsha-bench-rule);
+}
+
+/* The screen. §10: at 1440 the document screens take a 1100px measure, the workbench stays fluid. */
+.bench-main {
+  /* The screen area is the scroller, and it starts below the instrument strip — the plate a
+     focused control can never be pushed under. */
+  min-block-size: 0;
+  overflow-y: auto;
+  min-inline-size: 0;
+  /* §10's sideways gate, without the accident: `overflow-x: hidden` computes `overflow-y` to `auto`, so
+     the screen became a block-axis scroll container and a focused control scrolled *inside the plate*
+     while the document slid the whole plate under the sticky top bar. `clip` keeps the other axis
+     visible, so `:focus-visible`'s scroll-margin does its job against the bar that actually covers it. */
+  overflow-x: clip;
+}
+
+.bench-main--document {
+  display: grid;
+  justify-items: stretch;
+  max-inline-size: 1100px;
+  margin-inline: auto;
+  inline-size: 100%;
+}
+
+.bench-main--workbench {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+}
+
+/* ------------------------------------------------------------------- the first-run wizard (§5) */
+/*
+ * The step ledger rides the inline start at 768 and up, and is one of the things §10 says gives way
+ * below it. `Onboarding.tsx` used to state the 224px here as an inline style with a matching
+ * `min-inline-size`, which no viewport rule could release — the wizard measured 450px wide inside a
+ * 390px viewport and 632px on the last step. A viewport is a stylesheet fact, so it lives here.
+ */
+.onboarding-steps {
+  inline-size: var(--warsha-size-rail-compact);
+  min-inline-size: var(--warsha-size-rail-compact);
+  flex: none;
+}
+
+/* Determinism of the frame, not a layout opinion — see the note in `apps/remote/src/index.css`. */
+.bench-main,
+.bench-settings-tabs,
+.bench-rail,
+.bench-side,
+.bench-tasks-column,
+.simple-rail,
+.simple-side {
+  scrollbar-gutter: stable;
+}
+
+
+/* --------------------------------------------------------------------------- the skip link (§9) */
+.bench-skip {
+  position: absolute;
+  inset-inline-start: var(--warsha-space-2);
+  inset-block-start: var(--warsha-space-2);
+  z-index: 200;
+  padding-inline: var(--warsha-space-3);
+  padding-block: var(--warsha-space-2);
+  background-color: var(--warsha-color-surface);
+  color: var(--warsha-color-text);
+  border: var(--warsha-size-rule) solid var(--warsha-bench-edge);
+  border-radius: var(--warsha-radius-md);
+  /* Hidden until it has focus: keyboard owners get it, pointer owners never see it. */
+  clip-path: inset(50%);
+  block-size: var(--warsha-size-inscribe);
+  overflow: hidden;
+}
+
+.bench-skip:focus-visible {
+  clip-path: none;
+  block-size: auto;
+  inline-size: auto;
+}
+
+/* -------------------------------------------------------------------- the settings tab strip (§4) */
+.bench-settings {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 100%;
+}
+
+/* The strip is a row of controls, not a flexible region: see the note on `.bench-main` above. */
+.bench-settings-tabs {
+  flex: none;
+}
+
+/* ------------------------------------------------------------------ the gate bell's queue (§4, §9) */
+.bench-bell {
+  position: relative;
+  display: inline-flex;
+}
+
+.bench-bell-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--warsha-space-1);
+  min-inline-size: var(--warsha-size-touch);
+  min-block-size: var(--warsha-size-touch);
+  padding-inline: var(--warsha-space-3);
+  border: none;
+  border-radius: var(--warsha-radius-md);
+  background-color: transparent;
+  color: var(--warsha-color-text);
+  font-family: inherit;
+  font-size: var(--warsha-font-size-sm);
+  font-weight: var(--warsha-font-weight-medium);
+  cursor: pointer;
+}
+
+/* The count badge is the lit lamp: signal as a fill, its ink drawn on top (§1, §4). */
+.bench-bell-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: var(--warsha-size-badge);
+  block-size: var(--warsha-size-badge);
+  padding-inline: var(--warsha-space-1);
+  border-radius: var(--warsha-radius-full);
+  background-color: var(--warsha-signal);
+  color: var(--warsha-signal-ink);
+  font-family: var(--warsha-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--warsha-font-size-xs);
+  font-weight: var(--warsha-font-weight-bold);
+}
+
+.bench-bell-popover {
+  position: fixed;
+  inset-inline-end: var(--warsha-space-3);
+  inset-block-start: calc(var(--warsha-size-topbar) + var(--warsha-space-2));
+  z-index: 150;
+  inline-size: min(360px, calc(100vw - 2 * var(--warsha-space-4)));
+  background-color: var(--warsha-color-surface);
+  border: var(--warsha-size-rule) solid var(--warsha-bench-rule);
+  border-radius: var(--warsha-radius-md);
+  box-shadow: var(--warsha-shadow-lg);
+}
+
+/* ========================================================================= the Advanced workbench */
+
+/* §10: at 1024 the bench is the full width; the lanes rail is 264px, at 768 it is 224px, and below
+   that the rail becomes a horizontal strip the owner scrolls sideways. */
+.bench-advanced {
+  display: grid;
+  gap: var(--warsha-space-4);
+  padding-inline: var(--warsha-space-3);
+  padding-block: var(--warsha-space-4);
+  min-inline-size: 0;
+}
+
+.bench-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--warsha-space-3);
+  min-inline-size: 0;
+}
+
+.bench-panes {
+  display: grid;
+  gap: var(--warsha-space-3);
+  min-inline-size: 0;
+}
+
+.bench-side {
+  display: grid;
+  gap: var(--warsha-space-3);
+  min-inline-size: 0;
+}
+
+.bench-tasks {
+  display: grid;
+  gap: var(--warsha-space-3);
+  min-inline-size: 0;
+}
+
+.bench-tasks-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--warsha-space-1);
+  min-inline-size: 0;
+}
+
+.bench-filters {
+  display: flex;
+  align-items: center;
+  gap: var(--warsha-space-2);
+  flex-wrap: wrap;
+  min-inline-size: 0;
+}
+
+.bench-stream {
+  max-block-size: min(60vh, 520px);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.bench-terminal {
+  display: grid;
+  gap: var(--warsha-space-2);
+  min-inline-size: 0;
+}
+
+.bench-screen-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--warsha-space-4);
+  padding-inline: var(--warsha-space-3);
+  padding-block: var(--warsha-space-4);
+  min-inline-size: 0;
+}
+
+/* ================================================================================== breakpoints */
+
+/* 320 — everything single-column and stacked; the bar's groups wrap onto their own lines. */
+@media (max-width: 359px) {
+  .bench-topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .bench-topbar-actions {
+    margin-inline-start: 0;
+    inline-size: 100%;
+  }
+}
+
+/* 390 — the phone bench: the contextual identity is gone (§10's "topbar wraps and the project id
+   hides"), and the rails lie down as horizontal strips the owner scrolls sideways. */
+@media (max-width: 767px) {
+  /* §10: the step ledger stops being a rail. It takes a line of its own — `flex-basis: 100%` forces the
+     wrap the wizard's own `flex-wrap: wrap` could not reach while the ledger held a 224px minimum — and
+     the step itself then has the whole phone width to lay its words out in. */
+  .onboarding-steps {
+    inline-size: 100%;
+    min-inline-size: 0;
+    max-inline-size: 100%;
+    flex: 0 0 100%;
+    border-inline-end: none;
+  }
+
+  .bench-identity {
+    display: none;
+  }
+
+  .bench-rail {
+    flex-direction: row;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    padding-block-end: var(--warsha-space-2);
+  }
+
+  .bench-rail > * {
+    flex: 0 0 min(240px, 70vw);
+  }
+}
+
+/* 768 — two columns where a rail exists; the rail is 224px and the bar stops wrapping. */
+@media (min-width: 768px) {
+  .bench-topbar {
+    padding-inline: var(--warsha-space-4);
+  }
+
+  .bench-advanced {
+    grid-template-columns: var(--warsha-size-rail-compact) minmax(0, 1fr);
+    padding-inline: var(--warsha-space-4);
+  }
+
+  .bench-screen-stack {
+    padding-inline: var(--warsha-space-4);
+  }
+
+  /* Three columns is the board's shape when there is room for them, not its definition. At 1024 the
+     Advanced pane split puts this board in a ~220px column, and `repeat(3, minmax(0,1fr))` gave each
+     column 54px and each todo title 0.7px — words with no box. `auto-fit` keeps three where three fit
+     and stacks where they do not (§10). */
+  .bench-tasks {
+    grid-template-columns: repeat(auto-fit, minmax(var(--warsha-size-rail-compact), 1fr));
+  }
+}
+
+/* ------------------------------------------------------------------ the Simple bench (§4, §10)
+ * The rail (264) and the end panel (300) are §10's ≥1024 facts. They used to be inline styles with
+ * matching `minInlineSize`, so nothing could release them: at 320 the two rails alone were 564px inside
+ * a 320px viewport and the chat column — `flex: 1` with `minWidth: 0` — collapsed to zero width, which
+ * is how B4 found a 735px-tall paragraph with no box and gate buttons 391px across a 320px screen.
+ * Below 1024 the bench is one column: the team lies down as a strip above the chat (§10's 390 row) and
+ * the summary panel goes under it.
+ */
+.simple-rail,
+.simple-side {
+  flex: none;
+}
+
+@media (min-width: 1024px) {
+  .simple-rail {
+    inline-size: var(--warsha-size-rail);
+    min-inline-size: var(--warsha-size-rail);
+  }
+
+  .simple-side {
+    inline-size: var(--warsha-size-panel);
+    min-inline-size: var(--warsha-size-panel);
+  }
+}
+
+@media (max-width: 1023px) {
+  .simple-mode {
+    flex-direction: column;
+  }
+
+  .simple-rail,
+  .simple-side {
+    inline-size: 100%;
+    min-inline-size: 0;
+    border-inline-end: none;
+    border-inline-start: none;
+  }
+
+  /* The team strip is the §10 "rails become horizontal strips" case: sideways scroll inside itself,
+     never wider than the page. */
+  .simple-rail {
+    flex-direction: row;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+}
+
+/* ----------------------------------------------------------------------- the split screens (§4, §10)
+ * `gates` and `artifacts` are one rail plus one detail column. The rail's 264px is §10's ≥1024 fact —
+ * written inline with a matching `minInlineSize` it could not be released, so the detail beside it
+ * collapsed to zero width and a gate summary became a 0×42 box. Same rule as the Simple bench, one
+ * class for both screens.
+ */
+.bench-split-rail {
+  flex: none;
+}
+
+@media (min-width: 1024px) {
+  .bench-split-rail {
+    inline-size: var(--warsha-size-rail);
+    min-inline-size: var(--warsha-size-rail);
+  }
+}
+
+@media (max-width: 1023px) {
+  .gates-inbox,
+  .artifact-viewer {
+    flex-direction: column;
+  }
+
+  .bench-split-rail {
+    inline-size: 100%;
+    min-inline-size: 0;
+    border-inline-end: none;
+  }
+}
+
+/* --------------------------------------------------------------------- the document measure (§10)
+ * A grid item's automatic minimum size is its *min-content*, and the settings tab strip's min-content
+ * is the sum of six `flex: none` tabs (488px). Left that way the strip was never the scroller §4 says
+ * it is: it sat 98px outside a 390px screen, hidden by `.bench-main { overflow-x: hidden }`, and a
+ * focused tab drew its ring where the owner could not see it. Releasing the minimum makes the strip
+ * scroll inside itself, which is the design's own instruction.
+ */
+.bench-main--document > *,
+.bench-settings,
+.bench-screen-stack {
+  min-inline-size: 0;
+}
+
+/* 1024 — the full bench: the rail widens to 264px and the panes split stream from side panes. */
+@media (min-width: 1024px) {
+  .bench-advanced {
+    grid-template-columns: var(--warsha-size-rail) minmax(0, 1fr);
+  }
+
+  .bench-panes {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+/* 1440 — the reference desktop: the document measure is 1100px (§10); the workbench stays fluid. */
+@media (min-width: 1440px) {
+  .bench-advanced,
+  .bench-screen-stack {
+    max-inline-size: 1400px;
+    margin-inline: auto;
+    inline-size: 100%;
+  }
 }

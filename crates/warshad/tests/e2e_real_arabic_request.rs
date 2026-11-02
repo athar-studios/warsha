@@ -596,10 +596,16 @@ async fn e2e_real_arabic_request_clinic_flow() {
     let project_dir = temp.path().join(PACKAGE_NAME);
     let state = daemon_state(&data_dir, provider_mode).await;
     let rpc = WarshaRpc::new(state.clone());
+    // The session a request arrives with. Over the wire the transport builds it
+    // from the bearer credential; in-process, these extensions are that session,
+    // and `owner` is the device the daemon records a decision against.
+    let owner = DeviceId::new();
+    let ext = warshad::owner_session(owner);
 
     // ---- 3. Create project from Arabic prompt: "تطبيق حجز مواعيد لعيادة أسنان".
     let project = rpc
         .create_project(
+            &ext,
             PACKAGE_NAME.to_string(),
             ARABIC_REQUEST.to_string(),
             "ar".to_string(),
@@ -610,7 +616,7 @@ async fn e2e_real_arabic_request_clinic_flow() {
     assert_eq!(project.description, ARABIC_REQUEST);
 
     let run = rpc
-        .start_run(project.id, ARABIC_REQUEST.to_string())
+        .start_run(&ext, project.id, ARABIC_REQUEST.to_string())
         .await
         .expect("runs.start succeeds");
     assert_eq!(run.current_stage, Stage::Idea);
@@ -621,7 +627,7 @@ async fn e2e_real_arabic_request_clinic_flow() {
 
     // Initial event is logged
     let events = rpc
-        .get_events(run.id)
+        .get_events(&ext, run.id)
         .await
         .expect("the run's events are readable");
     assert_eq!(events.len(), 1);
@@ -680,9 +686,9 @@ async fn e2e_real_arabic_request_clinic_flow() {
     assert_eq!(approval.to, AgentMode::Agent);
 
     // Owner approves Gate A (brief approval)
-    let device = DeviceId::new();
+    let device = owner;
     let run = rpc
-        .approve_gate(run.id, Stage::GateA, device)
+        .approve_gate(&ext, run.id, Stage::GateA, Some(device))
         .await
         .expect("Gate A approves");
     assert!(matches!(
@@ -714,7 +720,7 @@ async fn e2e_real_arabic_request_clinic_flow() {
     assert_eq!(run.current_stage, Stage::GateB);
 
     let run = rpc
-        .approve_gate(run.id, Stage::GateB, device)
+        .approve_gate(&ext, run.id, Stage::GateB, Some(device))
         .await
         .expect("Gate B approves");
     assert!(matches!(
@@ -948,10 +954,13 @@ async fn e2e_real_arabic_request_clinic_flow() {
     );
 
     // ---- 13. Event log persists and reads back with gate approvals.
-    let stored_run = rpc.get_run(run.id).await.expect("run is readable");
+    let stored_run = rpc.get_run(&ext, run.id).await.expect("run is readable");
     assert_eq!(stored_run.current_stage, Stage::ReviewQaSecurity);
 
-    let all_events = rpc.get_events(run.id).await.expect("events are readable");
+    let all_events = rpc
+        .get_events(&ext, run.id)
+        .await
+        .expect("events are readable");
     let decisions: Vec<&Event> = all_events
         .iter()
         .filter(|e| e.kind == EventKind::GateDecision)
@@ -1080,6 +1089,8 @@ async fn daemon_state(data_dir: &Path, provider_mode: RealOrMockProvider) -> Arc
     let routine_runner: Arc<dyn RoutineRunner + Send + Sync> = Arc::new(MockRoutineRunner::new());
     let routine_scheduler = Arc::new(RoutineScheduler::new(routines.clone(), routine_runner));
 
+    let local_device = identity.device_id;
+
     Arc::new(DaemonState {
         config: DaemonConfig {
             data_dir: data_dir.to_path_buf(),
@@ -1113,6 +1124,12 @@ async fn daemon_state(data_dir: &Path, provider_mode: RealOrMockProvider) -> Arc
         secrets: Arc::new(InMemorySecretStore::new()),
         routines,
         routine_scheduler,
+        sessions: Arc::new(warshad::Sessions::new("e2e-arabic-token", local_device)),
+        rates: Arc::new(warshad::RateGovernor::default()),
+        role_routings: Arc::new(RwLock::new(HashMap::new())),
+        // The offline factory. This test's provider is chosen by `RealOrMockProvider`
+        // and registered on its own router; nothing here goes through `providers.add`.
+        provider_factory: Arc::new(warshad::MockProviderFactory::new()),
     })
 }
 

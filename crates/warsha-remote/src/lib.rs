@@ -1,6 +1,11 @@
 //! Warsha Remote — Pairing, E2E crypto, relay client
 
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+pub mod rate_limit;
+
+use base64::{
+    engine::general_purpose::STANDARD as BASE64_STANDARD,
+    engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_SAFE_NO_PAD, Engine as _,
+};
 use chrono::{DateTime, Duration, Utc};
 use image::Luma;
 use qrcode::QrCode;
@@ -9,6 +14,7 @@ use rand::TryRngCore;
 use serde::{Deserialize, Serialize};
 use snow::{params::NoiseParams, Builder, HandshakeState, TransportState};
 use std::collections::HashMap;
+use std::fmt;
 use std::io::Cursor;
 use std::sync::Arc;
 use thiserror::Error;
@@ -39,6 +45,28 @@ pub enum RemoteError {
 }
 
 pub type Result<T> = std::result::Result<T, RemoteError>;
+
+/// Whether two byte strings are equal, in time that does not depend on how much of
+/// `presented` was right.
+///
+/// Every credential in the pairing path — a pairing secret, a bearer token — is
+/// compared with this. A plain `==` returns at the first differing byte, which turns
+/// a series of rejected attempts into a measurement of the longest correct prefix,
+/// and a 256-bit secret into 256 guesses of one byte each.
+///
+/// The length check is not constant-time and does not need to be: what is compared
+/// here is fixed-width material, and a secret's *length* is not the part an attacker
+/// is trying to recover.
+pub fn constant_time_eq(expected: &[u8], presented: &[u8]) -> bool {
+    if expected.len() != presented.len() {
+        return false;
+    }
+    expected
+        .iter()
+        .zip(presented)
+        .fold(0u8, |differences, (a, b)| differences | (a ^ b))
+        == 0
+}
 
 /// Noise XX parameters
 const NOISE_PARAMS: &str = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
@@ -80,13 +108,33 @@ impl DeviceIdentity {
 }
 
 /// Pairing data exchanged via QR code
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct PairingData {
     pub device_id: DeviceId,
     pub static_public: [u8; 32],
     pub relay_url: Option<String>,
     pub pairing_secret: [u8; 32], // One-time secret
     pub expires_at: DateTime<Utc>,
+}
+
+/// A pairing printed for a human, with its secret withheld.
+///
+/// `PairingData` carries the credential that opens a device's relay channel *and*
+/// authorises every frame it submits. A derived `Debug` would print those 32 bytes, and
+/// one `debug!("{pairing:?}")` in a daemon's or a relay's log would then be a bearer
+/// token in a file that is rotated, shipped to support and pasted into an issue. The
+/// store's own `StoredPairing` is written the same way for the same reason, and this is
+/// the type where the secret is born (audit N-1).
+impl fmt::Debug for PairingData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PairingData")
+            .field("device_id", &self.device_id)
+            .field("static_public", &self.static_public)
+            .field("relay_url", &self.relay_url)
+            .field("pairing_secret", &"<redacted>")
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
 }
 
 impl PairingData {
@@ -129,6 +177,237 @@ impl PairingData {
         // For now, assume we have the JSON data directly
         let data = serde_json::from_slice(&png_data)?;
         Ok(data)
+    }
+
+    /// True while this pairing may still open a channel.
+    ///
+    /// The expiry is the one the pairing carries, judged against `now`: a relay that
+    /// honoured a QR code forever would be a door the owner thought they had closed
+    /// when it went stale.
+    pub fn is_expired_at(&self, now: DateTime<Utc>) -> bool {
+        now >= self.expires_at
+    }
+
+    /// True once the wall clock has passed this pairing's expiry.
+    pub fn is_expired(&self) -> bool {
+        self.is_expired_at(Utc::now())
+    }
+
+    /// Whether `presented` is this pairing's secret.
+    ///
+    /// A constant-time comparison, because a pairing secret is a bearer credential
+    /// and a byte-at-a-time short-circuit turns a relay's 401 into a timing oracle
+    /// for the one value that opens a device's channel.
+    pub fn verify_secret(&self, presented: &[u8]) -> bool {
+        constant_time_eq(&self.pairing_secret, presented)
+    }
+
+    /// Whether `presented` is this pairing's secret in the bearer-token form
+    /// ([`PairingData::secret_token`]).
+    pub fn verify_secret_token(&self, presented: &str) -> bool {
+        PairingData::secret_from_token(presented).is_some_and(|secret| self.verify_secret(&secret))
+    }
+
+    /// The pairing secret as a bearer token: base64url without padding.
+    ///
+    /// This is what a device puts in `Authorization: Bearer …` to open a relay
+    /// channel or submit a frame, and it is the one place the secret's wire form is
+    /// decided. It is a secret: nothing that takes it logs it, and a relay keeps the
+    /// list rather than echoing one back.
+    pub fn secret_token(&self) -> String {
+        BASE64_URL_SAFE_NO_PAD.encode(self.pairing_secret)
+    }
+
+    /// Decode a bearer token into the 32 bytes a pairing secret is, or `None` when it
+    /// is not one.
+    ///
+    /// Whitespace is trimmed because a pasted token carries it; anything else that
+    /// does not decode to exactly 32 bytes is not a wrong secret but no secret at
+    /// all, and is answered as a missing credential.
+    pub fn secret_from_token(token: &str) -> Option<[u8; 32]> {
+        let decoded = BASE64_URL_SAFE_NO_PAD.decode(token.trim()).ok()?;
+        decoded.try_into().ok()
+    }
+}
+
+/// One entry on a relay's trust list: a pairing that may open a channel, and the
+/// device it is therefore speaking as.
+#[derive(Clone)]
+pub struct TrustedPairing {
+    /// The device id the relay binds to an authenticated channel — taken from the
+    /// pairing, never from the client (audit H-02).
+    pub device_id: DeviceId,
+    /// The secret that authenticates the channel.
+    pub pairing_secret: [u8; 32],
+    /// When the pairing stops being able to open a channel.
+    pub expires_at: DateTime<Utc>,
+}
+
+/// A trust entry printed with its secret withheld, for the same reason [`PairingData`]
+/// is: a relay's log line is not where a device's bearer credential belongs.
+impl fmt::Debug for TrustedPairing {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TrustedPairing")
+            .field("device_id", &self.device_id)
+            .field("pairing_secret", &"<redacted>")
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
+}
+
+impl TrustedPairing {
+    /// Trust the pairing a QR code carried.
+    pub fn from_pairing(pairing: &PairingData) -> Self {
+        Self {
+            device_id: pairing.device_id,
+            pairing_secret: pairing.pairing_secret,
+            expires_at: pairing.expires_at,
+        }
+    }
+
+    /// Trust a device by the bearer token its pairing secret is, as it is held in a
+    /// secret store rather than in a pairing record.
+    ///
+    /// `None` for a token that is not 32 bytes of base64url, because a record that does
+    /// not name a secret cannot authenticate anything and the caller decides whether
+    /// that is a warning or a refusal to start. This is the form a relay's trust list
+    /// takes when it is read out of the OS keychain instead of handed over as plaintext
+    /// (audit N-1), and it deliberately round-trips [`PairingData::secret_token`] so
+    /// there is one wire form of a pairing secret in the workspace, not two.
+    pub fn from_secret_token(
+        device_id: DeviceId,
+        token: &str,
+        expires_at: DateTime<Utc>,
+    ) -> Option<Self> {
+        let pairing_secret = PairingData::secret_from_token(token)?;
+        Some(Self {
+            device_id,
+            pairing_secret,
+            expires_at,
+        })
+    }
+
+    /// Whether `presented` authenticates this entry, expiry included.
+    fn authenticate(&self, presented: &[u8], now: DateTime<Utc>) -> bool {
+        !self.is_expired_at(now) && constant_time_eq(&self.pairing_secret, presented)
+    }
+
+    fn is_expired_at(&self, now: DateTime<Utc>) -> bool {
+        now >= self.expires_at
+    }
+}
+
+/// The set of pairings a relay will accept, and the identity each one binds.
+///
+/// This is the relay's whole authentication story: it holds the same one-time
+/// secrets the paired devices hold, and a channel or a frame is admitted only on a
+/// match. The scan is linear and constant-time per entry rather than a hash lookup
+/// so that no timing difference tells an attacker which prefix of a secret was
+/// right; the lists are short (the devices one owner has paired), and the bound on
+/// them is the relay's, not the caller's.
+#[derive(Clone, Default)]
+pub struct RelayTrust {
+    entries: Vec<TrustedPairing>,
+}
+
+/// A trust list printed as how many devices it holds and which they are, because the
+/// list *is* the set of device credentials the relay can impersonate with. Printing it
+/// is how a secret ends up in a log (audit N-1).
+impl fmt::Debug for RelayTrust {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RelayTrust")
+            .field("entries", &self.entries.len())
+            .field("devices", &self.device_ids())
+            .field("secrets", &"<redacted>")
+            .finish()
+    }
+}
+
+impl RelayTrust {
+    /// An empty list: nothing is trusted, so nothing connects.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// A list from the pairings an owner handed the relay.
+    pub fn from_pairings<'a>(pairings: impl IntoIterator<Item = &'a PairingData>) -> Self {
+        Self {
+            entries: pairings
+                .into_iter()
+                .map(TrustedPairing::from_pairing)
+                .collect(),
+        }
+    }
+
+    /// A list from entries that were assembled outside a pairing record — from a secret
+    /// store, or from credentials the operator handed the process at startup rather than
+    /// in a file (audit N-1).
+    ///
+    /// Repeated device ids replace each other the way [`RelayTrust::add`] does, so a
+    /// list built from two sources cannot quietly hold two credentials for one device
+    /// and let the older one keep opening channels.
+    pub fn from_entries(entries: impl IntoIterator<Item = TrustedPairing>) -> Self {
+        let mut trust = Self::new();
+        for entry in entries {
+            trust.entries.retain(|e| e.device_id != entry.device_id);
+            trust.entries.push(entry);
+        }
+        trust
+    }
+
+    /// The devices this list can authenticate, for a log line or a status report. A
+    /// device id is not a secret; the secret that names it is.
+    pub fn device_ids(&self) -> Vec<DeviceId> {
+        self.entries.iter().map(|entry| entry.device_id).collect()
+    }
+
+    /// Admit one more pairing. Re-adding the same device replaces its entry, which is
+    /// what a re-pair means: the old secret stops working.
+    pub fn add(&mut self, pairing: &PairingData) {
+        let entry = TrustedPairing::from_pairing(pairing);
+        self.entries.retain(|e| e.device_id != entry.device_id);
+        self.entries.push(entry);
+    }
+
+    /// The device `presented` secret authenticates as, at `now`.
+    ///
+    /// `None` for a secret nobody holds, for one that is the wrong length, and for a
+    /// pairing past its expiry — all three read the same way to the caller, so a
+    /// probe cannot tell an unknown device from a retired one.
+    ///
+    /// Every entry is compared rather than the search stopping at the first match, so
+    /// the cost of a probe does not tell its sender how far into the list a guess got.
+    pub fn authenticate(&self, presented: &[u8], now: DateTime<Utc>) -> Option<DeviceId> {
+        self.entries.iter().fold(None, |matched, entry| {
+            if entry.authenticate(presented, now) {
+                Some(entry.device_id)
+            } else {
+                matched
+            }
+        })
+    }
+
+    /// The device `presented` secret authenticates as, against the wall clock.
+    pub fn authenticate_now(&self, presented: &[u8]) -> Option<DeviceId> {
+        self.authenticate(presented, Utc::now())
+    }
+
+    /// The device a bearer token authenticates as, or `None` when it authenticates
+    /// nothing — including a token that is not decodable, which is refused exactly
+    /// like a wrong one so a probe cannot tell the two apart.
+    pub fn authenticate_token(&self, token: &str) -> Option<DeviceId> {
+        let secret = PairingData::secret_from_token(token)?;
+        self.authenticate(&secret, Utc::now())
+    }
+
+    /// How many pairings are trusted.
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// True when the relay will admit no channel at all.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
     }
 }
 
@@ -277,6 +556,27 @@ impl RelayClient {
         Ok(())
     }
 
+    /// The `Authorization` value this client must present to open a relay channel.
+    ///
+    /// The relay binds every channel to the device its credential authenticates
+    /// (security audit H-02), so a client that connects without one is refused before
+    /// any frame moves. Checked here as well: a pairing for another device, or one
+    /// past its expiry, is refused rather than sent out to be answered with a 401.
+    pub fn credential(&self, pairing: &PairingData) -> Result<String> {
+        if pairing.device_id != self.device_id {
+            return Err(RemoteError::Handshake(format!(
+                "the pairing names device {}, but this client is {}",
+                pairing.device_id, self.device_id
+            )));
+        }
+        if pairing.is_expired() {
+            return Err(RemoteError::Handshake(
+                "the pairing has expired; pair the device again".to_string(),
+            ));
+        }
+        Ok(format!("Bearer {}", pairing.secret_token()))
+    }
+
     pub async fn send_frame(&self, _frame: EncryptedFrame) -> Result<()> {
         // Send encrypted frame to relay
         Ok(())
@@ -398,5 +698,265 @@ mod tests {
 
         let channel = EncryptedChannel::initiate(&local, &remote_public).unwrap();
         assert_eq!(channel.local_device_id, local.device_id);
+    }
+
+    /// A pairing an owner has handed the relay, five minutes from its expiry.
+    fn trusted_pairing(device: &DeviceIdentity) -> PairingData {
+        PairingData::new(device, None).expect("a pairing is built")
+    }
+
+    #[test]
+    fn a_trusted_pairing_authenticates_its_secret_and_binds_the_device_id() {
+        let device = DeviceIdentity::generate("Phone".to_string()).unwrap();
+        let pairing = trusted_pairing(&device);
+        let trust = RelayTrust::from_pairings([&pairing]);
+
+        let bound = trust
+            .authenticate_now(&pairing.pairing_secret)
+            .expect("the pairing's own secret authenticates");
+        // The id is the one the *pairing* named, which is the server-side binding
+        // audit H-02 asks for: nothing a client puts in a query string decides it.
+        assert_eq!(bound, device.device_id);
+        assert_eq!(bound, pairing.device_id);
+    }
+
+    #[test]
+    fn an_unknown_mismatched_or_short_secret_authenticates_no_device() {
+        let device = DeviceIdentity::generate("Phone".to_string()).unwrap();
+        let pairing = trusted_pairing(&device);
+        let trust = RelayTrust::from_pairings([&pairing]);
+
+        assert_eq!(trust.authenticate_now(&[0u8; 32]), None);
+        assert_eq!(trust.authenticate_now(&[7u8; 32]), None);
+        assert_eq!(trust.authenticate_now(&[]), None);
+        // A secret one half of the real one is not a near miss: it is a miss.
+        assert_eq!(trust.authenticate_now(&pairing.pairing_secret[..16]), None);
+        // And a trust list that holds nothing admits nothing.
+        assert!(RelayTrust::new().is_empty());
+        assert_eq!(
+            RelayTrust::new().authenticate_now(&pairing.pairing_secret),
+            None
+        );
+    }
+
+    #[test]
+    fn a_relay_client_carries_the_credential_its_own_pairing_names() {
+        let device = DeviceIdentity::generate("Phone".to_string()).unwrap();
+        let pairing = trusted_pairing(&device);
+        let client = RelayClient::new("ws://relay.example".to_string(), device.device_id);
+
+        let credential = client
+            .credential(&pairing)
+            .expect("a matching pairing carries");
+        assert_eq!(
+            credential,
+            format!("Bearer {}", pairing.secret_token()),
+            "the client did not present the pairing's own secret"
+        );
+        // The token it produces is what the relay's trust list authenticates.
+        assert_eq!(
+            RelayTrust::from_pairings([&pairing])
+                .authenticate_token(&credential["Bearer ".len()..]),
+            Some(device.device_id)
+        );
+
+        // A pairing belonging to another device, or past its expiry, is refused here
+        // rather than sent out to be refused on the other side.
+        let other = DeviceIdentity::generate("Other".to_string()).unwrap();
+        let mismatched = trusted_pairing(&other);
+        assert!(client.credential(&mismatched).is_err());
+
+        let stale = PairingData {
+            expires_at: Utc::now() - Duration::seconds(1),
+            ..pairing.clone()
+        };
+        assert!(client.credential(&stale).is_err());
+    }
+
+    #[test]
+    fn a_bearer_token_round_trips_and_authenticates_the_same_device() {
+        let device = DeviceIdentity::generate("Phone".to_string()).unwrap();
+        let pairing = trusted_pairing(&device);
+        let trust = RelayTrust::from_pairings([&pairing]);
+
+        let token = pairing.secret_token();
+        assert_eq!(
+            PairingData::secret_from_token(&token),
+            Some(pairing.pairing_secret),
+            "the token form of a secret did not round-trip"
+        );
+        assert_eq!(
+            trust.authenticate_token(&token),
+            Some(device.device_id),
+            "a pairing's own token did not open its channel"
+        );
+        assert!(pairing.verify_secret_token(&token));
+
+        // A token from another pairing is not this one, and junk is refused exactly
+        // like a wrong secret.
+        let other = trusted_pairing(&device);
+        assert!(!pairing.verify_secret_token(&other.secret_token()));
+        assert_eq!(trust.authenticate_token("not-base64!!"), None);
+        assert_eq!(trust.authenticate_token(""), None);
+        assert_eq!(trust.authenticate_token(&token[..token.len() - 4]), None);
+        // Pasted whitespace is the same token.
+        assert_eq!(
+            trust.authenticate_token(&format!("  {token}\n")),
+            Some(device.device_id)
+        );
+    }
+
+    #[test]
+    fn an_expired_pairing_authenticates_no_device() {
+        let device = DeviceIdentity::generate("Phone".to_string()).unwrap();
+        let pairing = trusted_pairing(&device);
+        let trust = RelayTrust::from_pairings([&pairing]);
+
+        let before_expiry = pairing.expires_at - Duration::minutes(1);
+        assert_eq!(
+            trust.authenticate(&pairing.pairing_secret, before_expiry),
+            Some(device.device_id)
+        );
+
+        // The expiry the pairing carries is the end of the channel, not of the file.
+        let after_expiry = pairing.expires_at + Duration::seconds(1);
+        assert_eq!(
+            trust.authenticate(&pairing.pairing_secret, after_expiry),
+            None,
+            "a stale pairing still opened a relay channel"
+        );
+
+        // `is_expired` is the same rule read against the wall clock.
+        let stale = PairingData {
+            expires_at: Utc::now() - Duration::seconds(1),
+            ..pairing.clone()
+        };
+        assert!(stale.is_expired());
+        assert!(!stale.is_expired_at(Utc::now() - Duration::minutes(1)));
+    }
+
+    #[test]
+    fn re_pairing_a_device_retires_its_previous_secret() {
+        let device = DeviceIdentity::generate("Phone".to_string()).unwrap();
+        let first = trusted_pairing(&device);
+        let second = PairingData {
+            device_id: first.device_id,
+            pairing_secret: [9u8; 32],
+            ..first.clone()
+        };
+
+        let mut trust = RelayTrust::new();
+        trust.add(&first);
+        trust.add(&second);
+
+        assert_eq!(trust.len(), 1, "re-pairing grew the trust list");
+        assert_eq!(
+            trust.authenticate_now(&first.pairing_secret),
+            None,
+            "the retired secret still opened a channel"
+        );
+        assert_eq!(
+            trust.authenticate_now(&second.pairing_secret),
+            Some(device.device_id)
+        );
+    }
+
+    /// Audit N-1: the secret is the reason a trust list is printed with care. A `Debug`
+    /// that shows the pairing bytes turns one log line into every paired device's
+    /// credential, on a host the owner may not control.
+    #[test]
+    fn no_printable_form_of_a_pairing_or_a_trust_list_carries_its_secret() {
+        let device = DeviceIdentity::generate("Phone".to_string()).unwrap();
+        let pairing = trusted_pairing(&device);
+        let token = pairing.secret_token();
+        let trust = RelayTrust::from_pairings([&pairing]);
+
+        for printed in [
+            format!("{pairing:?}"),
+            format!("{trust:?}"),
+            format!("{:?}", TrustedPairing::from_pairing(&pairing)),
+        ] {
+            assert!(
+                !printed.contains(&token),
+                "a pairing's bearer token was printable: {printed}"
+            );
+            assert!(
+                !printed.contains(&format!("{:?}", pairing.pairing_secret)),
+                "a pairing's raw secret bytes were printable: {printed}"
+            );
+            assert!(
+                printed.contains("redacted"),
+                "the redaction was not even marked: {printed}"
+            );
+        }
+
+        // What a reader of the log *does* get: which device, and how many are trusted.
+        let rendered = format!("{trust:?}");
+        assert!(rendered.contains(&format!("{:?}", device.device_id)));
+        assert!(rendered.contains("entries"));
+
+        // The error type a refused pairing produces names the problem, not the value.
+        let client = RelayClient::new("ws://relay".to_string(), DeviceId::new());
+        let mismatch = client
+            .credential(&pairing)
+            .expect_err("a pairing for another device is refused");
+        assert!(
+            !format!("{mismatch}").contains(&token),
+            "an error message repeated the secret"
+        );
+    }
+
+    #[test]
+    fn a_trust_entry_built_from_a_stored_token_authenticates_the_same_device() {
+        let device = DeviceIdentity::generate("Phone".to_string()).unwrap();
+        let pairing = trusted_pairing(&device);
+        let token = pairing.secret_token();
+
+        // The store hands back a token and an expiry, not a `PairingData`: this is the
+        // form a relay's trust list takes when its credentials come from a secret store.
+        let entry = TrustedPairing::from_secret_token(device.device_id, &token, pairing.expires_at)
+            .expect("the token is a pairing secret");
+        let trust = RelayTrust::from_entries([entry]);
+
+        assert_eq!(trust.len(), 1);
+        assert_eq!(
+            trust.authenticate_token(&token),
+            Some(device.device_id),
+            "a stored token did not open the channel it was issued for"
+        );
+        assert_eq!(trust.authenticate_token("bm90LWEtc2VjcmV0"), None);
+        // Not 32 bytes of anything is not a secret at all, and is refused at the door.
+        assert!(TrustedPairing::from_secret_token(
+            device.device_id,
+            "not-base64!!",
+            pairing.expires_at
+        )
+        .is_none());
+        assert!(
+            TrustedPairing::from_secret_token(device.device_id, "YWJjZA", pairing.expires_at)
+                .is_none(),
+            "a short token was read as a secret"
+        );
+
+        // A list built from two entries for one device keeps the last, so no older
+        // credential survives a rebuild.
+        let older = TrustedPairing::from_secret_token(device.device_id, &token, pairing.expires_at)
+            .expect("a first entry");
+        let rotated = PairingData {
+            pairing_secret: [4u8; 32],
+            ..pairing.clone()
+        };
+        let newer = TrustedPairing::from_pairing(&rotated);
+        let trust = RelayTrust::from_entries([older, newer]);
+        assert_eq!(trust.len(), 1, "a rebuild kept two entries for one device");
+        assert_eq!(
+            trust.authenticate_now(&pairing.pairing_secret),
+            None,
+            "the superseded secret still opened a channel"
+        );
+        assert_eq!(
+            trust.authenticate_now(&rotated.pairing_secret),
+            Some(device.device_id)
+        );
     }
 }

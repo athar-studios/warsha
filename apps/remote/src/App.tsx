@@ -1,113 +1,207 @@
-import { t, useLocale, useDirection, useLocaleControl } from '@warsha/i18n';
-import { Box, Text, Button, Card } from '@warsha/ui';
-import React from 'react';
-import { Routes, Route } from 'react-router-dom';
+// @warsha/remote — the remote bench: the phone's supervisor surface (docs/design/REDESIGN.md §2, §4, §10).
+//
+// The shell is the bench's chrome and nothing more: a skip link, the brand row, the instrument strip, the
+// screen, and the navigation that reaches the other screens. §4's regions, redrawn for 390 first: the
+// strip keeps the daemon lamp and the budget and marks everything else `hideNarrow`; the navigation is a
+// bar under the bench on a phone and the inline-start rail from 768 up; the contextual id the desktop top
+// bar carries is dropped below 768 because a phone does not have the width for it (§10).
+//
+// State is the session's and the daemon's, never the shell's: `RemoteProvider` owns the readings and the
+// decision path, and this file only decides *which* screen is showing. The URL is the record of that —
+// `screen` by path, `project` and `run` as query — so a link a teammate sends opens the same bench the
+// sender was looking at (§4's deep-linkable state), and the browser's back button keeps working.
+//
+// Every string here is `@warsha/i18n` copy in both locales: this file used to carry
+// `t('nav.settings') || 'Settings'` and a `t('nav.dashboard', {}, locale) || 'Dashboard'`, and the
+// fallbacks are gone — a missing key is a failing catalog test, not English appearing inside Arabic.
+import type { ProjectId, RunId } from '@warsha/client';
+import { t, useDirection, useLocale } from '@warsha/i18n';
+import { Box, colorVar } from '@warsha/ui';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Route, Routes, useSearchParams } from 'react-router-dom';
+
+import { RemoteProvider, useRemote, type BenchApi, type EventStreamOpener } from './bench';
+import { BenchNav, BenchStrip, BenchTopbar } from './chrome';
+import { GatesScreen } from './screens/GatesScreen';
+import { NeedsYouScreen } from './screens/NeedsYouScreen';
+import { ProjectsScreen } from './screens/ProjectsScreen';
+import { RunScreen } from './screens/RunScreen';
+import { SettingsScreen } from './screens/SettingsScreen';
+import {
+  clearStoredSession,
+  parsePairingLink,
+  readSessionFromSearch,
+  readStoredSession,
+  storeSession,
+  stripSessionParams,
+  type DaemonSession,
+  type PairingFailure,
+  type SessionStore,
+} from './session';
+import { ThemeProvider, type ThemeStore } from './theme';
+
+/** The query names the bench's deep-linkable state travels under (§4). */
+const PROJECT_PARAM = 'project';
+const RUN_PARAM = 'run';
+
+/** The address a session was read out of, so the shell can take it back out again. */
+function currentLocation(): { search: string; pathname: string; hash: string } {
+  if (typeof window === 'undefined') return { search: '', pathname: '/', hash: '' };
+  return { search: window.location.search, pathname: window.location.pathname, hash: window.location.hash };
+}
 
 /**
- * Language switch for the remote app.
+ * The session this tab holds.
  *
- * Two buttons rather than a select, because there are two locales; each label comes from the
- * catalog in its own language (`onboarding.lang_ar` / `onboarding.lang_en`), so it reads the same
- * whichever locale is active. The provider in `main.tsx` applies and stores the choice.
+ * The order is the one the pairing flow needs: a link in the address wins (it is the newest hand-off,
+ * and it is what a scan produces), then what this tab already holds.
  */
-function LanguageSwitch() {
+function useSessionController(
+  initialSession: DaemonSession | null | undefined,
+  store: SessionStore | null | undefined
+) {
+  const [session, setSession] = useState<DaemonSession | null>(() => {
+    // A caller that already holds a session (the test harness, or a future shell) outranks the address.
+    if (initialSession !== undefined) return initialSession;
+    const fromUrl = readSessionFromSearch(currentLocation().search);
+    return fromUrl.ok ? fromUrl.session : readStoredSession(store);
+  });
+
+  // The token is taken out of the address as soon as the bench has it: it must not survive in the
+  // address bar, the history entry, a screenshot of either, or a link the owner forwards. After paint,
+  // not during render — rewriting the URL while React is still building the tree is a side effect in a
+  // place that has to stay pure. The same moment is where a URL hand-off becomes this tab's session.
+  useEffect(() => {
+    const { pathname, search, hash } = currentLocation();
+    const fromUrl = readSessionFromSearch(search);
+    if (!fromUrl.ok) return;
+    storeSession(fromUrl.session, store);
+    window.history.replaceState(null, '', `${pathname}${stripSessionParams(search)}${hash}`);
+  }, [store]);
+
+  const pair = useCallback(
+    (link: string): PairingFailure | null => {
+      const parsed = parsePairingLink(link);
+      if (!parsed.ok) return parsed.reason;
+      setSession(parsed.session);
+      storeSession(parsed.session, store);
+      return null;
+    },
+    [store]
+  );
+
+  const unpair = useCallback(() => {
+    setSession(null);
+    clearStoredSession(store);
+  }, [store]);
+
+  return { session, pair, unpair };
+}
+
+/** Mirror the bench's selection into the address, so what the owner is reading is a link they can send. */
+function LocationSync() {
+  const { project, run } = useRemote();
+  const [params, setParams] = useSearchParams();
+
+  useEffect(() => {
+    // B4: the session's own parameters are never carried forward. `useSessionController` takes the
+    // token out of the address after reading it, but this effect runs on the same tick with a snapshot
+    // of the *old* query — and copying it whole re-wrote `server` and `token` back into the address,
+    // the history entry and any link the owner forwarded. `stripSessionParams` is the same function the
+    // read side uses, so the two halves cannot drift apart.
+    const next = new URLSearchParams(stripSessionParams(params.toString()));
+    if (project === null) next.delete(PROJECT_PARAM);
+    else next.set(PROJECT_PARAM, project.id);
+    if (run === null) next.delete(RUN_PARAM);
+    else next.set(RUN_PARAM, run.id);
+
+    // A write only when the address and the bench actually disagree: an equal write would re-render the
+    // shell on every event the stream delivers.
+    if (next.toString() !== params.toString()) setParams(next, { replace: true });
+  }, [params, project, run, setParams]);
+
+  return null;
+}
+
+export interface AppProps {
+  /** Start paired, unpaired (`null`), or auto-detect (omit) from the address and this tab's storage. */
+  initialSession?: DaemonSession | null;
+  /** The tab-scoped store to read and write the session in. */
+  store?: SessionStore | null;
+  /** The store the owner's theme choice is read from and written to. */
+  themeStore?: ThemeStore | null;
+  /** The RPC surface (a test hands in a recorder). */
+  api?: BenchApi | null;
+  /** The event feed opener (a test hands in a recorder). */
+  openEvents?: EventStreamOpener;
+}
+
+function Bench({ initialSession, store, api, openEvents }: AppProps) {
   const dir = useDirection();
-  const { locale, setLocale } = useLocaleControl();
+  const locale = useLocale();
+  const { session, pair, unpair } = useSessionController(initialSession, store);
+
+  // The URL is the owner's choice, read once: `?project=` and `?run=` are honored by the provider as soon
+  // as the lists that contain them have answered. The two values are externally-sourced strings, and the
+  // branded id types are what the client answers with — an id from the address is only ever *compared*
+  // against the daemon's own list, never sent as a parameter unless it matched one.
+  const deepLink = useMemo(() => {
+    const params = new URLSearchParams(currentLocation().search);
+    const project = params.get(PROJECT_PARAM);
+    const run = params.get(RUN_PARAM);
+    return {
+      project: project === null ? null : (project as ProjectId),
+      run: run === null ? null : (run as RunId),
+    };
+  }, []);
+
   return (
-    <div
-      dir={dir}
-      role="group"
-      aria-label={t('onboarding.language')}
-      style={{ display: 'flex', gap: 'var(--warsha-space-2)' }}
+    <RemoteProvider
+      session={session}
+      onPair={pair}
+      onUnpair={unpair}
+      initialProjectId={deepLink.project}
+      initialRunId={deepLink.run}
+      api={api}
+      openEvents={openEvents}
     >
-      <Button
-        variant={locale === 'ar' ? 'secondary' : 'ghost'}
-        size="sm"
-        dir={dir}
-        aria-pressed={locale === 'ar'}
-        data-testid="remote-language-ar"
-        onClick={() => setLocale('ar')}
-      >
-        {t('onboarding.lang_ar')}
-      </Button>
-      <Button
-        variant={locale === 'en' ? 'secondary' : 'ghost'}
-        size="sm"
-        dir={dir}
-        aria-pressed={locale === 'en'}
-        data-testid="remote-language-en"
-        onClick={() => setLocale('en')}
-      >
-        {t('onboarding.lang_en')}
-      </Button>
-    </div>
-  );
-}
+      <Box dir={dir} className="app" style={{ color: colorVar('text') }}>
+        {/* §9: the keyboard gets into the bench without walking the chrome first. */}
+        <a dir={dir} className="app-skip" href="#app-main">
+          {t('app.skip_to_bench', {}, locale)}
+        </a>
 
-function Dashboard() {
-  const dir = useDirection();
-  // `t(key)` alone falls back to the catalog's default locale (Arabic), which is how a screen stays
-  // Arabic even after the owner picks English; every catalog lookup here passes the live locale.
-  const locale = useLocale();
-  return (
-    <Box dir={dir} p={4} m={2}>
-      <Text size="xl" weight="bold" dir={dir}>
-        {t('app.name', {}, locale)}
-      </Text>
-      <Text size="md" dir={dir} style={{ marginTop: 'var(--warsha-space-2)', color: 'var(--warsha-color-text-muted)' }}>
-        {t('app.tagline', {}, locale)}
-      </Text>
-      <Box dir={dir} style={{ marginTop: 'var(--warsha-space-6)', display: 'flex', gap: 'var(--warsha-space-3)', flexWrap: 'wrap' }}>
-        <Button variant="primary" dir={dir}>{t('gate.approve', {}, locale)}</Button>
-        <Button variant="secondary" dir={dir}>{t('gate.reject', {}, locale)}</Button>
-        <Button variant="ghost" dir={dir}>{t('gate.request_changes', {}, locale)}</Button>
+        <BenchTopbar />
+        <BenchStrip />
+
+        <div dir={dir} className="app-body">
+          <main id="app-main" dir={dir} tabIndex={-1} className="app-main" aria-label={t('app.bench_label', {}, locale)}>
+            <Routes>
+              <Route path="/" element={<NeedsYouScreen />} />
+              <Route path="/gates" element={<GatesScreen />} />
+              <Route path="/run" element={<RunScreen />} />
+              <Route path="/projects" element={<ProjectsScreen />} />
+              <Route path="/settings" element={<SettingsScreen />} />
+              {/* A PWA lands somewhere: an unknown path is the bench's primary screen, not a dead page. */}
+              <Route path="*" element={<NeedsYouScreen />} />
+            </Routes>
+          </main>
+
+          <BenchNav />
+        </div>
+
+        <LocationSync />
       </Box>
-      <Card dir={dir} style={{ marginTop: 'var(--warsha-space-6)' }}>
-        <Text dir={dir}>{t('run.status', { status: 'code' }, locale)}</Text>
-      </Card>
-    </Box>
+    </RemoteProvider>
   );
 }
 
-function Settings() {
-  const dir = useDirection();
-  const locale = useLocale();
+export default function App({ themeStore, ...bench }: AppProps) {
+  // The theme outranks every screen: the provider writes `data-theme`, and `main.tsx` applied the stored
+  // choice before the first paint so a dark phone never flashes light.
   return (
-    <Box dir={dir} p={4} m={2}>
-      <Text size="xl" weight="bold" dir={dir}>{t('nav.settings') || 'Settings'}</Text>
-      <Text size="md" dir={dir} style={{ marginTop: 'var(--warsha-space-2)' }}>
-        {t('settings.current_locale', { locale })}
-      </Text>
-    </Box>
+    <ThemeProvider store={themeStore}>
+      <Bench {...bench} />
+    </ThemeProvider>
   );
 }
-
-function App() {
-  const dir = useDirection();
-  const locale = useLocale();
-  return (
-    <Box dir={dir} className="app">
-      {/* The header holds the brand, two navigation buttons and the language switch. On a 390px
-          phone that is wider than the window, so both rows wrap instead of pushing the document
-          sideways — `rowGap` keeps the wrapped rows apart without a physical margin. */}
-      <header style={{ padding: 'var(--warsha-space-4) var(--warsha-space-6)', borderBottom: '1px solid var(--warsha-color-border)', display: 'flex', flexWrap: 'wrap', rowGap: 'var(--warsha-space-3)', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text size="lg" weight="bold" dir={dir}>
-          {t('app.name', {}, locale)}
-        </Text>
-        <nav style={{ display: 'flex', flexWrap: 'wrap', rowGap: 'var(--warsha-space-2)', gap: 'var(--warsha-space-4)', alignItems: 'center' }}>
-          <Button variant="ghost" size="sm" dir={dir}>{t('nav.dashboard', {}, locale) || 'Dashboard'}</Button>
-          <Button variant="ghost" size="sm" dir={dir}>{t('nav.settings', {}, locale) || 'Settings'}</Button>
-          <LanguageSwitch />
-        </nav>
-      </header>
-      <main>
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/settings" element={<Settings />} />
-        </Routes>
-      </main>
-    </Box>
-  );
-}
-
-export default App;

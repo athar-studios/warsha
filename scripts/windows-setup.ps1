@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Windows-native dependency install for Warsha, with a Storybook binary check.
+    Windows-native dependency install for Warsha, with a Storybook binary check and an MSVC check.
 
 .DESCRIPTION
     Why this exists.
@@ -138,4 +138,14 @@ if (-not $version) {
 
 Write-Host "PASS  node_modules/.bin has Windows launchers for storybook, tsc, vite and vitest" -ForegroundColor Green
 Write-Host "PASS  storybook --version reports $version" -ForegroundColor Green
+
+# The Rust half of the toolchain: `cc-rs` builds ring and libsqlite3-sys with MSVC. This runs the
+# same check developers use before cargo work, in its own process, so setup fails here rather than
+# inside a later `cargo build`.
+Write-Host "`n=== MSVC environment check ===" -ForegroundColor Cyan
+& (Join-Path $PSScriptRoot 'windows-msvc-env.ps1')
+if ($LASTEXITCODE -ne 0) {
+    Write-Host 'FAIL  the MSVC x64 environment cannot compile C code (see above).' -ForegroundColor Red
+    exit 1
+}
 exit 0

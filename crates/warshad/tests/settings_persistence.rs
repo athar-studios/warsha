@@ -95,6 +95,9 @@ fn config(data_dir: &Path) -> DaemonConfig {
         ws_port: 0,
         auth_token: TEST_TOKEN.to_string(),
         allowed_origins: vec!["http://localhost:5173".to_string()],
+        // The daemon's own ceilings and command policy: a test that wants to see a
+        // refusal names its own.
+        ..DaemonConfig::default()
     }
 }
 

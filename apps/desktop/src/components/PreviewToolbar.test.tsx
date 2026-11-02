@@ -136,13 +136,54 @@ describe('PreviewToolbar', () => {
     ]);
   });
 
-  it('follows the locale and the direction', () => {
+  it('is one Tab stop whose arrows move in reading order, mirrored in Arabic (§9)', () => {
+    const view = renderIn('en', <PreviewToolbar {...harness({ status: 'idle' })} />);
+
+    // At `idle` only Run is live, so Run is the group's Tab stop and the rest wait for the arrows.
+    expect(screen.getByTestId('preview-run-button')).toHaveAttribute('tabIndex', '0');
+    expect(screen.getByTestId('preview-stop-button')).toHaveAttribute('tabIndex', '-1');
+
+    // While running, the first live control is Stop, and `Run` becomes the pressed-off one.
+    view.rerender(
+      <LocaleProvider initialLocale="en">
+        <PreviewToolbar {...harness({ status: 'running' })} />
+      </LocaleProvider>
+    );
+    expect(screen.getByTestId('preview-stop-button')).toHaveAttribute('tabIndex', '0');
+    expect(screen.getByTestId('preview-run-button')).toHaveAttribute('tabIndex', '-1');
+
+    screen.getByTestId('preview-stop-button').focus();
+    fireEvent.keyDown(screen.getByTestId('preview-stop-button'), { key: 'ArrowRight' });
+    expect(screen.getByTestId('preview-pop-out-button')).toHaveFocus();
+
+    // Disabled controls are skipped: a keyboard owner never lands on a button that cannot answer.
+    fireEvent.keyDown(screen.getByTestId('preview-pop-out-button'), { key: 'ArrowRight' });
+    expect(screen.getByTestId('preview-pick-element-button')).toHaveFocus();
+  });
+
+  it('wears the bench skin: a recessed bed and a hairline, no floating shadow (§1.1)', () => {
+    renderIn('en', <PreviewToolbar {...harness()} />);
+
+    expect(screen.getByTestId('preview-toolbar')).toHaveStyle({
+      backgroundColor: 'var(--warsha-bench-plate)',
+      borderRadius: 'var(--warsha-radius-md)',
+    });
+    expect(screen.getByTestId('preview-toolbar')).toHaveAttribute('aria-orientation', 'horizontal');
+  });
+
+  it('follows the locale and mirrors for Arabic', () => {
     renderIn('ar', <PreviewToolbar {...harness({ status: 'running' })} />);
 
     expect(screen.getByTestId('preview-toolbar')).toHaveAttribute('dir', 'rtl');
+    expect(screen.getByTestId('preview-toolbar')).toHaveAttribute('aria-label', 'أدوات المعاينة');
     expect(screen.getByText('تشغيل المعاينة')).toBeInTheDocument();
     expect(screen.getByText('إيقاف المعاينة')).toBeInTheDocument();
     expect(screen.getByText('فتح في نافذة')).toBeInTheDocument();
     expect(screen.getByText('التقاط عنصر')).toBeInTheDocument();
+
+    // In RTL the forward key is the left arrow, and the mirror lives here, not in the stylesheet.
+    screen.getByTestId('preview-stop-button').focus();
+    fireEvent.keyDown(screen.getByTestId('preview-stop-button'), { key: 'ArrowLeft' });
+    expect(screen.getByTestId('preview-pop-out-button')).toHaveFocus();
   });
 });

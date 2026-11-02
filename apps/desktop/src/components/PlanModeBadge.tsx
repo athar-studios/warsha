@@ -1,53 +1,33 @@
-// Agent workflow — Plan/Agent mode badge (PLAN.md M18).
+// Agent workflow — Plan/Agent mode badge (PLAN.md M18), redrawn for the bench.
 //
-// The visible half of "Plan mode → owner approves → Agent mode, with a visible
-// badge on the run and a one-click switch back to Plan". The badge reports the
-// mode and asks the caller to flip it: the approval that Plan → Agent needs is
-// the caller's job (an approval card, the gates inbox), never a click here, so
+// The visible half of "Plan mode → owner approves → Agent mode, with a visible badge on the run and a
+// one-click switch back to Plan". The badge reports the mode and asks the caller to flip it: the approval
+// that Plan → Agent needs is the caller's job (an approval card, the gates inbox), never a click here, so
 // this component can never be the thing that grants edit rights.
+//
+// The bench reading (§1): Agent mode *is* the owner's queue — the agent may write, and the owner is the
+// one who can put it back — so Agent takes the lit signal and Plan takes the quiet plate. The state is
+// never colour alone: the hollow ring vs the filled dot, `aria-pressed`, and the word all say it (§9).
+// Every word is `@warsha/i18n` (`agent_workflow.mode.*`).
 import { t, useDirection, useLocale, type Locale } from '@warsha/i18n';
+import React from 'react';
 
 /** Which side of the Plan/Agent line the run is on. */
 export type AgentMode = 'plan' | 'agent';
 
-const labels: Record<AgentMode, Record<Locale, string>> = {
-  plan: { ar: 'تخطيط', en: 'Plan' },
-  agent: { ar: 'تنفيذ', en: 'Agent' },
-};
-
-const hints: Record<AgentMode, Record<Locale, string>> = {
-  plan: {
-    ar: 'وضع التخطيط: الوكيل يقترح ولا يعدّل. التبديل إلى التنفيذ يحتاج موافقتك.',
-    en: 'Plan mode: the agent proposes, it does not edit. Switching to Agent needs your approval.',
-  },
-  agent: {
-    ar: 'وضع التنفيذ: الوكيل يعدّل الملفات ويشغّل الأدوات. اضغط للعودة إلى التخطيط.',
-    en: 'Agent mode: the agent edits files and runs tools. Click to switch back to Plan.',
-  },
-};
-
-/** Badge colours: plan is a neutral read-only pill, agent is the one accent (#FFD60A on #0E0E0E). */
-const colours: Record<AgentMode, Record<'background' | 'ink' | 'border', string>> = {
-  plan: { background: 'var(--warsha-color-surface-muted)', ink: 'var(--warsha-color-accent-strong)', border: '1px solid var(--warsha-color-border-strong)' },
-  agent: {
-    background: 'var(--warsha-color-accent)',
-    ink: 'var(--warsha-color-accent-ink)',
-    border: '1px solid var(--warsha-color-accent)',
-  },
-};
-
-/**
- * Translate a key, falling back to the local label when the catalog has no
- * entry yet (`t` returns the key itself for a missing message).
- */
-function localized(key: string, fallback: string, locale: Locale): string {
-  const translated = t(key, {}, locale);
-  return translated === key ? fallback : translated;
-}
-
 /** The mode a click on the badge asks for. */
 export function nextAgentMode(mode: AgentMode): AgentMode {
   return mode === 'plan' ? 'agent' : 'plan';
+}
+
+/** The mode's word in the active locale. */
+export function agentModeLabel(mode: AgentMode, locale: Locale): string {
+  return t(`agent_workflow.mode.${mode}`, {}, locale);
+}
+
+/** What the mode means for the owner, in the active locale. */
+export function agentModeHint(mode: AgentMode, locale: Locale): string {
+  return t(`agent_workflow.mode_hint.${mode}`, {}, locale);
 }
 
 export interface PlanModeBadgeProps {
@@ -61,9 +41,9 @@ export function PlanModeBadge({ mode, onToggle }: PlanModeBadgeProps) {
   const dir = useDirection();
   const locale = useLocale();
 
-  const label = localized(`agent_workflow.mode.${mode}`, labels[mode][locale], locale);
-  const hint = localized(`agent_workflow.mode_hint.${mode}`, hints[mode][locale], locale);
-  const palette = colours[mode];
+  const label = agentModeLabel(mode, locale);
+  const hint = agentModeHint(mode, locale);
+  const lit = mode === 'agent';
 
   return (
     <button
@@ -78,26 +58,31 @@ export function PlanModeBadge({ mode, onToggle }: PlanModeBadgeProps) {
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: '6px',
-        paddingInline: '10px',
+        gap: 'var(--warsha-space-2)',
+        paddingInline: 'var(--warsha-space-3)',
         paddingBlock: 'var(--warsha-space-1)',
-        borderRadius: '999px',
-        border: palette.border,
-        backgroundColor: palette.background,
-        color: palette.ink,
-        fontSize: '0.8125rem',
-        fontWeight: 700,
+        minBlockSize: 'var(--warsha-size-touch)',
+        borderRadius: 'var(--warsha-radius-full)',
+        border: `var(--warsha-size-rule) solid ${lit ? 'var(--warsha-signal-text)' : 'var(--warsha-bench-edge)'}`,
+        backgroundColor: lit ? 'var(--warsha-signal)' : 'var(--warsha-bench-plate)',
+        color: lit ? 'var(--warsha-signal-ink)' : 'var(--warsha-color-text)',
+        fontFamily: 'inherit',
+        fontSize: 'var(--warsha-font-size-sm)',
+        fontWeight: lit
+          ? 'var(--warsha-font-weight-bold)'
+          : 'var(--warsha-font-weight-medium)',
         cursor: 'pointer',
         unicodeBidi: 'isolate',
         whiteSpace: 'nowrap',
       }}
     >
+      {/* The glyph is the colour-free half of the state: hollow ring = proposes, filled dot = edits. */}
       <svg
         aria-hidden="true"
         width="10"
         height="10"
         viewBox="0 0 10 10"
-        style={{ flex: '0 0 auto' }}
+        style={{ flex: '0 0 auto', display: 'block' }}
       >
         {mode === 'plan' ? (
           <circle cx="5" cy="5" r="4" fill="none" stroke="currentColor" strokeWidth="1.5" />

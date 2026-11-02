@@ -1,7 +1,7 @@
 // Tests for the ship status strip (PLAN.md M5a): render, status variants,
 // RTL direction and the rule that gates the deploy button.
 import '@testing-library/jest-dom';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { LocaleProvider } from '@warsha/i18n';
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -35,21 +35,24 @@ describe('StatusStrip', () => {
     expect(screen.getByText('Tests')).toBeInTheDocument();
     expect(screen.getByText('Store-ready')).toBeInTheDocument();
     expect(strip.getAttribute('aria-label')).toBe('Ship status');
+    // The strip announces itself: an owner who is not looking still hears the ship state change (§9).
+    expect(screen.getByRole('status')).toBeInTheDocument();
 
     // Three separators between four stages, in ship order.
     expect(screen.getAllByTestId('status-strip-arrow')).toHaveLength(3);
     const names = deliveryStageNames.map((name) =>
       screen.getByTestId(`status-strip-stage-${name}`)
     );
+    // Each stage is a lamp: dot + colour-free glyph + the word (§9).
     expect(names.map((node) => node.textContent)).toEqual([
-      '○Code checks',
-      '○Builds',
-      '○Tests',
-      '○Store-ready',
+      '·Code checks',
+      '·Builds',
+      '·Tests',
+      '·Store-ready',
     ]);
   });
 
-  it('colour-codes pass, fail and pending, and spins only while running', () => {
+  it('says pass, fail, pending and running in a lamp and a word, never in a colour alone', () => {
     renderIn(
       'en',
       <StatusStrip
@@ -64,39 +67,31 @@ describe('StatusStrip', () => {
 
     const pass = screen.getByTestId('status-strip-stage-code_checks');
     expect(pass).toHaveAttribute('data-status', 'pass');
-    // The pill carries the token reference, not a literal, so it follows `data-theme`
-    // (R6, docs/ARCH_RULES.md).
-    expect(pass).toHaveStyle({
-      backgroundColor: 'var(--warsha-color-surface-muted)',
-      color: 'var(--warsha-color-success)',
-    });
+    expect(pass).toHaveAccessibleName('Code checks — Pass');
     expect(pass.textContent).toContain('✓');
 
     const fail = screen.getByTestId('status-strip-stage-builds');
     expect(fail).toHaveAttribute('data-status', 'fail');
-    expect(fail).toHaveStyle({
-      backgroundColor: 'var(--warsha-color-surface-muted)',
-      color: 'var(--warsha-color-error)',
-    });
+    expect(fail).toHaveAccessibleName('Builds — Fail');
     expect(fail.textContent).toContain('✗');
 
     const pending = screen.getByTestId('status-strip-stage-tests');
     expect(pending).toHaveAttribute('data-status', 'pending');
-    expect(pending).toHaveStyle({
-      backgroundColor: 'var(--warsha-color-surface-muted)',
-      color: 'var(--warsha-color-text-muted)',
-    });
-    expect(pending.textContent).toContain('○');
+    expect(pending).toHaveAccessibleName('Tests — Pending');
+    expect(pending.textContent).toContain('·');
 
+    // `running` is the working lamp: the breathing dot `tokens.css` animates only under
+    // `prefers-reduced-motion: no-preference` (§8), so no spinner markup is left to own here.
     const running = screen.getByTestId('status-strip-stage-store_ready');
     expect(running).toHaveAttribute('data-status', 'running');
-    expect(screen.getAllByTestId('status-strip-spinner')).toHaveLength(1);
-    expect(running.getAttribute('aria-label')).toBe('Store-ready — Running');
+    expect(running).toHaveAccessibleName('Store-ready — Running');
+    expect(running.querySelector('[data-warsha-lamp="working"]')).toBeInTheDocument();
+    expect(screen.queryAllByTestId('status-strip-spinner')).toHaveLength(0);
 
-    // No spinner once nothing is running. The second render gets its own
+    // No working lamp once nothing is running. The second render gets its own
     // container, so scope the query to it (the first one is still mounted).
     const settled = renderIn('en', <StatusStrip stages={withStatus('pass')} />);
-    expect(within(settled.container).queryAllByTestId('status-strip-spinner')).toHaveLength(0);
+    expect(settled.container.querySelectorAll('[data-warsha-lamp="working"]')).toHaveLength(0);
   });
 
   it('follows the locale and flips the arrow for RTL', () => {

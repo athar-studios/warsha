@@ -144,6 +144,21 @@ pub trait CrashReportStore {
     fn mark_sent(&mut self, id: &str) -> Result<CrashReport, PostLaunchError>;
 }
 
+/// How many crash reports the in-memory store holds.
+///
+/// A bound, not a policy about what a crash is worth: the daemon keeps these in the same
+/// process that keeps the owner's session, and an unbounded vector is a slow way of
+/// running out of memory on a device that crashes a lot (re-audit L-01). When the store is
+/// full the oldest *sent* report goes first, because a report that has left the machine has
+/// done its job and one that has not might still be the reason the owner never gets a fix.
+pub const MAX_CRASH_REPORTS: usize = 500;
+
+/// How many store reviews the in-memory store holds.
+///
+/// The same bound for the same reason; reviews arrive from a store API nobody in this
+/// module controls the pagination of, so the number kept is this module's choice.
+pub const MAX_STORE_REVIEWS: usize = 1_000;
+
 /// A [`CrashReportStore`] that keeps reports in memory, in arrival order.
 #[derive(Debug, Default)]
 pub struct InMemoryCrashReportStore {
@@ -170,6 +185,23 @@ impl InMemoryCrashReportStore {
     pub fn unsent_count(&self) -> usize {
         self.reports.iter().filter(|report| !report.sent).count()
     }
+
+    /// Drop the oldest entries until the store is back inside [`MAX_CRASH_REPORTS`].
+    ///
+    /// Sent reports are retired before unsent ones — a report that has left the machine has
+    /// done its job, and one that has not might still be the reason a fix happens — and the
+    /// arrival order is kept for what remains, because `list()` is what the owner reads.
+    fn enforce_capacity(&mut self) {
+        while self.reports.len() > MAX_CRASH_REPORTS {
+            let retire = self
+                .reports
+                .iter()
+                .position(|report| report.sent)
+                // Nothing has been sent and the bound still has to hold: the oldest goes.
+                .unwrap_or_default();
+            self.reports.remove(retire);
+        }
+    }
 }
 
 impl CrashReportStore for InMemoryCrashReportStore {
@@ -188,6 +220,7 @@ impl CrashReportStore for InMemoryCrashReportStore {
             return Err(PostLaunchError::DuplicateCrashReport(report.id));
         }
         self.reports.push(report);
+        self.enforce_capacity();
         Ok(())
     }
 
@@ -307,6 +340,13 @@ impl StoreReviewStore for InMemoryStoreReviewStore {
             return Err(PostLaunchError::DuplicateStoreReview(review.id));
         }
         self.reviews.push(review);
+        // The bound is what makes this a cache of recent feedback rather than an unbounded
+        // log of a remote catalogue (re-audit L-01). Oldest first, because the summary reads
+        // the newest reviews.
+        if self.reviews.len() > MAX_STORE_REVIEWS {
+            let excess = self.reviews.len() - MAX_STORE_REVIEWS;
+            self.reviews.drain(..excess);
+        }
         Ok(())
     }
 
@@ -716,6 +756,113 @@ mod tests {
         assert_eq!(ids, vec!["crash-1", "crash-2"]);
         assert_eq!(store.len(), 2);
         assert!(!store.is_empty());
+    }
+
+    /// Re-audit L-01: the in-memory stores are bounded.
+    ///
+    /// The crash collector and the store client both hand these vectors things that arrive
+    /// faster than anyone reads them, and a daemon that keeps every report for its whole
+    /// life is a daemon whose memory is decided by how badly the app has been behaving. The
+    /// bound retires a *sent* report first, because the one that has not gone out yet is
+    /// the one that can still become a fix.
+    #[test]
+    fn the_crash_report_store_is_bounded_and_retires_a_sent_report_first() {
+        let mut store = InMemoryCrashReportStore::new();
+        for index in 0..MAX_CRASH_REPORTS {
+            store
+                .record(CrashReport::new(
+                    format!("crash-{index}"),
+                    "run-1",
+                    "boom",
+                    index as u64,
+                ))
+                .expect("the report is recorded");
+        }
+        assert_eq!(store.len(), MAX_CRASH_REPORTS, "the cap is not the count");
+
+        // The first report has left the machine; the new arrival has to evict something,
+        // and what it evicts is that one rather than an unsent report.
+        store
+            .mark_sent("crash-0")
+            .expect("the oldest report is sent");
+        store
+            .record(CrashReport::new(
+                "crash-late",
+                "run-2",
+                "boom again",
+                MAX_CRASH_REPORTS as u64,
+            ))
+            .expect("the bound holds on arrival, not on read");
+
+        assert_eq!(store.len(), MAX_CRASH_REPORTS);
+        let ids: Vec<String> = store.list().into_iter().map(|report| report.id).collect();
+        assert!(
+            !ids.contains(&"crash-0".to_string()),
+            "the sent report stayed"
+        );
+        assert!(
+            ids.contains(&"crash-late".to_string()),
+            "the new report was dropped"
+        );
+        assert_eq!(
+            ids.first().expect("the store is not empty"),
+            "crash-1",
+            "arrival order is what `list` still reports"
+        );
+    }
+
+    /// Every report unsent is not a licence to grow: the bound holds, oldest out first.
+    #[test]
+    fn the_crash_report_bound_holds_even_when_nothing_has_been_sent() {
+        let mut store = InMemoryCrashReportStore::new();
+        for index in 0..MAX_CRASH_REPORTS + 50 {
+            store
+                .record(CrashReport::new(
+                    format!("crash-{index}"),
+                    "run-1",
+                    "boom",
+                    index as u64,
+                ))
+                .expect("recorded");
+        }
+        assert_eq!(store.len(), MAX_CRASH_REPORTS);
+        assert_eq!(store.unsent_count(), MAX_CRASH_REPORTS);
+        let ids: Vec<String> = store.list().into_iter().map(|report| report.id).collect();
+        assert_eq!(
+            ids.first().expect("the store holds reports"),
+            &format!("crash-{}", 50),
+            "the oldest unsent reports are what went"
+        );
+    }
+
+    #[test]
+    fn the_store_review_store_keeps_a_bounded_recent_window() {
+        let mut store = InMemoryStoreReviewStore::new();
+        for index in 0..MAX_STORE_REVIEWS + 25 {
+            store
+                .record(StoreReview::new(
+                    format!("review-{index}"),
+                    "google_play",
+                    4,
+                    "good",
+                    "someone",
+                    index as u64,
+                ))
+                .expect("the review is recorded");
+        }
+
+        assert_eq!(store.len(), MAX_STORE_REVIEWS, "the review store grew");
+        let ids: Vec<String> = store.list().into_iter().map(|review| review.id).collect();
+        assert_eq!(
+            ids.first().expect("the window is full"),
+            &format!("review-{}", 25),
+            "the newest reviews are what the window keeps"
+        );
+        assert_eq!(
+            store.list_by_store("google_play").len(),
+            MAX_STORE_REVIEWS,
+            "the per-store read reached past the bound"
+        );
     }
 
     #[test]

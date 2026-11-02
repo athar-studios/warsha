@@ -59,7 +59,8 @@ describe('ReleasePreflight', () => {
     const overall = screen.getByTestId('preflight-overall');
     expect(overall).toHaveAttribute('data-status', 'pass');
     expect(overall).toHaveTextContent('Ready to release');
-    expect(overall).toHaveStyle({ backgroundColor: 'var(--warsha-color-surface-muted)' });
+    // The bench's overall reading is a lamp and a word on a plate, never a tint alone (§9).
+    expect(overall.querySelector('[data-warsha-lamp="ok"]')).toBeInTheDocument();
     expect(screen.getByTestId('preflight-count')).toHaveTextContent('6 of 6 passed');
 
     // Every check renders the pass glyph.
@@ -80,10 +81,9 @@ describe('ReleasePreflight', () => {
     const overall = screen.getByTestId('preflight-overall');
     expect(overall).toHaveAttribute('data-status', 'fail');
     expect(overall).toHaveTextContent('Blocked');
+    expect(overall.querySelector('[data-warsha-lamp="fail"]')).toBeInTheDocument();
+    expect(screen.getByTestId('preflight-check-tests')).toHaveAccessibleName('Tests — Fail');
     expect(screen.getByTestId('preflight-check-icon-tests').textContent).toBe('✗');
-    expect(screen.getByTestId('preflight-check-icon-tests')).toHaveStyle({
-      color: 'var(--warsha-color-error)',
-    });
     expect(screen.getByTestId('preflight-count')).toHaveTextContent('2 of 6 passed');
   });
 

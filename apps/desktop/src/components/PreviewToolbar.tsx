@@ -1,26 +1,32 @@
-// Preview toolbar — Run / Stop / Pop out / Pick element for the live preview (PLAN.md M5b).
-// The toolbar reports intent only: the caller owns the dev server process, the
-// separate window and the element pick. Disabled rules are a pure function of
-// `status` (plus `picking` for the toggle), so a caller never has to guess them.
-import { t, useDirection, useLocale, type Locale } from '@warsha/i18n';
+// Preview toolbar — Run / Stop / Pop out / Pick element for the live preview (PLAN.md M5b), redrawn for
+// Bench & Signal (B3-secondary).
+// The toolbar reports intent only: the caller owns the dev server process, the separate window and the
+// element pick. Disabled rules are a pure function of `status` (plus `picking` for the toggle), so a
+// caller never has to guess them.
+//
+// What the direction changes:
+//
+//   * the toolbar is a recessed bed with a hairline, not a loose row of pills (§1.1);
+//   * the group is one Tab stop and the arrows move the focus in reading order — mirrored from the
+//     direction the document declares, never from a copy of the layout (§9, §11);
+//   * the lit control is the one the owner is being asked to press (`Run` when nothing runs), because a
+//     signal lamp means "this needs the owner's hand" and nothing else does (§1);
+//   * every word, hint and blocked reason comes from `@warsha/i18n` (`live_preview.*`). The `{ ar, en }`
+//     tables and the `translated === key ? fallback : translated` shim are gone.
+import { t, useDirection, useLocale } from '@warsha/i18n';
 import { Button } from '@warsha/ui';
+import React, { useCallback } from 'react';
 
 /** Lifecycle of the previewed dev server, as the caller knows it. */
 export type PreviewStatus = 'idle' | 'running' | 'stopped' | 'error';
 
 export type PreviewAction = 'run' | 'stop' | 'pop_out' | 'pick_element';
 
-const labels: Record<PreviewAction, Record<Locale, string>> = {
-  run: { ar: 'تشغيل المعاينة', en: 'Run' },
-  stop: { ar: 'إيقاف المعاينة', en: 'Stop' },
-  pop_out: { ar: 'فتح في نافذة', en: 'Pop out' },
-  pick_element: { ar: 'التقاط عنصر', en: 'Pick element' },
-};
-
-const pickingLabel = { ar: 'إيقاف الالتقاط', en: 'Stop picking' };
-
-const toolbarLabel = { ar: 'أدوات المعاينة', en: 'Preview controls' };
-
+/**
+ * The colour-free channel each control carries (§9): a triangle, a square, an arrow out of a box, a
+ * crosshair. These are punctuation, not copy, so they need no catalog entry and read the same in Arabic
+ * and English.
+ */
 const icons: Record<PreviewAction, string> = {
   run: '▶',
   stop: '■',
@@ -28,34 +34,22 @@ const icons: Record<PreviewAction, string> = {
   pick_element: '⌖',
 };
 
-const descriptions: Record<PreviewAction, Record<Locale, string>> = {
-  run: { ar: 'يشغّل خادم التطوير ويعرضه هنا', en: 'Starts the dev server and shows it here' },
-  stop: { ar: 'يوقف خادم التطوير', en: 'Stops the dev server' },
-  pop_out: { ar: 'يفتح المعاينة في نافذة منفصلة', en: 'Opens the preview in a separate window' },
-  pick_element: {
-    ar: 'يحوّل نقرة داخل المعاينة إلى سياق للمساعد',
-    en: 'Turns a click in the preview into agent context',
-  },
-};
+/** The actions in the order the bench lists them. */
+const ACTIONS: readonly PreviewAction[] = ['run', 'stop', 'pop_out', 'pick_element'];
 
-/** Why an action is off, in the words the tooltip shows. */
-const blockedHints: Record<PreviewAction, Record<Locale, string>> = {
-  run: { ar: 'المعاينة تعمل بالفعل', en: 'The preview is already running' },
-  stop: { ar: 'لا يوجد ما يمكن إيقافه', en: 'Nothing is running to stop' },
-  pop_out: { ar: 'لا توجد معاينة لفتحها بعد', en: 'No preview to open yet' },
-  pick_element: {
-    ar: 'الالتقاط يعمل أثناء تشغيل المعاينة فقط',
-    en: 'Picking works only while the preview is running',
-  },
-};
+/** The catalog key of each action's word — and of the pressed "stop picking" word. */
+function actionKey(action: PreviewAction, picking: boolean): string {
+  return action === 'pick_element' && picking ? 'live_preview.action.picking' : `live_preview.action.${action}`;
+}
 
-/**
- * Translate a key, falling back to the local label when the catalog has no
- * entry yet (`t` returns the key itself for a missing message).
- */
-function localized(key: string, fallback: string, locale: Locale): string {
-  const translated = t(key, {}, locale);
-  return translated === key ? fallback : translated;
+/** Why an action is off (`blocked`) or what it does (`description`) — both catalog words. */
+function hintKey(action: PreviewAction, disabled: boolean): string {
+  return `${disabled ? 'live_preview.blocked.' : 'live_preview.description.'}${action}`;
+}
+
+/** The toolbar's own `data-testid` name: `pick_element` reads as `pick-element`. */
+function testIdOf(action: PreviewAction): string {
+  return `preview-${action.replace('_', '-')}-button`;
 }
 
 /** The disabled state of every toolbar action, derived from `status` alone. */
@@ -98,48 +92,74 @@ export function PreviewToolbar({
   const dir = useDirection();
   const locale = useLocale();
   const disabled = previewToolbarDisabled(status);
-  const groupLabel = localized('live_preview.toolbar', toolbarLabel[locale], locale);
+  const groupLabel = t('live_preview.toolbar', {}, locale);
 
-  function actionLabel(action: PreviewAction): string {
-    if (action === 'pick_element' && picking) {
-      return localized('live_preview.action.picking', pickingLabel[locale], locale);
-    }
-    return localized(`live_preview.action.${action}`, labels[action][locale], locale);
-  }
+  const handlers: Record<PreviewAction, () => void> = {
+    run: onRun,
+    stop: onStop,
+    pop_out: onPopOut,
+    pick_element: onPickElement,
+  };
 
-  function actionHint(action: PreviewAction): string {
-    if (disabled[action]) {
-      return localized(`live_preview.blocked.${action}`, blockedHints[action][locale], locale);
-    }
-    return localized(`live_preview.description.${action}`, descriptions[action][locale], locale);
-  }
+  /**
+   * Roving tabindex: the first control that is not disabled is the group's Tab stop, and the arrows move
+   * inside it, wrapping at both ends (§9). In RTL the physical keys mean the opposite, which is decided
+   * once here from the direction the document already declares.
+   */
+  const onKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      const rtl = dir === 'rtl';
+      const step =
+        event.key === 'ArrowRight' ? (rtl ? -1 : 1) : event.key === 'ArrowLeft' ? (rtl ? 1 : -1) : 0;
+      if (step === 0 && event.key !== 'Home' && event.key !== 'End') return;
 
-  const actions: { action: PreviewAction; onClick: () => void }[] = [
-    { action: 'run', onClick: onRun },
-    { action: 'stop', onClick: onStop },
-    { action: 'pop_out', onClick: onPopOut },
-    { action: 'pick_element', onClick: onPickElement },
-  ];
+      const controls = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not([disabled])')];
+      if (controls.length === 0) return;
+      const index = Math.max(0, controls.indexOf(document.activeElement as HTMLButtonElement));
+      const target =
+        event.key === 'Home'
+          ? controls[0]
+          : event.key === 'End'
+            ? controls[controls.length - 1]
+            : controls[(index + step + controls.length) % controls.length];
+
+      if (!target) return;
+      event.preventDefault();
+      target.focus();
+    },
+    [dir]
+  );
+
+  const firstEnabled = ACTIONS.find((action) => !disabled[action]);
 
   return (
     <div
-      role="toolbar"
       dir={dir}
+      role="toolbar"
       aria-label={groupLabel}
+      aria-orientation="horizontal"
       data-testid="preview-toolbar"
       data-status={status}
+      onKeyDown={onKeyDown}
       style={{
-        display: 'flex',
+        display: 'inline-flex',
         alignItems: 'center',
-        gap: '6px',
+        gap: 'var(--warsha-space-1)',
         flexWrap: 'wrap',
+        padding: 'var(--warsha-space-1)',
+        backgroundColor: 'var(--warsha-bench-plate)',
+        border: '1px solid var(--warsha-bench-rule)',
+        borderRadius: 'var(--warsha-radius-md)',
+        minInlineSize: 0,
       }}
     >
-      {actions.map(({ action, onClick }) => {
-        const label = actionLabel(action);
-        const hint = actionHint(action);
+      {ACTIONS.map((action) => {
+        const label = t(actionKey(action, picking), {}, locale);
+        const hint = t(hintKey(action, disabled[action]), {}, locale);
         const isPicking = action === 'pick_element' && picking;
-        const variant = action === 'run' ? 'primary' : isPicking ? 'secondary' : 'ghost';
+        // The lit button is the one the owner is being asked to press (§1): `Run` while nothing runs,
+        // otherwise a quiet secondary/ghost control. A picked-over toggle is `secondary`, not yellow.
+        const variant = action === 'run' && !disabled.run ? 'primary' : isPicking ? 'secondary' : 'ghost';
 
         return (
           <Button
@@ -147,15 +167,17 @@ export function PreviewToolbar({
             variant={variant}
             size="sm"
             dir={dir}
-            data-testid={`preview-${action.replace('_', '-')}-button`}
+            data-testid={testIdOf(action)}
             data-action={action}
             data-picking={action === 'pick_element' ? picking : undefined}
             disabled={disabled[action]}
             title={hint}
             aria-label={`${label} — ${hint}`}
             aria-pressed={action === 'pick_element' ? picking : undefined}
-            style={{ opacity: disabled[action] ? 0.6 : 1 }}
-            onClick={onClick}
+            // One Tab stop for the whole toolbar (§9); the arrows do the rest.
+            tabIndex={action === firstEnabled ? 0 : -1}
+            style={{ minBlockSize: 'var(--warsha-size-touch-compact)' }}
+            onClick={handlers[action]}
           >
             <span aria-hidden="true">{icons[action]}</span>
             <span>{label}</span>

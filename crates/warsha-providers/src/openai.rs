@@ -312,7 +312,8 @@ impl ChatProvider for OpenAIProvider {
 fn map_openai_error(status: reqwest::StatusCode, body: String) -> ProviderError {
     let code = status.as_u16();
     match code {
-        401 => ProviderError::Auth("Invalid API key".to_string()),
+        401 | 403 => ProviderError::Auth(format!("Authentication failed: {code}")),
+        404 => ProviderError::ModelNotFound(body),
         429 => ProviderError::RateLimited(body),
         402 => ProviderError::QuotaExhausted(body),
         500..=599 => ProviderError::Other(format!("Server error: {}", code)),

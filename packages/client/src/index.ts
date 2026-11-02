@@ -122,6 +122,91 @@ export interface RoleRoutingConfig {
   budget_cents_per_run: number;
 }
 
+/**
+ * One routing as `roles.list` reports it: the same shape `roles.set` takes, with the
+ * ceiling the daemon may answer `null` for. `warshad`'s `budget_cents_per_run` is an
+ * `Option`, and "no ceiling" is a fact a caller has to be able to tell from zero cents —
+ * so the list keeps the `null` and `getRoleConfig` folds it to `0` for the shape this
+ * client's `RoleRoutingConfig` has always declared.
+ */
+export interface RoleRouting {
+  role: Role;
+  targets: RoutingTargetConfig[];
+  fallback_enabled: boolean;
+  budget_cents_per_run: number | null;
+}
+
+/** The agent loop's mode, as the daemon serialises `AgentMode`. */
+export type AgentModeName = 'plan' | 'agent';
+
+/**
+ * One recorded Plan ↔ Agent switch: the approval history.
+ *
+ * `approvedBy` is never a name a caller typed. It is the device the session
+ * authenticated as (audit H-03), and a switch into `agent` with an empty approver did
+ * not happen.
+ */
+export interface AgentModeTransition {
+  from: AgentModeName;
+  to: AgentModeName;
+  approved_by: string;
+  approved_at: number;
+}
+
+/** Where a todo is in its own flow, as `TodoStatus` serialises it. */
+export type AgentTodoStatus = 'pending' | 'in_progress' | 'done' | 'cancelled';
+
+/** One item of the loop's todo list — what a turn said it would do. */
+export interface AgentTodo {
+  id: string;
+  description: string;
+  status: AgentTodoStatus;
+}
+
+/** A `@kind target` mention the loop resolved out of the owner's words. */
+export interface AgentMention {
+  kind: string;
+  target: string;
+}
+
+/** The slash command a turn asked for, when the catalog has it. */
+export interface AgentSkill {
+  name: string;
+  description: string;
+}
+
+/**
+ * One tool a turn ran. `tool` is `warsha_pipeline`'s `AgentTool` enum, which this client
+ * declares as `unknown` on purpose: the fields differ per variant, and a screen that
+ * wants one narrows it rather than trusting a shape that may not be there.
+ */
+export interface AgentToolResult {
+  tool: unknown;
+  success: boolean;
+  output: string;
+}
+
+/** One `agent.turn` answer, as `AgentTurnResult` serialises it. */
+export interface AgentTurn {
+  mode: AgentModeName;
+  mentions: AgentMention[];
+  command: AgentSkill | null;
+  response: string;
+  todos: AgentTodo[];
+  tools: AgentToolResult[];
+}
+
+/**
+ * What the agent loop is: the mode the next turn runs in, every switch that got it
+ * there and the todos so far — the record a restart is expected to hand back.
+ */
+export interface AgentState {
+  mode: AgentModeName;
+  approvals: AgentModeTransition[];
+  todos: AgentTodo[];
+  model_wired: boolean;
+}
+
 export interface BudgetStatus {
   totalBudgetUsd: number;
   spentUsd: number;
@@ -383,39 +468,83 @@ export class WarshaClient implements WarshaWiringApi {
   }
 
   // Gates
+  // Gates (audit H-03: the deciding device is the session, never a param).
+  //
+  // `approveGate`, `rejectGate` and `requestChanges` are the three writes: the daemon's
+  // signature is `gates.approve(run_id, stage, device_id)`, where `device_id` is an
+  // `Option` that exists only so a client written against the old shape can still send
+  // something. Its value is checked against the authenticated session and a mismatch is
+  // refused with `-32003`, so this client sends `null`: the verified-session contract
+  // stated out loud — the approver recorded is the device the bearer token belongs to,
+  // and nothing a screen types can change it. Their results are the daemon's `Run` in
+  // snake_case, which these methods do not claim to read, so they are typed `void`.
+  //
+  // `getGates` is a different matter and is left alone here: `gates.list` is not a method
+  // the daemon serves (the gate states ride on the `Run` a `runs.get` returns), so it
+  // refuses on the wire. Rewriting it to read a run would be a change to what this
+  // method's caller gets, and that belongs with the screen that calls it.
   async getGates(runId: RunId): Promise<GateSummary[]> {
     return this.rpc('gates.list', { runId });
   }
 
   async approveGate(runId: RunId, stage: Stage): Promise<void> {
-    return this.rpc('gates.approve', { runId, stage });
+    await this.rpc<unknown>('gates.approve', { run_id: runId, stage, device_id: null });
   }
 
   async rejectGate(runId: RunId, stage: Stage, reason: string): Promise<void> {
-    return this.rpc('gates.reject', { runId, stage, reason });
+    await this.rpc<unknown>(
+      'gates.reject',
+      { run_id: runId, stage, reason, device_id: null }
+    );
   }
 
   async requestChanges(runId: RunId, stage: Stage, notes: string): Promise<void> {
-    return this.rpc('gates.changes', { runId, stage, notes });
+    await this.rpc<unknown>(
+      'gates.changes',
+      { run_id: runId, stage, notes, device_id: null }
+    );
   }
 
-  // Providers
+  // Providers.
+  //
+  // `providers.add(name, kind, key, api_base)` and its `api_base` are snake_case
+  // because that is what jsonrpsee deserialises the daemon's arguments from, and the
+  // key is sent once, in the write: no `providers.*` reply carries it, because the
+  // daemon keeps it in the OS keychain.
   async listProviders(): Promise<ProviderConfig[]> {
     return this.rpc('providers.list');
   }
 
-  async addProvider(config: { name: string; kind: string; key: string; api_base?: string }): Promise<ProviderConfig> {
-    return this.rpc('providers.add', config);
+  async addProvider(config: {
+    name: string;
+    kind: string;
+    key: string;
+    api_base?: string;
+  }): Promise<ProviderConfig> {
+    return this.rpc('providers.add', {
+      name: config.name,
+      kind: config.kind,
+      key: config.key,
+      api_base: config.api_base ?? null,
+    });
   }
 
+  ///
   async testProvider(name: string): Promise<void> {
-    return this.rpc('providers.test', { name });
+    await this.rpc<unknown>('providers.test', { name });
   }
 
   async removeProvider(name: string): Promise<void> {
-    return this.rpc('providers.remove', { name });
+    await this.rpc<unknown>('providers.remove', { name });
   }
 
+  /**
+   * Not a method `warshad` serves: the daemon's ceiling is per project (`budget.set`)
+   * and per routing (`roles.set` carries `budget_cents_per_run`), and there is no
+   * per-provider budget. Kept on the surface for callers that already name it, so a
+   * screen gets a JSON-RPC "method not found" refusal it can show rather than a silent
+   * no-op — and so removing it is a decision made with the screen that calls it.
+   */
   async setProviderBudget(name: string, budgetUsd: number): Promise<void> {
     return this.rpc('providers.budget', { name, budgetUsd });
   }
@@ -433,21 +562,82 @@ export class WarshaClient implements WarshaWiringApi {
     return this.rpc('budget.set', { projectId, cents });
   }
 
-  // Roles
-  async listRoles(): Promise<Role[]> {
-    return this.rpc('roles.list');
+  // Roles.
+  //
+  // `roles.list` answers the daemon's routing table — one `RoleRoutingConfig` per role the
+  // owner routed — and `roles.set(config)` takes the whole config as its one argument, so
+  // the params are named `config` and not spread. A routing is the owner's decision about
+  // which configured provider answers a role, and `roles.set` refuses a role the pipeline
+  // does not know, a target with no provider or no model, and a provider that was never
+  // configured; what it accepts is what the next call reaches, and what the daemon after a
+  // restart reads back.
+  async listRoleRoutings(): Promise<RoleRouting[]> {
+    return this.rpc<RoleRouting[]>('roles.list');
   }
 
+  /**
+   * The roles that have a routing, as this client's `Role` names.
+   *
+   * Derived from the routing table rather than asked for on its own, because that is what
+   * the daemon reports: a role with no routing is a role nothing answers.
+   */
+  async listRoles(): Promise<Role[]> {
+    const routings = await this.listRoleRoutings();
+    return routings.map((routing) => routing.role);
+  }
+
+  /** One role's routing, or a refusal naming the role when nothing routes it. */
   async getRoleConfig(role: Role): Promise<RoleRoutingConfig> {
-    return this.rpc('roles.get', { role });
+    const routings = await this.listRoleRoutings();
+    const routing = routings.find((candidate) => candidate.role === role);
+    if (routing === undefined) {
+      throw new Error(`no routing is set for role ${role}`);
+    }
+    const { budget_cents_per_run: budgetCentsPerRun, ...rest } = routing;
+    return { ...rest, budget_cents_per_run: budgetCentsPerRun ?? 0 };
   }
 
   async setRoleConfig(config: RoleRoutingConfig): Promise<void> {
-    return this.rpc('roles.set', config);
+    await this.rpc<unknown>('roles.set', {
+      config: {
+        role: config.role,
+        targets: config.targets,
+        fallback_enabled: config.fallback_enabled,
+        budget_cents_per_run: config.budget_cents_per_run,
+      },
+    });
   }
 
+  /**
+   * Not a method `warshad` serves: a role is a pipeline concern and a device's role is
+   * decided by the credential it presents (audit H-04), not by an assignment call. Kept
+   * on the surface so a caller gets a visible refusal rather than a silent no-op.
+   */
   async assignRole(deviceId: DeviceId, role: Role): Promise<void> {
     return this.rpc('roles.assign', { deviceId, role });
+  }
+
+  // Agent (PLAN.md M18, C2).
+  //
+  // Three methods, and they are the whole of what an owner can do to the daemon's agent
+  // from a screen: ask a turn, approve the mode that edits, and go back to the mode that
+  // does not. There is no approver parameter on any of them, by the same rule the gates
+  // follow: the daemon records the device its session authenticated as.
+  async agentTurn(input: string): Promise<AgentTurn> {
+    return this.rpc<AgentTurn>('agent.turn', { input });
+  }
+
+  async approveAgentMode(): Promise<AgentModeTransition> {
+    return this.rpc<AgentModeTransition>('agent.approve_mode');
+  }
+
+  async returnAgentToPlanMode(): Promise<AgentModeTransition> {
+    return this.rpc<AgentModeTransition>('agent.plan_mode');
+  }
+
+  /** The mode, the approval history and the todos — including after a restart. */
+  async agentState(): Promise<AgentState> {
+    return this.rpc<AgentState>('agent.state');
   }
 
   // Devices (pairing)

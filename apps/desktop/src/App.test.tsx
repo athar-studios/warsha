@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import {
   createClient,
@@ -135,60 +135,86 @@ function lastRpcCall(fetchMock: ReturnType<typeof vi.fn>): {
   return JSON.parse(init.body) as { method: string; params?: Record<string, unknown> };
 }
 
-describe('desktop app', () => {
-  it('renders without crashing', () => {
+describe('the desktop bench', () => {
+  it('mounts the top bar, the instrument strip and the main bench region', async () => {
     renderApp();
-    expect(true).toBe(true);
+
+    // §4's five things and nothing else: the brand, the contextual identity, the mode switch, the gate
+    // bell and settings.
+    expect(await screen.findByTestId('bench-topbar')).toBeInTheDocument();
+    expect(screen.getByText('ورشة')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'نمط الواجهة' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'بسيط' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'متقدّم' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: /قائمة البوّابات/ })).toBeInTheDocument();
+    expect(screen.getByTestId('settings-open')).toBeInTheDocument();
+
+    // The instrument strip is the bench's own live region, reading the daemon the start-up reached (§4).
+    const strip = screen.getByRole('status', { name: 'شريط الحالة' });
+    expect(within(strip).getByText('الخادم متصل')).toBeInTheDocument();
+    // Nothing is selected yet, so the readings the bench cannot make are said in words, not as zeros (§7).
+    expect(within(strip).getAllByText(/لم يُبلَّغ بعد/).length).toBeGreaterThan(0);
+
+    // §9: the keyboard gets one link into the bench, and the bench is a landmark it can name.
+    expect(screen.getByRole('link', { name: 'انتقل إلى طاولة العمل' })).toHaveAttribute('href', '#bench-main');
+    expect(screen.getByRole('main')).toBeInTheDocument();
   });
 
-  it('mounts the status strip, the permission chip and the plan badge in the top bar', async () => {
+  it('switches the bench to Advanced and keeps the fallback screen honest', async () => {
     renderApp();
 
-    await waitFor(() => expect(screen.getByTestId('status-strip')).toBeInTheDocument());
-    expect(screen.getByTestId('plan-mode-badge')).toHaveAttribute('data-mode', 'plan');
-    // The permission chip's aria-label is `<label> — <hint>`; the label is the ar text.
-    expect(screen.getByRole('button', { name: /اسأل عند الخطر/ })).toBeInTheDocument();
-  });
+    const advanced = await screen.findByRole('button', { name: 'متقدّم' });
+    fireEvent.click(advanced);
 
-  it('flips the plan badge to agent mode when the owner asks for it', async () => {
-    renderApp();
+    // The switch is a pressed rung in a group, not a route change: the pressed state moves (§4).
+    expect(advanced).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'بسيط' })).toHaveAttribute('aria-pressed', 'false');
 
-    const badge = await screen.findByTestId('plan-mode-badge');
-    fireEvent.click(badge);
-
-    await waitFor(() =>
-      expect(screen.getByTestId('plan-mode-badge')).toHaveAttribute('data-mode', 'agent')
-    );
+    // No project is selected in this harness, so the bench shows the board rather than an empty workbench.
+    expect(screen.getByText('لوحة المشاريع')).toBeInTheDocument();
+    expect(screen.queryByTestId('advanced-mode')).not.toBeInTheDocument();
   });
 
   it('reaches every settings sub-screen from the settings tab strip', async () => {
-    renderApp();
+    // The two post-launch lists are read when their tab opens; this harness has no daemon, so the read
+    // fails fast and the screens show their offline truth instead of leaving a socket pending.
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline'))));
 
-    const settingsButton = await screen.findByTestId('settings-open');
-    fireEvent.click(settingsButton);
+    try {
+      renderApp();
 
-    expect(screen.getByTestId('settings-tabs')).toBeInTheDocument();
+      const settingsButton = await screen.findByTestId('settings-open');
+      fireEvent.click(settingsButton);
 
-    fireEvent.click(screen.getByTestId('settings-tab-routines'));
-    expect(screen.getByTestId('routines')).toBeInTheDocument();
-    expect(screen.getByTestId('routines-empty')).toBeInTheDocument();
+      const tabs = screen.getByTestId('settings-tabs');
+      expect(tabs).toBeInTheDocument();
+      // §9: one Tab stop for the whole strip, the arrows for the rest.
+      expect(tabs.querySelectorAll('[role="tab"][tabindex="0"]')).toHaveLength(1);
 
-    fireEvent.click(screen.getByTestId('settings-tab-settings-providers'));
-    expect(screen.getByTestId('settings-providers')).toBeInTheDocument();
-    // The one-click setup wizard is mounted under Settings → Providers.
-    expect(screen.getByRole('button', { name: /اختبر الاتصال|Test connection/ })).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('settings-tab-routines'));
+      expect(screen.getByTestId('routines')).toBeInTheDocument();
+      expect(screen.getByTestId('routines-empty')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId('settings-tab-crash-reports'));
-    expect(screen.getByTestId('crash-reports')).toBeInTheDocument();
-    expect(screen.getByTestId('crash-reports-empty')).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('settings-tab-settings-providers'));
+      expect(screen.getByTestId('settings-providers')).toBeInTheDocument();
+      // The one-click setup wizard is mounted under Settings → Providers.
+      expect(screen.getByRole('button', { name: /اختبر الاتصال|Test connection/ })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId('settings-tab-store-reviews'));
-    expect(screen.getByTestId('store-reviews')).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('settings-tab-crash-reports'));
+      expect(screen.getByTestId('crash-reports')).toBeInTheDocument();
+      // The list is read when the tab opens, so the empty state lands a tick later (§7).
+      expect(await screen.findByTestId('crash-reports-empty')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId('settings-tab-backend-kit'));
-    expect(screen.getByTestId('backend-kit-panel')).toBeInTheDocument();
-    // The payments gate is shut until the owner approves it.
-    expect(screen.getByTestId('payments-gate')).toHaveAttribute('data-enabled', 'false');
+      fireEvent.click(screen.getByTestId('settings-tab-store-reviews'));
+      expect(screen.getByTestId('store-reviews')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('settings-tab-backend-kit'));
+      expect(screen.getByTestId('backend-kit-panel')).toBeInTheDocument();
+      // The payments gate is shut until the owner approves it.
+      expect(screen.getByTestId('payments-gate')).toHaveAttribute('data-enabled', 'false');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

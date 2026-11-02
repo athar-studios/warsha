@@ -3436,8 +3436,946 @@ Checks:
 | Architecture Guardrails | WSL Ubuntu | `node scripts/check-arch.mjs` | PASS, 5 rules, 0 violations (exit 0) |
 | Architecture Self-Test | WSL Ubuntu | `node scripts/check-arch.mjs --self-test` | PASS, 5/5 rules fire, clean fixture clean (exit 0) |
 
+### Owner-only completion backlog — code signing, auto-updater, and M17–M19 (documented 2026-11-01)
+
+#### Code signing for the installers
+
+Current state of signing configuration and credentials across the repository (verified against files in this session):
+
+| Knob / Setting | Location | Exact Current Value | Status / Description |
+|---|---|---|---|
+| `bundle.createUpdaterArtifacts` | `apps/desktop/src-tauri/tauri.conf.json:38` | `true` | Enabled; tells bundler to produce `.sig` signature files alongside installer bundles |
+| `bundle.windows.certificateThumbprint` | `apps/desktop/src-tauri/tauri.conf.json:64` | `null` | Unset; Windows Authenticode signing disabled in config |
+| `bundle.windows.digestAlgorithm` | `apps/desktop/src-tauri/tauri.conf.json:65` | `"sha256"` | Standard SHA-256 digest algorithm for Authenticode |
+| `bundle.windows.timestampUrl` | `apps/desktop/src-tauri/tauri.conf.json:66` | `""` | Empty string; RFC 3161 timestamp server URL not configured |
+| `bundle.windows.tsp` | `apps/desktop/src-tauri/tauri.conf.json:67` | `false` | Disabled; does not enforce RFC 3161 Timestamp Protocol |
+| `bundle.macOS.signingIdentity` | `apps/desktop/src-tauri/tauri.conf.json:61` | `null` | Unset; macOS Developer ID signing disabled in config |
+| `bundle.macOS.entitlements` | `apps/desktop/src-tauri/tauri.conf.json:57` | `"entitlements.plist"` | Resolves to `apps/desktop/src-tauri/entitlements.plist` (empty dict `<dict/>`) |
+| `env.TAURI_SIGNING_PRIVATE_KEY` | `.github/workflows/release.yml:204` | `${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}` | Secret reference for Minisign private updater key |
+| `env.TAURI_SIGNING_KEY_PASSWORD` | `.github/workflows/release.yml:205` | `${{ secrets.TAURI_SIGNING_KEY_PASSWORD }}` | **Defect**: CLI reads `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (missing `PRIVATE_`) |
+| `env.APPLE_CERTIFICATE` | `.github/workflows/release.yml:206` | `${{ secrets.APPLE_CERTIFICATE }}` | Secret reference for base64 Apple Developer ID certificate (.p12) |
+| `env.APPLE_CERTIFICATE_PASSWORD` | `.github/workflows/release.yml:207` | `${{ secrets.APPLE_CERTIFICATE_PASSWORD }}` | Secret reference for Apple certificate password |
+| `env.APPLE_ID` | `.github/workflows/release.yml:208` | `${{ secrets.APPLE_ID }}` | Secret reference for Apple Developer Apple ID account |
+| `env.APPLE_TEAM_ID` | `.github/workflows/release.yml:209` | `${{ secrets.APPLE_TEAM_ID }}` | Secret reference for Apple Developer 10-character Team ID |
+| `env.WINDOWS_CERTIFICATE_THUMBPRINT` | `.github/workflows/release.yml:210` | `${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}` | Secret reference for installed Windows certificate thumbprint |
+
+##### Credential & Key Audit
+- **Zero private keys or certificates in repo or history**: Confirmed via `git ls-files` and `git log --all --diff-filter=A --name-only --pretty=format:` filtered against `\.(pfx|p12|pem|key|minisign)$`. No certificate, private key, or keystore exists in the working tree or commit history.
+- **`plugins.updater.pubkey` is a public key**: The committed value `dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk3MzFEREJGNTAyNjRBOEMKUldTTVNpWlF2OTB4bDdnU1pVbHExdytpaWw2d2lSb29mWkVEaUVtbVBBS2NWNnZ5WTFzVTAvbzYK` in `apps/desktop/src-tauri/tauri.conf.json:76` decodes to:
+  ```text
+  untrusted comment: minisign public key: 9731DDBF50264A8C
+  RWSMSiZQv90xl7gSZUlq1w+iil6wiRoofZEDiEmmPAKcV6vyY1sU0/o6
+  ```
+  This is a **Minisign public verification key** (Key ID `9731DDBF50264A8C`). Minisign public keys contain only the public Ed25519 verification key and key ID. A public key is safe and intended to be committed to the repository so client installations can verify update signatures; no secret or private signing capability is leaked by this value.
+
+##### Owner-Only Checklist (Code Signing)
+1. **Generate Minisign key pair on the owner's workstation**:
+   ```bash
+   pnpm --filter warsha-desktop tauri signer generate -w "$HOME/.tauri/warsha.key"
+   ```
+   Save the private key file securely outside any git repository. Record the generated public key string into `apps/desktop/src-tauri/tauri.conf.json` under `plugins.updater.pubkey`.
+2. **Configure CI secrets in GitHub repository settings**:
+   - `TAURI_SIGNING_PRIVATE_KEY`: Content of the generated Minisign private key file.
+   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: Password chosen when creating the private key.
+   - *Workflow Defect to Fix*: Note that `.github/workflows/release.yml:205` currently exports `TAURI_SIGNING_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_KEY_PASSWORD }}`. Verification of the installed CLI (`@tauri-apps/cli 2.12.4` via `tauri signer sign --help`) shows the CLI exclusively reads `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Until line 205 of `.github/workflows/release.yml` is updated to map `TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}`, the CLI will not receive the password in CI.
+3. **Windows Authenticode Signing & SmartScreen**:
+   - *Current Gap*: The workflow exports `WINDOWS_CERTIFICATE_THUMBPRINT`, but Tauri's Windows bundler requires the thumbprint in `bundle.windows.certificateThumbprint` (currently `null`) or expects a custom signing script via `bundle.windows.signCommand`.
+   - *Two Lawful Ways to Close*:
+     - **Option A (Runner Import & Dynamic Config)**: Import the Authenticode certificate into the Windows runner's certificate store (`certutil -p <pass> -importpfx`) in CI, and dynamically inject the thumbprint into `tauri.conf.json` during the workflow before invoking `tauri build`.
+     - **Option B (Dedicated Signing Service / `signCommand`)**: Configure `bundle.windows.signCommand` to delegate signing to a cloud signing service such as Azure Trusted Signing (Microsoft Trusted Signing) or SignPath using Azure CLI/dlib tools without exposing raw PFX credentials.
+   - *SmartScreen Reality*: An unsigned installer or an installer signed with a newly issued certificate triggers Windows Defender SmartScreen ("Windows protected your PC"). Microsoft SmartScreen reputation is tied to certificate identity and download volume over time; EV (Extended Validation) or Azure Trusted Signing provide immediate reputation.
+4. **macOS Developer ID & Notarization**:
+   - `bundle.macOS.signingIdentity` is currently `null`.
+   - The owner must supply an Apple Developer ID Application certificate (`APPLE_CERTIFICATE` base64 `.p12` and `APPLE_CERTIFICATE_PASSWORD`) plus notarization credentials (`APPLE_ID` and `APPLE_TEAM_ID`) as referenced in `.github/workflows/release.yml`.
+5. No key was generated and no secret was stored by this task.
+
+#### Auto-updater and latest.json
+
+##### Current `plugins.updater` Configuration (`apps/desktop/src-tauri/tauri.conf.json:70-78`)
+```json
+  "plugins": {
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/athar-studios/warsha/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk3MzFEREJGNTAyNjRBOEMKUldTTVNpWlF2OTB4bDdnU1pVbHExdytpaWw2d2lSb29mWkVEaUVtbVBBS2NWNnZ5WTFzVTAvbzYK"
+    }
+  }
+```
+- **Active**: `true`
+- **Endpoints**: `["https://github.com/athar-studios/warsha/releases/latest/download/latest.json"]`
+- **Pubkey ID**: `9731DDBF50264A8C`
+- **Endpoint URL**: `https://github.com/athar-studios/warsha/releases/latest/download/latest.json`
+
+##### The Three Exact Gaps
+1. **Dependencies missing**: Neither `tauri-plugin-updater` is declared in `apps/desktop/src-tauri/Cargo.toml` (which intentionally declares no plugin crates), nor is `@tauri-apps/plugin-updater` present in `apps/desktop/package.json` (only `@tauri-apps/api` and `@tauri-apps/plugin-opener` are present).
+2. **Plugin unregistered in Rust**: `apps/desktop/src-tauri/src/lib.rs` does not register the updater plugin (`tauri_plugin_updater::Builder::new().build()`). Grepping for `updater` in `apps/desktop/src-tauri/src/lib.rs` returns 0 matches.
+3. **Workflow does not generate `latest.json`**: `.github/workflows/release.yml` builds installers and uploads bundles, but never generates or uploads `latest.json` to GitHub Release assets (grepping for `latest.json` in `release.yml` returns 0 matches).
+
+##### Owner Checklist per Release
+1. **Bump Version**: Bump `"version"` in `apps/desktop/src-tauri/tauri.conf.json`, `apps/desktop/src-tauri/Cargo.toml`, and `apps/desktop/package.json` to the target `X.Y.Z`.
+2. **Tag Release**: Tag the commit with `vX.Y.Z` and push the tag to GitHub (`git tag vX.Y.Z && git push origin vX.Y.Z`).
+3. **Build Artifacts**: CI release workflow runs `desktop-build` on Linux, macOS, and Windows runners, compiling the app and generating signed installer packages along with `.sig` signature files (due to `createUpdaterArtifacts: true`).
+4. **Generate `latest.json`**: Construct `latest.json` matching the Tauri 2 manifest specification:
+   - Top-level `version`, `notes` (release highlights), and `pub_date` (RFC 3339 timestamp).
+   - A `platforms` object with keys for each target triple: `windows-x86_64`, `darwin-x86_64`, `darwin-aarch64`, `linux-x86_64`.
+   - Each platform object must include `signature` (verbatim string from the generated `.sig` file) and `url` (direct asset download URL from the release).
+5. **Attach `latest.json`**: Upload `latest.json` as a release asset to the release.
+6. **Publish Release**: **Publish** the release from draft status. GitHub's download URL redirection `/releases/latest/download/...` returns HTTP 404 for draft releases; the updater manifest cannot be fetched by clients until the release is publicly published.
+
+##### The One-Line Rule for the Owner
+The desktop build can only install an update whose signature verifies against the committed pubkey, and the app must ask the owner before installing (never silent).
+
+##### Example `latest.json` (Placeholder Reference)
+```json
+{
+  "version": "0.3.0",
+  "notes": "Example release notes detailing changes and bug fixes.",
+  "pub_date": "2026-11-01T12:00:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "PLACEHOLDER_MINISIGN_SIGNATURE_FROM_NSIS_OR_MSI_SIG_FILE",
+      "url": "https://github.com/athar-studios/warsha/releases/download/v0.3.0/Warsha_0.3.0_x64-setup.exe"
+    },
+    "darwin-aarch64": {
+      "signature": "PLACEHOLDER_MINISIGN_SIGNATURE_FROM_AARCH64_DMG_SIG_FILE",
+      "url": "https://github.com/athar-studios/warsha/releases/download/v0.3.0/Warsha_0.3.0_aarch64.dmg"
+    },
+    "darwin-x86_64": {
+      "signature": "PLACEHOLDER_MINISIGN_SIGNATURE_FROM_X64_DMG_SIG_FILE",
+      "url": "https://github.com/athar-studios/warsha/releases/download/v0.3.0/Warsha_0.3.0_x64.dmg"
+    },
+    "linux-x86_64": {
+      "signature": "PLACEHOLDER_MINISIGN_SIGNATURE_FROM_APPIMAGE_SIG_FILE",
+      "url": "https://github.com/athar-studios/warsha/releases/download/v0.3.0/warsha_0.3.0_amd64.AppImage"
+    }
+  }
+}
+```
+
+#### M17–M19 items that need the owner
+
+| # | Item | What exists today (file + type) | What is missing | What the owner must supply or decide | Where the remaining work lands |
+|---|---|---|---|---|---|
+| 1 | Crash reporting to GlitchTip/Sentry | `crates/warsha-pipeline/src/post_launch.rs:136-206` (`CrashReport`, `CrashReportStore`, `InMemoryCrashReportStore` with `record`, `list`, `mark_sent`), `crates/warshad/src/lib.rs:511-513, 1293-1306` (`postlaunch.crashes` RPC), `apps/desktop/src/screens/CrashReports.tsx` | No HTTP crash collector exists anywhere in codebase; no client for GlitchTip/Sentry; no opt-in telemetry consent toggle; no panic hook or error dispatcher | GlitchTip or Sentry DSN endpoint URL and auth token; privacy policy and telemetry opt-in terms for users | HTTP collector client in `warsha-pipeline` or `warshad`, panic hook, opt-in consent toggle in `apps/desktop/src/screens/SettingsScreen.tsx` |
+| 2 | Store-review ingestion API client | `crates/warsha-pipeline/src/post_launch.rs:260-323` (`StoreReview`, `StoreReviewStore`, `InMemoryStoreReviewStore` with `record`, `list`, `list_by_store`), `crates/warshad/src/lib.rs:514-516, 1308-1317` (`postlaunch.reviews` RPC), `apps/desktop/src/screens/StoreReviews.tsx` | No store review ingestion API client exists in codebase; no polling job or background fetcher; no persistent store for reviews | Developer portal credentials and API keys (Microsoft Store Analytics API, Apple App Store Connect API, Google Play Developer API); sync schedule | Background review ingestion client/routine in `warsha-pipeline`, persistent table in `warsha-store` |
+| 3 | Real Goose-backed scheduler | `crates/warsha-pipeline/src/routines.rs:153-213, 398-435` (`RoutineScheduler`, `RoutineRunner` trait, `MockRoutineRunner`, `RoutineRegistry`), `crates/warshad/src/lib.rs:369-378, 607-620, 1570-1620` (`routines.*` RPCs); root `Cargo.toml:84` (commented-out `# goose = ...` placeholder) | Real Goose integration: Goose is purely a trait seam behind `RoutineRunner` today, not a compiled dependency; full cron expressions deferred | Decision on Goose integration model (compiled git dependency vs. separate `goosed` sidecar process); pin specific Goose release tag; approve Apache-2.0 license | Implement `RoutineRunner` wrapping Goose in `warsha-pipeline/src/routines.rs`; enable `goose` dependency in root `Cargo.toml` |
+| 4 | Simple-mode routines UI | `apps/desktop/src/screens/Routines.tsx` (`RoutinesProps`), `apps/desktop/src/components/RoutineRow.tsx`; daemon `routines.list/get/run_now/pause/resume` in `crates/warshad/src/lib.rs:607-620` | `packages/client/src/index.ts` exposes no `routines.*` methods; `apps/desktop/src/App.tsx:314, 402-410` has empty `useState<Routine[]>([])` and no-op `handleRoutineRun/Pause/Resume` stubs (`// TODO(M20 wiring)`) | Decision on default system automations/routines shipped out of the box (e.g. daily standup summary, weekly dependency check) | Add `routines.*` methods to `WarshaClient` in `packages/client/src/index.ts`; wire `App.tsx` state and handlers to client methods |
+| 5 | Activepieces connection/toggle & deployment target | `docs/launch/activepieces.md` (documents MIT core boundary, never `packages/ee`, failure modes), `THIRD_PARTY_NOTICES.md:15, 18-24` (license notice for Activepieces CE MIT core) | No Activepieces client, API calls, or UI settings toggle exist anywhere in codebase | Choose deployment target: bundled local CE Docker container vs. owner-hosted CE instance URL; supply CE API key; select allowed event webhook triggers | Settings toggle in `apps/desktop/src/screens/SettingsScreen.tsx`; webhook/HTTP dispatch client in `warsha-pipeline` |
+| 6 | Provider auto-update Settings UI | `crates/warsha-providers/src/provider_update.rs:27-75, 360-400` (`ModelCatalogDiff`, `reconcile_model_catalog`, `ProviderUpdatePlanner`), `crates/warshad/src/lib.rs:462-466` (`providers.check_models` RPC), `apps/desktop/src/screens/SettingsProviders.tsx` | Real per-provider release-channel scrapers/clients do not exist (only model endpoint catalog diffs); no UI for changelog preview, automated health checks, or rollbacks | Rate limits policy, API tokens for release channels, decision on which providers permit auto-update vs. manual pin | Upstream release-channel clients in `warsha-providers/src/provider_update.rs`; changelog/rollback/health-check UI in `apps/desktop/src/screens/SettingsProviders.tsx` |
+| 7 | Wiring Plan→Agent to actual run & post-launch RPC | `crates/warsha-pipeline/src/post_launch.rs:515-685` (`PlainLanguageChangeRequest`, `ChangeRequestStatus`, `ChangeRequestStore`), `crates/warshad/src/lib.rs:518-523, 1319-1335` (`skills.list`, `agent.turn` RPCs), `agent_loop.approve_agent_mode` | No RPC exposes `ChangeRequestStore` in `warshad`; no RPC creates or launches a pipeline `Run` from an approved change request; no RPC exposes mode transition (`approve_agent_mode`) over JSON-RPC wire | Decision on change request lifecycle: whether approved change request creates a new pipeline `Run` or appends tasks to existing run; Gate A review flow | New RPC methods in `crates/warshad/src/lib.rs` (`postlaunch.change_requests`, `runs.start_from_change_request`, `agent.approve_mode`); UI wiring in `apps/desktop` |
+| 8 | Backend-kit SQL dump export to real file | `crates/warsha-pipeline/src/backend_kit.rs:821` (`BackendKit::export_to_dir`) writes `schema.sql` via `std::fs::write`; `crates/warshad/src/lib.rs:1220` (`backend.export` RPC) calls `kit.export_to_dir(&output_dir)` and returns the written path string; tested in `crates/warshad/src/lib.rs:2539` (`export_backend_names_the_dump_after_the_run_project`) | While `export()` in memory previously was noted as writing nothing, `export_to_dir` and the daemon RPC `backend.export` *do* write `schema.sql` to disk today. Missing: packaging the storage archive (`<slug>-storage.tar.gz`, currently only path string generated) and replaying dump into fresh live instance | Storage archive destination and compression choice; live backend database credentials for round-trip replay verification | Storage archive creation in `warsha-pipeline/src/backend_kit.rs`; live database migration executor in `warshad` or CLI |
+
+#### Notes
+Documentation only: no application code, manifests, workflows, or configuration files were modified. No signing key or cryptographic key pair was generated, no secret was stored or committed, and no commit, tag, or push was performed.
+
+### Verification run — 2026-11-01
+- `cargo fmt --all --check`: PASS.
+- `node scripts/check-arch.mjs`: PASS (`5 rules, 0 violations`).
+- `pnpm -r typecheck`: PASS (all 7 participating projects completed).
+- `cargo clippy --workspace --all-targets -- -D warnings`: BLOCKED by local MSVC/ring build failure (`cl.exe` D8050 while compiling `curve25519.c`), not a Rust diagnostic.
+- `cargo test --workspace`: BLOCKED by the same local `ring v0.17.14` MSVC build failure.
+- `pnpm -r build`: FAIL: `docs` could not run `mdbook build` (exit `3221225477`); workspace also reports missing `node_modules` in the local install state.
+- `pnpm -r test`: FAIL: `docs` could not run `mdbook test` (exit `3221225477`); same local mdBook/tooling issue.
+- `pnpm visual`: FAIL because `playwright` is not installed/resolvable (`'playwright' is not recognized`).
+- No application code was changed in this run; no secrets, signing, releases, `latest.json`, commit, or push were performed. The earlier delegation-tool diagnosis remains external to this repository.
+
+### تدقيق واجهة Warsha — 2026-11-01 (مراجعة سطح المكتب فقط)
+
+- تمت قراءة `PLAN.md` و`PROGRESS.md` و`DECISIONS.md` و`AGENTS.md`، وفحص `apps/desktop/src/` (67 ملف TypeScript/TSX: 23 شاشة و37 مكوّناً واختبارات)، و`packages/ui/src/` وStorybook. الشاشات تشمل onboarding، projects، run، simple/advanced، gates، artifacts، providers، roles، budgets، devices، settings، routines، crash reports، store reviews وbackend kit؛ الربط المركزي في `App.tsx`.
+- التصميم يستخدم tokens من `packages/ui/src/tokens/tokens.css` وخصائص CSS المنطقية. بحثت TSX عن `marginLeft`/`marginRight`/`paddingLeft`/`paddingRight`/`borderLeft`/`borderRight` و`left`/`right` ولم أجدها؛ استثناءات `dir="ltr"` مقصودة للـURLs/IDs/logs/schedules.
+- RTL/LTR مطبق عبر `useDirection` و`dir` و`Box`/`Text`/`Button`/`Card`. يلزم اختبار بصري يدوي بأطوال عربية كبيرة؛ الاختبارات الحالية لا تثبت عدم القصّ أو overflow.
+- معظم النصوص عبر `t()`/catalogs، لكن توجد fallbacks عربية/إنجليزية مضمنة في JSX (مثلاً `App.tsx` و`Budgets.tsx`) وتحتاج استمرار تدقيق hardcoded-string.
+- light/dark: `ThemeProvider` يدعم `light`/`dark`/`system` ويحفظ `localStorage` ويتابع `prefers-color-scheme`، و`tokens.css` يعرّف السطحين. لا توجد media queries responsive في `index.css`؛ الاعتماد على `flexWrap`/`auto-fill`/overflow داخل JSX يغطي الضيق جزئياً. اختبر 320/390/768/1280px مع RTL/LTR.
+- الوصول: focus-visible و`prefers-reduced-motion` موجودان، لكن حالات disabled/hover الموحدة والتباين/keyboard لكل شاشة تحتاج مراجعة إضافية.
+
+**بحث GitHub (قراءة فقط)**
+- [waveui](https://github.com/mortenbrudvik/waveui): MIT، React/TypeScript، RTL وlight/dark/high-contrast؛ مرشح أفكار، لكن صغير (2 stars) ومبني Tailwind v4، لذا **مرفوض كاعتماد الآن**.
+- [Yugen-UI](https://github.com/trandat1114/Yugen-UI): MIT، RTL/light/dark/high-contrast/WCAG؛ 2 stars وTailwind v4/shadcn، لذا **مرفوض الآن** لعدم النضج.
+- [idira-design-system](https://github.com/AyelletCyber/idira-design-system): React/TypeScript مع dark/RTL؛ **مرفوض** لغياب ترخيص واضح و0 stars.
+- [Pagework](https://github.com/AnahatM/Pagework): مشروع Tauri/Rust/React وليس مكتبة UI، ولا يظهر ترخيص في بيانات GitHub؛ **مرفوض** كمصدر مكونات.
+- بحث GitHub API لعبارة `tauri react component library typescript` لم يجد مكتبة ناضجة خاصة بـTauri؛ مكتبة React العامة تعمل داخل Tauri webview ما دامت لا تحتاج DOM APIs غير متاحة أو شبكة خارجية. التوصية: الاستمرار في `@warsha/ui` الداخلي، وspike لاحق يقيس bundle/tree-shaking/accessibility/RTL snapshots وتوافق React 18/Tauri WebView قبل أي تثبيت.
+
+**التحققات**
+- فحص `glob`/`grep`/قراءة الملفات: PASS كمراجعة ساكنة.
+- `cargo fmt --all --check`: PASS؛ `node scripts/check-arch.mjs`: PASS (`5 rules, 0 violations`)؛ `pnpm -r typecheck`: PASS (7 مشاريع).
+- لم أعد تشغيل `cargo clippy`/`cargo test`/`pnpm -r build`/`pnpm -r test`/`pnpm visual`؛ نتائجها الحالية موثقة أعلاه كـBLOCKED/FAIL بسبب MSVC/ring وmdBook وPlaywright. لم تُثبت حزم ولم يُعدّل functional code أو يُنفّذ commit/push أو حذف.
+
+### مراجعة الموقع وملفات graphify والمهام البشرية — 2026-11-01
+- تم التأكد من وجود مجلد `graphify-out/` والملفات المطلوبة: `graph.json` و`graph.html` و`GRAPH_REPORT.md`. لم يتم إنشاء رسم جديد. تقرير الرسم يذكر أنه بُني من commit `4e8b06d0`؛ لذلك يجب اعتباره stale إذا كان `HEAD` مختلفاً، ولا ينبغي تحديثه دون طلب صريح.
+- تمت مراجعة `docs/src/index.md`: الصفحة تحتوي Hero عربي وإنجليزي، رحلة من 3 خطوات، لقطات واجهة حقيقية، قسم المميزات، FAQ، قسم English، وجدولاً يربط الأرقام بمصادر داخل المستودع. لا يوجد ذكر لـ Qoder ولا نسخ ظاهر لنص أو صورة منه. توجد ادعاءات تشغيلية يجب إبقاؤها متزامنة مع نتائج CI الفعلية، خصوصاً عبارات الدعم والمنصات.
+- تمت مراجعة `docs/src/custom.css`: توجد قواعد RTL للصفحة والشريط الجانبي، tokens للثيم الفاتح والداكن، grids تعتمد `auto-fit/minmax`، و`flex-wrap` للأزرار؛ وهذا يدعم الضيق جزئياً. لم يُجرَ اختبار بصري فعلي عند 320/390/768/1280px في RTL وLTR، لذلك تبقى هذه فجوة بشرية موثقة وليست نتيجة PASS.
+- المهام البشرية موثقة في الأقسام السابقة من هذا الملف: signing/CI Secrets، تفعيل updater plugin، توليد/رفع `latest.json` ونشر release، وM17–M19. يجب تنفيذها فقط من المالك وبالأسرار الرسمية، مع إبقاء التحديثات والتوقيع خارج هذه المراجعة.
+- بيئة الفحص ما زالت تحمل القيود الموثقة: MSVC/`ring` يمنع `cargo test` و`cargo clippy`، و`mdbook` يمنع `pnpm -r build` و`pnpm -r test`، وPlaywright غير متاح لـ `pnpm visual`. لم تُعد هذه الأدوات تشغيلها في هذه الجولة.
+- أداة `delegate` لا تزال معطلة خارج المستودع برسالة `delegate takes a lane or a confirmed model, not both`; لم تُستخدم في هذه الجولة. الكود الوظيفي لم يتغير، ولم تُنشأ Release، ولم يُعدل `latest.json`، ولم يحدث commit أو push أو حذف ملفات.
+
+### تدقيق skills/MCP/scout — 2026-11-01
+- تمت مراجعة `crates/warsha-pipeline/src/skills.rs` و`scout.rs` و`mcp.rs` وواجهة التصدير في `src/lib.rs`. لا يوجد تغيير معماري: `skills` و`scout` وحدتان داخليتان مع إعادة تصدير عامة، و`mcp` وحدة عامة مع إعادة تصدير؛ لا حافة اعتماد جديدة ولا وصول إلى وحدة خاصة عبر صندوق آخر.
+- سياسة الترخيص موثقة ومطبقة في المسار الحالي: `Permissive` مسموح، و`Copyleft` مرفوض عند التسجيل، بينما `Custom` و`Unknown` لا يُحزّمان ويُرشّحان حسب إعداد scout. التثبيت يسجل الإصدار والـ commit والتصنيف والمصدر في `SkillsLockfile` (ولم يتم لمس `latest.json`).
+- الاختبارات الموجودة: 6 اختبارات skills و3 اختبارات scout، إضافة إلى اختبارات MCP داخل `mcp.rs`/`mcp_transport.rs`. أمر `cargo test -p warsha-pipeline --lib` لم يكتمل بسبب فشل بناء `ring v0.17.14` المحلي على MSVC أثناء `curve25519.c`، وليس بسبب تشخيص Rust.
+- `node scripts/check-arch.mjs`: PASS — `arch: 5 rules, 0 violations`.
+- `node scripts/check-arch.mjs --self-test`: PASS — القواعد الخمس اشتغلت، و`clean fixture is clean`.
+- أمر التحقق الأول `cargo test -p warsha-pipeline skills scout mcp --lib` رُفض من Cargo بسبب معاملات أسماء اختبار متعددة؛ أُعيد تشغيل الأمر الصحيح أعلاه، ثم ظهر عائق بناء MSVC المذكور.
 
 
 
 
 
+
+
+
+---
+
+## Session: Ready-to-use + Redesign (2026-11-02)
+
+### Moved to Qoder (2026-11-02)
+
+Delegation resumed with Qoder sub-agents named `coder` and `debugger`; the earlier lane attempts are
+historical evidence only. The board and all valid artifacts are preserved. The main checkout has no
+product-code diff beyond this log, so no unfinished task is assumed complete without a diff or fresh
+verification. Existing untracked work/output directories are left untouched.
+
+Reusable custom-agent drafts were prepared with model fields `Coder` and `Debugger`. The owner has now
+saved and enabled both agents for sub-agent use; all subsequent delegations use the saved `Coder` and
+`debugger` agents. The three initial dispatches predated that confirmation and will be reviewed by the
+orchestrator, with any follow-up assigned to the saved agents. Initial parallel dispatch: A-ENV
+(debugger), B0 (coder), AUDIT-1 verification (coder).
+
+Qoder baseline: `node scripts/check-arch.mjs --self-test && node scripts/check-arch.mjs` PASS (5/5
+rules fire, 0 violations). `actionlint .github/workflows/ci.yml .github/workflows/release.yml` FAIL at
+`release.yml:308`: `softprops/action-gh-release@v1` is too old; C3 must update it and re-run actionlint.
+
+Orchestrator session. This section is the task board: every implementation, design, test and fix task
+is delegated to a lane; the orchestrator only edits `PROGRESS.md`, this board and integration notes.
+Nothing here is committed, pushed, tagged or released.
+
+### Lane health — smoke tests (step 0.2)
+
+`delegate` previously failed with `delegate takes a lane or a confirmed model, not both`. Root cause of
+the failure was the call shape, not the fleet: dispatching with **`lane` only and no `model` argument**
+works. All three lanes were smoke-tested with one tiny task each.
+
+| Lane | Lane id | Fleet worker | Smoke attempt | Result | Evidence |
+|---|---|---|---|---|---|
+| coder | `lane-f9e3c44d-1543-4d7f-938b-04d6ac7cf709` | `p5dc21943747505c2/Coder` | `attempt-0f81bf66` | **WORKS** | `bridge-io/smoke/lane-coder.md` (100 lines); check `pwsh ... SMOKE-CODER-OK` exit 0 |
+| Debugger | `lane-c43f3f96-c20c-4169-a732-8eb939a85f8e` | `p5dc21943747505c2/Debuger` | `attempt-15f8d145` | see below | `bridge-io/smoke/lane-debugger.md` |
+| debater | `lane-fb976636-a01d-46ed-b2d1-53d3f0538127` | `p5dc21943747505c2/Orchesterar` | `attempt-42ed50d8` | see below | `bridge-io/smoke/lane-debater.md` |
+
+Concurrency observed: 3 attempts ran side by side on 3 different lanes without an `attempt-limit`
+refusal, so the working set for this session is 3 parallel lanes.
+
+Lane behavioural note: the coder lane wrote an invented date header (`2026-04-18`) into its smoke file.
+Every brief from here on states explicitly: *never invent a number, date or path; if not found, say
+"not found" and show the command that proved it.*
+
+`bridge-io/` is gitignored (`.gitignore:73`), so delegated evidence written there does not appear in a
+`git status` change list. Verification therefore reads the delivered files on disk, not the diff.
+
+### Environment facts established in step 0 (real command output)
+
+| Fact | Value | How proven |
+|---|---|---|
+| Windows node (ambient) | v26.8.1 at `C:\Program Files\nodejs\node.exe` | `node --version` |
+| Bundled node / pnpm | v24.21.0 / 9.0.0 | `load_workspace_dependencies` + `pnpm --version` |
+| Cargo / active toolchain | 1.99.1 / `stable-x86_64-pc-windows-msvc` | `cargo --version`, `rustup show active-toolchain` |
+| VS Build Tools | present at `C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools` (vswhere) | `vswhere -all -products * -property installationPath` |
+| Windows SDK | `10.0.26100.0` | `C:\Program Files (x86)\Windows Kits\10\Include` |
+| `cl.exe` on PATH | **absent** (no `CFLAGS`/`CL`/`RUSTFLAGS`/`LIB`/`INCLUDE` env pollution either) | `Get-Command cl.exe` |
+| Windows `mdbook.exe` | 20,183,341 bytes, crashes `0xC0000005` (exit `-1073741819`) on `--version` | direct run |
+| WSL `mdbook` | v0.5.4 at `/root/.cargo/bin/mdbook`, works | `wsl -d Ubuntu ... mdbook --version` |
+| WSL bridge | `wsl.exe -d Ubuntu -u root` runs directly from this session; `/root/warsha` exists but is **stale at `4e8b06d`** (HEAD is `2f042d1`) — the next rsync refreshes it | `wsl ... git rev-parse --short HEAD` |
+| WSL Playwright browsers | `chromium-1148`, `chromium_headless_shell-1148`, `ffmpeg-1010` in `~/.cache/ms-playwright` | `ls ~/.cache/ms-playwright` |
+| Windows Playwright | `@playwright/test@1.49.1` **declared** in root `package.json` but **not installed**: no `node_modules/playwright`, no `node_modules/@playwright/test`, no `.bin/playwright*`, no `*playwright*` in `.pnpm` | smoke `lane-coder.md` §4/§5 |
+| Why Windows CLIs fail | `node_modules/.bin` holds **POSIX** launchers because the tree was installed from WSL; `scripts/windows-setup.ps1` documents and fixes exactly this | read `scripts/windows-setup.ps1` |
+| Network | `registry.npmjs.org` 200, `github.com` 200 | `Invoke-WebRequest -Method Head` |
+
+So A3's root cause is not "Playwright is missing from the lockfile" — it is a cross-platform
+`node_modules` plus never-downloaded browsers. A1's root cause is a missing MSVC developer
+environment (`cl.exe` not on PATH), not a bad CFLAGS. A2's is a broken Windows `mdbook.exe` image
+while the WSL copy is fine.
+
+### Task board
+
+Write scopes are chosen so that no two tasks running at the same time touch the same path.
+"Verify" is the command the orchestrator re-runs itself before accepting the task.
+
+| ID | Task | Owner lane | Write scope | Inputs | Definition of done | Verify command |
+|---|---|---|---|---|---|---|
+| A-ENV | A1+A2+A3 as one environment task: make the Windows-native gate runnable (MSVC env for `ring`, working `mdbook`, installed Playwright + browsers) | Debugger | `.cargo/config.toml`, `scripts/windows-setup.ps1`, `scripts/windows-msvc-env.ps1` (new), `docs/DEVELOPERS.md`, `docs/package.json`, root `package.json` (devDeps only), plus binaries outside the repo (`~/.cargo/bin`, `node_modules`, browser cache) | vswhere output, `.cargo/config.toml`, `scripts/windows-setup.ps1`, `docs/INSTALL.md` §ring note | `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test --workspace` pass on Windows under the documented env; `pnpm -C docs build` and `pnpm -C docs test` pass on Windows; `pnpm exec playwright --version` resolves on Windows; `pnpm -r build` and `pnpm -r test` pass; the exact one-time owner steps (if any) are written in `docs/DEVELOPERS.md` | `scripts\windows-msvc-env.ps1 { cargo clippy --workspace --all-targets -- -D warnings }` then `... { cargo test --workspace }` |
+| AUDIT-1 | Pre-redesign inventory: hard-coded colors/strings, screen+component inventory, i18n key parity, a11y + contrast baseline | coder | `bridge-io/audit/**` only (read-only on product code) | `apps/`, `packages/`, `docs/ARCH_RULES.md` | 3 files with file:line citations and reproducible ripgrep commands; WCAG contrast computed for both themes | `pwsh -NoProfile -Command "Get-ChildItem bridge-io/audit -File \| Measure-Object \| % Count"` = 3 |
+| B0 | GitHub design-skill intake with LICENSE audit; permissive skills usable, unclear ones reference-only | debater | `bridge-io/skills/**`, `THIRD_PARTY_NOTICES.md` | the 3 skill repos named in the objective | each skill recorded with source URL, commit SHA, license id and a use/reference-only verdict; `THIRD_PARTY_NOTICES.md` updated; no copied text/code from anything not clearly permissive | read `THIRD_PARTY_NOTICES.md` diff + `bridge-io/skills/LOCKFILE.md` |
+| B1 | Design direction: `docs/design/REDESIGN.md` + 6 high-fidelity HTML mockups (AR/EN, light/dark, desktop + 390px) + screenshots to `bridge-io/shots/redesign/`; ONE direction chosen and locked in `DECISIONS.md` | coder | `docs/design/**`, `bridge-io/mock/**`, `bridge-io/shots/redesign/**`, `DECISIONS.md` (append one section) | B0 output, AUDIT-1, brand rules, `packages/ui/src/tokens/tokens.css`, https://warsha-dev.pages.dev | REDESIGN.md covers user, IA (simple mode first), navigation, screen list, component inventory, states, motion, a11y targets; 6 mockups render in all 4 combos; screenshots on disk; decision appended to `DECISIONS.md` | `pwsh -NoProfile -Command "(Get-ChildItem bridge-io/shots/redesign -Filter *.png \| Measure-Object).Count"` >= 24 |
+| B2 | Rebuild `packages/ui` tokens + 14 components to the B1 direction, RTL-first logical properties, breakpoints 320/390/768/1024/1440, every component in Storybook with AR/EN x light/dark stories | coder | `packages/ui/**` | B1 REDESIGN.md, AUDIT-1 | token layer has no color literal outside tokens; all 14 components exported, typed, tested; stories for each; `tokenDrift.test.ts` green; `check-arch` green | `pnpm --filter @warsha/ui test` + `pnpm --filter @warsha/ui typecheck` + `node scripts/check-arch.mjs` |
+| B3a | Screens: Onboarding + Provider wizard | coder | `apps/desktop/src/screens/Onboarding.tsx`, `apps/desktop/src/components/ProviderSetupWizard.tsx`, `ProviderRow.tsx`, related tests | B2 | no hard-coded color/string; new components used; tests updated and green | `pnpm --filter warsha-desktop test` + `pnpm --filter warsha-desktop typecheck` |
+| B3b | Screens: Simple mode + Run view + Gates/approvals | Debugger | `apps/desktop/src/screens/SimpleMode.tsx`, `RunView.tsx`, `GatesInbox.tsx`, `AdvancedMode.tsx` (shared shell only if B3d agrees), related components/tests | B2 | same as B3a | same as B3a |
+| B3c | Screens: Projects board + Artifact viewer + Live preview | debater→coder | `apps/desktop/src/screens/ProjectsBoard.tsx`, `ArtifactViewer.tsx`, `components/LivePreview.tsx`, `PreviewToolbar.tsx`, related tests | B2 | same as B3a | same as B3a |
+| B3d | Screens: Settings family (providers, roles, budgets, devices, routines, backend kit) + Advanced mode | coder | `apps/desktop/src/screens/Settings*.tsx`, `ProvidersSettings.tsx`, `RolesSettings.tsx`, `Budgets.tsx`, `Devices.tsx`, `Routines.tsx`, `components/BackendKitPanel.tsx`, `RoutineRow.tsx` | B2 | same as B3a | same as B3a |
+| B3e | Screens: Crash reports + Store reviews + app shell (`App.tsx`, `theme.tsx`, `index.css`, sidebar/top bar) | Debugger | `apps/desktop/src/App.tsx`, `theme.tsx`, `index.css`, `main.tsx`, `screens/CrashReports.tsx`, `screens/StoreReviews.tsx` | B2, B3a-d | same as B3a; shell rebuilt to the B1 navigation | same as B3a |
+| B4 | Visual QA: Playwright suite for the new screens (AR/EN x light/dark x 390/768/1440), long Arabic text, no overflow/clip/overlap, axe, keyboard nav; regenerate baselines | debater | `apps/desktop/e2e/**`, `apps/remote/e2e/**`, `playwright.config.ts`, root `package.json` (axe devDep) | B3a-e | suite runs and passes; axe violations = 0; overflow assertions present; baselines regenerated for the new design | `pnpm visual` (WSL bridge) |
+| B4-CRIT | Critique pass: compare screenshots against REDESIGN.md, list gaps, fix them; repeat until clean | debater + coder | `bridge-io/audit/critique-*.md`, then the files the gap list names | B4 screenshots, B1 REDESIGN.md | a written gap list per round and a final round with zero gaps | read the last `critique-*.md` |
+| C2 | Close gaps: agent mode on the real provider, all settings persist after restart, child processes reaped on exit, no orphan `warshad` | Debugger | `crates/warshad/**`, `apps/desktop/src-tauri/**`, `packages/client/**` | ARCH_AUDIT.md, PROGRESS.md gap list | each gap has a test that fails before and passes after; `cargo test --workspace` green | `cargo test -p warshad` (WSL + Windows) |
+| C3a | Fix `.github/workflows/release.yml` `TAURI_SIGNING_KEY_PASSWORD` -> `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` and the actionlint-flagged `softprops/action-gh-release@v1` | debugger | `.github/workflows/release.yml` only | independent static repair | both defects fixed; `actionlint` clean; no signing key generated or stored | `actionlint .github/workflows/ci.yml .github/workflows/release.yml` |
+| C3 | Rebuild installers after the redesign | Debugger | `apps/desktop/src-tauri/**` | B4 clean, C3a | fresh MSI + NSIS produced after the redesign; no signing key generated or stored | `pnpm --filter warsha-desktop tauri build` |
+| C1 | Real E2E from the INSTALLED app: wizard -> one API key -> test connection -> Arabic request -> questions -> plan -> real-model build under a cost cap -> tests -> live preview; screenshots of every step + real cost | Debugger | `bridge-io/shots/e2e/**`, `bridge-io/e2e-report.md` | C3 installer | every step screenshotted, the real cost recorded, the generated app visible in live preview | read `bridge-io/e2e-report.md` + shot count |
+| C4 | `docs/INSTALL.md` + short AR/EN user guide with the new screenshots; README screenshots refreshed | coder | `docs/INSTALL.md`, `docs/src/**`, `README.md`, `README.ar.md`, `docs/src/screenshots/**` | B4 shots, C1 shots | `mdbook build`/`mdbook test` green; both languages present; screenshots referenced by real paths | `pnpm -C docs build` + `pnpm -C docs test` |
+| Z | Full bridge run + native Windows run green; PROGRESS.md results table; final report | orchestrator | `PROGRESS.md` | everything above | every check in DoD §5.1 has a recorded PASS with the command and exit code | `bash scripts/wsl-setup.sh` in WSL |
+
+### Serialization rules used by this board
+
+- `A-ENV` owns every build-tool path; nothing else may touch `.cargo/config.toml`,
+  `scripts/windows-setup.ps1` or root `package.json` while it runs.
+- `B0` and `AUDIT-1` are read-only on product code and run in parallel with `A-ENV`.
+- `B1` needs `B0` + `AUDIT-1`. `B2` needs `B1`. `B3a..B3e` need `B2` and are split by *file*, so they
+  may run in parallel; `B3e` owns `App.tsx` and the shell, which is why `B3b` must not touch it.
+- `B4` needs all of `B3`. `C3` needs `B4` clean. `C1` needs the `C3` installer. `C4` needs `B4`+`C1` shots.
+- `pnpm install` is a global mutation: only `A-ENV` may run it, and only one task at a time may run
+  `cargo build`/`pnpm install` against the same tree.
+
+### Owner-only (logged, never done by this session)
+
+Carried forward from the previous sections and unchanged: Minisign key generation, GitHub CI secrets,
+Windows Authenticode certificate, Apple Developer ID + notarization, publishing `latest.json`,
+publishing a non-draft release, Renovate App installation, branch protection, and any real provider
+API key used for the C1 real-model run.
+
+### Workstream S — security (added by the owner mid-session, mandatory before Workstream C ships)
+
+Rule: one READ-ONLY audit first, then fix only HIGH items with minimal same-stack changes; MEDIUM and
+LOW are listed for the owner. No secret is ever printed.
+
+| ID | Task | Owner lane | Write scope | Definition of done | Verify command |
+|---|---|---|---|---|---|
+| S0 | Read-only security audit: (1) rate limiting/429 on every public warshad+relay endpoint and loopback-only bind unless self-host, (2) identity only from verified sessions/pairing never client-sent ids/roles, (3) no secrets in frontend or `VITE_`/`PUBLIC_` vars, `.env` ignored + `.env.example`, gitleaks over full history, keys to rotate, (4) caches with expiry + heavy work in a retrying queue, (5) k6 smoke + expected + 5x spike vs a local staging warshad, p95 < 800 ms and errors < 1% | debater | `bridge-io/security/**` only (read-only on all product code) | `audit.md`, `gitleaks.md`, `load.md`, `summary.md` exist; every finding cited file:line; three k6 runs with real p95/error numbers; zero secret values printed | read `bridge-io/security/summary.md` + re-run one cited command |
+| S1a | Fix HIGH inbound/auth findings H-01..H-05 only, with minimal same-stack changes and regression tests; promote the k6 scripts | coder | `crates/warshad/**`, `crates/warsha-relay/**`, `crates/warsha-remote/**`, `crates/warsha-pipeline/src/lib.rs`, `scripts/load/**` | every assigned HIGH closed or explicitly re-classified with reasoning; daemon/relay tests green; `check-arch` green; no new dependency outside the existing stack | `cargo test -p warshad -p warsha-relay` + `node scripts/check-arch.mjs` |
+| S1b | Fix HIGH paid-work findings H-06/H-07: bounded expiring caches, bounded retry/backoff and spend-aware concurrency; add `.env.example` | coder | `crates/warsha-pipeline/src/llm_cache.rs`, `router_quality.rs`, `crates/warsha-providers/**`, `.env.example` | cache TTL/bounds and paid-call retry/concurrency tests green; no real model calls; no overlap with S1a files | `cargo test -p warsha-pipeline -p warsha-providers` |
+| S2 | Re-audit after S1a+S1b and record the security table in PROGRESS.md | debater | `bridge-io/security/reaudit.md`, `PROGRESS.md` security table | a before/after table per finding; anything still exposed listed honestly | read `bridge-io/security/reaudit.md` |
+
+Security facts established before dispatching S0 (real command output, to be re-verified by the audit):
+- `warshad` binds loopback only: `crates/warshad/src/lib.rs:1911` and `:1982`.
+- `warsha-relay` defaults to a wildcard bind: `crates/warsha-relay/src/lib.rs:45` (`0.0.0.0:8767`), bound at `:184`.
+- No inbound rate limiter found anywhere in `crates/`; the only `429` handling is provider-side response
+  mapping (`crates/warsha-providers/src/openai.rs:316`, `anthropic.rs:321`, `lib.rs:41`).
+- `crates/warsha-pipeline/src/run_modes.rs` already models Local (loopback) vs SelfHosted (`0.0.0.0`) vs
+  Hosted, so the bind rule has an existing home.
+- `gitleaks` and `k6` are not installed on Windows; `actionlint` is. `.env`, `.env.local`, `.env.*.local`
+  are gitignored; no `.env*` file exists; no `VITE_`/`PUBLIC_`/`import.meta.env` reference exists in
+  `apps/` or `packages/`.
+- `.gitleaks.toml` has an allowlist excluding `**/*.md`, `**/*test*`, `**/*example*`, `**/fixtures/**`,
+  which can hide real findings — S0 must run a pass with the allowlist disabled.
+
+### Security audit result — S0 (2026-11-02)
+
+S0 was reviewed from `bridge-io/security/` and its artifact gate passed. This is an audit completion,
+not a security-pass completion.
+
+| ID | file:line | issue | severity | Status |
+|---|---|---|---|---|
+| H-01 | `crates/warshad/src/lib.rs:1911-1982`; `crates/warsha-relay/src/lib.rs:45-184` | No inbound rate limiting or 429 responses; pairing/auth/paid-AI paths lack strict limits | HIGH | Open; S1 |
+| H-02 | `crates/warsha-relay/src/lib.rs:104-149` | Relay/device identity and frame forwarding unauthenticated | HIGH | Open; S1 |
+| H-03 | `crates/warshad/src/lib.rs:413-428`; `crates/warsha-pipeline/src/lib.rs:607-624` | Gate approver identity is client-asserted | HIGH | Open; S1 |
+| H-04 | `crates/warshad/src/lib.rs:234-242`, `:1200-1217`, `:1548-1617` | Bearer token has no mapped identity/role authorization | HIGH | Open; S1 |
+| H-05 | `crates/warshad/src/lib.rs:1334-1420` | Any bearer holder can spawn arbitrary processes/configure MCP | HIGH | Open; S1 |
+| H-06 | `crates/warsha-pipeline/src/llm_cache.rs:175-217`; `router_quality.rs:224-266` | Paid-model response caches are unbounded/non-expiring | HIGH | Open; S1 |
+| H-07 | `crates/warsha-providers/src/lib.rs:361-430`; `openai.rs:43`; `anthropic.rs:45` | Paid provider calls lack bounded retry/backoff and spend-aware concurrency | HIGH | Open; S1 |
+| M-01..M-04 | See `bridge-io/security/summary.md:19-24` | Bind setting, CORS/auth distinction, relay map, external health retry | MEDIUM | For owner |
+| L-01..L-02 | See `bridge-io/security/summary.md:25-26` | In-memory vectors and missing `.env.example` | LOW | For owner |
+
+S0 evidence: `cargo build -p warshad --release` passed in WSL. k6 smoke (1 VU/10s), expected
+(5 VUs/30s), and spike (25 VUs/30s) all failed with 100% connection failures because the staging
+daemon exited before the explicit runs; p95/error threshold evaluation is therefore unavailable,
+not a pass. No paid model call was made and no orphan process remained. Gitleaks found no verified
+real credential and keys-to-rotate is empty, but the repo-config pass was blocked by gitleaks 8.24.3
+rejecting the current allowlist globs; extension/base64 scans remain unverified. See the complete
+sanitized evidence under `bridge-io/security/`.
+
+### Qoder orchestration update (2026-11-02, saved agents)
+
+Accepted after orchestrator review:
+
+- **B0 complete.** `bridge-io/skills/LOCKFILE.md` and `DESIGN_BRIEF.md` exist; `THIRD_PARTY_NOTICES.md`
+  diff is reference-only and `git diff --check` clean. Pinned license spot-checks via `gh api` returned
+  the expected Apache-2.0/MIT license objects. No upstream skill text/code/assets are bundled.
+- **AUDIT-1 complete.** `bridge-io/audit/{inventory,hardcoded,a11y}.md` exist; the artifact gate
+  `Get-ChildItem bridge-io/audit -File | Measure-Object | % Count` reproduces **3**. Reports carry
+  file:line citations, reproducible ripgrep/node commands, and computed WCAG contrast (including the
+  light-theme focus-ring failure at 1.35:1).
+- **C3a complete.** Saved debugger session repaired `.github/workflows/release.yml` only:
+  `TAURI_SIGNING_KEY_PASSWORD` → `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (secret mapping preserved) and
+  `softprops/action-gh-release@v1` → `@v2`. Orchestrator re-ran
+  `actionlint .github/workflows/ci.yml .github/workflows/release.yml` (exit 0) and
+  `git diff --check -- .github/workflows/release.yml` (exit 0). No signing key was created, printed,
+  or stored; no commit/push/tag/release.
+
+Active dispatches through the saved agents:
+
+- **A-ENV** (debugger, session `546c8b57-7fd4-5633-a5fb-1388ef98b913`): the first MSVC helper attempt
+  fails (`Import-VcVars` cmd quoting, exit 1) and lacks the trailing-command support the board verify
+  syntax expects. Reassigned to the saved debugger to fix the helper, make Windows mdBook and
+  pnpm/Playwright usable, and prove the native gates. A-ENV remains the only environment mutator.
+- **B1** (Coder, session `9b40da03-b1b6-57e5-ab32-f46f9680acc8`): choose/lock one redesign direction,
+  write `docs/design/REDESIGN.md`, six AR/EN × light/dark × desktop/390 mockups, ≥24 screenshots under
+  `bridge-io/shots/redesign/`, and append one `DECISIONS.md` section. B1 must not mutate dependencies
+  or touch A-ENV paths.
+
+Launcher note: `create_chat_session` returned `APPLICATION_INTERNAL` twice but still registered cold
+sessions whose first model turn failed before tools ran. Those sessions were resumed with
+`send_message_to_chat_session` rather than duplicated; C3a completed on resume, A-ENV is resuming.
+
+### B1 review (2026-11-02)
+
+The saved Coder agent delivered `docs/design/REDESIGN.md` (353 lines), six mockups under
+`bridge-io/mock/` with shared `warsha-mock.css` / `mock-runtime.js` / `capture.mjs`, and **48 valid
+PNGs** under `bridge-io/shots/redesign/` (6 × ar/en × light/dark × 1440/390; 33–117 KB each, none
+zero-byte). Locked direction: **Bench & Signal** — ruled plates/ledgers, one signal-yellow lamp meaning
+"needs the owner's hand", mono machine data, decision stamps, hex-nut mark; Simple-first disclosure.
+The spec maps all 16 AUDIT-1 screens, defines the `@warsha/ui` compound set, fixes the light-theme
+focus ring via `accent-strong`, demotes `muted` to non-text, and keeps raw colors only in tokens.
+
+Orchestrator verification: PNG count/size gate passed; mockup DOM confirms `dir="rtl"` / `lang="ar"`.
+Pixel-level critique by the orchestrator was blocked (Read image parameter bug; in-app browser
+viewport 0×0), so B4 must re-verify mirroring/overflow/contrast in Playwright. B1's own capture harness
+reports the overflow gate clean at 390/1440 and honestly records two capture-host caveats: incomplete
+Playwright Chromium (harness pins installed Chrome) and missing IBM Plex Sans Arabic (fallback fonts,
+so final font metrics are unverified).
+
+**B1 closed.** The same Coder session appended exactly one `DECISIONS.md` section
+(`## 2026-11-02 — B1: the redesign direction is locked to "Bench & Signal"`); orchestrator verified
+the diff is purely additive (7 insertions, 0 deletions) and `git diff --check` clean. Task #4 complete.
+B2 is gated on A-ENV so design-system tests run against a repaired Windows environment, not a
+half-installed `node_modules`.
+
+### A-ENV result (2026-11-02)
+
+The debugger agent fixed the Windows toolchain lane. Orchestrator independently re-ran the safe gates:
+
+| Gate | Result |
+|---|---|
+| `pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows-msvc-env.ps1` | **PASS** — imports vcvars, collapses duplicate PATH entries, compiles the C probe |
+| `pnpm exec playwright --version` | **PASS** — 1.49.1 |
+| `pnpm --dir docs build` and `pnpm --dir docs test` | **PASS** — mdBook 0.5.4 builds/tests the book without the earlier `0xC0000005` crash |
+| `pnpm -r build`, `pnpm -r test`, `cargo clippy --workspace --all-targets -- -D warnings`, Storybook launcher check | Reported **exit 0** by A-ENV; retained for final board verification after WSL returns |
+| `cargo test --workspace` on Windows | **BLOCKED by owner-level OS security policy**, not product code |
+
+The script fix addresses the real defects: the npm `command-code` shim shadowed bare `cmd`, and Git
+Bash/MSYS rewrote `>nul` to `/dev/null`. It now invokes `%SystemRoot%\System32\cmd.exe` explicitly,
+parses vcvars output through a temp log, and supports trailing command invocation with exit-code
+propagation.
+
+**Root cause of the cargo-test failure:** six `warsha-git` tests panic in `tempfile::tempdir()` with
+`Access is denied (os 5)` only for executables built under `C:\Users\Dragonfly\Downloads\Warsha`.
+Investigation identified a **live OpenAI Codex Windows sandbox** (`codex-windows-sandbox-service`,
+`codex.exe`, `CodexSandboxUsers/Online/Offline`) whose ACL/mandatory-label scaffold makes built test
+binaries run at low integrity. The debugger correctly refused to remove it: disabling or resetting
+those ACEs would alter the owner’s live security posture.
+
+**Owner-only decision required:** choose one of: (1) keep the Codex sandbox and make WSL the
+authoritative Rust-test path for this checkout; (2) move/recreate Warsha outside the sandboxed
+workspace; or (3) explicitly pause/remove the sandbox and re-run native `cargo test`. No agent may
+choose this silently. A WSL bridge validation follow-up was dispatched in the same A-ENV session to
+prove the canonical Linux path while preserving the owner’s Windows security posture.
+
+### Environment accepted and next lanes (2026-11-02)
+
+A-ENV core is accepted: Windows MSVC, Playwright and mdBook gates pass independently; WSL fmt/clippy/
+test/arch/actionlint/mdBook pass (`cargo test --workspace` **425/425**, including `warsha-git` 13/13).
+The Windows `cargo test` failure remains the owner-only sandbox blocker and must not be bypassed by
+altering Codex ACLs. The final WSL visual run continues as task #14; its process is isolated from new
+work.
+
+Active parallel dispatches:
+
+- **B2** (Coder, session `584e1269-7881-5c96-aff5-114f195d77a7`): rebuild `packages/ui/**` tokens,
+  compound components, tests and Storybook stories to the locked Bench & Signal direction. Windows pnpm
+  only; no WSL `/root/warsha` use and no `pnpm install`.
+- **S1a** (Coder, session `f38676a1-1c69-518b-a0dc-faf79b876d9f`): implement HIGH H-01..H-05 in
+  `crates/warshad/**`, `crates/warsha-relay/**`, `crates/warsha-remote/**`,
+  `crates/warsha-pipeline/src/lib.rs`, `scripts/load/**`. Rust tests must use isolated `/root/warsha-s1a`
+  and never mutate `/root/warsha`; Windows cargo test remains owner-blocked.
+
+### B2 accepted (2026-11-02)
+
+Saved Coder session `584e1269-7881-5c96-aff5-114f195d77a7` completed the shared design system.
+Orchestrator independently re-ran all gates:
+
+- `pnpm --filter @warsha/ui test` → exit 0, **7 files / 140 tests passed**
+- `pnpm --filter @warsha/ui typecheck` → exit 0
+- `pnpm --filter @warsha/ui lint` → exit 0
+- `node scripts/check-arch.mjs` → exit 0, 5 rules, 0 violations
+- `git diff --check -- packages/ui` → exit 0
+
+The implementation adds 22 compound sources, 20 new story files (25 total / 147 stories), contrast
+measurement tests, token-drift tests, keyboard tests, and behavior tests. Scanned owned source: no
+TODO/FIXME/stub/`as any` matches; raw colors are confined to token declarations, explanatory story text,
+and intentional drift-test fixtures. Two measured AA findings were corrected: light-theme signal *marks*
+now use `signal-text`, and the focus ring is asserted at the actual measured contrast value.
+
+B3 screen lanes must serialize because `packages/i18n/src/index.tsx` is a single shared catalog.
+**B3-core** is now active in Coder session `469c0ec5-5e66-5bfc-aedc-b09330b2f4db`, owning Onboarding,
+Simple, Run, Gates, provider-wizard components and direct screen tests plus AR/EN catalog additions.
+B3-secondary (#16) remains blocked until it completes. S1a independently passed all gates.
+
+### S1a security acceptance (2026-11-02)
+
+The debugger report for H-01..H-05 was reviewed and independently re-verified in isolated WSL
+`~/warsha-s1a`:
+
+- `cargo fmt` for `warsha-remote`, `warsha-relay`, `warsha-pipeline`, `warshad` → exit 0
+- `cargo clippy --locked ... --all-targets -- -D warnings` → exit 0
+- `cargo test --locked --no-fail-fast ...` → exit 0 (agent-reported **412 tests / 0 failures**)
+- `node scripts/check-arch.mjs` → exit 0, 5 rules, 0 violations
+- `git diff --check` on owned paths → exit 0; `Cargo.lock` and manifests unchanged
+
+Code review confirms fail-closed behavior:
+- authenticated identity decides rate buckets; unauthenticated traffic falls back to peer/shared bounded
+  bucket rather than no bucket; key map has a hard cap and rejects new keys when full;
+- relay and daemon credentials, not request fields, create the `Actor`;
+- legacy gate `device_id` is only cross-checked against the verified session and mismatch is rejected;
+- all registered methods are policy-mapped, with owner/paired roles enforced;
+- process spawn uses a program allow-list, shell metacharacter rejection, dangerous environment-key
+  rejection, data-dir scope and TLS-or-loopback MCP transports.
+
+S1a is accepted. **S1b** now runs against disjoint `crates/warsha-pipeline/src/llm_cache.rs`,
+`crates/warsha-pipeline/src/router_quality.rs`, `crates/warsha-providers/**`, and `.env.example`.
+S2 re-audit remains blocked until S1b completes.
+
+### S1b accepted (2026-11-02)
+
+The paid-work HIGH lane was independently re-verified in `/root/warsha-s1b` after locating the correct
+WSL user/root workspace:
+
+- `cargo fmt` on owned crates → exit 0
+- `cargo clippy --locked -p warsha-pipeline -p warsha-providers -p warshad --all-targets -- -D warnings` → exit 0
+- `cargo test --locked --no-fail-fast -p warsha-pipeline -p warsha-providers` → exit 0
+  - pipeline: **319 passed, 0 failed, 7 ignored**
+  - providers: **40 passed, 0 failed**, including retryable/non-retryable classification, bounded
+    exponential backoff/jitter, per-target and total attempt caps, budget guard, and spend-aware
+    in-flight cap
+- current provider/cache sources match the Windows workspace; `.env.example` contains only names and
+  defaults and explicitly leaves secret variable values unset/commented.
+
+Code review confirms H-06 caches enforce max entries + TTL and remove stale entries without returning
+them, while H-07 checks the project budget before every attempt, caps the fallback walk, classifies
+provider failures, and uses a semaphore for simultaneous paid calls. S1b is accepted.
+
+**S2 re-audit** is active in saved debugger session `c89a90ee-9166-5c13-af55-5b1c511be75f` (task #18).
+The initial `create_chat_session` call returned `APPLICATION_INTERNAL` after registering a cold session
+whose model turn failed before tools; it was resumed rather than duplicated. S2 is read-only on product
+code and writes only sanitized `bridge-io/security/reaudit/**` evidence. B3-core remains active, while
+tasks #1 and #14 are complete.
+
+### B3-core accepted (2026-11-02)
+
+Saved Coder session `469c0ec5-5e66-5bfc-aedc-b09330b2f4db` redesigned Onboarding, Simple mode, Run
+view, Gates inbox, provider wizard, pickers, and Handoff dialog. Orchestrator independently re-ran
+every affected gate:
+
+- desktop tests: exit 0, **30 files / 230 passed**
+- desktop typecheck and ESLint: exit 0, 0 errors / 0 warnings
+- i18n tests: exit 0, **24 / 24**
+- @warsha/ui tests: exit 0, **7 files / 140 passed**
+- architecture: exit 0, 5 rules / 0 violations
+- `git diff --check -- apps/desktop packages/i18n`: exit 0
+
+Diff: 16 modified + 2 new screen tests, **+3,462 / −2,016**. Catalog grew 164 → 333 keys per locale
+with exact parity. Static scan of owned files found no `t(...) || 'literal'` copy fallbacks; only
+legitimate `locale === 'ar'` uses for pressed state and `ar-u-nu-latn` machine timestamps. Pre-existing
+`TODO(M20 wiring)` daemon seams remain and are tracked under C2.
+
+B3-secondary started in Coder session `6387a808-89b4-5c4e-a521-30b1b8c579ac`, owning Projects,
+artifacts/live preview, settings family, catalog, and only additive UI DOM-prop forwarding when needed.
+Crash/Store and App/theme/index/Advanced shell remain serialized for B3e after this lane.
+
+### S2 security re-audit accepted (2026-11-02)
+
+Debugger session `c89a90ee-9166-5c13-af55-5b1c511be75f` independently re-audited the seven HIGH findings.
+Evidence: `bridge-io/security/reaudit/summary.md` and `findings.md` (gitignored artifact directory).
+It writes only those evidence files and runs read-only inspection; no product mutation.
+
+| ID | Final status | Re-audit finding |
+|---|---|---|
+| H-01 | **Closed** | bounded token buckets/429/Retry-After across daemon/relay paths, strictest tier wins, key map fail-closed |
+| H-02 | **Closed** | relay identity only from pairing secret; claimed sender/device cross-checked |
+| H-03 | **Closed** | gate approver from transport-created Actor; mismatched legacy id rejected; pipeline refuses nil |
+| H-04 | **Closed** | exact two-way match between 56 registered RPC methods and policy table; owner/paired roles enforced |
+| H-05 | **Closed** | owner-only process/MCP, allow-list, shell/metacharacter and dangerous env rejection, TLS-or-loopback transports |
+| H-06 | **Closed** | both paid caches bounded by LRU and TTL; stale entries reaped, never returned |
+| H-07 | **Closed** | bounded jittered retries, per-target/total caps, budget checked every attempt, semaphore-capped in-flight calls |
+
+No new HIGH. The re-audit tested and rejected two potential bypasses (WS transport Actor leakage and
+relay sender spoofing). New owner-facing findings:
+
+- **N-1 MEDIUM:** relay pairing file stores raw pairing secrets in plaintext, contradicting the
+  keychain-only preference; recommend OS-keychain/encrypted relay credential store or ephemeral secrets.
+- **N-2 MEDIUM:** process-policy data-dir prefix check is not canonicalized; defense-in-depth issue
+  because owner authorization and command allow-list remain.
+- **N-3 MEDIUM:** provider router write lock is held across retries, so concurrency guard is effectively
+  serialized on integrated paths and blocks other provider RPCs during backoff; needs lock-scope fix.
+- **N-7 LOW / required gate gap:** k6 scripts were never promoted and the prior load runs lack p95/error
+  evidence. **Task #19 LOAD-1** was dispatched to close this exact gap using isolated `/root/warsha-load`.
+- M-01/M-02/M-04 remain carried from S0; M-03 and L-02 were closed as side effects. No credential was
+  verified as leaked, so keys-to-rotate remains empty.
+
+### Active lanes after S2
+
+- **B3-secondary** — Coder `6387a808-89b4-5c4e-a521-30b1b8c579ac`: projects/artifacts/preview/settings
+  and shared i18n; may additively forward DOM props through @warsha/ui if integration requires it.
+- **C2** — Coder `d720380f-8c92-550f-a202-22e6415bf5f7`: real-provider/agent mode, persistence after
+  restart, child-process reaping and Tauri lifecycle, using isolated `/root/warsha-c2`.
+- **LOAD-1** — debugger `5830e665-6ebf-53a9-a16e-0584403e5795`: k6 install/run in isolated
+  `/root/warsha-load`; launcher returned `APPLICATION_INTERNAL` after registering a failed cold session,
+  then was resumed rather than duplicated.
+
+### LOAD-1 accepted (2026-11-02)
+
+Saved debugger session `5830e665-6ebf-53a9-a16e-0584403e5795` promoted runnable k6 scenarios and produced
+the first valid p95/error evidence. Orchestrator reviewed `bridge-io/security/load/report.md`, metrics,
+runner, install, log-summarizer, metric extractor and secret scanner.
+
+| Scenario | Requests | Served | Transport 429 | Method -32004 | True errors | Error rate | served p95 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| smoke 1 VU / 10s | 99 | 99 | 0 | 0 | 0 | **0.00%** | **0.57ms** |
+| expected 5 VU / 30s | 75 | 75 | 0 | 0 | 0 | **0.00%** | **1.58ms** |
+| spike 25 VU / 30s | 1,339,117 | 3,600 | 1,335,517 | 0 | 0 | **0.00%** | **2.36ms** |
+
+Expected gate **PASS**: p95 1.58ms (<800ms) and true errors 0.00% (<1%). Spike refusals are explicitly
+reported as limiter behavior, not transport errors; served traffic matched the transport quota. Only
+loopback RPC `health`/`projects.list` were called, so no paid model traffic occurred. Official k6 v2.3.0
+was checksum-verified. Teardown left no daemon, listener or lock, and `check-secret.sh` found zero token
+leaks in artifacts.
+
+New owner-facing load findings, deliberately not patched by this evidence-only lane:
+- read-method `Tier::Standard` quotas are inert because 24 measured read methods lack
+  `with_extensions`, so only transport ceilings apply;
+- each transport refusal writes one WARN, producing a 161MB / 5.4MB-per-second log under spike; the
+  harness retains a bounded excerpt, but the unbounded product logging remains;
+- startup listener lines are duplicated.
+
+### B3-secondary accepted (2026-11-02)
+
+Coder session `6387a808-89b4-5c4e-a521-30b1b8c579ac` redesigned Projects, artifact/live preview and
+the settings family. Its report says desktop tests reached **36 files / 307 tests**, typecheck and
+lint exited 0, and catalog parity grew **333 → 499 keys**. The orchestrator independently verified the
+B3 changes that do not depend on C2's concurrent client/Tauri work:
+
+- `@warsha/i18n test` → exit 0, **29 / 29**
+- `@warsha/ui test` → exit 0, **140 / 140**
+- `node scripts/check-arch.mjs` → exit 0, 5 rules / 0 violations
+- `git diff --check -- apps/desktop packages/i18n` → exit 0
+
+Static scans of owned screens/components show no literal UI strings, fallbacks, `as any`, stubs,
+`alert` or `window.confirm`; remaining locale checks are legitimate machine-data numbering. Full
+desktop integration is deliberately deferred until B3e and C2 converge.
+
+B3e desktop shell started in Coder session `224de6c2-1a82-54ca-ac7c-32176d7acb1b` (App/theme/index/
+main/Advanced/Crash/Store and remaining shared desktop components). B3-remote is queued as task #21.
+
+### C2 accepted (2026-11-02)
+
+Saved Coder session `d720380f-8c92-550f-a202-22e6415bf5f7` closed the real-provider and lifecycle gaps:
+- configured provider registration from keychain-backed rows, with deferred startup and a fail-closed
+  `RemovedProvider`;
+- real role routing and per-routing agent budget, restored across restart;
+- agent-mode approval/plan-mode RPCs and authenticated approver identity;
+- durable agent mode history, todos, queues, bus and transcript via atomic settings documents;
+- lock holder PID, lock file never unlinked, and a restart-safe exclusive advisory lock;
+- `DaemonHandle::Drop` reaps children on error/panic paths, and `run_daemon` handles SIGTERM as well
+  as Ctrl-C;
+- atomic/merge-safe desktop preference writes and poison-tolerant reads.
+
+The only manifest change adds `futures`, which already exists in the workspace; no new external
+dependency was introduced. Orchestrator independently verified in `/root/warsha-c2`:
+
+| Gate | Exit |
+|---|---|
+| `cargo fmt --all --check` | 0 |
+| `cargo clippy --workspace --all-targets -- -D warnings` | 0 |
+| `cargo test --workspace --no-fail-fast` | 0, all result lines `ok` |
+| `pnpm --filter @warsha/client test` | 0, **38 / 38** |
+| `pnpm --filter @warsha/client typecheck` | 0 |
+| `git diff --check` on C2 paths | 0 |
+
+Task #9 is accepted. C2 deliberately left the existing `providers.budget`/`providers.budget.status`
+client surface as a clear method-not-found path rather than inventing daemon behavior, documented in
+the client comments.
+
+### B3e desktop shell accepted (2026-11-02)
+
+Coder session `224de6c2-1a82-54ca-ac7c-32176d7acb1b` rebuilt the desktop shell, breakpoints, advanced
+bench, crash/store flows and shared chrome. Orchestrator independently re-ran the combined affected
+surface:
+
+- desktop: exit 0, **38 files / 343 tests**
+- desktop typecheck and lint: exit 0
+- i18n: exit 0, **37 / 37**
+- @warsha/ui regression: exit 0, **140 / 140**
+- architecture: exit 0, 5 rules / 0 violations
+- `git diff --check`: exit 0
+
+Static review found no physical directional CSS, no raw color literals in shell screens, no
+`t(...) || 'literal'` fallbacks, no unsafe `any`, and no `alert`/`window.confirm`. Catalog parity is
+698 keys per locale. Pixel/axe and baseline regeneration remain mandatory in B4.
+
+B3-remote started in Coder session `af08d107-a665-5065-ac3c-840b7533bc4e`, owning `apps/remote/**` and
+the i18n catalog.
+
+### Task #14 visual gate accepted (2026-11-02)
+
+The WSL `pnpm visual` process exited with no remaining Playwright/pnpm jobs. `/root/warsha/gate-visual.log`
+ends in **240 passed / 0 failed** in 3.6 minutes, covering desktop layout/baseline screens plus remote
+smoke and Arabic/English language switching. This is pre-redesign baseline evidence; B4 must rerun and
+regenerate baselines after the B3 redesign.
+
+### B3-remote accepted — redesign complete (2026-11-02)
+
+Coder session `af08d107-a665-5065-ac3c-840b7533bc4e` rebuilt the remote PWA into the Bench & Signal
+model. Orchestrator independently verified:
+
+- `pnpm --filter warsha-remote test` → exit 0, **13 files / 146 tests**
+- remote typecheck and lint → exit 0
+- `pnpm --filter @warsha/i18n test` → exit 0, **44 / 44**
+- architecture → exit 0, 5 rules / 0 violations
+- `git diff --check -- apps/remote packages/i18n/src` → exit 0
+
+Catalog parity is **751 keys per locale**. Static scans show no fallback copy, unsafe types,
+`alert`/`window.confirm`, physical RTL properties, gradients/glows or raw color literals. Tasks #21 and
+#6 are complete. B4 must now supply pixel/axe evidence, regenerate desktop/remote baselines, and settle
+the reported `Panel`/`GateCard` banner-role question in a real browser.
+
+Known remote production seams carried forward: manifest/service worker/icons are still absent;
+`gates.list` is unavailable so the queue uses run-stage fallback; `devices.pair-start`/QR payload is
+not wired. These are integration gaps, not design-system failures.
+
+### S1c security follow-ups accepted (2026-11-02)
+
+Coder session `c33499b4-fb0f-559a-a257-005202ea6b21` implemented the owner-approved items:
+
+- **N-1**: `--pairings` plaintext input is refused before opening; trust comes from the OS keychain,
+  ephemeral stdin records, or an in-memory source. Trust types have redacted `Debug`.
+- **N-2**: program-path policy rejects `..` and resolves/canonicalizes both sides before the data-dir
+  prefix test; symlink/traversal regressions included.
+- **N-3**: provider routing/spend state split into shared immutable/core structures and a dedicated
+  spend ledger. `paid_call`/`chat_with_fallback` are `&self`; no router lock guard is held across
+  await/retry/backoff. Deterministic concurrent-call and sleep-window lock regression tests pass.
+- **LOAD read tier**: all registered RPC methods use `with_extensions` and `authorize()`, so reads such
+  as `projects.list` are method-tier limited while preserving optional wire params.
+- **Limiter logging**: `RefusalMeter` aggregates per ceiling/caller with bounded keys, SHA-256 digest
+  labels and structured counters; a 1.3M-refusal flood is expected to produce one interval line rather
+  than one line per refusal.
+- **Duplicate startup logging**: listener lines are written once, with runtime and source-shape tests.
+- **L-01 fixed**: crash-report and review stores are bounded with deterministic retirement.
+
+Orchestrator independently verified:
+
+| Gate | Exit | Result |
+|---|---:|---|
+| WSL `/root/warsha-sec2` `cargo fmt --all --check` | 0 | clean |
+| WSL workspace `cargo clippy --all-targets -- -D warnings` | 0 | clean |
+| WSL workspace `cargo test --no-fail-fast` | 0 | all targets `ok` (including pipeline 323, providers 43, relay 17, remote 28, warshad 61 + integration suites) |
+| Windows native `cargo clippy --workspace --all-targets -- -D warnings` | 0 | required native gate clean |
+| architecture self-test/main scan | 0 | 5 rules fire, 0 violations |
+| `git diff --check` on Rust/load paths | 0 | clean |
+
+`Cargo.lock` is unchanged. Relay adds `keyring` and daemon adds `futures`, both already declared as
+workspace dependencies; no external crate was introduced.
+
+M-01, M-02 and M-04 remain owner-facing and status-only as instructed. **LOAD-2** is running in the
+existing debugger session `5830e665-6ebf-53a9-a16e-0584403e5795`, using isolated `/root/warsha-load2`.
+A new launcher returned `APPLICATION_INTERNAL` after registering a failed cold session, so LOAD-2 was
+resumed through the proven LOAD-1 session instead of duplicating the lane.
+
+### LOAD-2 accepted (2026-11-02)
+
+Fresh WSL build and load lane `/root/warsha-load2` completed all acceptance criteria. Sanitized evidence
+is under `bridge-io/security/load2/` and reusable harness under `scripts/load/`.
+
+| Scenario | Requests | Served | Transport 429 | Method -32004 | True errors | served p95 |
+|---|---:|---:|---:|---:|---:|---:|
+| smoke 1 VU / 10s | 99 | 99 | 0 | 0 | 0 | **0.89ms** |
+| expected 5 VU / 30s | 75 | 75 | 0 | 0 | 0 | **2.64ms** |
+| spike 25 VU / 30s | 1,609,517 | 839 | 1,605,918 | 2,760 | 0 | **2.30ms** |
+
+Expected gate passes: p95 2.64ms and true error rate 0.00%. Spike refusals are limiter behavior,
+reported separately. Read-tier arithmetic now matches: only 839 were served because
+`projects.list` spends the Standard method bucket, whereas LOAD-1 served 3,600 under the transport
+ceiling alone.
+
+S1c fixes are confirmed operationally:
+- refusal logging produced **6 lines / 954 bytes** for the whole run instead of LOAD-1's 1,335,523 lines
+  / 161MB;
+- controlled probes reconcile the snapshot-style meter: 329 observed / 330 reported, and 5,846 observed
+  / 5,847 reported at high rate;
+- exactly one HTTP listener and one RPC listener line were logged;
+- no plaintext pairing file or `pairing_devices` row exists, and daemon startup accepts no `--pairings`
+  input;
+- teardown left zero orphan processes/listeners and no credential in artifacts.
+
+Two owner-facing notes:
+1. `warshad.lock` intentionally remains after clean shutdown (C2 changed to never unlink the lock so
+   two instances cannot race on different inodes); presence must not be interpreted as liveness—the
+   advisory lock and PID hint decide.
+2. An RPC method-tier refusal is HTTP 200 carrying JSON-RPC `-32004`, while transport refusals are HTTP
+   429 with `Retry-After`. Clients must inspect JSON-RPC errors, not only HTTP status.
+
+### LOAD-2 re-run confirms the gate (2026-11-02)
+
+Independent re-run in a refreshed `/root/warsha-load2` (rsync of the current tree, `cargo build -p warshad
+--release` exit 0 with zero units of work). All acceptance items pass: expected p95 **1.98ms** and true
+error rate **0.00%**; spike 1,070,029 requests → 840 served, 1,066,429 HTTP 429, 2,760 `-32004`, 0 true
+errors; **6 log lines / 954 bytes** for 1,069,189 refusals with 0 legacy per-refusal WARNs; one listener
+line per listener; zero orphans. The leftover `warshad.lock` was proved **not held** (`flock LOCK_EX|LOCK_NB`
+succeeds, claimed pid dead, restart ok), closing the owner note above as a non-finding. The `-32004` count
+reproduced exactly (2,760) under 50% lower offered load, i.e. quota-bound. Artifacts, including the earlier
+run preserved untouched, are under `bridge-io/security/load2/`. Harness defect found, not product:
+`scripts/load/probe-meter-count.sh` binds 38806, which is inside `ip_local_port_range`, so a preceding
+flood can steal it as an ephemeral port and the probe silently measures nothing — move it below 32768.
+
+### B4 started
+
+Debugger/Coder visual lane for redesigned desktop + remote is now active. It must install IBM Plex Sans
+Arabic in WSL, rerun visual/axe/keyboard/overflow suites at 390/768/1440 x AR/EN x light/dark,
+regenerate baselines, and prove Playwright runs natively on Windows. B4-CRIT is queued as task #24.
+
+### B4 round 1 — gate built, not accepted (2026-11-02)
+
+Coder session `319492ee-3a6e-5d8e-affc-30a669d622e2` expanded visual QA to **762 cases / 605 passing**.
+The remaining 157 are enumerated in `bridge-io/audit/visual.md` §7; no assertion was weakened and 60
+failing baselines were deliberately deleted rather than committed. 452 clean screenshots are retained
+under `bridge-io/shots/b4/`.
+
+Round 1 fixed or found:
+- **HIGH security:** remote bearer token was rewritten into the address bar/history by `LocationSync`;
+  code/unit fix landed, browser verification is part of the rerun.
+- AA token contrast on recessed plate, sticky-top focus coverage, 320 instrument scroll, wizard
+  overflow, landmark/ARIA/catalog-key issues.
+- official OFL IBM Plex Sans Arabic/Mono installed on the WSL capture host and font usage asserted per
+  rendered node through CDP; no font was vendored into the app.
+- `axe-core@4.14` was added only as a devDependency already present in the existing lock graph.
+- Windows native Playwright runs: 41 passed / 6 failed, showing the same product findings rather than a
+  Linux-only artifact. Native pixel comparison remains OS-suffix scoped.
+
+B4 continues in the same lane to close §7 items #1–#7 and #9 until zero failures, then regenerate
+remaining baselines and rerun both platforms. Out-of-scope items were split:
+- **#25** wire missing gate/chat daemon seams after B4 (blocks installer #10).
+- **#26** install the same fonts in Linux visual CI. Initial launcher returned
+  `APPLICATION_INTERNAL` after registering a failed cold session, then resumed in session
+  `a1cb36dc-88bf-5570-a298-299674f0816e`.
+
+### CI-font accepted (2026-11-02)
+
+Task #26 added a pre-step to the Linux visual job that runs
+`scripts/ci/install-capture-fonts.sh`. Orchestrator reviewed the script and independently ran
+`actionlint .github/workflows/ci.yml .github/workflows/release.yml` (exit 0).
+
+The installer:
+- pins `google/fonts@6c1dbe27dcf7d817d4b62cec033ba77fa8e2a5ec`;
+- installs the same nine IBM Plex Sans Arabic / Plex Mono TTF faces used on the capture host;
+- checks each blob against an explicit SHA-256 and rejects non-font magic bytes;
+- writes provenance plus the OFL texts, without vendoring font bytes into the app;
+- refreshes fontconfig and verifies that both exact family names resolve specifically to files in the
+  pinned capture directory;
+- checks every installed face is listed by fontconfig;
+- is idempotent and exits non-zero rather than allowing fallback metrics.
+
+CI finding #10 is closed. WSL/B4 remains the authoritative visual capture host and B4 round 2 is still
+running its product/accessibility fixes.
+
+## STOPPED FOR FILE MOVE — owner halt (2026-11-02 22:20 Asia/Dubai)
+
+All delegated work was stopped by owner instruction. No agent or Warsha test process is running:
+
+- Qoder B4 session `319492ee-3a6e-5d8e-affc-30a669d622e2` was interrupted.
+- WSL PID 676 (`playwright test --update-snapshots`), its Vite dev servers, Playwright workers and
+  Chromium processes were terminated.
+- Last verified check: `NO_TEST_LISTENERS` for ports 5173/5174/38775/38776.
+- No other delegated session remained running.
+- One unrelated Codex runtime `node.exe` PID 20760 was observed; it was not a Warsha test process and
+  was not killed.
+
+### Exact last completed gate
+
+The last authoritative stopped visual run is in `bridge-io/audit/gate-visual-b4.log`:
+
+- **821 passed / 13 failed**
+- elapsed: **11.5 minutes**
+- command: `pnpm visual` from WSL `/root/warsha`
+- exit: **1**
+- failures:
+  1. `desktop/e2e/screens.a11y.spec.ts`: settings 390×844 AR light — axe/keyboard
+  2. `desktop/e2e/screens.a11y.spec.ts`: settings 390×844 AR dark — axe/keyboard
+  3. `screens.visual`: gates 768×1024 EN dark
+  4–10. `screens.visual`: run cases at 320 AR/EN, 390 AR light, 768 AR dark, 1440 EN light/dark
+  11. `screens.visual`: onboarding-provider 768×1024 EN light
+  12–13. `states`: gates permission 390 EN light and 1440 EN light (7–10 pixel diffs)
+
+Important: the final process was executing `--update-snapshots` after this run was interrupted; do not
+assume any new baselines beyond those already recorded were clean or complete. Treat the manifest and
+PNGs on disk as the authoritative artifact set, not the command that was stopped.
+
+### Work completed and verified before the halt
+
+- Tasks #1–#6 and #8–#23 are complete. The redesign, security HIGH/S1c work, lifecycle/provider
+  persistence, k6 expected load gate, desktop/remote B3 lanes, and visual font infrastructure are done
+  and independently reviewed at their recorded scopes.
+- CI-font task #26 is accepted: official OFL IBM Plex faces are pinned with SHA-256 checks and actionlint
+  is clean.
+- The visual suite now contains 834 cases; this is the first fully expanded desktop/remote matrix.
+
+### Work explicitly not completed
+
+- #7 B4: 13 visual/a11y failures above remain.
+- #24 B4-CRIT: not started.
+- #25 gate/chat daemon RPC seams: not started.
+- #10 installer, #11 real-provider installed E2E, #12 docs and final Z gate: not started.
+- No commit, push, tag, release, deployment, key creation or secret rotation was performed.
+
+### Working-tree state to carry to the new location
+
+At halt: **512 dirty/untracked paths**, of which tracked diff shortstat is **230 files, +24,699 /
+−7,231 lines**. The full move must include:
+
+- entire `C:\Users\Dragonfly\Downloads\Warsha` tree, preserving `.git`;
+- gitignored evidence under `bridge-io/**`, including B4 screenshots, manifests, logs, JSON reports,
+  security audits and load evidence;
+- untracked `docs/design/**`, `.env.example`, `scripts/ci/**`, `scripts/load/**`,
+  `scripts/windows-msvc-env.ps1`, all new UI/e2e/remote source files, and current `pnpm-lock.yaml` /
+  `package.json` changes;
+- WSL caches are not part of the project: `/root/warsha`, `~/warsha-s1a`, `/root/warsha-s1b`,
+  `/root/warsha-s2`, `/root/warsha-c2`, `/root/warsha-load`, `/root/warsha-load2`, `/root/warsha-sec2`.
+  They can be recreated by rsync from the moved Windows tree and must not overwrite source state.
+- The WSL capture host fonts remain installed in
+  `/usr/local/share/fonts/warsha-capture` on the old machine; on a new host run
+  `bash scripts/ci/install-capture-fonts.sh` from the moved tree.
+- Codex Windows sandbox ACLs were intentionally left untouched. Windows `cargo test` is not required;
+  WSL is authoritative.
+
+### Exact resume command after the move
+
+Do not resume from scratch. Reopen this project and start with the 13 remaining B4 failures, then run
+B4-CRIT. First action:
+
+```powershell
+git status --short
+node scripts/check-arch.mjs
+pnpm --filter warsha-desktop test
+pnpm --filter warsha-remote test
+bash scripts/ci/install-capture-fonts.sh
+pnpm visual --last-failed
+```
+
+Then continue tasks in the recorded order: finish #7 → run #24 critique → #25 daemon seams → rebuild
+#10 installers → #11 owner-key real E2E → #12 docs → final Z.
+
+### Owner test-policy decision (2026-11-02)
+
+The owner has ruled that **WSL is authoritative for Rust tests on this checkout** and the live Codex
+Windows sandbox must remain untouched. Native Windows `cargo test --workspace` is now **not required**
+and its sandbox failure is recorded as environmental, not product. Required Windows-native gates remain:
+`pnpm build/test/typecheck/lint`, Playwright, mdBook, `cargo clippy` through the MSVC helper, and the
+Tauri MSI/NSIS installer build.
+
+The owner also approved minimal fixes, each with a regression test, for N-1 relay-secret storage, N-2
+process-policy path canonicalization, N-3 provider-lock scope, read-method tier wiring, limiter-refusal
+log flooding and duplicated startup listener logging. M-01, M-02, M-04 and L-01 are to be status-listed,
+with a fix only if trivial and in scope. The full board order and hard verification rules are recorded
+in the 2026-11-02 owner decision section of `DECISIONS.md`.

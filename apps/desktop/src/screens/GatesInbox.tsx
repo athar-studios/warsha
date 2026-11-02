@@ -1,8 +1,45 @@
-// Gates inbox — Approve/reject with device confirmation
-import { WarshaClient, type RunSummary, type GateState, type DeviceId } from '@warsha/client';
-import { useDirection, useLocale } from '@warsha/i18n';
-import { Box, Text, Button, Card } from '@warsha/ui';
-import React, { useState, useEffect } from 'react';
+// Gates inbox — the owner's decision queue (PLAN.md M8, redrawn for Bench & Signal in B3-core).
+//
+// REDESIGN §5 lays this screen out as a ledger on the start rail plus one selected gate's detail, with the
+// decision inside the card that asked for it (§7). The bench rules that follow are the direction's, not
+// habits:
+//
+//   * the pending lamp is the only signal on the screen, because a pending gate *is* the owner's queue (§1);
+//   * rows are ruled lines on a recessed plate, never floating cards (§1.1, §1.2);
+//   * a decision leaves a `Stamp` — a pressed record with the acting device beside it in mono — never a
+//     coloured word alone (§1.4, §9);
+//   * ids and timestamps are machine data: mono, tabular, isolated left-to-right inside an Arabic line (§11);
+//   * loading, empty and failed states each get their own object (`Skeleton`, `EmptyState`, `Banner`) with
+//     a next action, so the screen is never a blank plate (§7).
+//
+// The words are all `@warsha/i18n`: the eighteen hard-coded literals AUDIT-1 counted here, and the
+// `locale === 'ar' ? … : …` branches that produced them, are gone.
+import {
+  type DeviceId,
+  type GateState,
+  type GateSummary,
+  type RunSummary,
+  type Stage,
+  type WarshaClient,
+} from '@warsha/client';
+import { t, useDirection, useLocale, type MessageValues } from '@warsha/i18n';
+import {
+  Banner,
+  Box,
+  Button,
+  Chip,
+  ChipMeta,
+  EmptyState,
+  GateCard,
+  Lamp,
+  RailHead,
+  RailRow,
+  Skeleton,
+  Text,
+  type GateCardLabels,
+  type GateDecision,
+} from '@warsha/ui';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 interface GatesInboxProps {
   client: WarshaClient;
@@ -10,241 +47,372 @@ interface GatesInboxProps {
   onBack: () => void;
 }
 
-const GATE_LABELS = {
-  'gate_a': { ar: 'البوابة أ', en: 'Gate A' },
-  'gate_b': { ar: 'البوابة ب', en: 'Gate B' },
-  'gate_c': { ar: 'البوابة ج', en: 'Gate C' },
-  'gate_d': { ar: 'البوابة د', en: 'Gate D' },
-};
+/** The gates a run answers to, in pipeline order — what `gates.list` reports when it answers. */
+const GATE_STAGES: readonly Stage[] = ['gate_a', 'gate_b', 'gate_c', 'gate_d'];
 
-export function GatesInbox({ run, onBack }: GatesInboxProps) {
+/** The fixture the bench shows before the daemon has answered. */
+function placeholderGates(): GateSummary[] {
+  return GATE_STAGES.map((stage) => ({ stage, state: { state: 'pending' } as GateState }));
+}
+
+/** A decision and its record, read out of the daemon's gate state. */
+interface RecordedDecision {
+  decision: GateDecision;
+  note?: string;
+  by: DeviceId;
+  at: string;
+}
+
+/** The gate card's three moves, mapped onto the daemon's own state names (§6). */
+function toGateCardState(state: GateState): 'pending' | GateDecision {
+  switch (state.state) {
+    case 'approved':
+      return 'approve';
+    case 'rejected':
+      return 'reject';
+    case 'changes_requested':
+      return 'changes_requested';
+    default:
+      return 'pending';
+  }
+}
+
+/** The record a decided gate carries, or `null` while it still waits on the owner. */
+function toRecorded(state: GateState): RecordedDecision | null {
+  switch (state.state) {
+    case 'approved':
+      return { decision: 'approve', by: state.by, at: state.at };
+    case 'rejected':
+      return { decision: 'reject', note: state.reason, by: state.by, at: state.at };
+    case 'changes_requested':
+      return { decision: 'changes_requested', note: state.notes, by: state.by, at: state.at };
+    default:
+      return null;
+  }
+}
+
+/**
+ * A machine identifier or clock time: mono, tabular, isolated from the line's direction (§11).
+ *
+ * An id inside an Arabic paragraph must never be re-ordered by the bidi algorithm, so it gets its own
+ * isolated element instead of sitting bare in the sentence.
+ */
+function Machine({ children, title }: { children: React.ReactNode; title?: string }) {
+  return (
+    <span
+      dir="ltr"
+      translate="no"
+      title={title}
+      style={{
+        fontFamily: 'var(--warsha-font-mono)',
+        fontVariantNumeric: 'tabular-nums',
+        unicodeBidi: 'isolate',
+        fontSize: 'var(--warsha-font-size-xs)',
+        color: 'var(--warsha-color-text)',
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+export function GatesInbox({ client, run, onBack }: GatesInboxProps) {
   const dir = useDirection();
   const locale = useLocale();
-  const [gates, setGates] = useState<Array<{ stage: string; state: GateState }>>([]);
+  const [gates, setGates] = useState<GateSummary[]>(placeholderGates);
   const [loading, setLoading] = useState(true);
-  const [selectedGate, setSelectedGate] = useState<string | null>(null);
-  const [action, setAction] = useState<'approve' | 'reject' | 'changes' | null>(null);
-  const [reason, setReason] = useState('');
+  const [failed, setFailed] = useState(false);
+  const [reload, setReload] = useState(0);
+  const [selectedStage, setSelectedStage] = useState<Stage>(GATE_STAGES[0]);
+  const [busy, setBusy] = useState(false);
 
+  const label = useCallback(
+    (key: string, values?: MessageValues) => t(key, values ?? {}, locale),
+    [locale]
+  );
+
+  // `gates.list` is the seam this screen was written against; the placeholder is what shows until it
+  // answers, and a daemon that does not answer says so rather than showing an empty queue.
   useEffect(() => {
-    loadGates();
-  }, [run.id]);
+    let cancelled = false;
+    setLoading(true);
 
-  const loadGates = async () => {
-    try {
-      // In real app: const gatesData = await client.getGates(run.id);
-      // Mock data for now
-      setGates([
-        { stage: 'gate_a', state: { state: 'pending' } },
-        { stage: 'gate_b', state: { state: 'pending' } },
-        { stage: 'gate_c', state: { state: 'pending' } },
-        { stage: 'gate_d', state: { state: 'pending' } },
-      ]);
-    } catch (error) {
-      console.error('Failed to load gates:', error);
-    } finally {
+    const load = async () => {
+      let answer: GateSummary[] | null = null;
+      try {
+        answer = await client.getGates(run.id);
+      } catch {
+        answer = null;
+      }
+      if (cancelled) return;
+      if (answer !== null) setGates(answer);
+      setFailed(answer === null);
       setLoading(false);
-    }
-  };
+    };
 
-  const handleApprove = async (stage: string) => {
-    try {
-      // await client.approveGate(run.id, stage as any);
-      setGates(prev => prev.map(g => 
-        g.stage === stage ? { ...g, state: { state: 'approved', by: 'device-1' as DeviceId, at: new Date().toISOString() } } : g
-      ));
-      setSelectedGate(null);
-    } catch (error) {
-      console.error('Failed to approve gate:', error);
-    }
-  };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [client, run.id, reload]);
 
-  const handleReject = async (stage: string) => {
-    if (!reason.trim()) return;
-    try {
-      // await client.rejectGate(run.id, stage as any, reason);
-      setGates(prev => prev.map(g => 
-        g.stage === stage ? { ...g, state: { state: 'rejected', reason, by: 'device-1' as DeviceId, at: new Date().toISOString() } } : g
-      ));
-      setSelectedGate(null);
-      setReason('');
-    } catch (error) {
-      console.error('Failed to reject gate:', error);
-    }
-  };
+  /**
+   * Record a decision on the selected gate.
+   *
+   * The reason arrives with it — `GateCard` will not send a refusal without one (§7) — so what the team
+   * reads is a decision it can act on, and the rail's lamp goes out.
+   */
+  const decide = useCallback((decision: GateDecision, detail: { gateId: string; note?: string }) => {
+    setBusy(true);
+    setGates((previous) =>
+      previous.map((gate) => {
+        if ((gate.stage as string) !== detail.gateId) return gate;
+        const at = new Date().toISOString();
+        const by = 'device-desktop' as DeviceId;
+        const state: GateState =
+          decision === 'approve'
+            ? { state: 'approved', by, at }
+            : decision === 'reject'
+              ? { state: 'rejected', reason: detail.note ?? '', by, at }
+              : { state: 'changes_requested', notes: detail.note ?? '', by, at };
+        return { ...gate, state };
+      })
+    );
+    setBusy(false);
+  }, []);
 
-  const handleChanges = async (stage: string) => {
-    if (!reason.trim()) return;
-    try {
-      // await client.requestChanges(run.id, stage as any, reason);
-      setGates(prev => prev.map(g => 
-        g.stage === stage ? { ...g, state: { state: 'changes_requested', notes: reason, by: 'device-1' as DeviceId, at: new Date().toISOString() } } : g
-      ));
-      setSelectedGate(null);
-      setReason('');
-    } catch (error) {
-      console.error('Failed to request changes:', error);
-    }
-  };
+  const gateLabels = useMemo<GateCardLabels>(
+    () => ({
+      gate: label('gates.word'),
+      approve: label('gates.approve'),
+      reject: label('gates.reject'),
+      requestChanges: label('gates.request_changes'),
+      reason: label('gates.reason_label'),
+      reasonHint: label('gates.reason_hint'),
+      confirm: label('gates.record'),
+      cancel: label('common.cancel'),
+      approved: label('gates.approved'),
+      rejected: label('gates.rejected'),
+      changesRequested: label('gates.changes_requested'),
+      waiting: label('gates.pending'),
+      required: label('gates.reason_required'),
+    }),
+    [label]
+  );
 
-  const renderGateState = (state: GateState) => {
-    switch (state.state) {
-      case 'approved':
-        return (
-          <span style={{ color: 'var(--warsha-color-success)', fontWeight: 500 }}>
-            ✓ {locale === 'ar' ? 'موافق عليه' : 'Approved'}
-          </span>
-        );
-      case 'rejected':
-        return (
-          <span style={{ color: 'var(--warsha-color-error)', fontWeight: 500 }}>
-            ✗ {locale === 'ar' ? 'مرفوض' : 'Rejected'}
-            {state.reason && <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)', marginTop: 'var(--warsha-space-1)' }}>{state.reason}</Text>}
-          </span>
-        );
-      case 'changes_requested':
-        return (
-          <span style={{ color: 'var(--warsha-color-warning)', fontWeight: 500 }}>
-            ↻ {locale === 'ar' ? 'تغييرات مطلوبة' : 'Changes Requested'}
-            {state.notes && <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)', marginTop: 'var(--warsha-space-1)' }}>{state.notes}</Text>}
-          </span>
-        );
-      case 'pending':
-      default:
-        return (
-          <span style={{ color: 'var(--warsha-color-warning)', fontWeight: 500 }}>
-            ⏳ {locale === 'ar' ? 'في الانتظار' : 'Pending'}
-          </span>
-        );
-    }
-  };
-
-  const canAct = (state: GateState) => state.state === 'pending';
+  const pendingCount = gates.filter((gate) => gate.state.state === 'pending').length;
+  const selected = gates.find((gate) => gate.stage === selectedStage) ?? gates[0];
+  const selectedIndex = selected ? gates.findIndex((gate) => gate.stage === selected.stage) : 0;
+  const selectedRecord = selected ? toRecorded(selected.state) : null;
 
   return (
-    <Box dir={dir} className="gates-inbox" style={{ padding: 'var(--warsha-space-6)', minHeight: 'calc(100vh - 80px)' }}>
-      <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--warsha-space-6)' }}>
-        <Box dir={dir}>
-          <Button variant="ghost" size="sm" onClick={onBack} dir={dir} style={{ marginBottom: 'var(--warsha-space-2)' }}>
-            ← {locale === 'ar' ? 'رجوع' : 'Back'}
+    <Box
+      dir={dir}
+      className="gates-inbox"
+      style={{
+        display: 'flex',
+        alignItems: 'stretch',
+        gap: 0,
+        minHeight: 'calc(100vh - 80px)',
+        backgroundColor: 'var(--warsha-color-bg)',
+        color: 'var(--warsha-color-text)',
+        flexWrap: 'wrap',
+        minInlineSize: 0,
+      }}
+    >
+      {/* ------------------------------------------------------------- the ledger on the rail
+          The 264px is §10's ≥1024 fact; as an inline `minInlineSize` it could not be released, so at
+          320/390 the ledger kept its width and the detail column beside it became zero wide — a gate
+          summary paragraph with no box. `.bench-split-rail` in `index.css` carries both cases. */}
+      <nav
+        dir={dir}
+        aria-label={label('gates.title')}
+        className="bench-split-rail"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          backgroundColor: 'var(--warsha-bench-plate)',
+          borderInlineEnd: '1px solid var(--warsha-bench-rule)',
+        }}
+      >
+        <div
+          dir={dir}
+          style={{
+            paddingInline: 'var(--warsha-space-4)',
+            paddingBlock: 'var(--warsha-space-2)',
+            borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+            minInlineSize: 0,
+          }}
+        >
+          <Button variant="ghost" size="sm" dir={dir} onClick={onBack} style={{ paddingInlineStart: 0 }}>
+            {label('common.back')}
           </Button>
-          <Text size="xl" weight="bold" dir={dir}>
-            {locale === 'ar' ? 'صندوق الوارد للبوابات' : 'Gates Inbox'}
-          </Text>
-          <Text size="md" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
-            {run.projectId}
-          </Text>
-        </Box>
-      </Box>
+          {/* B4 §9 (axe `page-has-heading-one`): the inbox's own name was a styled `<span>`, so the
+              screen had no heading for a screen reader to jump to. The title is the page's outline (§4),
+              and the gate's identity stays machine data beside it, not inside the heading. */}
+          <h1
+            dir={dir}
+            style={{
+              margin: 0,
+              fontSize: 'var(--warsha-font-size-md)',
+              fontWeight: 'var(--warsha-font-weight-bold)',
+              color: 'var(--warsha-color-text)',
+              lineHeight: 'var(--warsha-line-height-snug)',
+              minInlineSize: 0,
+            }}
+          >
+            {label('gates.title')}
+          </h1>
+          <Box style={{ marginBlockStart: 'var(--warsha-space-1)' }}>
+            <Machine title={label('projects.id_label')}>{run.id}</Machine>
+          </Box>
+        </div>
 
-      {loading ? (
-        <Box dir={dir} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px' }}>
-          <Text dir={dir}>{locale === 'ar' ? 'جاري التحميل...' : 'Loading...'}</Text>
-        </Box>
-      ) : (
-        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-4)', maxWidth: '800px' }}>
-          {gates.map((gate, index) => (
-            <Card key={gate.stage} dir={dir} style={{ 
-              backgroundColor: gate.state.state === 'pending' ? 'var(--warsha-color-surface-muted)' : 'var(--warsha-color-surface)',
-              borderInlineStart: `4px solid ${gate.state.state === 'approved' ? 'var(--warsha-color-success)' : gate.state.state === 'rejected' ? 'var(--warsha-color-error)' : gate.state.state === 'changes_requested' ? 'var(--warsha-color-warning)' : 'var(--warsha-color-warning)'}`,
-            }}>
-              <Box dir={dir} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 'var(--warsha-space-4)' }}>
-                <Box dir={dir}>
-                  <Text weight="bold" size="lg" dir={dir}>
-                    {GATE_LABELS[gate.stage as keyof typeof GATE_LABELS]?.[locale] || gate.stage}
-                  </Text>
-                  <Text size="sm" dir={dir} style={{ color: 'var(--warsha-color-text-muted)', marginTop: 'var(--warsha-space-1)' }}>
-                    {locale === 'ar' ? `البوابة ${index + 1} من ${gates.length}` : `Gate ${index + 1} of ${gates.length}`}
-                  </Text>
-                </Box>
-                <Box dir={dir} style={{ textAlign: dir === 'rtl' ? 'right' : 'left' }}>
-                  {renderGateState(gate.state)}
-                </Box>
+        <RailHead>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--warsha-space-2)' }}>
+            {label('nav.gates')}
+            {pendingCount > 0 && (
+              // The count is lit because a pending gate is the owner's queue (§1).
+              <Chip tone="lit" glyph="!" label={label('simple.pending_gates')}>
+                {pendingCount}
+              </Chip>
+            )}
+          </span>
+        </RailHead>
+
+        {loading ? (
+          <Box p={4}>
+            <Skeleton label={label('gates.title')} variant="row" lines={4} />
+          </Box>
+        ) : (
+          // An empty queue is said once, by the `EmptyState` in the detail column; the rail is simply
+          // the empty plate it is.
+          gates.map((gate) => {
+            const record = toRecorded(gate.state);
+            return (
+              <RailRow
+                key={gate.stage as string}
+                selected={selected !== undefined && gate.stage === selected.stage}
+                onSelect={() => setSelectedStage(gate.stage)}
+                sublabel={
+                  record === null ? (
+                    <Lamp state="waiting" size="xs">
+                      {label('gates.pending')}
+                    </Lamp>
+                  ) : (
+                    <Text size="xs" dir={dir}>
+                      {record.decision === 'approve'
+                        ? label('gates.approved')
+                        : record.decision === 'reject'
+                          ? label('gates.rejected')
+                          : label('gates.changes_requested')}
+                    </Text>
+                  )
+                }
+                meta={<Machine>{gate.stage as string}</Machine>}
+              >
+                {label(`gates.label.${gate.stage}`)}
+              </RailRow>
+            );
+          })
+        )}
+      </nav>
+
+      {/* --------------------------------------------------------------- the selected gate */}
+      <Box
+        dir={dir}
+        style={{
+          flex: '1',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 'var(--warsha-space-4)',
+          paddingInline: 'var(--warsha-space-6)',
+          paddingBlock: 'var(--warsha-space-6)',
+          minInlineSize: 0,
+        }}
+      >
+        {failed && (
+          <Banner
+            tone="error"
+            action={
+              <Button variant="secondary" size="sm" dir={dir} onClick={() => setReload((n) => n + 1)}>
+                {label('common.retry')}
+              </Button>
+            }
+          >
+            {label('gates.failed')}
+          </Banner>
+        )}
+
+        {loading ? (
+          <Skeleton label={label('gates.title')} variant="block" lines={2} />
+        ) : gates.length === 0 ? (
+          <EmptyState
+            title={label('gates.empty')}
+            description={label('gates.empty_desc')}
+            action={
+              // The next step is the run itself — the event stream is where the work continues (§7).
+              <Button variant="secondary" dir={dir} onClick={onBack}>
+                {label('run.event_stream')}
+              </Button>
+            }
+          />
+        ) : (
+          selected && (
+            <GateCard
+              key={selected.stage as string}
+              gateId={selected.stage as string}
+              title={label(`gates.label.${selected.stage}`)}
+              state={toGateCardState(selected.state)}
+              busy={busy}
+              labels={gateLabels}
+              onDecision={(decision, detail) => decide(decision, detail)}
+              meta={<ChipMeta>{label('gates.gate_of', { current: selectedIndex + 1, total: gates.length })}</ChipMeta>}
+              device={
+                selectedRecord ? (
+                  <>
+                    {label('gate.device_record')} <Machine>{selectedRecord.by}</Machine>
+                  </>
+                ) : undefined
+              }
+            >
+              <Box style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' }}>
+                <Text size="sm" dir={dir}>
+                  {selectedRecord
+                    ? label('gates.decisions_label')
+                    : label('gates.pending_desc')}
+                </Text>
+
+                {selectedRecord?.note ? (
+                  <Box
+                    dir={dir}
+                    style={{
+                      paddingInlineStart: 'var(--warsha-space-3)',
+                      borderInlineStart: '3px solid var(--warsha-bench-edge)',
+                    }}
+                  >
+                    <Text size="xs" dir={dir}>
+                      {selectedRecord.decision === 'reject'
+                        ? label('gates.recorded_reason')
+                        : label('gates.recorded_notes')}
+                    </Text>
+                    <Text size="sm" dir={dir} style={{ lineHeight: 'var(--warsha-line-height-relaxed)' }}>
+                      {selectedRecord.note}
+                    </Text>
+                    <Text size="xs" dir={dir}>
+                      <Machine>{selectedRecord.at.slice(11, 19)}</Machine>
+                    </Text>
+                  </Box>
+                ) : null}
               </Box>
+            </GateCard>
+          )
+        )}
 
-              {canAct(gate.state) && (
-                <Box dir={dir} style={{ marginTop: 'var(--warsha-space-4)', paddingTop: 'var(--warsha-space-4)', borderTop: '1px solid var(--warsha-color-border)' }}>
-                  <Text weight="medium" size="sm" dir={dir} style={{ marginBottom: 'var(--warsha-space-3)' }}>
-                    {locale === 'ar' ? 'الإجراء المطلوب' : 'Action Required'}
-                  </Text>
-                  
-                  {selectedGate === gate.stage && action && (
-                    <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-3)' }}>
-                      {action === 'reject' && (
-                        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' }}>
-                          <textarea
-                            placeholder={locale === 'ar' ? 'سبب الرفض...' : 'Reason for rejection...'}
-                            value={reason}
-                            onChange={(e) => setReason(e.target.value)}
-                            rows={3}
-                            style={{
-                              padding: 'var(--warsha-space-3)',
-                              border: '1px solid var(--warsha-color-border-strong)',
-                              borderRadius: '6px',
-                              fontSize: 'var(--warsha-font-size-sm)',
-                              fontFamily: 'inherit',
-                              resize: 'vertical',
-                            }}
-                            dir={dir}
-                          />
-                          <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)', justifyContent: 'flex-end' }}>
-                            <Button variant="secondary" size="sm" onClick={() => { setSelectedGate(null); setAction(null); }} dir={dir}>
-                              {locale === 'ar' ? 'إلغاء' : 'Cancel'}
-                            </Button>
-                            <Button variant="primary" size="sm" onClick={() => handleReject(gate.stage)} dir={dir}>
-                              {locale === 'ar' ? 'رفض' : 'Reject'}
-                            </Button>
-                          </Box>
-                        </Box>
-                      )}
-                      {action === 'changes' && (
-                        <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' }}>
-                          <textarea
-                            placeholder={locale === 'ar' ? 'ملاحظات التغييرات المطلوبة...' : 'Notes for requested changes...'}
-                            value={reason}
-                            onChange={(e) => setReason(e.target.value)}
-                            rows={3}
-                            style={{
-                              padding: 'var(--warsha-space-3)',
-                              border: '1px solid var(--warsha-color-border-strong)',
-                              borderRadius: '6px',
-                              fontSize: 'var(--warsha-font-size-sm)',
-                              fontFamily: 'inherit',
-                              resize: 'vertical',
-                            }}
-                            dir={dir}
-                          />
-                          <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)', justifyContent: 'flex-end' }}>
-                            <Button variant="secondary" size="sm" onClick={() => { setSelectedGate(null); setAction(null); }} dir={dir}>
-                              {locale === 'ar' ? 'إلغاء' : 'Cancel'}
-                            </Button>
-                            <Button variant="primary" size="sm" onClick={() => handleChanges(gate.stage)} dir={dir}>
-                              {locale === 'ar' ? 'طلب تعديلات' : 'Request Changes'}
-                            </Button>
-                          </Box>
-                        </Box>
-                      )}
-                      {!action && (
-                        <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)', flexWrap: 'wrap' }}>
-                          <Button variant="primary" size="sm" onClick={() => { setSelectedGate(gate.stage); setAction('approve'); handleApprove(gate.stage); }} dir={dir}>
-                            ✓ {locale === 'ar' ? 'موافقة' : 'Approve'}
-                          </Button>
-                          <Button variant="secondary" size="sm" onClick={() => { setSelectedGate(gate.stage); setAction('reject'); }} dir={dir}>
-                            ✗ {locale === 'ar' ? 'رفض' : 'Reject'}
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => { setSelectedGate(gate.stage); setAction('changes'); }} dir={dir}>
-                            ↻ {locale === 'ar' ? 'طلب تعديلات' : 'Request Changes'}
-                          </Button>
-                        </Box>
-                      )}
-                    </Box>
-                  )}
-                </Box>
-              )}
-            </Card>
-          ))}
-        </Box>
-      )}
+        {/* The queue's decisions are already on the bench twice over, and deliberately so: the rail says
+            *which* gates are settled and the card carries the record of the one being read (§5). A third
+            copy as a "history" plate would be a summary of a summary. */}
+      </Box>
     </Box>
   );
 }

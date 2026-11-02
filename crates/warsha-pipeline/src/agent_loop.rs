@@ -176,7 +176,15 @@ impl Router for ProviderRouterAdapter {
             stream: false,
         };
 
-        let mut providers = self.providers.write().await;
+        // A handle to the router, not a lock held through the call (audit N-3): the
+        // adapter's turn is exactly the path where a retry sleep used to sit in front of
+        // every other `providers.*` request and every other agent turn. The spend ledger,
+        // the routing and the paid-call semaphore are shared with the router the daemon
+        // holds, so an agent turn is metered and bounded like a pipeline stage.
+        let providers = {
+            let router = self.providers.read().await;
+            (*router).clone()
+        };
         let response = providers
             .chat_with_fallback(self.role, &self.project_id, request)
             .await?;
@@ -1016,6 +1024,96 @@ mod tests {
             budget_cents_per_run: None,
         });
         ProviderRouterAdapter::new(Arc::new(RwLock::new(router)), AGENT_ROLE, "agent")
+    }
+
+    /// Audit N-3 on the path an agent turn actually takes.
+    ///
+    /// `ProviderRouterAdapter::complete` used to take the daemon's router **write** guard
+    /// and keep it across every await, so one turn's retry sleep sat in front of every
+    /// other `providers.*` request and every other turn, and the router's paid-call cap
+    /// could not be reached on this path at all. The adapter now takes a handle and
+    /// releases the lock, which is what this test measures the way the finding asked for:
+    /// the lock is free while a turn is backing off, and a second turn is served inside
+    /// that window.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn an_agent_turn_backing_off_holds_no_router_lock() {
+        use std::sync::atomic::Ordering;
+        use std::time::Duration;
+        use warsha_providers::{MockProvider, RetryPolicy};
+
+        /// Long enough for the test to observe the sleep, short enough to stay a unit test.
+        const BACKOFF: u64 = 400;
+
+        let mut router = ProviderRouter::new();
+        router.set_retry_policy(RetryPolicy {
+            max_retries_per_target: 1,
+            max_total_attempts: 2,
+            base_backoff_ms: BACKOFF,
+            max_backoff_ms: BACKOFF,
+            jitter: false,
+        });
+        // Every attempt is refused retryably, so each walk sleeps once and then gives up.
+        let provider = MockProvider::new("mock").with_retryable_failures(u32::MAX);
+        let calls = provider.call_counter();
+        router.register_provider(Box::new(provider));
+        router.set_role_routing(RoleRouting {
+            role: AGENT_ROLE,
+            targets: vec![RoutingTarget {
+                provider_id: "mock".to_string(),
+                model_id: "mock-model".to_string(),
+                weight: 100,
+            }],
+            fallback_enabled: false,
+            budget_cents_per_run: None,
+        });
+        let router = Arc::new(RwLock::new(router));
+        let adapter = ProviderRouterAdapter::new(Arc::clone(&router), AGENT_ROLE, "agent");
+
+        let first = tokio::spawn(async move { adapter.complete("the first turn").await });
+
+        // Wait until the attempt has actually been made: the turn is now in its sleep.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while calls.load(Ordering::Acquire) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the turn reached the router");
+
+        // The write lock is what `providers.add`, `providers.remove` and `roles.set` need.
+        let acquired = tokio::time::timeout(Duration::from_millis(100), router.write()).await;
+        assert!(
+            acquired.is_ok(),
+            "an agent turn held the router's write lock across its backoff sleep"
+        );
+        drop(acquired.expect("the router lock is free"));
+
+        // A second turn is served in the same window rather than queued behind the first,
+        // and it is metered under its own key: neither turn's spend is the other's.
+        let second = ProviderRouterAdapter::new(Arc::clone(&router), AGENT_ROLE, "second");
+        let second_outcome = second.complete("the second turn").await;
+        assert!(
+            second_outcome.is_err(),
+            "the throttled provider answered: {second_outcome:?}"
+        );
+
+        let first_outcome = first.await.expect("the turn finished");
+        assert!(
+            first_outcome.is_err(),
+            "the throttled provider answered the first turn: {first_outcome:?}"
+        );
+        // Two attempts each and no more: the per-call attempt cap survived the change, so
+        // removing the lock did not remove the bound on spend.
+        assert_eq!(calls.load(Ordering::Acquire), 4, "the attempt cap changed");
+
+        // Nothing is left holding a permit, which is what a leak would have shown as.
+        let guard = router.read().await;
+        assert_eq!(guard.paid_calls_in_flight(), 0);
+        assert_eq!(
+            guard.available_paid_permits(),
+            guard.max_concurrent_paid_calls(),
+            "a paid-call permit was not returned"
+        );
     }
 
     #[test]

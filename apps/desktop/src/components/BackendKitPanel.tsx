@@ -1,11 +1,27 @@
-// Backend kit panel (PLAN.md M19).
-// Mirrors `BackendKit` / `PaymentsGate` in
-// `crates/warsha-pipeline/src/backend_kit.rs`: the backend kind, the enabled
-// services, the tables the agent created, the standard export and the payments
-// gate. Nothing here calls a backend: the panel takes its state from props and
-// reports every edit back out, and `onExport` is the seam the daemon fills in.
+// Backend kit panel (PLAN.md M19), redrawn for Bench & Signal (B3-secondary).
+// Mirrors `BackendKit` / `PaymentsGate` in `crates/warsha-pipeline/src/backend_kit.rs`: the backend kind,
+// the enabled services, the tables the agent created, the standard export and the payments gate. Nothing
+// here calls a backend: the panel takes its state from props and reports every edit back out, and
+// `onExport` is the seam the daemon fills in.
+//
+// What the direction changes here:
+//
+//   * the panel is a **plate**, not a card: one hairline fastener, the `md` radius, no shadow (§1.1);
+//   * the backend choice is a real radiogroup with a roving tabindex, so the keyboard reaches it in one
+//     Tab stop and the arrows move the value — mirrored by reading direction, never by a duplicated
+//     layout (§9, §11);
+//   * every service is a labelled checkbox on its own 44px line, and the state is the tick plus the word,
+//     never the tint (§9);
+//   * table and column names are machine data: mono, `translate="no"`, isolated left-to-right inside the
+//     Arabic paragraph (§11);
+//   * the payments gate is a `Chip` with a glyph and its words — an approval that has not happened is
+//     stated, not coloured (§7: an error or a block names the next action).
+//
+// Every word comes from `@warsha/i18n` (`backend_kit.*`): the `{ ar, en }` copy table and the
+// `translated === key ? fallback : translated` shim are gone.
 import { t, useDirection, useLocale, type Locale } from '@warsha/i18n';
-import { Button } from '@warsha/ui';
+import { Button, Chip, Text } from '@warsha/ui';
+import React, { useCallback } from 'react';
 
 /** The backend the project points at (serde `snake_case` of `BackendKind`). */
 export type BackendKind = 'pocket_base' | 'supabase';
@@ -45,93 +61,48 @@ export const allBackendFeatures: BackendFeature[] = [
   'functions',
 ];
 
-const kindLabels: Record<BackendKind, { ar: string; en: string }> = {
-  pocket_base: { ar: 'بوكيت بيز', en: 'PocketBase' },
-  supabase: { ar: 'سوبابيز', en: 'Supabase' },
+/** The plate's skin: bench hairline, `md` radius, no shadow (§1.1). */
+const PLATE: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--warsha-space-4)',
+  paddingBlock: 'var(--warsha-space-4)',
+  paddingInline: 'var(--warsha-space-4)',
+  border: '1px solid var(--warsha-bench-rule)',
+  borderRadius: 'var(--warsha-radius-md)',
+  backgroundColor: 'var(--warsha-color-surface)',
+  minInlineSize: 0,
 };
 
-const featureLabels: Record<BackendFeature, { ar: string; en: string }> = {
-  auth: { ar: 'الحسابات', en: 'Auth' },
-  postgres_rls: { ar: 'أمان الصفوف (RLS)', en: 'Postgres RLS' },
-  storage: { ar: 'التخزين', en: 'Storage' },
-  push: { ar: 'الإشعارات', en: 'Push' },
-  functions: { ar: 'الدوال', en: 'Functions' },
+/** The section head above each group of the plate. */
+const SECTION_HEAD: React.CSSProperties = {
+  display: 'block',
+  color: 'var(--warsha-color-text)',
+  fontSize: 'var(--warsha-font-size-xs)',
+  fontWeight: 'var(--warsha-font-weight-semibold)',
+  paddingBlockEnd: 'var(--warsha-space-1)',
 };
 
-const copy = {
-  ar: {
-    title: 'حزمة الواجهة الخلفية',
-    kind: 'الواجهة الخلفية',
-    features: 'الخدمات',
-    tables: 'الجداول',
-    export: 'تصدير',
-    payments: 'المدفوعات',
-    empty: 'لا توجد جداول بعد',
-    nothingToExport: 'لا شيء للتصدير بعد',
-    nullable: 'يقبل الفراغ',
-    paymentsOff: 'متوقفة — تحتاج موافقة المالك',
-    paymentsOn: 'مفعّلة',
-    approvedBy: 'بموافقة',
-    noUrl: 'لم يُضبط العنوان بعد',
-  },
-  en: {
-    title: 'Backend kit',
-    kind: 'Backend',
-    features: 'Services',
-    tables: 'Tables',
-    export: 'Export',
-    payments: 'Payments',
-    empty: 'No tables yet',
-    nothingToExport: 'Nothing to export yet',
-    nullable: 'nullable',
-    paymentsOff: 'Off — owner approval required',
-    paymentsOn: 'Enabled',
-    approvedBy: 'approved by',
-    noUrl: 'No URL set yet',
-  },
-} satisfies Record<Locale, Record<string, string>>;
+/** Machine data — a table or column list — mono and isolated (§11). */
+const MACHINE: React.CSSProperties = {
+  fontFamily: 'var(--warsha-font-mono)',
+  fontVariantNumeric: 'tabular-nums',
+  unicodeBidi: 'isolate',
+  fontSize: 'var(--warsha-font-size-xs)',
+};
 
-/**
- * Translate a key, falling back to the local label when the catalog has no
- * entry yet (`t` returns the key itself for a missing message).
- */
-function localized(key: string, fallback: string, locale: Locale): string {
-  const translated = t(key, {}, locale);
-  return translated === key ? fallback : translated;
-}
-
-/**
- * Whether the payments gate is really open: the flag **and** a named approver
- * with a timestamp. Mirrors `PaymentsGate::is_enabled` in Rust, so flipping the
- * flag alone never reads as enabled.
- */
-export function paymentsGateEnabled(payments: PaymentsGateStatus): boolean {
-  return (
-    payments.enabled &&
-    typeof payments.approvedBy === 'string' &&
-    payments.approvedBy.trim().length > 0 &&
-    typeof payments.approvedAt === 'number' &&
-    payments.approvedAt > 0
-  );
-}
-
-/**
- * The export needs at least one table: a dump with no schema is the header
- * comment alone, which is not worth a button press.
- */
-export function canExport(tables: BackendTable[]): boolean {
-  return tables.length > 0;
-}
-
-/** One line for the payments row: the approval name, or why the gate is shut. */
-export function paymentsGateText(payments: PaymentsGateStatus, locale: Locale): string {
-  if (!paymentsGateEnabled(payments)) {
-    return copy[locale].paymentsOff;
-  }
-  const by = payments.approvedBy ?? '';
-  const at = payments.approvedAt ?? 0;
-  return `${copy[locale].paymentsOn} — ${copy[locale].approvedBy} ${by} @ ${at}`;
-}
+/** The native checkbox's row: the 44px floor, and the label is the whole line (§9). */
+const FEATURE_ROW: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 'var(--warsha-space-2)',
+  minBlockSize: 'var(--warsha-size-touch)',
+  paddingInline: 'var(--warsha-space-2)',
+  borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+  cursor: 'pointer',
+  fontSize: 'var(--warsha-font-size-sm)',
+  color: 'var(--warsha-color-text)',
+};
 
 export interface BackendKitPanelProps {
   /** The backend the project points at. */
@@ -152,6 +123,48 @@ export interface BackendKitPanelProps {
   onExport: () => void;
 }
 
+/**
+ * Whether the payments gate is really open: the flag **and** a named approver with a timestamp. Mirrors
+ * `PaymentsGate::is_enabled` in Rust, so flipping the flag alone never reads as enabled. The word is the
+ * accessible channel; the chip's tint only repeats it (§9).
+ */
+export function paymentsGateEnabled(payments: PaymentsGateStatus): boolean {
+  return (
+    payments.enabled &&
+    typeof payments.approvedBy === 'string' &&
+    payments.approvedBy.trim().length > 0 &&
+    typeof payments.approvedAt === 'number' &&
+    payments.approvedAt > 0
+  );
+}
+
+/**
+ * The export needs at least one table: a dump with no schema is the header comment alone, which is not
+ * worth a button press.
+ */
+export function canExport(tables: BackendTable[]): boolean {
+  return tables.length > 0;
+}
+
+/**
+ * One line for the payments row: the approval name, or why the gate is shut.
+ *
+ * The `— `, ` @ ` and the id beside it are punctuation and machine data, so the line reads the same in
+ * both languages; every word in it comes from the catalog.
+ */
+export function paymentsGateText(payments: PaymentsGateStatus, locale: Locale): string {
+  if (!paymentsGateEnabled(payments)) {
+    return t('backend_kit.payments.off', {}, locale);
+  }
+  const by = payments.approvedBy ?? '';
+  const at = payments.approvedAt ?? 0;
+  return `${t('backend_kit.payments.on', {}, locale)} — ${t(
+    'backend_kit.payments.approved_by',
+    {},
+    locale
+  )} ${by} @ ${at}`;
+}
+
 export function BackendKitPanel({
   kind,
   url,
@@ -164,105 +177,181 @@ export function BackendKitPanel({
 }: BackendKitPanelProps) {
   const dir = useDirection();
   const locale = useLocale();
-  const text = copy[locale];
 
-  const title = localized('backend_kit.title', text.title, locale);
+  const title = t('backend_kit.title', {}, locale);
   const exportable = canExport(tables);
   const gateOpen = paymentsGateEnabled(payments);
+  const shownUrl = typeof url === 'string' && url.trim().length > 0 ? url : null;
+
+  /**
+   * Radiogroup keyboard: arrows move the value (and its focus) and wrap, Home/End jump.
+   *
+   * This is radio semantics rather than tablist semantics — a radio that only moves focus without
+   * selecting is the one thing WAI-ARIA tells a radiogroup not to do.
+   */
+  const onKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      const rtl = dir === 'rtl';
+      // Reading order, mirrored once: in RTL `ArrowLeft` is the forward key (§11).
+      const step =
+        event.key === 'ArrowRight' ? (rtl ? -1 : 1) : event.key === 'ArrowLeft' ? (rtl ? 1 : -1) : 0;
+      if (step === 0 && event.key !== 'Home' && event.key !== 'End') return;
+
+      const order = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button')];
+      if (order.length === 0) return;
+      const index = Math.max(0, order.indexOf(document.activeElement as HTMLButtonElement));
+      const target =
+        event.key === 'Home'
+          ? order[0]
+          : event.key === 'End'
+            ? order[order.length - 1]
+            : order[(index + step + order.length) % order.length];
+      if (!target) return;
+
+      event.preventDefault();
+      target.focus();
+      target.click();
+    },
+    [dir]
+  );
 
   return (
     <section
       dir={dir}
       aria-label={title}
       data-testid="backend-kit-panel"
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 'var(--warsha-space-4)',
-        border: '1px solid var(--warsha-color-border)',
-        borderRadius: '12px',
-        paddingBlock: 'var(--warsha-space-4)',
-        paddingInline: 'var(--warsha-space-4)',
-      }}
+      style={PLATE}
     >
-      <header>
-        <h3 style={{ margin: 0, fontSize: 'var(--warsha-font-size-md)' }}>{title}</h3>
-        <p style={{ margin: 'var(--warsha-space-1) 0 0', fontSize: 'var(--warsha-font-size-xs)', opacity: 0.7 }} dir="ltr">
-          {typeof url === 'string' && url.trim().length > 0 ? url : text.noUrl}
+      <header style={{ minInlineSize: 0 }}>
+        <Text size="md" weight="bold" dir={dir}>
+          {title}
+        </Text>
+        {/* The endpoint is machine data: mono, `translate="no"`, isolated LTR even in an Arabic panel. */}
+        <p
+          data-testid="backend-kit-url"
+          dir="ltr"
+          translate="no"
+          style={{
+            ...MACHINE,
+            margin: 'var(--warsha-space-1) 0 0',
+            textAlign: 'start',
+            color: shownUrl ? 'var(--warsha-color-text)' : 'var(--warsha-color-text-muted)',
+          }}
+        >
+          {shownUrl ?? t('backend_kit.url.none', {}, locale)}
         </p>
       </header>
 
-      <div
-        role="radiogroup"
-        aria-label={text.kind}
-        style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--warsha-space-2)' }}
-      >
-        {backendKinds.map((candidate) => {
-          const label = localized(
-            `backend_kit.kind.${candidate}`,
-            kindLabels[candidate][locale],
-            locale
-          );
-          const selected = candidate === kind;
-          return (
-            <Button
-              key={candidate}
-              variant={selected ? 'primary' : 'secondary'}
-              size="sm"
-              role="radio"
-              aria-checked={selected}
-              aria-label={label}
-              onClick={() => onKindChange(candidate)}
-            >
-              {label}
-            </Button>
-          );
-        })}
+      <div style={{ minInlineSize: 0 }}>
+        <span style={SECTION_HEAD}>{t('backend_kit.kind', {}, locale)}</span>
+        <div
+          role="radiogroup"
+          aria-label={t('backend_kit.kind', {}, locale)}
+          dir={dir}
+          onKeyDown={onKeyDown}
+          style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--warsha-space-2)' }}
+        >
+          {backendKinds.map((candidate) => {
+            const label = t(`backend_kit.kind.${candidate}`, {}, locale);
+            const selected = candidate === kind;
+            return (
+              <Button
+                key={candidate}
+                variant={selected ? 'secondary' : 'ghost'}
+                size="sm"
+                role="radio"
+                aria-checked={selected}
+                aria-label={label}
+                // Roving tabindex: one Tab stop for the group, arrows do the rest (§9).
+                tabIndex={selected ? 0 : -1}
+                // The state is `aria-checked` plus the pressed look, never the signal yellow (§1).
+                style={{
+                  minBlockSize: 'var(--warsha-size-touch)',
+                  borderBlockEnd: selected
+                    ? '3px solid var(--warsha-signal-text)'
+                    : '3px solid transparent',
+                }}
+                onClick={() => onKindChange(candidate)}
+              >
+                {label}
+              </Button>
+            );
+          })}
+        </div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        <span style={{ fontSize: 'var(--warsha-font-size-xs)', opacity: 0.7 }}>{text.features}</span>
+      <div style={{ minInlineSize: 0 }}>
+        <span style={SECTION_HEAD}>{t('backend_kit.features', {}, locale)}</span>
         {allBackendFeatures.map((feature) => {
-          const label = localized(
-            `backend_kit.feature.${feature}`,
-            featureLabels[feature][locale],
-            locale
-          );
+          const label = t(`backend_kit.feature.${feature}`, {}, locale);
           const enabled = features.includes(feature);
+          const inputId = `backend-kit-feature-${feature}`;
           return (
-            <label
-              key={feature}
-              style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-2)', cursor: 'pointer' }}
-            >
+            // A real `<label for>` makes the whole line the touch target; the input keeps its own
+            // `aria-label` so the accessible name is the word alone and never the ☐ glyph beside it
+            // (§9: the glyph is the colour-free channel, not part of the control's name).
+            <label key={feature} htmlFor={inputId} dir={dir} style={FEATURE_ROW}>
               <input
+                id={inputId}
                 type="checkbox"
                 checked={enabled}
                 aria-label={label}
                 onChange={() => onToggleFeature(feature, !enabled)}
               />
+              <span aria-hidden="true">{enabled ? '☑' : '☐'}</span>
               <span>{label}</span>
             </label>
           );
         })}
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        <span style={{ fontSize: 'var(--warsha-font-size-xs)', opacity: 0.7 }}>{text.tables}</span>
+      <div style={{ minInlineSize: 0 }}>
+        <span style={SECTION_HEAD}>{t('backend_kit.tables', {}, locale)}</span>
         {tables.length === 0 ? (
-          <p style={{ margin: 0, fontSize: '0.8rem', opacity: 0.8 }}>{text.empty}</p>
+          <p
+            style={{
+              margin: 0,
+              fontSize: 'var(--warsha-font-size-sm)',
+              color: 'var(--warsha-color-text-muted)',
+            }}
+            dir={dir}
+          >
+            {t('backend_kit.tables.empty', {}, locale)}
+          </p>
         ) : (
-          <ul style={{ margin: 0, paddingInlineStart: '18px', fontSize: '0.8rem' }}>
+          <ul
+            role="list"
+            aria-label={t('backend_kit.tables', {}, locale)}
+            style={{ margin: 0, padding: 0, listStyle: 'none' }}
+          >
             {tables.map((table) => (
-              <li key={table.name} style={{ marginBlockEnd: 'var(--warsha-space-1)' }}>
-                <code dir="ltr" style={{ fontSize: '0.8rem' }}>
+              <li
+                key={table.name}
+                style={{
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  gap: 'var(--warsha-space-2)',
+                  flexWrap: 'wrap',
+                  paddingBlock: 'var(--warsha-space-2)',
+                  borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+                  minInlineSize: 0,
+                }}
+              >
+                <code dir="ltr" translate="no" style={{ ...MACHINE, fontSize: 'var(--warsha-font-size-sm)' }}>
                   {table.name}
                 </code>
-                <span style={{ opacity: 0.7 }}>{` — ${table.columns.length} × `}</span>
-                <code dir="ltr" style={{ fontSize: 'var(--warsha-font-size-xs)' }}>
+                <span style={{ ...MACHINE, color: 'var(--warsha-color-text-muted)', flex: 'none' }}>
+                  {t('backend_kit.columns.count', { count: table.columns.length }, locale)}
+                </span>
+                <code dir="ltr" translate="no" style={{ ...MACHINE, overflowWrap: 'anywhere' }}>
                   {table.columns
                     .map((column) =>
                       column.nullable
-                        ? `${column.name} ${column.colType} (${text.nullable})`
+                        ? `${column.name} ${column.colType} (${t(
+                            'backend_kit.column.nullable',
+                            {},
+                            locale
+                          )})`
                         : `${column.name} ${column.colType}`
                     )
                     .join(', ')}
@@ -273,29 +362,29 @@ export function BackendKitPanel({
         )}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-3)', flexWrap: 'wrap' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 'var(--warsha-space-3)',
+          flexWrap: 'wrap',
+        }}
+      >
         <Button
-          variant="primary"
+          variant="secondary"
           size="sm"
+          dir={dir}
           onClick={onExport}
           disabled={!exportable}
-          title={exportable ? text.export : text.nothingToExport}
+          title={exportable ? t('backend_kit.export', {}, locale) : t('backend_kit.export.blocked', {}, locale)}
         >
-          {text.export}
+          {t('backend_kit.export', {}, locale)}
         </Button>
-        <span
-          data-testid="payments-gate"
-          data-enabled={gateOpen}
-          style={{
-            fontSize: 'var(--warsha-font-size-xs)',
-            paddingBlock: '2px',
-            paddingInline: 'var(--warsha-space-2)',
-            borderRadius: '999px',
-            border: `1px solid ${gateOpen ? 'var(--warsha-color-success)' : 'var(--warsha-color-border)'}`,
-            color: gateOpen ? 'var(--warsha-color-success)' : 'var(--warsha-color-muted)',
-          }}
-        >
-          {`${text.payments}: ${paymentsGateText(payments, locale)}`}
+        {/* The chip's glyph (☑/☐) is the colour-free channel; the words say who approved it (§9). */}
+        <span data-testid="payments-gate" data-enabled={gateOpen} style={{ flex: 'none' }}>
+          <Chip tone={gateOpen ? 'ok' : 'default'} glyph={gateOpen ? '☑' : '☐'}>
+            {`${t('backend_kit.payments', {}, locale)}: ${paymentsGateText(payments, locale)}`}
+          </Chip>
         </span>
       </div>
     </section>

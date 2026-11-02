@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 
+import { aliasResolvesTo, aliasTokenNames, aliasValue, aliasVar, aliasVarName } from './aliases';
 import {
   colorPalette,
   colorTokenNames,
@@ -15,9 +16,10 @@ import {
   colorVar,
   colorVarName,
 } from './colors';
-import { duration, durationVarName, easing, easingVarName } from './motion';
+import { duration, durationNames, durationVarName, easing, easingVarName } from './motion';
 import { radius, radiusVarName } from './radius';
 import { shadow, shadowVarName } from './shadow';
+import { size, sizeTokens, sizeVarName } from './sizes';
 import {
   isSpacingStep,
   SPACING_BASE_PX,
@@ -140,5 +142,91 @@ describe('radius, shadow, motion and type tokens', () => {
     expect(fontWeightVarName('medium')).toBe('--warsha-font-weight-medium');
     // Arabic is a connected script: a letter-spacing token would be a bug waiting to be applied.
     expect(fontSizeVarName('md')).not.toContain('tracking');
+  });
+});
+
+// The two families the redesign added (docs/design/REDESIGN.md §12). `tokenDrift.test.ts` proves the CSS
+// half declares them; this proves the *helpers* are named the way a component will reach for them — which is
+// the difference between `aliasVar('signalText')` and a screen writing `var(--warsha-signal-text)` by hand.
+describe('semantic aliases', () => {
+  it('names each alias by its meaning, in kebab-case, under the one prefix', () => {
+    expect(aliasVar('signal')).toBe('var(--warsha-signal)');
+    expect(aliasVar('signalInk')).toBe('var(--warsha-signal-ink)');
+    expect(aliasVarName('benchPlate')).toBe('--warsha-bench-plate');
+    expect(aliasVarName('lampWorking')).toBe('--warsha-lamp-working');
+    expect(aliasVarName('diffAddBg')).toBe('--warsha-diff-add-bg');
+    expect(aliasVarName('focusRing')).toBe('--warsha-focus-ring');
+  });
+
+  it('keeps every alias one hop from a colour token and never a raw value', () => {
+    for (const name of aliasTokenNames) {
+      for (const theme of ['light', 'dark'] as const) {
+        const value = aliasValue(name, theme);
+        // Either `var(--warsha-color-…)` or the single derived mix the direction allows.
+        expect(value.startsWith('var(--warsha-color-') || value.startsWith('color-mix('), `${name}/${theme}`).toBe(
+          true
+        );
+        // No alias is allowed to smuggle a hex past the palette (R6's whole point, from the other side).
+        expect(value).not.toMatch(/#[0-9a-fA-F]{3,8}/);
+      }
+    }
+  });
+
+  it('carries the night shift: three aliases change token with the theme, and they are the visible ones', () => {
+    // The lamp-as-mark, the yellow-as-text and the focus ring are the three places a light plate and a dark
+    // one cannot share a token and stay AA-readable (§9, §12).
+    expect(aliasValue('signalText', 'light')).toBe('var(--warsha-color-accent-strong)');
+    expect(aliasValue('signalText', 'dark')).toBe('var(--warsha-color-accent)');
+    expect(aliasValue('lampWorking', 'light')).toBe('var(--warsha-color-accent-strong)');
+    expect(aliasValue('lampWorking', 'dark')).toBe('var(--warsha-color-accent)');
+    expect(aliasValue('focusRing', 'light')).toBe('var(--warsha-color-accent-strong)');
+    expect(aliasValue('focusRing', 'dark')).toBe('var(--warsha-color-accent)');
+
+    // The signal itself is the brand, identical in both themes — the direction's §1.6 claim, in a value.
+    expect(aliasValue('signal', 'light')).toBe(aliasValue('signal', 'dark'));
+  });
+
+  it('resolves an alias down to the colour token it names', () => {
+    expect(aliasResolvesTo('signal', 'dark')).toBe('accent');
+    expect(aliasResolvesTo('benchPlate', 'light')).toBe('surface-muted');
+    expect(aliasResolvesTo('lampFail', 'light')).toBe('error');
+    expect(aliasResolvesTo('signalWash', 'light')).toContain('color-mix(');
+  });
+});
+
+describe('bench sizes', () => {
+  it('names a length as a token, so a component never writes a pixel', () => {
+    expect(size('touch')).toBe('var(--warsha-size-touch)');
+    expect(sizeVarName('touchCompact')).toBe('--warsha-size-touch-compact');
+    expect(sizeVarName('diffGutter')).toBe('--warsha-size-diff-gutter');
+    expect(sizeVarName('railCompact')).toBe('--warsha-size-rail-compact');
+    expect(sizeVarName('streamTime')).toBe('--warsha-size-stream-time');
+    expect(size('measure')).toBe('var(--warsha-size-measure)');
+  });
+
+  it('holds the two accessibility facts the compounds depend on', () => {
+    // 44px is WCAG's target minimum as REDESIGN §9 adopts it; 2px is the ring's width and the stamp's border.
+    expect(sizeTokens.touch).toBe('44px');
+    expect(sizeTokens.inscribe).toBe('2px');
+    // The hairline and the edge are the only two structural widths the bench knows.
+    expect(sizeTokens.rule).toBe('1px');
+    expect(sizeTokens.edge).toBe('3px');
+    // The measure is the prose cap §11 states in characters, not in pixels.
+    expect(sizeTokens.measure).toBe('68ch');
+  });
+
+  it('carries the geometry §4 names, so a rail is one number everywhere', () => {
+    expect(sizeTokens.rail).toBe('264px');
+    expect(sizeTokens.panel).toBe('300px');
+    expect(sizeTokens.topbar).toBe('56px');
+    expect(sizeTokens.strip).toBe('36px');
+  });
+
+  it('gives the two loops a duration token of their own, zeroed with the rest under reduced motion', () => {
+    // §8: the component asks for a duration; `tokens.css` decides that a user who asked for calm gets none.
+    expect(duration('breathe')).toBe('var(--warsha-duration-breathe)');
+    expect(duration('shimmer')).toBe('var(--warsha-duration-shimmer)');
+    expect(durationNames).toContain('breathe');
+    expect(durationNames).toContain('shimmer');
   });
 });

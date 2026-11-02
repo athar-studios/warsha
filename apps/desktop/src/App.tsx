@@ -1,9 +1,35 @@
-// @warsha/desktop — Main app component with Simple/Advanced mode routing
+// @warsha/desktop — the bench: the shell, the mode and the routing (docs/design/REDESIGN.md §4, §10).
+//
+// What lives here and what does not. This file owns the *regions* the direction names — the top bar, the
+// instrument strip, the settings tab strip and the main bench area — plus the state they read: the mode,
+// the selected project and run, the gates waiting on the owner, the project's budget and the two
+// post-launch lists. It does not own screen content: each screen keeps its own data path through
+// `@warsha/client`, and the shell passes what the screens already take (`client`, `project`, `run`,
+// `onBack`) so no accepted seam changes shape.
+//
+// Three rules this file is written against:
+//
+//   * **Simple is primary, Advanced is disclosure** (§3). The mode is the owner's saved choice, the switch
+//     is the shell's, and changing it keeps the project and the run — it never changes the pipeline, the
+//     gates or the data model;
+//   * **the shell routes on state, screens stay deep-linkable** (§4). `?screen=…` is still the one address
+//     a screen has, which is what the Playwright suite and the remote hand-off use;
+//   * **every word is the catalog's** (§13). The `t(…) || 'literal'` fallbacks, the local tab labels and
+//     the `localized()` shim that needed them are gone: a missing key now shows its own name, which is how
+//     a gap gets noticed instead of silently turning into English copy in an Arabic session.
 import { invoke } from '@tauri-apps/api/core';
-import { createClient, type WarshaClient, type ProjectSummary, type RunSummary } from '@warsha/client';
-import { useLocale, useDirection, t, type Locale } from '@warsha/i18n';
-import { Box, Text, Button } from '@warsha/ui';
-import React, { useState, useEffect, createContext, useContext, ReactNode } from 'react';
+import {
+  createClient,
+  type CrashReport as WireCrashReport,
+  type GateSummary,
+  type ProjectSummary,
+  type RunSummary,
+  type StoreReview as WireStoreReview,
+  type WarshaClient,
+} from '@warsha/client';
+import { t, useDirection, useLocale, type Locale } from '@warsha/i18n';
+import { Box, Button, Skeleton, tabPanelProps, type WorkbenchMode } from '@warsha/ui';
+import React, { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import {
   BackendKitPanel,
@@ -12,11 +38,9 @@ import {
   type BackendTable,
   type PaymentsGateStatus,
 } from './components/BackendKitPanel';
-import { PermissionModeChip, type PermissionMode } from './components/PermissionModeChip';
-import { PlanModeBadge, type AgentMode } from './components/PlanModeBadge';
+import { BenchTopbar } from './components/BenchTopbar';
+import { InstrumentStrip } from './components/InstrumentStrip';
 import { ProviderSetupWizard } from './components/ProviderSetupWizard';
-import { StatusStrip, initialDeliveryStages, type DeliveryStage } from './components/StatusStrip';
-import { ThemeToggle } from './components/ThemeToggle';
 import { AdvancedMode } from './screens/AdvancedMode';
 import { ArtifactViewer } from './screens/ArtifactViewer';
 import { Budgets } from './screens/Budgets';
@@ -37,19 +61,18 @@ import {
 import { SettingsScreen } from './screens/SettingsScreen';
 import { SimpleMode } from './screens/SimpleMode';
 import { StoreReviews, type StoreReview } from './screens/StoreReviews';
-import { ThemeProvider, useTheme } from './theme';
-
+import { ThemeProvider } from './theme';
 
 // Screen types
-type Screen = 
-  | 'onboarding' 
-  | 'projects' 
-  | 'run' 
-  | 'gates' 
-  | 'artifacts' 
-  | 'providers' 
-  | 'roles' 
-  | 'budgets' 
+export type Screen =
+  | 'onboarding'
+  | 'projects'
+  | 'run'
+  | 'gates'
+  | 'artifacts'
+  | 'providers'
+  | 'roles'
+  | 'budgets'
   | 'devices'
   | 'simple'
   | 'advanced'
@@ -60,9 +83,9 @@ type Screen =
   | 'store-reviews'
   | 'backend-kit';
 
-// The Settings tab strip (PLAN.md M20 wiring batch): every settings sub-screen can
-// reach the others, so none of them is a dead end. Order is the sidebar order.
-const SETTINGS_SCREENS: Screen[] = [
+// The Settings tab strip (PLAN.md M20 wiring batch): every settings sub-screen can reach the others, so
+// none of them is a dead end. Order is the sidebar order, and §4 gives all six one `role="tablist"`.
+const SETTINGS_SCREENS: readonly Screen[] = [
   'settings',
   'settings-providers',
   'routines',
@@ -71,33 +94,23 @@ const SETTINGS_SCREENS: Screen[] = [
   'backend-kit',
 ];
 
-// Tab labels. `t` returns the key itself when the catalog has no entry yet, so the
-// label falls back to the local text until `@warsha/i18n` gains the key (the same
-// `localized` rule the M8b/M14a/M17 components use).
-function localized(key: string, fallback: string, locale: Locale): string {
-  const translated = t(key, {}, locale);
-  return translated === key ? fallback : translated;
-}
-
-function settingsTabLabel(screen: Screen, locale: Locale): string {
+/** The tab's word for one settings screen — the catalog's, never a local table (§13). */
+export function settingsTabLabel(screen: Screen, locale: Locale): string {
   switch (screen) {
     case 'settings-providers':
-      return localized('nav.providers', 'Providers', locale);
+      return t('nav.providers', {}, locale);
     case 'routines':
-      return localized('settings.routines', 'Routines', locale);
+      return t('settings.routines', {}, locale);
     case 'crash-reports':
-      return localized('settings.crashReports', 'Crash reports', locale);
+      return t('settings.crashReports', {}, locale);
     case 'store-reviews':
-      return localized('settings.storeReviews', 'Store reviews', locale);
+      return t('settings.storeReviews', {}, locale);
     case 'backend-kit':
-      return localized('settings.backendKit', 'Backend kit', locale);
+      return t('settings.backendKit', {}, locale);
     default:
-      return localized('nav.settings', 'Settings', locale);
+      return t('nav.settings', {}, locale);
   }
 }
-
-// App mode
-type AppMode = 'simple' | 'advanced';
 
 /**
  * Screens a deep link may name, e.g. `?screen=settings`.
@@ -133,6 +146,9 @@ const PROJECT_SCREENS: readonly Screen[] = ['simple', 'advanced'];
 /** Screens that render one run (`run`, `gates`, `artifacts`). */
 const RUN_SCREENS: readonly Screen[] = ['run', 'gates', 'artifacts'];
 
+/** Screens whose own layout owns the column, so the bench gives them the full width (§10). */
+const WORKBENCH_SCREENS: readonly Screen[] = ['simple', 'advanced'];
+
 /** The screen `search` (a `location.search` string) asks for, or `null` for "no deep link". */
 export function requestedScreen(search: string): Screen | null {
   const value = new URLSearchParams(search).get('screen');
@@ -157,7 +173,7 @@ interface StartupTarget {
  * showing an empty screen.
  */
 async function startupTarget(
-  mode: AppMode,
+  mode: WorkbenchMode,
   projects: ProjectSummary[],
   client: WarshaClient,
   search: string
@@ -179,22 +195,6 @@ async function startupTarget(
   }
 
   return { screen: wanted, project, run };
-}
-
-// Mode context
-interface ModeContextValue {
-  mode: AppMode;
-  setMode: (mode: AppMode) => void;
-}
-
-const ModeContext = createContext<ModeContextValue | null>(null);
-
-export function useMode() {
-  const context = useContext(ModeContext);
-  if (!context) {
-    throw new Error('useMode must be used within ModeProvider');
-  }
-  return context;
 }
 
 // Check if onboarding is complete
@@ -226,13 +226,18 @@ async function readConfig(key: string): Promise<string> {
  * URL is ignored — an empty or malformed answer must not become the client's endpoint.
  *
  * A browser has no shell: `pnpm dev` in a plain browser and the Playwright harness
- * (`e2e/harness.ts`) both answer those keys with the empty string, and the development defaults
- * below are what the harness stubs, so the visual checks measure the same client they always did.
+ * (`e2e/harness.ts`) both answer those keys with the development defaults below, which is what the
+ * harness stubs, so the visual checks measure the same client they always did.
  */
 const DEV_DAEMON_URL = 'http://127.0.0.1:8766';
 const DEV_DAEMON_TOKEN = 'test-token';
 
-async function daemonEndpoint(): Promise<{ baseUrl: string; token: string }> {
+interface DaemonEndpoint {
+  baseUrl: string;
+  token: string;
+}
+
+async function daemonEndpoint(): Promise<DaemonEndpoint> {
   const reportedUrl = await readConfig('daemon_url');
   const reportedToken = await readConfig('daemon_token');
   const baseUrl = /^https?:\/\/\S+$/.test(reportedUrl)
@@ -241,18 +246,18 @@ async function daemonEndpoint(): Promise<{ baseUrl: string; token: string }> {
   return { baseUrl, token: reportedToken === '' ? DEV_DAEMON_TOKEN : reportedToken };
 }
 
-// Get saved mode
-async function getSavedMode(): Promise<AppMode> {
+/** The daemon's answer to `runs.status` for the shell's own reading. */
+async function getSavedMode(): Promise<WorkbenchMode> {
   try {
     const result = await invoke<string>('get_config', { key: 'app_mode' });
-    return (result as AppMode) || 'simple';
+    return result === 'advanced' ? 'advanced' : 'simple';
   } catch {
     return 'simple';
   }
 }
 
 // Save mode
-async function saveMode(mode: AppMode): Promise<void> {
+async function saveMode(mode: WorkbenchMode): Promise<void> {
   try {
     await invoke('set_config', { key: 'app_mode', value: mode });
   } catch (error) {
@@ -270,73 +275,82 @@ async function saveOnboardingComplete(): Promise<void> {
   }
 }
 
-function ModeProvider({ children, initialMode }: { children: ReactNode; initialMode: AppMode }) {
-  const [mode, setMode] = useState<AppMode>(initialMode);
-
-  const handleSetMode = async (newMode: AppMode) => {
-    setMode(newMode);
-    await saveMode(newMode);
+/** The wire shape `postlaunch.crashes` answers, mapped to the screen's camelCase row. */
+function toCrashReport(report: WireCrashReport): CrashReport {
+  return {
+    id: report.id,
+    runId: report.run_id,
+    message: report.message,
+    stackTrace: report.stack_trace ?? null,
+    occurredAt: report.occurred_at,
+    sent: report.sent,
   };
-
-  return (
-    <ModeContext.Provider value={{ mode, setMode: handleSetMode }}>
-      {children}
-    </ModeContext.Provider>
-  );
 }
+
+/** The wire shape `postlaunch.reviews` answers, mapped to the screen's camelCase row. */
+function toStoreReview(review: WireStoreReview): StoreReview {
+  return {
+    id: review.id,
+    store: review.store,
+    rating: review.rating,
+    body: review.body,
+    author: review.author,
+    receivedAt: review.received_at,
+  };
+}
+
+/** What a list the shell reads can be doing. §7: each of these has its own words on screen. */
+type LoadState = 'idle' | 'loading' | 'ready' | 'failed';
 
 function AppContent() {
   const dir = useDirection();
   const locale = useLocale();
-  // The owner's theme choice (light / dark / system). The provider writes `data-theme`; this
-  // shell only mounts the switch.
-  const { preference: themePreference, setPreference: setThemePreference } = useTheme();
   const [screen, setScreen] = useState<Screen>('onboarding');
+  const [mode, setModeState] = useState<WorkbenchMode>('simple');
   const [client, setClient] = useState<WarshaClient | null>(null);
+  const [endpoint, setEndpoint] = useState<DaemonEndpoint>({ baseUrl: DEV_DAEMON_URL, token: DEV_DAEMON_TOKEN });
   const [, setProjects] = useState<ProjectSummary[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(null);
   const [selectedRun, setSelectedRun] = useState<RunSummary | null>(null);
   const [onboardingComplete, setOnboardingComplete] = useState(false);
-  const [savedMode, setSavedMode] = useState<AppMode>('simple');
-  // Work protection: per-session permission mode, shown in the status strip.
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>('ask_for_risky');
-  // Ship status strip (M5a): the four delivery stages. Seeded pending, because
-  // nothing has reported a check yet; the CI/GitHub check feed replaces this
-  // initializer once the delivery RPC exists.
-  const [deliveryStages] = useState<DeliveryStage[]>(initialDeliveryStages);
-  // Agent workflow (M18): Plan/Agent mode, shown next to the mode toggle. The badge
-  // only asks for a switch; Plan → Agent needs the owner's approval card, so this
-  // shell records the requested mode and the gates inbox grants it.
-  const [agentMode, setAgentMode] = useState<AgentMode>('plan');
-  // Settings → Routines / Providers (M8b): `warshad` has no routines.* or provider
-  // listing RPC on this branch, so both lists start empty and the handlers are the
-  // seams a later RPC plugs into.
+  const [daemonOnline, setDaemonOnline] = useState(false);
+  // The gates the bell counts and the instrument strip reports: `gates.list` for the run being shown.
+  const [gates, setGates] = useState<GateSummary[] | null>(null);
+  const [gatesState, setGatesState] = useState<LoadState>('idle');
+  // The project's budget — the reading the instrument strip's meter and the Advanced costs plate share.
+  const [budget, setBudget] = useState<{ spentUsd: number; totalUsd: number } | null>(null);
+  // Post-launch care (M17): the two lists the daemon already answers (`postlaunch.crashes` /
+  // `postlaunch.reviews`), read when the owner opens their tab.
+  const [crashReports, setCrashReports] = useState<CrashReport[]>([]);
+  const [crashState, setCrashState] = useState<LoadState>('idle');
+  const [storeReviews, setStoreReviews] = useState<StoreReview[]>([]);
+  const [reviewsState, setReviewsState] = useState<LoadState>('idle');
+  // Settings → Routines / Providers (M8b): `warshad` has no routines.* or provider listing RPC on this
+  // branch, so both lists start empty and the handlers are the seams a later RPC plugs into.
   const [routines] = useState<Routine[]>([]);
   const [providers, setProviders] = useState<ProviderEntry[]>([]);
-  // Post-launch care (M17): crash reports and store reviews are read-only lists;
-  // nothing records or fetches them yet.
-  const [crashReports] = useState<CrashReport[]>([]);
-  const [storeReviews] = useState<StoreReview[]>([]);
-  // Backend kit (M19): the backend kind, the enabled services, the tables the agent
-  // created and the payments gate (shut until the owner approves it).
+  // Backend kit (M19): the backend kind, the enabled services, the tables the agent created and the
+  // payments gate (shut until the owner approves it).
   const [backendKind, setBackendKind] = useState<BackendKind>('pocket_base');
   const [backendFeatures, setBackendFeatures] = useState<BackendFeature[]>([]);
   const [backendTables] = useState<BackendTable[]>([]);
   const [paymentsGate] = useState<PaymentsGateStatus>({ enabled: false });
+  const tablistRef = useRef<HTMLDivElement>(null);
 
-  // Initialize client and load mode
+  // ------------------------------------------------------------------ start-up: client, mode, screen
   useEffect(() => {
     const initApp = async () => {
       try {
-        const { baseUrl, token } = await daemonEndpoint();
-        const apiClient = createClient(baseUrl, token);
+        const daemon = await daemonEndpoint();
+        setEndpoint(daemon);
+        const apiClient = createClient(daemon.baseUrl, daemon.token);
         setClient(apiClient);
 
         const complete = await checkOnboarding();
         setOnboardingComplete(complete);
 
-        const mode = await getSavedMode();
-        setSavedMode(mode);
+        const saved = await getSavedMode();
+        setModeState(saved);
 
         if (!complete) {
           setScreen('onboarding');
@@ -345,60 +359,135 @@ function AppContent() {
 
         const projectsData = await apiClient.listProjects();
         setProjects(projectsData);
+        // The start-up read is the shell's evidence that the daemon answers at all (§7).
+        setDaemonOnline(true);
 
-        const target = await startupTarget(mode, projectsData, apiClient, window.location.search);
+        const target = await startupTarget(saved, projectsData, apiClient, window.location.search);
         if (target.project) setSelectedProject(target.project);
         if (target.run) setSelectedRun(target.run);
         setScreen(target.screen);
       } catch (error) {
         console.error('Failed to initialize app:', error);
+        setDaemonOnline(false);
         setScreen('onboarding');
       }
     };
     initApp();
   }, []);
 
+  const setMode = useCallback((next: WorkbenchMode) => {
+    // §3: the switch keeps the project, the run and the screen it belongs to — only the depth changes.
+    setModeState(next);
+    setScreen(next);
+    void saveMode(next);
+  }, []);
+
+  /** Read the gates of the run the bench is showing — the bell's count and the strip's reading. */
+  const loadGates = useCallback(() => {
+    if (client === null || selectedRun === null) {
+      setGates(null);
+      setGatesState('idle');
+      return;
+    }
+    let cancelled = false;
+    setGatesState('loading');
+    client
+      .getGates(selectedRun.id)
+      .then((list) => {
+        if (cancelled) return;
+        setGates(list);
+        setGatesState('ready');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setGatesState('failed');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, selectedRun]);
+
+  useEffect(() => loadGates(), [loadGates]);
+
+  /** The project's budget, for the strip's meter (§4: one reading, two surfaces). */
+  useEffect(() => {
+    if (client === null || selectedProject === null) {
+      setBudget(null);
+      return undefined;
+    }
+    let cancelled = false;
+    client
+      .getProjectBudget(selectedProject.id)
+      .then((status) => {
+        if (!cancelled) setBudget({ spentUsd: status.spentUsd, totalUsd: status.totalBudgetUsd });
+      })
+      .catch(() => {
+        // A budget the daemon has not recorded is "not reported", never `$0` (§7).
+        if (!cancelled) setBudget(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, selectedProject]);
+
+  /** Read one post-launch list, mapping the wire shape into the screen's row shape. */
+  const loadCrashReports = useCallback(() => {
+    if (client === null) return;
+    setCrashState('loading');
+    client
+      .listCrashReports()
+      .then((list) => {
+        setCrashReports(list.map(toCrashReport));
+        setCrashState('ready');
+      })
+      .catch(() => setCrashState('failed'));
+  }, [client]);
+
+  const loadStoreReviews = useCallback(() => {
+    if (client === null) return;
+    setReviewsState('loading');
+    client
+      .listStoreReviews()
+      .then((list) => {
+        setStoreReviews(list.map(toStoreReview));
+        setReviewsState('ready');
+      })
+      .catch(() => setReviewsState('failed'));
+  }, [client]);
+
+  // The lists are read when their tab opens — not at start-up, so a session that never visits Settings
+  // asks the daemon for nothing it did not need.
+  useEffect(() => {
+    if (screen === 'crash-reports' && crashState === 'idle') loadCrashReports();
+    if (screen === 'store-reviews' && reviewsState === 'idle') loadStoreReviews();
+  }, [crashState, loadCrashReports, loadStoreReviews, reviewsState, screen]);
+
   /**
    * Leave the first-run wizard.
    *
    * The wizard has already created the project through `@warsha/client`; this records that the first
    * run is done (the `set_config` / `onboarding_complete` seam `checkOnboarding` reads back), selects
-   * what it created, and opens the owner's saved mode on it.
+   * what it created, and opens the owner's mode on it.
    */
   const handleOnboardingComplete = (project: ProjectSummary) => {
     void saveOnboardingComplete();
     setOnboardingComplete(true);
     setSelectedProject(project);
-    setScreen(savedMode);
+    setScreen(mode);
     if (client) {
-      client.listProjects().then(setProjects);
+      client.listProjects().then(setProjects).catch(() => undefined);
     }
   };
 
-  // Not wired to a screen yet: the create-project flow still lives inside ProjectsBoard. Kept as-is
-  // because rewiring it is component behaviour, which the M20 foundations brief excludes.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept for the M20 wiring follow-up
-  const handleCreateProject = async (name: string, idea: string) => {
-    if (!client) return;
-    try {
-      const project = await client.createProject(name);
-      await client.startRun(project.id, idea);
-      const projectsData = await client.listProjects();
-      setProjects(projectsData);
-      setSelectedProject(project);
-      const runs = await client.listRuns(project.id);
-      if (runs.length > 0) {
-        setSelectedRun(runs[0]);
-        setScreen(savedMode);
-      }
-    } catch (error) {
-      console.error('Failed to create project:', error);
-    }
+  const handleProjectSelect = (project: ProjectSummary) => {
+    setSelectedProject(project);
+    setScreen(mode);
   };
 
-  // Routines: the registry and its runner live in `warsha-pipeline`, but the daemon
-  // exposes no routines.* method yet, so these three only record the seam. Nothing is
-  // scheduled or executed from the shell.
+  const openScreen = (target: Screen) => () => setScreen(target);
+
+  // Routines: the registry and its runner live in `warsha-pipeline`, but the daemon exposes no
+  // routines.* method yet, so these three only record the seam. Nothing is scheduled or executed here.
   const handleRoutineRun = (_id: string) => {
     // TODO(M20 wiring): call the daemon's routines.run-now RPC once it exists.
   };
@@ -409,16 +498,16 @@ function AppContent() {
     // TODO(M20 wiring): call the daemon's routines.resume RPC once it exists.
   };
 
-  // Settings → Providers (M16): every provider is off by default, so the row edits
-  // only touch the list this shell holds; persisting them needs the settings RPC.
+  // Settings → Providers (M16): every provider is off by default, so the row edits only touch the list
+  // this shell holds; persisting them needs the settings RPC.
   const handleProviderToggle = (name: string, enabled: boolean) => {
     setProviders((current) =>
       current.map((entry) => (entry.name === name ? { ...entry, enabled } : entry))
     );
   };
-  const handleProviderMode = (name: string, mode: ProviderMode) => {
+  const handleProviderMode = (name: string, provider: ProviderMode) => {
     setProviders((current) =>
-      current.map((entry) => (entry.name === name ? { ...entry, mode } : entry))
+      current.map((entry) => (entry.name === name ? { ...entry, mode: provider } : entry))
     );
   };
   const handleProviderPin = (name: string, version: string) => {
@@ -427,8 +516,8 @@ function AppContent() {
     );
   };
 
-  // Backend kit (M19): the panel's edits are local; the MCP client that creates the
-  // tables, policies and buckets, and the export that writes the SQL dump, are not wired.
+  // Backend kit (M19): the panel's edits are local; the MCP client that creates the tables, policies and
+  // buckets, and the export that writes the SQL dump, are not wired.
   const handleBackendKind = (kind: BackendKind) => {
     setBackendKind(kind);
   };
@@ -443,148 +532,98 @@ function AppContent() {
     // TODO(M20 wiring): call the daemon's backend-kit export RPC once it exists.
   };
 
-  const renderScreen = () => {
-    if (!onboardingComplete) {
-      // The first-run wizard owns everything up to the owner's first project; it talks to the daemon
-      // through the same client the shell uses (`client` is `null` only until start-up has built it).
-      return <Onboarding client={client} onComplete={handleOnboardingComplete} />;
-    }
-
-    if (!client) {
-      return (
-        <Box dir={dir} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-          <Text dir={dir}>{t('app.loading', {}, locale) || 'Loading...'}</Text>
-        </Box>
-      );
-    }
-
-    // Main navigation for both modes
-    const navigation = (
-      <Box dir={dir} style={{ 
-        display: 'flex', 
-        flexDirection: 'column', 
-        height: '100vh',
-        backgroundColor: 'var(--warsha-color-bg)'
-      }}>
-        {/* Top Bar */}
-        <Box dir={dir} style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          // The bar carries the brand, the ship status, the permission chip, the Plan/Agent badge,
-          // the mode toggle, the theme switch and Settings. On a narrow window that is more than one
-          // row of controls, so it wraps: without this the row stayed 1124px wide in a 390px window
-          // and the whole document scrolled sideways.
-          flexWrap: 'wrap',
-          rowGap: 'var(--warsha-space-2)',
-          paddingInline: 'var(--warsha-space-4)',
-          paddingBlock: 'var(--warsha-space-3)',
-          backgroundColor: 'var(--warsha-color-surface)',
-          borderBottom: '1px solid var(--warsha-color-border)',
-          position: 'sticky',
-          top: 0,
-          zIndex: 100,
-        }}>
-          <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-3)' }}>
-            <Text size="xl" weight="bold" style={{ color: 'var(--warsha-color-accent-strong)' }}>{t('app.brand') || 'Warsha'}</Text>
-            <Text size="sm" style={{ color: 'var(--warsha-color-text-muted)' }}>{t('app.version') || 'v0.1.0'}</Text>
-          </Box>
-
-          <Box dir={dir} style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', rowGap: 'var(--warsha-space-2)', gap: 'var(--warsha-space-3)' }}>
-            {/* Ship status strip: Code checks → Builds → Tests → Store-ready */}
-            <StatusStrip stages={deliveryStages} />
-          </Box>
-
-          <Box dir={dir} style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', rowGap: 'var(--warsha-space-2)', gap: 'var(--warsha-space-3)' }}>
-            {/* Work protection: permission mode */}
-            <PermissionModeChip mode={permissionMode} onChange={setPermissionMode} />
-
-            {/* Agent workflow: Plan/Agent badge, next to the mode toggle */}
-            <PlanModeBadge mode={agentMode} onToggle={setAgentMode} />
-
-            {/* Mode Toggle */}
-            <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-2)', backgroundColor: 'var(--warsha-color-surface-muted)', borderRadius: '8px', padding: 'var(--warsha-space-1)' }}>
-              <Button
-                variant={screen === 'simple' ? 'primary' : 'ghost'}
-                size="sm"
-                dir={dir}
-                onClick={() => setScreen('simple')}
-              >
-                {t('app.simpleMode') || 'Simple'}
-              </Button>
-              <Button
-                variant={screen === 'advanced' ? 'primary' : 'ghost'}
-                size="sm"
-                dir={dir}
-                onClick={() => setScreen('advanced')}
-              >
-                {t('app.advancedMode') || 'Advanced'}
-              </Button>
-            </Box>
-            
-            {/* Theme: light / dark / system, applied as `data-theme` on <html> */}
-            <ThemeToggle preference={themePreference} onChange={setThemePreference} />
-
-            <Button variant="ghost" size="sm" dir={dir} data-testid="settings-open" onClick={() => setScreen('settings')}>
-              {t('app.settings') || 'Settings'}
-            </Button>
-          </Box>
-        </Box>
-
-        {/* Content */}
-        <Box dir={dir} style={{ flex: 1, overflow: 'auto' }}>
-          {renderMainContent()}
-        </Box>
-      </Box>
-    );
-
-    return (
-      <ModeProvider initialMode={savedMode}>
-        {navigation}
-      </ModeProvider>
-    );
+  // ------------------------------------------------------------------- the settings tab strip (§9)
+  const onTabsKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    const nodes = tablistRef.current?.querySelectorAll<HTMLButtonElement>('button[role="tab"]');
+    if (!nodes || nodes.length === 0) return;
+    const rtl = dir === 'rtl';
+    const forward = event.key === 'ArrowRight' ? !rtl : event.key === 'ArrowLeft' ? rtl : false;
+    const back = event.key === 'ArrowLeft' ? !rtl : event.key === 'ArrowRight' ? rtl : false;
+    const order = [...nodes];
+    const current = order.indexOf(document.activeElement as HTMLButtonElement);
+    let next: number | null = null;
+    if (forward) next = (current + 1) % order.length;
+    else if (back) next = (current - 1 + order.length) % order.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = order.length - 1;
+    if (next === null) return;
+    // Manual activation: the arrows move focus, Enter or Space (this button's own keys) selects.
+    event.preventDefault();
+    order[next]?.focus();
   };
 
-  // The tab strip the settings sub-screens share, so Routines, Providers, the
-  // post-launch lists and the backend kit are all reachable from Settings.
   const renderSettingsTabs = () => (
     <div
+      ref={tablistRef}
       dir={dir}
       role="tablist"
+      aria-label={t('settings.tabs', {}, locale)}
       data-testid="settings-tabs"
+      onKeyDown={onTabsKeyDown}
+      className="bench-settings-tabs"
       style={{
         display: 'flex',
-        alignItems: 'center',
-        gap: 'var(--warsha-space-2)',
-        paddingInline: 'var(--warsha-space-4)',
-        paddingBlock: '10px',
+        alignItems: 'stretch',
+        gap: 'var(--warsha-space-1)',
+        borderBlockEnd: 'var(--warsha-size-rule) solid var(--warsha-bench-rule)',
         backgroundColor: 'var(--warsha-color-surface)',
-        borderBottom: '1px solid var(--warsha-color-border)',
-        flexWrap: 'wrap',
+        overflowX: 'auto',
+        minInlineSize: 0,
       }}
     >
-      {SETTINGS_SCREENS.map((target) => (
-        <Button
-          key={target}
-          role="tab"
-          aria-selected={screen === target}
-          variant={screen === target ? 'primary' : 'ghost'}
-          size="sm"
-          dir={dir}
-          data-testid={`settings-tab-${target}`}
-          onClick={() => setScreen(target)}
-        >
-          {settingsTabLabel(target, locale)}
-        </Button>
-      ))}
+      {SETTINGS_SCREENS.map((target) => {
+        const selected = screen === target;
+        return (
+          <Button
+            key={target}
+            role="tab"
+            aria-selected={selected}
+            // Roving tabindex: one Tab stop for the whole strip, arrows for the rest (§9).
+            tabIndex={selected ? 0 : -1}
+            aria-controls={`settings-panel-${target}`}
+            id={`settings-panel-${target}-tab`}
+            variant="ghost"
+            size="sm"
+            dir={dir}
+            data-testid={`settings-tab-${target}`}
+            onClick={openScreen(target)}
+            style={{
+              flex: 'none',
+              borderRadius: 0,
+              borderBlockEnd: selected
+                ? 'var(--warsha-size-edge) solid var(--warsha-signal-text)'
+                : 'var(--warsha-size-edge) solid transparent',
+              backgroundColor: 'transparent',
+              color: 'var(--warsha-color-text)',
+              fontWeight: selected
+                ? 'var(--warsha-font-weight-bold)'
+                : 'var(--warsha-font-weight-medium)',
+              paddingInline: 'var(--warsha-space-3)',
+              minBlockSize: 'var(--warsha-size-touch)',
+            }}
+          >
+            {settingsTabLabel(target, locale)}
+          </Button>
+        );
+      })}
     </div>
+  );
+
+  /** A settings screen, inside the tab strip and named as its panel (§9's tab/panel pair). */
+  const settingsScreen = (children: ReactNode): ReactNode => (
+    <Box dir={dir} className="bench-settings" style={{ minHeight: '100%' }}>
+      {renderSettingsTabs()}
+      <div {...tabPanelProps(`settings-panel-${screen}`)} dir={dir} style={{ minInlineSize: 0, flex: 1 }}>
+        {children}
+      </div>
+    </Box>
   );
 
   const renderMainContent = () => {
     if (!client) {
       return (
-        <Box dir={dir} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-          <Text dir={dir}>{t('app.loading', {}, locale) || 'Loading...'}</Text>
+        <Box dir={dir} style={{ display: 'flex', justifyContent: 'center', paddingBlock: 'var(--warsha-space-8)' }}>
+          <Skeleton label={t('app.loading', {}, locale)} lines={3} variant="row" />
         </Box>
       );
     }
@@ -592,139 +631,192 @@ function AppContent() {
     switch (screen) {
       case 'projects':
         return <ProjectsBoard client={client} onProjectSelect={handleProjectSelect} />;
-      
+
       case 'run': {
         const run = selectedRun;
         if (!run) return <ProjectsBoard client={client} onProjectSelect={handleProjectSelect} />;
         return <RunView client={client} run={run} onBack={() => setScreen('projects')} />;
       }
-      
+
       case 'simple': {
         const project = selectedProject;
         if (!project) return <ProjectsBoard client={client} onProjectSelect={handleProjectSelect} />;
         return <SimpleMode client={client} project={project} onBack={() => setScreen('projects')} />;
       }
-      
+
       case 'advanced': {
         const project = selectedProject;
         if (!project) return <ProjectsBoard client={client} onProjectSelect={handleProjectSelect} />;
-        return <AdvancedMode client={client} project={project} onBack={() => setScreen('projects')} />;
+        return (
+          <AdvancedMode
+            client={client}
+            project={project}
+            endpoint={endpoint}
+            onBack={() => setScreen('projects')}
+          />
+        );
       }
-      
+
       case 'gates': {
         const run = selectedRun;
         if (!run) return <ProjectsBoard client={client} onProjectSelect={handleProjectSelect} />;
         return <GatesInbox client={client} run={run} onBack={() => setScreen('run')} />;
       }
-      
+
       case 'artifacts': {
         const run = selectedRun;
         if (!run) return <ProjectsBoard client={client} onProjectSelect={handleProjectSelect} />;
         return <ArtifactViewer client={client} run={run} onBack={() => setScreen('run')} />;
       }
-      
+
       case 'providers':
         return <ProvidersSettings client={client} onBack={() => setScreen('projects')} />;
-      
+
       case 'roles':
         return <RolesSettings client={client} onBack={() => setScreen('projects')} />;
-      
+
       case 'budgets':
         return <Budgets client={client} onBack={() => setScreen('projects')} />;
-      
+
       case 'devices':
         return <Devices client={client} onBack={() => setScreen('projects')} />;
-      
+
       case 'settings':
-        return (
-          <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
-            {renderSettingsTabs()}
-            <SettingsScreen client={client} onBack={() => setScreen('projects')} />
-          </Box>
-        );
+        return settingsScreen(<SettingsScreen client={client} onBack={() => setScreen('projects')} />);
 
       case 'routines':
-        return (
-          <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
-            {renderSettingsTabs()}
-            <Routines
-              routines={routines}
-              onRun={handleRoutineRun}
-              onPause={handleRoutinePause}
-              onResume={handleRoutineResume}
-            />
-          </Box>
+        return settingsScreen(
+          <Routines
+            routines={routines}
+            onRun={handleRoutineRun}
+            onPause={handleRoutinePause}
+            onResume={handleRoutineResume}
+          />
         );
 
       case 'settings-providers':
-        return (
-          <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
-            {renderSettingsTabs()}
+        return settingsScreen(
+          <>
             <SettingsProviders
               providers={providers}
               onModeChange={handleProviderMode}
               onToggle={handleProviderToggle}
               onPinVersion={handleProviderPin}
             />
-            {/* One-click setup (M14b): the six presets and the network-free
-                "Test connection". `onSave` has no settings RPC behind it yet. */}
+            {/* One-click setup (M14b): the six presets and the network-free "Test connection". `onSave`
+                has no settings RPC behind it yet. */}
             <Box dir={dir} style={{ paddingInline: 'var(--warsha-space-4)', paddingBlock: 'var(--warsha-space-3)' }}>
               <ProviderSetupWizard />
             </Box>
-          </Box>
+          </>
         );
 
       case 'crash-reports':
-        return (
-          <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
-            {renderSettingsTabs()}
-            <CrashReports reports={crashReports} />
-          </Box>
+        return settingsScreen(
+          <CrashReports
+            reports={crashReports}
+            loading={crashState === 'loading'}
+            failed={crashState === 'failed'}
+            onRetry={loadCrashReports}
+          />
         );
 
       case 'store-reviews':
-        return (
-          <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
-            {renderSettingsTabs()}
-            <StoreReviews reviews={storeReviews} />
-          </Box>
+        return settingsScreen(
+          <StoreReviews
+            reviews={storeReviews}
+            loading={reviewsState === 'loading'}
+            failed={reviewsState === 'failed'}
+            onRetry={loadStoreReviews}
+          />
         );
 
       case 'backend-kit':
-        return (
-          <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
-            {renderSettingsTabs()}
-            <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', maxWidth: '900px', margin: '0 auto', width: '100%' }}>
-              <BackendKitPanel
-                kind={backendKind}
-                features={backendFeatures}
-                tables={backendTables}
-                payments={paymentsGate}
-                onKindChange={handleBackendKind}
-                onToggleFeature={handleBackendFeature}
-                onExport={handleBackendExport}
-              />
-            </Box>
+        return settingsScreen(
+          // The measure is `.bench-main--document`'s (§10), so the plate only needs its own padding.
+          <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', inlineSize: '100%', minInlineSize: 0 }}>
+            <BackendKitPanel
+              kind={backendKind}
+              features={backendFeatures}
+              tables={backendTables}
+              payments={paymentsGate}
+              onKindChange={handleBackendKind}
+              onToggleFeature={handleBackendFeature}
+              onExport={handleBackendExport}
+            />
           </Box>
         );
-      
+
       default:
         return <ProjectsBoard client={client} onProjectSelect={handleProjectSelect} />;
     }
   };
 
-  const handleProjectSelect = (project: ProjectSummary) => {
-    setSelectedProject(project);
-    setScreen(savedMode);
-  };
+  const pendingGates = gates === null ? null : gates.filter((gate) => gate.state.state === 'pending').length;
+
+  if (!onboardingComplete) {
+    // The first-run wizard owns everything up to the owner's first project, and the bench's chrome is
+    // hidden while it speaks (§5: "instrument strip hidden"). It talks to the daemon through the same
+    // client the shell uses (`client` is `null` only until start-up has built it).
+    //
+    // B4: it is also the bench, so it is in the bench's landmark. axe reported the wizard's whole tree as
+    // content outside a region (`landmark-one-main`, `region`): a screen-reader user arriving for the
+    // first time — the one time they will — had nothing to jump to. `<main>` with the same accessible
+    // name the workbench uses is the fix, and `tabIndex={-1}` keeps it a target for a skip link later.
+    return (
+      <main
+        dir={dir}
+        className="bench bench--wizard"
+        tabIndex={-1}
+        aria-label={t('app.bench_label', {}, locale)}
+        style={{ display: 'block' }}
+      >
+        <Onboarding client={client} onComplete={handleOnboardingComplete} />
+      </main>
+    );
+  }
 
   return (
-    // The locale provider lives in `main.tsx`, above this component: `useLocale()` here has to read
-    // the *live* choice, and a provider mounted inside this shell would shadow it — that is what
-    // kept the app stuck in Arabic with a language picker that changed nothing.
-    <Box dir={dir} className="app" style={{ minHeight: '100vh', backgroundColor: 'var(--warsha-color-bg)' }}>
-      {renderScreen()}
-    </Box>
+    <div dir={dir} className="bench" data-testid="bench">
+      {/* §9: the keyboard gets into the bench without walking the chrome first. */}
+      <a dir={dir} className="bench-skip" href="#bench-main">
+        {t('app.skip_to_bench', {}, locale)}
+      </a>
+
+      <BenchTopbar
+        project={selectedProject}
+        run={selectedRun}
+        mode={mode}
+        onModeChange={setMode}
+        gates={gates}
+        gatesLoading={gatesState === 'loading'}
+        gatesFailed={gatesState === 'failed'}
+        onOpenGates={openScreen('gates')}
+        onRetryGates={() => {
+          void loadGates();
+        }}
+        onOpenSettings={openScreen('settings')}
+      />
+
+      <InstrumentStrip
+        daemonOnline={daemonOnline}
+        run={selectedRun}
+        gatesWaiting={pendingGates}
+        budget={budget}
+      />
+
+      {/* The screen. §10: the workbench owns the full width; a document screen gets the 1100px measure. */}
+      <main
+        id="bench-main"
+        dir={dir}
+        tabIndex={-1}
+        className={
+          WORKBENCH_SCREENS.includes(screen) ? 'bench-main bench-main--workbench' : 'bench-main bench-main--document'
+        }
+      >
+        {renderMainContent()}
+      </main>
+    </div>
   );
 }
 
