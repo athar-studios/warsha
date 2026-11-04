@@ -393,17 +393,23 @@ jobs:
           # sha256sum on Linux and on Git-for-Windows (MSYS coreutils); macOS
           # ships no sha256sum but does ship shasum. Anything else fails the job.
           if command -v sha256sum >/dev/null 2>&1; then
-            actual_sha="$(sha256sum "${archive}" | cut -d' ' -f1)"
+            checksum_verify=(sha256sum --check)
           elif command -v shasum >/dev/null 2>&1; then
-            actual_sha="$(shasum -a 256 "${archive}" | cut -d' ' -f1)"
+            checksum_verify=(shasum -a 256 --check)
           else
             echo "::error::cargo-deny: neither sha256sum nor shasum found on ${target}"
             exit 1
           fi
-          if [ "${actual_sha}" != "${expected_sha}" ]; then
-            echo "::error::${asset} checksum mismatch: got ${actual_sha}, expected ${expected_sha}"
+          # Kept identical to the same block in ci.yml: the tool compares the
+          # digest, so nothing is parsed out of its stdout. A string compare dies on
+          # any Windows runner, where RUNNER_TEMP holds a backslash path and both
+          # tools escape the digest line (run 41924821106: `got \975a2..., expected
+          # 975a2...`). This job is ubuntu-latest today, so the defect is latent
+          # here — it activates the moment this step moves onto a Windows matrix leg.
+          printf '%s  %s\n' "${expected_sha}" "${archive}" | "${checksum_verify[@]}" || {
+            echo "::error::${asset} checksum mismatch against pinned ${expected_sha} for ${target}"
             exit 1
-          fi
+          }
           bindir="${HOME}/.cargo-deny-bin"
           rm -rf "${bindir}"
           mkdir -p "${bindir}"

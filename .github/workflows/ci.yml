@@ -138,17 +138,26 @@ jobs:
           # sha256sum on Linux and on Git-for-Windows (MSYS coreutils); macOS
           # ships no sha256sum but does ship shasum. Anything else fails the leg.
           if command -v sha256sum >/dev/null 2>&1; then
-            actual_sha="$(sha256sum "${archive}" | cut -d' ' -f1)"
+            checksum_verify=(sha256sum --check)
           elif command -v shasum >/dev/null 2>&1; then
-            actual_sha="$(shasum -a 256 "${archive}" | cut -d' ' -f1)"
+            checksum_verify=(shasum -a 256 --check)
           else
             echo "::error::cargo-deny: neither sha256sum nor shasum found on ${target}"
             exit 1
           fi
-          if [ "${actual_sha}" != "${expected_sha}" ]; then
-            echo "::error::${asset} checksum mismatch: got ${actual_sha}, expected ${expected_sha}"
+          # Let the tool compare the digest itself, exactly as the green
+          # `Secret scan (gitleaks)` leg does. Parsing stdout is not an option on
+          # Windows: RUNNER_TEMP is a backslash path (`D:\a\_temp`) and BOTH
+          # sha256sum and shasum escape an output line whose file name contains a
+          # backslash, prefixing the DIGEST with `\`. Reproduced locally:
+          #   sha256sum 'd\f.txt' | cut -d' ' -f1
+          #   -> \eb3a5fb11d4b50febbbb25d373c55fe6bdcc760640a18ce3c01e3f92ab4ef7be
+          # That is run 41924821106's `got \975a2..., expected 975a2...` — the two
+          # digests were equal, so the string compare could never succeed.
+          printf '%s  %s\n' "${expected_sha}" "${archive}" | "${checksum_verify[@]}" || {
+            echo "::error::${asset} checksum mismatch against pinned ${expected_sha} for ${target}"
             exit 1
-          fi
+          }
           bindir="${HOME}/.cargo-deny-bin"
           rm -rf "${bindir}"
           mkdir -p "${bindir}"
@@ -401,11 +410,17 @@ jobs:
       # what run 41752421903 proved for the JS/TS leg: `Build (TypeScript)` died
       # with exit 127, "command not found", because no pnpm/node setup step
       # existed in this job, so `pnpm install --frozen-lockfile` resolved to
-      # nothing. The `Build (Rust)` step carried the identical defect (no Rust
-      # toolchain here either) but was never reached: that leg failed earlier at
-      # CodeQL init with "Advanced Security must be enabled for this repository",
-      # which is an organization/repository setting the owner must turn on, not
-      # something YAML can fix.
+      # nothing. The `Build (Rust)` step carried the same defect in principle, but
+      # in that run the workspace still compiled, so it passed and the rust leg
+      # instead failed at `Perform CodeQL Analysis`; run 41924821106 reached
+      # `Build (Rust)` at all only once the setup steps below existed.
+      #
+      # That earlier rust-leg failure was NOT a toolchain or YAML problem, and it
+      # is still there: `Initialize CodeQL` succeeds, then the result upload is
+      # rejected with "Advanced Security must be enabled for this repository to
+      # use code scanning" and the job status becomes `configuration error`. Same
+      # message in both language legs. It is an owner-level repository setting,
+      # so fixing the Rust compile errors will not by itself turn CodeQL green.
       #
       # Approach taken: keep the explicit build (no `Autobuild repo`) and give
       # each leg the same setup the TypeScript job uses — same actions, same
@@ -445,7 +460,18 @@ jobs:
         if: matrix.language == 'javascript-typescript'
         run: |
           pnpm install --frozen-lockfile
-          pnpm build
+          # Scope down instead of installing mdBook here. Run 41924821106 died in
+          # this step with `docs build: sh: 1: mdbook: not found` / ENOENT: `pnpm
+          # build` is `pnpm -r run build`, the `docs` project builds the mdBook
+          # site, and only the `TypeScript` leg installs mdbook. Adding the install
+          # here would make a JavaScript/TypeScript analysis compile mdBook's whole
+          # Rust dependency graph to emit HTML that cannot add one trap to the
+          # database, so the site is excluded instead. `@warsha/docs` is the only
+          # project dropped — the six TypeScript packages still build, and the
+          # `TypeScript` leg keeps the unfiltered `pnpm build`, so nothing got
+          # weaker. Excluding by name, rather than listing the six, means a new TS
+          # package is traced by default instead of silently escaping CodeQL.
+          pnpm -r --filter '!@warsha/docs' run build
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
