@@ -5610,3 +5610,34 @@ hypotheses left in this triage.
   matters beyond the record: it is the first push where CI's `Setup pnpm` fix is in place, so the
   TypeScript job will reach the **visual** step for the first time ever, which is how #41's
   x86_64-vs-aarch64 question finally gets answered with data instead of argument.
+
+## Orchestrator log — 2026-11-04 21:57Z, this stage is on GitHub
+
+- **Pushed to `dev`**: `191d7c5..ddb8074`, two commits — `6b1a7a6` (93 non-snapshot
+  files: the PWA install surface, `daemon.ts`, the five new daemon/CLI integration
+  tests, `deny.toml`, the CI and docs work) and `ddb8074` (466 visual baselines:
+  418 re-derived, 48 new `states` shots). Working tree is clean apart from
+  `QODER_RESTART_PROMPT.md`, an agent diagnostic kept out of the repo on purpose.
+- **Gates run before the push, and the scan was proven to be able to fail**:
+  `check-engineering-policy.mjs` 8 checks/0 failures, `actionlint` clean, and
+  `gitleaks protect --staged` reported "no leaks found" only after a planted
+  `AKIA…` credential in a staged file made it report 1 leak. v8.30 prints
+  "0 commits scanned" for staged mode; the byte count, not that line, is what
+  shows it read the staged diff (435 KB on the source commit, ~0 B on the PNG
+  commit because binaries are skipped).
+- **Snapshot decision, recorded rather than assumed**: the 418 modified PNGs were
+  the owner-approved re-derivation logged above (three capture bursts
+  07:43-08:22Z), not stray drift. Pixel forensics on a sample split them into
+  large content-region changes in `ar-*` (advanced 1024x768: 8.3% of pixels, bbox
+  x285-907 y76-566) and small localized text-band changes in `en-*` (0.4-0.5%,
+  bbox y80-91), and neither collapsed under +-2 px alignment, so they are not a
+  sub-pixel offset. Committed as a separate commit so the baseline set can be
+  reverted independently of the code.
+- **First CI run on this tree is queued** (`41920839749`) — run `41752421903` on
+  `191d7c5` failed, so #41's x86_64-vs-aarch64 visual question and whether
+  cargo-deny now reaches all three legs get answered by that run, not by me.
+- **Portability, since that was the point**: a fresh device can now clone and work.
+  Two things still do not travel: `Cargo.lock` is gitignored (`.gitignore:4,70`)
+  so Rust deps re-resolve per machine, and there is no `.env` (only
+  `.env.example`) while provider secrets live in the OS keychain, so they must be
+  re-entered on the new device.
