@@ -5641,3 +5641,18 @@ hypotheses left in this triage.
   so Rust deps re-resolve per machine, and there is no `.env` (only
   `.env.example`) while provider secrets live in the OS keychain, so they must be
   re-entered on the new device.
+
+## Orchestrator log — 2026-11-04 22:20Z, handoff prompts committed
+
+- Added `docs/CONTINUE_PROMPT.md` (single-agent ship run) and
+  `docs/ORCHESTRATOR_PROMPT.md` (same work as delegated waves W1-W10 to the `Coder`
+  and `debugger` sub-agents, with the file-disjoint ownership, the two-compiling-lanes
+  cap and the never-delegate owner list). Both are written to be pasted on another
+  device, so they carry the measured state rather than this session's context.
+- **Three references were corrected against the tree before committing**, all from
+  sub-agent reports I should not have passed through: `devices.pair` is an
+  **Owner policy** with `Pairing` as its *rate* tier (`crates/warshad/src/auth.rs:360`),
+  not "Owner-tier" — conflating the two axes is exactly what #74 was closed for;
+  the null signing knobs are `tauri.conf.json:61` and `:65`, not `:61,64`; and the
+  wire gap is 62 `#[method]` declarations against 30 stubbed in
+  `apps/desktop/e2e/harness.ts:99-130`, not 61-vs-31.
