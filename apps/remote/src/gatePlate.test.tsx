@@ -12,8 +12,8 @@
 // diacritic moves.
 import { fireEvent, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import { t } from '@warsha/i18n';
 import type { Stage } from '@warsha/client';
+import { t } from '@warsha/i18n';
 import { describe, expect, it } from 'vitest';
 
 import { gateWaitsOnOwner } from './bench';

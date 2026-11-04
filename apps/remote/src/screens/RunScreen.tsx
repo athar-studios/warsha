@@ -15,7 +15,6 @@ import {
   Box,
   Button,
   Chip,
-  ChipMeta,
   EmptyState,
   Lamp,
   Ledger,
