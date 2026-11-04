@@ -25,6 +25,20 @@ export function money(usd: number): string {
   return `$${usd.toFixed(2)}`;
 }
 
+/**
+ * Whether a budget reading carries a ceiling at all.
+ *
+ * The daemon owns money in cents and `budget.show`'s ceiling is an `Option`; `@warsha/client` folds a
+ * `null` into `0` while converting to the dollars `BudgetStatus` has always declared
+ * (`packages/client/src/index.ts`, `centsToUsd`). So `0` is the only no-ceiling signal a screen can get,
+ * and it is the signal `ProjectsBoard` already hides its meter behind. It cannot separate a ceiling that
+ * was never set from one legitimately set to zero — the wire distinction is gone before the render — so
+ * the honest words are "no ceiling reported", never a formatted `$0.00`, which reads as "no budget left".
+ */
+export function hasCeiling(totalUsd: number): boolean {
+  return totalUsd > 0;
+}
+
 /** `$1.37` from the daemon's cents — the unit an event reports a cost in. */
 export function moneyFromCents(cents: number): string {
   return money(cents / 100);

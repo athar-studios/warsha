@@ -36,7 +36,7 @@ import { Link } from 'react-router-dom';
 import { GatePlate } from '../GatePlate';
 import { useRemote } from '../bench';
 import { Machine, ScreenTitle } from '../chrome';
-import { clock, money, percent, shortId } from '../format';
+import { clock, hasCeiling, money, percent, shortId } from '../format';
 import { gateLampState, gateStateWord, runLampState, runStatusWord, stageWord } from '../labels';
 import { UnpairedScreen } from '../pairing';
 
@@ -236,6 +236,10 @@ export function NeedsYouScreen() {
             meta={
               budget === null ? (
                 <Machine>{t('bench.not_reported', {}, locale)}</Machine>
+              ) : !hasCeiling(budget.totalBudgetUsd) ? (
+                // A ceiling the daemon never set arrives as `0`; the meter would print `$0.00`, which reads
+                // as "nothing left" rather than "no ceiling reported" (§7: an unread reading is a word).
+                <Machine>{`${money(budget.spentUsd)} · ${t('bench.no_ceiling', {}, locale)}`}</Machine>
               ) : (
                 <Meter
                   value={Number(budget.spentUsd.toFixed(2))}

@@ -70,7 +70,7 @@ function event(overrides: Partial<WarshaEvent> & { id: string }): WarshaEvent {
   } as WarshaEvent;
 }
 
-/** The client the bench reads: `runs.list`, `budget.project`, `agent.state`, `runs.logs`. */
+/** The client the bench reads: `runs.list`, `budget.show`, `agent.state`, `runs.events`. */
 function fakeClient(overrides: Partial<Record<string, () => Promise<unknown>>> = {}): WarshaClient {
   return {
     listRuns: () => Promise.resolve([run]),
@@ -267,6 +267,27 @@ describe('AdvancedMode bench', () => {
     expect(costs).toHaveTextContent('$3.25 / $10.00');
     // Nothing has streamed yet, so the per-role breakdown says so rather than showing an empty grid.
     expect(costs).toHaveTextContent('No lane has reported a cost yet.');
+  });
+
+  it('words a ceiling the daemon never set, in the costs pane too', async () => {
+    // `budget.show` answered with the spend and no ceiling, and the client's cents→USD conversion carries
+    // that null as `0`. A `$3.25 / $0.00` meter and a `$0.00` remainder would read as "spent everything":
+    // the pane now names the missing reading and leaves the spend as the number it is (§7).
+    renderBench(
+      fakeClient({
+        getProjectBudget: () => Promise.resolve({ totalBudgetUsd: 0, spentUsd: 3.25, remainingUsd: 0 }),
+      })
+    );
+
+    fireEvent.click(screen.getByTestId('advanced-tab-costs'));
+    const costs = await screen.findByTestId('advanced-costs');
+    expect(within(costs).queryByRole('meter')).toBeNull();
+    expect(costs).toHaveTextContent('Budget used: $3.25 · no ceiling reported');
+    // The remainder keeps the pane's unread placeholder instead of the `$0.00` the folded null produced,
+    // and the old meter line can never come back. The `$0.00` that *does* remain on this pane is the lane
+    // total — a real sum of what has streamed — and the breakdown says so in words below it.
+    expect(within(costs).getByText('—')).toBeInTheDocument();
+    expect(costs.textContent).not.toContain('$3.25 / $0.00');
   });
 
   it('holds the ship plate: the four stages, the six checks and a deploy the preflight still gates', async () => {

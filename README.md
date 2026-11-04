@@ -69,21 +69,34 @@ flowchart TB
 
 ## How to use it (planned)
 
-1. **Install.** Download the installer for Windows, macOS or Linux from the Releases page *(coming in a later milestone)*.
+There is nothing to download yet: no release has been published for this repository, so the first step
+below is a plan, not an instruction you can follow today. Building from source is described in
+[docs/DEVELOPERS.md](docs/DEVELOPERS.md).
+
+1. **Install.** Get the installer for Windows, macOS or Linux. *(Not produced yet — see the [Roadmap](#roadmap).)*
 2. **Pick your language** (Arabic or English) when the app opens for the first time.
 3. **Connect your AI.** Add the AI you already have: an API key (OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, Azure), a model running on your own computer (Ollama, LM Studio), or an official coding tool you already use (Claude Code, Codex CLI, Gemini CLI, Cursor CLI). Keys are kept in your system's secure keychain.
-4. **Connect GitHub** so Warsha can create a repository for your project.
+4. **Connect GitHub.** Give Warsha a GitHub token so it can prepare a repository for your project. The GitHub
+   client is in the code (`crates/warsha-git`), but no screen or command drives it yet, so nothing creates a
+   repository, opens an issue or opens a pull request today.
 5. **Start a project.** Write your idea in a sentence or two, for example: *"A to-do app that works offline."*
 6. **Follow the team.** The side panel shows every agent and a short, simple summary of what it did. The board shows which stage your project is in.
 7. **Approve or reject at each gate.** Read what the agents produced (idea summary, spec, code changes, launch texts). Approve to continue, or reject with a short reason and the agents will rework it.
-8. **Follow from your phone.** Scan a QR code from the desktop app to pair your phone. You can see live status, chat with the current agent, get notifications, and approve gates.
+8. **Follow from your phone.** Scan a QR code from the desktop app to pair your phone. You can see live status,
+   chat with the current agent, and approve gates. There are no phone notifications: the mobile app registers
+   no service worker and requests no push permission, so nothing reaches your phone by itself — you have to
+   open it.
 9. **Get your release.** At the end you have a GitHub repository with the code, passing checks, a draft release and draft store texts. Warsha never publishes anything by itself.
 
-Prefer the terminal? The same steps will be available with the `warsha` command (`warsha new "your idea"`, `warsha status`, `warsha approve`, `warsha pair`).
+Prefer the terminal? The `warsha` command exists today (`warsha new "your idea"`, `warsha status`,
+`warsha approve <run> <gate>`, `warsha pair <qr-code>`). It talks to the `warshad` daemon, so start that first —
+without it every command answers `Not connected to daemon`. The exact verbs and flags are in the
+[quickstart](docs/src/quickstart.md).
 
 ## Roadmap
 
-Toward the first version, **v0.1.0**. No dates are set.
+The desktop app is versioned **0.2.0** (`apps/desktop/src-tauri/tauri.conf.json`) and the Rust crates **0.1.0**
+(`Cargo.toml`); neither is tagged and no version has been released. No dates are set.
 
 | Milestone | What it delivers | Status |
 |---|---|---|
@@ -104,7 +117,11 @@ Toward the first version, **v0.1.0**. No dates are set.
 Warsha itself does not charge you. You use your own AI provider, so any AI cost is what you already pay that provider. Warsha will show a cost meter and let you set a budget so it pauses before going over.
 
 **Where does my data live?**
-On your computer. Projects, history and files stay locally, and your project code goes to your own GitHub account. Keys are stored only in your system keychain. Phone connections are end-to-end encrypted, so the relay in between cannot read them.
+On your computer. Projects, history and files stay locally, in a plain SQLite file you own. Keys are stored only
+in your system keychain, never in that file. The phone app reaches the daemon over your own network with the
+daemon's access token, so on anything but your machine's loopback address you decide what protects that hop (for
+example your own HTTPS proxy or VPN): the daemon serves no TLS itself, and the end-to-end encrypted relay channel
+it was designed to use is not implemented yet, so the relay cannot read messages is a design goal, not today's fact.
 
 **Which AI subscriptions work?**
 Planned: API keys from OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter and Azure; local models through Ollama or LM Studio; and official coding tools like Claude Code, Codex CLI, Gemini CLI and Cursor CLI. Warsha only uses official, permitted ways to connect.
@@ -113,7 +130,7 @@ Planned: API keys from OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter and Azure
 Yes, for personal and other noncommercial use.
 
 **What does the license mean in plain words?**
-Warsha uses the PolyForm Noncommercial 1.0.0 license. You can read the code, use it, change it and share it, as long as it is not for commercial purposes. For commercial use, contact Athar Studio at contact@atharapp.download. This makes Warsha "source-available", not open source in the official sense.
+Warsha uses the PolyForm Noncommercial 1.0.0 license. You can read the code, use it, change it and share it, as long as it is not for commercial purposes. For commercial use, contact Athar Studio at contact@atharapp.download. *This address is a placeholder the owner has not confirmed — the published contact address is an owner decision, and Warsha currently publishes no verified one.* This makes Warsha "source-available", not open source in the official sense.
 
 **Can I use it now?**
 Not yet. Star or watch this repository to know when the first release is out.

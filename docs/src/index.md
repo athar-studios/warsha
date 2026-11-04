@@ -3,15 +3,15 @@
 <div dir="rtl" lang="ar" class="landing-page">
 
 <div class="hero-container">
-  <div class="hero-badge">مصنع برمجيات مفتوح المصدر بالذكاء الاصطناعي · عربي أولاً</div>
+  <div class="hero-badge">مصنع برمجيات بالذكاء الاصطناعي، شيفرته متاحة للاطلاع · عربي أولاً</div>
   <h1 class="hero-title">حوّل فكرتك إلى تطبيق برمجي متكامل يعمل</h1>
   <p class="hero-subtitle">
     صِف فكرتك بالعربية أو الإنجليزية، ورشة تقود فريقاً متخصصاً من 12 وكيلاً لبناء واختبار تطبيقك عبر مسار مراحل محكم لا يتقدّم خطوة واحدة إلا بموافقتك أنت. محلي بالكامل على جهازك، بأمان تام ودون مشاركة مفاتيحك.
   </p>
   <div class="hero-actions">
-    <a href="quickstart.md#desktop-app" class="btn btn-primary">⬇ تنزيل تطبيق ورشة (Windows / macOS / Linux)</a>
-    <a href="quickstart.md" class="btn btn-secondary">📖 دليل البدء السريع (5 دقائق)</a>
-    <a href="providers.md" class="btn btn-tertiary">ربط المزودين</a>
+    <a href="quickstart.md" class="btn btn-primary">🛠 ابنِ ورشة من المصدر — لا يوجد تنزيل جاهز بعد</a>
+    <a href="user-guide.ar.md" class="btn btn-secondary">📖 دليل المستخدم بالعربية</a>
+    <a href="first-run.md" class="btn btn-tertiary">إدخال مفتاح المزوّد أول مرة</a>
   </div>
 </div>
 
@@ -38,7 +38,10 @@
     <div class="journey-step">3</div>
     <h3>تطبيق حقيقي ومعاينة فورية (Code & Live Preview)</h3>
     <p>
-      تحصل على مستودع Git نظيف مع اختبارات مؤكدة، وقاعدة بيانات محلية، وخادم معاينة حية Live Preview يتفاعل فورياً مع التعديلات.
+      تُحفظ مخرجات كل مرحلة — ملخّص الفكرة والمواصفات والتصميم والخطة والكود والمراجعة — مع التشغيل وتُقرأ من
+      التطبيق، ويمكن تشغيل خادم معاينة حية لمشروعك (<code>preview.start</code>). أما مستودع Git نظيف لكل مشروع فهو
+      التصميم: طبقة Git موجودة (<code>crates/warsha-git</code>) لكن لا مرحلة ولا شاشة تستدعيها اليوم، فلا يُلتزم
+      شيء ولا يُدفع عنك.
     </p>
   </div>
 </div>
@@ -98,6 +101,7 @@
     <h3>4 بوابات موافقة بشرية (Human Gates)</h3>
     <p>
       لن يقوم أي وكيل بنشر كود أو إصدار نسخة أو نشر محتوى على الإنترنت دون نقرة موافقة صريحة منك. التحكم للمالك أولاً وأخيراً.
+      وأفعال الدمج والنشر نفسها لا يقودها التطبيق بعد: طبقة GitHub غير موصولة بأي شاشة ولا بأي أمر.
     </p>
   </div>
 
@@ -111,9 +115,11 @@
 
   <div class="feature-card">
     <div class="feature-icon">🧪</div>
-    <h3>بيئة تجريبية واختبارات حقيقية</h3>
+    <h3>ضوابط معمارية، لا وضع محاكاة مجاني</h3>
     <p>
-      يحتوي على وضع محاكاة كامل لاستهلاك صفر تكلفة أثناء التجربة، مع فحوصات جودة معمارية وآلية تضمن كوداً نظيفاً وموثوقاً.
+      توجد فحوصات جودة معمارية آلية تحكم حدود الحزم والاعتماديات (<code>scripts/check-arch.mjs</code>)، وتوجد نماذج
+      محلية عبر Ollama بلا تكلفة استدعاء. أمّا «وضع المحاكاةฟรี بالكامل» فليس ميزة للمستخدم: مزوّد الاختبارات
+      الوهمي يعيش في شيفرة Rust وفحوصاتها فقط، ولا يمكن اختياره من الواجهة ولا من سطر الأوامر.
     </p>
   </div>
 </div>
@@ -164,7 +170,7 @@ Idea → Gate A → Research → PRD Spec → Gate B → Design → Plan Tasks �
 | 12 وكيلاً | 12 ملف توجيه متخصص في `crates/warsha-pipeline/src/prompts/` |
 | 14 مرحلة | معرّفة بدقة في `Stage::all()` في `crates/warsha-core/src/lib.rs` |
 | 4 بوابات بشرية | بوابات Gate A وGate B وGate C وGate D غير قابلة للتجاوز الآلي |
-| 3 أنظمة تشغيل مدعومة | Windows وmacOS وLinux عبر مصفوفة CI في `.github/workflows/` |
+| 3 أنظمة تشغيل في مصفوفة CI | ويندوز وmacOS ولينكس معرّفة في `.github/workflows/ci.yml` — مصفوفة معلنة لا نسخة مُنتجة: لا وسم ولا إصدار لأي نظام، والـ CI لا يعمل إلا على ما يستهدف `main` |
 | تخزين أسرار OS Keychain | مستودع آمن يعتمد على واجهات النظام الأصلية دون كتابة الأسرار على القرص |
 
 ---
@@ -173,38 +179,50 @@ Idea → Gate A → Research → PRD Spec → Gate B → Design → Plan Tasks �
 
 <div class="faq-list">
   <div class="faq-item">
-    <h4>هل ورشة مجانية ومفتوحة المصدر؟</h4>
+    <h4>هل ورشة مجانية؟ وهل هي مفتوحة المصدر؟</h4>
     <p>
-      نعم، ورشة مرخصة بموجب رخصة <strong>PolyForm Noncommercial 1.0.0</strong>؛ الاستخدام الشخصي والتعليمي والبحثي وغير الربحي مجاني بالكامل. الاستخدام التجاري يتطلب ترخيصاً منفصلاً.
+      الاستخدام الشخصي والتعليمي والبحثي وغير الربحي مجاني بالكامل بموجب رخصة <strong>PolyForm Noncommercial 1.0.0</strong>،
+      والاستخدام التجاري يتطلب ترخيصًا منفصلًا. لكنها ليست مفتوحة المصدر بالمعنى الرسمي: الرخصة لا تمنح كل الحقوق
+      التي تعرفها رخصة OSI، فهي شيفرة متاحة للاطلاع والاستخدام غير التجاري. ولا تبيع ورشة اشتراكًا ولا ترسل بياناتك
+      إلى أي جهة: لا يوجد أي تحليل أو تتبّع (telemetry) في الشيفرة؛ التكلفة الوحيدة هي ما تدفعه لمزوّد ذكاء
+      اصطناعي تختاره أنت.
     </p>
   </div>
 
   <div class="faq-item">
     <h4>أين تُحفظ مفاتيح API الخاصة بي وبيانات المشروع؟</h4>
     <p>
-      محلياً فقط على جهازك. تُحفظ مفاتيح الواجهات في خزانة نظام التشغيل (OS Keychain / Windows Credential Manager / Apple Keychain / Linux Secret Service) مشفرة ومحمية، ولا تُرسل لأي خادم وسيط.
+      محليًا فقط على جهازك. تُحفظ مفاتيح الواجهات في خزنة نظام التشغيل (Windows Credential Manager / Apple Keychain /
+      Linux Secret Service) ولا تُكتب في ملف إعداد ولا في قاعدة بيانات ولا في سجل، ولا تُرسَل إلى وسيط. أما بيانات
+      المشروع نفسها فتبقى في ملف SQLite على جهازك، وورشة لا تشفّر ذلك الملف: حماية بياناتك عند السكون مسؤوليتك،
+      أو مسؤولية تشفير القرص الذي تفعّله في نظامك.
     </p>
   </div>
 
   <div class="faq-item">
     <h4>هل أحتاج بطاقة ائتمان للبدء؟</h4>
     <p>
-      إطلاقاً. يمكنك تشغيل ورشة فوراً في الوضع التجريبي المجاني بالكامل، أو توصيل خادم Ollama محلي على جهازك لتشغيل نماذج مفتوحة المصدر بلا أي تكلفة.
+      لا. ورشة نفسها لا تبيعك شيئًا ولا تطلب بطاقة: أنت من يوصّل مزوّدًا يملكه. إن كنت تملك مفتاح API فالتكلفة
+      هي ما تدفعه لمزوّدك، وإن شغّلت نموذجًا محليًا عبر Ollama على جهازك فلا تكلفة استدعاء إطلاقًا. لكن لا يوجد
+      «وضع تجريبي مجاني» يولّد مخرجات بلا مزوّد: بدون مفتاح أو نموذج محلي لا يوجد من يجيب الوكلاء.
     </p>
   </div>
 
   <div class="faq-item">
     <h4>ما هي أنظمة التشغيل المدعومة؟</h4>
     <p>
-      يتوفر تطبيق ورشة المكتبي لـ Windows (10/11) وmacOS (معالجات Apple Silicon وIntel) وLinux (توزيعات Ubuntu/Debian عبر حزم AppImage وdeb).
+      التطوير والفحوصات تُبنى وتُختبر اليوم على ويندوز وmacOS ولينكس في مصفوفة CI المكتوبة في
+      <code>.github/workflows/ci.yml</code>، والجهاز المعتمد لتطوير هذا المشروع هو لينكس (aarch64). أما برامج
+      التثبيت الجاهزة فلم تُنتَج ولا تُنشر بعد: لا يوجد إصدار للتحميل لأي نظام، بما في ذلك ويندوز 10/11 وmacOS
+      وتوزيعات Ubuntu/Debian التي صُمِّمت لها الحزم.
     </p>
   </div>
 </div>
 
 <div class="callout-box">
   <h3>جاهز لتحويل فكرتك إلى تطبيق يعمل؟</h3>
-  <p>ابدأ الآن عبر اتباع خطوات التثبيت البسيطة في الدليل السريع.</p>
-  <a href="quickstart.md" class="btn btn-primary">ابدأ الدليل السريع الآن</a>
+  <p>ابنِ ورشة من المصدر ثم اتبع خطوات التشغيل الأولى؛ لا نسخة جاهزة للتحميل حتى الآن.</p>
+  <a href="quickstart.md" class="btn btn-primary">ابدأ من البناء من المصدر</a>
 </div>
 
 </div>
@@ -214,15 +232,15 @@ Idea → Gate A → Research → PRD Spec → Gate B → Design → Plan Tasks �
 <div dir="ltr" lang="en" class="landing-page">
 
 <div class="hero-container">
-  <div class="hero-badge">Open Source AI Software Factory · Arabic-First & Local-First</div>
+  <div class="hero-badge">Source-available AI Software Factory · Arabic-First &amp; Local-First</div>
   <h1 class="hero-title">Turn Your Idea into a Working Software Product</h1>
   <p class="hero-subtitle">
     Describe your idea in Arabic or English. Warsha coordinates a team of 12 specialized agents to design, build, and test your application through a structured gated pipeline that never advances without your explicit approval. 100% local on your machine.
   </p>
   <div class="hero-actions">
-    <a href="quickstart.md#desktop-app" class="btn btn-primary">⬇ Download Desktop App (Win / Mac / Linux)</a>
-    <a href="quickstart.md" class="btn btn-secondary">📖 Quickstart Guide (5 min)</a>
-    <a href="providers.md" class="btn btn-tertiary">Configure Providers</a>
+    <a href="quickstart.md" class="btn btn-primary">🛠 Build Warsha from source (no download exists yet)</a>
+    <a href="first-run.md" class="btn btn-secondary">🔑 First run: add your provider key</a>
+    <a href="known-limitations.md" class="btn btn-tertiary">⚠ What works today</a>
   </div>
 </div>
 
@@ -249,7 +267,10 @@ Idea → Gate A → Research → PRD Spec → Gate B → Design → Plan Tasks �
     <div class="journey-step">3</div>
     <h3>Real Code & Instant Feedback (Git & Live Preview)</h3>
     <p>
-      Get a clean Git repository, automated tests, local database setup, and a Live Preview dev server showing your app running in real time.
+      Each stage's output — idea brief, spec, design, plan, code, review — is stored with the run and readable in the
+      app, and a Live Preview dev server can be started for a project (<code>preview.start</code>). A clean Git
+      repository per project is the design: the git layer exists (<code>crates/warsha-git</code>), but no stage or
+      screen drives it today, so nothing is committed or pushed on your behalf.
     </p>
   </div>
 </div>
@@ -287,7 +308,9 @@ Idea → Gate A → Research → PRD Spec → Gate B → Design → Plan Tasks �
     <div class="feature-icon">🚪</div>
     <h3>4 Mandatory Human Gates</h3>
     <p>
-      Zero autonomous publishing. Every pull request, deployment, or social draft waits at a gate for your explicit sign-off.
+      Zero autonomous publishing: no code path posts, releases, merges or submits by itself, and every launch draft
+      stays marked <code>pending approval</code> until a person submits it. Note that the pull request and deployment
+      actions themselves are not driven by the app yet — the GitHub layer is not wired to any screen or command.
     </p>
   </div>
 
@@ -303,7 +326,12 @@ Idea → Gate A → Research → PRD Spec → Gate B → Design → Plan Tasks �
     <div class="feature-icon">🧪</div>
     <h3>Architectural Guardrails</h3>
     <p>
-      Includes a zero-cost Mock mode for simulation and verified architectural rules ensuring clean, modular, and maintainable software.
+      <code>scripts/check-arch.mjs</code> enforces the crate and transport boundaries written in
+      <code>docs/ARCH_RULES.md</code>, and CI runs it with a fixture self-test first so a broken rule cannot
+      report a clean tree. There is no zero-cost "Mock mode" for users to switch on: the deterministic
+      <code>MockProvider</code> lives in the provider crate (<code>crates/warsha-providers/src/lib.rs:190</code>)
+      and is what its tests run against — it is not a provider kind the app or the CLI can select. Run a local
+      model through Ollama if you want no per-call API cost.
     </p>
   </div>
 </div>
@@ -314,38 +342,51 @@ Idea → Gate A → Research → PRD Spec → Gate B → Design → Plan Tasks �
 
 <div class="faq-list">
   <div class="faq-item">
-    <h4>Is Warsha free and open source?</h4>
+    <h4>Is Warsha free? Is it open source?</h4>
     <p>
-      Yes, Warsha is licensed under <strong>PolyForm Noncommercial 1.0.0</strong> for personal, educational, research, and non-profit use. Commercial use requires a separate license.
+      Free, yes, for personal, educational, research and non-profit use under <strong>PolyForm Noncommercial 1.0.0</strong>;
+      commercial use needs a separate license. Open source, no: that license does not grant the full set of rights an
+      OSI-approved license does, which makes Warsha <em>source-available</em>. And Warsha sells no subscription and
+      phones home to nobody — no analytics or telemetry dependency exists anywhere under <code>apps/</code> or
+      <code>crates/</code> — so the only money in this product is the provider bill you choose to have.
     </p>
   </div>
 
   <div class="faq-item">
     <h4>Where are my API keys stored?</h4>
     <p>
-      Strictly in your operating system's native keychain (Windows Credential Manager, macOS Keychain, Linux Secret Service). Keys are never committed to disk, databases, or logs.
+      In your operating system's native credential store (Windows Credential Manager, macOS Keychain, Linux Secret
+      Service), under the <code>warsha-provider</code> service, one account per provider. They are never written into
+      Warsha's own config file, its SQLite database, its logs or its crash output. The <code>config.toml</code> that
+      holds the daemon's access token is <code>0600</code> on Unix; on Windows that permission is not set by any code,
+      so the file inherits whatever your profile directory grants.
     </p>
   </div>
 
   <div class="faq-item">
     <h4>Do I need a credit card to get started?</h4>
     <p>
-      No. You can run Warsha entirely for free in simulation mode or by pairing it with Ollama running local open models on your machine.
+      No card, and Warsha never asks for one. You still need something to answer the agents: an API key for a provider
+      you already pay for, or a local model served by Ollama on your machine. There is no free simulation mode that
+      produces real output without a provider.
     </p>
   </div>
 
   <div class="faq-item">
     <h4>Which desktop platforms are supported?</h4>
     <p>
-      Windows 10/11, macOS (Apple Silicon & Intel), and Linux (Ubuntu/Debian via deb and AppImage).
+      The code builds and is tested on Windows, macOS and Linux — the CI matrix in
+      <code>.github/workflows/ci.yml</code> names all three, and this project's development host is Linux on arm64.
+      No installer has been produced or published for any of them, so there is nothing to download today: the
+      Windows/macOS/Linux packages below are plans, not releases.
     </p>
   </div>
 </div>
 
 <div class="callout-box">
   <h3>Ready to start building?</h3>
-  <p>Follow the quickstart guide and set up Warsha in under five minutes.</p>
-  <a href="quickstart.md" class="btn btn-primary">Start Quickstart Guide</a>
+  <p>Build from source, then follow the first-run guide — there is no downloadable build yet.</p>
+  <a href="quickstart.md" class="btn btn-primary">Start with the quickstart</a>
 </div>
 
 </div>

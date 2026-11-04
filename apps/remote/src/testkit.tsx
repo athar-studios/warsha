@@ -4,9 +4,10 @@
 // `.ts` rather than a `.test.ts` so the eight screens' tests can share one set of fixtures instead of
 // each planting its own copy of a run.
 //
-// The defaults are the *real* daemon's behavior as `@warsha/client` documents it: `gates.list` is a method
-// `warshad` does not serve, so the default stub refuses it and every screen test runs against the reading
-// the phone actually has (the run's stage). A case that wants the answered path passes its own `getGates`.
+// The defaults are the *real* daemon's behavior as `@warsha/client` documents it: `gates.list` is served
+// from the run's gate states (DECISIONS.md 2026-11-03), so the default stub answers it with the queue of
+// the run it is asked about — `gatesForRun(runId)`. A case that wants the older daemon's refusal passes
+// `refuseGates()`, and a case that wants a fuller queue passes `answeredGates()`.
 import { act, render } from '@testing-library/react';
 import type {
   BudgetStatus,
@@ -26,7 +27,7 @@ import React from 'react';
 import { MemoryRouter, BrowserRouter } from 'react-router-dom';
 
 import App from './App';
-import type { BenchApi, EventStreamOpener } from './bench';
+import { GATE_STAGES, type BenchApi, type EventStreamOpener } from './bench';
 import type { DaemonSession } from './session';
 import type { ThemePreference } from './theme';
 
@@ -76,6 +77,46 @@ export function decided(stage: Stage, decision: 'approved' | 'rejected', at = '2
     : { state: 'rejected', reason: 'السبب', by, at };
 }
 
+/**
+ * The queue a serving `warshad` answers with for one run, built the way the daemon builds it: from the
+ * run's own standing. A run parked at a gate has that gate pending and nothing else invented; a run
+ * parked past its gates (or before them) has nothing waiting. This is the default `getGates` answer, so
+ * a case that selects a different run is served *that* run's queue — the old fixture answered `RUN`'s
+ * gate for whichever run id it was handed, which let a screen pass on a gate of a run it was not showing.
+ * A run this file does not know answers empty: the stub invents a queue for no one.
+ */
+export function gatesForRun(id: RunId): GateSummary[] {
+  const run = [RUN, RUN_OLD].find((candidate) => candidate.id === id);
+  if (run === undefined || !GATE_STAGES.includes(run.stage)) return [];
+  return [gate(run.stage, { state: 'pending' })];
+}
+
+/** The queue of the default fixture run, named for the cases that spell it out. */
+export const DEFAULT_GATES: GateSummary[] = gatesForRun(RUN.id);
+
+/**
+ * A fuller answer, for a case that wants to see a queue with more than one row: the first gate decided,
+ * the run parked at the second, the later two still waiting. Same principle as `gatesForRun` — the gates
+ * listed are ones this run has reached, and `RUN` is parked at `gate_b`.
+ */
+export function answeredGates(): GateSummary[] {
+  return [
+    gate('gate_a', decided('gate_a', 'approved')),
+    gate('gate_b', { state: 'pending' }),
+    gate('gate_c', { state: 'pending' }),
+    gate('gate_d', { state: 'pending' }),
+  ] as GateSummary[];
+}
+
+/**
+ * The refusal a phone meets against a daemon that does not serve `gates.list`. A case that wants to
+ * be shown the stage fallback passes this; it is no longer the default, because `warshad` answers
+ * the name now (DECISIONS.md 2026-11-03).
+ */
+export function refuseGates(): () => Promise<GateSummary[]> {
+  return () => Promise.reject(new Error('Method not found: gates.list'));
+}
+
 export function event(overrides: Partial<WarshaEvent> = {}): WarshaEvent {
   return {
     id: 'evt_1',
@@ -116,8 +157,14 @@ export function stubApi(overrides: Partial<BenchApi> = {}): BenchApi {
       call('getRunStatus');
       return Promise.resolve(RUN);
     },
-    // `warshad` does not serve `gates.list`; the refusal is the default a screen must handle.
-    getGates: () => Promise.reject(new Error('Method not found: gates.list')),
+    // `gates.list` is a method `warshad` now serves (DECISIONS.md 2026-11-03), so the default answers —
+    // and it answers for the run it was asked about (`gatesForRun`), not for the fixture's first run.
+    // A case that wants the older daemon's refusal passes `refuseGates()`, and a case that wants a
+    // fuller queue passes `answeredGates()`, defined in this file above.
+    getGates: (requestedRunId) => {
+      call('getGates');
+      return Promise.resolve(gatesForRun(requestedRunId));
+    },
     getRunLogs: () => {
       call('getRunLogs');
       return Promise.resolve(['cargo test', '14 passed']);

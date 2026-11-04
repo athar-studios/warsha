@@ -172,7 +172,7 @@ describe('the readings, the feed and the log', () => {
     await settle();
 
     expect(screen.getByTestId('remote-run-gates')).toHaveTextContent('افتح صندوق البوّابات');
-    expect(screen.getByText('بوابة واحدة بانتظارك')).toBeInTheDocument();
+    expect(screen.getByText('بوّابة واحدة بانتظارك')).toBeInTheDocument();
   });
 });
 

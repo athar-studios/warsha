@@ -4145,6 +4145,10 @@ the reported `Panel`/`GateCard` banner-role question in a real browser.
 Known remote production seams carried forward: manifest/service worker/icons are still absent;
 `gates.list` is unavailable so the queue uses run-stage fallback; `devices.pair-start`/QR payload is
 not wired. These are integration gaps, not design-system failures.
+> **Corrected 2026-11-03.** `gates.list` is now a served daemon method read from the run's own gate
+> states, and the queue's stage reading is the *fallback* path, not the only one. Pairing is still not
+> wired: `devices.pair` binds a `PairingData` struct while the client sends a string (board #58), so
+> the AR claim above is fixed and the pairing claim is not.
 
 ### S1c security follow-ups accepted (2026-11-02)
 
@@ -4229,6 +4233,19 @@ reproduced exactly (2,760) under 50% lower offered load, i.e. quota-bound. Artif
 run preserved untouched, are under `bridge-io/security/load2/`. Harness defect found, not product:
 `scripts/load/probe-meter-count.sh` binds 38806, which is inside `ip_local_port_range`, so a preceding
 flood can steal it as an ephemeral port and the probe silently measures nothing — move it below 32768.
+
+### B4-CRIT round 1 — Arabic settings focus gap closed (2026-11-03)
+
+The remaining Arabic settings tablist focus failures at 390×844 (light and dark) were repaired in
+`apps/desktop/src/index.css`: `.bench-settings-tabs` now has `inline-size: 100%` and
+`max-inline-size: 100%`, bounding the RTL scrollport to the settings plate while retaining horizontal
+tab scrolling. The targeted Playwright accessibility run passed both cases:
+`pnpm exec playwright test apps/desktop/e2e/screens.a11y.spec.ts --project=desktop --grep "settings 390x844 ar"`
+→ **2 passed**. Evidence is recorded in `bridge-io/audit/critique-round-1.md`.
+
+The 11 small, shifting screenshot-only raster differences remain classified as capture/environment
+jitter; no assertions, thresholds, or baselines were changed. No actionable product visual gap remains
+in this critique round.
 
 ### B4 started
 
@@ -4366,6 +4383,15 @@ pnpm visual --last-failed
 Then continue tasks in the recorded order: finish #7 → run #24 critique → #25 daemon seams → rebuild
 #10 installers → #11 owner-key real E2E → #12 docs → final Z.
 
+### Host moved to Linux server (2026-11-03)
+
+The Warsha checkout moved from the Windows laptop/WSL bridge to `/home/dev/projects/warsha-dev` on an Ubuntu aarch64 server. This host is now authoritative for Rust tests, pnpm build/test/typecheck/lint, Playwright visual/a11y, and mdBook. Tooling is user-level only; no sudo, ACL, service, or unrelated-host changes are permitted.
+
+- Host: Ubuntu aarch64, 2 CPU, 11 GB RAM; heavy lanes are serialized and Playwright workers stay ≤2 for normal verification.
+- Dependencies were restored with `npx pnpm@9.0.0 install` after the move; pnpm via `corepack enable` requires root on this image, so the user-level `npx` path is the supported command.
+- B4 evidence is under `bridge-io/**`; no `/root/warsha` copy is authoritative.
+- Windows-only gates (MSI/NSIS, MSVC clippy, Windows-native pnpm/Playwright) remain pending CI and are not run on this host.
+
 ### Owner test-policy decision (2026-11-02)
 
 The owner has ruled that **WSL is authoritative for Rust tests on this checkout** and the live Codex
@@ -4379,3 +4405,925 @@ process-policy path canonicalization, N-3 provider-lock scope, read-method tier 
 log flooding and duplicated startup listener logging. M-01, M-02, M-04 and L-01 are to be status-listed,
 with a fix only if trivial and in scope. The full board order and hard verification rules are recorded
 in the 2026-11-02 owner decision section of `DECISIONS.md`.
+
+### Engineering operating policy added (2026-11-03)
+
+Docs + validator change only; no runtime/product code touched.
+
+- New root `ENGINEERING_POLICY.md` — Warsha-native agent engineering operating policy: lifecycle
+  (intake → plan → isolated implementation → review → verification → bounded repair → acceptance),
+  separate planner/implementer/reviewer/verifier roles with owner-only approvals, mandatory
+  isolated `git worktree` (or per-run Docker) execution for workers, `warsha-run/v1` `state.json`
+  checkpoint schema, machine-readable acceptance gates, bounded repair (`max_repair_iterations`
+  default 3) that never loosens tests or gates, per-run evidence under `bridge-io/policy/<run-id>/`,
+  in-scope/out-of-scope blocker classes, and the security/secret boundaries inherited from
+  `AGENTS.md`/`SECURITY.md`. §7 records the provenance: Superplane, Open-Inspect
+  background-agents, SWE-AF and Zeroshot are inspiration only — no upstream content was copied.
+- New `scripts/check-engineering-policy.mjs` — dependency-free validator in the `check-arch.mjs`
+  style (`--root`, `--self-test`, stable `E1`–`E8` check ids, exit 0/1); wired as `pnpm policy`.
+- `AGENTS.md` — two rules appended (read the policy; run the validator on policy/process changes);
+  no existing rule removed. `package.json` — `"policy"` script added beside `"arch"`.
+- Verified on this host: `node scripts/check-engineering-policy.mjs` → `policy: 8 checks, 0
+  failures`; `--self-test` → all 8 checks fire, clean fixture clean; `npx pnpm@9.0.0 policy` green;
+  `git diff --check` clean. Full builds/tests/Playwright/cargo were not run for this docs-only
+  change (focused checks only). `ENGINEERING_POLICY.md` is prettier-formatted; `AGENTS.md` and
+  `package.json` markdown/json drift predates this change and was left untouched.
+- Open (not in this pass): wiring `node scripts/check-engineering-policy.mjs` (+ `--self-test`)
+  into `.github/workflows/ci.yml` the way `check-arch.mjs` is wired.
+
+### B4 finisher: onboarding-provider 768x1024 EN light — diagnosed, no product pixel change (2026-11-03)
+
+- Reproduced the focused case (`playwright test --project=desktop -g "onboarding-provider 768x1024 en
+  light"`) 45+ times on this host. It fails bimodally (≈10 %, only while sibling lanes were editing the
+  shared tree or running concurrent chromium): failing frames differ from the baseline by 12k–16k PIL
+  pixels (Playwright ratio 0.01) with every text line re-rounded ±1 px and drawn grayscale, while the
+  baseline and passing frames carry LCD subpixel fringes.
+- Measured geometry is identical in passing and failing frames (plate 272/338/448/348, rail 24/24/224/976,
+  doc scroll 0 — all integers at 390/768/1440), and the font/layout/clip audits pass in every run. The
+  wizard layout is not the defect; the earlier "centering at odd widths" hypothesis is disproven for this
+  case. Full evidence: `/tmp/onb-evidence/` (run1–run4, fail2–fail6 captures + band crops), decision in
+  `DECISIONS.md` 2026-11-03.
+- No product edit, no baseline update, no assertion change. Final verification on the settled tree:
+  1 passed (4.6s), strict `maxDiffPixelRatio: 0`; all 24 `onboarding-provider`/`-first-run` cases pass in
+  one batch. The durable fix (pinning chromium's AA mode via launch flags) belongs to the B4 harness
+  lane, not to `Onboarding.tsx`.
+
+### B4 gates lane on the Linux host: 3 owned cases reproduced, diagnosed as host-raster residue, closed with no product change (2026-11-03)
+
+- Owned: `screens.visual › gates 768x1024 en dark`, `states › gates permission 390x844 en light`,
+  `states › gates permission 1440x900 en light`. All three reproduced as screenshot-only failures —
+  layout bbox, clip, used-fonts (CDP), axe, key-leak and RPC-stub assertions passed in every run.
+- Pre-alignment on this host the three failed at 5,679–6,287 px, and 7 WSL-passing controls (other
+  gates viewport/locale/theme combos, projects/simple 390 en light) failed at 6,356–14,308 px — the
+  defect class was host-wide text rasterization (grayscale AA vs the baselines' LCD subpixel), not
+  gates-specific. Ruled out: face selection (probe proved Plex w400/500/600/700 →
+  Regular/Medium/SemiBold/Bold, mono 500/600 → Medium/SemiBold), layout shift (0,0), dpr, fonts
+  files (SHA-pinned), animations/caret/scroll (pinned by `harness.ts openScreen`), and FreeType
+  interpreter swaps (v35/v38 made diffs worse).
+- After a concurrent lane's ad-hoc `~/.config/fontconfig/fonts.conf` (2026-11-03T03:45Z, rgba rgb +
+  hintslight + lcdfilter lcddefault) aligned host AA to the baselines' LCD mode, the owned cases
+  collapsed to 4 px / 248–268 px / 8 px — 1-level subpixel fringes on glyph and card-border edges
+  (max per-pixel magnitude 15–19; earlier WSL-vs-host magnitudes reached 765). Full gates family
+  (2 screens×4 viewports×2 locales×2 themes + permission/success states): 23 failed / 17 passed of 40,
+  1,057 residual px total, max 248/case; failures concentrate in light themes; runs are byte-stable
+  except a 15–30 px topbar mode-toggle/bell jitter — the known §7 #7/#11 class.
+- Disposition per `ENGINEERING_POLICY.md` §5: out-of-scope blocker — no product code controls these
+  pixels; the only levers (baseline refresh, ratio relaxation, harness/fontconfig ownership) are
+  forbidden to this lane. No GatesInbox/Shell/GateCard change, no baseline touched, no assertion
+  weakened, no bridge-io write, no commit/push. Decision record: `DECISIONS.md` 2026-11-03 gates-lane
+  entry. Evidence artifacts (all outside the repo): `/tmp/pw-gates-out`, `/tmp/pw-ctl2`,
+  `/tmp/pw-ft35`, `/tmp/pw-final3`, `/tmp/pw-A`, `/tmp/pw-B`, `/tmp/pw-gates-all`,
+  `/tmp/pw-gates-all2.log`, `/tmp/fontprobe.mjs`.
+- Needs owner: make the AA-mode alignment reproducible (extend the capture-fonts setup or pin it in
+  the harness launch flags — one canonical mechanism, coordinated with the onboarding-lane finding
+  above), then one owner-approved `--update-snapshots` session on the authoritative Linux host.
+
+## B4 run-lane closure on the authoritative Linux host (2026-11-03, agent: run visual lane #30)
+
+Own scope: the 7 remaining `run` pixel failures from the last WSL gate (`bridge-io/shots/b4/manifest.md`
+rows 84–90): `run 320x568 ar light`, `run 320x568 en light|dark`, `run 390x844 ar light`,
+`run 768x1024 ar dark`, `run 1440x900 en light|dark`.
+
+- **Reproduced** every case with the gate itself (`pnpm exec playwright test --project=desktop
+  screens.visual -g "…"`), inspected the PNGs pixel-by-pixel, and probed the live DOM geometry with a
+  temporary spec (created and deleted again; no gate file touched).
+- **Host alignment (done)**: user-level `~/.config/fontconfig/fonts.conf` — antialias true, rgba rgb,
+  hinting true, hintstyle hintslight, lcdfilter lcddefault. Before it, every visual case on this host
+  failed at 10k–25k px; after it, controls `projects 390x844 en dark` and `run 320x568 ar dark` pass
+  byte-for-byte and the 7 owned cases collapsed to 11–944 px. The axes that remain (hintstyle
+  full/medium/none, lcdfilter none/light/legacy, hinting off) were swept and are all worse — recorded
+  with numbers in `DECISIONS.md` (2026-11-03, run-lane entry).
+- **Determinism (restored)**: `--repeat-each=2 --workers=2` → 13 of 14 captures byte-identical; the one
+  jitter (`run 320x568 en dark`, 49↔32 px) is byte-identical 3/3 at `--workers=1` — a parallel-session
+  raster-cache artifact, not a page defect. No scroller moves after settle; all are pinned to integer 0.
+- **Root cause of the residue (out of lane)**: every remaining diff pixel is a ±1 coverage flip on a
+  sub-pixel edge (plate header y=334.5, chip border bottom 175.5, pressed-rung shadow fringe, brand SVG
+  polygon at x=18.292), and the stored baselines are provably mixed-state frames — each matches one
+  capture state in one region and the other state in another, which is exactly the 2–24 px per-capture
+  drift `bridge-io/audit/visual.md` §7 #11 recorded on the capture host itself. This is the WSL x86_64 →
+  aarch64 rasterization path, not `RunView.tsx` or the layout CSS; HEAD is the baseline commit, so the
+  product code is byte-identical to what produced the PNGs.
+- **Result**: no product-code change is possible without moving pixels the other 589 desktop baselines
+  share; per the brief the baselines were not updated and no assertion was weakened. Focused-run
+  evidence (actual/diff PNGs, logs) kept at `/tmp/runvis/pass4`, `/tmp/runvis/pass5`,
+  `/tmp/runvis/control3`, `/tmp/runvis/sweep.log`. Owner next steps are the two needs recorded in the
+  gates/onboarding/run entries of `DECISIONS.md`: pin the capture AA config reproducibly (script or
+  harness flag), then one owner-approved `--update-snapshots` on this host.
+
+## B4 capture-infra lane: the AA pin is now repo-owned and reproducible (2026-11-03, agent: harness lane #31)
+
+Own scope: Playwright capture infrastructure only (`playwright.config.ts`, `scripts/ci`, CI capture
+setup, `apps/desktop/e2e/harness.ts`). No product UI, no spec assertion, no baseline was touched.
+
+- **Diagnosis confirmed**: the B4 residuals are host text-AA-mode differences — the stored baselines
+  carry LCD-subpixel rendering (rgba=rgb, hintslight, lcddefault) and a bare Linux chromium defaults
+  to grayscale. The alignment previously came from an **ad-hoc** `~/.config/fontconfig/fonts.conf`;
+  gates need (a) said it had to become a reproducible step or CI would regress to grayscale.
+- **Fix landed (capture infra, deterministic, baseline intent unchanged)**:
+  - `scripts/ci/capture-fontconfig.conf` — includes the host chain, then assigns the five baseline AA
+    axes last so they win over any user/distro drop-in.
+  - `playwright.config.ts` — Linux launches chromium with `FONTCONFIG_FILE` at that file;
+    `WARSHA_CAPTURE_FONTCONFIG_FILE` overrides for investigation only; macOS/Windows unchanged.
+  - `scripts/ci/install-capture-fonts.sh` — refuses setup unless the fragment applies those values.
+  - `.github/workflows/ci.yml` — the visual step documents the pin.
+- **Safety proven, four ways**: (1) the fragment reports the same five values as the aligned ad-hoc
+  config and still resolves the pinned Plex faces; (2) a deliberately wrong fragment beats the home
+  fragment through the include chain (`fc-match` flips to rgba 5 / hintstyle 0), so the assignment is
+  final; (3) A/B serial run — system-config pin vs repo pin produced byte-identical captures for the
+  deterministic cases; the one cross-run delta (gates 768 en light, 25 px in the topbar band, max
+  magnitude 16) is the documented 15–30 px topbar jitter, which flaps the same 14/4/4 px *without* the
+  pin; (4) causal control — with the grayscale pin the onboarding-provider 768 en light and
+  projects 390 en dark cases explode to 6,888 / 8,280 px (pre-alignment class), proving the env reaches
+  chromium's rasterizer and the correct pin keeps the aligned rendering (≤4 px, byte-exact controls).
+- **Focused visual set** (`(gates|onboarding-provider) 768x1024` + gates-permission states + control):
+  11 pass / 11 fail at 3–268 px — every failure reproduces identically without the pin, i.e. the
+  existing residual/jitter class from the gates/onboarding/run `DECISIONS.md` entries, not this change.
+- **Cleanup**: removed `apps/desktop/e2e/zz-drift-probe.spec.ts` (this lane's own "Temporary B4 drift
+  probe … Deleted after use" leftover; dumps the gates 768 topbar geometry). No unrelated work removed.
+- **Still owner-blocked**: need (b) — one approved `--update-snapshots` session on this authoritative
+  host, now with the AA pin in place, is the only remaining lever for the 3–268 px residuals and the
+  mixed-state run/gates baselines. No bridge-io write, no commit/push made here. Evidence:
+  `/tmp/ab/runA*.log`, `/tmp/ab/runB.log`, `/tmp/ab/runNEG.log`, `/tmp/ab/[AB]-*-actual.png`.
+
+## B4 capture-config hardening lane: the AA pin is validated where it can fail, and proved in the real chromium (2026-11-03, agent: harness lane #32, follow-up on #31)
+
+Own scope: capture harness/config only (`playwright.config.ts`, `scripts/ci/capture-fontconfig.conf`,
+`scripts/ci/install-capture-fonts.sh`). No baseline, no assertion, no product UI, no bridge-io write,
+no commit/push.
+
+- **Diagnosis (harness/config, with the user-reported cases)**: the repo pin *does* reach chromium and
+  *is* honoured by the rasterizer — proven causally through the exact launch path: a temporary probe
+  spec (created, used, deleted again — `zz-pin-probe.spec.ts`) measured 1186 LCD-fringe pixels
+  (max |R−B| = 168) with the pin and 0 with a grayscale override via
+  `WARSHA_CAPTURE_FONTCONFIG_FILE`, so `launchOptions.env` inheritance is real and effective. The
+  reported failures were re-measured first: `gates 768x1024 en dark` 4 px, `gates permission` 320/390/
+  1440 en light 1/268/8 px — all max-magnitude 1–2 ±coverage flips, i.e. the documented residual/
+  jitter class (owner need (b)), not the 10k–25k grayscale class; `onboarding-provider 768x1024 en
+  light` passed in those focused runs.
+- **The reported error reproduced and explained**: `Fontconfig error: Cannot load default config
+  file(: No such file)` appears on the browser stderr whenever `FONTCONFIG_FILE` names a file the
+  process cannot open — an empty-string override (`??` did not guard `""`), a value relative to the
+  browser's cwd, or a missing file (e.g. a checkout without the then-untracked pin). Chromium does
+  not stop: it falls back to its built-in config, which on this host merges the stray
+  `~/.config/fontconfig/fonts.conf` (via `50-user.conf` through the include chain) and therefore
+  *looks* aligned, while a bare CI runner would render grayscale. An empty value is worse still:
+  config with no font dirs, text fails to lay out at all (probe measured 0 dark pixels).
+- **A latent proof gap found while fixing**: a rejected fragment does not fail `fc-match` — fontconfig
+  logs on stderr, loads the fallback config and still answers with plausible values; the setup check
+  could pass on a config chromium cannot load at all. Demonstrated live: a `<dir fallback="yes">`
+  variant (invalid attribute in the system fontconfig 2.13.1, accepted by the newer fontconfig
+  statically linked inside the headless shell) made `fc-match` "pass" while chrome refused the file.
+- **Fix landed (capture infra, pixel-neutral)**:
+  - `playwright.config.ts` — the FONTCONFIG_FILE value is validated at config load: override trimmed
+    (empty → repo pin), relative paths anchored to the repo root, the file must exist, be readable
+    and contain `<fontconfig>`; otherwise the run refuses to start with a message naming the
+    variable, the file and the pixel class it prevents. `browserEnv` typed `Record<string, string>`.
+  - `scripts/ci/capture-fontconfig.conf` — self-sufficient on any host: system include is
+    `ignore_missing="yes"` (a strict-include failure would discard the whole fragment), and plain
+    `<dir>` entries for `/usr/share/fonts` and `/usr/local/share/fonts` keep the pinned faces
+    resolving even where no system config exists; the five AA assignments remain last.
+  - `scripts/ci/install-capture-fonts.sh` — the fc proof now fails on *any* fontconfig stderr output,
+    and each Playwright browser binary actually present (`chrome`, `headless_shell` — they link
+    different fontconfig versions) is launched once with the same `FONTCONFIG_FILE` the config sets
+    and must produce a DOM with no Fontconfig complaint. Skips with a note when browsers are absent.
+- **Before/after on the focused case** (`pnpm exec playwright test --project=desktop
+  screens.visual.spec.ts -g "gates 768x1024 en dark" --reporter=list --workers=1`): before the fix
+  exit 1 at 4 pixels (topbar jitter, known to flap 0↔4↔14 px across repeats); after the fix exit 0 —
+  byte-exact pass, zero fontconfig output. Same-class results in the 5-case focused set before
+  (exit 1, 4 failures at 1–268 px) and after (exit 1, 3 failures at 1–238 px, max magnitude 1) —
+  pixel-neutral, residual class unchanged. Refusal paths verified after the fix: empty override →
+  repo pin applies (probe identical), relative override → resolves to repo root, missing file → run
+  refuses at config load (exit 1, actionable message, browser never starts).
+- **Gates**: `bash scripts/ci/install-capture-fonts.sh` → exit 0 with both binaries checked;
+  `pnpm -r run typecheck` → exit 0 (root `tsc` errors in `apps/remote/e2e` and the `reducedMotion`
+  overload note pre-date this lane and are not in the CI gate; the env typing introduced here is
+  clean); `pnpm exec prettier --check playwright.config.ts` → clean; ESLint ignores the config file
+  by repo policy; `node scripts/check-engineering-policy.mjs` → exit 0.
+- **Still owner-blocked (unchanged need (b))**: the 1–238 px residuals and the mixed-state baselines
+  need one approved `--update-snapshots` session on this authoritative host now that the pin is
+  proven to apply. Evidence kept outside the repo: `/tmp/pinfix/before-gates-768-en-dark.log`,
+  `/tmp/pinfix/after-focus.log`, `/tmp/pinfix/final-focus.log`, `/tmp/pinfix/grayscale-pin.conf`,
+  `/tmp/pinfix/pngdiff.mjs`.
+
+## B4 final verification (2026-11-03, agent: verifier lane #38 — serial gate on the refreshed baselines)
+
+Own scope: final B4 verification only — run the named cases serially (`--workers=1`, `--reporter=list`,
+output under `/tmp/b4-final`), classify determinism, change nothing. No `--update-snapshots` was passed
+in any run; no baseline, threshold, assertion, product file, or commit/push.
+
+- **The 2 flow keyboard cases** (`flows.spec.ts:81 › the mode group moves focus with the arrows and
+  presses with Enter: 390x844 en` / `1440x900 ar`): the strict full rerun's failures were
+  `Target page, context or browser has been closed` (browser/page closure during parallel startup,
+  12:14–12:18 UTC, while lanes ran concurrent chromium). Serially they do not reproduce: **three
+  separate serial invocations** (12:47–12:55 and 13:27 UTC, workers=1, ports 5173/5174 confirmed
+  free, no sibling test processes) → **6/6 passes, exit 0 every time**
+  (`/tmp/b4-final/flow-pass{1,2,3}.log`), matching the prior lane's own serial 4/4
+  (`/tmp/strict-rerun/repro-flows.log`). Disposition per the brief: **concurrency startup flake — no
+  product change made**.
+- **The six named pixel cases** (owner-coordinated list): `screens.visual` `run 390x844 en light`,
+  `run 768x1024 ar dark`, `run 768x1024 en light`, `run 1440x900 en dark`, `run 320x568 en dark`;
+  `states` `gates permission 390x844 en light` — on the refreshed baselines, serially each ran twice:
+  **12/12 byte-exact passes** (`maxDiffPixelRatio: 0`, 0 px, exit 0 both passes;
+  `/tmp/b4-final/named-pass{1,2}.log`). Their red state at 12:14–12:18 was the same concurrent-run
+  window; on a settled tree they are deterministic and green. **No further owner snapshot action is
+  needed for these six.**
+- **Earlier-named six (from the strict rerun's 8-failure list, for the lanes that own them)**: serial
+  twice each gave — `run 768x1024 ar dark` PASS/PASS, `run 1440x900 en dark` PASS/PASS,
+  `advanced 768x1024 en light` PASS→3 px, `gates 390x844 en light` PASS→20 px,
+  `gates 768x1024 en light` 7 px→PASS, `gates permission 390x844 en dark` 15 px/11 px (fails both).
+  Decode against baselines (`/tmp/pinfix/pngdiff.mjs`): every diff is a ±1–2 coverage flip
+  (max mag 2; the `gates 768 en light` capture carries the documented 25 px raw / max-16 topbar band
+  y=8–27 — the exact #31 jitter signature) at 3–20 Playwright pixels — the known raster-jitter class;
+  no assertion, threshold, or baseline was touched. `/tmp/b4-final/pixel-pass{1,2}.log`.
+- **Incident (self-disclosed)**: two selector dry-runs (`--list`) were issued before the reporter
+  override was applied, and the config's JSON reporter overwrote
+  `bridge-io/audit/visual-playwright.json` with a 989 ms empty-list stub (12:49:31 UTC). The file was
+  restored byte-identically from the prior lane's archived full-run report
+  (`/tmp/strict-rerun/visual-playwright-fullrun.json`, sha256 `88020b1697…928fe`, stats
+  828 expected / 8 unexpected, 2026-11-03T10:51 run); verified restored sha256 matches, and no later
+  command wrote bridge-io.
+- **Verdict read from gate output only**: serially, on the refreshed baselines, the two flow cases and
+  the six named pixel cases are green; the remaining strict-rerun residue is the four jitter-class
+  captures above, owned by other lanes, within `DECISIONS.md`'s recorded 1–20 px raster class.
+
+## Orchestrator resume on the Linux host (2026-11-03, post-move)
+
+- Re-verified after the move to `/home/dev/projects/warsha-dev`: `node scripts/check-arch.mjs` → `arch:
+  5 rules, 0 violations`; `pnpm --filter warsha-desktop test` and `pnpm --filter warsha-remote test`
+  both exit 0 (remote: 147 tests / 13 files). `bash scripts/ci/install-capture-fonts.sh` → all 9 pinned
+  faces present, and this host now also installs the capture AA pin (antialias=true, hintslight,
+  rgba=rgb, lcdfilter=default) which `chrome` and `headless_shell` both load without a Fontconfig
+  complaint. The matrix is 836 tests.
+- **Self-disclosed incident**: three `pnpm visual` launches were left running concurrently while the
+  first was still in flight, and because `playwright.config.ts:120-122` always writes the JSON reporter
+  to `bridge-io/audit/visual-playwright.json`, that durable report was overwritten by a partial
+  2,146-byte file from an interrupted run. The authoritative full-run report is intact at
+  `/tmp/strict-rerun/visual-playwright-fullrun.json` (sha256 `88020b1697…`, 828 expected / 8 unexpected)
+  and re-staged at `/tmp/b4-guard/authoritative.json`; it will be copied back when the current run
+  finishes. Every later visual command in this session uses `--reporter=list` so the bridge-io file is
+  never rewritten by a partial run.
+- **New measured finding — client/daemon wire gap (#25)**: `packages/client` calls 8 methods that
+  `warshad` does not serve (`gates.list`, `projects.delete`, and the name mismatches `budget.get`,
+  `devices.remove`, `roles.assign`, `runs.status`, `runs.logs`, `providers.budget`). `gates.list` backs
+  the entire gates queue in `App.tsx:395`, `SimpleMode.tsx:316+373`, `GatesInbox.tsx:143` and
+  `apps/remote/src/bench.tsx:394`, and the store already offers
+  `Store::list_gates` (`crates/warsha-store/src/lib.rs:436`), so the fix is a thin read plus auth
+  policy, not new storage. The visual harness stubs all 8 names, which is why 836 cases stay green
+  while those flows cannot work against a real daemon. Full table and lane brief:
+  `bridge-io/audit/seam-rpc-gap.md`.
+- **New measured finding — installer lane (#10)**: this host is Linux aarch64 and cannot produce x86
+  MSI/NSIS, so the installer gate has to run through CI. Static defects blocking that: `.github/workflows/
+  release.yml` hardcodes `https://github.com/Warsha/Warsha` in 6 places (lines 352, 366, 367, 392, 396,
+  405) instead of deriving owner/repo from `github.repository`, and `apps/desktop/src-tauri/
+  tauri.conf.json:74` points the updater at `athar-studios/warsha` while this checkout pushes to
+  `athar-studios/warsha-dev`. Which repo is the release target must be recorded in `DECISIONS.md`.
+- **Escalation of that finding — the desktop live path is broken, not just the gates queue**:
+  `apps/desktop/src/App.tsx:346` builds its runtime data path with the real HTTP JSON-RPC client
+  (`createClient(daemon.baseUrl, daemon.token)`, `packages/client/src/index.ts:1010`); Tauri `invoke` is
+  only used for local config (`App.tsx:262`, `:272`). And `postRpc`
+  (`packages/client/src/index.ts:408-424`) sends params as a **JSON object with camelCase keys**
+  (`{ projectId }` at `:451`, `{ id }` at `:459`/`:463`) while the daemon binds named params by the Rust
+  argument name (`list_runs(&self, project_id)`, `get_run(&self, run_id)` at
+  `crates/warshad/src/lib.rs:682-685`). jsonrpsee matches those names exactly, so even correctly
+  *named* calls fail on the wire. Nothing detects it: Rust integration tests use positional arrays
+  (`crates/warshad/tests/security_identity.rs:171`), the e2e harness reads camelCase
+  (`apps/desktop/e2e/harness.ts:844`), and `grep -rln WarshaClient crates apps packages` returns only
+  `packages/client` itself — there is zero client↔daemon round-trip coverage. Consequence for the board:
+  #25/#40 must land **before** #11, because an installed app pointed at a real daemon would show empty
+  or erroring screens regardless of how clean the visual matrix is. New task #40 tracks the param
+  convention plus a real boot-the-daemon-and-drive-it test.
+- **Sequencing decided** (2-CPU host, and the recorded flake correlation between concurrent lanes and
+  bimodal capture failures): finish the strict classification → refresh baselines on this authoritative
+  host → strict full rerun green → accepted-stage commit and push to `dev` (which also cleans the tree
+  so the #25 seam lane can run in a real worktree) → #25 → #10 via CI → #12 docs → Z gates. Real-API
+  installed E2E (#11) stays blocked on the owner's key and will be reported as exact owner steps.
+- **Retraction recorded (2026-11-03, later same day)**: the camelCase param-key break in the bullet above
+  is **withdrawn after running the daemon** — `runs.list` with `{"projectId": <valid uuid>}` returned
+  `{"result":[]}` against a live `warshad`, so casing was never the problem and no key rename is wanted
+  (full entry in `DECISIONS.md`, "WITHDRAWN — Decision (#40 param convention)"). What the same live probe
+  did prove: `projects.create` requires `name` + `description` + `language` while
+  `packages/client/src/index.ts:437` sends only `{name}` (`-32602 "missing field 'description'"`, then
+  `"missing field 'language'"`), and `gates.list`/`budget.get` answer `-32601 Method not found`. So the
+  app can read an empty world but cannot create its first project — the highest-impact ready-to-use
+  defect found in this stage, sitting directly in #11's path, and invisible to all 836 cases because the
+  harness reads params its own way (`apps/desktop/e2e/harness.ts:844`).
+
+## FINAL REPORT — skeleton written ahead of completion (2026-11-03, orchestrator)
+
+Values marked `TBD` are filled only when the gate that produces them has actually run. This section exists
+before the work finishes so an interruption cannot lose the shape of the deliverable.
+
+- **Last commit on `dev`**: TBD (hash + subject). Before any commit: `gitleaks detect --source .
+  --no-banner --redact` in history mode with `~/.local/bin/gitleaks` 8.30.1 (installed this session,
+  checksum-verified), plus `git status --short` reviewed for `.env`/key/token/credential paths.
+  `bridge-io/` stays ignored (`.gitignore:73`).
+- **Visual acceptance**: baseline refresh TBD/836, then strict rerun on the refreshed baselines TBD/836
+  with `maxDiffPixelRatio: 0` and `threshold: 0` unchanged (`playwright.config.ts:123-128`). Critique
+  round 3 against the new captures: TBD (task #44). Rust and TS unit gates on this host: desktop and
+  remote vitest both green earlier today; `cargo` gates still owed after the seam lane lands.
+- **Secret scan (2026-11-03 18:39, after the `.gitleaks.toml` repair)**: history mode over the real repo —
+  `gitleaks detect --source . --no-banner --redact` → **30 commits scanned, 5.89 MB, "no leaks found",
+  exit 0**, so the already-pushed `68dc78d` wip commit carries no secret and there is nothing for the
+  owner to rotate on that account. Green alone is not evidence, so the same binary was pointed at a
+  throwaway `/tmp/gl-probe` with two planted fictional credentials: **exit 1, "leaks found: 1"** — the
+  `openai-api-key` rule fired on a 48-char `sk-` literal; the planted `ghp_` value was 32 chars against a
+  rule requiring 36, so it is my fixture being too short, not a rule missing a secret. Both directions
+  proven: the config loads (it panicked before this stage) and it catches a real pattern. Third scan, for
+  the hole the repo allowlist creates: `bridge-io/` is excluded from the repo config's paths, and it holds
+  security audits and load logs, so it was scanned separately with **gitleaks' own default rules** —
+  `gitleaks dir bridge-io --no-banner --redact` → 14.76 MB scanned, **"no leaks found", exit 0**. (48 MB of
+  directory, 14.76 MB of scannable text; PNG evidence is skipped by design.) Re-run before the commit.
+- **Windows-native gates**: cannot run on this Linux aarch64 host. Route is CI on push (`ci.yml` gains the
+  `dev` trigger, task #41). Status TBD, and framed honestly: `actions/runs → total_count: 0` measured
+  today, so the push triggers the **first workflow run in this repository's history**. Results are
+  reported by failure class, never as "regressions", because there is no green baseline to regress from.
+- **Installers (#10)**: unsigned MSI/NSIS/deb from a CI-only `tauri build --config` override with
+  `bundle.createUpdaterArtifacts: false` — no signing key is created, stored or used in this stage.
+  Paths/sizes/SHA-256 TBD.
+- **Real-provider installed E2E (#11)**: BLOCKED ON THE OWNER, and blocked by #25/#40/#42 regardless of
+  the key. Owner steps below.
+
+### Exact owner steps for the real-provider run (#11)
+
+1. Supply one provider key from the kinds the daemon actually supports (`ProviderKind`,
+   `crates/warsha-core/src/lib.rs:290-305`): `openai`, `anthropic`, `google_gemini`, `deepseek`,
+   `openrouter`, `azure_openai`, `ollama`, `lm_studio`, `custom_openai_compatible`, and the coding
+   backends `claude_code`, `codex_cli`, `gemini_cli`, `cursor_cli`, `open_hands`.
+2. Enter it **only through the app UI** (Settings → Providers, or the first-run wizard). Never paste it
+   into a chat message, terminal argument, issue or repo file. I do not read, log, print or echo it, and I
+   will not put it in any `.env`.
+3. Set a hard spend cap before the run so a stalled loop cannot bill: `budget.set` is per project
+   (`set_budget(project_id, budget_cents)` at `crates/warsha-providers/src/lib.rs:778`) and the provider
+   config carries `budget_cents_per_run` (`crates/warsha-providers/src/lib.rs:1113`). The run report
+   states real cost in cents against that cap.
+4. Land #25/#40/#42 first: until `projects.create` sends its required fields and `gates.list` is served,
+   an installed app pointed at a real daemon cannot create its first project or read its gates, so a key
+   alone does not unblock this.
+5. What I return after the run: Arabic-language screenshots at each stage, the produced artifact set, and
+   the real cost report against the cap.
+
+### Owner decisions outstanding (a human, not another lane)
+
+- Release target repo for installers: `athar-studios/warsha` (product repo, already the updater endpoint
+  at `tauri.conf.json:74`) versus this checkout's `athar-studios/warsha-dev`.
+- One canonical public contact address: docs currently disagree — `README.md:116`
+  `contact@atharstudio.example` vs `README.ar.md:118` `contact@atharapp.download`, plus unverified
+  `warsha.dev` at `docs/src/tos.md:36`, `docs/src/security.md:182`, `SECURITY.md:13`,
+  `CODE_OF_CONDUCT.md:63`.
+- Unimplemented security claims (encrypted SQLite, TLS 1.3 everywhere, Docker-per-run, WebAuthn gate
+  confirmation, JSONL audit log): keep as a clearly-labelled roadmap section, or delete.
+- Signing/notarization keys: out of scope by instruction; nothing in this stage creates or stores one.
+
+## PARKED FOR TURN BUDGET — resume exactly here (2026-11-03 ~18:42 host time)
+
+Nothing was left in a half-applied state on purpose, and **nothing was committed**, because the rule is
+commit-after-*accepted*, and at parking time no lane's output has been verified by a gate yet: the Rust
+seam lane has never been compiled, the strict visual confirmation has never run against the refreshed
+baselines, and the docs pass is mid-rewrite. Committing that would publish unverified work.
+
+### Live state at parking
+
+- Capture lane: `--update-snapshots` refresh on the authoritative aarch64 host, at 417/836, 1 rewritten
+  case, log `/tmp/b4-refresh.log`, exit marker `REFRESH_EXIT=` appended on completion.
+- Chained and already queued (no action needed to start it): the strict confirmation run,
+  `/tmp/b4-strict-rerun.log`, `--workers=2 --reporter=list`, which begins 8 s after the refresh writes its
+  exit marker. `--reporter=list` is mandatory here — the config's JSON reporter otherwise overwrites
+  `bridge-io/audit/visual-playwright.json`, whose authoritative copy is staged at
+  `/tmp/b4-guard/authoritative.json` (sha256 `88020b1697…`).
+- Three edit-only lanes dispatched and writing: Rust seams (`crates/warshad/src/lib.rs` +321 lines,
+  `gates.list` on `Run.gate_states`, `Session`/`Standard` policy row plus a `assert_ne!` guard against
+  pulling the queue read onto the decision ceiling, 4 new tests), `.gitleaks.toml` (anchored RE2 paths,
+  class-wide exemptions replaced by literal-canary regexes — **already proven working by me**: history
+  scan 30 commits clean, planted `sk-` credential detected exit 1, `bridge-io` scanned separately with
+  default rules and clean), and docs Pass A (markdown only).
+- Working tree: 248 paths touching this stage's scope, all uncommitted on `dev` at `68dc78d` (remote `dev`
+  equals local HEAD, so the eventual push is a plain fast-forward). `bridge-io/` stays ignored.
+
+### Exact resume sequence
+
+1. Read the two capture results, in this order, and only accept green if both hold:
+   `grep -E 'REFRESH_EXIT|passed|failed' /tmp/b4-refresh.log | tail -5` then, once it finishes,
+   `grep -E 'STRICT_EXIT|passed|failed' /tmp/b4-strict-rerun.log | tail -5`. The strict run is the gate:
+   `maxDiffPixelRatio: 0` and `threshold: 0` are unchanged and must not be touched.
+2. Verify the Rust seam lane — it has **never been compiled**:
+   `cargo fmt --all --check && cargo clippy -D warnings -p warshad --all-targets && cargo test -p warshad --lib && cargo test -p warshad --test security_identity`.
+3. Run the wire gate if the lane delivered it: `node scripts/check-wire-contract.mjs --self-test && node
+   scripts/check-wire-contract.mjs`, then `actionlint` (`~/.local/bin/actionlint`, installed this session).
+   Delete the param-key check if it was written despite the retraction — it fails on working code.
+4. Re-run the client/remote suites after any harness change:
+   `pnpm --filter warsha-desktop test && pnpm --filter warsha-remote test`.
+5. Only then the accepted-stage commit: `~/.local/bin/gitleaks detect --source . --no-banner --redact`,
+   `git status --short` reviewed for `.env`/key/token files, `git add -A`, commit, `push origin dev`. Never
+   main, never force, never a tag or release.
+6. Watch the first-ever CI run on this repo and triage **by failure class** (expect the x86_64-vs-aarch64
+   visual question and possibly a missing `TAURI_SIGNING_PRIVATE_KEY` in the installer job).
+7. Remaining board: #42 client-side seams (must include the live-proven `projects.create` field break),
+   #44 critique round 3 on the refreshed captures, #10 installers via CI, #12 Pass B docs, #11 blocked on
+   the owner's key **and** on #25/#40/#42, then the Z gates.
+
+### Gate run at parking time (cheap, no cores stolen from the capture)
+
+- `cargo fmt --all --check` **fails** on the seam lane's new test code — diff at
+  `crates/warshad/src/lib.rs:4228` (`run.gate_states.insert(` wrapping inside
+  `gates_list_answers_the_flat_state_shape_the_client_declares`). The lane was permitted `cargo fmt --all`
+  and evidently did not run it after its last edit, so **CI's "Check formatting" step would fail on this
+  tree as it stands**. Fix with `cargo fmt --all` before commit; it is a formatting-only defect, not a
+  behavior one, and the four `gates_list_*` tests otherwise read as intended.
+- `scripts/check-wire-contract.mjs` was **not delivered** by the lane — resume expects to write or finish
+  it, so task #41's CI step cannot be added until it exists.
+
+### Do not repeat, already settled this session
+
+`Store::list_gates` is not the `gates.list` source (no production writer); the camelCase param break is
+**withdrawn** (live daemon accepts `{"projectId": …}`) and the real break is `projects.create` missing
+`description`+`language`; `--ws-port` is the JSON-RPC port; REDESIGN.md's focus-trap claim is correct and
+`apps/remote/e2e/bench.visual.spec.ts` does run axe; one capture run owns the machine, and edit-only lanes
+with explicit command bans are the only safe parallelism here.
+
+### Gitleaks lane closed (18:44) — and found two things that would have kept the gate silently broken
+
+The config fix is delivered and self-proven, but the important part is what it uncovered beyond my brief:
+
+- **Rule-id shadowing.** With `[extend] useDefault = true`, a custom rule whose `id` matches a default
+  rule's id is **silently dropped**. This repo used the default ids `openai-api-key` and
+  `anthropic-api-key`, so its own rules were being discarded — and 8.30.1's surviving *default* OpenAI
+  rule only matches `sk-proj-…` shapes, meaning a classic `sk-`+48 key would have gone undetected **even
+  after the panic was fixed**. Fix was renaming the colliding ids to `warsha-*`; the regexes are
+  unchanged, so nothing was weakened.
+- **Allowlist `regexes` are matched against the finding's *Secret*** (auto-extracted from the first
+  capture group), not the Match — so exemptions silently matched nothing until `generic-secret` gained a
+  value capture group with `secretGroup = 2` and every exemption was anchored `^…$`.
+- `generic-secret` was 47-of-48 prose/identifier noise; tightened to require `[:=]` plus a quoted value
+  instead of deleting it.
+- Controls: planted a root-level `.md` (the exact class the old `**/*.md` glob exempted) with three
+  fictional credentials → 4 findings, exit 1; removed → exit 0, `git status` clean. History: 30 commits,
+  5.89 MB, exit 0. Exemptions are six redaction-test canaries, `<redacted>`, a docs placeholder, the M2
+  observability canary, the RFC 6455 sample nonce, `ChaCha20-Poly1305` as an algorithm name, and
+  `9731DDBF50264A8C` — the **minisign public** key id inside the updater `pubkey` in
+  `tauri.conf.json`, public by design and needing no rotation.
+- Honest limit, recorded rather than glossed: the lane cannot prove the `ci.yml` step end-to-end because
+  `gitleaks-action@v2` pins its own gitleaks version. **Resume must confirm it in the first real CI run.**
+
+### Rust seam lane closed (18:52) — supersedes "wire script still absent" above
+
+Delivered `gates.list` (trait + impl + `GateSummary`/`GateSummaryState` + `From<GateState>`), 5 unit tests,
+a new **real-daemon** integration file `crates/warshad/tests/gates_list.rs`, the auth row plus
+both-direction tests, `scripts/check-wire-contract.mjs` (W1-W7 with `--self-test`, const-indirection,
+`rpc<T>` generics, multi-line attributes, depth-aware param splitting), R7 in `docs/ARCH_RULES.md`, and the
+`ci.yml` trigger fix + `Wire contract` step. Two things to carry into review, both better than the brief:
+
+- It read the mid-flight **camelCase retraction** and implemented W7 as *required-entry presence*, adding a
+  self-test mutant that **proves a camelCase key is not an offence** — a regression guard on my own error.
+- Honest deferral instead of a fake-green gate: `KNOWN_UNREGISTERED_METHODS` (the 8 names #25 renames or
+  deletes) and `KNOWN_PARAM_DRIFT_METHODS` (`projects.create`) are whitelisted because `packages/client`
+  was off-limits to it, with `REQUIRE_NO_KNOWN_DRIFT = true` as the one-edit flip. **Everything else is
+  strict**, so new drift fails CI. Resume must empty those two lists in #42, not leave them on.
+- Ran the node validators itself (self-test, plain, `--report-only-known` = 17 known items, `check-arch`)
+  and `cargo fmt`; the self-test caught two real harness bugs in its own parser.
+- **Zero compiler contact.** Nothing here has been built, clippy'd or tested. That is the next 40-minute
+  window's first work: `cargo clippy -p warshad --all-targets -D warnings`, `cargo test -p warshad --lib`,
+  `cargo test -p warshad --test gates_list --test security_identity`, then `actionlint .github/workflows/
+  ci.yml` (`~/.local/bin/actionlint`). Do not accept the lane's Rust on inspection.
+- It flagged a `ci.yml` comment hunk near "Visual regression" as another lane's — confirm ownership before
+  committing, so the accepted-stage commit doesn't silently adopt an unreviewed edit.
+
+### STRICT CONFIRMATION RUN (19:31) — visual acceptance NOT green: 827 passed / 9 failed, exit 1
+
+`playwright test --workers=2 --reporter=list` against the baselines refreshed on THIS host 30 minutes
+earlier: **827 passed / 9 failed, 28.4m, `STRICT_EXIT=1`** (`/tmp/b4-strict-rerun.log`).
+
+- All nine are screenshot comparisons, all tiny: `gates 390x844 en light` **20 px** (ratio 0.01),
+  `onboarding-provider 768x1024 en light` **4 px**. Failing set: `advanced 1440x900 en light`,
+  `gates 390x844 en light`, `gates 390x844 en dark`, `gates 768x1024 en dark`, `gates 1440x900 en light`,
+  `artifacts 390x844 en dark`, `onboarding-provider 768x1024 en light`,
+  `states gates permission 390x844 en light`, `states gates permission 1440x900 en dark`.
+- **Meaning**: same host, same config, same AA pin, 30 minutes apart, and 9 captures are not byte-reusable.
+  The defect is **capture nondeterminism**, not a design regression — and it is the same case family the
+  pre-move records kept hitting (2–24 px jitter, `gates permission`, `onboarding-provider`, the topbar
+  bell/mode-toggle band). So `maxDiffPixelRatio: 0` cannot be met until whatever moves ±1 coverage between
+  runs is found and frozen. Re-refreshing hoping for a lucky match, or relaxing
+  `playwright.config.ts:123-128`, are both off the table: that tunes the gate, not the product.
+- **Self-disclosure**: I started this confirmation twice — one manual launch at 18:53 while the refresh
+  still held ports 5173/5174 (it died on "http://localhost:5173 is already used"), one via the
+  exit-marker chain at ~19:03 — and both wrote to the same log path, so the log mixes a failed-fast line
+  with one complete 836-case run. The 827/9 came from a single surviving process, but the duplicate launch
+  was my error and made the evidence ambiguous. Unique log paths from here, one launch.
+- Next: region-diff two consecutive captures of ONE case to find what moves (clock-dependent text,
+  animation/caret phase, a fractional layout edge, or the topbar strip), then fix the cause and prove the
+  case is byte-stable across two strict runs.
+
+### Docs Pass A complete (19:40) — both lanes landed more than they were told to
+
+Lane #1 (11 files, +966/-401) and lane #2 (`docs/INSTALL.md` +191/-55, `docs/UI.md`, three new pages) both
+reported "I'm about to start editing" in their final message while the tree showed completed work — the
+narrative is not the evidence, `git diff --stat` is.
+
+- `docs/src/SUMMARY.md:6-8` now links `first-run.md`, `known-limitations.md` and `user-guide.ar.md`, so the
+  three pages the audit said were missing actually render.
+- Installer table in `INSTALL.md:98-99` (AR) and `:322-323` (EN) now gives `Warsha_0.2.0_*` names with the
+  status "not built, no release tag, no published release", and keeps the historical `0.1.0` name and byte
+  sizes in a clearly-labelled column instead of presenting them as a promise.
+- **The lane corrected ME on `--data-dir`.** My brief asserted the flag does not exist, from
+  `warshad --help`. It does exist — on the *desktop* binary: `warsha-desktop --self-check --data-dir <path>`
+  (`apps/desktop/src-tauri/src/lib.rs:379-394`, parsed at `src-tauri/src/main.rs:20`). The doc now states
+  the desktop form, cites it, and adds an explicit "do not carry this over to the standalone daemon"
+  warning. I verified both anchors by grep before accepting it. A brief is not a fact.
+- Residuals still open in docs: the 19 contact-address occurrences across files stay flagged as owner
+  decisions (deliberately not unified), and Pass B claims (`docs/UI.md:4-5` "both modes read the same
+  daemon state over JSON-RPC + WebSocket", `quickstart.md:127-131`, per-provider budget) must wait for
+  #25/#40/#42 to actually compile and land.
+
+### Verification bank (2026-11-03 19:41) — what has actually been RUN on this host
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| `node scripts/check-arch.mjs` | `arch: 5 rules, 0 violations` | this session |
+| `pnpm --filter warsha-desktop test` | exit 0 | 19:12 |
+| `pnpm --filter warsha-remote test` | 147 passed / 13 files | 19:12 |
+| `bash scripts/ci/install-capture-fonts.sh` | 9 pinned faces + AA pin, loads in `chrome` and `headless_shell` | this session |
+| `cargo fmt --all --check` | `FMT_OK` | `/tmp/b5-rust-verify2.log` |
+| `cargo clippy -p warshad --all-targets -- -D warnings` | `CLIPPY_OK` | same (first attempt used `-D` without `--` and errored — my invocation bug, not the lane's code) |
+| `cargo test -p warshad --lib` | **66 passed / 0 failed / 2 ignored**, 1.53s | same |
+| `cargo clippy --workspace --all-targets -- -D warnings` | **`WS_CLIPPY_OK`** | `/tmp/b5-rust-workspace.log` — workspace-wide, so cross-crate feature unification is covered, not just the touched crate |
+| `cargo test --workspace --all-targets` | **`WS_TEST_OK`, `WS_EXIT=0`, 24 `test result: ok` blocks, zero failures** | same. Note the log also contains `error: no such command: nonexistent-subcommand` — that is an expected negative-path assertion inside a passing CLI test, not a failure; read the suite result, not the string |
+| `cargo test -p warshad --test gates_list --test security_identity` | **`gates_list` 3 passed / 0 failed**, **`security_identity` 5 passed / 0 failed**, `WIRETESTS_OK`, `RUST_VERIFY2_EXIT=0` | same — `gates_list.rs` boots the real daemon and reads `gates.list` over HTTP, so the gates read is now proven by a live round trip, not by a stub |
+| `check-wire-contract.mjs --self-test` | `7 checks fire, clean fixture is clean in both modes` | `/tmp/wc-selftest.log` |
+| `check-wire-contract.mjs` | `wire: 7 checks, 0 violations`, 17 items deferred in `KNOWN_*` | this session |
+| `actionlint .github/workflows/ci.yml` | exit 0, no findings | `~/.local/bin/actionlint` 1.7.12 |
+| gitleaks history | 30 commits, 5.89 MB, **no leaks**, exit 0 | after the config repair |
+| gitleaks positive control | planted `sk-` caught, exit 1 | same session |
+| gitleaks on `bridge-io` (config excludes it) | scanned with default rules, **no leaks**, 14.76 MB | same |
+| Visual baseline refresh | 835 / 1 (the 1 is the startup-flake class), 43.8m | `/tmp/b4-refresh.log` |
+| Visual STRICT rerun | **827 / 9, exit 1**, total diffs 4-20 px | `/tmp/b4-strict-rerun.log` → task #45 |
+| Pre-commit hygiene | `dist/`, `playwright-report/`, `bridge-io/`, `.env*`, `*.db`, `*.log` ignored; no key-ish paths in `git status` | `git check-ignore -v` with real file paths |
+| CI triggers | `push: branches: [main, dev]` (`ci.yml:5`) and `workflow_dispatch` (`ci.yml:8`) both confirmed | read this session |
+
+**Response-shape cross-check the wire gate cannot make**: `check-wire-contract.mjs` compares method names
+and param counts, not the JSON body, so a stub could answer the right method with the wrong shape. Compared
+by hand anyway: the harness fixture at `apps/desktop/e2e/harness.ts:525-532` is
+`{stage, state:{state:'pending'}}` and `{stage, state:{state:'approved', by:'device-owner', at:'…'}}`,
+which is exactly the flat `GateSummary`/`GateSummaryState` the daemon now serialises — so the gates screens
+are being fed the shape the real daemon produces, and #42 does not need to invent one.
+
+Docs Pass A was verified by reading output rather than the report: three new pages exist and are linked at
+`docs/src/SUMMARY.md:6-8`; `INSTALL.md` now shows `Warsha_0.2.0_*` with "not built, no release tag, no
+published release" and quarantines the old `0.1.0` name and byte sizes; `user-guide.ar.md` is real Arabic
+inside `<div dir="rtl" lang="ar">` and scopes itself honestly ("the book is English; Arabic appears in
+exactly two pages"); `known-limitations.md` names both live-measured breaks. Three security citations were
+checked against source: `auth.rs:894-921` (`check_transport_url`), `warsha-store/Cargo.toml:13-16`
+(`rusqlite` bundled, no SQLCipher), `warsha-relay/src/lib.rs:390-400` (plaintext pairing file **Refused**).
+
+**Open docs nit, deliberately not fixed by me**: `docs/src/security.md:31` says the transport rule "requires
+`https`/`wss` for endpoints the daemon dials out to", but `auth.rs:899` with the error at `:921` allows plain
+`http`/`ws` on **loopback outbound** — the doc overstates the restriction. Overstating is the opposite
+direction from the usual doc lie, but a security page must describe the rule that exists, so it is queued
+for Pass B rather than patched in prose by the orchestrator.
+
+**And a correction to my own brief**: I asserted `--data-dir` does not exist, from `warshad --help`. It does
+exist on the desktop binary (`warsha-desktop --self-check --data-dir <path>`,
+`apps/desktop/src-tauri/src/lib.rs:379-394`, parsed at `src-tauri/src/main.rs:20`). The docs lane found it
+with citations and the page now names which binary takes the flag and warns against carrying it to the
+daemon. A brief is not a fact.
+
+### Installer lane (#10) landed — build-only workflow, verified by me, still unproven
+
+`.github/workflows/desktop-bundle.yml` added; `release.yml` de-literalised. What I checked rather than
+trusted:
+
+- `grep -c 'secrets\.' desktop-bundle.yml` → **1**, and `grep -c 'github.com/Warsha/Warsha' release.yml` →
+  **1**. Both looked like overclaiming. Both matches are **inside comments**: `desktop-bundle.yml:13`
+  states "zero `secrets.*` references" while describing their absence, and `release.yml:29` records that the
+  old literals pointed at a 404 repo. No executable `secrets.` input; no live `Warsha/Warsha` URL. A count is
+  a question, not a verdict — the context decides it.
+- `actionlint` on both files: exit 0, no findings.
+- The `--config` override is **proved from the pinned CLI**, not guessed: `pnpm-lock.yaml` resolves
+  `@tauri-apps/cli` to `2.12.4`, and this host's `tauri build --help` says `-c, --config <CONFIG>` —
+  "JSON strings or paths to JSON, JSON5 or TOML files to **merge** with the default configuration file".
+  Deep-merge is what makes overriding the single `bundle.createUpdaterArtifacts` leaf safe, and
+  `tauri.conf.json:38`/`:74` stay untouched for the owner's signed releases.
+- Triggers: `workflow_dispatch` only, with the cost reasoning in the file header (three full release-mode OS
+  builds per push would triple CI minutes on a repo that has no CI history to calibrate from) and the
+  promotion path (`pull_request` on `dev` with a path filter) written down rather than decided silently.
+- The evidence design is the part that matters: each of `Warsha_*_x64_en-US.msi`,
+  `Warsha_*_x64-setup.exe`, `warsha_*_amd64.deb`, `.AppImage`, `.dmg` is printed as path | bytes | SHA-256
+  into `evidence/bundle-manifest.txt` and the step summary; **zero matches fails hard** with a directory
+  listing; `upload-artifact` uses `if-no-files-found: error`. So the first real run cannot be "green but
+  empty". `ci.yml`'s `summary` job is untouched (it needs only `rust,typescript,codeql,actionlint`).
+- Four things stay unprovable until CI runs it, named rather than implied: the override actually skipping
+  `.sig` generation without the secret; MSVC/NSIS/WiX prerequisites on `windows-latest`; whether real bundle
+  filenames match those globs (never validated — this repo has zero runs); macOS dmg naming on arm64
+  runners, plus `targets: "all"` possibly attempting rpm on Linux as `release.yml` already does.
+
+**What closes #10**: after the accepted-stage push to `dev`, dispatch the build-only workflow
+(`gh workflow run desktop-bundle.yml` — no publish, no key, no tag) and record the manifest's artifact
+names, sizes and SHA-256. Until that run exists, #10 stays open.
+
+**Review finding on the Windows leg, stated as a risk and not as a defect**: this repo already carries
+`scripts/windows-msvc-env.ps1` (10 KB, written on the previous host) whose header explains exactly the gap
+in question — a plain shell lacks `INCLUDE`, `LIB`, `PATH` and `WindowsSdkDir`, so a C compile that needs
+them dies on `fatal error C1083: Cannot open include file: 'stddef.h'`. Neither `release.yml`'s desktop
+build nor the new `desktop-bundle.yml` dot-sources it (`grep -rn windows-msvc-env .github/workflows/` → no
+hits). Two facts keep this a *candidate* rather than a verdict, and they are in the script's own text:
+`cc-rs` discovers the VC toolchain itself, so `cargo build` normally works from a plain shell, and the
+failures the helper was written for were *hand-started* compiles. So the Windows leg may build fine. The
+actionable part is cheaper than being right first: add an early diagnostic step on the Windows leg printing
+`where cl`, `where link`, `WindowsSdkDir`, and whether a VS install is present, so if the leg does fail it
+names the cause in the first minute instead of consuming the 60-minute timeout and leaving a 300-line
+`link.exe not found` trail. Fold into the next lane that touches workflows; `release.yml` shares the same
+untested pattern, so the diagnostic belongs to both.
+
+### Wire gate: end-to-end negative control, and the hole it found (19:47)
+
+A verifier's `--self-test` proves its own mutants fire; it does not prove it fires on the real tree. So I
+ran the gate against a **copy** of the real files (`--root /tmp/wc-fixture`; nothing in the repo touched),
+with deliberately injected drift:
+
+```
+$ node scripts/check-wire-contract.mjs --root /tmp/wc-fixture
+W1: packages/client/src/index.ts:1015 method "made.up" (the client can put it on the wire and the daemon
+    registers no such name — a live call answers -32601)
+wire: 7 checks, 1 violation(s)
+exit=1                                     ← the gate is live, not vacuous
+```
+
+**My first attempt came back green, and that green result is the evidence for a real gap.** I injected
+`c.rpc("made.up", …)` with **double quotes** → `0 violations, exit 0`. The parser at
+`scripts/check-wire-contract.mjs:335` is
+`/\.rpc\s*(?:<[^>]*>)?\s*\(\s*(?:'([^']+)'|([A-Za-z_$][A-Za-z0-9_$]*))/g` — single-quoted literals and
+same-file const identifiers only, so a wire name written in double quotes is invisible to the check.
+Practical risk is low (Prettier enforces single quotes repo-wide) and the script does refuse to guess — `:451`
+reports an unresolved const instead of silently skipping, which is the right instinct. Hardening, queued as
+task #46 and to land after #42 (which already owns this script): accept `'…'` **and** `"…"` in `callRe`, plus
+a self-test mutant requiring a double-quoted call to be detected, so quote style can never be a bypass route.
+
+### Param-form question CLOSED by live measurement (19:52) — gates.list needs no client rename
+
+Rather than leave the positional-vs-named gap for a lane to rediscover, I booted the freshly built
+`target/debug/warshad` in a throwaway sandbox (`XDG_CONFIG_HOME`/`XDG_DATA_HOME`/`XDG_STATE_HOME` under
+`/tmp/wc2`, ports 39921/39922, token read but never printed), created a project and started a run over the
+wire, then called `gates.list` in all three param forms. **All three returned byte-identical answers:**
+
+```
+A positional      ["01M6…TKW"]          → 4 stages, each {"state":{"state":"pending"}}
+B named camelCase {"runId":"01M6…TKW"}  → identical
+C named snake     {"run_id":"01M6…TKW"} → identical
+```
+
+So the desktop's exact call shape (`this.rpc('gates.list', { runId })`,
+`packages/client/src/index.ts:487`) **works against the real daemon today** — the queue is proven
+end-to-end, and #42 must NOT rename that param key, because there is nothing to fix. This re-confirms the
+camelCase retraction for the new method specifically, which was the one place it could still have been
+wrong. Two disclosures: my first attempt returned `-32602 "invalid length"` for all three forms, which was
+**my extraction bug, not a wire finding** — run ids are ULIDs (`01M6HFG2DG3XYPWJ649KNF5TKW`) while project
+ids are UUIDs, and `grep -oE '"id":"[0-9a-f-]{36}"'` silently produced an empty string; an empty argument
+looks exactly like a server error if you never check what you sent. And the sandbox is deleted with the
+daemon stopped (`pgrep -c 'warshad -f'` → 0), so no state or token outlives the measurement and the run I
+created exists only in `/tmp`, never in the owner's data directory.
+
+Remaining param question, narrow and real: **`projects.create` required fields** (1 sent, 3 required),
+already flagged by the wire gate's W7, plus #40's standing ask that the Rust integration test exercise the
+named-object forms alongside positional so the guard can't drift from the client again.
+
+### Pre-commit audit: nine untracked files that tracked code already depends on (19:58)
+
+`git status --short | grep '^??'` lists nine files, and **every one is referenced by at least one tracked
+file** — so leaving any out of the accepted-stage commit breaks something specific, not nothing:
+
+| Untracked file | Refs in tracked files | Consequence if omitted |
+| --- | --- | --- |
+| `scripts/ci/capture-fontconfig.conf` | 4 | `playwright.config.ts:56` resolves it and `assertReadableFontconfig` refuses to run → CI visual job dies before the first screenshot |
+| `scripts/check-wire-contract.mjs` | 4 | `ci.yml:125-128` "Wire contract" step fails on a missing script |
+| `scripts/check-engineering-policy.mjs` | 4 | `package.json` `policy` script and the AGENTS.md rule fail |
+| `ENGINEERING_POLICY.md` | 3 | AGENTS.md tells every agent to read a file that isn't there |
+| `crates/warshad/tests/gates_list.rs` | 1 | `cargo test -p warshad --test gates_list` — the live round-trip guard — doesn't exist |
+| `.github/workflows/desktop-bundle.yml` | 1 | the unsigned installer build (#10) has no workflow to dispatch |
+| `docs/src/first-run.md`, `known-limitations.md`, `user-guide.ar.md` | via `docs/src/SUMMARY.md:6-8` | **fails silently**: mdBook exits 0 with a missing target either way (measured in the `/tmp/bookctl` control), so the book quietly loses its first-run guide, limitations page and Arabic guide with no error anywhere |
+
+The last row is the one that would have bitten hardest, and it's the same lesson as the dead gitleaks config
+and the never-triggered CI: the loudest failure isn't always the worst failure. The fontconfig pin itself was
+checked rather than assumed — root element `fontconfig` with 4 children, so it's a real file, not a stub.
+All nine belong in the same commit as the source that needs them.
+
+### Wire contract enforced end-to-end (20:08) — #25/#40/#42 design complete, verification pending
+
+Verified in the tree, not from a lane's report:
+
+- `REQUIRE_NO_KNOWN_DRIFT = true` (`scripts/check-wire-contract.mjs:88`) and **both deferral lists empty**
+  (`KNOWN_UNREGISTERED_METHODS = new Set([])`, `KNOWN_PARAM_DRIFT_METHODS = new Set([])`), with a comment
+  recording *why* they can be empty: `projects.create` sent `{ name }` where the daemon requires
+  name + description + language, measured live as `-32602`, which is what blocked first-run project
+  creation for #11.
+- `node scripts/check-wire-contract.mjs --self-test` → "7 checks fire, clean fixture is clean in both
+  modes"; plain run → `wire: 7 checks, 0 violations`, exit 0. So daemon registry ↔ auth policy ↔ client
+  calls ↔ harness stubs ↔ required param counts are now checked with zero deferrals.
+- Client renames confirmed in source: `budget.show` with cents→USD at the edge (`index.ts:655`, `:383`),
+  `devices.revoke` (`:760`), `runs.status` folded into `runs.get`, `runs.logs` folded into `runs.events`,
+  and `providers.budget`/`providers.budget.status`/`roles.assign` deleted as calls with the H-04 reason
+  kept in the comment at `:717`.
+- Harness answers `runs.events` (`harness.ts:874`), and `RUN_EVENTS` is **derived from `RUN_LOGS`** with
+  `payload: { summary: line }` (`:714`) while `eventLogLine` checks `EVENT_TEXT_KEYS` whose first entry is
+  `'summary'` (`index.ts:392-398`) — so the log panel renders byte-identical strings and no baseline moves.
+  I verified this across three files rather than accepting the design, because a name/param gate is blind to
+  response shape: had `'summary'` been absent, the formatter would have emitted `summary=$ cargo test …`
+  and silently re-labelled every log line across five viewports × two locales × two themes.
+- Strict-run composition, for the audit: **753 desktop and 91 remote case-results ran; all nine failures
+  were `[desktop]`, zero remote failures.** So the nondeterminism in #45 is desktop-chrome-local, which
+  narrows the suspects to the ModeSwitch and topbar band rather than a host-wide raster problem.
+
+STILL OWED before #25 can be marked complete: `pnpm typecheck` (the arity changes touch `App.tsx`,
+`Onboarding.tsx`, `ProjectsBoard.tsx`, `AdvancedMode.tsx`, `RunView.tsx`), `pnpm --filter warsha-desktop
+test`, `pnpm --filter warsha-remote test`, then #45's two-capture experiment on the settled tree, then the
+strict visual rerun. The lane was still writing when this was recorded, so none of those have been run yet —
+nothing here is accepted on inspection.
+
+### Report skeleton updates (20:13) — values I can fill in now
+
+- **Visual composition of the strict run**, for the "validated environments" requirement: 753 desktop and
+  91 remote case-results ran; **all nine failures were `[desktop]` and zero were remote**, and all nine
+  were `toHaveScreenshot` (error-kind tally: 9 `expect(page).toHaveScreenshot`, nothing else). The lone
+  other error string in that log was my own duplicate launch dying on port 5173.
+- **Baselines are committed artifacts, not local scratch**: `git ls-files` counts 512 desktop and 84 remote
+  snapshot PNGs tracked, and zero tracked files matching `.log|.env|node_modules|test_create.txt|run.flag`.
+  A comparison gate whose reference images only exist on one machine is not a gate.
+- **Repo validators**: `arch: 5 rules, 0 violations`; `policy: 8 checks, 0 failures` plus its `--self-test`;
+  `actionlint` exit 0 on `ci.yml`, `release.yml` and `desktop-bundle.yml`. Recorded with a gap: AGENTS.md
+  mandates the policy validator but `ci.yml` never runs it — task #41.
+- **Stub-table honesty has one real enforcer, and it is not a JS test**: `harness.ts:99` claims the table is
+  checked against the client, but nothing in vitest references `RPC_METHODS`. The check is W2 in
+  `scripts/check-wire-contract.mjs`, run in CI at `ci.yml:127-128`, and its self-test fires an
+  "unknown harness stub" mutant. My own independent set-difference agrees: 32 stub entries, none outside the
+  daemon's registry.
+- **NEW DEFECT FOUND AND SOURCED, not on the board before: #49.** The desktop's live event feed cannot work
+  against a real daemon. Verified mechanism: `auth_handler_inner` (`crates/warshad/src/lib.rs:3652-3680`)
+  authenticates every non-`/health` route from `bearer_token(&headers)`; `events_handler` does no auth itself
+  (`:3733` goes straight to `ws.on_upgrade`); and the client's `warsha.token.<token>` subprotocol
+  (`packages/client/src/index.ts:1055`) is never consulted on that path. A webview cannot attach an
+  Authorization header to a WebSocket handshake, so both desktop modes render "stream offline" — which
+  `docs/UI.md:4-10` and `docs/INSTALL.md` §5 already disclose honestly. Fix direction and its security
+  constraints (same `sessions.resolve` path, no query-parameter token, preserve the identity-keyed rate
+  ceiling) are written into #49. This gates #11: an installed app that cannot stream events is not usable.
+- **Still TBD, unchanged**: last commit hash (nothing committed), strict visual rerun result, #45's
+  two-capture outcome, CI's first real run, installer artifact sizes/SHA-256, and the owner's provider key.
+
+### Pre-decided triage rules for the first real CI run
+
+The first dev push after #39 will be the first workflow run in this repository's history, so the report
+should not be improvised in front of a red dashboard. Rules fixed in advance, all consistent with the
+owner's 2026-11-02 ruling:
+
+1. **Windows `cargo test --workspace --all-targets` failing is expected-and-tolerated, not a product
+   bug to chase.** The owner ruled WSL authoritative for Rust tests and native Windows cargo test NOT
+   required; the local failure was the Codex sandbox's low-integrity labels on built executables, which
+   must not be touched. GitHub's runner has no such sandbox, so it may well pass — but if it fails on
+   process/ACL/permission grounds, classify it as environmental, keep the job as it is, and say so.
+   Never "fix" it by deleting the Windows leg or adding `continue-on-error`, which would hide every
+   later Windows-specific regression including the MSVC build the installers need.
+2. **Windows-native gates that ARE required** and must be reported individually: `pnpm build/test/
+   typecheck/lint`, Playwright, mdBook, `cargo clippy` through the MSVC helper, and the Tauri installer
+   bundle. A failure in these is real until shown otherwise.
+3. **The `typescript` job's `pnpm visual` step runs on x86_64 while the baselines were captured on this
+   aarch64 host.** If it fails with small pixel diffs, that is the architecture question from
+   DECISIONS.md, not a design regression: the answer is either an arm64 runner or CI owning baselines for
+   its own architecture — never a threshold change.
+4. **`gitleaks` and `cargo-deny` failures are blocking** and get fixed, not silenced; the gitleaks config
+   was dead for the whole pre-move period, so a finding there is new information rather than noise.
+5. Anything that fails because a required file was never committed (the fontconfig pin, the wire script,
+   the new docs pages, `gates_list.rs`, `desktop-bundle.yml`) is a #39 defect on my side, not a lane's.
+
+### Remote gates fixtures: the two stub-default failures are closed (2026-11-03, Coder lane)
+
+`pnpm --filter warsha-remote test` was 2 failed / 145 passed (147), both in `gates.test.tsx`, because
+the answering `gates.list` default `testkit.tsx` now carries did not match what two cases claim. Each
+case now states its own daemon: `refuseGates()` for the parked-gate card (its lit chip and its
+`remote.stage_gate_waiting` sentence are produced only by the stage reading — `GatePlate.tsx:56,85-87`
+keyed to `gate.source`, `bench.tsx:397-414` tagging every answered row `daemon`), and an empty list for
+the quiet queue (an empty queue is a real daemon answer, not a refusal). No assertion, no expected
+Arabic string, no product file was touched. Evidence in DECISIONS.md.
+
+- **Measured after the change**: remote `Tests 147 passed (147)`, `Test Files 13 passed (13)`, exit 0;
+  `pnpm typecheck` exit 0. The legacy fallback case (`bench.test.tsx:42-53`, via `refuseGates()`) and
+  the read-counting refusal case (`gates.test.tsx:183-203`, reads 1→2) are untouched and green.
+- **Client suite ran for the first time** (the chain had stopped at remote): **1 failed | 42 passed
+  (43)**. The new `EVENT_TEXT_KEYS` list ends with `'decision'`, so `getRunLogs` renders a
+  `gate_decision` event as `'approved'` while the same uncommitted work's own test expects
+  `'decision=approved, by=dev-1'` — the acting device is dropped from the log line. `packages/client`
+  is the client lane's seam, so it is left untouched and written up as finding 2 in DECISIONS.md.
+- **Open question for the owner (finding 1 in DECISIONS.md)**: against a daemon that answers
+  `gates.list`, the gate the run is parked on is never lit on its card, because the chip keys off the
+  reading's provenance while `NeedsYouScreen.tsx:9-11` and `GatePlate.tsx:57` both describe it as
+  keying off pending/parked. Not fixed in a fixture lane: it moves rendered text on the `needs-you-*`
+  and `gates-*` screens #45 is regenerating baselines for.
+
+## Orchestrator log — 2026-11-03, the settled tree and the re-derivation (22:26Z)
+
+**Everything that changes rendered pixels is now on disk, so the baseline refresh has a final tree.**
+Order of business was: land the fixes → re-derive → strict rerun → commit. Sequencing the refresh
+*before* these would have baked stale text into the baselines.
+
+- **Landed and verified by me, not by the lanes' word**: `pnpm typecheck` exit 0 · i18n `47 passed` ·
+  remote `154 passed` · desktop `350 passed` · client `46 passed` · `wire: 7 checks, 0 violations` ·
+  `policy: 8 checks, 0 failures` · `cargo test --workspace --all-targets` all green (`0 failed` across
+  every binary) · `cargo fmt --all --check` exit 0.
+- **#54 closed the wire question with a mechanism**: jsonrpsee 0.26.1 aliases the snake_case *and*
+  lowerCamelCase spelling of every Rust argument (`render_server.rs:398-416`), so recasing was never
+  the break; **renaming** is. `getRun`'s `{ id }` and `pairDevice`'s `{ qrData }` were real `-32602`s.
+  #58 is the follow-on the same measurement exposed: `pairing_data` must be the struct, not a string.
+- **#55/#56/#57 landed from a lane that hit its internal turn limit mid-report** — its edits were on
+  disk while its summary said it had only been reading. Lesson recorded: a lane's report is not the
+  tree's state; `find -newermt` is. I verified the suites myself before believing any of it.
+- **#59 (CI) is only half done.** The clippy step at `ci.yml:58` was `cargo clippy -D warnings
+  --workspace --all-targets`, which cargo rejects outright — reproduced, exit 1, zero crates linted —
+  and is now `cargo clippy --workspace --all-targets -- -D warnings`, exit 0. The gitleaks action, the
+  actionlint action, the release `--target` and the permanently-green SBOM job are fixed too. The
+  lane's own report leaves four more ways for CI to be green while proving nothing: two uploads in
+  `release.yml` share a name so `merge-multiple` (`:256`) overwrites one OS's binary; `:361-362`'s
+  `mv release/warsha*` swallows the daemon into `cli/` so `release/daemon/` is always empty behind a
+  `|| true`; `:490` `pnpm install || true`; `desktop-bundle.yml:173` `|| true`. `deny.toml` does not
+  exist anywhere, so both cargo-deny steps run on built-in defaults.
+- **Guard before re-deriving**: all 596 baselines copied aside (`/tmp/b4-guard/before-*`, 308 + 204 +
+  84) and the authoritative JSON report is byte-intact (`authoritative.json` and
+  `/tmp/strict-rerun/visual-playwright-fullrun.json`, both 1101750 bytes) — after a lane reported
+  cleaning `/tmp` with `rm /tmp/*.json`, which is why the guard lives in subdirectories.
+- **Known open item created by the refresh itself**: `flows.spec.ts:81` (mode-group arrow/Enter focus
+  at 390x844 ar) fails in this run — a functional assertion, not a pixel diff. Candidate mechanism is
+  #57: the Arabic labels it locates by name changed spelling. To be diagnosed from the run log, not
+  guessed, then fixed on the strict rerun.
+
+## Orchestrator log — 2026-11-03, the re-derivation and what it actually proved (23:55Z)
+
+- **Re-derivation ran on the settled tree**: 836 cases, `--update-snapshots`, `--workers=1`,
+  `--reporter=list` → `834 passed / 2 failed (41.3m)`, and **284 of 596 baselines changed**. The two
+  failures were `flows.spec.ts:81` in ar at both viewports with `Error: Target page, context or
+  browser has been closed` — not an assertion. Run alone on an idle machine it passes in 10.9s, so the
+  mechanism is browser death under the load I created by running three lanes beside the capture. That
+  also **refutes my own hypothesis** that #57's Arabic relabelling broke the test's locator; the
+  wrapping in `moveGroupFocus` (`packages/ui/src/compounds/internal.ts:213-234`) makes the test's
+  arrow expectations correct for RTL.
+- **Strict rerun on those fresh baselines, same tree**: `821 passed / 15 failed (38.7m)` — 14 visual
+  plus the same flows case. Every visual failure is 4–31 pixels, max channel delta 1–14, deltas gray
+  (|ΔR|,|ΔG|,|ΔB| ≤ 12), 1–3 thin row bands, no size mismatch, no content or color difference.
+- **#45 is now a renderer finding, not a baseline finding.** Two consecutive `--update-snapshots`
+  captures of `gates 390x844 en light` on an **idle** machine differ by **30 px** at x[64..66]
+  y[58..77]. Translating one capture by dx,dy in [-3..3] matched at most 2 of 30 pixels, so it is not
+  a sub-pixel shift — 27 pixels differ by one level and 3 by two, on the same geometry. Cropping the
+  region and looking at it identified the element: the pressed rung of the segmented mode switch
+  (`ModeSwitch`'s `Rung`, `borderRadius: radius('full')` + `shadow('sm')`, mounted at
+  `apps/desktop/src/components/BenchTopbar.tsx:88`) — a curved, shadowed edge. So the contract
+  `maxDiffPixelRatio: 0` is being violated by Skia rasterization itself, and no amount of re-baselining
+  on this host can produce a stable tree.
+- **Decision: pursue deterministic rendering, not the pixel contract.** #45 is dispatched with the
+  measurement above, an explicit ban on touching `maxDiffPixelRatio`/`threshold`/retries/exclusions, and
+  a hard stop if the only fix is a fidelity change (grayscale AA instead of LCD): that is an owner
+  decision, so it gets escalated rather than shipped. Acceptance is `0 px` between two idle captures on
+  three previously-failing cases plus a clean strict run over the 14.
+- **Lanes that landed while I waited**: #60 (W8 param-name check, 8 checks / 0 violations, 24 mutants,
+  copied-tree control in both directions — verified by me, not by its report), #59's second half (the
+  duplicate-artifact-name clobber, the `mv release/warsha*` swallow, three `|| true` masks, and the
+  `::warning::` that let a missing installer leg go green), and the docs reference audit: **234
+  citations extracted, 189 still true, 19 drifted and fixed, 0 pointing at nothing**, `mdbook build`
+  exit 0 with zero warnings, `mdbook test` exit 0. Its flags became task #62 (two `../LICENSE`-style
+  links that resolve to nonexistent files, a `Retry-After` citation pointing at the ceilings block, an
+  uncited half of a true claim).
+- **My own defect, recorded in the verification bank**: I ran one focused `playwright` case to test the
+  flows hypothesis, and Playwright wipes `test-results/` at the start of every run — destroying the 14
+  failing cases' expected/actual PNGs. The classification numbers survived in this log; the images did
+  not. Rule: copy artifacts out before any subsequent Playwright invocation.
+
+## Orchestrator log — 2026-11-04, #45 closed as an escalated measurement defect (01:10Z)
+
+The determinism lane ran **16 configurations** of the 37-case focused strict set, each measured twice
+where the answer mattered, and the result is a clean negative: `before 6/31`, `--disable-gpu 8/29`,
+`--disable-gpu-rasterization 6/31`, `--disable-skia-runtime-opts 7/30`, `--disable-skia-graphite
+4/33`, `--disable-gpu-process-crash-limit 8/29`, `--disable-gpu-watchdog 7/30`, in-process GPU 4/33,
+dither-off 5/32 (twice, different sets), and a logging/diagnostic arm 4/33. **No configuration reached
+zero, and the failing sets differ between two consecutive runs of the same configuration** — which is
+what a random per-capture difference looks like, and what a stale baseline or a real layout bug does not.
+
+- **Mechanism, as far as evidence carries it**: identical DOM, identical geometry, identical fonts;
+  ≤31 pixels per case at Δ≤2 levels, no translation matching more than 2 of 30 pixels, concentrated on
+  antialiased curved/shadowed edges (the pressed mode-switch pill) and on text baselines. Chromium's
+  software and GPU raster paths both show it, so it is not a single pipeline bug. `Math.random()`
+  appears in the render path only in `apps/desktop/src/screens/Devices.tsx:171` (a pairing code typed
+  on click, in no failing screen) and `Date.now()` only where the pinned clock controls it, so the app
+  is not the source.
+- **Decision: the pixel contract is untouched and the push is not held for it.** `maxDiffPixelRatio: 0`
+  and `threshold: 0` still stand (`playwright.config.ts:127-128`), no case is skipped, no retries were
+  added, and the diagnostic launch args the lane used are reverted (`launchOptions` is back to
+  `env: browserEnv()` only). What I will not do is keep the whole board hostage to a renderer property
+  while every other gate is green — so the stage is committed **with this caveat stated as the caveat**,
+  and the remaining option set is escalated to the owner rather than decided here:
+  1. accept a per-case pixel-count allowance (owner-level contract change; measured need is ≤64 px at
+     Δ≤2 to cover 31 px observed with margin);
+  2. switch the capture AA from LCD to grayscale (`rgba=none`), which is deterministic-ish but changes
+     how every glyph edge looks on every screen — a fidelity change, not a test change;
+  3. leave the strict contract and accept that the visual job is flaky on this host class, which is
+     what CI will show on its first real run.
+- **The stage's other gates at commit time, all run by me on the settled tree**: `cargo fmt --all
+  --check` 0 · `cargo test --workspace --all-targets` 0 failed · clippy clean after the `ci.yml:58`
+  argument-order fix · `pnpm typecheck` 0 · client 46 · i18n 47 · remote 154 · desktop 350 ·
+  `wire: 8 checks, 0 violations` (+ `--self-test` green) · `policy: 8 checks, 0 failures` ·
+  `mdbook build` 0 warnings · `mdbook test` 0 · `gitleaks detect` 30 commits, no leaks.
+- **Visual state at commit time, stated plainly**: baselines re-derived on this authoritative host
+  (284 of 596 changed), strict rerun **821 passed / 15 failed**, of which 14 are the nondeterministic
+  pixel class above and 1 is the load-induced browser death that passes alone. This is **not** a green
+  strict run, and I am not describing it as one.

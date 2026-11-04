@@ -116,7 +116,7 @@ export function RunView({ run, onBack }: RunViewProps) {
     [locale]
   );
 
-  // The run's events and artifacts are still fixtures (`runs.logs` and the artifact bodies are the seams
+  // The run's events and artifacts are still fixtures (`runs.events` and the artifact bodies are the seams
   // the daemon fills in), and both load through the same async path so the `Skeleton` is what the owner
   // sees for a moment rather than a plate that never answers.
   useEffect(() => {

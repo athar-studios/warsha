@@ -246,7 +246,7 @@ async function daemonEndpoint(): Promise<DaemonEndpoint> {
   return { baseUrl, token: reportedToken === '' ? DEV_DAEMON_TOKEN : reportedToken };
 }
 
-/** The daemon's answer to `runs.status` for the shell's own reading. */
+/** The mode the shell last saved for itself: `app_mode` in the Tauri config, not a daemon reading. */
 async function getSavedMode(): Promise<WorkbenchMode> {
   try {
     const result = await invoke<string>('get_config', { key: 'app_mode' });

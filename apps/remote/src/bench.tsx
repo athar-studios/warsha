@@ -407,9 +407,10 @@ export function RemoteProvider({
       })
       .catch(() => {
         if (cancelled) return;
-        // `gates.list` is not a method `warshad` serves (see the note on `WarshaClient.getGates`): the
-        // queue a phone can still build is the run's own stage plus this device's records. The screen
-        // says which reading it is showing.
+        // `gates.list` is served now (see the note on `WarshaClient.getGates`), so this path is the
+        // older daemon's: a phone paired against a `warshad` that does not answer the name still
+        // builds the queue from the run's own stage plus this device's records. The screen says
+        // which reading it is showing.
         setGates(stageQueue(run, localDecisions));
         setGatesSource('stage');
         setGatesState('failed');

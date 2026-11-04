@@ -723,6 +723,28 @@ pub trait WarshaApi {
         device_id: Option<DeviceId>,
     ) -> RpcResult<Run>;
 
+    /// The gates queue of one run (#25): all four gate stages in `Stage::all()`
+    /// order, each with its current state and `Pending` for a stage the run has no
+    /// entry for.
+    ///
+    /// All four stages ride back rather than a pending-only filter because the
+    /// desktop renders the whole ledger with who-decided-when
+    /// (`apps/desktop/src/screens/GatesInbox.tsx`) while `SimpleMode.tsx` filters
+    /// pending client-side. The state is the flat [`GateSummaryState`] the client
+    /// declares, not the adjacent-tagged `warsha_core::GateState`.
+    ///
+    /// It is a read of `authorize`'s `Session`/`Standard` class (`runs.list`-style):
+    /// a paired phone must be able to read the queue it is asked to decide, and
+    /// `SimpleMode` polls this path. The `device_id` slot matches the gates block's
+    /// legacy shape and is ignored — this read records no identity, and nothing here
+    /// believes a caller-named device.
+    #[method(name = "gates.list", with_extensions)]
+    async fn list_gates(
+        &self,
+        run_id: RunId,
+        device_id: Option<DeviceId>,
+    ) -> RpcResult<Vec<GateSummary>>;
+
     #[method(name = "providers.list", with_extensions)]
     async fn list_providers(&self) -> RpcResult<Vec<ProviderRecord>>;
 
@@ -1025,6 +1047,57 @@ pub struct BudgetStatus {
     pub budget_cents: Option<u64>,
     pub spent_cents: u64,
     pub remaining_cents: Option<u64>,
+}
+
+/// One gate of one run, as `gates.list` answers it (#25).
+///
+/// This is the daemon-local wire shape `@warsha/client` declares
+/// (`packages/client/src/index.ts:84-87`): a stage and its **flat** state. It exists
+/// because `warsha_core::GateState` is adjacent-tagged on the wire
+/// (`#[serde(tag = "state", content = "detail")]`, `crates/warsha-core/src/lib.rs:109`,
+/// proven by `crates/warshad/tests/security_identity.rs:173-178` reading
+/// `approved["detail"]["by"]`) while the client and both apps read
+/// `approved["by"]` directly. Converting here is what lets the queue be served without
+/// churning the TS types and every gates baseline beside them (DECISIONS.md 2026-11-03).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GateSummary {
+    pub stage: Stage,
+    pub state: GateSummaryState,
+}
+
+/// [`GateState`] flattened onto the wire: the deciding device and instant sit beside
+/// `state` instead of under `detail`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum GateSummaryState {
+    Pending,
+    Approved {
+        by: DeviceId,
+        at: chrono::DateTime<Utc>,
+    },
+    Rejected {
+        reason: String,
+        by: DeviceId,
+        at: chrono::DateTime<Utc>,
+    },
+    ChangesRequested {
+        notes: String,
+        by: DeviceId,
+        at: chrono::DateTime<Utc>,
+    },
+}
+
+impl From<GateState> for GateSummaryState {
+    fn from(state: GateState) -> Self {
+        match state {
+            GateState::Pending => Self::Pending,
+            GateState::Approved { by, at } => Self::Approved { by, at },
+            GateState::Rejected { reason, by, at } => Self::Rejected { reason, by, at },
+            GateState::ChangesRequested { notes, by, at } => {
+                Self::ChangesRequested { notes, by, at }
+            }
+        }
+    }
 }
 
 /// The agent loop's own state, as one RPC answer.
@@ -1451,6 +1524,44 @@ impl WarshaApiServer for WarshaRpc {
             .request_changes(run_id, stage, notes, approver)
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+    }
+
+    async fn list_gates(
+        &self,
+        ext: &RpcExtensions,
+        run_id: RunId,
+        device_id: Option<DeviceId>,
+    ) -> RpcResult<Vec<GateSummary>> {
+        self.authorize(ext, "gates.list")?;
+        // Accepted for the gates block's legacy param shape, and believed for nothing:
+        // this read records no identity, so there is no session claim to compare it to
+        // and no caller-named device that changes what is answered.
+        let _ = device_id;
+        // Read from `Run.gate_states` through the store's run getter — **not** from
+        // `Store::list_gates`. The `gates` table's only writer, `create_gate`, has no
+        // production caller, so a table-backed read would answer `[]` for every run and
+        // turn every queue into a silent lie (the trap DECISIONS.md 2026-11-03 #25
+        // records; `Run.gate_states` is what the pipeline seeds on `start_run` and what
+        // `gates.approve`/`reject`/`changes` mutate, so it is the live truth).
+        let run = self
+            .state
+            .store
+            .get_run(run_id)
+            .await
+            .map_err(|e| rpc_error(e.to_string()))?;
+        Ok(Stage::all()
+            .iter()
+            .filter(|stage| stage.is_gate())
+            .map(|stage| GateSummary {
+                stage: *stage,
+                state: run
+                    .gate_states
+                    .get(stage)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into(),
+            })
+            .collect())
     }
 
     async fn list_providers(&self, ext: &RpcExtensions) -> RpcResult<Vec<ProviderRecord>> {
@@ -4056,6 +4167,214 @@ mod tests {
             error.to_string().contains("verified acting device"),
             "unexpected error: {error}"
         );
+    }
+
+    // ---- gates.list (issue #25): the queue read served from `Run.gate_states`.
+
+    #[tokio::test]
+    async fn gates_list_answers_every_gate_stage_in_pipeline_order() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, store) = test_state(temp.path()).await;
+        let run = stored_run_with_gate(&store, "Shop").await;
+        let rpc = WarshaRpc::new(state);
+
+        let gates = rpc
+            .list_gates(&owner_ext(), run.id, None)
+            .await
+            .expect("the queue is served");
+        let stages: Vec<Stage> = gates.iter().map(|gate| gate.stage).collect();
+        assert_eq!(
+            stages,
+            vec![Stage::GateA, Stage::GateB, Stage::GateC, Stage::GateD],
+            "the queue is not the four gate stages in `Stage::all()` order"
+        );
+        // The helper seeded `gate_a` and `gate_b` as explicit Pending entries and left
+        // `gate_c`/`gate_d` out of the map: a missing key answers Pending, it is neither
+        // a dropped row nor a refusal, and nothing is filtered out client-side here.
+        for gate in &gates {
+            assert_eq!(
+                gate.state,
+                GateSummaryState::Pending,
+                "{:?} answered decided before anyone decided it",
+                gate.stage
+            );
+        }
+
+        // The ledger reads the same `Run.gate_states` the decisions mutate: approving
+        // gate_a moves its answer on the next read, through the store.
+        rpc.approve_gate(&owner_ext(), run.id, Stage::GateA, None)
+            .await
+            .expect("gate_a is approved");
+        let after = rpc
+            .list_gates(&owner_ext(), run.id, None)
+            .await
+            .expect("the queue is re-read");
+        assert!(
+            matches!(after[0].state, GateSummaryState::Approved { .. }),
+            "a decision did not move the queue read: {after:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn gates_list_answers_the_flat_state_shape_the_client_declares() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, store) = test_state(temp.path()).await;
+        let run = stored_run(&store, "Shop", None).await;
+        let mut run = store.get_run(run.id).await.expect("the run is readable");
+        let device = DeviceId(
+            uuid::Uuid::parse_str("00000000-0000-0000-0000-00000000000a")
+                .expect("a fixed device id"),
+        );
+        let at = chrono::DateTime::parse_from_rfc3339("2026-11-03T09:30:00Z")
+            .expect("a fixed instant")
+            .with_timezone(&Utc);
+        run.gate_states
+            .insert(Stage::GateA, GateState::Approved { by: device, at });
+        run.gate_states.insert(
+            Stage::GateB,
+            GateState::Rejected {
+                reason: "not this".to_string(),
+                by: device,
+                at,
+            },
+        );
+        run.gate_states.insert(
+            Stage::GateC,
+            GateState::ChangesRequested {
+                notes: "tighten the brief".to_string(),
+                by: device,
+                at,
+            },
+        );
+        // `gate_d` is deliberately absent: it must answer `{"state": "pending"}`.
+        store.update_run(&run).await.expect("the states are stored");
+        let rpc = WarshaRpc::new(state);
+
+        let gates = rpc
+            .list_gates(&owner_ext(), run.id, None)
+            .await
+            .expect("the queue is served");
+        let wire = serde_json::to_value(&gates).expect("the queue serializes");
+        // Literally the shape `@warsha/client` declares (`GateSummary`/`GateState` in
+        // `packages/client/src/index.ts`): `by`, `at`, `reason` and `notes` sit beside
+        // `state`, never under a `detail` object — `detail` is the adjacent-tagged
+        // `runs.get` shape (`security_identity.rs` reads `approved["detail"]["by"]`),
+        // and the queue must not fork it.
+        assert_eq!(
+            wire,
+            serde_json::json!([
+                {
+                    "stage": "gate_a",
+                    "state": {
+                        "state": "approved",
+                        "by": "00000000-0000-0000-0000-00000000000a",
+                        "at": "2026-11-03T09:30:00Z"
+                    }
+                },
+                {
+                    "stage": "gate_b",
+                    "state": {
+                        "state": "rejected",
+                        "reason": "not this",
+                        "by": "00000000-0000-0000-0000-00000000000a",
+                        "at": "2026-11-03T09:30:00Z"
+                    }
+                },
+                {
+                    "stage": "gate_c",
+                    "state": {
+                        "state": "changes_requested",
+                        "notes": "tighten the brief",
+                        "by": "00000000-0000-0000-0000-00000000000a",
+                        "at": "2026-11-03T09:30:00Z"
+                    }
+                },
+                {
+                    "stage": "gate_d",
+                    "state": { "state": "pending" }
+                }
+            ])
+        );
+    }
+
+    #[tokio::test]
+    async fn gates_list_refuses_a_run_the_store_does_not_have() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+
+        let error = rpc
+            .list_gates(&owner_ext(), RunId::new(), None)
+            .await
+            .expect_err("a run the store does not have answered a queue");
+        assert_eq!(
+            rpc_error_code(&error),
+            -32000,
+            "an unknown run was refused for a reason other than the store's error"
+        );
+        assert!(
+            error.message().contains("run not found"),
+            "unexpected refusal: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_gates_queue_reads_on_any_verified_session_and_refuses_without_one() {
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, store) = test_state(temp.path()).await;
+        let run = stored_run_with_gate(&store, "Shop").await;
+        let rpc = WarshaRpc::new(state);
+
+        // Unauthenticated reads nothing: `-32001` from `authorize`, before any tier.
+        let anonymous = rpc
+            .list_gates(&anonymous_ext(), run.id, None)
+            .await
+            .expect_err("an unauthenticated caller read the queue");
+        assert_eq!(
+            rpc_error_code(&anonymous),
+            auth::rpc_codes::UNAUTHENTICATED,
+            "a caller with no session read the gates queue"
+        );
+
+        // A paired phone reads the very queue it is asked to decide (#25's auth
+        // decision: `Session`/`Standard`, the `runs.list` class, not `Auth`).
+        let phone = uuid::Uuid::new_v4().to_string();
+        let paired = rpc
+            .list_gates(&paired_ext(&phone), run.id, None)
+            .await
+            .expect("a paired device was refused the queue it decides");
+        assert_eq!(paired.len(), 4, "the queue is not all four gate stages");
+
+        // The owner reads it too, and the legacy `device_id` slot is accepted and
+        // believed for nothing: naming some other device changes no answer.
+        let claimed = DeviceId::new();
+        let owner = rpc
+            .list_gates(&owner_ext(), run.id, Some(claimed))
+            .await
+            .expect("the owner was refused its own queue");
+        assert_eq!(
+            owner, paired,
+            "a claimed device id changed what the queue read answered"
+        );
+    }
+
+    #[tokio::test]
+    async fn gates_list_is_registered_and_policied_as_one_method() {
+        // Registry==policy for the new name, in both views. The whole-set invariant is
+        // `every_registered_method_has_a_policy_and_no_policy_names_a_missing_one`;
+        // this pins `gates.list` by name so a one-sided addition fails at the name
+        // rather than only at the count.
+        let temp = tempfile::tempdir().expect("a temporary directory");
+        let (state, _store) = test_state(temp.path()).await;
+        let module = WarshaRpc::new(state).into_rpc();
+        assert!(
+            module.method_names().any(|name| name == "gates.list"),
+            "the server does not register gates.list"
+        );
+
+        let policy = auth::policy_of("gates.list").expect("gates.list has a policy row");
+        assert_eq!(policy.policy, Policy::Session);
+        assert_eq!(policy.tier, Tier::Standard);
     }
 
     #[tokio::test]

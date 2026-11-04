@@ -167,6 +167,32 @@ describe('Budgets', () => {
     expect(screen.getByRole('button', { name: ar('budgets.set_first') })).toBeInTheDocument();
   });
 
+  it('words a ceiling the daemon never set instead of printing $0.00', async () => {
+    // `budget.show` answers with a spend and no ceiling: the daemon's `budget_cents` is an `Option`, and
+    // `@warsha/client` folds the null into the `0` that `BudgetStatus` declares. `$5.00 / $0.00` would read
+    // as "this project has spent everything it was given", which is the opposite claim (§7).
+    const client = clientStub({
+      getProjectBudget: vi.fn(async (id: ProjectId): Promise<BudgetStatus> => {
+        if (id === 'proj-1') return { totalBudgetUsd: 0, spentUsd: 4.2, remainingUsd: 0 };
+        throw new Error('no budget set for this project');
+      }),
+    });
+    renderScreen(client);
+
+    const ledger = await screen.findByRole('list', { name: ar('budgets.title') });
+    const row = within(ledger).getAllByRole('listitem')[0] as HTMLElement;
+
+    expect(within(row).getByText(ar('bench.no_ceiling'))).toBeInTheDocument();
+    // No meter, no cap chip: a bar needs a max, and an unset ceiling is not a reached one.
+    expect(within(row).queryByRole('meter')).toBeNull();
+    expect(within(row).queryByText(ar('budgets.cap_reached'))).toBeNull();
+    // The spend the daemon did report stays a number…
+    expect(within(row).getByText('$4.20')).toBeInTheDocument();
+    // …and the remainder it never computed is not shown as a zero either.
+    expect(within(row).queryByText(ar('budgets.remaining'))).toBeNull();
+    expect(ledger.textContent).not.toContain('$0.00');
+  });
+
   it('reads its meters in English too', async () => {
     renderScreen(clientStub(), 'en');
 
@@ -174,5 +200,21 @@ describe('Budgets', () => {
     const row = within(ledger).getAllByRole('listitem')[0] as HTMLElement;
     expect(within(row).getByRole('meter', { name: en('bench.budget_used') })).toBeInTheDocument();
     expect(within(row).getByText(en('budgets.cap_reached'))).toBeInTheDocument();
+  });
+
+  it('says an unset ceiling in English too', async () => {
+    // The catalog carries the words in both locales; neither locale gets a formatted zero.
+    const client = clientStub({
+      getProjectBudget: vi.fn(async (): Promise<BudgetStatus> => ({
+        totalBudgetUsd: 0,
+        spentUsd: 4.2,
+        remainingUsd: 0,
+      })),
+    });
+    renderScreen(client, 'en');
+
+    const ledger = await screen.findByRole('list', { name: en('budgets.title') });
+    expect(within(ledger).getAllByText(en('bench.no_ceiling'))).toHaveLength(2);
+    expect(ledger.textContent).not.toContain('$0.00');
   });
 });

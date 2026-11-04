@@ -48,7 +48,7 @@ describe('the bench shell', () => {
     const items = within(nav).getAllByRole('link');
     expect(items.map((item) => item.textContent?.replace(/\d+$/, '').trim())).toEqual([
       'بانتظارك',
-      'البوابات',
+      'البوّابات',
       'التشغيل',
       'المشاريع',
       'الإعدادات',
@@ -62,13 +62,13 @@ describe('the bench shell', () => {
     renderRemote({ session: SESSION });
     await settle();
 
-    // The default daemon refuses `gates.list`; a run parked at `gate_b` is still a gate waiting (§7).
+    // The default daemon answers `gates.list` with the one gate this run is parked on: one waiting (§7).
     const nav = screen.getByRole('navigation', { name: 'تنقّل الطاولة' });
     const badge = within(nav).getByText('1');
     expect(badge).toHaveClass('app-nav-badge');
     expect(badge).toHaveAttribute('aria-hidden', 'true');
     // …and the same count is said in words, so the state is never colour alone (§9).
-    expect(screen.getByText('بوابة واحدة بانتظارك')).toBeInTheDocument();
+    expect(screen.getByText('بوّابة واحدة بانتظارك')).toBeInTheDocument();
   });
 
   it('moves between screens by their own routes', async () => {
@@ -209,6 +209,48 @@ describe('a daemon that does not answer', () => {
     expect(strip).toHaveTextContent('الميزانية المستعملة: لم يُبلَّغ بعد');
     expect(within(strip).queryByRole('meter')).toBeNull();
     expect(screen.getByText('الميزانية')).toBeInTheDocument();
+  });
+
+  it('words an unset ceiling on every money surface, rather than printing $0.00', async () => {
+    // The other zero the phone can be handed: `budget.show` answered with a spend and no ceiling, and
+    // `@warsha/client` folds the daemon's null ceiling cents into the `0` `BudgetStatus` declares. A
+    // formatted `$0.00` reads as "you have no budget left"; the bench says the ceiling is unreported and
+    // keeps the spend it really was given (§7).
+    const noCeiling = () => Promise.resolve({ totalBudgetUsd: 0, spentUsd: 4.2, remainingUsd: 0 });
+
+    renderRemote({ session: SESSION, api: stubApi({ getProjectBudget: noCeiling }) });
+    await settle();
+
+    const strip = screen.getByRole('status', { name: 'شريط الحالة' });
+    expect(strip).toHaveTextContent('الميزانية المستعملة: $4.20 · لم يُبلَّغ عن سقف');
+    expect(within(strip).queryByRole('meter')).toBeNull();
+    // The glance plate takes the same words for the same reading.
+    expect(screen.getByText('$4.20 · لم يُبلَّغ عن سقف')).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('$0.00');
+  });
+
+  it('words the same ceiling on the run plate', async () => {
+    renderRemote({
+      session: SESSION,
+      route: '/run',
+      api: stubApi({ getProjectBudget: () => Promise.resolve({ totalBudgetUsd: 0, spentUsd: 4.2, remainingUsd: 0 }) }),
+    });
+    await settle();
+
+    expect(screen.getByText('$4.20 · لم يُبلَّغ عن سقف')).toBeInTheDocument();
+    expect(within(screen.getByTestId('remote-screen-run')).queryByRole('meter', { name: 'الميزانية المستعملة' })).toBeNull();
+    expect(screen.getByTestId('remote-screen-run').textContent).not.toContain('$0.00');
+  });
+
+  it('still prints a ceiling that was actually set, including the meter beside it', async () => {
+    // The fix is only about the missing reading: a real ceiling must not turn into words.
+    renderRemote({ session: SESSION });
+    await settle();
+
+    const strip = screen.getByRole('status', { name: 'شريط الحالة' });
+    expect(within(strip).getByRole('meter', { name: 'الميزانية المستعملة' })).toBeInTheDocument();
+    expect(strip).toHaveTextContent('$4.20 / $20.00');
+    expect(screen.queryByText(/لم يُبلَّغ عن سقف/)).toBeNull();
   });
 });
 

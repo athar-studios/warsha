@@ -259,7 +259,11 @@ export function Onboarding({ client, onComplete }: OnboardingProps) {
     setCreating(true);
     setProjectFailed(false);
     try {
-      const project = await client.createProject(name);
+      // The daemon requires `description`, and this step deliberately asks for a name only
+      // ("Just the name for now" — `onboarding.project_desc`), so the name is sent as the
+      // description rather than an empty string: the record says what the owner typed, and the
+      // idea still belongs to the chat that follows. `language` is the active locale.
+      const project = await client.createProject(name, name, locale);
       onComplete(project);
     } catch {
       setCreating(false);

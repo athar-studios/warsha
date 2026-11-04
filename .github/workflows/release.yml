@@ -4,6 +4,17 @@ on:
   push:
     tags:
       - 'v*'
+  # Manual dispatch exists so the release target below can be set explicitly;
+  # it adds no publish path of its own (the tag push path is unchanged).
+  workflow_dispatch:
+    inputs:
+      release_repo:
+        description: >-
+          owner/repo that the generated winget/Homebrew/Scoop manifests point
+          at (installer URLs, homepages). Only meaningful when the tag exists
+          on that repo.
+        required: false
+        default: 'athar-studios/warsha'
 
 permissions:
   contents: write
@@ -14,6 +25,20 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
   RUST_BACKTRACE: 1
+  # Single release target for all package-manager manifests (was six hardcoded
+  # https://github.com/Warsha/Warsha literals — that repo returns HTTP 404, see
+  # DECISIONS.md 2026-11-03, "#10 release repo").
+  #
+  # Deliberately NOT derived from github.repository: this repository is the dev
+  # checkout (athar-studios/warsha-dev), while the product repo the Tauri
+  # updater endpoint already targets is athar-studios/warsha
+  # (apps/desktop/src-tauri/tauri.conf.json:74). Deriving from the running repo
+  # would silently retarget every generated installer manifest at the dev fork.
+  # The workflow_dispatch input allows an explicit override per run; the env
+  # default applies to tag-triggered runs, where github.event.inputs is empty.
+  # Whether athar-studios/warsha is the final release home is an OPEN OWNER
+  # DECISION, recorded per the 2026-11-03 #10 entry.
+  RELEASE_REPO: ${{ github.event.inputs.release_repo || 'athar-studios/warsha' }}
 
 jobs:
   # ============================================================
@@ -104,9 +129,16 @@ jobs:
         run: |
           brew install sqlite3 pkg-config
 
+      # The matrix already carries `target` (the triple is also what
+      # dtolnay/rust-toolchain@stable is asked to install above), and every step
+      # downstream reads from target/<triple>/release/ — "Strip binaries (Linux/macOS)"
+      # and both "Upload … binary" steps. Without --target, cargo wrote to plain
+      # target/release/ on the host triple and each OS leg died on the missing path,
+      # so the build was aligned to the matrix's existing shape rather than rewriting
+      # the three downstream paths.
       - name: Build CLI and daemon
         run: |
-          cargo build --release --workspace --bin warsha --bin warshad
+          cargo build --release --workspace --bin warsha --bin warshad --target ${{ matrix.target }}
 
       - name: Strip binaries (Linux/macOS)
         if: runner.os != 'Windows'
@@ -114,18 +146,39 @@ jobs:
           strip target/${{ matrix.target }}/release/warsha${{ matrix.binary_suffix }}
           strip target/${{ matrix.target }}/release/warshad${{ matrix.binary_suffix }}
 
+      # Artifact NAMES (warsha-<os> / warshad-<os>) are already unique per leg, but
+      # every consumer downloads with merge-multiple: true (the artifacts job's
+      # "Download all artifacts", the release job's three pattern downloads). A
+      # merge-multiple download lays each artifact at its stored path, and the stored
+      # path here was the bare basename warsha / warshad / warsha.exe — so the three
+      # OS legs clobbered each other in the merged directory and exactly one OS's
+      # binary survived, green. Staging the payload under its target triple makes
+      # every consumer's merge collision-free without touching any download step.
+      # shell: bash because the Windows leg's default shell is pwsh.
+      - name: Stage binaries with target-specific names
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/warsha${{ matrix.binary_suffix }}" \
+             "dist/warsha-${{ matrix.target }}${{ matrix.binary_suffix }}"
+          cp "target/${{ matrix.target }}/release/warshad${{ matrix.binary_suffix }}" \
+             "dist/warshad-${{ matrix.target }}${{ matrix.binary_suffix }}"
+
       - name: Upload CLI binary
         uses: actions/upload-artifact@v4
         with:
           name: warsha-${{ matrix.os }}
-          path: target/${{ matrix.target }}/release/warsha${{ matrix.binary_suffix }}
+          path: dist/warsha-${{ matrix.target }}${{ matrix.binary_suffix }}
+          if-no-files-found: error
           retention-days: 1
 
       - name: Upload daemon binary
         uses: actions/upload-artifact@v4
         with:
           name: warshad-${{ matrix.os }}
-          path: target/${{ matrix.target }}/release/warshad${{ matrix.binary_suffix }}
+          path: dist/warshad-${{ matrix.target }}${{ matrix.binary_suffix }}
+          if-no-files-found: error
           retention-days: 1
 
   # ============================================================
@@ -211,11 +264,17 @@ jobs:
         run: |
           pnpm tauri build --target ${{ matrix.tauri_target }}
 
+      # Renamed from warsha-desktop-<os>: the release job's CLI pattern `warsha-*`
+      # also matched that name, so the "CLI binaries" step silently downloaded the
+      # desktop bundles too. `desktop-installers-<os>` is disjoint from warsha-*/
+      # warshad-*. if-no-files-found defaults to warn — an empty bundle dir used to
+      # upload a zero-file artifact and stay green.
       - name: Upload desktop artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: warsha-desktop-${{ matrix.os }}
+          name: desktop-installers-${{ matrix.os }}
           path: apps/desktop/src-tauri/target/${{ matrix.tauri_target }}/release/bundle/**/*
+          if-no-files-found: error
           retention-days: 1
 
   # ============================================================
@@ -226,6 +285,16 @@ jobs:
     needs: [prepare, rust-build, desktop-build]
     runs-on: ubuntu-latest
     steps:
+      # This job had no checkout at all, which is what made the two "SBOM" steps below
+      # unfailable theatre: cargo-deny and any cargo-based SBOM generator read
+      # Cargo.toml / Cargo.lock, and in an un-checkouted workspace neither exists. The
+      # Rust toolchain step is here for the same reason — `cargo install` had no cargo.
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -235,31 +304,68 @@ jobs:
       - name: List artifacts
         run: find artifacts -type f -name "*" | sort
 
-      - name: Generate SHA256 checksums
-        run: |
-          cd artifacts
-          sha256sum $(find . -type f ! -name "*.sha256" | sort) > checksums.sha256
-          cat checksums.sha256
-
-      - name: Generate SBOM (CycloneDX)
+      # cargo-deny is an advisory/ban/license gate; it never produced an SBOM, and the
+      # name this step used to carry ("Generate SBOM (CycloneDX)") plus its inline
+      # comment claiming "cargo-deny can generate SPDX" were both false. With no
+      # deny.toml in the repository, cargo-deny walks up from the manifest looking for
+      # one and then, per its own source, logs "unable to find a config path, falling
+      # back to default config" — so this runs cargo-deny's default policy, the same
+      # policy the CI job runs, and it can fail the release. Tightening it is an owner
+      # decision to add deny.toml, not something this workflow can pretend to enforce.
+      - name: Run cargo-deny
         uses: EmbarkStudios/cargo-deny-action@v1
         with:
           command: check
-          # cargo-deny can generate SPDX, but we'll use cyclonedx-bom for CycloneDX
-        continue-on-error: true
 
-      - name: Generate SBOM with cyclonedx
+      # Real CycloneDX generation. Tool check, not a guess: the crate `cyclonedx-bom`
+      # (0.8.1) is a LIBRARY — its published Cargo.toml declares [lib] and no [[bin]] —
+      # so `cargo install cyclonedx-bom` installs no executable and the old
+      # `|| true` / `|| echo` pair turned that into a green step with no SBOM. The
+      # binary-producing crate of the same OWFP project is `cargo-cyclonedx` (0.5.9),
+      # whose Cargo.toml has [[bin]] name = "cargo-cyclonedx", i.e. the cargo
+      # subcommand `cargo cyclonedx`. It writes one <package>.cdx.xml beside each
+      # workspace member manifest (its generator iterates cargo metadata's
+      # workspace_members) at the spec's default CycloneDX 1.3. The two shipped release
+      # binaries are warsha (crates/warsha-cli) and warshad (crates/warshad), so those
+      # two BOMs are the release assets; `test -s` makes an empty or missing BOM an
+      # error rather than a skipped artifact.
+      #
+      # RUSTFLAGS is cleared for this step only: the workflow-level "-D warnings" is
+      # right for our code, but applied to a third-party tool's whole dependency graph
+      # it turns any upstream warning into a failed install, which would fail the
+      # release for a reason that has nothing to do with what we ship.
+      - name: Generate CycloneDX SBOMs (cargo-cyclonedx)
+        env:
+          RUSTFLAGS: ""
         run: |
-          cargo install cyclonedx-bom --locked || true
-          cyclonedx-bom -o artifacts/sbom.xml || echo "SBOM generation skipped"
+          set -euo pipefail
+          cargo install cargo-cyclonedx --locked --version 0.5.9
+          cargo cyclonedx --manifest-path Cargo.toml --format xml --all
+          test -s crates/warsha-cli/warsha-cli.cdx.xml
+          test -s crates/warshad/warshad.cdx.xml
+          cp crates/warsha-cli/warsha-cli.cdx.xml artifacts/sbom-cli.cdx.xml
+          cp crates/warshad/warshad.cdx.xml artifacts/sbom-daemon.cdx.xml
 
-      - name: Upload checksums and SBOM
+      - name: Generate SHA256 checksums
+        run: |
+          set -euo pipefail
+          cd artifacts
+          test -n "$(find . -maxdepth 1 -type f ! -name '*.sha256' -print -quit)"
+          sha256sum $(find . -type f ! -name "*.sha256" | sort) > checksums.sha256
+          test -s checksums.sha256
+          cat checksums.sha256
+
+      # if-no-files-found defaults to "warn", which is how this job stayed green while
+      # publishing nothing. Now a missing checksum file or a missing SBOM fails the job.
+      - name: Upload checksums and SBOMs
         uses: actions/upload-artifact@v4
         with:
           name: release-artifacts
           path: |
             artifacts/checksums.sha256
-            artifacts/sbom.xml
+            artifacts/sbom-cli.cdx.xml
+            artifacts/sbom-daemon.cdx.xml
+          if-no-files-found: error
           retention-days: 30
 
   # ============================================================
@@ -287,22 +393,34 @@ jobs:
       - name: Download desktop artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: warsha-desktop-*
-          path: release
+          pattern: desktop-installers-*
+          path: release/desktop
           merge-multiple: true
 
-      - name: Download checksums and SBOM
+      - name: Download checksums and SBOMs
         uses: actions/download-artifact@v4
         with:
           name: release-artifacts
           path: release
 
+      # Before: `mv release/warsha*` is a prefix glob — it matched warshad* too, so
+      # the daemon binaries landed in release/cli/, release/daemon/ was always empty,
+      # and `2>/dev/null || true` on all three lines made every miss (including an
+      # entirely empty release/) invisible. Now: unmasked under set -euo pipefail,
+      # target-triple globs that cannot cross-match (warsha-x86_64-* never matches
+      # warshad-x86_64-*), a per-folder count assertion so a missing OS leg fails
+      # loudly, and a flatten of the nested bundle/<fmt>/ paths the merge-multiple
+      # desktop download preserves (the old find sweep is gone).
       - name: Organize release files
         run: |
-          mkdir -p release/cli release/daemon release/desktop
-          mv release/warsha* release/cli/ 2>/dev/null || true
-          mv release/warshad* release/daemon/ 2>/dev/null || true
-          find release -name "*.deb" -o -name "*.AppImage" -o -name "*.dmg" -o -name "*.msi" -o -name "*.exe" | xargs -I {} mv {} release/desktop/ 2>/dev/null || true
+          set -euo pipefail
+          mkdir -p release/cli release/daemon
+          mv release/warsha-x86_64-* release/cli/
+          mv release/warshad-x86_64-* release/daemon/
+          test "$(find release/cli -maxdepth 1 -type f | wc -l)" -eq 3
+          test "$(find release/daemon -maxdepth 1 -type f | wc -l)" -eq 3
+          find release/desktop -mindepth 2 -type f -exec mv -t release/desktop/ {} +
+          test -n "$(find release/desktop -type f -print -quit)"
 
       - name: Create draft release
         uses: softprops/action-gh-release@v2
@@ -317,7 +435,8 @@ jobs:
             release/daemon/*
             release/desktop/*
             release/checksums.sha256
-            release/sbom.xml
+            release/sbom-cli.cdx.xml
+            release/sbom-daemon.cdx.xml
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -349,7 +468,7 @@ jobs:
           Installers:
             - Architecture: x64
               InstallerType: msi
-              InstallerUrl: https://github.com/Warsha/Warsha/releases/download/v$VERSION/Warsha_${VERSION}_x64_en-US.msi
+              InstallerUrl: https://github.com/${{ env.RELEASE_REPO }}/releases/download/v$VERSION/Warsha_${VERSION}_x64_en-US.msi
               InstallerSha256: PLACEHOLDER_SHA256
               ProductCode: "{PLACEHOLDER}"
           ManifestType: singleton
@@ -363,8 +482,8 @@ jobs:
           cat > manifests/homebrew/warsha.rb <<EOF
           class Warsha < Formula
             desc "Arabic-first AI software factory"
-            homepage "https://github.com/Warsha/Warsha"
-            url "https://github.com/Warsha/Warsha/archive/refs/tags/v#{version}.tar.gz"
+            homepage "https://github.com/${{ env.RELEASE_REPO }}"
+            url "https://github.com/${{ env.RELEASE_REPO }}/archive/refs/tags/v#{version}.tar.gz"
             sha256 "PLACEHOLDER_SHA256"
             license "PolyForm-Noncommercial-1.0.0"
 
@@ -389,11 +508,11 @@ jobs:
           {
             "version": "$VERSION",
             "description": "Arabic-first AI software factory",
-            "homepage": "https://github.com/Warsha/Warsha",
+            "homepage": "https://github.com/${{ env.RELEASE_REPO }}",
             "license": "PolyForm-Noncommercial-1.0.0",
             "architecture": {
               "64bit": {
-                "url": "https://github.com/Warsha/Warsha/releases/download/v$VERSION/warsha-windows.exe",
+                "url": "https://github.com/${{ env.RELEASE_REPO }}/releases/download/v$VERSION/warsha-windows.exe",
                 "hash": "PLACEHOLDER_SHA256"
               }
             },
@@ -402,7 +521,7 @@ jobs:
             "autoupdate": {
               "architecture": {
                 "64bit": {
-                  "url": "https://github.com/Warsha/Warsha/releases/download/v$version/warsha-windows.exe"
+                  "url": "https://github.com/${{ env.RELEASE_REPO }}/releases/download/v$version/warsha-windows.exe"
                 }
               }
             }
@@ -441,10 +560,15 @@ jobs:
       - name: Install mdBook
         run: cargo install mdbook mdbook-mermaid --locked
 
+      # docs is a member of pnpm-workspace.yaml (root pnpm-lock.yaml covers it) and
+      # apps/desktop runs the identical command unmasked — this install is not
+      # optional-by-design, so the mask (and the stderr silencer that hid *why* it
+      # failed) is gone: a lockfile mismatch now fails the step instead of being
+      # shrugged off before mdbook build.
       - name: Build docs
         working-directory: ./docs
         run: |
-          pnpm install --frozen-lockfile 2>/dev/null || true
+          pnpm install --frozen-lockfile
           mdbook build
 
       - name: Upload docs

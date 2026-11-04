@@ -1,124 +1,208 @@
 # Quickstart
 
-Get Warsha running in 5 minutes.
+Get Warsha running from source. **There is nothing to download yet**: this repository has no git tag and
+no published release, so every "download the installer" instruction you might expect here — a
+`releases/latest/download/...` URL, a `.dmg`, a `.deb`, an `.msi` — would end in a 404. What runs today is
+what you build from the source tree, and the honest way to get a working install in about five minutes is
+below.
 
-## Installation
+If you only want to see the app, [build it and run it](#build-the-binaries) and then follow
+[First run: adding your provider key](first-run.md), which is the guide for entering a key through the
+app's own screens.
 
-### From GitHub Releases (Recommended)
+## Build the binaries
 
-Download the latest release for your platform:
-
-- **Linux**: `warsha-linux` + `warshad-linux`
-- **macOS**: `warsha-macos` + `warshad-macos` (Apple Silicon & Intel)
-- **Windows**: `warsha-windows.exe` + `warshad-windows.exe`
-
-```bash
-# Linux/macOS
-curl -L -o warsha https://github.com/Warsha/Warsha/releases/latest/download/warsha-linux
-chmod +x warsha
-sudo mv warsha /usr/local/bin/
-
-curl -L -o warshad https://github.com/Warsha/Warsha/releases/latest/download/warshad-linux
-chmod +x warshad
-sudo mv warshad /usr/local/bin/
-```
-
-### From Source
+The published clone URL is not decided yet: this checkout's remote is the development repository
+`athar-studios/warsha-dev`, whose default branch is `main`, while the product repository named in the
+updater configuration is `athar-studios/warsha`. *Which one readers should clone is an owner decision.* Use
+the one you have access to:
 
 ```bash
-git clone https://github.com/Warsha/Warsha.git
-cd Warsha
-cargo install --path crates/warsha-cli --path crates/warshad
+git clone https://github.com/athar-studios/warsha-dev
+cd warsha-dev
+cargo build --workspace --release
 ```
 
-### Desktop App
+The two programs land in `target/release/`: `warshad` (the daemon) and `warsha` (the CLI). To put them on
+your `PATH`, install them one at a time — `cargo install` takes a single `--path` per invocation, so a
+command naming two of them is refused:
 
-Download the installer from [GitHub Releases](https://github.com/Warsha/Warsha/releases):
+```bash
+cargo install --path crates/warshad
+cargo install --path crates/warsha-cli
+```
 
-- **Windows**: `Warsha_*_x64_en-US.msi` or `Warsha_*_x64-setup.exe`
-- **macOS**: `Warsha_*.dmg`
-- **Linux**: `warsha_*_amd64.deb` or `warsha_*_amd64.AppImage`
+The desktop app is a separate toolchain: Node 20 or newer (CI tests on 20; the Linux host this work is
+validated on runs v22.23.2), the pinned pnpm 9 from `package.json`, and the Rust toolchain Tauri drives. On
+a host where Corepack cannot activate at the workspace root, call the pinned manager as
+`npx pnpm@9.0.0 ...` — every plain `pnpm` below means exactly that:
 
-## First Project
+```bash
+pnpm install
+pnpm --filter warsha-desktop tauri dev     # the desktop window, with the daemon started inside it
+```
 
-### 1. Initialize Warsha
+Bundled installers are **planned, not produced**. The file names a Tauri bundle would create at the current
+version (`0.2.0`, from `apps/desktop/src-tauri/tauri.conf.json`) are:
+
+| Platform | File the bundler would produce | Status |
+|---|---|---|
+| Windows | `Warsha_0.2.0_x64_en-US.msi`, `Warsha_0.2.0_x64-setup.exe` | not built — needs a Windows host with MSVC + WiX/NSIS |
+| macOS | `Warsha_0.2.0_*.dmg` — the suffix is the target arch the bundler is given | not built — needs macOS and an Apple signing identity |
+| Linux | `warsha_0.2.0_amd64.deb`, `warsha_0.2.0_amd64.AppImage` | not built on this host (it is arm64, and the bundles above are x86_64) |
+
+No byte size is quoted here on purpose: the only measured sizes in this repository's notes belong to a
+`0.1.0` Windows build made on a host that is no longer in use, and they are labelled as history in
+[docs/INSTALL.md](../INSTALL.md).
+
+## Start the daemon
+
+The CLI is a client: it calls the daemon and answers `Not connected to daemon` if nothing is listening. So
+start the daemon first, in its own terminal.
+
+```bash
+warshad --foreground
+```
+
+`warshad` accepts exactly these five flags — there is no `--data-dir`, no `--port` and no `--verbose`:
+
+| Flag | Meaning |
+|---|---|
+| `--config <path>` | which `config.toml` to read; the first run creates it with a fresh 32-byte token |
+| `--foreground` | accepted, and today it is also the only mode: true daemonization is not implemented, so the process stays in the terminal either way |
+| `--http-port <port>` | the HTTP port (`/health`, `/events`); default 8765 |
+| `--ws-port <port>` | the JSON-RPC port; default 8766 — yes, the RPC surface is the `ws_port`, that is the flag's name |
+| `--socket <path>` | overrides `socket_path` in the config file |
+
+Both servers bind `127.0.0.1` only. The data directory is a `data_dir` **key inside `config.toml`**, not a
+command-line flag; `warsha init` writes it.
+
+## First project from the terminal
+
+### 1. Initialize the configuration
 
 ```bash
 warsha init
 ```
 
-This creates `~/.config/warsha/config.toml` and the database.
+This writes `config.toml` into your platform's configuration directory
+(`~/.config/warsha/` on Linux, `%APPDATA%\warsha\` on Windows) and sets `data_dir` to that same directory.
+It does not create a database: `warsha.db` appears when the **daemon** starts, in `data_dir`.
 
-### 2. Add an AI Provider
+Optionally set the language key at the same time — `warsha init --lang ar` is accepted, and today the
+argument is recorded nowhere; the language the daemon hands to new projects is the one each call carries.
 
-```bash
-# Using OpenAI
-warsha providers add openai --key sk-... --name my-openai
+### 2. Add an AI provider
 
-# Using Anthropic
-warsha providers add anthropic --key sk-ant-... --name my-anthropic
-
-# Using local Ollama
-warsha providers add ollama --name local-llama
-```
-
-### 3. Create a New Project
+A provider needs a key, and `providers.add` puts that key in the OS keychain under the provider's name. The
+CLI takes the name and the kind as positional arguments, and refuses to add a provider with no key:
 
 ```bash
-warsha new "Build a todo app with React, TypeScript, and Vite"
+# warsha providers add <name> <kind> --key <the key>
+warsha providers add main-account openai --key <your-openai-key>
+warsha providers add sonnet anthropic --key <your-anthropic-key>
+warsha providers add local ollama --key placeholder    # the CLI demands a key even for local kinds
 ```
 
-This creates a project and starts the pipeline at the **Idea** stage.
-
-### 4. Watch the Pipeline Run
+The kinds the daemon understands are `anthropic` (also matched by `claude`), `ollama` (also matched by
+`lm studio`), and anything else as an OpenAI-compatible endpoint — so `openai`, `open_router`,
+`deep_seek`, `kimi`, `glm`, `qwen` and `custom` all build an OpenAI-compatible client, each with its own
+default base URL. There is no `--name`, no `--budget` and no `--base-url` flag on this command. Note what
+that means for a local model: `providers add` has no way to say "no key", so it files whatever string you
+pass in the keychain anyway, and Ollama never sends it anywhere. For a local provider — or for any key you
+do not want in your shell history or in `ps` output — use the desktop app's first-run screen instead: see
+[First run: adding your provider key](first-run.md).
 
 ```bash
-# Follow the run live
-warsha run --follow
-
-# Or check status
-warsha status
+warsha providers list
+warsha providers test main-account    # one id at a time; there is no "test all"
+warsha providers remove main-account
 ```
 
-## Running the Pipeline
+### 3. Create a project and start a run
 
-The pipeline advances through stages automatically. At each **Gate**, it pauses for your approval:
+```bash
+warsha new "Build a todo app with React, TypeScript, and Vite" -n todo-app
+```
+
+This creates the project and starts a run at the **Idea** stage, and prints both ids. The `-n` name is
+optional (without it the project is called `New Project`); the `-t/--template` flag is accepted and
+currently ignored.
+
+### 4. Watch it
+
+```bash
+warsha status                      # every project, one per line
+warsha status todo-app             # the runs of one project
+warsha status --run <run-id>       # one run: its stage and status
+warsha run todo-app                # prints the first run's stage; it does not start a run
+warsha logs <run-id>               # the run's recorded events
+```
+
+## Running the pipeline
+
+The pipeline advances stage by stage and stops at each **Gate** for your decision:
 
 ```text
 Idea → Gate A → Research → PRD Spec → Gate B → Design → Plan Tasks → Code → Review/QA/Security → Gate C → Release → Gate D → Launch Drafts → Feedback
 ```
 
-### Approve Gates
+### Approve gates
+
+`gates`, `approve`, `reject` and `logs` all name a run. There is no "every pending gate in the whole
+account" list on the CLI: it is a per-run read.
 
 ```bash
-# List pending gates
-warsha gates
+warsha gates <run-id>                          # that run's four gates and their states
 
-# Approve Gate A
-warsha approve gate_a
-
-# Reject with reason
-warsha reject gate_b --reason "PRD needs more detail"
-
-# Request changes
-warsha reject gate_c --reason "Security review needed" --changes
+warsha approve <run-id> gate_a                 # gate: gate_a | gate_b | gate_c | gate_d (a/b/c also accepted)
+warsha reject <run-id> gate_b --reason "PRD needs more detail"
 ```
 
-### View Artifacts
+`--reason` is required on `reject`, and there is no `--changes` flag — asking for changes is its own
+decision (`gates.changes`) on the RPC, which the CLI does not expose yet.
 
-Each stage produces artifacts in the `factory/` directory:
+### Follow a run live
+
+`warsha logs <run-id> --follow` prints the events it already has and then says
+`Following... (WebSocket not implemented)` — the flag exists, the live tail does not. Today the live feeds
+are the desktop app's own polling and the `/events` route on the daemon's HTTP port, which a browser cannot
+open with the `Authorization` header it requires (see
+[docs/INSTALL.md](../INSTALL.md), "Not in this build yet").
+
+### Budget
+
+Budgets are counted in **cents** and set per project — the daemon writes the ceiling onto that project's
+runs, and a run that reaches it is paused (`RunStatus::Paused`) with a `BudgetExceeded` event, and warned at
+80%:
 
 ```bash
-warsha logs --follow          # Live event stream
-warsha status                 # Current stage and status
+warsha budget show todo-app            # spent / budget / percent used
+warsha budget set todo-app 5000        # 5000 cents = $50.00
 ```
 
-### Check Budget
+There is no `warsha providers budget` command: a per-provider monthly ceiling is not something the daemon
+stores. Role routing is real, and takes one comma-separated list of `provider:model` targets:
 
 ```bash
-warsha budget                 # Show current spend
-warsha budget set 50          # Set $50 budget
+warsha roles list
+warsha roles set researcher main-account:gpt-4o
+warsha roles set coder sonnet:claude-3-5-sonnet,main-account:gpt-4o
 ```
+
+`--fallback` and `--budget` are not flags on `roles set` — fallback is on by default in what the CLI sends,
+and a per-role `budget_cents_per_run` is a field the CLI never fills in.
+
+### Check the machine
+
+```bash
+warsha doctor
+```
+
+This prints whether the daemon answers `/health`, and whether `git`, `docker`, `node`, `pnpm`, `rustc` and
+`cargo` are on your `PATH`, plus which coding-agent CLIs it found (`claude`, `codex`, `gemini`, `cursor`,
+`openhands`, `opencode`). It is a report, nothing more: Warsha does not use Docker, and finding a CLI there
+does not mean a run will call it.
 
 ## Desktop App
 
@@ -130,16 +214,29 @@ If you installed the desktop app:
 4. Approve gates with one click
 5. View artifacts with syntax highlighting
 
+Steps 3-5 describe the screens as designed; whether each one completes against a running daemon is open
+work tracked separately, and [Known limitations](known-limitations.md) says which parts of this document
+describe a screen that exists but is not yet wired end to end.
+
 ## Remote PWA
 
 Pair your mobile device:
 
 1. Open desktop app → Devices → Pair New Device
 2. Scan QR code with mobile browser
-3. Approve gates, chat with agents, get push notifications
+3. Approve gates and chat with agents from the phone
+
+There are **no push notifications** on any platform: `apps/remote` registers no service worker (a
+`workbox-config.js` file sits in the directory, but no build step runs it and nothing calls
+`navigator.serviceWorker`), requests no notification permission and uses no `PushManager`, so your phone
+will never be told anything by itself — you open the app to see the app. And the pairing channel is not
+end-to-end encrypted yet; see [Security Model](security.md).
 
 ## Next Steps
 
+- [First run: adding your provider key](first-run.md) — the app-UI path, keychain, what is never logged
+- [Known limitations](known-limitations.md) — what fails today, and where
+- [دليل المستخدم بالعربية](user-guide.ar.md) — the same first steps in Arabic
 - [Configure Providers](providers.md) — Add more AI providers
 - [Security Model](security.md) — Understand the threat model
 - [Architecture](architecture.md) — Learn how it works under the hood

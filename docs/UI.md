@@ -1,8 +1,12 @@
 # docs/UI.md — Warsha Desktop UI (M13)
 
 Warsha's desktop app is a **Tauri 2 application window**, not a web page. It has two modes
-switched by a single toggle in the top bar. Both modes read the same daemon state over
-JSON-RPC + WebSocket; they differ only in how much of that state is surfaced at once.
+switched by a single toggle in the top bar. Both modes read the same daemon state over JSON-RPC;
+they differ only in how much of that state is surfaced at once. Both screens also open the
+daemon's `/events` WebSocket — and today that socket is refused by a real daemon, because the
+daemon's HTTP middleware authenticates from an `Authorization` header a webview cannot send on a
+handshake (see `docs/INSTALL.md` §5), so neither mode receives pushed events and each shows its
+own "stream offline" state instead.
 
 - **Simple mode** — modeled on Grok Bot / openbot.run. For owners who want outcomes.
 - **Advanced mode** — modeled on ZadLoop's workspace. For developers who want control.
@@ -311,9 +315,11 @@ the composer grows to a maximum height and then scrolls.
 
 ### The two Simple-mode screens this batch adds
 
-Both are built and test-covered (27 tests across four files). Neither mounts itself: each takes
-its state from props and reports every change back out, which is what lets it be tested without
-a daemon and mounted in either mode.
+Both are built and test-covered (27 `it()` cases across four files: `screens/Routines.test.tsx` 5,
+`components/RoutineRow.test.tsx` 7, `screens/SettingsProviders.test.tsx` 8,
+`components/ProviderRow.test.tsx` 7 — all under `apps/desktop/src/`). Neither mounts itself: each
+takes its state from props and reports every change back out, which is what lets it be tested
+without a daemon and mounted in either mode.
 
 | Screen / row         | Path                                             | What it renders                                                                                                                |
 | -------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |

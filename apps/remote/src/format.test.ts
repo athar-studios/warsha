@@ -4,7 +4,7 @@
 // two rows of costs compare and a clock reading never reverses inside an Arabic line.
 import { describe, expect, it } from 'vitest';
 
-import { clock, clockWithMs, machineLocale, money, moneyFromCents, percent, shortId } from './format';
+import { clock, clockWithMs, hasCeiling, machineLocale, money, moneyFromCents, percent, shortId } from './format';
 
 describe('machineLocale', () => {
   it('asks Arabic for Latin digits, so digits align in both languages', () => {
@@ -23,6 +23,18 @@ describe('money', () => {
   it('converts the daemon\'s cents into the same shape', () => {
     expect(moneyFromCents(137)).toBe('$1.37');
     expect(moneyFromCents(0)).toBe('$0.00');
+  });
+});
+
+describe('hasCeiling', () => {
+  it('calls a zero ceiling unread money, not a spent one', () => {
+    // The rule the screens hang their words on: `@warsha/client` folds `budget.show`'s null ceiling cents
+    // into the `0` that `BudgetStatus` declares, so a zero is the only no-ceiling signal there is, and no
+    // surface may print it as `$0.00`.
+    expect(hasCeiling(0)).toBe(false);
+    expect(hasCeiling(-5)).toBe(false);
+    expect(hasCeiling(0.01)).toBe(true);
+    expect(hasCeiling(20)).toBe(true);
   });
 });
 

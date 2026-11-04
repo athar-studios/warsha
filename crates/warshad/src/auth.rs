@@ -292,6 +292,16 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Session,
         tier: Auth,
     },
+    // The gates queue read (#25). Deliberately `Session`/`Standard` — the `runs.list`
+    // class, not the `Auth` tier the three decisions above use: a paired phone must be
+    // able to read the queue it is asked to decide, and `SimpleMode` polls this path,
+    // so an approval-rate ceiling on reads would starve the inbox it feeds (the read
+    // backs `Run.gate_states`, so it takes no credential-parsing role either).
+    M {
+        method: "gates.list",
+        policy: Session,
+        tier: Standard,
+    },
     // Providers: a key in the OS keychain and a bill.
     M {
         method: "providers.list",
@@ -1124,6 +1134,22 @@ mod tests {
             assert_eq!(entry.policy, Session);
             assert_eq!(entry.tier, Auth);
         }
+
+        // The gates queue read (#25) goes both ways on the same table: a paired
+        // device and the owner may both read the queue a phone is asked to decide
+        // (`Session` is the role that covers both), and an unauthenticated caller
+        // reaches nothing because `authorize` refuses before any role is compared
+        // (asserted as behaviour in the daemon's tests). It is deliberately not on
+        // the `Auth` tier the three decisions above spend — `SimpleMode` polls this
+        // path, and a credential-path ceiling would starve the inbox it feeds.
+        let queue = policy_of("gates.list").expect("the gates queue read has a policy");
+        assert_eq!(queue.policy, Session);
+        assert_eq!(queue.tier, Standard);
+        assert_ne!(
+            queue.tier,
+            policy_of("gates.approve").expect("a gate policy").tier,
+            "the queue read was pulled onto the decision path's ceiling"
+        );
 
         // Pairing and spend are the strictest ceilings, as the audit requires.
         assert_eq!(policy_of("pairing.create").expect("policy").tier, Pairing);

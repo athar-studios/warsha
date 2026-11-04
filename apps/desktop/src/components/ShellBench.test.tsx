@@ -136,6 +136,25 @@ describe('InstrumentStrip', () => {
     expect(within(strip).queryByRole('meter')).toBeNull();
   });
 
+  it('words a ceiling that was never set, and keeps the spend it was given', () => {
+    // `client` folds the daemon's null ceiling cents into the `0` `BudgetStatus` declares. Printing that
+    // as `$4.20 / $0.00` would claim the budget is spent; the row says the ceiling is unreported instead.
+    renderIn('en', <InstrumentStrip daemonOnline run={run} gatesWaiting={0} budget={{ spentUsd: 4.2, totalUsd: 0 }} />);
+
+    const strip = screen.getByRole('status', { name: 'Status strip' });
+    expect(within(strip).getByText('Budget used: $4.20 · no ceiling reported')).toBeInTheDocument();
+    expect(within(strip).queryByRole('meter')).toBeNull();
+    expect(strip.textContent).not.toContain('$0.00');
+  });
+
+  it('still measures a ceiling the daemon actually set', () => {
+    renderIn('en', <InstrumentStrip daemonOnline run={run} gatesWaiting={0} budget={{ spentUsd: 4.2, totalUsd: 20 }} />);
+
+    const strip = screen.getByRole('status', { name: 'Status strip' });
+    expect(within(strip).getByRole('meter', { name: 'Budget used' })).toHaveAttribute('aria-valuenow', '4.2');
+    expect(within(strip).queryByText(/no ceiling reported/)).toBeNull();
+  });
+
   it('keeps the daemon and the budget when the window goes narrow (§10)', () => {
     renderIn('en', <InstrumentStrip daemonOnline run={run} gatesWaiting={1} budget={{ spentUsd: 2, totalUsd: 4 }} />);
 

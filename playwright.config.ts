@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { defineConfig } from '@playwright/test';
 
 /**
@@ -31,7 +34,81 @@ import { defineConfig } from '@playwright/test';
  * The capture host must have IBM Plex Sans Arabic and IBM Plex Mono installed, or `auditUsedFonts`
  * fails every screenshot rather than quietly storing fallback metrics — see
  * `apps/desktop/e2e/support/fonts.ts` and `bridge-io/audit/visual.md`.
+ *
+ * The AA mode is pinned the same way as the faces. The stored baselines carry LCD-subpixel glyph
+ * fringes (rgba=rgb, hintstyle=slight, lcdfilter=default); a bare Linux host defaults to grayscale
+ * AA and then every light-theme case fails on text rasterization alone — a config gap, not a design
+ * change (B4, `DECISIONS.md` 2026-11-03). On Linux chromium is therefore launched with
+ * `FONTCONFIG_FILE` pointed at `scripts/ci/capture-fontconfig.conf`, which includes the host's own
+ * fontconfig chain (so the pinned faces still resolve) and then assigns those five axes last, so no
+ * stray user or distro drop-in can disagree with the baselines. The value handed to the browser is
+ * validated at config load: `WARSHA_CAPTURE_FONTCONFIG_FILE` (rendering investigations only) is
+ * trimmed, resolved against this directory when relative, and must name a readable `<fontconfig>`
+ * file — the repo pin likewise must. An empty or unloadable value is refused here rather than
+ * reaching chromium, where it prints `Fontconfig error: Cannot load default config file` on the
+ * browser's stderr and silently falls back to the host's own config: a stray user fragment would
+ * look aligned on the capture host and render grayscale on a fresh CI runner, which is exactly the
+ * 10k–25k-pixel failure class the pin exists to prevent. macOS and Windows do not read fontconfig and
+ * are left exactly as they were.
  */
+
+/** The repo-managed fontconfig that pins the baselines' AA mode; Linux only. */
+const CAPTURE_FONTCONFIG = path.join(__dirname, 'scripts', 'ci', 'capture-fontconfig.conf');
+
+/**
+ * The fontconfig file chromium may be launched with, or nothing on a platform that ignores it.
+ *
+ * `assertReadableFontconfig` is what keeps the pin honest: FONTCONFIG_FILE is a browser-process env
+ * variable, so a value that is empty, relative to the browser's own cwd, or simply missing does not
+ * fail the run — it prints one line on stderr nobody reads and changes which pixels get rasterized.
+ * Failing at config load names the file and the variable instead of leaving 300 pixel diffs to
+ * explain, and matches what `scripts/ci/install-capture-fonts.sh` already does before a capture.
+ */
+function resolveCaptureFontconfig(): string | undefined {
+  if (process.platform !== 'linux') return undefined;
+  const requested = (process.env.WARSHA_CAPTURE_FONTCONFIG_FILE ?? '').trim();
+  // path.resolve keeps an absolute `requested` and anchors a relative one to this directory — the
+  // repo root — never to whatever cwd the browser process would later try to read it from.
+  const candidate = path.resolve(__dirname, requested === '' ? CAPTURE_FONTCONFIG : requested);
+  assertReadableFontconfig(
+    candidate,
+    requested === '' ? 'the repo pin' : 'WARSHA_CAPTURE_FONTCONFIG_FILE'
+  );
+  return candidate;
+}
+
+function assertReadableFontconfig(file: string, source: string): void {
+  let text: string;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch {
+    throw new Error(
+      `playwright.config: ${source} points FONTCONFIG_FILE at "${file}", which chromium cannot read. ` +
+        'It would print "Fontconfig error: Cannot load default config file" on the browser stderr and ' +
+        "render with the host's own AA mode — grayscale on a bare runner, and every baseline then " +
+        'fails on text pixels alone. Fix: unset WARSHA_CAPTURE_FONTCONFIG_FILE, or point it at an ' +
+        'existing fontconfig file (scripts/ci/capture-fontconfig.conf is the repo pin).'
+    );
+  }
+  if (!text.includes('<fontconfig>')) {
+    throw new Error(
+      `playwright.config: ${source} points FONTCONFIG_FILE at "${file}", which contains no <fontconfig> element`
+    );
+  }
+}
+
+/** The environment the browser processes start with: the validated AA pin on Linux, the inherited env elsewhere. */
+function browserEnv(): Record<string, string> {
+  // process.env is typed with `undefined` values, and Playwright's `env` wants plain strings;
+  // copying entry by entry drops the impossible ones instead of casting the whole object.
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined) env[key] = value;
+  }
+  const pin = resolveCaptureFontconfig();
+  if (pin !== undefined) env.FONTCONFIG_FILE = pin;
+  return env;
+}
 export default defineConfig({
   testDir: 'apps',
   testMatch: /.*\.spec\.ts$/,
@@ -63,6 +140,9 @@ export default defineConfig({
     actionTimeout: 15_000,
     trace: 'off',
     video: 'off',
+    launchOptions: {
+      env: browserEnv(),
+    },
   },
   projects: [
     {

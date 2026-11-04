@@ -13,7 +13,9 @@
 //
 // A reading the daemon has not reported is said in words (`bench.not_reported`), never as a zero: a
 // budget of `$0.00` would tell the owner the run is free, which is a different claim from "nothing
-// reported it to me yet" (§7).
+// reported it to me yet" (§7). The same rule covers a ceiling that was never set — `client` folds the
+// daemon's `null` into `0`, so `$4.20 / $0.00` would claim the budget is spent; that row says
+// `bench.no_ceiling` instead.
 import { type RunSummary, type Stage } from '@warsha/client';
 import { t, useDirection, useLocale, type Locale } from '@warsha/i18n';
 import { Lamp, Meter, StatusStrip } from '@warsha/ui';
@@ -41,6 +43,18 @@ function money(usd: number): string {
   return `$${usd.toFixed(2)}`;
 }
 
+/**
+ * Whether a budget reading carries a ceiling at all.
+ *
+ * `budget.show`'s ceiling is an `Option` in the daemon's cents, and `@warsha/client` folds a `null` into
+ * `0` when it converts to the dollars `BudgetStatus` declares (`centsToUsd`). `0` is therefore the only
+ * no-ceiling signal a screen gets — and it cannot tell an unset ceiling from one legitimately zero,
+ * because the distinction is gone before the render. So a zero prints words, never `$0.00`.
+ */
+function hasCeiling(totalUsd: number): boolean {
+  return totalUsd > 0;
+}
+
 /** The stage's word: the four gates keep their own labels, the pipeline stages read from `run.stage.*`. */
 function stageWord(stage: Stage, locale: Locale): string {
   return t(stage.startsWith('gate_') ? `gates.label.${stage}` : `run.stage.${stage}`, {}, locale);
@@ -52,7 +66,6 @@ export function InstrumentStrip({ daemonOnline, run, gatesWaiting, budget }: Ins
 
   const spent = budget?.spentUsd ?? null;
   const total = budget?.totalUsd ?? null;
-  const ratio = spent !== null && total !== null && total > 0 ? spent / total : null;
 
   return (
     <div dir={dir} className="bench-strip">
@@ -87,9 +100,15 @@ export function InstrumentStrip({ daemonOnline, run, gatesWaiting, budget }: Ins
         </StatusStrip.Item>
 
         <StatusStrip.Item>
-          {ratio === null || spent === null || total === null ? (
+          {budget === null || spent === null || total === null ? (
             <Lamp state="idle" size="xs" bare>
               {`${t('bench.budget_used', {}, locale)}: ${t('bench.not_reported', {}, locale)}`}
+            </Lamp>
+          ) : !hasCeiling(total) ? (
+            // The spend answered and the ceiling did not: `$4.20 / $0.00` would read as "spent everything",
+            // which is a different claim from "no ceiling reported" (§7).
+            <Lamp state="idle" size="xs" bare>
+              {`${t('bench.budget_used', {}, locale)}: ${money(spent)} · ${t('bench.no_ceiling', {}, locale)}`}
             </Lamp>
           ) : (
             <Meter
@@ -97,7 +116,7 @@ export function InstrumentStrip({ daemonOnline, run, gatesWaiting, budget }: Ins
               max={Number(total.toFixed(2))}
               label={t('bench.budget_used', {}, locale)}
             >
-              {`${money(spent)} / ${money(total)} · ${Math.round(ratio * 100)}%`}
+              {`${money(spent)} / ${money(total)} · ${Math.round((spent / total) * 100)}%`}
             </Meter>
           )}
         </StatusStrip.Item>

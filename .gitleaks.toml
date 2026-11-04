@@ -1,21 +1,48 @@
+# gitleaks configuration for Warsha — validated against gitleaks 8.30.1.
+#
+# CRITICAL: in gitleaks v8, `[allowlist] paths` entries are compiled as RE2
+# REGEXES, not gitignore globs. The previous config used globs (`**/*test*`)
+# which made gitleaks panic at config-load time, silently breaking the CI
+# secret gate. Paths are now anchored regexes in gitleaks convention.
+#
+# Policy: no blanket exemptions by file class (test/mock/example/markdown).
+# A real credential pasted into a test file or a doc must still be flagged.
+# Exemptions below match the exact canary LITERALS used by the repo's
+# redaction tests (PLAN.md M2 acceptance: "No secret ever appears in logs
+# (test with a canary key)"), never whole directories or file types.
+
 [extend]
 useDefault = true
 
+# IMPORTANT merge quirk (verified empirically on gitleaks 8.30.1): with
+# [extend] useDefault = true, a rule whose id equals a default rule's id is
+# SILENTLY DROPPED — the default rule wins and the custom regex never runs.
+# Proof: a planted `sk-` + 51-alphanumerics key was caught by the custom
+# rules in an isolated run but missed with useDefault, because the shipped
+# default OpenAI rule only recognizes sk-proj-style keys. The three custom
+# rules below therefore carry distinct `warsha-` ids so their regexes
+# actually execute; the same-shape default rules still run alongside them.
+
 [[rules]]
 description = "Generic API Key"
-id = "generic-api-key"
+id = "warsha-generic-api-key"
 regex = '''(?i)(api[_-]?key|apikey|secret[_-]?key|access[_-]?token)['"\s:=]+[a-zA-Z0-9_\-]{20,}'''
 tags = ["key", "API"]
 
+# Unchanged from the original rule — a real OpenAI key (`sk-` + 48
+# alphanumerics) always matches, including legacy classic keys that the
+# shipped default rule (sk-proj-style only) misses. No `sk-ant-…` key can
+# spuriously fire it either: the hyphens in Anthropic's prefix are outside
+# this character class, so the two rules stay cleanly separated.
 [[rules]]
 description = "OpenAI API Key"
-id = "openai-api-key"
+id = "warsha-openai-api-key"
 regex = '''(?i)sk-[a-zA-Z0-9]{48,}'''
 tags = ["key", "OpenAI"]
 
 [[rules]]
 description = "Anthropic API Key"
-id = "anthropic-api-key"
+id = "warsha-anthropic-api-key"
 regex = '''(?i)sk-ant-[a-zA-Z0-9_-]{95,}'''
 tags = ["key", "Anthropic"]
 
@@ -25,18 +52,101 @@ id = "github-token"
 regex = '''(?i)gh[ps]_[a-zA-Z0-9]{36,}'''
 tags = ["key", "GitHub"]
 
+# Tightened because the old form was noise-only: with `['"\s:=]+` as the
+# separator it matched plain English ("secret configuration", "Secret
+# reference", "password available") and code identifiers (`Secret:
+# Uint8Array`, `secret = readToken`) — 44 of 48 findings in a full-history
+# scan were prose/identifier false positives, and it would have blocked all
+# of docs/, i18n catalogs, and crypto sources. Now requires (a) an explicit
+# `:`/`=` assignment operator and (b) the value to be a QUOTED literal:
+# `secret: "real-looking-value"`. An unquoted identifier RHS or a space-
+# separated noun phrase can no longer match.
+#
+# NOTE on exemption mechanics: gitleaks 8.30 tests allowlist `regexes`
+# against the finding's SECRET, and Secret is extracted from the first
+# capture group by default (which was just the keyword — so keyword-
+# prefixed exemption patterns could never match). Group 2 below captures
+# the quoted VALUE and `secretGroup = 2` makes Secret exactly that value,
+# so each exemption anchors on `^literal$`: a real credential only passes
+# if its entire value is one of the fictional fixture strings below.
 [[rules]]
-description = "Generic Secret"
+description = "Generic Secret (quoted literal assignment)"
 id = "generic-secret"
-regex = '''(?i)(secret|password|passwd|pwd)['"\s:=]+[a-zA-Z0-9_\-]{8,}'''
+regex = '''(?i)\b(secrets?|passwords?|passwd|pwd)\b['"]?\s*[:=]\s*["']([^"'\s]{8,})["']'''
+secretGroup = 2
 tags = ["secret"]
 
+  # Per-rule exemptions matching ONLY the exact fictional fixture literals
+  # (anchored ^...$ against the extracted Secret), each verified against
+  # scan output. A value that merely resembles these (extra characters,
+  # real length, real alphabet) still fires. These strings exist solely as
+  # redaction-test canaries — the tests assert they never leak into output.
+  [[rules.allowlists]]
+  description = "Redaction-test canary literals (asserted to never leak into output)"
+  regexes = [
+    # crates/warsha-remote/src/rate_limit.rs: filler key (40 identical
+    # chars) for the OpenRouter-style rate-limit redaction test.
+    '''^sk-or-v1-a{40}$''',
+    # packages/client/src/index.test.ts: M2 canary proving the client
+    # redacts a key it is told never to print.
+    '''^sk-never-print-this$''',
+    # crates/warsha-store/src/persistence.rs + crates/warsha-pipeline/src/
+    # run_modes.rs + crates/warshad/tests: pairing-secret redaction
+    # fixtures named for what they test.
+    '''^one-time-secret$''',
+    '''^another-secret$''',
+    '''^super-secret-value$''',
+    # scripts/load/check-pairings.sh: inert payload for the load-probe
+    # endpoint (its own value states "not-a-credential").
+    '''^inert-probe-value-not-a-credential$''',
+    # PLAN.md / PROGRESS.md / docs/src/run-modes.md sentences documenting
+    # that PhonePairing's Debug impl prints the literal marker <redacted>.
+    '''^<redacted>$''',
+  ]
+
 [allowlist]
-description = "Allowlist for test files and examples"
+description = "Exclude generated output, dependencies, and security-evidence archives"
 paths = [
-  "**/*test*",
-  "**/*mock*",
-  "**/*example*",
-  "**/*.md",
-  "**/fixtures/**",
+  # build + dependency directories (also required for --no-git scans)
+  '''(^|/)node_modules/''',
+  '''(^|/)target/''',
+  # Bundled frontend build output (gitignored `dist/`). Its source maps
+  # embed `sourcesContent` copied verbatim from node_modules, which would
+  # double-report third-party doc examples as findings.
+  '''(^|/)dist/''',
+  # bridge-io/ holds security audit reports, load-test logs, and lane
+  # transcripts; scanning it as source produced evidence noise (the files
+  # quote payloads under test), and it is not shipped product code.
+  '''(^|/)bridge-io/''',
+  # Playwright output (screenshots/traces) regenerated on every run.
+  '''(^|/)test-results/''',
+]
+regexes = [
+  # Global regexes are tested against the finding Secret (verified on
+  # 8.30.1), so each is anchored ^...$ and names its exact literal — never
+  # a file class. The default generic-api-key / curl-auth-header rules are
+  # noisier than the repo's custom ones and cannot be edited here, so
+  # their known-public/exempt values are pinned individually:
+  #
+  # docs/DAEMON.md curl example ships the literal placeholder
+  # REPLACE_WITH_TOKEN; a real token is never this exact string.
+  '''^REPLACE_WITH_TOKEN$''',
+  # crates/warsha-pipeline/src/observability.rs:285 — M2 redaction-test
+  # canary (the test asserts this exact string never appears in rendered
+  # logs). 19 obvious filler characters, not a real key shape.
+  '''^sk-abc123def456ghi789$''',
+  # crates/warshad/tests/security_rate_limits.rs:186 — the RFC 6455
+  # WebSocket handshake example nonce, decoded "The sample nonce";
+  # published in the standard itself.
+  '''^dGhlIHNhbXBsZSBub25jZQ==$''',
+  # packages/crypto + docs prose: the ChaCha20Poly1305 ALGORITHM NAME in
+  # "X25519 key exchange, ChaCha20-Poly1305" descriptions (SECURITY.md
+  # architecture text); an algorithm name is not a credential.
+  '''^ChaCha20-Poly1305$''',
+  # apps/desktop/src-tauri/tauri.conf.json updater pubkey + PROGRESS.md —
+  # the minisign PUBLIC verification key id embedded in the (public by
+  # design) updater pubkey; decoding shows the untrusted comment
+  # "minisign public key: 9731DDBF50264A8C". The private signing key
+  # lives outside the repo (owner-held); this id cannot sign anything.
+  '''^9731DDBF50264A8C$''',
 ]

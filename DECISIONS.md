@@ -273,3 +273,305 @@
 - **Reason**: WSL reproduced all 425 workspace tests green, including the 13 `warsha-git` tests that fail on Windows, proving the defect belongs to the sandbox policy rather than product code. The owner explicitly accepts WSL as the authoritative Rust-test path and wants the sandbox preserved.
 - **Windows gates still required**: native `pnpm` build/test/typecheck/lint, Playwright, mdBook, `cargo clippy` through the MSVC helper, and the Tauri MSI/NSIS installer build. Only native Windows `cargo test` is exempted. No agent may alter Codex ACLs, mandatory labels, sandbox services or user security settings.
 
+
+## 2026-11-03 — Host moved to Linux server
+- **Decision**: `/home/dev/projects/warsha-dev` on Ubuntu aarch64 is now the authoritative checkout for Warsha Linux gates: Rust tests, pnpm build/test/typecheck/lint, Playwright visual/a11y, and mdBook. The former Windows laptop/WSL bridge and `/root/warsha` copies are not authoritative.
+- **Tooling**: installs remain user-level only. `npx pnpm@9.0.0` is the supported pnpm invocation because `corepack enable` cannot write `/usr/bin/pnpm` without root on this image. Playwright workers stay at or below 2 for normal verification and Cargo uses `-j 2`.
+- **Windows-only gates**: MSI/NSIS, MSVC clippy, and Windows-native pnpm/Playwright remain pending through the Windows CI workflow; no Windows gate is fabricated on this host.
+- **Reason**: the project move was required by the owner, and preserving the authoritative source/evidence boundary avoids mixing Linux baselines with stale Windows/WSL renders. No ACL, service, unrelated project or secret state was changed.
+
+## 2026-11-03 — Engineering operating policy (docs + validator only, no runtime code)
+- **Decision**: Adopt root `ENGINEERING_POLICY.md` as the Warsha-native agent engineering operating policy: a seven-phase lifecycle (intake → plan → isolated implementation → review → verification → bounded repair → acceptance), separate planner/implementer/reviewer/verifier roles with owner-only gate approval, isolated `git worktree` (or per-run Docker) execution as a hard requirement for workers, a `warsha-run/v1` `state.json` checkpoint schema (phase, seq, roles, scope, worktree, `acceptance_gates`, `max_repair_iterations` default 3, blocker kind), a per-run evidence directory under `bridge-io/policy/<run-id>/`, "repair never loosens tests or gates", and explicit in-scope/out-of-scope blocker classes.
+- **Enforcement**: dependency-free `scripts/check-engineering-policy.mjs` (`pnpm policy`, same shape as `check-arch.mjs`: `--root`, `--self-test`, `E1`–`E8` check ids, exit 0/1) validates the doc's sections/phases/terms/provenance plus the `AGENTS.md` references and the `package.json` script. `AGENTS.md` gained two lines (read the policy; run the validator on policy/process changes); no existing rule was removed. Not wired into `ci.yml` in this pass to keep the change minimal — CI adoption can mirror the `check-arch.mjs --self-test` step later.
+- **Provenance**: the eight principles above were observed in public descriptions of Superplane (github.com/superplanehq/superplane), Open-Inspect background-agents (github.com/open-inspect/background-agents), SWE-AF (github.com/Agent-Field/SWE-AF) and Zeroshot (github.com/the-open-engine/zeroshot) — inspiration only, no upstream text, code, schema or asset copied; recorded in the policy's §7 with the same boundary rule as the 2026-11-02 B1 license/reference note.
+- **Reason**: the repo already lives these rules informally — gate stages in `warsha-core::Stage`, `worktree_isolation` in `work_protection.rs`, result-log-only evidence (2026-10-29 decision), human-only approvals in `SECURITY.md`, `SecretStore` (2026-10-31) — but nothing made the loop explicit, machine-checkable or resumable from files alone. Writing the state to a checkpoint file instead of chat memory is the same correction the 2026-10-29 evidence decision established.
+
+## 2026-11-03 — B4: `onboarding-provider 768x1024 en light` is an AA-mode raster flip, not a wizard layout defect
+- **Decision**: No product pixel change for this case. The frame geometry was measured identical (plate x=272 y=338 w=448 h=348, rail x=24 y=24 w=224 h=976, doc scrollTop 0 — all integers) in both passing and failing captures; failing frames differ only in that chromium drew every text line with grayscale AA while the baseline and passing frames carry LCD subpixel fringes (e.g. rail-head glyph pixels (228,189,148) vs (243,244,246)), which also re-rounds glyph rows by ±1 px. The wizard's own layout is integer-aligned at 390/768/1440, so the earlier "subpixel drift from centering at odd widths" hypothesis does not survive measurement.
+- **Evidence**: 45+ focused runs of the case on this host: 6 failures, all while sibling agents were concurrently editing/hot-reloading the shared tree or running their own chromium lanes; 27 consecutive strict passes on a settled tree, plus all 24 `onboarding-provider`/`-first-run` cases passing in one batch. Failing captures cluster into exactly two stable renderings (15,779 px and 12,282 px PIL-diff), the signature of a binary AA-mode switch, not of drift. `auditUsedFonts`, layout, clip and key-leak assertions pass in every run including the failing ones.
+- **Reason**: any product change that pins the AA mode (e.g. forcing grayscale layer promotion or integer-snapping line boxes) moves pixels on the other 11 stored `onboarding-provider` baselines and the 584 others sharing these compounds; updating baselines or weakening `maxDiffPixelRatio: 0` is out of bounds. The lever that would actually pin this lives in the harness/browser-launch layer (chromium launch flags), owned by the B4 harness lane, not in `Onboarding.tsx`.
+
+## 2026-11-03 — B4 Linux rerun, gates lane: the 3 owned pixel failures are host-raster residuals; no product fix exists
+- **Decision**: Close the `gates` lane (screens `gates 768x1024 en dark`; states `gates permission 390x844 en light`, `gates permission 1440x900 en light`) with zero product-code changes. Every non-pixel assertion (bbox, clip, used-fonts, axe, key-leak, RPC stub) is green in every reproduction; the residue is pixelmatch-only at 1–268 px. This is an out-of-scope blocker per `ENGINEERING_POLICY.md` §5: the only levers that move these pixels are forbidden to the lane (baseline update, `maxDiffPixelRatio: 0` relaxation, harness/fontconfig ownership).
+- **Evidence**: (1) Pre-alignment, all 3 owned cases failed at 5,679–6,287 px (per-pixel magnitude up to 765) and 7 WSL-passing controls across gates/projects/onboarding failed at 6,356–14,308 px — a host-wide class, not a gates defect. (2) After a concurrent lane's `~/.config/fontconfig/fonts.conf` (2026-11-03T03:45Z: antialias true, rgba rgb, hintslight, lcdfilter lcddefault) aligned host text AA to the baselines' LCD subpixel rendering, owned diffs collapsed to 4 / 248–268 / 8 px, every one a 1-level LCD fringe on glyph and border edges (max magnitude 15–19). (3) Full gates family on this host: 23 failed / 17 passed of 40 cases, 1,057 px total (max 248), failures concentrated in light themes; repeated captures are byte-stable except a 15–30 px jitter at the topbar mode-toggle/bell edges — same class as `bridge-io/audit/visual.md` §7 #7/#11. (4) CDP `CSS.getPlatformFontsForNode` probe (`/tmp/fontprobe.mjs`) proves correct Plex face selection per weight; layout shift (0,0); dpr 1; fonts/animations/caret pinned by `harness.ts openScreen`. FreeType interpreter swap (v35/v38) and forced grayscale both made diffs worse, not better.
+- **Reason**: GatesInbox/GateCard/Stamp/Lamp DOM and CSS are deterministic and integer-aligned at these viewports; the residual delta lives in the x86_64-WSL → aarch64-Ubuntu-22.04 rasterization path (FreeType/NEON rounding, subpixel phase), below any product-code lever. Bounded repair must not move pixels that product code does not control.
+- **Need (owner)**: (a) decide the canonical capture-rendering config — `scripts/ci/install-capture-fonts.sh` (task #26) pins the SHA-verified faces but nothing pins the AA mode; the alignment here came from an ad-hoc, undocumented `~/.config/fontconfig/fonts.conf` (rgba rgb, hintslight, lcdfilter lcddefault). It must become a reproducible step (script-managed fontconfig fragment or a harness launch flag — the B4 harness lane owns which), or CI regresses to grayscale and every light-theme baseline breaks host-wide; (b) then a single owner-approved `--update-snapshots` session on the authoritative Linux host, ideally with the AA mode pinned in the harness so the remaining 1-level fringes stop flapping; (c) until then the 3 owned gates cases plus the onboarding AA cases stay red on this host for rendering reasons, not product reasons.
+
+## 2026-11-03 — B4 run lane: the 7 owned pixel failures are x86→arm64 raster residuals on knife-edge geometry; no product fix exists
+- **Decision**: Close the `run` lane (`run 320x568 ar light`, `run 320x568 en light|dark`, `run 390x844 ar light`, `run 768x1024 ar dark`, `run 1440x900 en light|dark`) with zero product-code changes. Every non-pixel assertion in `screens.visual.spec.ts` (RPC stubs, `auditLayout`, `auditClipping`, `auditUsedFonts`, `lang`/`dir`, key-leak) is green in every reproduction, and the screen is now byte-deterministic per session on this host; the residue is pixelmatch-only at 11–944 px, every pixel a ±1 coverage flip on a sub-pixel edge. Per `ENGINEERING_POLICY.md` §5 this is an out-of-scope blocker: the only levers that move these pixels (baseline refresh, `maxDiffPixelRatio` relaxation, chromium launch flags) are forbidden to the lane.
+- **Evidence**: (1) Host alignment: before the user-level `~/.config/fontconfig/fonts.conf` (antialias true, rgba rgb, hinting true, hintstyle hintslight, lcdfilter lcddefault — the same fragment the gates entry records), every case failed at 10k–25k px; after it, controls `projects 390x844 en dark` and `run 320x568 ar dark` pass byte-for-byte and the 7 owned cases collapsed to 11–944 px. (2) Determinism: `--repeat-each=2 --workers=2` → 13 of 14 captures byte-identical; the one jitter (`run 320x568 en dark`, 49↔32 px) is byte-identical 3/3 at `--workers=1`, so it is a parallel-session raster-cache artifact, not page nondeterminism. (3) The baselines are mixed-state frames: for `run 390x844 ar light` the stored PNG equals capture A on the chip bottom border (13/13 px) and capture B on the mode-switch shadow fringe (15/15 px) — no single frame of this host matches the baseline in both regions; same split for `run 320x568 en dark` (21 px match state B, 4 px match state A). `bridge-io/shots/b4/manifest.md` already lists these 7 as the baselines that drifted 2–24 px per capture on the capture host itself (`bridge-io/audit/visual.md` §7 #11). (4) The pixels name the mechanism: `run 768x1024 ar dark` — all 866 px exactly (+1,+1,+1) at horizontal glyph/stem edges; `run 320x568 en dark` — all 49 px ±1 all-channel; `run 390x844 ar light` — single-channel ±1 (LCD phase) at vertical edges; `run 1440x900 en light` — a blue −3..−8 fringe on the brand SVG polygon (`x=18.292 w=17.417`). Every diff band sits on knife-edge geometry the layout legitimately produces (plate header `y=334.5`, chip border bottom `175.5`, pressed rung right edge `261.375` under `shadow sm` blur, RTL status-strip meter at fractional `x`). (5) Fontconfig axes exhausted: hintstyle full/medium/none → 17,840/17,761/8,909 px (worse); lcdfilter none/light/legacy → unchanged or worse; hinting=false → 20,265/15,725 px. HEAD is the baseline commit (`68dc78d`) — the run-screen product code that rendered these PNGs is unchanged; the change of hosts (WSL x86_64 → Ubuntu aarch64, `DECISIONS.md` 2026-11-03 move) is the only variable.
+- **Reason**: a 1-level coverage flip at a half-pixel edge is decided in the rasterizer (Skia/SwiftShader/FreeType rounding paths differ per ISA), not in CSS or `RunView.tsx`; any product edit that moves those edges to integers changes pixels the other 589 stored desktop baselines share and cannot land without an owner baseline refresh. Same conclusion and same owner needs as the gates/onboarding entries above: pin the capture AA config reproducibly, then one owner-approved `--update-snapshots` on this authoritative host; until then the 7 run cases stay red for rendering reasons, not product reasons.
+
+## 2026-11-03 — B4 harness lane: the capture AA mode is pinned in the repo (Playwright launch env + a managed fontconfig fragment)
+- **Decision**: The alignment the gates/onboarding/run lanes proved by an ad-hoc `~/.config/fontconfig/fonts.conf` becomes a repo-owned, reproducible capture-infra step. New `scripts/ci/capture-fontconfig.conf` includes the host's own chain (`/etc/fonts/fonts.conf`, so the SHA-pinned faces still resolve) and then assigns the five axes the baselines carry — antialias true, rgba rgb, hinting true, hintstyle hintslight, lcdfilter lcddefault — last, so they win over any user or distro drop-in. `playwright.config.ts` launches chromium on Linux with `FONTCONFIG_FILE` pointed at that file (`WARSHA_CAPTURE_FONTCONFIG_FILE` overrides it for rendering investigations only); macOS/Windows keep the inherited env. `scripts/ci/install-capture-fonts.sh` refuses setup unless the fragment applies those five values (`fc-match -v`), and the CI visual step documents the pin.
+- **Verified on this host, without moving any baseline's intent**: (1) the fragment reports the same five values as the aligned ad-hoc config (antialias True, hintstyle 1, rgba 1, lcdfilter 1) and resolves the pinned Plex faces; (2) a deliberately wrong fragment beats the home fragment through the include chain (`fc-match` then reports rgba 5 / hintstyle 0) — the assignments are final; (3) A/B: with the pin set to the plain system config (= the pre-change state) and with the repo pin, serial runs produced byte-identical captures for `gates 768x1024 ar light` and `onboarding-provider 768x1024 ar light`; the one cross-run delta (`gates … en light`, 25 px, bbox y 8–27 = the topbar band, max magnitude 16) is the known 15–30 px topbar jitter — the same case flaps 14/4/4 px across three repeats *without* the pin; (4) causal control: with the negative pin (grayscale AA), `onboarding-provider 768x1024 en light` and `projects 390x844 en dark` explode to 6,888 / 8,280 px — the pre-alignment class — so the env genuinely reaches chromium's rasterizer and the right pin keeps the aligned rendering (≤4 px residuals, byte-exact controls). Focused 22-case set (gates/onboarding-provider 768 + gates-permission states + control): 11 failed / 11 passed at 3–268 px, all within the residual/jitter classes the three lane entries already recorded; failures reproduce identically without the pin.
+- **Alternatives**: a chromium launch flag (`--font-render-hinting`) — covers only hinting, cannot pin rgba/lcdfilter; having `install-capture-fonts.sh` write the user's `~/.config` — mutates home state, differs per host, invisible to a checkout; leaving the ad-hoc fragment — CI regresses to grayscale and every light-theme baseline breaks host-wide (the gates-lane need (a) this closes).
+- **Not changed**: no baseline, no assertion, no threshold (`maxDiffPixelRatio: 0` stays), no product file, no bridge-io write, no commit. The temporary `apps/desktop/e2e/zz-drift-probe.spec.ts` (header: "Temporary B4 drift probe … Deleted after use", dumping the gates topbar geometry this lane investigated) was removed as this lane's own leftover.
+- **Need (owner, unchanged)**: need (a) from the gates entry is now done in-repo; need (b) — one owner-approved `--update-snapshots` session on this authoritative host with the pin in place — remains the only lever left for the 3–268 px residuals and the mixed-state run/gates baselines.
+
+## 2026-11-03 — B4 capture-config hardening lane: the AA pin is validated at config load and proved in the real chromium binaries, not just in the shell
+- **Decision**: Close the three holes the #31 harness lane left in the pin's *reliability*, without moving a pixel. (1) `playwright.config.ts` now validates the `FONTCONFIG_FILE` value before any browser starts: an empty `WARSHA_CAPTURE_FONTCONFIG_FILE` falls back to the repo pin (`??` had let `""` through), a relative value is anchored to the repo root (never the browser's own cwd), and the resolved file must exist, be readable and contain `<fontconfig>` — otherwise the run refuses at config load with the file, the variable and the failure class it prevents named. (2) `scripts/ci/capture-fontconfig.conf` is self-sufficient: the system include became `ignore_missing="yes"` (a strict include that fails discards the entire fragment and fontconfig falls back with "Cannot load default config file") and plain `<dir>` entries for `/usr/share/fonts` + `/usr/local/share/fonts` keep the pinned faces resolving even on a host with no `/etc/fonts/fonts.conf`; the five AA assignments still land last. (3) `scripts/ci/install-capture-fonts.sh` proves the fragment where the pixels are made: the `fc-match` step now fails on *any* fontconfig stderr (a rejected fragment does not fail `fc-match` — it logs and answers from the fallback), and each Playwright browser binary present is launched once with the same `FONTCONFIG_FILE` the config sets, failing the setup step on any "Fontconfig error/warning" line.
+- **Reason**: the lane's diagnosis of the reported failures and error — `Fontconfig error: Cannot load default config file(: No such file)` reproduces verbatim on the browser stderr whenever `FONTCONFIG_FILE` is empty, relative-to-the-wrong-cwd or missing; chromium then rasterizes from its fallback config and does not stop, and on this host the stray `~/.config/fontconfig/fonts.conf` (merged through `50-user.conf` inside the include chain) hides that behind an LCD-aligned render a bare CI runner would not have. Causal proof that inheritance itself was never the problem: a temporary probe spec measured 1186 LCD-fringe pixels (max |R−B| 168) through the real launch path, and the same probe collapsed to 0 fringe pixels with a grayscale `WARSHA_CAPTURE_FONTCONFIG_FILE` override and to 0 rendered pixels with the empty value. The user's failing cases were re-measured first: 4 px / 1 px / 268 px / 8 px at max magnitude 1–2 — the documented residual/jitter class (owner need (b)), not an AA-class gap; `onboarding-provider 768x1024 en light` passes with the valid pin.
+- **Evidence**: before/after on `pnpm exec playwright test --project=desktop screens.visual.spec.ts -g "gates 768x1024 en dark" --reporter=list --workers=1`: exit 1 at 4 px before, exit 0 byte-exact after (the 0↔4 px flap is the recorded topbar jitter); 5-case focused set exit 1 both ways with residuals 1–268 → 1–238 px, all one-level flips (`/tmp/pinfix/pngdiff.mjs` decode: maxMag 1–2, gray-dominant); refusal variants after the fix — empty and relative overrides resolve to the repo pin and reproduce the identical probe, a missing file fails at config load (exit 1) before browsers or dev servers start; `install-capture-fonts.sh` exit 0 with "chrome" and "headless_shell" both confirmed loading the pin (it caught, live, a `<dir fallback="yes">` draft that fontconfig 2.13.1 rejects while the headless shell's statically linked newer fontconfig accepts — the two binaries genuinely disagree, which is why the check runs per binary); logs `/tmp/pinfix/before-gates-768-en-dark.log`, `/tmp/pinfix/after-focus.log`, `/tmp/pinfix/final-focus.log`.
+- **Alternatives**: keeping the value unvalidated — every misconfiguration survives as a pixel mystery; installing the fragment under `~/.config/fontconfig` — home state, invisible to a checkout (already rejected in the #31 entry); asserting the AA mode from in-page canvas pixels — canvas text is not guaranteed to carry the subpixel path, so the probe would mis-fire; making the strict include "work" by requiring a system config — exactly what fresh hosts must not need.
+- **Not changed**: no baseline, no assertion, no threshold, no product file, no spec/gate file, no bridge-io write, no commit/push. The temporary `apps/desktop/e2e/zz-pin-probe.spec.ts` was deleted after use; `pnpm -r typecheck`, root-file prettier and `scripts/check-engineering-policy.mjs` are green (root `tsc`'s `apps/remote/e2e` errors pre-date this lane and are outside the CI typecheck scope).
+- **Need (owner, unchanged)**: one approved `--update-snapshots` session on this authoritative host remains the only lever for the 1–238 px residuals; everything the capture config can control is now pinned, validated, and proved inside the binaries that do the rasterizing.
+
+## 2026-11-03 — B4 final verification: the flow closures are a concurrency startup flake; the six named pixel cases are serially green on the refreshed baselines
+- **Decision**: Close the final-verification item with **zero product, baseline, harness, or bridge-io changes**. (1) The two `flows.spec.ts` mode-group keyboard cases that failed the strict full rerun with `Target page, context or browser has been closed` (12:14–12:18 UTC, the concurrent-chromium window) do not reproduce serially: three separate `--workers=1` invocations on a settled tree (free ports 5173/5174, no sibling test processes) passed 6/6, exit 0 — recorded as a **concurrency startup flake**, per the verification brief, with no product change. (2) The six named pixel cases (`run 390x844 en light`, `run 768x1024 ar dark`, `run 768x1024 en light`, `run 1440x900 en dark`, `run 320x568 en dark`, states `gates permission 390x844 en light`) were each run twice serially with `maxDiffPixelRatio: 0` and no `--update-snapshots`: **12/12 byte-exact passes** — deterministic and green on the refreshed baselines; their earlier red state belonged to the same concurrent-run window.
+- **Evidence**: `/tmp/b4-final/flow-pass{1,2,3}.log`, `/tmp/b4-final/named-pass{1,2}.log` (exit 0 each); prior-lane serial corroboration `/tmp/strict-rerun/repro-flows.log` (4/4). For the lanes owning the other four rerun captures: serial results flapped at 3–20 px (±1–2 coverage flips, max mag 2; `gates 768 en light` carried the documented 25 px raw / max-16 topbar band y=8–27 — the harness-lane #31 jitter class), `gates permission 390x844 en dark` failed both serial runs at 15/11 px — all inside the recorded raster-jitter class, nothing new, `/tmp/b4-final/pixel-pass{1,2}.log`.
+- **Incident (self-disclosed)**: two `--list` selector dry-runs predating the `--reporter=list` override let the config's JSON reporter overwrite `bridge-io/audit/visual-playwright.json` with an empty-list stub; the file was restored byte-identically from the prior lane's archived full-run report (sha256 `88020b169797fdc4c339b04ea81d76e65851261d3fe82c1b19913108650928fe`) and every later command carried the reporter override. No other bridge-io write.
+- **Reason**: the brief's decision rule is measurement, not argument — serial reproduction either collapses the failure (flake/jitter, report and stop) or pins it (repair item). Here the flow closure collapsed serially and the six owned pixel cases passed serially twice, so the correct outcome is a green verification record, not a code change. Owner need (b) is unchanged only for the other lanes' 3–20 px jitter captures listed above.
+
+## 2026-11-03 — Linux aarch64 host is the authoritative visual capture host; wire-contract decisions for #25/#40; release-repo defect for #10
+
+- **Decision (B4/visual)**: `/home/dev/projects/warsha-dev` on the Ubuntu aarch64 server is the
+  authoritative Playwright host, and the baselines that were captured on the old WSL host are refreshed
+  here once (`playwright test --update-snapshots --workers=2 --reporter=list`), followed by a strict
+  full re-run with `maxDiffPixelRatio: 0` and `threshold: 0` unchanged. `scripts/ci/install-capture-fonts.sh`
+  now also installs the capture AA pin on this host and both `chrome` and `headless_shell` load it
+  without a Fontconfig complaint, so the two hosts render in the same LCD subpixel mode. No assertion,
+  threshold or comparison option is relaxed to reach green; the refreshed set is accepted only if the
+  strict re-run is green. Because `playwright.config.ts:120-122` writes the JSON reporter into
+  `bridge-io/audit/visual-playwright.json`, every run in this session carries `--reporter=list` so a
+  partial run can never overwrite the durable full-run report again.
+- **Rule learned, now enforced**: on this 2-CPU host exactly one Playwright process may run at a time,
+  and no lane may edit the tree while a capture run is in flight. Measured twice now: three concurrent
+  `pnpm visual` launches produced a `flows.spec` failure at 1440x900 en that passes serially, which is
+  the same signature the 2026-11-03 B4-final entry recorded. Concurrency is a test-hazard, not evidence.
+- **Decision (#25 gates queue)**: `gates.list` is served from `Run.gate_states`
+  (`crates/warsha-core/src/lib.rs:207`, seeded `crates/warsha-pipeline/src/lib.rs:228`), **not** from
+  `Store::list_gates`. Reason: `create_gate`, the only writer of the `gates` table, has no production
+  caller, so a table-backed read would return `[]` and make every queue look empty — a silent lie
+  replacing a visible `Method not found`. It returns all four gate stages in `Stage::all()` order with
+  `Pending` as the default state, in a daemon-local flat `GateSummary` wire shape
+  (`{stage, state}` with `by`/`at` promoted, `#[serde(tag = "state")]`), because the UI already reads
+  that shape (`packages/client/src/index.ts:84-87`) while `warsha-core`'s `GateState` is adjacent-tagged
+  (`crates/warsha-core/src/lib.rs:109`, proven by `crates/warshad/tests/security_identity.rs:173-178`).
+  The TS type is not changed; changing it would churn both apps and every gates baseline. The remote's
+  run-stage fallback stays, so a phone against an older daemon still shows something.
+  Auth: `gates.list` is `Session` tier / `Standard` spend tier, following `runs.list`
+  (`crates/warshad/src/auth.rs:257-261`) and deliberately **not** the `Auth` tier that
+  `gates.approve/reject/changes` use — a paired phone must be able to read the queue it is being asked
+  to decide, and `SimpleMode` polls this path.
+- **Decision (#25 name drift)**: one wire name per meaning. `budget.get`→`budget.show` with the
+  cents→USD conversion done in the client (the daemon owns amounts in cents, `lib.rs:1023,1854-1875`,
+  and the UI presents USD; a second daemon read would fork one fact into two units);
+  `devices.remove`→`devices.revoke` (identical params; the TS method name `removeDevice` stays so
+  `Devices.tsx` and its tests do not churn); `runs.status` is deleted and `getRunStatus` delegates to
+  `runs.get`; `runs.logs` maps `runs.events` to display lines client-side rather than giving the same
+  rows a second name. Four client methods are **deleted, not aliased**: `projects.delete` (no daemon
+  implementation, no store path, no UI caller; adding one would orphan artifact content files and the
+  project-keyed settings tables), `providers.budget` and `providers.budget.status` (no per-provider
+  budget exists — `budget.set` is per project), and `roles.assign` (it is not a synonym of `roles.set`:
+  `roles.set` is routing config, while H-04 established that a device's role comes from its
+  credential — an alias would re-open an authority bug).
+- **WITHDRAWN — Decision (#40 param convention), retracted the same day by running the daemon**: this
+  entry previously asserted the wire must become snake_case because `postRpc` sends `{ projectId }`/`{ id }`
+  while `crates/warshad/src/lib.rs:682-685` binds `project_id`/`run_id`, and concluded nearly every
+  id-taking read fails against a real daemon. **That is false.** Empirical test on this host:
+  `target/debug/warshad -f --http-port 39911 --ws-port 39912` with `XDG_CONFIG_HOME`, `XDG_DATA_HOME` and
+  `XDG_STATE_HOME` pointed at a throwaway `/tmp/warsha-probe` sandbox (daemon stopped, sandbox deleted, no
+  user data touched), then live JSON-RPC calls. `runs.list` with camelCase
+  `{"projectId": "<valid uuid>"}` returned `{"result":[]}`, and `{"project_id": ...}` behaved identically —
+  both accepted, both reaching the store. The daemon does not reject camelCase keys, so a client-wide key
+  rename would have been churn against a non-bug, and the param-key half of `check-wire-contract.mjs` is
+  **cancelled**: a gate that fails on working code is worse than no gate, and TS key names vs Rust argument
+  names is not the invariant it was assumed to be.
+- **Decision (#40, restated from live evidence — required-field drift)**: audit every client call's params
+  against what the daemon actually deserializes, **by calling a running daemon rather than by parsing
+  text**, and keep the boot-the-daemon-and-drive-it test as the permanent guard. Measured on the live
+  daemon: `projects.create {"name":"probe"}` — exactly what `packages/client/src/index.ts:437` sends —
+  returns `-32602 "missing field 'description'"`, and adding `description` then returns
+  `-32602 "missing field 'language'"`. The daemon requires `name`, `description` and `language`; the client
+  supplies one of three. `projects.list` returns `[]` correctly, so the app can read an empty world but
+  **cannot create the first object in it** — this sits directly in the path #11's first-run flow must walk,
+  and it is invisible to the suite because `apps/desktop/e2e/harness.ts:844` reads params its own way.
+  Independently re-confirmed live: `gates.list` and `budget.get` both return
+  `-32601 "Method not found"`, so the registry gap and the name/policy halves of the contract gate stand.
+- **Trap recorded so nobody mistakes it for a defect**: `--ws-port` is the **JSON-RPC** port and
+  `--http-port` is the asset/`/health`/`/events` port (`warshad: JSON-RPC server listening on
+  127.0.0.1:39912`), and the shell builds `base_url` from the RPC port (`apps/desktop/src-tauri/src/
+  lib.rs:254`, `:302`, `:327`). `POST /rpc` to the asset port returns 404 and `POST /rpc` to the RPC port
+  returns 200 (jsonrpsee answers any path); a first probe that hit the asset port looked exactly like a
+  missing route and was not one.
+- **Decision (machine-checkable gate)**: a dependency-free `node scripts/check-wire-contract.mjs` in the
+  `check-arch.mjs` style, with `--self-test`, registered as R7 in `docs/ARCH_RULES.md` and as a CI step
+  next to "Architecture boundaries". It compares three sets — daemon `#[method(name = ...)]`, client
+  `rpc('...')` names, and the harness stub table — and also compares each client call's **param keys**
+  against the daemon's bound argument names. A Rust test over a checked-in expected list was rejected:
+  it is a fourth copy of the truth and passes when both the client and the list are wrong, and the
+  registry↔policy invariant it would restate already exists at `crates/warshad/src/lib.rs:3844-3899`.
+  Parser requirements measured in this repo: resolve `const X = 'a.b'` indirection (five client calls
+  pass a same-file const identifier — `index.ts:771-775` — and a naive `'…'` regex silently drops
+  `backend.export`, `handoff.*` and `postlaunch.*`), match `rpc<T>(...)` generics, tolerate multi-line
+  `#[method(...)]` attributes, and cross-check the parsed count against `auth::METHOD_POLICIES`.
+  Alongside it, #40 adds the coverage that has never existed: a test that boots the real `warshad`
+  binary and drives it through `WarshaClient`, so a stub can no longer be offered as proof that a seam
+  is wired.
+- **Measured: this repository has never run a workflow**.
+  `gh api repos/athar-studios/warsha-dev/actions/permissions → {"enabled": true, "allowed_actions": "all"}`
+  but `actions/runs → {"total_count": 0}`. Actions is enabled and has zero runs, which is exactly what the
+  `main`-only trigger predicts: every push in this stage went to `dev`, so nothing was ever scheduled.
+  Consequence: the first dev push after the trigger fix is the **first CI run in the repo's history**, and
+  it will surface latent defects all at once rather than confirming a previously-green baseline. Known
+  candidates, all measured on this host or in the workflow text: the gitleaks config panic
+  (`.gitleaks.toml:34-41`, tracked as #43), the visual job's x86_64-versus-aarch64 raster question
+  (need (3) above), and Windows `cargo test`/clippy behavior that only ever ran locally under the Codex
+  sandbox. Decision: the push stage reports the run triaged **by failure class** with evidence, and does
+  not describe any job as "regressed" — nothing here has a green baseline to regress from.
+- **Decision (#10 unsigned installer path)**: `apps/desktop/src-tauri/tauri.conf.json:38` sets
+  `createUpdaterArtifacts: true`, and the desktop build job feeds it
+  `TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}`
+  (`.github/workflows/release.yml:204-205`). A key must not be created or stored in this stage, so if
+  that secret is absent the bundle step fails on updater-artifact generation, not on the installer
+  itself — and a missing secret looks identical to a broken build. The stage therefore builds installers
+  with a **CI-only config override** (`pnpm tauri build --config` with
+  `{"bundle":{"createUpdaterArtifacts":false}}`) instead of editing `tauri.conf.json`: the repo keeps its
+  signed-release configuration intact for the owner, the unsigned artifacts still validate MSI/NSIS/deb,
+  and no key material exists anywhere in this stage. `actionlint` is clean on `release.yml` and proves
+  none of this — it validates YAML and expression syntax, not whether a referenced secret exists — which
+  is why the artifact override is reasoned from the config and secret wiring rather than from a lint pass.
+- **Decision (#10 release repo)**: `.github/workflows/release.yml` hardcodes
+  `https://github.com/Warsha/Warsha` in six places (lines 352, 366, 367, 392, 396, 405) and
+  `gh api repos/Warsha/Warsha` returns HTTP 404 — that repo does not exist, so every generated winget,
+  Homebrew and Scoop manifest would be dead on arrival. The fix is a single `releaseRepo` value at the
+  top of the workflow rather than six string literals. The product repo is `athar-studios/warsha`
+  (`gh repo view` confirms it exists and is the one the Tauri updater endpoint already targets,
+  `apps/desktop/src-tauri/tauri.conf.json:74`), while this checkout pushes to `athar-studios/warsha-dev`
+  — so the release target must **not** be derived from `github.repository`, which would silently point
+  installers at the dev fork. `apps/desktop/src-tauri/tauri.conf.json:74` is left as-is and recorded as
+  intended. Tag-triggered publish paths in `release.yml` remain unused: this stage builds and validates
+  installer artifacts, it does not create, store or use signing keys and does not publish.
+- **Sequencing consequence**: #25 and #40 land **before** #11, because an installed app talking to a real
+  daemon fails on param casing and the unserved gates read regardless of how clean the visual matrix
+  looks. #11 also remains blocked on the owner's provider key, which is entered only through the app UI
+  at runtime and is never read, logged or printed here.
+- **Decision (#Z CI, three measured defects)**:
+  1. `.github/workflows/ci.yml:3-6` triggers only on `push: branches: [main]` and
+     `pull_request: branches: [main]`. Every push in this stage goes to `dev`, so **pushing dev today
+     runs no CI at all** and the owner's required "pending Windows CI run" would not exist. `dev` is
+     added to the push branches and `workflow_dispatch` is added for a manual re-check. No publish path
+     is touched.
+  2. `scripts/ci/capture-fontconfig.conf` is **untracked** (`git status --short` → `??`) while
+     `playwright.config.ts:56` resolves it and `assertReadableFontconfig` (`:61-95`) refuses to run if
+     it is missing or has no `<fontconfig>` element. On a fresh CI checkout the visual job therefore
+     dies before the first screenshot. It must be committed with the `install-capture-fonts.sh` step
+     that already pairs with it — the pin and the job are one contract.
+  3. Architecture is now part of the pixel contract. The authoritative capture host is this **aarch64**
+     server and the baselines are being refreshed here, but the `typescript` job runs
+     `pnpm visual` on `ubuntu-latest`, which is x86_64 (`ci.yml:77`, `:139`). Two CPU architectures
+     under `maxDiffPixelRatio: 0` is the exact WSL-vs-host residue the 2026-11-03 gates-lane entry
+     measured (6,000 px before the AA pin, 4–248 px after): the pin converges the AA *mode*, not every
+     hinting decision. So the visual step moves out of `typescript` into its own `visual` job on
+     `ubuntu-24.04-arm`, matching the authoritative host's architecture, with the same
+     `pnpm install --frozen-lockfile` → `playwright install --with-deps chromium` →
+     `bash scripts/ci/install-capture-fonts.sh` → `pnpm visual` chain, while lint/typecheck/test/build
+     stay on `ubuntu-latest`. `actionlint` must stay clean and `pnpm visual` keeps writing its JSON
+     report to `bridge-io/audit/visual-playwright.json` only in CI, where that file is job-local.
+     Caveat recorded before betting on it: `athar-studios/warsha-dev` is a **private** repo
+     (`gh api repos/athar-studios/warsha-dev → {"private": true}`, default branch `main`, remote `dev`
+     already at `68dc78d`, so the next push is a fast-forward) and arm64 hosted runners are not
+     guaranteed on a private plan. Settled empirically rather than by argument: the first dev push
+     schedules the job and either it starts or it fails with "no runner could be found". If the label
+     is unavailable the fallback is **not** to relax the pixel compare — it is to let CI own the
+     baseline capture for its own architecture and keep this host as the functional gate
+     (a11y/layout/flows/clip/used-fonts), which is the honest division either way.
+- **Decision (remote gates fixtures, 2026-11-03 — two cases fixed, zero assertions changed)**: the
+  flip of `testkit.tsx` to an *answering* `gates.list` default broke `gates.test.tsx:29` and `:210`,
+  and the briefed mechanism for the first was wrong: `RUN.stage` **is** `gate_b` (`testkit.tsx:48`),
+  so `gate_b`, `البوابة ب` and the three decision buttons all rendered — the missing text was
+  `remote.stage_gate_waiting` (`التشغيل متوقف عند هذه المرحلة…`, measured in the suite output, not
+  inferred). That sentence and the card's lit chip are keyed to the row's *reading*: `GatePlate.tsx:56`
+  and `:85-87` render them only when `gate.source === 'stage'`, while `bench.tsx:397-404` tags every
+  row an answered list returned as `daemon`/`device` and reaches `stageQueue` only in the `.catch` at
+  `:414`. So the card this case describes exists only on the fallback path, and the fixture that
+  matches its claim is `stubApi({ getGates: refuseGates() })` — the same shape the sibling lane had
+  already chosen at `bench.test.tsx:45` for the same reason. Answering `gate_b` instead would have
+  forced a change to the expected Arabic, which is tampering with the assertion. For `:210` the brief
+  was right for the right reason: an empty queue is a real daemon answer, so the case now passes
+  `getGates: () => Promise.resolve([])` beside its `SETTLED_RUN` `listRuns`. That case also exposed a
+  stub-fidelity wart worth naming rather than papering: `stubApi`'s `getGates` ignores its `runId`
+  (`testkit.tsx:141`), so `DEFAULT_GATES` — keyed to `RUN.stage` — is handed to any case that selects a
+  *different* run, which is a queue the fixture run does not have. Measured after the change:
+  `pnpm --filter warsha-remote test` → **147 passed (147)**, 13 files, exit 0; `pnpm typecheck` exit 0;
+  `refuseGates()` fallback case and the read-counting ledger case (`gates.test.tsx:183-203`, reads 1→2)
+  untouched and green.
+- **Finding 1 (product question, NOT fixed)**: against a daemon that answers `gates.list`, the gate the
+  run is parked on is never lit on the card. Three statements disagree with the code:
+  `NeedsYouScreen.tsx:9-11` says "only a pending gate is lit", `GatePlate.tsx:57` says "a gate the run
+  is parked on is the lit one", and the condition is `gate.source === 'stage'` (`GatePlate.tsx:56`).
+  Before `gates.list` was served every phone took the fallback, so the chip always showed; now it
+  shows only on the degraded path. Nothing rendered is *false* — the panel-level chip
+  (`NeedsYouScreen.tsx:120-127`) still lights on any pending gate — so this is an owner design call,
+  and fixing it moves rendered text on the `needs-you-*`/`gates-*` screens whose baselines #45 is
+  regenerating. Deliberately not touched by a fixture lane.
+- **Finding 2 (client suite, measured, NOT fixed)**: `pnpm --filter @warsha/client test` → **1 failed |
+  42 passed (43)**. `index.test.ts:291-295` expects `getRunLogs` to render a `gate_decision` event as
+  `'decision=approved, by=dev-1'`, but `EVENT_TEXT_KEYS` ends with `'decision'` (`index.ts:392-403`)
+  and the loop at `:420-423` returns that value verbatim, so the line is `'approved'` and the acting
+  device is dropped. `EVENT_TEXT_KEYS` does not exist at HEAD, so this uncommitted mapping contradicts
+  the test written alongside it; it was invisible only because the verification chain stopped at
+  remote. Left for the client lane: choosing a side changes log text in `RunView` and the remote run
+  screen, and `packages/client` is that lane's seam.
+
+- **Decision (#40 settled by measurement — casing was never the bug; genuine renames are)**: a
+  temporary lane booted the real `warshad` (jsonrpsee **0.26.1**, `Cargo.toml:55`) and called each
+  method in three param forms. Positional arrays, `{"run_id": …}` and `{"runId": …}` all **succeeded
+  identically**, because `jsonrpsee-proc-macros-0.26.1/src/render_server.rs:398-416` emits
+  `#[serde(rename = "<arg>")]` **plus aliases for both the snake_case and lowerCamelCase spelling** of
+  every Rust argument, and serde ignores unknown fields. So the retraction of the camelCase claim
+  stands, now with a mechanism. What does fail is a key that is a *rename* rather than a recasing, and
+  two existed in the shipped client: `getRun` sent `{ id }` against `get_run(run_id)` (reached from
+  `getRunStatus`, and `bench.tsx:529` uses it on the real client) and `pairDevice` sent `{ qrData }`
+  against `pair_device(pairing_data)`. Both answered `-32602 … missing field …` on the wire. Fixed at
+  `packages/client/src/index.ts:551` and `:790`; all 30 remaining `.rpc(` call sites were compared
+  with their bound arguments and are field-or-alias, so no sweep was made.
+  **Consequence for the gate**: `R7` counts required params per call but is blind to key *names*, and
+  name drift is now the proven failure mode — extending W7 to names is owed work, not a nice-to-have.
+  **Third live break, deliberately not fixed in the same breath** (#58): even with the right key,
+  `pairDevice` sends a string where the daemon binds the `PairingData` struct, so pairing is still
+  refused (`invalid type: string …, expected struct PairingData`). The harness now refuses in that
+  shape instead of faking an answer. Phone pairing therefore remains broken against a real daemon and
+  is on #11's path.
+- **Decision (#50/#56 — words for an unset ceiling, and the honest limit of that fix)**: the screens
+  printed `$0.00` for a ceiling the owner never set, which reads as "your budget is spent".
+  `apps/desktop/src/components/InstrumentStrip.tsx`, `apps/desktop/src/screens/Budgets.tsx`,
+  `apps/remote/src/format.ts`/`chrome.tsx`/`screens/NeedsYouScreen.tsx` now print
+  `bench.no_ceiling` (ar + en) in that case. The predicate is `hasCeiling(usd) => usd > 0`, which is
+  **correct only because `@warsha/client` folds the daemon's `Option` cents into `0`** before the
+  render — the wire distinction between "never set" and "set to zero" is destroyed at the client edge.
+  Accepted as the smaller lie (a zero ceiling is not a configured state anyone reaches for today) and
+  recorded as owed: making `BudgetStatus`' ceiling `number | null` restores the distinction, and
+  `hasCeiling` is duplicated in three files because desktop cannot import from remote.
+- **Decision (#55 — the lit card is a stage comparison, not a reading artifact)**: lighting the parked
+  gate required `gate.source === 'stage'`, i.e. it was written when *every* phone took the fallback.
+  With `gates.list` served, the normal path stopped lighting it while `REDESIGN.md` §1/§6 and two
+  in-file comments still promised it. `GatePlate.tsx` now derives `parkedHere` from
+  `run.stage === gate.stage`, so both readings light the same card, and a decided gate stays
+  unlit because `meta` is dropped for it.
+- **Decision (#45 — the strict pixel contract stays, and the renderer is what gets fixed)**: after a
+  full re-derivation on a settled tree, the strict rerun still failed 14 visual cases at 4–31 px each,
+  and two idle back-to-back captures of one case differed by 30 px. The diffs are not layout (no shift
+  matched under translation), not content (no color or size change), and not load (the machine was
+  idle): they are antialiasing-level nondeterminism on the pressed mode-switch pill's curved, shadowed
+  edge. The tempting fixes — a pixel-count allowance, a nonzero `threshold`, `retries`, excluding the
+  flaky cases, or switching the AA pin from LCD to grayscale — are **rejected**: `maxDiffPixelRatio: 0`
+  and `threshold: 0` are the owner's stated contract, and an AA-mode change alters what every glyph edge
+  looks like to every owner. The accepted route is deterministic *rendering* (launch flags / a render
+  path that keeps the design), with an explicit escalation if the only remaining option turns out to be
+  a fidelity change. **Why this is a decision and not just a task**: it chooses a harder fix over an
+  easier green, and it puts the owner's contract above the run's convenience.
+- **Decision (load-induced failures are evidence-pipeline defects, not product defects — but they are
+  not free either)**: `flows.spec.ts:81` died twice with "Target page, context or browser has been
+  closed" while three lanes shared this 2-core host, and passed in 10.9 s when run alone. Recording it
+  as "the suite is flaky" would be wrong; recording it as "not a problem" would also be wrong, because
+  CI runs `workers: 2` on a shared runner and can meet the same death. The rule that follows is mine to
+  enforce, not the suite's to paper over: one capture run owns the machine, and a lane's incidental
+  `pnpm`/`cargo` work is what turns a deterministic suite into a coin flip.
+- **Decision (#57 — one Arabic word, one spelling)**: the catalog had drifted between `بوابات` and
+  `بوّابات` for the same sentence, so an empty queue screen showed both. The shadda form is now
+  consistent across `nav.gates`, `gates.empty`, `gates.failed`, `simple.pending_gates`,
+  `simple.summary_gates` and `remote.queue_pending`, plus `المزوّد`/`المتبقّي` where the same
+  vocalisation rule applied. This moves rendered Arabic text on many screens, which is one more
+  reason the visual baselines are re-derived **after** these fixes rather than before.

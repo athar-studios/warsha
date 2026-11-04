@@ -165,4 +165,65 @@ while read -r path _; do
 done <<< "$FACES"
 [ "$missing" -eq 0 ] || fail "$missing face(s) are not known to fontconfig"
 
+# The faces are only half the deterministic render: the baselines carry LCD-subpixel text
+# (rgba=rgb, hintslight, lcddefault) and a bare runner defaults to grayscale, which fails every
+# light-theme case on AA alone (B4, DECISIONS.md 2026-11-03). playwright.config.ts launches chromium
+# with FONTCONFIG_FILE=scripts/ci/capture-fontconfig.conf to pin those axes; here the same fragment
+# is proved from the shell before a single screenshot is taken, so a broken or overwritten pin fails
+# this setup step instead of turning into 300 unexplainable pixel diffs later.
+AA_PIN="$(dirname "$0")/capture-fontconfig.conf"
+[ -f "$AA_PIN" ] || fail "the capture AA pin $AA_PIN is missing"
+AA_PIN=$(readlink -f "$AA_PIN")
+# A rejected fragment does not fail fc-match — fontconfig logs the error on stderr, loads its
+# fallback config and answers with plausible values. So stderr is part of the proof, not decoration.
+aa_err=$(mktemp)
+aa_report=$(FONTCONFIG_FILE="$AA_PIN" fc-match -v "IBM Plex Sans Arabic" 2>"$aa_err") ||
+  { cat "$aa_err" >&2; fail "fontconfig refused the capture AA pin ($AA_PIN)"; }
+if [ -s "$aa_err" ]; then cat "$aa_err" >&2; fail "fontconfig logged against the capture AA pin ($AA_PIN)"; fi
+rm -f "$aa_err"
+for want in 'antialias: True' 'hintstyle: 1' 'rgba: 1' 'lcdfilter: 1'; do
+  grep -q "	${want}" <<<"$aa_report" ||
+    fail "the capture AA pin does not apply \"$want\" — baselines are LCD-subpixel, this host would render otherwise"
+done
+echo "install-capture-fonts: capture AA pin applies antialias=true, hintstyle=slight, rgba=rgb, lcdfilter=default"
+
+# The proof above is the system's fontconfig; the pixels are chromium's. The headless shell carries
+# its OWN statically linked fontconfig and the full chrome links whatever libfontconfig the distro
+# ships — a fragment one of them cannot load never fails the run either: it prints
+# "Fontconfig error: Cannot load default config file" on the browser stderr and rasterizes with the
+# fallback config instead (measured 2026-11-03: an empty or unloadable FONTCONFIG_FILE does exactly
+# that, and a stray ~/.config/fontconfig fragment can hide it on the capture host). So each browser
+# binary Playwright will actually launch is started once with the same FONTCONFIG_FILE
+# playwright.config.ts gives it, and any Fontconfig complaint fails this step, not the matrix.
+# Skipped quietly when the browsers are not installed yet; CI installs them before this step runs.
+PW_BROWSERS="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}"
+checked=0
+if [ -d "$PW_BROWSERS" ]; then
+  check_browser_fontconfig() { # <binary> <headless flag> — must load the pin without complaint
+    local bin="$1" headless_flag="$2" profile err out rc complaint
+    profile=$(mktemp -d)
+    err=$(mktemp)
+    out=$(env FONTCONFIG_FILE="$AA_PIN" timeout 60 "$bin" "$headless_flag" --no-sandbox --disable-gpu \
+      --user-data-dir="$profile" --dump-dom 'data:text/html,<p>fontconfig pin probe</p>' \
+      2>"$err") && rc=0 || rc=$?
+    complaint=$( { grep -iE 'Fontconfig (error|warning)' "$err" || true; } | head -2 | tr '\n' ' ')
+    rm -rf "$profile" "$err"
+    if [ -n "$complaint" ]; then
+      fail "$(basename "$bin") refused the capture AA pin (rc=$rc): $complaint"
+    fi
+    [ -n "$out" ] || fail "$(basename "$bin") produced no DOM with the pin (rc=$rc)"
+    echo "install-capture-fonts: $(basename "$bin") loads the capture AA pin without a Fontconfig complaint"
+  }
+  while IFS= read -r bin; do
+    [ -n "$bin" ] || continue
+    case "$bin" in
+      */headless_shell) check_browser_fontconfig "$bin" --headless ;;
+      */chrome) check_browser_fontconfig "$bin" --headless=new ;;
+    esac
+    checked=$((checked + 1))
+  done < <(find "$PW_BROWSERS" -maxdepth 3 \( -name headless_shell -o -name chrome \) -type f 2>/dev/null)
+fi
+[ "$checked" -gt 0 ] ||
+  echo "install-capture-fonts: note — no playwright chromium binaries under $PW_BROWSERS yet; the pin is proved for the system fontconfig only"
+
 echo "install-capture-fonts: ok — $FACE_COUNT faces resolve from $TARGET"

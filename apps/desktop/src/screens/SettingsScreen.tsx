@@ -310,7 +310,18 @@ function PreferenceRow({
           {hint}
         </span>
       </span>
-      <span style={{ flex: 'none' }}>{control}</span>
+      {/*
+       * The control may shrink to the plate; the plate may never grow to the control.
+       *
+       * B4 §7 #6 found this box written as `flex: 'none'`, which sizes it to its content's one-line
+       * width and refuses every shrink. In Arabic the eco row's one line — the switch's own words plus
+       * the mono battery/network reading — measures ~404px, wider than the 390px phone plate, so the
+       * whole settings panel sat 14px outside the viewport with its focus ring cut at the screen edge
+       * (`.bench { overflow: hidden }` hid the evidence from the overflow gate, not from the owner).
+       * The controls here already know how to give way — `Segmented` and `EcoModeToggle` both wrap — and
+       * this was the one constraint that never let them. Same rule B4 applied to `FIELD` and the rails.
+       */}
+      <span style={{ flex: '0 1 auto', minInlineSize: 0 }}>{control}</span>
     </div>
   );
 }

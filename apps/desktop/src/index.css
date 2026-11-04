@@ -194,8 +194,14 @@ html {
   min-inline-size: 0;
   /* §10's sideways gate, without the accident: `overflow-x: hidden` computes `overflow-y` to `auto`, so
      the screen became a block-axis scroll container and a focused control scrolled *inside the plate*
-     while the document slid the whole plate under the sticky top bar. `clip` keeps the other axis
-     visible, so `:focus-visible`'s scroll-margin does its job against the bar that actually covers it. */
+     while the document slid the whole plate under the sticky top bar.
+
+     What `clip` does NOT do here is make the axis unscrollable: beside `overflow-y: auto` it computes to
+     `hidden` (css-overflow §3.4), so the screen area keeps a sideways scroll range with no scrollbar to
+     show for it — and B4 §7 #6 proved what that costs. The Arabic settings plate overflowed it by 14px,
+     the RTL scroll origin slid the whole panel right, and the tab panel's focus ring was drawn outside
+     the viewport while every overflow gate read the screen as clean. The rule this file can actually
+     keep is the one the screens must obey: nothing inside `#bench-main` is wider than the plate. */
   overflow-x: clip;
 }
 
@@ -272,6 +278,10 @@ html {
 /* The strip is a row of controls, not a flexible region: see the note on `.bench-main` above. */
 .bench-settings-tabs {
   flex: none;
+  /* Keep the RTL tablist's scrollport bound to the settings plate. Without an explicit cross-axis
+     maximum, Arabic min-content sizing can grow the flex item past the 390px phone viewport. */
+  inline-size: 100%;
+  max-inline-size: 100%;
 }
 
 /* ------------------------------------------------------------------ the gate bell's queue (§4, §9) */

@@ -46,6 +46,18 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 /** The stages that stop for the owner: a project resting here has a lamp, not a chip alone (§1). */
 const GATE_STAGES: readonly Stage[] = ['gate_a', 'gate_b', 'gate_c', 'gate_d'];
 
+/**
+ * Whether `budget.show` named a ceiling for this project.
+ *
+ * `@warsha/client` folds the daemon's `null` ceiling cents into the `0` that `BudgetStatus` declares, so
+ * `0` is the only no-ceiling signal a row gets — and it cannot tell "never set" from "set to zero". The
+ * board used to answer a zero by printing nothing; now it prints the word, since silence on a money row
+ * reads as "not tracked" rather than as "no ceiling reported" (§7).
+ */
+function hasCeiling(totalUsd: number): boolean {
+  return totalUsd > 0;
+}
+
 /** One project as the bench reads it: the project, its newest run, and what that run costs so far. */
 interface ProjectRow {
   project: ProjectSummary;
@@ -239,7 +251,9 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
     setCreating(true);
     setCreateError(null);
     try {
-      const project = await client.createProject(name.trim());
+      // `description` is the idea the owner typed in this same dialog — the daemon requires
+      // name + description + language — and `language` is the active locale, never a literal.
+      const project = await client.createProject(name.trim(), idea.trim(), locale);
       const run = await client.startRun(project.id, idea.trim());
       setRows((previous) => [{ project, latest: run, runCount: 1, budget: null }, ...previous]);
       setCreated(project.name);
@@ -300,7 +314,11 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
             dir={dir}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--warsha-space-2)', flex: 'none' }}
           >
-            {budget && budget.totalBudgetUsd > 0 ? (
+            {budget === null ? null : !hasCeiling(budget.totalBudgetUsd) ? (
+              <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
+                {label('bench.no_ceiling')}
+              </Text>
+            ) : (
               <Meter
                 value={Number(budget.spentUsd.toFixed(2))}
                 max={budget.totalBudgetUsd}
@@ -309,7 +327,7 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
               >
                 {`$${budget.spentUsd.toFixed(2)} / $${budget.totalBudgetUsd.toFixed(2)}`}
               </Meter>
-            ) : null}
+            )}
             <Machine title={label('projects.updated')}>{formatDate(project.updatedAt)}</Machine>
           </Box>
         }

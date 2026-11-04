@@ -2,9 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -13,7 +14,9 @@ env:
 
 jobs:
   # ============================================================
-  # Rust: fmt, clippy, test, cargo-deny, gitleaks
+  # Rust: fmt, clippy, test, cargo-deny
+  # (the secret scan is its own job, `secret-scan`, below — it needs full git
+  # history and one pinned binary, not three OS legs running the same scan)
   # ============================================================
   rust:
     name: Rust (${{ matrix.os }})
@@ -54,7 +57,7 @@ jobs:
         run: cargo fmt --all --check
 
       - name: Run clippy
-        run: cargo clippy -D warnings --workspace --all-targets
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Run tests
         run: cargo test --workspace --all-targets
@@ -64,10 +67,71 @@ jobs:
         with:
           command: check
 
-      - name: Run gitleaks
-        uses: gitleaks/gitleaks-action@v2
+  # ============================================================
+  # Secret scan: gitleaks, pinned binary, the repo's own config, hard-fail
+  # ============================================================
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # fetch-depth: 0 is part of the gate, not a nicety: gitleaks' default scan
+      # walks commit history (`30 commits scanned` locally), so a shallow checkout
+      # would quietly shrink the scanned set to the tip while still printing
+      # "no leaks found" and exiting 0.
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
         with:
-          config: .gitleaks.toml
+          fetch-depth: 0
+
+      # Pinned binary, not gitleaks/gitleaks-action@v2. The action requires a
+      # GITLEAKS_LICENSE env var for org repositories and this org has not set that
+      # secret, so the action step fails on the runner before any scan runs. The
+      # documented alternative stays available to the owner: once GITLEAKS_LICENSE is
+      # set, `uses: gitleaks/gitleaks-action@v2` with `config: .gitleaks.toml` can
+      # replace the two steps below. Nothing here weakens the scan — same version,
+      # same config, same history, and it still exits non-zero on a finding.
+      #
+      # 8.30.1 is the exact version .gitleaks.toml was repaired and re-validated
+      # against. The sha256 below is the linux_x64 asset of the v8.30.1 release,
+      # taken from the release's own gitleaks_8.30.1_checksums.txt; the download fails
+      # the step if the asset does not match it, so the pin is not just a tag name.
+      - name: Install gitleaks 8.30.1 (pinned, checksum-verified)
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          set -euo pipefail
+          curl -sSfL --retry 3 -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tar.gz" | sha256sum --check --status
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          test "$(/tmp/gitleaks version)" = "${GITLEAKS_VERSION}"
+
+      # The config is named explicitly AND asserted first, because the default ruleset
+      # is not equivalent: measured on 8.30.1, a planted `sk-` + 48-alphanumeric key in
+      # a scratch dir exits 1 (leak) with --config .gitleaks.toml and exits 0 ("no leaks
+      # found") with no config at all — the repo's warsha-* rule ids exist precisely to
+      # escape [extend] useDefault shadowing, alongside the RE2-anchored allowlist paths
+      # and generic-secret's secretGroup=2. `--config` with a path that does not exist
+      # is fatal rather than ignored (measured: FTL "unable to load gitleaks config",
+      # exit 1), and a malformed rule fails at config load, so no config trouble can
+      # quietly downgrade this scan to defaults. `test -s` makes a moved or emptied
+      # .gitleaks.toml fail before the scanner even starts.
+      #
+      # Nothing here can pass by doing nothing: `--exit-code 1` is stated explicitly,
+      # `set -euo pipefail` aborts on any non-zero, there is no continue-on-error, and a
+      # finding fails this job — which the summary job requires.
+      - name: Scan for secrets (fails on any finding)
+        run: |
+          set -euo pipefail
+          test -s .gitleaks.toml
+          /tmp/gitleaks detect \
+            --source . \
+            --config .gitleaks.toml \
+            --no-banner \
+            --redact \
+            --exit-code 1
 
   # ============================================================
   # TypeScript: lint, typecheck, test, build
@@ -104,6 +168,19 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # apps/desktop/e2e/harness.ts — the 1609-line stub daemon every desktop visual, layout and a11y
+      # case drives, and the RPC_METHODS table the wire-contract step below reads — sits outside
+      # apps/desktop/tsconfig.json's `include`, so the typecheck above never opened it. It goes through
+      # its own tsconfig.e2e.json rather than a widened `include`, because tsconfig.json is the app BUILD
+      # config (`build: tsc && vite build`) and e2e/ in it would typecheck the Playwright specs on every
+      # release build and pull @playwright/test and axe-core types into the app's program. desktop's
+      # `typecheck` script runs both configs, so `pnpm typecheck` covers it too; this step names it here
+      # because #51 is exactly a verification no CI job ran. It cannot pass vacuously: harness.ts is in
+      # that config's `files`, so a moved or renamed harness is TS6053 rather than an empty program.
+      # Covers the e2e type half only — desktop's `lint` is still `eslint src`.
+      - name: Typecheck the e2e harness
+        run: pnpm --dir apps/desktop exec tsc --noEmit -p tsconfig.e2e.json
+
       # docs/ARCH_RULES.md, enforced by scripts/check-arch.mjs. Runs before Test because a
       # boundary breach should fail fast, and runs its own fixture self-test first so a silently
       # broken rule can never report a clean tree.
@@ -112,13 +189,44 @@ jobs:
           node scripts/check-arch.mjs --self-test
           node scripts/check-arch.mjs
 
+      # ENGINEERING_POLICY.md, enforced by scripts/check-engineering-policy.mjs (AGENTS.md mandates this
+      # validator for every policy/process change and calls it `pnpm policy`): the policy doc's own
+      # lifecycle sections and phase headings, the operating terms (worktree isolation, machine-readable
+      # gates, bounded repair, the run/v1 state schema), its provenance statement, AGENTS.md's reference
+      # to the doc and to this command, and the scripts.policy entry. Self-test first, the same contract
+      # as the two steps around it: these checks are substring matches over two markdown files, so a
+      # validator that silently matched nothing would otherwise certify the policy as intact.
+      - name: Engineering policy
+        run: |
+          node scripts/check-engineering-policy.mjs --self-test
+          node scripts/check-engineering-policy.mjs
+
+      # docs/ARCH_RULES.md R7, enforced by scripts/check-wire-contract.mjs: the daemon's registered
+      # methods, auth.rs's policy table, the names @warsha/client can put on the wire and the
+      # e2e harness stub table must be one contract, not four. This exists because 836 visual
+      # cases passed while nine stubbed RPC names answered -32601 on a real daemon and the app
+      # could not create its first project (DECISIONS.md 2026-11-03, #25/#40). Self-test first,
+      # same contract as the step above: a parser that silently matches nothing must never be
+      # able to report this tree clean. The #25/#40 drift is CLOSED, not deferred: the script ships
+      # REQUIRE_NO_KNOWN_DRIFT = true with both deferral sets (KNOWN_UNREGISTERED_METHODS,
+      # KNOWN_PARAM_DRIFT_METHODS) empty, so that flag escalates instead of suppressing — every client
+      # name, every harness stub and every params object is checked strictly today, and a known-drift
+      # shape replanted would fail this step. The two sets remain only as the documented one-edit escape
+      # hatch, and `--report-only-known` prints nothing while they are empty.
+      - name: Wire contract
+        run: |
+          node scripts/check-wire-contract.mjs --self-test
+          node scripts/check-wire-contract.mjs
+
       - name: Test
         run: pnpm -r test
 
       # The visual suite starts both dev servers itself (playwright.config.ts webServer), screenshots
-      # all 56 desktop cases plus the remote smoke check against the baselines committed beside them,
-      # and fails on any layout invariant or pixel diff. The browsers are the same Linux chromium the
-      # baselines were generated with, so the comparison is exact.
+      # all 512 desktop cases — the 308 in screens.visual.spec.ts (23 screens and wizard states × the
+      # widths §10 gives each of them × ar/en × light/dark) plus the 204 §7-state cases in states.spec.ts
+      # (17 states × 3 widths × ar/en × light/dark) — and the 84 remote PWA cases, each against the
+      # baseline committed beside it, and fails on any layout invariant or pixel diff. The browsers are
+      # the same Linux chromium the baselines were generated with, so the comparison is exact.
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
 
@@ -131,6 +239,11 @@ jobs:
       - name: Install capture fonts
         run: bash scripts/ci/install-capture-fonts.sh
 
+      # The AA mode is part of the same reproducibility contract as the faces: the baselines carry
+      # LCD-subpixel text, and playwright.config.ts launches chromium with FONTCONFIG_FILE pointed at
+      # scripts/ci/capture-fontconfig.conf, which pins antialias/rgba/hinting/hintstyle/lcdfilter after
+      # the host's own fontconfig chain. Without that pin this job would render grayscale AA and every
+      # light-theme case would fail on text AA alone (DECISIONS.md 2026-11-03, B4 gates lane need (a)).
       - name: Visual regression
         run: pnpm visual
 
@@ -186,8 +299,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # `uses: rhysd/actionlint@v1` was here and could never run: that repository
+      # publishes no action.yml, so there is no action metadata for the runner to
+      # resolve (verified: HTTP 404 for raw action.yml on both `main` and the `v1` ref).
+      # The job failed at setup, which the summary job correctly turned red — the fix is
+      # the documented container form, not an action reference. docs/usage.md, "Use
+      # actionlint on GitHub Actions", shows `uses: docker://rhysd/actionlint:<tag>`
+      # directly after actions/checkout, and its "Docker image" section documents
+      # versioned tags ("actionlint:1.7.12") — so the tag below is pinned to the exact
+      # version installed on this dev host. The image also ships shellcheck and pyflakes,
+      # which this host lacks, so the container lints the run: blocks too.
+      #
+      # Registry: Docker Hub, not ghcr.io. The docs never mention ghcr and an anonymous
+      # ghcr pull of rhysd/actionlint from this host answers DENIED (403) — unprovable.
+      # The Docker Hub tag is measured real: hub.docker.com/v2/repositories/rhysd/
+      # actionlint/tags/1.7.12 returns linux/amd64 + linux/arm64 manifests, and
+      # ubuntu-latest is amd64. Pinning a tag the pull cannot resolve would only install
+      # a second way for this job to be unable to run.
+      #
+      # A container step's non-zero exit fails the job; continue-on-error is stated as
+      # false explicitly rather than left to the default, because a lint job that cannot
+      # run must never read as a pass.
       - name: Run actionlint
-        uses: rhysd/actionlint@v1
+        continue-on-error: false
+        uses: docker://rhysd/actionlint:1.7.12
 
   # ============================================================
   # Summary
@@ -195,7 +330,7 @@ jobs:
   summary:
     name: Summary
     runs-on: ubuntu-latest
-    needs: [rust, typescript, codeql, actionlint]
+    needs: [rust, typescript, codeql, actionlint, secret-scan]
     if: always()
     steps:
       - name: Check all jobs passed
@@ -204,4 +339,5 @@ jobs:
           if [[ "${{ needs.typescript.result }}" != "success" ]]; then echo "TypeScript failed"; exit 1; fi
           if [[ "${{ needs.codeql.result }}" != "success" ]]; then echo "CodeQL failed"; exit 1; fi
           if [[ "${{ needs.actionlint.result }}" != "success" ]]; then echo "Actionlint failed"; exit 1; fi
+          if [[ "${{ needs.secret-scan.result }}" != "success" ]]; then echo "Secret scan failed"; exit 1; fi
           echo "All checks passed!"

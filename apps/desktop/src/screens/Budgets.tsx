@@ -58,6 +58,16 @@ function money(usd: number): string {
   return `$${usd.toFixed(2)}`;
 }
 
+/**
+ * Whether the daemon gave this project a ceiling. `budget.show`'s ceiling is an `Option` in cents and
+ * `@warsha/client` folds a `null` into the `0` that `BudgetStatus` declares, so `0` is the only
+ * no-ceiling signal a row gets — and it cannot separate "never set" from "set to zero". A zero row
+ * prints `bench.no_ceiling` rather than `$0.00`, which would read as "the cap is reached".
+ */
+function hasCeiling(capUsd: number): boolean {
+  return capUsd > 0;
+}
+
 export function Budgets({ client, onBack }: BudgetsProps) {
   const dir = useDirection();
   const locale = useLocale();
@@ -323,7 +333,29 @@ export function Budgets({ client, onBack }: BudgetsProps) {
                     )}
                   </Box>
 
-                  {budget ? (
+                  {budget === null ? (
+                    // No daemon answer, no invented meter: the row says what is missing (§7).
+                    <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
+                      {label('budgets.no_budgets')}
+                    </Text>
+                  ) : !hasCeiling(cap) ? (
+                    // The project answered and named no ceiling. The spend is a reading; the cap is not,
+                    // so the row keeps the money it knows and words the number it does not (§7).
+                    <Box
+                      dir={dir}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--warsha-space-4)', flexWrap: 'wrap' }}
+                    >
+                      <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
+                        {label('bench.no_ceiling')}
+                      </Text>
+                      <span style={{ fontSize: 'var(--warsha-font-size-xs)', color: 'var(--warsha-color-text)' }}>
+                        {label('budgets.spent')}{' '}
+                        <span dir="ltr" translate="no" style={{ fontFamily: 'var(--warsha-font-mono)', fontVariantNumeric: 'tabular-nums' }}>
+                          {money(spent)}
+                        </span>
+                      </span>
+                    </Box>
+                  ) : (
                     <>
                       <Meter
                         value={Number(spent.toFixed(2))}
@@ -343,16 +375,11 @@ export function Budgets({ client, onBack }: BudgetsProps) {
                         <span style={{ fontSize: 'var(--warsha-font-size-xs)', color: 'var(--warsha-color-text)' }}>
                           {label('budgets.spent')}{' '}
                           <span dir="ltr" translate="no" style={{ fontFamily: 'var(--warsha-font-mono)', fontVariantNumeric: 'tabular-nums' }}>
-                            {`${((cap > 0 ? spent / cap : 0) * 100).toFixed(1)}%`}
+                            {`${((spent / cap) * 100).toFixed(1)}%`}
                           </span>
                         </span>
                       </Box>
                     </>
-                  ) : (
-                    // No daemon answer, no invented meter: the row says what is missing (§7).
-                    <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
-                      {label('budgets.no_budgets')}
-                    </Text>
                   )}
                 </Box>
               </Ledger.Row>

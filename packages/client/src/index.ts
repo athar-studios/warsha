@@ -330,8 +330,14 @@ export function parseWarshaEvent(frame: string): WarshaEvent {
   if (typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) {
     throw new Error(`${EVENT_FRAME_ERROR}: expected a JSON object`);
   }
-  const source = decoded as Record<string, unknown>;
+  return decodeWarshaEvent(decoded as Record<string, unknown>);
+}
 
+/**
+ * The field-by-field half of the decode, shared by the `/events` frame reader and
+ * `runs.events` — the same `warsha_core::Event` arriving over two transports.
+ */
+function decodeWarshaEvent(source: Record<string, unknown>): WarshaEvent {
   const id = requiredString(field(source, 'id'), 'id');
   const runId = requiredString(field(source, 'run_id', 'runId'), 'run_id');
 
@@ -365,6 +371,68 @@ export function parseWarshaEvent(frame: string): WarshaEvent {
     createdAt,
     deviceId: deviceId === null ? null : (deviceId as DeviceId),
   };
+}
+
+/**
+ * The daemon's cents as the screens' dollars. `null` is "no ceiling recorded", which the
+ * `BudgetStatus` shape has always carried as `0` — and every screen already reads `0` as
+ * "no budget row", not as "spent everything".
+ */
+function centsToUsd(value: unknown, name: string): number {
+  if (value === null || value === undefined) return 0;
+  return wiringNumber(value, 'budget.show', name) / 100;
+}
+
+/**
+ * The payload keys that carry a line of their own, in the order a log should prefer them: a
+ * human-facing text first, then the daemon's own identifiers. `warsha_core::Event.payload` is
+ * a free-form `serde_json::Value`, so no single key is guaranteed (`{ idea }`, `{ from, to }`,
+ * `{ decision, by }`, `{ artifact, stage }`, `{ cost_cents }` …).
+ *
+ * `decision` is deliberately NOT one of them (#54). It is a verdict word — `approved`, `rejected`,
+ * `changes_requested` — never a sentence an owner reads, and a gate payload almost always carries
+ * `by` beside it. Taking it as the line printed `approved` and silently dropped who decided, which
+ * is the opposite of §7's rule that a decision records the device that made it (the gates inbox
+ * stamps exactly that, `apps/desktop/src/screens/GatesInbox.tsx:84-88`). Left out, the payload
+ * falls through to `eventLogLine`'s `key=value` pairs and the line is `decision=approved,
+ * by=dev-1`: the verdict with its actor, and no field of the payload lost. A key that is only ever
+ * worth reading *beside* its neighbours belongs to the pairs branch, not to the text list.
+ */
+const EVENT_TEXT_KEYS: readonly string[] = [
+  'summary',
+  'message',
+  'note',
+  'idea',
+  'reason',
+  'output',
+  'text',
+  'action',
+  'artifact',
+];
+
+/**
+ * One event as one log line — what `getRunLogs` renders.
+ *
+ * A line is the payload's text when it has one; otherwise its scalar fields as `key=value`
+ * pairs (the shape `RunView` already uses for the same rows); otherwise the event's kind, so
+ * a log line is never an empty string a screen has to guess the meaning of.
+ */
+function eventLogLine(value: unknown): string {
+  const event = decodeWarshaEvent(wiringObject(value, 'runs.events'));
+  const payload = event.payload;
+  if (typeof payload === 'string') return payload;
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    return event.kind;
+  }
+  const source = payload as Record<string, unknown>;
+  for (const key of EVENT_TEXT_KEYS) {
+    const text = source[key];
+    if (typeof text === 'string' && text.length > 0) return text;
+  }
+  const pairs = Object.entries(source)
+    .filter(([, item]) => typeof item !== 'object' && typeof item !== 'function')
+    .map(([key, item]) => `${key}=${String(item)}`);
+  return pairs.length > 0 ? pairs.join(', ') : event.kind;
 }
 
 /** Base URL the `/events` endpoint lives under, tolerating a trailing slash. */
@@ -434,16 +502,29 @@ export class WarshaClient implements WarshaWiringApi {
     return this.rpc('projects.list');
   }
 
-  async createProject(name: string): Promise<ProjectSummary> {
-    return this.rpc('projects.create', { name });
+  /**
+   * `projects.create` — all three fields are required by the daemon.
+   *
+   * Measured against a running `warshad` (DECISIONS.md 2026-11-03, #40 restated): `{ name }`
+   * alone answered `-32602 "missing field 'description'"`, and adding `description` then
+   * answered `-32602 "missing field 'language'"`. `crates/warshad/src/lib.rs:668-674` binds
+   * `name`, `description` and `language`, none of them an `Option`.
+   *
+   * `language` is a parameter rather than something this client guesses: the product is
+   * Arabic-first, and the locale belongs to the app that owns it (`@warsha/i18n`'s
+   * `useLocale()`), not to a wire client. Callers pass the active locale — the desktop's
+   * `ProjectsBoard.tsx` and `Onboarding.tsx` both already hold it.
+   */
+  async createProject(
+    name: string,
+    description: string,
+    language: string
+  ): Promise<ProjectSummary> {
+    return this.rpc('projects.create', { name, description, language });
   }
 
   async getProject(id: ProjectId): Promise<ProjectSummary> {
     return this.rpc('projects.get', { id });
-  }
-
-  async deleteProject(id: ProjectId): Promise<void> {
-    return this.rpc('projects.delete', { id });
   }
 
   // Runs
@@ -455,16 +536,48 @@ export class WarshaClient implements WarshaWiringApi {
     return this.rpc('runs.start', { projectId, idea });
   }
 
+  /**
+   * `runs.get` — the daemon's own argument name, not a shorter one for the same thing.
+   *
+   * Measured against a running `warshad` (#54): `{ id }` answered `-32602 "missing field
+   * 'run_id'"`, because `crates/warshad/src/lib.rs:683` binds `run_id` and jsonrpsee's generated
+   * decoder accepts only that name and its camelCase spelling `runId`. `id` is a *rename*, which
+   * matches neither, so serde skipped it and the required field was simply absent. The live caller
+   * is the remote bench's run read (`apps/remote/src/bench.tsx:529` → `getRunStatus` → here); the
+   * desktop's own run screen reads `runs.list` and `runs.events` and so never reached this name.
+   *
+   * Casing is not the problem and was not swept for it: `{"runId": …}` parses today.
+   */
   async getRun(id: RunId): Promise<RunSummary> {
-    return this.rpc('runs.get', { id });
+    return this.rpc('runs.get', { run_id: id });
   }
 
+  /**
+   * The run as the daemon holds it right now.
+   *
+   * `runs.status` was a second name for the one reading `runs.get` already answers
+   * (DECISIONS.md 2026-11-03: one wire name per meaning), so this delegates instead of
+   * putting an unregistered name on the wire. The method name stays, because the callers
+   * that ask for "the status" should not have to change what they say.
+   */
   async getRunStatus(id: RunId): Promise<RunSummary> {
-    return this.rpc('runs.status', { id });
+    return this.getRun(id);
   }
 
+  /**
+   * The run's log, as display lines.
+   *
+   * `runs.logs` was never a method `warshad` serves; the rows behind it are the run's events
+   * (`runs.events`, `crates/warshad/src/lib.rs:688`), so this reads those and formats them
+   * here rather than giving the same rows a second name. `eventLogLine` is the whole
+   * presentation: one line per event, taken from the payload's own text when it has any.
+   */
   async getRunLogs(id: RunId): Promise<string[]> {
-    return this.rpc('runs.logs', { id });
+    const events = await this.rpc<unknown[]>('runs.events', { run_id: id });
+    if (!Array.isArray(events)) {
+      throw new Error(`${WIRING_RESULT_ERROR} from runs.events: expected a list`);
+    }
+    return events.map(eventLogLine);
   }
 
   // Gates
@@ -479,10 +592,11 @@ export class WarshaClient implements WarshaWiringApi {
   // and nothing a screen types can change it. Their results are the daemon's `Run` in
   // snake_case, which these methods do not claim to read, so they are typed `void`.
   //
-  // `getGates` is a different matter and is left alone here: `gates.list` is not a method
-  // the daemon serves (the gate states ride on the `Run` a `runs.get` returns), so it
-  // refuses on the wire. Rewriting it to read a run would be a change to what this
-  // method's caller gets, and that belongs with the screen that calls it.
+  // `getGates` is the read of that same record: `gates.list` is registered by the daemon and
+  // served from the run's gate states (DECISIONS.md 2026-11-03, #25), in the flat
+  // `{ stage, state }` shape `GateSummary` declares. It is a `Session`-tier read — deliberately
+  // not the `Auth` tier the three writes above use, because a paired phone has to be able to
+  // read the queue it is being asked to decide.
   async getGates(runId: RunId): Promise<GateSummary[]> {
     return this.rpc('gates.list', { runId });
   }
@@ -538,24 +652,36 @@ export class WarshaClient implements WarshaWiringApi {
     await this.rpc<unknown>('providers.remove', { name });
   }
 
-  /**
-   * Not a method `warshad` serves: the daemon's ceiling is per project (`budget.set`)
-   * and per routing (`roles.set` carries `budget_cents_per_run`), and there is no
-   * per-provider budget. Kept on the surface for callers that already name it, so a
-   * screen gets a JSON-RPC "method not found" refusal it can show rather than a silent
-   * no-op — and so removing it is a decision made with the screen that calls it.
-   */
-  async setProviderBudget(name: string, budgetUsd: number): Promise<void> {
-    return this.rpc('providers.budget', { name, budgetUsd });
-  }
-
-  async getBudget(): Promise<BudgetStatus> {
-    return this.rpc('providers.budget.status');
-  }
+  // There is no `providers.budget` and no `providers.budget.status`: the daemon's ceiling is
+  // per project (`budget.set`) and per routing (`roles.set` carries `budget_cents_per_run`),
+  // and no per-provider budget exists (DECISIONS.md 2026-11-03). Both client methods were
+  // deleted rather than aliased, so no screen can present a number the daemon never kept.
 
   // Project Budgets
+  /**
+   * `budget.show`, converted from the daemon's cents to the USD the screens present.
+   *
+   * `warshad` owns money in cents (`crates/warshad/src/lib.rs:1045-1050`: `budget_cents` and
+   * `remaining_cents` are `Option`s) and `BudgetStatus` has always declared dollars, so the
+   * unit change happens here, at the client edge, and nowhere else — a second daemon read in
+   * USD would fork one fact into two units.
+   *
+   * A `null` ceiling reads as `0`, which is what every screen already treats as "no budget
+   * row" (`ProjectsBoard.tsx` hides its bar at `totalBudgetUsd > 0`); it is not a claim that
+   * the run spent nothing. `spent_cents` is never `null` on the wire, so a non-number there is
+   * a malformed answer and named as one.
+   */
   async getProjectBudget(projectId: ProjectId): Promise<BudgetStatus> {
-    return this.rpc('budget.get', { projectId });
+    const wire = await this.rpc<unknown>('budget.show', { projectId });
+    if (typeof wire !== 'object' || wire === null || Array.isArray(wire)) {
+      throw new Error(`${WIRING_RESULT_ERROR} from budget.show: expected an object`);
+    }
+    const source = wire as Record<string, unknown>;
+    return {
+      totalBudgetUsd: centsToUsd(source['budget_cents'], 'budget_cents'),
+      spentUsd: centsToUsd(source['spent_cents'], 'spent_cents'),
+      remainingUsd: centsToUsd(source['remaining_cents'], 'remaining_cents'),
+    };
   }
 
   async setProjectBudget(projectId: ProjectId, cents: number): Promise<void> {
@@ -608,14 +734,10 @@ export class WarshaClient implements WarshaWiringApi {
     });
   }
 
-  /**
-   * Not a method `warshad` serves: a role is a pipeline concern and a device's role is
-   * decided by the credential it presents (audit H-04), not by an assignment call. Kept
-   * on the surface so a caller gets a visible refusal rather than a silent no-op.
-   */
-  async assignRole(deviceId: DeviceId, role: Role): Promise<void> {
-    return this.rpc('roles.assign', { deviceId, role });
-  }
+  // There is no `roles.assign`: a role is a pipeline concern and a device's role is decided by
+  // the credential it presents (audit H-04), not by an assignment call. `roles.set` above is
+  // routing config — which provider answers a role — and aliasing the two would re-open an
+  // authority bug, so the method was deleted rather than renamed (DECISIONS.md 2026-11-03).
 
   // Agent (PLAN.md M18, C2).
   //
@@ -645,12 +767,37 @@ export class WarshaClient implements WarshaWiringApi {
     return this.rpc('devices.list');
   }
 
+  /**
+   * `devices.pair` — the parameter is the daemon's `pairing_data`, not a name this client chose.
+   *
+   * Measured against a running `warshad` (#54): `{ qrData }` answered `-32602 "missing field
+   * 'pairing_data'"`. `crates/warshad/src/lib.rs:781` binds `pairing_data`, and the decoder accepts
+   * that spelling or its camelCase form `pairingData`; `qrData` is a rename and matched neither, so
+   * remote pairing could not reach the daemon at all.
+   *
+   * What this rename does not claim to fix: the daemon deserialises `warsha_remote::PairingData`
+   * (`crates/warshad/src/lib.rs:781`, the struct at `crates/warsha-remote/src/lib.rs:112-118` —
+   * `device_id`, `static_public`, `relay_url`, `pairing_secret`, `expires_at`), so the QR text this
+   * method takes is the right *key* with the wrong *shape*: after the key it parses to an -32602
+   * `invalid type: string …, expected struct PairingData` rather than to a paired device. Settling
+   * that is a product decision about what the QR payload carries — not a key rename — and no screen
+   * calls this method yet (`apps/desktop/src/screens/Devices.tsx:169` still holds the TODO that
+   * waits on the daemon's pairing code). The return type carries the same drift: the daemon answers
+   * `()`, so `DeviceSummary` below is never filled by a live daemon. The e2e stub refuses both of
+   * these the way the daemon does — see `missing field 'pairing_data'` and the `invalid type` branch
+   * in `apps/desktop/e2e/harness.ts`'s `devices.pair` case.
+   */
   async pairDevice(qrData: string): Promise<DeviceSummary> {
-    return this.rpc('devices.pair', { qrData });
+    return this.rpc('devices.pair', { pairing_data: qrData });
   }
 
+  /**
+   * `devices.revoke` — the daemon's name for un-pairing a device; the params are the same one
+   * `device_id` it always took. The TS method stays `removeDevice` so `Devices.tsx` and its
+   * tests read the same call they always did (DECISIONS.md 2026-11-03).
+   */
   async removeDevice(deviceId: DeviceId): Promise<void> {
-    return this.rpc('devices.remove', { deviceId });
+    await this.rpc<unknown>('devices.revoke', { deviceId });
   }
 
   // Health

@@ -18,6 +18,7 @@ import {
   event,
   fakeStream,
   gate,
+  refuseGates,
   renderRemote,
   settle,
   stubApi,
@@ -39,7 +40,9 @@ describe('where the queue comes from', () => {
   });
 
   it('falls back to the run stage, and says that is what it did', async () => {
-    renderRemote({ session: SESSION });
+    // The refusal is the case, not the default: `gates.list` is served now, so a phone meets this
+    // reading only against an older daemon. `refuseGates()` says which daemon the case is claiming.
+    renderRemote({ session: SESSION, api: stubApi({ getGates: refuseGates() }) });
     await settle();
 
     expect(screen.getByText('قراءة من مرحلة التشغيل')).toBeInTheDocument();

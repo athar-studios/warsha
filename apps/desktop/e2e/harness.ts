@@ -103,11 +103,11 @@ export const RPC_METHODS = [
   'agent.state',
   'agent.turn',
   'backend.export',
-  'budget.get',
   'budget.set',
+  'budget.show',
   'devices.list',
   'devices.pair',
-  'devices.remove',
+  'devices.revoke',
   'gates.approve',
   'gates.changes',
   'gates.list',
@@ -118,23 +118,18 @@ export const RPC_METHODS = [
   'postlaunch.crashes',
   'postlaunch.reviews',
   'projects.create',
-  'projects.delete',
   'projects.get',
   'projects.list',
   'providers.add',
-  'providers.budget',
-  'providers.budget.status',
   'providers.list',
   'providers.remove',
   'providers.test',
-  'roles.assign',
   'roles.list',
   'roles.set',
+  'runs.events',
   'runs.get',
   'runs.list',
-  'runs.logs',
   'runs.start',
-  'runs.status',
 ] as const;
 export type RpcMethod = (typeof RPC_METHODS)[number];
 
@@ -275,7 +270,7 @@ const TALL: readonly Viewport[] = viewportsNamed(['320x568', '390x844', '768x102
 const STARTUP = ['projects.list', 'runs.list'] as const;
 
 /** A screen that renders one run: the shell read its gates and its budget before it mounted. */
-const RUN_RPC = ['projects.list', 'runs.list', 'gates.list', 'budget.get'] as const;
+const RUN_RPC = ['projects.list', 'runs.list', 'gates.list', 'budget.show'] as const;
 
 /**
  * Every screen and wizard state the checks cover, with the widths §10 says it changes at and the calls
@@ -296,13 +291,13 @@ export const SCREENS: readonly ScreenCase[] = [
   {
     id: 'simple',
     root: '.simple-mode',
-    rpc: [...STARTUP, 'budget.get', 'gates.list'],
+    rpc: [...STARTUP, 'budget.show', 'gates.list'],
     viewports: BENCH,
   },
   {
     id: 'advanced',
     root: '.bench-advanced',
-    rpc: [...STARTUP, 'budget.get', 'agent.state', 'runs.logs'],
+    rpc: [...STARTUP, 'budget.show', 'agent.state', 'runs.events'],
     config: { app_mode: 'advanced' },
     viewports: BENCH,
   },
@@ -310,7 +305,7 @@ export const SCREENS: readonly ScreenCase[] = [
   {
     id: 'projects',
     root: '.projects-board',
-    rpc: [...STARTUP, 'budget.get'],
+    rpc: [...STARTUP, 'budget.show'],
     viewports: TALL,
   },
   { id: 'run', root: '.run-view', rpc: RUN_RPC, viewports: TALL },
@@ -325,7 +320,7 @@ export const SCREENS: readonly ScreenCase[] = [
     rpc: ['projects.list', 'providers.list', 'roles.list'],
     viewports: CORE,
   },
-  { id: 'budgets', root: '.budgets', rpc: ['projects.list', 'budget.get'], viewports: CORE },
+  { id: 'budgets', root: '.budgets', rpc: ['projects.list', 'budget.show'], viewports: CORE },
   { id: 'devices', root: '.devices', rpc: ['projects.list', 'devices.list'], viewports: CORE },
   {
     id: 'settings-providers',
@@ -594,8 +589,10 @@ const DEVICES = [
   },
 ];
 
-/** The reading `budget.get` answers with, in the shape `BudgetStatus` declares. */
-const BUDGET = { totalBudgetUsd: 12, spentUsd: 4.37, remainingUsd: 7.63 };
+/** The reading `budget.show` answers with, in the daemon's own cents (`BudgetStatus` is USD).
+ *  `client.getProjectBudget` divides by 100 at the edge, so the screens render 12 / 4.37 / 7.63
+ *  exactly as they did when the stub answered dollars directly. */
+const BUDGET = { project_id: 'proj-ui', budget_cents: 1200, spent_cents: 437, remaining_cents: 763 };
 
 /**
  * The run's log lines — the terminal dock's and the run view's content.
@@ -705,6 +702,27 @@ const EVENT_FIXTURES: readonly EventFixture[] = [
 /** The frames the mocked socket pushes, in the order the daemon would have sent them. */
 const EVENT_FRAMES: readonly string[] = EVENT_FIXTURES.map((frame) => JSON.stringify(frame));
 
+/**
+ * The run's log as the daemon keeps it: `runs.events` rows, in the same wire shape.
+ *
+ * `runs.logs` was never a method `warshad` serves (DECISIONS.md 2026-11-03), so the client reads
+ * these events and formats one line per event itself. Each row carries its line in `payload.summary`
+ * — the key `eventLogLine` prefers — which is what keeps the terminal dock's and the run view's text
+ * byte-identical to the pre-rename baselines: the fixture moved from lines to events, the pixels did
+ * not.
+ */
+const RUN_EVENTS: readonly EventFixture[] = RUN_LOGS.map((line, index) => ({
+  id: `evt-log-${index + 1}`,
+  run_id: 'run-code',
+  stage: 'code',
+  role: 'coder',
+  kind: 'agent_step',
+  payload: { summary: line },
+  cost_cents: null,
+  created_at: `2026-10-05T07:0${index}:00.000Z`,
+  device_id: 'dev-laptop',
+}));
+
 /** What the stubs observed, so a test can assert the app really talked to them. */
 export interface StubReport {
   /** JSON-RPC methods the app called, in order. */
@@ -811,13 +829,62 @@ export function createStubReport(): StubReport {
   return { rpcMethods: [], unauthorized: 0, unimplemented: [], configWrites: [], eventsSent: 0 };
 }
 
+/**
+ * The spellings jsonrpsee's generated named-params decoder accepts for one Rust argument.
+ *
+ * Measured against a running `warshad`: `list_gates(&self, run_id, …)` took both `{"run_id": …}`
+ * and `{"runId": …}`, and serde ignores an unknown key rather than reporting it — the retraction
+ * recorded at DECISIONS.md 2026-11-03 (#40 withdrawn), which is why key *casing* is not what #54
+ * fixed. So `field` is written as the daemon writes it — snake_case — and its camelCase spelling is
+ * accepted beside it, which is the whole accepted set and nothing wider. A key that is neither is a
+ * *rename*, and a rename is what the stub must refuse.
+ */
+function paramSpellings(field: string): readonly string[] {
+  if (!field.includes('_')) return [field];
+  const camel = field
+    .split('_')
+    .map((part, index) => (index === 0 ? part : part.charAt(0).toUpperCase() + part.slice(1)))
+    .join('');
+  return [field, camel];
+}
+
+/** Whether the request carries this argument at all, and under which raw value. */
+function paramEntry(params: unknown, field: string): { found: boolean; value: unknown } {
+  if (typeof params !== 'object' || params === null || Array.isArray(params)) {
+    return { found: false, value: undefined };
+  }
+  const source = params as Record<string, unknown>;
+  for (const spelling of paramSpellings(field)) {
+    if (spelling in source) return { found: true, value: source[spelling] };
+  }
+  return { found: false, value: undefined };
+}
+
 /** One argument of the RPC request as text, when the case sent one. */
-function paramValue(params: unknown, name: string): string | null {
-  if (typeof params !== 'object' || params === null || !(name in params)) return null;
-  const value = (params as Record<string, unknown>)[name];
+function paramValue(params: unknown, field: string): string | null {
+  const entry = paramEntry(params, field);
+  if (!entry.found) return null;
+  const value = entry.value;
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   return null;
+}
+
+/** The daemon's own refusal for a params object that does not bind this argument (serde, -32602). */
+function missingField(field: string): StubOutcome {
+  return { ok: false, code: -32602, message: `missing field '${field}'` };
+}
+
+/** serde's rendering of a value it did not expect, for the daemon's `invalid type` refusal. */
+function serdeUnexpected(value: unknown): string {
+  if (value === null) return 'null';
+  if (typeof value === 'string') return `string ${JSON.stringify(value)}`;
+  if (typeof value === 'boolean') return `boolean ${String(value)}`;
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? `integer ${value}` : `floating point ${value}`;
+  }
+  if (Array.isArray(value)) return 'sequence';
+  return 'map';
 }
 
 /** What the stub answers for one call: a result, or an error the screen is meant to show. */
@@ -841,34 +908,49 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
     case 'projects.list':
       return { ok: true, result: PROJECTS };
     case 'runs.list': {
-      const projectId = paramValue(params, 'projectId');
+      const projectId = paramValue(params, 'project_id');
       return {
         ok: true,
         result: projectId === null ? RUNS : RUNS.filter((run) => run.projectId === projectId),
       };
     }
-    case 'runs.get':
-    case 'runs.status': {
-      const id = paramValue(params, 'id');
+    case 'runs.get': {
+      // `warshad` binds `run_id` (`crates/warshad/src/lib.rs:683`). A request keyed any other way —
+      // the client's old `{ id }` was one — is not a run read the daemon can serve, so the stub
+      // refuses it with the daemon's own `-32602` instead of falling back to `RUNS[0]` and letting a
+      // screen photograph a run no live daemon ever handed over (#54).
+      if (!paramEntry(params, 'run_id').found) return missingField('run_id');
+      const id = paramValue(params, 'run_id');
       return { ok: true, result: RUNS.find((run) => run.id === id) ?? RUNS[0] };
     }
-    case 'runs.logs':
-      return { ok: true, result: RUN_LOGS };
+    // The client reads the run's events and formats its own log lines (`runs.logs` was never a
+    // daemon method), so the stub answers the rows and not the text.
+    case 'runs.events':
+      return { ok: true, result: RUN_EVENTS };
     case 'runs.start':
       return { ok: true, result: RUNS[0] };
     case 'projects.get': {
+      // `get_project(&self, id)` really is named `id` (`crates/warshad/src/lib.rs:677`), so this one
+      // is the checked-and-correct case; it still refuses a request that never carried it rather
+      // than answering with a project the caller did not ask for.
+      if (!paramEntry(params, 'id').found) return missingField('id');
       const id = paramValue(params, 'id');
       return { ok: true, result: PROJECTS.find((project) => project.id === id) ?? PROJECTS[0] };
     }
     case 'projects.create': {
+      // The daemon requires all three fields and refuses with -32602 naming the first missing one
+      // (measured live, DECISIONS.md 2026-11-03); a stub that answered a one-field create would let
+      // the first-run flow pass while no real daemon could ever take it.
+      const missing = ['name', 'description', 'language'].find((key) => paramValue(params, key) === null);
+      if (missing !== undefined) {
+        return { ok: false, code: -32602, message: `missing field '${missing}'` };
+      }
       const name = paramValue(params, 'name') ?? '';
       return {
         ok: true,
         result: { id: 'proj-created', name, createdAt: CREATED_AT, updatedAt: CREATED_AT },
       };
     }
-    case 'projects.delete':
-      return { ok: true, result: null };
     case 'gates.list':
       return { ok: true, result: GATES };
     case 'gates.approve':
@@ -896,24 +978,43 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
       return { ok: true, result: null };
     }
     case 'providers.remove':
-    case 'providers.budget':
     case 'budget.set':
     case 'roles.set':
-    case 'roles.assign':
-    case 'devices.remove':
+    case 'devices.revoke':
       return { ok: true, result: null };
-    case 'providers.budget.status':
-    case 'budget.get':
+    case 'budget.show':
       return { ok: true, result: BUDGET };
     case 'roles.list':
       return { ok: true, result: ROLE_ROUTINGS };
     case 'devices.list':
       return { ok: true, result: DEVICES };
-    case 'devices.pair':
+    case 'devices.pair': {
+      // `pair_device(&self, pairing_data)` (`crates/warshad/src/lib.rs:781`): the client's old
+      // `{ qrData }` was a rename and a live daemon answered `-32602 "missing field
+      // 'pairing_data'"` (#54), so that is what the stub answers now.
+      const pairing = paramEntry(params, 'pairing_data');
+      if (!pairing.found) return missingField('pairing_data');
+      // And the daemon deserialises the whole `PairingData` object, not a QR string
+      // (`crates/warsha-remote/src/lib.rs:112-118`). The shipped client still sends a string — #54
+      // renamed the key, and what the QR payload carries is a product decision, not a casing
+      // question — so the stub refuses in serde's shape rather than completing a pairing no real
+      // daemon would finish. A pairing screen that parses the QR into this object gets an answer.
+      if (
+        typeof pairing.value !== 'object' ||
+        pairing.value === null ||
+        Array.isArray(pairing.value)
+      ) {
+        return {
+          ok: false,
+          code: -32602,
+          message: `invalid type: ${serdeUnexpected(pairing.value)}, expected struct PairingData`,
+        };
+      }
       return {
         ok: true,
         result: { id: 'dev-new', name: 'جهاز جديد', pairedAt: CREATED_AT, lastSeen: CREATED_AT },
       };
+    }
     case 'health':
       return { ok: true, result: { status: 'ok', version: '0.2.0' } };
     case 'agent.state':
@@ -1320,7 +1421,7 @@ export const SCENARIOS: readonly Scenario[] = [
       'projects.list': { delayMs: 30_000 },
       'runs.list': { delayMs: 30_000 },
       'gates.list': { delayMs: 30_000 },
-      'budget.get': { delayMs: 30_000 },
+      'budget.show': { delayMs: 30_000 },
       'providers.list': { delayMs: 30_000 },
       'roles.list': { delayMs: 30_000 },
       'devices.list': { delayMs: 30_000 },
@@ -1342,7 +1443,7 @@ export const SCENARIOS: readonly Scenario[] = [
       'roles.list': { delayMs: 30_000 },
       'devices.list': { delayMs: 30_000 },
       'providers.list': { delayMs: 30_000 },
-      'budget.get': { delayMs: 30_000 },
+      'budget.show': { delayMs: 30_000 },
     },
     settle: 'pending',
   },
@@ -1352,7 +1453,7 @@ export const SCENARIOS: readonly Scenario[] = [
     fixtures: {
       'runs.list': { error: 'project proj-ui has no runs yet' },
       'gates.list': { error: 'run run-code is not accepting gate decisions' },
-      'budget.get': { error: 'budget for proj-ui is not recorded' },
+      'budget.show': { error: 'budget for proj-ui is not recorded' },
       'roles.list': { error: 'routing table is locked while a run is writing' },
       'devices.list': { error: 'device registry refused: pairing token expired' },
       'providers.list': { error: 'provider registry read failed: database is locked' },
@@ -1368,7 +1469,7 @@ export const SCENARIOS: readonly Scenario[] = [
       'projects.list': { unreachable: true },
       'runs.list': { unreachable: true },
       'gates.list': { unreachable: true },
-      'budget.get': { unreachable: true },
+      'budget.show': { unreachable: true },
       'providers.list': { unreachable: true },
       'roles.list': { unreachable: true },
       'devices.list': { unreachable: true },
@@ -1416,7 +1517,9 @@ export const SCENARIOS: readonly Scenario[] = [
           },
         ],
       },
-      'budget.get': { result: { totalBudgetUsd: 12, spentUsd: 2.1, remainingUsd: 9.9 } },
+      'budget.show': {
+        result: { project_id: 'proj-ui', budget_cents: 1200, spent_cents: 210, remaining_cents: 990 },
+      },
     },
     settle: 'settled',
   },

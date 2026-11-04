@@ -35,7 +35,7 @@ import { Link } from 'react-router-dom';
 
 import { useRemote } from '../bench';
 import { Machine, ScreenTitle } from '../chrome';
-import { clock, clockWithMs, money, percent, shortId } from '../format';
+import { clock, clockWithMs, hasCeiling, money, percent, shortId } from '../format';
 import { eventWord, isErrorEvent, isGateEvent, roleWord, runLampState, runStatusWord, stageWord } from '../labels';
 import { UnpairedScreen } from '../pairing';
 import { stageRows } from '../pipeline';
@@ -256,6 +256,10 @@ export function RunScreen() {
                 meta={
                   budget === null ? (
                     <Machine>{t('bench.not_reported', {}, locale)}</Machine>
+                  ) : !hasCeiling(budget.totalBudgetUsd) ? (
+                    // The client folds `budget.show`'s null ceiling into `0`; printing that as `$0.00`
+                    // would claim the budget is spent rather than never set (§7).
+                    <Machine>{`${money(budget.spentUsd)} · ${t('bench.no_ceiling', {}, locale)}`}</Machine>
                   ) : (
                     <Meter
                       value={Number(budget.spentUsd.toFixed(2))}

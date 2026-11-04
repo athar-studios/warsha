@@ -242,7 +242,14 @@ describe('ProjectsBoard', () => {
       });
       fireEvent.submit(screen.getByRole('dialog').querySelector('form') as HTMLFormElement);
 
-      await waitFor(() => expect(client.createProject).toHaveBeenCalledWith('عيادة أسنان'));
+      // name, the idea as the daemon-required description, and the active locale.
+      await waitFor(() =>
+        expect(client.createProject).toHaveBeenCalledWith(
+          'عيادة أسنان',
+          'حجز مواعيد بالعربي',
+          'ar'
+        )
+      );
       expect(client.startRun).toHaveBeenCalledWith('proj-new', 'حجز مواعيد بالعربي');
       expect(await screen.findByRole('list', { name: ar('nav.projects') })).toHaveTextContent(
         'عيادة أسنان'
@@ -293,5 +300,39 @@ describe('ProjectsBoard', () => {
       await Promise.resolve();
     });
     expect(within(row).queryByRole('meter')).toBeNull();
+  });
+
+  it('says an unset ceiling in words, where it used to print nothing at all', async () => {
+    // A project the daemon answered *is* different from one it did not: `budget.show` gave a spend and no
+    // ceiling (its null cents become `0` at the client edge), so the row names the missing reading rather
+    // than leaving the money line silent or printing `$0.00` (§7).
+    const client = createMockClient({
+      projects: [project('proj-1', 'متجر')],
+      budgets: { 'proj-1': { totalBudgetUsd: 0, spentUsd: 4.2, remainingUsd: 0 } },
+    });
+    renderBoard(client);
+
+    const row = await screen.findByRole('button', { name: /متجر/ });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(within(row).getByText(ar('bench.no_ceiling'))).toBeInTheDocument();
+    expect(within(row).queryByRole('meter')).toBeNull();
+    expect(row.textContent).not.toContain('$0.00');
+  });
+
+  it('measures a project whose ceiling the daemon really set', async () => {
+    const client = createMockClient({
+      projects: [project('proj-1', 'متجر')],
+      budgets: { 'proj-1': { totalBudgetUsd: 10, spentUsd: 4.25, remainingUsd: 5.75 } },
+    });
+    renderBoard(client);
+
+    const row = await screen.findByRole('button', { name: /متجر/ });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(within(row).getByRole('meter', { name: ar('bench.budget_used') })).toBeInTheDocument();
+    expect(within(row).queryByText(ar('bench.no_ceiling'))).toBeNull();
   });
 });

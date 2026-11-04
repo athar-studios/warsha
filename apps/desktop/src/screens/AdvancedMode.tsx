@@ -21,7 +21,7 @@
 // Every word is `@warsha/i18n` (`advanced.*`, `bench.*`, `status_strip.*`). The local `{ ar, en }` tab
 // table, the `t(...) || 'literal'` fallbacks, the `ROLE_COLORS` map, the mock command runner and the
 // invented cost cards are gone. The data path is the client's own: `runs.list`, `agent.state`,
-// `runs.logs`, `budget.project` and the `/events` socket — nothing here pretends at an RPC the daemon
+// `runs.events`, `budget.show` and the `/events` socket — nothing here pretends at an RPC the daemon
 // does not have.
 import {
   subscribeEvents,
@@ -193,6 +193,15 @@ export function eventStreamUrl(baseUrl: string): string {
 /** `$4.20` — Western digits, two decimals, mono upstream (§11). */
 function money(usd: number): string {
   return `$${usd.toFixed(2)}`;
+}
+
+/**
+ * Whether `budget.show` named a ceiling. `@warsha/client` folds the daemon's `null` cents into the `0`
+ * that `BudgetStatus` declares, so a zero here means "no ceiling reported" and prints words, never the
+ * `$0.00` that would read as "the cap is spent" (§7).
+ */
+function hasCeiling(totalUsd: number): boolean {
+  return totalUsd > 0;
 }
 
 /** The six release checks before any of them has run. */
@@ -807,6 +816,10 @@ export function AdvancedMode({ client, project, onBack, endpoint }: AdvancedMode
                       <Lamp state="idle" size="sm">
                         {`${t('bench.budget_used', {}, locale)}: ${t('bench.not_reported', {}, locale)}`}
                       </Lamp>
+                    ) : !hasCeiling(budget.totalBudgetUsd) ? (
+                      <Lamp state="idle" size="sm">
+                        {`${t('bench.budget_used', {}, locale)}: ${money(budget.spentUsd)} · ${t('bench.no_ceiling', {}, locale)}`}
+                      </Lamp>
                     ) : (
                       <Meter
                         value={Number(budget.spentUsd.toFixed(2))}
@@ -819,9 +832,22 @@ export function AdvancedMode({ client, project, onBack, endpoint }: AdvancedMode
                     <Chip glyph="$" label={`${t('advanced.cost_spent', {}, locale)} — ${money(spentCents / 100)}`}>
                       <span style={{ fontFamily: 'var(--warsha-font-mono)' }}>{money(spentCents / 100)}</span>
                     </Chip>
-                    <Chip glyph="·" label={`${t('advanced.cost_remaining', {}, locale)} — ${budget === null ? t('bench.not_reported', {}, locale) : money(budget.remainingUsd)}`}>
+                    <Chip
+                      glyph="·"
+                      label={`${t('advanced.cost_remaining', {}, locale)} — ${
+                        budget === null
+                          ? t('bench.not_reported', {}, locale)
+                          : !hasCeiling(budget.totalBudgetUsd)
+                            ? t('bench.no_ceiling', {}, locale)
+                            : money(budget.remainingUsd)
+                      }`}
+                    >
                       <span style={{ fontFamily: 'var(--warsha-font-mono)' }}>
-                        {budget === null ? '—' : money(budget.remainingUsd)}
+                        {budget === null
+                          ? '—'
+                          : !hasCeiling(budget.totalBudgetUsd)
+                            ? '—'
+                            : money(budget.remainingUsd)}
                       </span>
                     </Chip>
                   </Box>

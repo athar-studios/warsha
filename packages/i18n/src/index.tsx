@@ -49,7 +49,7 @@ export const messages: Record<Locale, Record<string, string>> = {
     'nav.roles': 'الأدوار',
     'nav.budgets': 'الميزانيات',
     'nav.devices': 'الأجهزة',
-    'nav.gates': 'البوابات',
+    'nav.gates': 'البوّابات',
     'nav.artifacts': 'المصنوعات',
     'onboarding.language': 'اختر اللغة',
     'onboarding.next': 'التالي',
@@ -160,7 +160,7 @@ export const messages: Record<Locale, Record<string, string>> = {
     'roles.desc': 'تعيين توجيه المزود/النموذج لكل دور',
     'roles.edit': 'تعديل',
     'roles.configure': 'تهيئة',
-    'roles.provider': 'المزود',
+    'roles.provider': 'المزوّد',
     'roles.model': 'النموذج',
     'roles.weight': 'الوزن',
     'roles.add_target': 'إضافة هدف',
@@ -233,7 +233,7 @@ export const messages: Record<Locale, Record<string, string>> = {
     'simple.welcome':
       'أهلاً بك في مشروع {name}! أنا المنسق، وأقود فريق العمل. اسألني أي شيء عن المشروع، أو انتظر بينما يعمل الفريق على المراحل.',
     'simple.agent_reply': 'فهمت! أعمل على "{text}". سأعود إليك قريباً.',
-    'simple.pending_gates': 'بوابات بانتظارك',
+    'simple.pending_gates': 'بوّابات بانتظارك',
     'simple.gate_needs_you': 'يحتاج الفريق إلى قرارك قبل المرحلة التالية.',
     'simple.composer_label': 'رسالة إلى الفريق',
     'simple.composer_placeholder': 'اكتب رسالتك…',
@@ -244,7 +244,7 @@ export const messages: Record<Locale, Record<string, string>> = {
     'simple.stream_retry': 'أعد الاتصال',
     'simple.summary': 'يقود المنسق الفريق، ويجمع الباحث المعلومات.',
     'simple.summary_gates':
-      '{count, plural, =0 {لا شيء بانتظارك الآن.} one {بوابة واحدة بانتظارك.} other {# بوابات بانتظارك.}}',
+      '{count, plural, =0 {لا شيء بانتظارك الآن.} one {بوّابة واحدة بانتظارك.} other {# بوّابات بانتظارك.}}',
     'simple.command.review': 'راجع التغيير قبل الدمج',
     'simple.command.refactor': 'أعد الهيكلة دون تغيير السلوك',
     'simple.command.test': 'شغّل الاختبارات وأصلح ما يسقط',
@@ -265,9 +265,13 @@ export const messages: Record<Locale, Record<string, string>> = {
     'gates.recorded_notes': 'ملاحظات التعديلات',
     'gates.record': 'سجّل القرار',
     'gate.device_record': 'سُجّل من',
-    'gates.empty': 'لا بوابات بانتظارك',
+    'gates.empty': 'لا بوّابات بانتظارك',
+    // The word is بوّابة (shadda on the waw) wherever this catalog vocalises it; `gates.empty`,
+    // `remote.queue_pending`, `simple.pending_gates`, `simple.summary_gates`, `gates.failed` and `nav.gates`
+    // are the keys that had drifted to the unmarked spelling while a sibling key carried the same sentence
+    // with the mark. They agree now, so one screen never shows the phrase two ways.
     'gates.empty_desc': 'كل البوابات حُسمت. يضيء المصباح عند قرار جديد.',
-    'gates.failed': 'لم يستجب الخادم لقائمة البوابات.',
+    'gates.failed': 'لم يستجب الخادم لقائمة البوّابات.',
     'gates.decisions_label': 'القرارات المسجلة',
     // Run view: the pane strip, the event stream, the artifacts ledger, the router tab.
     'run.tabs_label': 'ألواح التشغيل',
@@ -557,7 +561,7 @@ export const messages: Record<Locale, Record<string, string>> = {
     // Budgets ledger (`Budgets`).
     'budgets.loading': 'جاري تحميل الميزانيات',
     'budgets.failed': 'لم يستجب الخادم للميزانيات.',
-    'budgets.remaining': 'المتبقي',
+    'budgets.remaining': 'المتبقّي',
     'budgets.spent': 'المصروف',
     'budgets.amount_hint': 'بالدولار، و1 على الأقل.',
     'budgets.project_needed': 'اختر مشروعاً أولاً.',
@@ -601,6 +605,10 @@ export const messages: Record<Locale, Record<string, string>> = {
     'bench.lanes_active': 'مسارات نشطة',
     'bench.gates_waiting': 'بوّابات بانتظارك',
     'bench.not_reported': 'لم يُبلَّغ بعد',
+    // A ceiling the daemon never set arrives as `0`, because `@warsha/client` folds `budget.show`'s null
+    // cents into the dollars it has always declared. The screens therefore say this instead of `$0.00`:
+    // a formatted zero reads as "you have no budget", which is a different claim from "no ceiling reported".
+    'bench.no_ceiling': 'لم يُبلَّغ عن سقف',
     'bench.budget_label': 'الميزانية',
 
     // Gate bell (§4): the lit badge and the queue behind it.
@@ -853,7 +861,7 @@ export const messages: Record<Locale, Record<string, string>> = {
     // The phone's primary screen: what waits on the owner, and the decision path.
     'remote.queue_title': 'ما ينتظر قرارك',
     'remote.queue_pending':
-      '{count, plural, =0 {لا بوّابات بانتظارك} one {بوابة واحدة بانتظارك} two {بوّابتان بانتظارك} few {# بوابات بانتظارك} many {# بوابةً بانتظارك} other {# بوابة بانتظارك}}',
+      '{count, plural, =0 {لا بوّابات بانتظارك} one {بوّابة واحدة بانتظارك} two {بوّابتان بانتظارك} few {# بوّابات بانتظارك} many {# بوّابةً بانتظارك} other {# بوّابة بانتظارك}}',
     'remote.queue_source_stage': 'قراءة من مرحلة التشغيل',
     'remote.queue_source_daemon': 'قراءة من قائمة البوّابات',
     'remote.stage_gate_waiting': 'التشغيل متوقف عند هذه المرحلة حتى يسجّل المالك قراراً.',
@@ -1443,6 +1451,7 @@ export const messages: Record<Locale, Record<string, string>> = {
     'bench.lanes_active': 'active lanes',
     'bench.gates_waiting': 'gates waiting on you',
     'bench.not_reported': 'not reported yet',
+    'bench.no_ceiling': 'no ceiling reported',
     'bench.budget_label': 'Budget',
 
     'shell.gate_bell': 'Gate queue',

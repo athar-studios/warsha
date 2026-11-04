@@ -1,0 +1,10 @@
+{
+  // Dedicated config, not a widened tsconfig.json `include`, because tsconfig.json is the app BUILD
+  // config (`build: tsc && vite build`): putting e2e/ in it would typecheck the Playwright specs as
+  // part of every release build and pull @playwright/test and axe-core types into the app's program.
+  // `files` names harness.ts explicitly rather than only widening `include`, so a renamed or moved
+  // harness is a hard TS6053 error instead of a config that quietly checks nothing.
+  "extends": "./tsconfig.json",
+  "files": ["e2e/harness.ts"],
+  "include": ["e2e"]
+}

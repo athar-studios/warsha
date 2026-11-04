@@ -94,6 +94,15 @@ function errorResponse(code: number, message: string): { json: () => Promise<unk
   return { json: () => Promise.resolve({ jsonrpc: '2.0', id: 1, error: { code, message } }) };
 }
 
+/** The params object of the request `fetch` was called with at `index`, parsed. */
+function sentParams(index: number): Record<string, unknown> {
+  const call = fetchMock.mock.calls[index];
+  if (call === undefined) throw new Error(`no request was made (call ${index})`);
+  const init = call[1] as { body: string };
+  const body = JSON.parse(init.body) as { params?: Record<string, unknown> };
+  return body.params ?? {};
+}
+
 async function captureError(promise: Promise<unknown>): Promise<Error> {
   try {
     await promise;
@@ -168,7 +177,7 @@ describe('client', () => {
       okResponse({ id: 'proj-1', name: 'New Project', createdAt: '', updatedAt: '' })
     );
 
-    const project = await client.createProject('New Project');
+    const project = await client.createProject('New Project', 'مشروع جديد', 'ar');
 
     expect(fetchMock).toHaveBeenCalledWith('http://localhost:8080/rpc', {
       method: 'POST',
@@ -180,10 +189,235 @@ describe('client', () => {
         jsonrpc: '2.0',
         id: 1,
         method: 'projects.create',
-        params: { name: 'New Project' },
+        params: { name: 'New Project', description: 'مشروع جديد', language: 'ar' },
       }),
     });
     expect(project.name).toBe('New Project');
+  });
+
+  it('sends the three fields projects.create requires', async () => {
+    // Measured live: a params object with fewer entries than the daemon has required
+    // arguments answers -32602 "missing field 'description'" (DECISIONS.md 2026-11-03).
+    fetchMock.mockResolvedValueOnce(okResponse({ id: 'p', name: 'n', createdAt: '', updatedAt: '' }));
+
+    await client.createProject('n', 'd', 'en');
+
+    const params = sentParams(0);
+    expect(Object.keys(params).sort()).toEqual(['description', 'language', 'name']);
+  });
+
+  it('converts budget.show cents into the USD the screens render', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse({
+        project_id: 'proj-1',
+        budget_cents: 1200,
+        spent_cents: 437,
+        remaining_cents: 763,
+      })
+    );
+
+    await expect(client.getProjectBudget('proj-1' as ProjectId)).resolves.toEqual({
+      totalBudgetUsd: 12,
+      spentUsd: 4.37,
+      remainingUsd: 7.63,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/rpc',
+      expect.objectContaining({
+        body: expect.stringContaining('"method":"budget.show"'),
+      })
+    );
+  });
+
+  it('reads a null budget ceiling as no budget, and refuses a malformed one', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse({ project_id: 'proj-1', budget_cents: null, spent_cents: 0, remaining_cents: null })
+    );
+
+    await expect(client.getProjectBudget('proj-1' as ProjectId)).resolves.toEqual({
+      totalBudgetUsd: 0,
+      spentUsd: 0,
+      remainingUsd: 0,
+    });
+
+    fetchMock.mockResolvedValueOnce(
+      okResponse({ project_id: 'proj-1', budget_cents: 1200, spent_cents: 'four', remaining_cents: 0 })
+    );
+    await expect(client.getProjectBudget('proj-1' as ProjectId)).rejects.toThrow(
+      'Malformed RPC result from budget.show: "spent_cents" is not a number'
+    );
+  });
+
+  it('maps runs.events into the log lines the UI renders', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse([
+        {
+          id: 'evt-1',
+          run_id: 'run-1',
+          stage: 'code',
+          role: 'coder',
+          kind: 'tool_call',
+          payload: { summary: '$ cargo test --workspace' },
+          cost_cents: null,
+          created_at: '2026-10-28T00:00:00Z',
+          device_id: null,
+        },
+        {
+          id: 'evt-2',
+          run_id: 'run-1',
+          stage: 'gate_b',
+          role: null,
+          kind: 'gate_decision',
+          payload: { decision: 'approved', by: 'dev-1' },
+          cost_cents: null,
+          created_at: '2026-10-28T00:01:00Z',
+          device_id: null,
+        },
+        {
+          id: 'evt-3',
+          run_id: 'run-1',
+          stage: 'idea',
+          role: null,
+          kind: 'stage_started',
+          payload: null,
+          cost_cents: null,
+          created_at: '2026-10-28T00:02:00Z',
+          device_id: null,
+        },
+      ])
+    );
+
+    await expect(client.getRunLogs('run-1' as RunId)).resolves.toEqual([
+      '$ cargo test --workspace',
+      'decision=approved, by=dev-1',
+      'stage_started',
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/rpc',
+      expect.objectContaining({ body: expect.stringContaining('"method":"runs.events"') })
+    );
+  });
+
+  it('keeps the deciding device in a gate line rather than a bare verdict (#54)', async () => {
+    // A gate decision is the one line an owner reads to find out who said yes, so `decision` is not
+    // one of EVENT_TEXT_KEYS' text-preferred keys: it is a verdict word that is only ever worth
+    // reading beside `by`. Taking it as the line printed "approved" and dropped the device.
+    fetchMock.mockResolvedValueOnce(
+      okResponse([
+        {
+          id: 'evt-gate-1',
+          run_id: 'run-1',
+          stage: 'gate_c',
+          role: null,
+          kind: 'gate_decision',
+          payload: { decision: 'approved', by: 'dev-1' },
+          cost_cents: null,
+          created_at: '2026-10-28T00:01:00Z',
+          device_id: 'dev-1',
+        },
+        {
+          id: 'evt-gate-2',
+          run_id: 'run-1',
+          stage: 'gate_c',
+          role: null,
+          kind: 'gate_decision',
+          payload: { decision: 'rejected' },
+          cost_cents: null,
+          created_at: '2026-10-28T00:02:00Z',
+          device_id: null,
+        },
+        {
+          id: 'evt-gate-3',
+          run_id: 'run-1',
+          stage: 'gate_c',
+          role: null,
+          kind: 'gate_decision',
+          payload: { summary: 'المالك وافق على المراجعة', decision: 'approved' },
+          cost_cents: null,
+          created_at: '2026-10-28T00:03:00Z',
+          device_id: 'dev-1',
+        },
+      ])
+    );
+
+    const lines = await client.getRunLogs('run-1' as RunId);
+
+    expect(lines).toEqual([
+      'decision=approved, by=dev-1',
+      'decision=rejected',
+      'المالك وافق على المراجعة',
+    ]);
+    expect(lines[0]).not.toBe('approved');
+  });
+
+  it('delegates getRunStatus to the one run read the daemon registers', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse({
+        id: 'run-1',
+        project_id: 'proj-1',
+        stage: 'code',
+        status: 'running',
+        started_at: '',
+        updated_at: '',
+      })
+    );
+
+    await client.getRunStatus('run-1' as RunId);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/rpc',
+      expect.objectContaining({ body: expect.stringContaining('"method":"runs.get"') })
+    );
+  });
+
+  it('names the runs.get argument the way the daemon binds it (#54)', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse({
+        id: 'run-1',
+        project_id: 'proj-1',
+        stage: 'code',
+        status: 'running',
+        started_at: '',
+        updated_at: '',
+      })
+    );
+
+    await client.getRun('run-1' as RunId);
+
+    // `get_run(&self, run_id)` (`crates/warshad/src/lib.rs:683`): the decoder accepts `run_id` or
+    // `runId` and nothing else, so `{ id }` — a rename, not a casing difference — was read as an
+    // absent required field and the live daemon answered -32602 "missing field 'run_id'". `id` is
+    // still the name `projects.get` binds, which is why this is checked per method and not swept.
+    expect(sentParams(0)).toEqual({ run_id: 'run-1' });
+    expect(Object.keys(sentParams(0))).not.toContain('id');
+
+    fetchMock.mockResolvedValueOnce(
+      okResponse({
+        id: 'run-1',
+        project_id: 'proj-1',
+        stage: 'code',
+        status: 'running',
+        started_at: '',
+        updated_at: '',
+      })
+    );
+    await client.getRunStatus('run-1' as RunId);
+    expect(sentParams(1)).toEqual({ run_id: 'run-1' });
+  });
+
+  it('names the devices.pair argument the way the daemon binds it (#54)', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(null));
+
+    await client.pairDevice('{"device_id":"dev-1"}');
+
+    // `pair_device(&self, pairing_data)` (`crates/warshad/src/lib.rs:781`); the old `{ qrData }`
+    // matched neither the field nor its camelCase alias, so remote pairing was refused with -32602
+    // "missing field 'pairing_data'". The value shape is a separate, still-open drift — see the doc
+    // comment on `pairDevice` — so this pins the key only, which is what was measured.
+    expect(sentParams(0)).toEqual({ pairing_data: '{"device_id":"dev-1"}' });
+    expect(Object.keys(sentParams(0))).not.toContain('qrData');
   });
 
   it('increments request ID for each call', async () => {

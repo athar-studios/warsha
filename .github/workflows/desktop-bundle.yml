@@ -1,0 +1,221 @@
+name: Desktop Bundle (unsigned installers)
+
+# ============================================================================
+# Build-and-validate ONLY. No publish, no signing, no secrets, no release.
+#
+# Why this exists (DECISIONS.md 2026-11-03, "#10 unsigned installer path"):
+# the board requires fresh, validated MSI + NSIS (plus Linux/macOS) installers.
+# The development host is Linux aarch64 with no MSVC toolchain, so Windows
+# installers can only be built on CI runners. This workflow duplicates the
+# per-OS dependency setup of release.yml's desktop-build job (Linux: libwebkit2gtk-4.1-dev
+# libayatana-appindicator3-dev librsvg2-dev patchelf; macOS: sqlite3 pkg-config;
+# pnpm install --frozen-lockfile; pnpm tauri build per OS target) but carries
+# none of the signing/publish machinery: zero `secrets.*` references, no
+# GitHub Release upload, no notarization, no APPLE_* or
+# WINDOWS_CERTIFICATE_THUMBPRINT handling.
+#
+# Updater-artifact override (the part that would otherwise fail):
+# apps/desktop/src-tauri/tauri.conf.json:38 sets bundle.createUpdaterArtifacts
+# to true and that file must stay untouched (it is the owner's signed-release
+# configuration). With no TAURI_SIGNING_PRIVATE_KEY present (by design at this
+# stage) the bundle step would fail on updater-artifact generation, which looks
+# identical to a broken installer build. So the build passes a CI-only config
+# override that sets bundle.createUpdaterArtifacts to false.
+# Syntax verified, not guessed: pnpm-lock.yaml pins @tauri-apps/cli 2.12.4 and
+# that installed CLI's own `tauri build --help` documents -c/--config as
+# "JSON strings or paths to JSON, JSON5 or TOML files to merge with the default
+# configuration file". We write a small JSON file and pass its absolute path:
+# the file form sidesteps bash-vs-pwsh quoting of inline JSON across the three
+# OS shells and is unambiguous against the CLI's relative-path resolution.
+# Tauri deep-merges --config over tauri.conf.json, so only the one leaf key
+# changes; bundle targets, icons, windows.certificateThumbprint: null etc.
+# stay exactly as committed.
+#
+# Trigger choice: workflow_dispatch only (no push/pull_request on dev).
+# Cost reasoning: every leg of the 3-OS matrix is a full release-mode cargo
+# build of the workspace plus frontend bundling and installer packaging
+# (timeout 60 min/leg). Attaching this to each push/PR on dev would roughly
+# triple the repo's CI minutes per small change while producing installer
+# artifacts that are only needed for board validation checkpoints, and this
+# repo has zero CI-minute history to calibrate against. If the owner later
+# accepts the minutes, the intended promotion step is `pull_request:
+# branches: [dev]` with a path filter (apps/desktop/**, crates/**,
+# packages/**, Cargo.lock, pnpm-lock.yaml, this file).
+# ============================================================================
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ============================================================
+  # Unsigned Tauri bundles on windows / ubuntu / macOS runners
+  # ============================================================
+  bundle:
+    name: Unsigned Bundle (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            tauri_target: x86_64-unknown-linux-gnu
+            # Filename globs copied from release.yml desktop-build matrix (:145-147)
+            bundle_paths: |
+              apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/**/warsha_*_amd64.deb
+              apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/**/warsha_*_amd64.AppImage
+          - os: macos-latest
+            tauri_target: x86_64-apple-darwin
+            # release.yml (:150-152) globs Warsha_*.dmg (x64) and Warsha_*_aarch64.dmg
+            bundle_paths: |
+              apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/**/Warsha_*.dmg
+          - os: windows-latest
+            tauri_target: x86_64-pc-windows-msvc
+            # release.yml (:155-156) globs MSI + NSIS
+            bundle_paths: |
+              apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/**/Warsha_*_x64_en-US.msi
+              apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/**/Warsha_*_x64-setup.exe
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.tauri_target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ runner.os }}-cargo-bundle-${{ hashFiles('**/Cargo.lock') }}
+
+      # Same package list as release.yml:186-190 (desktop-build job).
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      # Same as release.yml:192-195.
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install sqlite3 pkg-config
+
+      - name: Install dependencies
+        working-directory: ./apps/desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Tauri bundles (unsigned, updater artifacts off)
+        working-directory: ./apps/desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          # CI-only override: never committed, never touches tauri.conf.json.
+          # See the header comment for why createUpdaterArtifacts must be
+          # false in this workflow (signing key intentionally absent).
+          printf '{\n  "bundle": {\n    "createUpdaterArtifacts": false\n  }\n}\n' > "$GITHUB_WORKSPACE/tauri.ci.unsigned.json"
+          # NO secret env vars are set here on purpose: with the override in
+          # place the build must succeed with TAURI_SIGNING_PRIVATE_KEY,
+          # APPLE_* and WINDOWS_CERTIFICATE_THUMBPRINT all absent. That is the
+          # point of this lane - an unsigned-but-installable bundle.
+          pnpm tauri build --target '${{ matrix.tauri_target }}' --config "$GITHUB_WORKSPACE/tauri.ci.unsigned.json"
+
+      - name: Validate bundles and record evidence (path, size, SHA-256)
+        shell: bash
+        env:
+          BUNDLE_PATHS: ${{ matrix.bundle_paths }}
+        run: |
+          set -euo pipefail
+          shopt -s globstar nullglob
+          mkdir -p evidence
+          : > evidence/bundle-manifest.txt
+          count=0
+          while IFS= read -r pattern; do
+            [[ -z "${pattern//[[:space:]]/}" ]] && continue
+            matched_here=0
+            for f in $pattern; do
+              matched_here=1
+              count=$((count + 1))
+              size=$(wc -c < "$f")
+              sha=$(sha256sum "$f" | awk '{print $1}')
+              line="$f | ${size} bytes | sha256=${sha}"
+              echo "$line"
+              echo "$line" >> evidence/bundle-manifest.txt
+            done
+            if [[ "$matched_here" -eq 0 ]]; then
+              # Was ::warning::: one matching glob made the step green while the
+              # other required installer (e.g. NSIS next to the MSI) was missing —
+              # board validation needs every glob in matrix.bundle_paths.
+              echo "::error::required bundle glob matched no files: $pattern"
+              exit 1
+            fi
+          done <<< "$BUNDLE_PATHS"
+          if [[ "$count" -eq 0 ]]; then
+            echo "::error::no installer bundles were produced at all - build output layout changed or bundling failed"
+            echo "--- bundle directory listing follows ---"
+            find "apps/desktop/src-tauri/target/${{ matrix.tauri_target }}/release/bundle" -type f | sort || true
+            exit 1
+          fi
+          {
+            echo "### Unsigned bundle evidence — ${{ matrix.os }}"
+            echo ""
+            echo '```'
+            cat evidence/bundle-manifest.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload unsigned bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-bundles-${{ matrix.os }}
+          path: ${{ matrix.bundle_paths }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload bundle manifest (path, size, SHA-256 per file)
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-manifest-${{ matrix.os }}
+          path: evidence/bundle-manifest.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  # ============================================================
+  # Summary gate for this workflow only (ci.yml's summary job is a
+  # different workflow and is explicitly unaffected by these jobs)
+  # ============================================================
+  bundle-summary:
+    name: Bundle Summary
+    runs-on: ubuntu-latest
+    needs: bundle
+    if: always()
+    steps:
+      - name: Check every OS produced an unsigned installer bundle
+        run: |
+          status="${{ needs.bundle.result }}"
+          if [[ "$status" != "success" ]]; then
+            echo "Unsigned bundle matrix did not pass (result: $status). Installers are NOT validated."
+            exit 1
+          fi
+          echo "All bundle legs green. Artifacts: unsigned-bundles-<os> + bundle-manifest-<os> (path/size/SHA-256 evidence)."

@@ -6,28 +6,60 @@
 // failure that keeps the card exactly where the owner left it.
 import { fireEvent, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import type { GateSummary, RunSummary } from '@warsha/client';
+import type { RunSummary } from '@warsha/client';
 import { describe, expect, it } from 'vitest';
 
 
-import { RUN, SESSION, decided, gate, renderRemote, settle, stubApi } from './testkit';
+import {
+  PROJECT,
+  RUN,
+  RUN_OLD,
+  SESSION,
+  answeredGates,
+  refuseGates,
+  renderRemote,
+  runId,
+  settle,
+  stubApi,
+} from './testkit';
 
-/** A daemon that answers `gates.list` — the reading the phone prefers when the daemon serves it. */
-function answeredGates(): GateSummary[] {
-  return [
-    gate('gate_a', decided('gate_a', 'approved')),
-    gate('gate_b', { state: 'pending' }),
-    gate('gate_c', { state: 'pending' }),
-    gate('gate_d', { state: 'pending' }),
-  ] as GateSummary[];
+/**
+ * A run past its gates: nothing on the bench is lit, and that is the good news (§7). It carries its own id
+ * because the stub answers `gates.list` per run — two fixture runs with one id would be two different
+ * claims about the same run.
+ */
+const SETTLED_RUN: RunSummary = { ...RUN, id: runId('run_9e7d5c3b'), stage: 'code' };
+
+/**
+ * The head of the card whose source chip the test names. `Chip tone="lit"` is the only `data-tone="lit"`
+ * a gate card can carry, and it lives in that head, so the lookup asks the question the fix is about:
+ * is *this* row — the one the daemon answered — the lit one?
+ */
+function cardHead(sourceWords: string): HTMLElement {
+  const chip = screen.getByText(sourceWords);
+  const head = chip.closest('header');
+  if (head === null) throw new Error(`no gate card head beside “${sourceWords}”`);
+  return head as HTMLElement;
 }
 
-/** A run past its gates: nothing on the bench is lit, and that is the good news (§7). */
-const SETTLED_RUN: RunSummary = { ...RUN, stage: 'code' };
-
 describe('the queue under the owner’s thumb', () => {
-  it('puts one lit card on the screen for the gate the run is parked on', async () => {
+  it('lights the gate the run is parked on when the daemon answers gates.list', async () => {
+    // The normal path against a serving `warshad`: the row comes from `gates.list`, so `bench.tsx` tags it
+    // `daemon`, and the lit chip still belongs to it — being the stage the run is stopped at is a fact
+    // about the two stages, not about which reading produced the row (§1, §6).
     renderRemote({ session: SESSION });
+    await settle();
+
+    expect(screen.getByRole('heading', { level: 1, name: 'بانتظارك' })).toBeInTheDocument();
+    const head = cardHead('قراءة من قائمة البوّابات');
+    expect(head.querySelector('[data-tone="lit"]')).not.toBeNull();
+    expect(screen.getByText('التشغيل متوقف عند هذه المرحلة حتى يسجّل المالك قراراً.')).toBeInTheDocument();
+  });
+
+  it('lights the same gate on the stage fallback, for a daemon that does not serve gates.list', async () => {
+    // The older `warshad`: the queue is built from the run's own stage, and the card reads the same way it
+    // does on the daemon path — one lit chip, the parked-here words, and the source named.
+    renderRemote({ session: SESSION, api: stubApi({ getGates: refuseGates() }) });
     await settle();
 
     expect(screen.getByRole('heading', { level: 1, name: 'بانتظارك' })).toBeInTheDocument();
@@ -37,7 +69,31 @@ describe('the queue under the owner’s thumb', () => {
     expect(screen.getByRole('button', { name: 'رفض' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'طلب تعديلات' })).toBeInTheDocument();
     expect(screen.getByText('البوابة ب')).toBeInTheDocument();
+    const head = cardHead('قراءة من مرحلة التشغيل');
+    expect(head.querySelector('[data-tone="lit"]')).not.toBeNull();
     expect(screen.getByText('التشغيل متوقف عند هذه المرحلة حتى يسجّل المالك قراراً.')).toBeInTheDocument();
+  });
+
+  it('leaves a pending gate the run has not reached unlit, on the same daemon answer', async () => {
+    // The other half of the condition: one answered queue, two pending gates, and only the one the run is
+    // parked at is lit. A later gate is a name the owner can open, not a claim that the run waits on it.
+    renderRemote({
+      session: SESSION,
+      route: '/gates',
+      api: stubApi({ getGates: () => Promise.resolve(answeredGates()) }),
+    });
+    await settle();
+
+    const detail = screen.getByTestId('remote-gate-detail');
+    expect(within(detail).getByText('البوابة ب')).toBeInTheDocument();
+    expect(cardHead('قراءة من قائمة البوّابات').querySelector('[data-tone="lit"]')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /البوابة ج/ }));
+
+    expect(within(detail).getByText('البوابة ج')).toBeInTheDocument();
+    expect(within(detail).queryByText('التشغيل متوقف عند هذه المرحلة حتى يسجّل المالك قراراً.')).toBeNull();
+    expect(within(detail).getByText('يحتاج الفريق إلى قرارك للانتقال إلى المرحلة التالية.')).toBeInTheDocument();
+    expect(cardHead('قراءة من قائمة البوّابات').querySelector('[data-tone="lit"]')).toBeNull();
   });
 
   it('approves in one press, records it, and takes the actions away', async () => {
@@ -190,13 +246,33 @@ describe('the gates ledger', () => {
 
     // The fallback is honest about being a fallback: the run's stage is the reading, and it is named.
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'لم يستجب الخادم لقائمة البوابات. قراءة من مرحلة التشغيل'
+      'لم يستجب الخادم لقائمة البوّابات. قراءة من مرحلة التشغيل'
     );
     expect(reads).toBe(1);
 
     fireEvent.click(screen.getByTestId('remote-retry-gates'));
     await settle();
     expect(reads).toBe(2);
+  });
+
+  it('answers gates.list for the run the owner is reading, not for the fixture’s first run', async () => {
+    // `RUN_OLD` is parked at `code` and never reached a gate. The stub used to ignore the run id it was
+    // handed and answer every run with `RUN`'s pending `gate_b`, so this screen could light a gate of a
+    // run it was not showing — a fiction the ledger would happily pass on.
+    window.history.replaceState(null, '', `/gates?project=${PROJECT.id}&run=${RUN_OLD.id}`);
+    renderRemote({ session: SESSION, router: 'browser', route: '/gates' });
+    await settle();
+
+    const gatesScreen = screen.getByTestId('remote-screen-gates');
+    // The address's run is the one on the header, and its queue is empty.
+    expect(gatesScreen).toHaveTextContent(RUN_OLD.id);
+    expect(within(gatesScreen).queryByRole('button', { name: 'موافقة' })).toBeNull();
+    // The panel's count line and both empty states are one sentence now, spelled one way; the variant that
+    // used to sit beside them is nowhere on the screen.
+    expect(within(gatesScreen).getAllByText('لا بوّابات بانتظارك').length).toBeGreaterThanOrEqual(2);
+    expect(within(gatesScreen).queryByText('لا بوابات بانتظارك')).toBeNull();
+    // Nothing is lit, because nothing waits and there is no parked gate to park on.
+    expect(gatesScreen.querySelector('[data-tone="lit"]')).toBeNull();
   });
 
   it('goes back to the run it came from', async () => {
@@ -208,14 +284,24 @@ describe('the gates ledger', () => {
   });
 
   it('is quiet when nothing waits, and says so with the next step', async () => {
+    // "Nothing waits" is a reading the daemon gives, not a refusal: this run is parked past its gates, so
+    // `gates.list` answers an empty queue. The case states that queue rather than inheriting one, and the
+    // bench has nothing to light — the parked stage is `code`, which is not a gate.
     renderRemote({
       session: SESSION,
-      api: stubApi({ listRuns: () => Promise.resolve([SETTLED_RUN]) }),
+      api: stubApi({
+        listRuns: () => Promise.resolve([SETTLED_RUN]),
+        getGates: () => Promise.resolve([]),
+      }),
     });
     await settle();
 
-    expect(screen.getByText('لا بوابات بانتظارك')).toBeInTheDocument();
+    // One screen, one sentence: the empty-queue title and the glance plate's pending count are the same
+    // words now, and the divergent spelling that used to sit beside them is gone (§57).
+    expect(screen.getAllByText('لا بوّابات بانتظارك')).toHaveLength(2);
+    expect(screen.queryByText('لا بوابات بانتظارك')).toBeNull();
     expect(screen.getByText('كل البوابات حُسمت. يضيء المصباح عند قرار جديد.')).toBeInTheDocument();
+    expect(screen.queryByText('التشغيل متوقف عند هذه المرحلة حتى يسجّل المالك قراراً.')).toBeNull();
     expect(screen.getByTestId('remote-queue-next')).toHaveTextContent('افتح التشغيل');
   });
 });

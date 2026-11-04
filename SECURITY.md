@@ -2,15 +2,24 @@
 
 ## Supported Versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.1.x   | :white_check_mark: |
+**Nothing has been released.** The repository carries no git tag, so there is no published build to patch
+or to support. These are the version strings in the tree today:
+
+| Component | Version in the tree | Supported |
+| --------- | ------------------- | --------- |
+| Desktop app (`apps/desktop/src-tauri/tauri.conf.json:4`) | `0.2.0` | Source work on `main` only — no released build exists |
+| Rust crates (`Cargo.toml:18`) | `0.1.0` | Same |
 
 ## Reporting a Vulnerability
 
 **Do not open a public issue** for security vulnerabilities.
 
 Instead, email **security@warsha.dev** (or use GitHub Security Advisories) with:
+
+*Note: this address is not confirmed. `warsha.dev` is not verified as a domain the owner controls, and
+Warsha has published no security contact. Choosing one is an owner decision. Until that happens, use the
+**Security Advisories** tab of the repository you are reading this in — it reaches the maintainers without
+any email address.*
 
 - Description of the vulnerability
 - Steps to reproduce
@@ -21,15 +30,30 @@ We will acknowledge receipt within 48 hours and provide a timeline for a fix.
 
 ## Security Architecture
 
-### Secrets Management
+This section separates what the code enforces today from what is designed but not built. If you are
+reading it to decide whether to trust a build, the "not built" lines are the ones that matter.
+
+### Secrets Management — built
 
 - **API keys, tokens, credentials** are stored **only** in the OS keychain:
   - Windows: Credential Manager
   - macOS: Keychain
   - Linux: Secret Service / libsecret
-- Implemented via the `keyring` crate
-- **Never** in config files, logs, database, crash reports, or git
-- All logs redact secrets automatically
+- Implemented via the `keyring` crate, under one service name for all provider keys (`warsha-provider`,
+  `crates/warsha-providers/src/secrets.rs:43`) with the provider's own name as the account, so two
+  providers cannot collide on one entry.
+- **Never** in config files, logs, database, crash reports, or git. This is a structure, not a promise: a
+  provider's *configuration* is a SQLite settings row and its *secret* is not, because "an API key in a
+  SQLite file is a key in every backup, every `SELECT *` pasted into a bug report and every crash dump"
+  (`crates/warsha-providers/src/secrets.rs:7-9`).
+- A host with no keychain service — headless CI, a WSL shell without a D-Bus secret service, where
+  `keyring` answers `PlatformFailure` — uses the in-memory store, which the daemon accepts as a parameter
+  and which prints the accounts it holds and never their values. There is no on-disk fallback.
+- Log and error output is scrubbed by construction: the daemon's provider refusals carry no key, no request
+  headers and no base URL that could hold a token in its query string
+  (`crates/warshad/src/lib.rs:139-145`), and the first-run wizard keeps the key in component state only,
+  erases it as soon as `providers.add` is on its way, and strips it out of the daemon's message before
+  showing it (`apps/desktop/src/screens/Onboarding.tsx:16-19`).
 
 ### No ToS-Violating Subscription Reuse
 
@@ -40,20 +64,80 @@ Subscriptions are supported **only** by:
 - Officially documented third-party OAuth
 - User-supplied "custom OpenAI-compatible endpoint" (with clear UI warning)
 
-### Remote Access — End-to-End Encrypted
+### Local Transport — built, and it is not encrypted
 
-- **Pairing**: QR code with one-time pairing secret
-- **Handshake**: Noise XX (`snow` crate) or libsodium-style X25519 + XChaCha20-Poly1305
-- **Identity**: Long-term device keypair with revocable device list
-- **Relay**: Untrusted, forwards opaque frames only
-- **Network**: `warshad` dials **out** to relay; no inbound ports by default
-- **Optional**: Direct LAN/Tailscale mode supported (no relay)
+- `warshad` binds **127.0.0.1 only**, on both its JSON-RPC server and its HTTP server
+  (`crates/warshad/src/lib.rs:3300`, `:3364`). There is no flag and no config key that binds another
+  interface.
+- Every HTTP route except `/health` requires the bearer token (`crates/warshad/src/lib.rs:3352-3359`), and
+  every RPC method reads its caller from the authenticated transport rather than from the params the caller
+  sends (`crates/warshad/src/lib.rs:1255-1285`).
+- On first run the daemon generates a 32-byte token from the OS RNG and writes it into `config.toml`, which
+  is then set to `0600` **on Unix only** — the permission call sits inside `#[cfg(unix)]`
+  (`crates/warshad/src/lib.rs:3492-3513`). On Windows nothing in the code sets the ACL; the file inherits
+  whatever the profile directory grants.
+- Inbound requests are rate-limited per verified identity, and the answer past a ceiling carries a
+  `Retry-After` (`crates/warshad/src/lib.rs:438`, `:1273`).
+- **There is no TLS in the daemon.** No `rustls`, `openssl` or `native-tls` dependency exists anywhere under
+  `crates/`, so `warshad` serves no `https://` or `wss://` listener. What *is* implemented is a transport
+  rule for the endpoints the daemon **dials out to** — MCP servers, provider APIs, a relay: `https`/`wss` are
+  accepted anywhere, a plain `http`/`ws` only on loopback (`crates/warshad/src/auth.rs:896-921`). That rule
+  does not encrypt anything coming *in* to the daemon.
+- **Consequence for a remote phone or a second machine:** the loopback bind means Warsha is single-machine by
+  default. If you expose it yourself — reverse proxy, SSH tunnel, Tailscale — the confidentiality of that hop
+  is your infrastructure's job, not Warsha's, and the token in `config.toml` is the only credential on it.
 
-### Code Execution Sandbox
+### No ToS-Violating Subscription Reuse
 
-- **Docker**: One container per run (when Docker exists)
-- **Fallback**: Git worktree with restricted env, no inherited secrets except explicitly scoped
-- **Network**: Default allow only for package registries and model APIs
+Warsha does **not** extract or replay consumer OAuth tokens (e.g., reusing Claude Pro/Max or ChatGPT Plus sessions as an API).
+
+Subscriptions are supported **only** by:
+- Launching the vendor's official CLI as a subprocess under the user's own login
+- Officially documented third-party OAuth
+- User-supplied "custom OpenAI-compatible endpoint" *(the UI names it "Custom endpoint" and asks for the
+  base URL; there is no separate warning about the endpoint's operator yet, so the owner reads their own URL
+  back to themselves here)*
+
+### Remote Access — partly built, and the encryption is the part that is not
+
+- **Pairing**: QR code with a one-time pairing secret — **built**. `PairingData` carries an X25519 static
+  public key, a one-time secret and a 10-minute expiry that is genuinely checked on use
+  (`crates/warsha-remote/src/lib.rs:152`, `:184-191`, `:290-296`).
+- **Identity**: long-term device keypair with a revocable device list — **built** on the daemon side; a
+  revoked pairing resolves no session even when it presents the right secret
+  (`crates/warshad/src/auth.rs:1049-1068`), and the registry keeps the revoked row with `revoked_at`
+  (`crates/warsha-store/src/persistence.rs:366`).
+- **Handshake**: Noise XX over the `snow` crate — **not built**. `EncryptedChannel` is annotated
+  `#[allow(dead_code)]`, and `process_handshake` is a stub that returns `Ok(false)` without running a
+  handshake (`crates/warsha-remote/src/lib.rs:424-434`, `:493-496`). No session keys are derived today, so
+  nothing is encrypted end-to-end, and the replay cache is a field nothing reads
+  (`crates/warsha-remote/src/lib.rs:432`, `:516-519`).
+- **Relay**: **built as a forwarder** — `warsha-relay` checks the frame size and routes on the `to` device id,
+  and has no key to decrypt with (`crates/warsha-relay/src/lib.rs:747`). Because no handshake exists, "the
+  relay sees only ciphertext" is a property of the frame layout, not a proof about the traffic.
+- **What the phone does today instead**: it opens the daemon's address with the bearer token, reads the token
+  out of the URL immediately, and keeps it for the tab only, never in a file
+  (`apps/remote/src/App.tsx:70-73`, `:108-109`). So on any network that is not your own machine, run it behind
+  HTTPS or a tunnel you control.
+- **Network**: `warshad` dials **out** to the relay; no inbound ports by default — designed, and the relay
+  binary builds, but there is no live E2E channel for it to carry yet.
+
+### Code Execution Control — an allow-list, not a sandbox
+
+- **No Docker.** There is no container path in the code: `warsha doctor` only reports whether a `docker`
+  binary is on `PATH` (`crates/warsha-cli/src/lib.rs:717-732`) and nothing runs it. No VM, no seccomp, no
+  Job Object, no AppArmor profile either.
+- **What does exist**: the daemon refuses to start any program its own configuration does not name.
+  `DEFAULT_ALLOWED_COMMANDS` (`crates/warshad/src/auth.rs:749-781`) is the set of toolchains a generated
+  project builds and runs with; shells and `-c` interpreters are deliberately absent, and no RPC can widen
+  the list — only `config.toml` can (`crates/warshad/src/lib.rs:1236-1247`).
+- The code states its own limit, and this document repeats it: that policy is **defense-in-depth, not a
+  sandbox**. A caller who already holds the owner credential is not confined by a list of program names, and
+  arguments are not inspected (`crates/warshad/src/auth.rs:728-735`). Anything Warsha runs, runs as you.
+- **Working-directory confinement** is real for the agent file tools
+  (`crates/warsha-pipeline/src/agent_tools.rs:292`) and separate git branches per run are how work is laid out
+  for review (`crates/warsha-git/src/lib.rs:104`). Both are review boundaries, not security boundaries.
+- **Network egress is not restricted.** There is no per-run firewall, proxy or registry allow-list in the code.
 
 ### Approval Gates
 
@@ -63,27 +147,43 @@ Irreversible actions require **explicit human approval**:
 - Any spend above budget
 - Any public post
 
-Remote approvals require device-local confirmation (PIN/biometric via WebAuthn where available).
-**Agents can never approve gates.**
+- **Built**: a gate decision is accepted only from a verified session — the owner's bearer token or a paired
+  device's pairing secret — resolved from the transport, never from a device id the caller types in params
+  (`crates/warshad/src/lib.rs:1255-1285`, `crates/warshad/src/auth.rs:163-168`), and it is stored with the
+  device id and timestamp (`crates/warsha-pipeline/src/lib.rs:650-661`).
+- **Not built**: device-local confirmation. There is no PIN, biometric or WebAuthn code anywhere in this
+  repository — `grep -rEi "webauthn|biometric" apps packages crates` returns nothing — so a phone approval is
+  protected by the daemon's token alone, not by a second factor on the device.
+- **Agents can never approve gates.** An agent session has no device identity, and no tool the agents reach
+  (MCP, backend CLI, GitHub client, webhook) is wired to a gate decision.
 
 ### Supply Chain
 
-CI runs:
-- `cargo audit`
-- `cargo deny` (license, bans, sources)
-- `pnpm audit`
-- CodeQL
-- gitleaks
+`.github/workflows/ci.yml` declares:
+
+- `cargo fmt --all --check`, `cargo clippy -D warnings --workspace --all-targets`, `cargo test --workspace --all-targets`
+- `cargo deny` (`EmbarkStudios/cargo-deny-action@v1`) — note there is **no `deny.toml` in the repository**, so
+  it runs on cargo-deny's built-in defaults rather than a policy this project wrote
+- `gitleaks` (`gitleaks/gitleaks-action@v2` with `config: .gitleaks.toml`)
+- CodeQL (`github/codeql-action/init@v3` + `analyze@v3`, Rust and TypeScript)
+- ESLint, `tsc --noEmit`, Vitest, the architecture-boundary script, Playwright, and the mdBook build
+- `actionlint` for the workflows themselves
+
+It does **not** run `cargo audit` or `pnpm audit` — neither step exists in any workflow file. And before
+repeating a "CI is green" claim, read its trigger: `ci.yml` fires on pushes and pull requests that target
+`main` only, and `release.yml` fires on a `v*` tag, which this repository has never had. Work on any other
+branch runs none of the above.
 
 ## Threat Model
 
-| Threat | Mitigation |
-|--------|------------|
-| Secret leakage | OS keychain only, log redaction, gitleaks in CI |
-| Supply chain attack | `cargo deny`, pinned dependencies, SBOM generation |
-| Remote interception | E2E Noise XX, relay sees only ciphertext |
-| Malicious code execution | Sandbox (Docker/worktree), restricted network |
-| Unauthorized gate approval | Human-only gates, device-local confirmation |
+| Threat | Mitigation in the code today |
+|--------|------------------------------|
+| Secret leakage | OS keychain only, configuration and secret deliberately split (`secrets.rs`), daemon errors that name no secret, gitleaks declared in CI |
+| Supply chain attack | `cargo deny` and CodeQL declared in CI, `Cargo.lock`/`pnpm-lock.yaml` pinned. An SBOM is attempted only by `release.yml` (which needs a tag, and tolerates the step failing) |
+| Local port hijack | 127.0.0.1-only bind, bearer token on every route but `/health`, `config.toml` at 0600 on Unix, single-instance lock on the data directory |
+| Network interception | **Not mitigated by Warsha today.** No TLS listener, and the E2E channel is unimplemented — stay on loopback, or add HTTPS/VPN yourself |
+| Malicious code execution | Owner-role check first, then the program allow-list. No container, no sandbox, no egress control |
+| Unauthorized gate approval | Session identity taken from the transport, per-method policy tiers and rate ceilings, revoked pairings resolve nothing. No second factor on the device |
 | Subscription ToS violation | Official CLI subprocess only, no token extraction |
 
 ## Security Checklist for Contributors
@@ -93,10 +193,13 @@ CI runs:
 - [ ] Redact secrets in all log output
 - [ ] No `unwrap()` on security-critical paths
 - [ ] Validate all external input
-- [ ] Use parameterized queries (sqlx) — no SQL injection
-- [ ] Keep dependencies updated; run `cargo audit` and `pnpm audit`
+- [ ] Use bound parameters — every statement in `warsha-store` is `sqlx::query` with `?` placeholders and
+      `.bind(...)`; no SQL is assembled by string interpolation
+- [ ] Keep dependencies updated; `cargo deny` is what CI runs. `cargo audit`/`pnpm audit` are not wired up
 - [ ] Add tests for security-relevant code paths
+- [ ] Never describe a control as a sandbox, TLS, or a second factor unless the code enforces it
 
 ## Third-Party Notices
 
-See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for Goose and other dependencies (generated by `cargo about` or `cargo deny`).
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for Goose and other dependencies. Goose is **not** a
+workspace dependency: it is still a commented placeholder, as `docs/UI.md:360-362` says.

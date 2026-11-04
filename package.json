@@ -13,6 +13,7 @@
     "visual:desktop": "playwright test --project=desktop",
     "visual:remote": "playwright test --project=remote",
     "arch": "node scripts/check-arch.mjs",
+    "policy": "node scripts/check-engineering-policy.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,json,md,css,html}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,json,md,css,html}\"",
     "prepare": "husky install"

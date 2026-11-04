@@ -63,6 +63,14 @@ reported to the community leaders responsible for enforcement at
 conduct@warsha.dev. All complaints will be reviewed and investigated promptly
 and fairly.
 
+*Note: `conduct@warsha.dev` is not a confirmed address. `warsha.dev` has not been
+verified as a domain the owner controls, and Warsha publishes no verified contact
+address yet; choosing one (and here it must match the security and licensing
+addresses in [SECURITY.md](SECURITY.md) and [README.md](README.md)) is an owner
+decision. Until it is made, use the private reporting channel the hosting platform
+provides — on GitHub, a private security advisory or a direct message to a
+repository owner reaches the maintainers without any published address.*
+
 All community leaders are obligated to respect the privacy and security of the
 reporter of any incident.
 

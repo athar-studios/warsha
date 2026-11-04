@@ -174,7 +174,7 @@ describe('Bench & Signal screen copy', () => {
     expect(t('simple.summary_gates', { count: 0 }, 'en')).toBe('Nothing is waiting on you.');
     expect(t('simple.summary_gates', { count: 1 }, 'en')).toBe('1 gate is waiting on you.');
     expect(t('simple.summary_gates', { count: 4 }, 'en')).toBe('4 gates are waiting on you.');
-    expect(t('simple.summary_gates', { count: 1 }, 'ar')).toBe('بوابة واحدة بانتظارك.');
+    expect(t('simple.summary_gates', { count: 1 }, 'ar')).toBe('بوّابة واحدة بانتظارك.');
     expect(t('simple.team_count', { count: 12 }, 'ar')).toBe('12 عضواً');
   });
 
@@ -473,7 +473,7 @@ describe('Bench & Signal shell copy', () => {
 
   it('pluralises the gates the bell counts in both languages', () => {
     expect(t('simple.summary_gates', { count: 0 }, 'en')).toBe('Nothing is waiting on you.');
-    expect(t('simple.summary_gates', { count: 1 }, 'ar')).toBe('بوابة واحدة بانتظارك.');
+    expect(t('simple.summary_gates', { count: 1 }, 'ar')).toBe('بوّابة واحدة بانتظارك.');
     expect(t('bench.gates_waiting', {}, 'en')).toBe('gates waiting on you');
     expect(t('shell.gate_bell_none', {}, 'ar')).toContain('لا بوّابات');
   });
@@ -513,10 +513,10 @@ describe('Bench & Signal remote copy', () => {
   it('counts the waiting gates with Arabic plurals', () => {
     expect(t('remote.queue_pending', { count: 0 }, 'ar')).toBe('لا بوّابات بانتظارك');
     expect(t('remote.queue_pending', { count: 0 }, 'en')).toBe('no gates waiting on you');
-    expect(t('remote.queue_pending', { count: 1 }, 'ar')).toBe('بوابة واحدة بانتظارك');
+    expect(t('remote.queue_pending', { count: 1 }, 'ar')).toBe('بوّابة واحدة بانتظارك');
     expect(t('remote.queue_pending', { count: 2 }, 'ar')).toBe('بوّابتان بانتظارك');
-    expect(t('remote.queue_pending', { count: 3 }, 'ar')).toBe('3 بوابات بانتظارك');
-    expect(t('remote.queue_pending', { count: 11 }, 'ar')).toBe('11 بوابةً بانتظارك');
+    expect(t('remote.queue_pending', { count: 3 }, 'ar')).toBe('3 بوّابات بانتظارك');
+    expect(t('remote.queue_pending', { count: 11 }, 'ar')).toBe('11 بوّابةً بانتظارك');
     expect(t('remote.queue_pending', { count: 4 }, 'en')).toBe('4 gates waiting on you');
   });
 
@@ -642,5 +642,55 @@ describe('locale preference', () => {
 
   it('is a no-op with no root, rather than throwing', () => {
     expect(applyLocale('en', null)).toBe('en');
+  });
+});
+
+describe('the Arabic catalog spells one sentence one way', () => {
+  /**
+   * The shadda is the mark this catalog used inconsistently: two keys holding one sentence, one written
+   * بوّابة and the other بوابة. Stripping only the shadda collides exactly those pairs — a difference of
+   * damma or kasra (أنشئ against أُنشئ, سجّل against سُجّل) survives the strip, because those are two
+   * different sentences that merely look alike once every mark is gone.
+   */
+  const SHADDA = /ّ/g;
+
+  it('never holds one Arabic sentence in two shadda spellings', () => {
+    const byBareSentence = new Map<string, { key: string; value: string }[]>();
+    for (const [key, value] of Object.entries(messages.ar)) {
+      const bare = value.replace(SHADDA, '').trim();
+      if (bare.length < 3) continue;
+      const seen = byBareSentence.get(bare) ?? [];
+      seen.push({ key, value });
+      byBareSentence.set(bare, seen);
+    }
+
+    // Two keys sharing one *identical* value is normal (`افتح التشغيل` is the same sentence on two
+    // screens). Only a group whose members differ — by the mark and by nothing else — is the bug.
+    const divergent = [...byBareSentence.values()]
+      .filter((entries) => new Set(entries.map((entry) => entry.value)).size > 1)
+      .map((entries) => entries.map((entry) => `${entry.key} = ${entry.value}`).join(' | '));
+    expect(divergent).toEqual([]);
+  });
+
+  it('spells the gate word the same way wherever the queue says it', () => {
+    // The pair that started this: the empty-queue screen used to show `لا بوابات بانتظارك` as its title
+    // and `لا بوّابات بانتظارك` as its count line, one screen, two spellings of one sentence.
+    expect(t('gates.empty', {}, 'ar')).toBe('لا بوّابات بانتظارك');
+    expect(t('gates.empty', {}, 'ar')).toBe(t('remote.queue_pending', { count: 0 }, 'ar'));
+    expect(t('simple.pending_gates', {}, 'ar')).toBe(t('bench.gates_waiting', {}, 'ar'));
+    expect(t('gates.failed', {}, 'ar')).toBe(t('shell.gate_bell_failed', {}, 'ar'));
+    expect(t('nav.gates', {}, 'ar')).toBe(t('advanced.filter_gates', {}, 'ar'));
+
+    // And one key never switches spelling between its own plural branches.
+    for (const count of [0, 1, 2, 3, 11, 100]) {
+      expect(t('remote.queue_pending', { count }, 'ar')).toContain('بوّاب');
+    }
+    expect(t('simple.summary_gates', { count: 1 }, 'ar')).toBe('بوّابة واحدة بانتظارك.');
+  });
+
+  it('says an unreported ceiling in words in both catalogs', () => {
+    // The ceiling copy is why `bench.no_ceiling` exists: a formatted `$0.00` claims the budget is spent.
+    expect(t('bench.no_ceiling', {}, 'ar')).toBe('لم يُبلَّغ عن سقف');
+    expect(t('bench.no_ceiling', {}, 'en')).toBe('no ceiling reported');
   });
 });

@@ -34,6 +34,7 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 
 import { useRemote } from './bench';
+import { hasCeiling, money } from './format';
 import { stageWord } from './labels';
 import { endpointHost, type DaemonSession } from './session';
 
@@ -226,13 +227,19 @@ export function BenchStrip() {
             <Lamp state="idle" size="xs" bare>
               {`${t('bench.budget_used', {}, locale)}: ${t('bench.not_reported', {}, locale)}`}
             </Lamp>
+          ) : !hasCeiling(budget.totalBudgetUsd) ? (
+            // The spend answered and the ceiling did not. `$0.00` would read as "the budget is used up",
+            // which is the opposite claim; the words say what is actually missing (§7).
+            <Lamp state="idle" size="xs" bare>
+              {`${t('bench.budget_used', {}, locale)}: ${money(budget.spentUsd)} · ${t('bench.no_ceiling', {}, locale)}`}
+            </Lamp>
           ) : (
             <Meter
               value={Number(budget.spentUsd.toFixed(2))}
               max={Number(budget.totalBudgetUsd.toFixed(2))}
               label={t('bench.budget_used', {}, locale)}
             >
-              {`$${budget.spentUsd.toFixed(2)} / $${budget.totalBudgetUsd.toFixed(2)}`}
+              {`${money(budget.spentUsd)} / ${money(budget.totalBudgetUsd)}`}
             </Meter>
           )}
         </StatusStrip.Item>

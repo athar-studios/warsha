@@ -305,6 +305,20 @@ pub enum ProviderKind {
     OpenHands,
 }
 
+impl ProviderKind {
+    /// Whether a provider of this kind is called with an API key.
+    ///
+    /// The two local kinds are the exception: they are servers on the owner's own
+    /// machine, and the adapter that speaks to one (`OllamaProvider::new` in
+    /// `warsha-providers`) takes the credentials reference and ignores it — there is
+    /// no secret of theirs to file in the keychain. Every other kind here is a hosted
+    /// endpoint that is authenticated with a key, so a caller that has no key cannot
+    /// call it.
+    pub fn needs_api_key(self) -> bool {
+        !matches!(self, ProviderKind::Ollama | ProviderKind::LMStudio)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelConfig {
     pub id: String,

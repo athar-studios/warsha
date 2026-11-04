@@ -9,3 +9,5 @@
 - Never publish, release (non-draft), push --force to main, or post anything.
 - Small Conventional Commits; self-review every diff.
 - UI strings only via i18n catalogs (ar + en), RTL-safe CSS (logical properties).
+- Read ENGINEERING_POLICY.md before planning, dispatching worker execution, reviewing, verifying, or making any acceptance/process decision — it is the operating policy for agent engineering runs (lifecycle, roles, worktree isolation, checkpoints, gates, evidence).
+- For policy/process changes run `node scripts/check-engineering-policy.mjs` (or `pnpm policy`) and keep it green; add `--self-test` when the validator itself changes.
