@@ -10,6 +10,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 
 import App from './App';
+import { registerShellWorker } from './offline';
 import { applyStoredTheme } from './theme';
 import './index.css';
 
@@ -35,3 +36,9 @@ ReactDOM.createRoot(root).render(
     </LocaleProvider>
   </React.StrictMode>
 );
+
+// The shell worker, last and only in a built app: `src/offline.ts` keeps the reasons, and the whole
+// thing is one call because nothing about rendering depends on it. A dev server has no `sw.js` to
+// register, and a browser with no service workers is a bench that works online — both are outcomes,
+// not errors.
+void registerShellWorker({ prod: import.meta.env.PROD });

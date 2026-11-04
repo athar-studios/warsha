@@ -15,6 +15,23 @@ import React from 'react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 import { SimpleMode, composerTriggerFor, insertComposerToken, simpleSlashCommands } from './SimpleMode';
+import type { DaemonEndpoint } from '../daemon';
+
+/**
+ * The endpoint a shell-resolved session has: the RPC base is `http://…:8766` (the daemon's RPC
+ * listener), the events socket lives on `ws://…:8765` (the daemon's HTTP listener, where
+ * `/events` is really served), and the token is the session's own credential. They are
+ * deliberately three *different* values, so a subscription built from anything other than the
+ * resolved pair shows up in the assertions.
+ */
+const RESOLVED_ENDPOINT: DaemonEndpoint = {
+  baseUrl: 'http://127.0.0.1:8766',
+  eventsUrl: 'ws://127.0.0.1:8765',
+  token: 'real-session-token',
+};
+
+/** What an app without a shell holds: nothing resolved, and it must not invent the rest. */
+const UNRESOLVED: DaemonEndpoint = { baseUrl: '', eventsUrl: '', token: '' };
 
 class MockWebSocket {
   onopen: (() => void) | null = null;
@@ -51,7 +68,7 @@ describe('SimpleMode agent list', () => {
     const client = createMockClient();
     render(
       <LocaleProvider initialLocale="ar" storage={null}>
-        <SimpleMode client={client} project={mockProject} />
+        <SimpleMode client={client} project={mockProject} endpoint={RESOLVED_ENDPOINT} />
       </LocaleProvider>
     );
 
@@ -73,7 +90,7 @@ describe('SimpleMode agent list', () => {
     const client = createMockClient();
     render(
       <LocaleProvider initialLocale="ar" storage={null}>
-        <SimpleMode client={client} project={mockProject} />
+        <SimpleMode client={client} project={mockProject} endpoint={RESOLVED_ENDPOINT} />
       </LocaleProvider>
     );
 
@@ -117,7 +134,7 @@ describe('SimpleMode gates', () => {
     const pending: GateSummary[] = [{ stage: 'gate_a' as Stage, state: { state: 'pending' } }];
     render(
       <LocaleProvider initialLocale="ar" storage={null}>
-        <SimpleMode client={clientWithGates(pending)} project={mockProject} />
+        <SimpleMode client={clientWithGates(pending)} project={mockProject} endpoint={RESOLVED_ENDPOINT} />
       </LocaleProvider>
     );
 
@@ -134,7 +151,7 @@ describe('SimpleMode gates', () => {
     const client = clientWithGates(pending);
     render(
       <LocaleProvider initialLocale="ar" storage={null}>
-        <SimpleMode client={client} project={mockProject} />
+        <SimpleMode client={client} project={mockProject} endpoint={RESOLVED_ENDPOINT} />
       </LocaleProvider>
     );
 
@@ -152,7 +169,7 @@ describe('SimpleMode gates', () => {
 
     render(
       <LocaleProvider initialLocale="ar" storage={null}>
-        <SimpleMode client={client} project={mockProject} />
+        <SimpleMode client={client} project={mockProject} endpoint={RESOLVED_ENDPOINT} />
       </LocaleProvider>
     );
 
@@ -177,7 +194,7 @@ describe('SimpleMode composer', () => {
   it('sends on Enter and keeps Shift+Enter for a newline', async () => {
     render(
       <LocaleProvider initialLocale="ar" storage={null}>
-        <SimpleMode client={createMockClient()} project={mockProject} />
+        <SimpleMode client={createMockClient()} project={mockProject} endpoint={RESOLVED_ENDPOINT} />
       </LocaleProvider>
     );
 
@@ -197,7 +214,7 @@ describe('SimpleMode composer', () => {
   it('gives the field a label the owner never sees but a screen reader always does', async () => {
     render(
       <LocaleProvider initialLocale="ar" storage={null}>
-        <SimpleMode client={createMockClient()} project={mockProject} />
+        <SimpleMode client={createMockClient()} project={mockProject} endpoint={RESOLVED_ENDPOINT} />
       </LocaleProvider>
     );
 
@@ -216,5 +233,77 @@ describe('SimpleMode composer', () => {
     expect(commands.map((command) => command.name)).toContain('/review');
     expect(commands[0]?.description).toBe(t('simple.command.review', {}, 'ar'));
     expect(simpleSlashCommands('en')[0]?.description).toBe(t('simple.command.review', {}, 'en'));
+  });
+});
+
+/**
+ * The socket wiring is the defect this file exists for (#66): the stream used to dial a
+ * hardcoded `http://127.0.0.1:8766` with a fabricated `test-token`, which put Simple mode's
+ * offline state on permanently for a reason that had nothing to do with the daemon.
+ */
+
+/** What the stubbed socket saw, so the assertions read the real dial arguments. */
+let dialedSockets: { url: string; protocols: string[] }[] = [];
+
+class RecordingWebSocket {
+  onmessage: ((event: unknown) => void) | null = null;
+  onerror: ((error: unknown) => void) | null = null;
+  onclose: ((event: unknown) => void) | null = null;
+
+  constructor(url: string, protocols?: string | string[]) {
+    dialedSockets.push({ url, protocols: protocols === undefined ? [] : [...protocols] });
+  }
+
+  close(): void {
+    // Nothing was opened, so there is nothing to close.
+  }
+}
+
+describe('SimpleMode event stream wiring', () => {
+  beforeEach(() => {
+    dialedSockets = [];
+    vi.stubGlobal('WebSocket', RecordingWebSocket);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('dials the resolved /events socket with the session token, never a guessed URL or literal', async () => {
+    render(
+      <LocaleProvider initialLocale="ar" storage={null}>
+        <SimpleMode client={createMockClient()} project={mockProject} endpoint={RESOLVED_ENDPOINT} />
+      </LocaleProvider>
+    );
+
+    await waitFor(() => expect(dialedSockets).toHaveLength(1));
+    const dial = dialedSockets[0];
+    // The `/events` path the client appends to the shell's resolved socket URL: `ws:` scheme,
+    // the daemon's HTTP-listener port — not the RPC base.
+    expect(dial.url).toBe('ws://127.0.0.1:8765/events');
+    // The credential travels as the handshake subprotocol the daemon authenticates
+    // (`crates/warshad/tests/events_ws_auth.rs`), never in the URL.
+    expect(dial.protocols).toEqual(['warsha.events.v1', 'warsha.token.real-session-token']);
+    // Nothing fabricated survives in the dial: not the old literal token, not the port the
+    // events socket was never on.
+    const dialedText = `${dial.url} ${dial.protocols.join(' ')}`;
+    expect(dialedText).not.toContain('test-token');
+    expect(dialedText).not.toContain('8766');
+  });
+
+  it('stays honestly offline when the shell resolved no endpoint', async () => {
+    render(
+      <LocaleProvider initialLocale="ar" storage={null}>
+        <SimpleMode client={createMockClient()} project={mockProject} endpoint={UNRESOLVED} />
+      </LocaleProvider>
+    );
+
+    // No fake credential to offer, so no socket is dialled at all.
+    expect(dialedSockets).toHaveLength(0);
+    // And the feed says so with its own words and retry — the §7 UX, not a pretend connection.
+    expect(await screen.findByText(t('simple.stream_offline', {}, 'ar'))).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: t('simple.stream_retry', {}, 'ar') })
+    ).toBeInTheDocument();
   });
 });

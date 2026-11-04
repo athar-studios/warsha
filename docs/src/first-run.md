@@ -89,7 +89,7 @@ session.
 
 Step 2 offers **five** provider kinds — OpenRouter, DeepSeek, Kimi (Moonshot), GLM (Zhipu) and Qwen
 (DashScope), each with its base URL prefilled (`apps/desktop/src/screens/Onboarding.tsx:77-84` with
-`ProviderSetupWizard.tsx:37-54`). The names on the buttons are catalog entries
+`apps/desktop/src/components/ProviderSetupWizard.tsx:37-54`). The names on the buttons are catalog entries
 (`packages/i18n/src/index.tsx:66-70`). A sixth kind the code knows, **custom**, is *not* offered in
 the wizard: the choice list keeps only entries that carry a default base URL, and `custom` has none
 (`defaultBaseUrls.custom` is `null`). If your endpoint is not one of the five, add the provider after

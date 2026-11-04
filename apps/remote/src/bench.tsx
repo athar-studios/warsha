@@ -137,6 +137,31 @@ export function stageQueue(run: RunSummary | null, local: Readonly<Record<string
   return rows;
 }
 
+/**
+ * Is this gate the one the run is stopped at, right now, waiting on the owner's hand?
+ *
+ * One comparison, said once: `pending` **and** the stage the run stands on. The conjunction is the whole
+ * rule, and `gates.list` made it necessary: `warshad` answers all four gate stages and defaults every one
+ * of them to `pending` (`crates/warshad/src/lib.rs`, `list_gates` — `run.gate_states` … `unwrap_or_default()`),
+ * so a row that is merely pending says only that nobody has decided it, which is true of three rows out of
+ * four on any ordinary run. §1's "a lit lamp means this needs the owner's hand" is therefore about where the
+ * run stands, not about the row's state, and a plate that ignores this comparison offers a decision the run
+ * has not arrived at.
+ *
+ * That offer is not a hypothetical guard: the daemon takes it. `approve_gate` requires only that the gate is
+ * pending (`crates/warsha-pipeline/src/lib.rs:620-642`) — it never compares the stage to `run.current_stage`
+ * — so a pre-approval silently clears a gate before its work exists, and a pre-`reject` sets
+ * `run.status = Paused` on a run that was nowhere near that gate. The UI is the only surface that can refuse
+ * the claim, which is why this predicate decides whether a decision control is rendered at all.
+ *
+ * The desktop inbox keeps its own copy of the comparison (`apps/desktop/src/screens/GatesInbox.tsx`) because
+ * an app may not import another app; both are pinned by the same truth table in their own test files, so the
+ * two surfaces disagreeing is a failing test rather than a phone that lies.
+ */
+export function gateWaitsOnOwner(gate: Pick<BenchGate, 'stage' | 'state'>, runStage: Stage | null): boolean {
+  return runStage !== null && gate.state.state === 'pending' && gate.stage === runStage;
+}
+
 /** The note a refusal carries. `GateCard` will not send an empty one, so this is a narrowing, not a default. */
 function noteText(note: string | undefined): string {
   return note ?? '';
@@ -181,7 +206,14 @@ export interface RemoteContextValue {
   /** Everything the bench believes about this run's gates, in pipeline order. */
   gates: BenchGate[];
   pendingGates: BenchGate[];
-  /** The one gate the phone puts under the owner's thumb: the oldest still waiting. */
+  /**
+   * The pending gate the run is stopped at, or `null` when no gate is.
+   *
+   * This, not `pendingGates`, is the queue §1 means by "waiting on the owner": a serving daemon reports four
+   * pending stages for a run standing anywhere, and only one of them is the reason the run is not moving.
+   */
+  parkedGate: BenchGate | null;
+  /** The one gate the phone puts under the owner's thumb: the parked one, else the oldest pending. */
   topPendingGate: BenchGate | null;
   gatesState: LoadState;
   gatesSource: GateSource | null;
@@ -551,6 +583,14 @@ export function RemoteProvider({
 
   const pendingGates = useMemo(() => queue.filter((gate) => gate.state.state === 'pending'), [queue]);
 
+  // The gate the phone puts under the owner's thumb is the one the run is stopped at; `pendingGates[0]` is
+  // the fallback for the queue a serving daemon reports whole (all four stages, all four defaulting to
+  // pending), where the oldest pending row is three stages away from the run and is not waiting on anyone.
+  const parkedGate = useMemo(
+    () => pendingGates.find((gate) => gateWaitsOnOwner(gate, run === null ? null : run.stage)) ?? null,
+    [pendingGates, run]
+  );
+
   const value = useMemo<RemoteContextValue>(
     () => ({
       session,
@@ -572,7 +612,8 @@ export function RemoteProvider({
 
       gates: queue,
       pendingGates,
-      topPendingGate: pendingGates[0] ?? null,
+      parkedGate,
+      topPendingGate: parkedGate ?? pendingGates[0] ?? null,
       gatesState,
       gatesSource,
 
@@ -607,6 +648,7 @@ export function RemoteProvider({
       onPair,
       onUnpair,
       pendingGates,
+      parkedGate,
       project,
       projectId,
       projects,

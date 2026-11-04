@@ -109,6 +109,38 @@ export function answeredGates(): GateSummary[] {
 }
 
 /**
+ * The answer a current `warshad` really gives: all four gate stages, and every one the run has no entry
+ * for coming back `pending` — `gates.list` maps `Stage::all()` filtered to gates over
+ * `run.gate_states.get(stage).unwrap_or_default()` (`crates/warshad/src/lib.rs`, `list_gates`).
+ *
+ * This is the shape the parked reading exists for, and the reason the fixture set needed it: `answeredGates`
+ * hand-decides the neighbours of the parked stage, so a queue built from it cannot tell "the gate the run is
+ * stopped at" apart from "every gate that is pending". Handed `RUN` — parked at `gate_b` — this answers with
+ * one parked gate and three the run has not reached, which is what the phone must render as one lit plate
+ * and three names.
+ */
+export function servedGateQueue(): GateSummary[] {
+  return GATE_STAGES.map((stage) => gate(stage, { state: 'pending' })) as GateSummary[];
+}
+
+/**
+ * A run parked at the *first* gate, with the four-stage queue a serving daemon answers for it.
+ *
+ * The state fixture the visual matrix was missing: `RUN` is parked at `gate_b`, and the phone's own default
+ * reading takes the newest run of the newest project, so nothing in the baseline set showed a parked gate at
+ * all (`bridge-io/audit/critique-round-3-states.md` §G1a). `PARKED_RUN` + `servedGateQueue()` is that state,
+ * and it is the same daemon shape as the e2e `parked` scenario (`apps/desktop/e2e/harness.ts`), down to the
+ * `awaiting_gate` status `warshad` gives a run stopped at a gate — a word the phone shows as machine data
+ * rather than guessing at (`labels.ts:runStatusWord`).
+ */
+export const PARKED_RUN: RunSummary = {
+  ...RUN,
+  id: runId('run_5b0e9aa1'),
+  stage: 'gate_a',
+  status: 'awaiting_gate',
+};
+
+/**
  * The refusal a phone meets against a daemon that does not serve `gates.list`. A case that wants to
  * be shown the stage fallback passes this; it is no longer the default, because `warshad` answers
  * the name now (DECISIONS.md 2026-11-03).

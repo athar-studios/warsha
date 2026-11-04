@@ -112,11 +112,18 @@ export function stageWord(stage: string, locale: Locale): string {
  *
  * A status the catalog does not name is shown as machine data rather than guessed at: inventing
  * "completed" for a status called `archived` would be a claim about the owner's work.
+ *
+ * `awaiting_gate` is *not* one of those: it is a state the run genuinely sits in — parked at a gate,
+ * waiting on the owner — and the queue says it in words. Left unmapped it printed the wire name in the
+ * owner's ledger row (`run-gate-a · البوابة أ · awaiting_gate`), an untranslated snake_case identifier
+ * bare between an Arabic label and a mono id, which §11 forbids and §5's primary screen cannot shrug at.
  */
 export function runStatusWord(status: string, locale: Locale): string {
   switch (status) {
     case 'running':
       return t('run.state_running', {}, locale);
+    case 'awaiting_gate':
+      return t('run.state_awaiting_gate', {}, locale);
     case 'completed':
       return t('run.state_completed', {}, locale);
     case 'failed':

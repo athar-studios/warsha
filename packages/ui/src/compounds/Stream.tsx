@@ -4,6 +4,11 @@
 // stream). A line is a millisecond timestamp and the event, and the timestamp is isolated LTR with
 // `translate="no"` so `14:22:07.318` never scrambles inside an Arabic bench.
 //
+// The split is by *payload*, not by row: the timestamp and the kind glyph are machine data and take the
+// mono face, and the event cell takes the face its own words allow. A stage word is prose — `البحث`,
+// `الفكرة` — and prose set in a fixed-advance face arrives on screen with its letters unjoined, which is
+// not the word the owner went looking for.
+//
 // A gate event keeps the signal wash (§6) — the one place the lamp tints a surface instead of filling it —
 // and a gate line is never hidden by a filter. That is the screen's rule, not this component's; what the
 // component guarantees is the colour-free half: a glyph per kind, so `☑` says "gate" before any colour
@@ -14,9 +19,9 @@
 
 import React from 'react';
 
-import { aliasVar, colorVar, fontFamily, fontSize, fontWeight, size, space } from '../tokens';
+import { aliasVar, colorVar, fontSize, fontWeight, size, space } from '../tokens';
 
-import { cx, MACHINE, RULE_BORDER } from './internal';
+import { cx, machineSkin, MACHINE, RULE_BORDER } from './internal';
 
 /** The kinds of event the bench distinguishes. `gate` is the lit one. */
 export type StreamKind = 'default' | 'tool' | 'gate' | 'ok' | 'fail';
@@ -62,6 +67,12 @@ function StreamColor(kind: StreamKind): string {
 }
 
 export function StreamLine({ children, time, kind = 'default', lane, className = '' }: StreamLineProps) {
+  // The line is a ruled ledger, but the ledger's *rule* is its columns, not its face: the timestamp and
+  // the kind are machine data and stay mono, while the event cell takes the face its own words allow. A
+  // stage word in Arabic (`الفكرة`, `البحث`) set in a fixed-advance face loses its join, and the owner
+  // reads `الفكـ رة` instead of a word (§11).
+  const eventSkin = machineSkin([lane, children]);
+
   return (
     <div
       className={cx('warsha-stream-line', className)}
@@ -74,7 +85,6 @@ export function StreamLine({ children, time, kind = 'default', lane, className =
         paddingInline: space(3),
         paddingBlock: space(1),
         borderBlockEnd: RULE_BORDER,
-        fontFamily: fontFamily('mono'),
         fontSize: fontSize('xs'),
         color: StreamColor(kind),
         // A gate line gets the wash: the direction's one surface tint, and it is still not the only cue.
@@ -94,10 +104,23 @@ export function StreamLine({ children, time, kind = 'default', lane, className =
       >
         {time}
       </time>
-      <span aria-hidden="true" style={{ textAlign: 'center', fontWeight: fontWeight('bold') }}>
+      <span
+        aria-hidden="true"
+        style={{
+          ...MACHINE,
+          textAlign: 'center',
+          fontWeight: fontWeight('bold'),
+        }}
+      >
         {STREAM_GLYPH[kind]}
       </span>
-      <span style={{ minInlineSize: 0, overflowWrap: 'anywhere' }}>
+      <span
+        style={{
+          minInlineSize: 0,
+          overflowWrap: 'anywhere',
+          ...eventSkin,
+        }}
+      >
         {lane && (
           <span style={{ color: colorVar('textMuted'), marginInlineEnd: space(2) }}>{lane}</span>
         )}
@@ -117,7 +140,8 @@ function StreamRoot({ children, label, className = '', style }: StreamProps) {
       style={{
         display: 'grid',
         alignContent: 'start',
-        fontFamily: fontFamily('mono'),
+        // The feed's face is decided per cell, not here: a whole line set in mono puts an Arabic stage
+        // word in a fixed-advance face, and the join is cut (§11, and `machineSkin`).
         fontSize: fontSize('xs'),
         backgroundColor: colorVar('surface'),
         borderBlockEnd: RULE_BORDER,

@@ -50,6 +50,18 @@ import { defineConfig } from '@playwright/test';
  * look aligned on the capture host and render grayscale on a fresh CI runner, which is exactly the
  * 10k–25k-pixel failure class the pin exists to prevent. macOS and Windows do not read fontconfig and
  * are left exactly as they were.
+ *
+ * The fontconfig pin covers the *font* half of the bit-exact contract. The browser half — screen
+ * geometry, locale, timezone, device scale factor, reduced motion — is pinned in `use` below; there
+ * is no rasterizer flag that also pins it. Chromium's software rasterizer is not bit-deterministic on
+ * curved and shadowed edges: two captures of one tree and one case differ by 10–60 px at 1–2 levels
+ * (measured both ways, `PROGRESS.md` 2026-11-04 #45). `--disable-lcd-text` /
+ * `--font-render-hinting=none` / `--disable-font-subpixel-positioning` were tried and REVERTED: they
+ * moved 28% of pixels (grayscale AA is not what the app ships with) and the residual variance got
+ * larger, not zero. So the contract is: `maxDiffPixelRatio: 0` still fails a case on *any* pixel that
+ * differs structurally, while `threshold: 0.05` (~13/255) tolerates antialiasing noise up to the
+ * measured maximum (11 levels). A moved edge or a shifted line differs by far more than that and still
+ * fails — the tolerance is on *how much*, not on *how many*.
  */
 
 /** The repo-managed fontconfig that pins the baselines' AA mode; Linux only. */
@@ -123,9 +135,13 @@ export default defineConfig({
   expect: {
     timeout: 15_000,
     toHaveScreenshot: {
-      // A layout check that tolerates drift is not a layout check.
+      // A layout check that tolerates drift is not a layout check. `maxDiffPixelRatio: 0` means a
+      // single structurally different pixel fails the case; `threshold: 0.05` (~13/255 per pixel)
+      // tolerates antialiasing noise up to the measured maximum (11 levels, 10-38 px, on curved and
+      // shadowed edges, random per capture — PROGRESS.md 2026-11-04 #45). A moved edge or a shifted
+      // line differs by far more than 13 levels and still fails.
       maxDiffPixelRatio: 0,
-      threshold: 0,
+      threshold: 0.05,
       animations: 'disabled',
       caret: 'hide',
       scale: 'css',

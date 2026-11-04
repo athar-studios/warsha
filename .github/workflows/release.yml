@@ -60,24 +60,37 @@ jobs:
       - name: Extract version from tag
         id: version
         run: |
-          TAG=${GITHUB_REF#refs/tags/}
-          VERSION=${TAG#v}
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          # Quoted "${GITHUB_OUTPUT}" (SC2086) and one redirect for both writes
+          # (SC2129): an unquoted output path word-splits on a runner whose temp
+          # path contains a space, which silently drops the job outputs the three
+          # downstream jobs read via needs.prepare.outputs.
+          {
+            echo "tag=${TAG}"
+            echo "version=${VERSION}"
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Generate release notes
         id: notes
         run: |
           # Generate changelog from commits since last tag
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          PREV_TAG=$(git describe --tags --abbrev=0 'HEAD^' 2>/dev/null || echo "")
           if [ -n "$PREV_TAG" ]; then
-            NOTES=$(git log $PREV_TAG..HEAD --pretty=format:"- %s (%an)" --reverse)
+            # "$PREV_TAG..HEAD" quoted (SC2086): a tag name is a single ref, but
+            # an unquoted expansion here also globs, so a tag containing `*` or
+            # `?` would be rewritten by pathname expansion before git saw it.
+            NOTES=$(git log "$PREV_TAG..HEAD" --pretty=format:"- %s (%an)" --reverse)
           else
             NOTES=$(git log --pretty=format:"- %s (%an)" --reverse)
           fi
-          echo "notes<<EOF" >> $GITHUB_OUTPUT
-          echo "$NOTES" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          # The three GITHUB_OUTPUT writes are grouped under one redirect
+          # (SC2129) and the path is quoted (SC2086), same reason as the step above.
+          {
+            echo "notes<<EOF"
+            echo "$NOTES"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
 
   # ============================================================
   # Rust: Build CLI and daemon
@@ -213,10 +226,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # package.json's `"packageManager": "pnpm@9.0.0"` is the single source of
+      # truth for the pnpm version; `version: 9` here used to contradict it and
+      # makes pnpm/action-setup@v4 abort with "Multiple versions of pnpm
+      # specified" (the failure that killed ci.yml's TypeScript job in run
+      # 41752421903). pnpm setup stays BEFORE setup-node, because setup-node's
+      # `cache: 'pnpm'` needs pnpm already resolvable on PATH.
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
           run_install: false
 
       - name: Setup Node.js
@@ -304,18 +322,118 @@ jobs:
       - name: List artifacts
         run: find artifacts -type f -name "*" | sort
 
-      # cargo-deny is an advisory/ban/license gate; it never produced an SBOM, and the
-      # name this step used to carry ("Generate SBOM (CycloneDX)") plus its inline
-      # comment claiming "cargo-deny can generate SPDX" were both false. With no
-      # deny.toml in the repository, cargo-deny walks up from the manifest looking for
-      # one and then, per its own source, logs "unable to find a config path, falling
-      # back to default config" — so this runs cargo-deny's default policy, the same
-      # policy the CI job runs, and it can fail the release. Tightening it is an owner
-      # decision to add deny.toml, not something this workflow can pretend to enforce.
+      # cargo-deny is the advisory/ban/license gate; it never produced an SBOM, and
+      # the name this step used to carry ("Generate SBOM (CycloneDX)") plus its inline
+      # comment claiming "cargo-deny can generate SPDX" were both false.
+      #
+      # EmbarkStudios/cargo-deny-action@v1 is removed here for the same reason it is
+      # removed from ci.yml's Rust legs: it is a Docker container action
+      # (`runs: using: "docker"`), and its image's cargo cannot parse this repo's
+      # Cargo.lock (`version = 4`, needs cargo >= 1.78) — run 41752421903 showed
+      # "failed to parse lock file at: /github/workspace/Cargo.lock" from both
+      # cargo-deny and `cargo metadata` inside that container. As a normal step this
+      # job uses its own runner cargo. Full rationale, and the per-triple sha256
+      # provenance, is on ci.yml's "Install cargo-deny" step; this is the identical
+      # script so there is one mechanism, not two. No continue-on-error: a finding
+      # fails the release, which is the point.
+      #
+      # deny.toml now exists at the repository root, so this no longer runs
+      # cargo-deny's built-in default policy (whose [licenses] allow list is empty and
+      # therefore denies every license). Its allow list is the license set measured
+      # from this workspace's own dependency graph; see that file's header.
+      - name: Install cargo-deny 0.20.2 (pinned, checksum-verified)
+        shell: bash
+        env:
+          CARGO_DENY_VERSION: 0.20.2
+        run: |
+          set -euo pipefail
+          case "$(uname -s)" in
+            Linux) os_tag="unknown-linux-musl" ;;
+            Darwin) os_tag="apple-darwin" ;;
+            MINGW*|MSYS*|CYGWIN*) os_tag="pc-windows-msvc" ;;
+            *)
+              echo "::error::cargo-deny: unsupported kernel '$(uname -s)'"
+              exit 1
+              ;;
+          esac
+          case "$(uname -m)" in
+            x86_64|amd64) arch_tag="x86_64" ;;
+            arm64|aarch64) arch_tag="aarch64" ;;
+            *)
+              echo "::error::cargo-deny: unsupported architecture '$(uname -m)'"
+              exit 1
+              ;;
+          esac
+          target="${arch_tag}-${os_tag}"
+          case "${target}" in
+            x86_64-unknown-linux-musl)
+              expected_sha="9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f"
+              ;;
+            aarch64-unknown-linux-musl)
+              expected_sha="995c82be0defc7a025cae49a2aa2644ce8245c9a3318fc4103907c6a285e8c7d"
+              ;;
+            x86_64-apple-darwin)
+              expected_sha="248da7f581724e470071990c088ffc55c811981715f4cbdb258621fb79f8b7a6"
+              ;;
+            aarch64-apple-darwin)
+              expected_sha="fe67d82a10d8597a3549364cb733a3f9cc1bfff9031b7ae46384a9f2a72090c3"
+              ;;
+            x86_64-pc-windows-msvc)
+              expected_sha="975a22143262fd27476d19ee00c7af67978426e40e1dee94eed6bbade1cf87dc"
+              ;;
+            *)
+              echo "::error::cargo-deny ${CARGO_DENY_VERSION} publishes no prebuilt asset for ${target}"
+              exit 1
+              ;;
+          esac
+          asset="cargo-deny-${CARGO_DENY_VERSION}-${target}.tar.gz"
+          archive="${RUNNER_TEMP}/${asset}"
+          curl -sSfL --retry 3 -o "${archive}" \
+            "https://github.com/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}/${asset}"
+          # sha256sum on Linux and on Git-for-Windows (MSYS coreutils); macOS
+          # ships no sha256sum but does ship shasum. Anything else fails the job.
+          if command -v sha256sum >/dev/null 2>&1; then
+            actual_sha="$(sha256sum "${archive}" | cut -d' ' -f1)"
+          elif command -v shasum >/dev/null 2>&1; then
+            actual_sha="$(shasum -a 256 "${archive}" | cut -d' ' -f1)"
+          else
+            echo "::error::cargo-deny: neither sha256sum nor shasum found on ${target}"
+            exit 1
+          fi
+          if [ "${actual_sha}" != "${expected_sha}" ]; then
+            echo "::error::${asset} checksum mismatch: got ${actual_sha}, expected ${expected_sha}"
+            exit 1
+          fi
+          bindir="${HOME}/.cargo-deny-bin"
+          rm -rf "${bindir}"
+          mkdir -p "${bindir}"
+          # Each asset wraps one top-level directory, so strip it: the unix
+          # assets carry `cargo-deny`, the Windows one carries `cargo-deny.exe`.
+          tar -xzf "${archive}" -C "${bindir}" --strip-components=1
+          chmod +x "${bindir}/cargo-deny"*
+          if [ -x "${bindir}/cargo-deny" ]; then
+            deny_bin="${bindir}/cargo-deny"
+          else
+            deny_bin="${bindir}/cargo-deny.exe"
+          fi
+          # Prove the pinned artifact is what actually runs before trusting it.
+          case "$("${deny_bin}" --version)" in
+            *"${CARGO_DENY_VERSION}"*) ;;
+            *)
+              echo "::error::expected cargo-deny ${CARGO_DENY_VERSION}, got: $("${deny_bin}" --version)"
+              exit 1
+              ;;
+          esac
+          echo "cargo-deny ${CARGO_DENY_VERSION} installed for ${target} from a checksum-verified asset"
+          echo "${bindir}" >> "${GITHUB_PATH}"
+
       - name: Run cargo-deny
-        uses: EmbarkStudios/cargo-deny-action@v1
-        with:
-          command: check
+        shell: bash
+        run: |
+          set -euo pipefail
+          # --all-features is kept because it is the old action's default argument,
+          # so the checked graph is unchanged.
+          cargo deny --manifest-path Cargo.toml --all-features check
 
       # Real CycloneDX generation. Tool check, not a guess: the crate `cyclonedx-bom`
       # (0.8.1) is a LIBRARY — its published Cargo.toml declares [lib] and no [[bin]] —
@@ -347,11 +465,28 @@ jobs:
           cp crates/warshad/warshad.cdx.xml artifacts/sbom-daemon.cdx.xml
 
       - name: Generate SHA256 checksums
+        shell: bash
         run: |
           set -euo pipefail
           cd artifacts
-          test -n "$(find . -maxdepth 1 -type f ! -name '*.sha256' -print -quit)"
-          sha256sum $(find . -type f ! -name "*.sha256" | sort) > checksums.sha256
+          # The artifact list is collected ONCE into an array, NUL-delimited. This
+          # replaces `sha256sum $(find . -type f ...)` — SC2046: the unquoted command
+          # substitution word-splits and globs, so a single path containing a space
+          # was hashed as two nonexistent arguments, and a path containing `*` was
+          # rewritten by pathname expansion, either way still exiting 0.
+          files=()
+          while IFS= read -r -d '' f; do
+            files+=("$f")
+          done < <(find . -type f ! -name '*.sha256' -print0 | sort -z)
+          # The guard now checks the SAME recursive set the checksums are built from.
+          # It previously looked only at -maxdepth 1, so an artifacts/ tree holding
+          # only nested files passed the guard while the (different) recursive glob
+          # decided what actually got hashed.
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::no artifacts to checksum under $(pwd)"
+            exit 1
+          fi
+          sha256sum "${files[@]}" > checksums.sha256
           test -s checksums.sha256
           cat checksums.sha256
 
@@ -454,7 +589,7 @@ jobs:
 
       - name: Create winget manifest
         run: |
-          VERSION=${{ needs.prepare.outputs.version }}
+          VERSION="${{ needs.prepare.outputs.version }}"
           mkdir -p manifests/winget
           cat > manifests/winget/warsha.yaml <<EOF
           PackageIdentifier: Warsha.Warsha
@@ -477,11 +612,18 @@ jobs:
 
       - name: Create Homebrew formula
         run: |
-          VERSION=${{ needs.prepare.outputs.version }}
+          VERSION="${{ needs.prepare.outputs.version }}"
           mkdir -p manifests/homebrew
+          # The heredoc is unquoted so $VERSION and the RELEASE_REPO expression
+          # expand; `version "$VERSION"` is emitted because the `url` line below
+          # interpolates `#{version}` — without an explicit version (or a URL Homebrew
+          # can parse it from) `#{version}` has nothing to resolve to. This also
+          # resolves shellcheck's SC2034: VERSION was assigned here and never used,
+          # so the step generated a formula that could not state its own version.
           cat > manifests/homebrew/warsha.rb <<EOF
           class Warsha < Formula
             desc "Arabic-first AI software factory"
+            version "$VERSION"
             homepage "https://github.com/${{ env.RELEASE_REPO }}"
             url "https://github.com/${{ env.RELEASE_REPO }}/archive/refs/tags/v#{version}.tar.gz"
             sha256 "PLACEHOLDER_SHA256"
@@ -502,7 +644,7 @@ jobs:
 
       - name: Create Scoop manifest
         run: |
-          VERSION=${{ needs.prepare.outputs.version }}
+          VERSION="${{ needs.prepare.outputs.version }}"
           mkdir -p manifests/scoop
           cat > manifests/scoop/warsha.json <<EOF
           {
@@ -546,16 +688,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Order matters and used to be backwards: actions/setup-node's
+      # `cache: 'pnpm'` resolves the pnpm executable to locate its store, so it
+      # must run AFTER pnpm/action-setup, not before. Same single source of truth
+      # for the version as every other job — no `version:` input, package.json's
+      # `"packageManager": "pnpm@9.0.0"` decides.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'pnpm'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - name: Install mdBook
         run: cargo install mdbook mdbook-mermaid --locked

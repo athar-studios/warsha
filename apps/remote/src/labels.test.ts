@@ -103,7 +103,7 @@ describe('gateRecordNote and gateRecordWord', () => {
 describe('stageWord', () => {
   it('names a gate with the gate words and a pipeline stage with the stage words', () => {
     expect(stageWord('gate_b', 'en')).toBe('Gate B');
-    expect(stageWord('gate_b', 'ar')).toBe('البوابة ب');
+    expect(stageWord('gate_b', 'ar')).toBe('البوّابة ب');
     expect(stageWord('code', 'en')).toBe('Code');
     expect(stageWord('review_qa_security', 'en')).toBe('Review/QA/Sec');
   });

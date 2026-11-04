@@ -249,11 +249,20 @@ html {
   list-style: none;
   margin: 0;
   padding: 0;
+  /* The bar is bound to the plate and slides sideways inside itself — the settings strip's disclosure
+     (`@warsha/ui` `Tabs`, and `.bench-settings-tabs` in the desktop sheet): an explicit cross-axis
+     maximum, because Arabic min-content sizing will otherwise grow the row past the 390px viewport. */
+  inline-size: 100%;
+  max-inline-size: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .app-nav-list > li {
-  flex: 1 1 0;
-  min-inline-size: 0;
+  /* Grow to fill the bar; never shrink below the label. A word may not be broken, so the item that does
+     not fit takes the bar's scroll instead of folding itself in half — and the row, not the page, is
+     what scrolls (§10's overflow gate). */
+  flex: 1 0 auto;
   display: flex;
 }
 
@@ -263,7 +272,10 @@ html {
   inline-size: 100%;
   color: var(--warsha-color-text);
   border-block-start: var(--warsha-size-edge) solid transparent;
-  overflow-wrap: anywhere;
+  /* One word, one line. `overflow-wrap: anywhere` used to live here, and it is exactly what let the
+     phone's tab bar cut `البوّابات` in half with an orphan `ت` beside the badge — the tab that carries
+     the lit lamp. A joined script cannot survive a break inside the word, and neither can `Gates`. */
+  white-space: nowrap;
 }
 
 .app-nav-item[aria-current='page'] {
@@ -393,7 +405,8 @@ html {
 
 /* ================================================================================== breakpoints */
 
-/* 320: the bar keeps its five places and the labels wrap; nothing may widen the page (§10's gate). */
+/* 320: the bar keeps its five places at the smaller type step, and the row scrolls to the one that no
+   longer fits — no label is broken, and nothing widens the page (§10's gate). */
 @media (max-width: 359px) {
   .app-topbar {
     align-items: flex-start;
@@ -433,6 +446,9 @@ html {
   .app-nav-list {
     flex-direction: column;
     align-items: stretch;
+    /* The rail stacks instead of sliding: its rows are never wider than the rail's own token width, so
+       the phone's sideways disclosure is turned off here rather than inherited into the desktop. */
+    overflow-x: visible;
   }
 
   .app-nav-list > li {

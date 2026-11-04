@@ -15,7 +15,7 @@ import { SESSION, renderRemote, settle } from './testkit';
 const ROUTES: readonly { route: string; session: typeof SESSION | null; heading: string }[] = [
   { route: '/', session: null, heading: 'بانتظارك' },
   { route: '/', session: SESSION, heading: 'بانتظارك' },
-  { route: '/gates', session: SESSION, heading: 'صندوق الوارد للبوابات' },
+  { route: '/gates', session: SESSION, heading: 'صندوق الوارد للبوّابات' },
   { route: '/run', session: SESSION, heading: 'التشغيل الحالي' },
   { route: '/projects', session: SESSION, heading: 'لوحة المشاريع' },
   { route: '/settings', session: SESSION, heading: 'الإعدادات' },

@@ -59,6 +59,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { PermissionModeChip, type PermissionMode } from '../components/PermissionModeChip';
 import { PlanModeBadge, type AgentMode } from '../components/PlanModeBadge';
+import type { DaemonEndpoint } from '../daemon';
 import {
   preflightCheckNames,
   preflightReady,
@@ -75,13 +76,16 @@ interface AdvancedModeProps {
   project: ProjectSummary;
   onBack?: () => void;
   /**
-   * Where the daemon is: the HTTP base it answers on and the token that reaches it.
+   * The endpoint the shell resolved from the Tauri config
+   * (`apps/desktop/src/daemon.ts`).
    *
-   * The shell resolves both from the Tauri config (`daemon_url` / `daemon_token` in
-   * `apps/desktop/src-tauri/src/lib.rs`) and passes them down, so this screen never names a port or a
-   * secret of its own.
+   * The event stream opens on `eventsUrl` — the `/events` endpoint as the shell reports it, a
+   * `ws:` URL on the daemon's HTTP listener, which is *not* the RPC base `baseUrl` — and
+   * authenticates with `token`, the session's own credential. This screen names no port and no
+   * secret of its own, and derives no socket URL from the RPC base: the events port is a
+   * different listener and cannot be guessed from it.
    */
-  endpoint: { baseUrl: string; token: string };
+  endpoint: DaemonEndpoint;
 }
 
 /** Which pane the side column shows. */
@@ -129,9 +133,12 @@ function stageWord(stage: string, locale: Locale): string {
   return t(stage.startsWith('gate_') ? `gates.label.${stage}` : `run.stage.${stage}`, {}, locale);
 }
 
-/** The three run states the bench names; anything else is the daemon's own word, in mono. */
+/** The run states the bench names; anything else is the daemon's own word, in mono. */
 export function runStateWord(status: string, locale: Locale): string {
-  const known = ['running', 'completed', 'failed'];
+  // `awaiting_gate` is the state the daemon puts a run in when it stops for the owner's decision. It is
+  // not an unknown word to be printed raw: a snake_case wire name inside an Arabic ledger row breaks §11's
+  // rule that a machine fragment never sits bare in an Arabic sentence.
+  const known = ['running', 'awaiting_gate', 'completed', 'failed'];
   return known.includes(status) ? t(`run.state_${status}`, {}, locale) : status;
 }
 
@@ -179,16 +186,12 @@ export function todoState(status: AgentTodo['status']): 'done' | 'running' | 'to
 }
 
 /**
- * The `/events` address for a daemon base URL.
- *
- * `subscribeEvents` appends `/events` to whatever it is given and opens a WebSocket, so an `http://`
- * base has to become `ws://` (and `https://` → `wss://`) before it gets there — a socket to an `http:`
- * URL is rejected by the browser, which is the difference between a live bench and a permanently
- * offline one.
+ * The `/events` socket is opened from the shell's resolved `endpoint.eventsUrl` — see
+ * `AdvancedModeProps`. There is deliberately no URL-deriving helper here: the http→ws scheme
+ * conversion lives in one place (`eventEndpoint` in `@warsha/client`, under `subscribeEvents`),
+ * and the events port is a different listener from the RPC base, so it is read from the shell,
+ * never derived.
  */
-export function eventStreamUrl(baseUrl: string): string {
-  return baseUrl.replace(/^http/i, 'ws');
-}
 
 /** `$4.20` — Western digits, two decimals, mono upstream (§11). */
 function money(usd: number): string {
@@ -331,7 +334,7 @@ export function AdvancedMode({ client, project, onBack, endpoint }: AdvancedMode
     setStreamOffline(false);
 
     const subscription = subscribeEvents({
-      url: eventStreamUrl(endpoint.baseUrl),
+      url: endpoint.eventsUrl,
       token: endpoint.token,
       onEvent: (event) => {
         setStreamOffline(false);
@@ -343,7 +346,7 @@ export function AdvancedMode({ client, project, onBack, endpoint }: AdvancedMode
       },
     });
     return () => subscription.close();
-  }, [endpoint.baseUrl, endpoint.token, run, streamNonce]);
+  }, [endpoint.eventsUrl, endpoint.token, run, streamNonce]);
 
   const lanes: Lane[] = useMemo(() => {
     const byKey = new Map<string, Lane>();
@@ -621,7 +624,16 @@ export function AdvancedMode({ client, project, onBack, endpoint }: AdvancedMode
                       kind={eventStreamKind(event)}
                       lane={event.role === null ? undefined : t(`role.${event.role}`, {}, locale)}
                     >
-                      <span dir="ltr" translate="no">{`${event.kind} · ${stageWord(event.stage, locale)}`}</span>
+                      {/*
+                        Only the daemon's own kind name is machine data, so only it is isolated LTR. The
+                        stage beside it is the catalog's word (`البحث`), and a `dir="ltr"` around the whole
+                        line re-ordered it for an Arabic reader and pinned the word to the wrong edge (§11:
+                        an embedded fragment sits in its own isolated span, never bare and never wider).
+                      */}
+                      <span dir="ltr" translate="no" style={{ unicodeBidi: 'isolate' }}>
+                        {event.kind}
+                      </span>
+                      {` · ${stageWord(event.stage, locale)}`}
                       {event.costCents !== null && ` · $${(event.costCents / 100).toFixed(4)}`}
                     </Stream.Line>
                   ))}

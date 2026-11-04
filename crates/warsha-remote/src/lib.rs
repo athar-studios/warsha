@@ -36,6 +36,15 @@ pub enum RemoteError {
     ReplayAttack,
     #[error("QR code generation failed: {0}")]
     QrCode(String),
+    /// The daemon's own address was missing or blank where a pairing link needed it.
+    ///
+    /// Its own variant rather than [`RemoteError::Handshake`], because a caller that
+    /// sees it is not looking at a failed negotiation: the daemon has no resolved
+    /// listening address to advertise yet, which is a configuration or startup-order
+    /// fact the owner can act on. The message names the problem and never repeats a
+    /// credential.
+    #[error("Pairing origin error: {0}")]
+    PairingOrigin(String),
     #[error("Relay error: {0}")]
     Relay(String),
     #[error("Serialization error: {0}")]
@@ -153,19 +162,20 @@ impl PairingData {
         })
     }
 
+    /// The pairing encoded as a QR plate.
+    ///
+    /// What the plate carries is the pairing's own JSON. That is the right payload for
+    /// a *device* that reads its pairing back as a struct — which is what
+    /// [`PairingData::from_qr_code`] and `crates/warsha-cli` do — and it is the wrong
+    /// payload for a phone that has to open the daemon's address: the phone app parses
+    /// its session off a URL (`apps/remote/src/session.ts`), so a plate that carries a
+    /// struct tells it nothing it can dial. For that plate use
+    /// [`PairingData::pairing_link`] rendered by [`qr_code_png_base64`], which is what
+    /// `devices.pair-start` returns.
     pub fn to_qr_code(&self) -> Result<String> {
-        let data = serde_json::to_vec(self)?;
-        let code = QrCode::new(&data).map_err(|e| RemoteError::QrCode(e.to_string()))?;
-        let image = code.render::<Luma<u8>>().build();
-
-        // Convert to base64 PNG using Cursor which implements Write + Seek
-        let mut png_data = Vec::new();
-        let mut cursor = Cursor::new(&mut png_data);
-        image
-            .write_to(&mut cursor, image::ImageFormat::Png)
-            .map_err(|e| RemoteError::QrCode(e.to_string()))?;
-
-        Ok(BASE64_STANDARD.encode(png_data))
+        let json = serde_json::to_vec(self)?;
+        let text = String::from_utf8(json).map_err(|e| RemoteError::QrCode(e.to_string()))?;
+        qr_code_png_base64(&text)
     }
 
     pub fn from_qr_code(base64_png: &str) -> Result<Self> {
@@ -227,6 +237,155 @@ impl PairingData {
     pub fn secret_from_token(token: &str) -> Option<[u8; 32]> {
         let decoded = BASE64_URL_SAFE_NO_PAD.decode(token.trim()).ok()?;
         decoded.try_into().ok()
+    }
+
+    /// The URL a phone opens to become the device this pairing names.
+    ///
+    /// ## Why the link exists at all
+    ///
+    /// `PairingData` carries `relay_url` and no field for the daemon's own address, so
+    /// a plate printed from it does not tell a phone where to connect. This is the
+    /// answer that keeps that wire type unchanged: the origin is supplied by the daemon
+    /// that *serves* the pairing, at the moment it hands the pairing out, and the two
+    /// are joined here rather than stored. The alternative — a `server_origin` field on
+    /// `PairingData` — would put an address that changes every restart (and every
+    /// dynamic port) into a credential record that a device stores, a test fixture and
+    /// a QR payload, and would churn `crates/warsha-remote`, `@warsha/client`'s
+    /// `PairingData`, `devices_pair.rs` and the harness stub for a value the daemon
+    /// already knows better than the record does.
+    ///
+    /// ## The shape
+    ///
+    /// `<origin>/?server=<origin>&token=<secret_token>` — the PWA-and-daemon link
+    /// `apps/remote/src/session.ts::parsePairingLink` accepts in both of its forms
+    /// (the `server` parameter is what a link hosted away from the daemon needs, and a
+    /// link whose own origin is the daemon reads the same either way).
+    ///
+    /// **The result carries a bearer credential.** Render it as a QR plate, never as
+    /// text, log the [`PairingData::server_origin`] beside it rather than it, and do not
+    /// write it to a file — the same rule [`PairingData::secret_token`] carries.
+    pub fn pairing_link(&self, server_origin: &str) -> Result<String> {
+        let origin = server_origin.trim();
+        if origin.is_empty() {
+            return Err(RemoteError::PairingOrigin(
+                "a pairing link needs the origin a device should dial".to_string(),
+            ));
+        }
+        Ok(format!(
+            "{origin}/?server={}&token={}",
+            percent_encode_component(origin),
+            self.secret_token()
+        ))
+    }
+}
+
+/// The bytes a URI component may carry unescaped (RFC 3986 unreserved), which is the
+/// set JavaScript's `encodeURIComponent` leaves alone.
+const UNRESERVED: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~";
+
+/// `value` as it must be spelled inside a query component.
+///
+/// Matched to `encodeURIComponent` rather than to a general URI encoder, because the
+/// reader of this link is a browser (`URLSearchParams`), and the difference shows up
+/// only where the two disagree: `:` and `/` are escaped by `encodeURIComponent` and
+/// must be escaped here, or `?server=https%3A%2F%2F…` arrives as a link whose own
+/// authority is the *daemon's* host with a scheme inside its path. Non-ASCII is escaped
+/// as its UTF-8 bytes, percent-encoded one byte at a time, exactly as the browser does.
+fn percent_encode_component(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.as_bytes() {
+        if UNRESERVED.contains(byte) {
+            out.push(*byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+/// Render `text` as a QR plate: a base64-encoded PNG.
+///
+/// Arbitrary text, because the payload a phone needs is a URL and not a struct — see
+/// [`PairingData::to_qr_code`] for the struct-shaped plate the CLI still reads.
+pub fn qr_code_png_base64(text: &str) -> Result<String> {
+    let code = QrCode::new(text.as_bytes()).map_err(|e| RemoteError::QrCode(e.to_string()))?;
+    let image = code.render::<Luma<u8>>().build();
+
+    // Convert to base64 PNG using Cursor which implements Write + Seek
+    let mut png_data = Vec::new();
+    let mut cursor = Cursor::new(&mut png_data);
+    image
+        .write_to(&mut cursor, image::ImageFormat::Png)
+        .map_err(|e| RemoteError::QrCode(e.to_string()))?;
+
+    Ok(BASE64_STANDARD.encode(png_data))
+}
+
+/// What `devices.pair-start` hands the desktop: a pairing, the origin it is reachable
+/// at, and a plate a phone can actually read.
+///
+/// This is the daemon's answer to "the QR carries no address". `server_origin` is the
+/// daemon's *resolved* listening address — the host it bound plus the port it ended up
+/// on, which is not necessarily the port its configuration named (both listeners accept
+/// `0`) — so the three fields can never disagree with each other or with the socket the
+/// daemon really opened. `loopback_only` is the honest caveat: an owner pairing a phone
+/// over a `127.0.0.1` bind has minted a link no phone can open, and the screen has to
+/// say so rather than show a plate that cannot work.
+///
+/// `pairing_link` and the secret inside it are a bearer credential, so this type's
+/// `Debug` prints the origin and the expiry and redacts everything else — the same rule
+/// [`PairingData`] follows and for the same reason (audit N-1).
+#[derive(Clone)]
+pub struct PairingOffer {
+    /// The pairing itself: what the redeeming `devices.pair` call binds.
+    pub pairing: PairingData,
+    /// Where the daemon is listening, as `http://<host>:<port>`. Never a secret.
+    pub server_origin: String,
+    /// The link a phone opens. **A bearer credential — see above.**
+    pub pairing_link: String,
+    /// [`PairingOffer::pairing_link`] as a base64 PNG plate.
+    pub qr_code_png: String,
+    /// True when `server_origin` is inside the loopback range, so the link reaches this
+    /// machine only and a phone cannot use it.
+    pub loopback_only: bool,
+}
+
+impl PairingOffer {
+    /// Mint the pairing and render its plate against `server_origin`.
+    pub fn new(
+        device: &DeviceIdentity,
+        server_origin: &str,
+        relay_url: Option<String>,
+        loopback_only: bool,
+    ) -> Result<Self> {
+        let pairing = PairingData::new(device, relay_url)?;
+        let pairing_link = pairing.pairing_link(server_origin)?;
+        let qr_code_png = qr_code_png_base64(&pairing_link)?;
+        Ok(Self {
+            pairing,
+            server_origin: server_origin.to_string(),
+            pairing_link,
+            qr_code_png,
+            loopback_only,
+        })
+    }
+
+    /// When the minted pairing stops being usable.
+    pub fn expires_at(&self) -> DateTime<Utc> {
+        self.pairing.expires_at
+    }
+}
+
+impl fmt::Debug for PairingOffer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PairingOffer")
+            .field("server_origin", &self.server_origin)
+            .field("loopback_only", &self.loopback_only)
+            .field("expires_at", &self.pairing.expires_at)
+            .field("pairing", &self.pairing)
+            .field("pairing_link", &"<redacted>")
+            .field("qr_code_png", &"<redacted image>")
+            .finish()
     }
 }
 
@@ -958,5 +1117,162 @@ mod tests {
             trust.authenticate_now(&rotated.pairing_secret),
             Some(device.device_id)
         );
+    }
+
+    /// The encoder `to_qr_code` was refactored onto, pinned on its own because the
+    /// pairing plate the daemon prints now goes through it with a URL in it.
+    #[test]
+    fn a_qr_plate_is_a_decodable_png_of_the_text_it_was_handed() {
+        let plate =
+            qr_code_png_base64("http://127.0.0.1:8766/?token=abc").expect("a plate renders");
+        let bytes = BASE64_STANDARD.decode(&plate).expect("the plate is base64");
+        assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n", "not a PNG: {bytes:?}");
+        // The struct plate still renders, so the refactor did not take the CLI's
+        // payload form away (`to_qr_code` and `from_qr_code` still round-trip its JSON).
+        let device = DeviceIdentity::generate("Phone".to_string()).unwrap();
+        let pairing = PairingData::new(&device, None).expect("a pairing is built");
+        let struct_plate = pairing.to_qr_code().expect("the struct plate renders");
+        assert_eq!(
+            &BASE64_STANDARD.decode(struct_plate).expect("base64")[..8],
+            b"\x89PNG\r\n\x1a\n"
+        );
+    }
+
+    /// The exact escaped spelling the phone app's own tests hand `URLSearchParams`
+    /// (`apps/remote/src/session.test.ts:24`), pinned here because the two encoders
+    /// disagreeing on `:` or `/` would make a pairing link parse as a different host.
+    #[test]
+    fn a_pairing_origin_escapes_exactly_as_encodeuri_component_does() {
+        assert_eq!(
+            percent_encode_component("http://10.0.0.5:8766"),
+            "http%3A%2F%2F10.0.0.5%3A8766"
+        );
+        assert_eq!(
+            percent_encode_component("https%3A%2F%2Fx"),
+            "https%253A%252F%252Fx",
+            "an already-escaped value was not escaped again"
+        );
+        // Letters, digits, `-`, `_`, `.` and `~` keep their spelling; everything else,
+        // including the port separator `:`, is escaped — which is what
+        // `encodeURIComponent` does and what a browser therefore reads back exactly.
+        assert_eq!(percent_encode_component("192.168.1.20"), "192.168.1.20");
+        assert_eq!(percent_encode_component("a-b_c.d~e"), "a-b_c.d~e");
+        assert_eq!(percent_encode_component("http://x"), "http%3A%2F%2Fx");
+        // Non-ASCII goes out as its UTF-8 bytes, one escape per byte, as a browser does.
+        assert_eq!(percent_encode_component("é"), "%C3%A9");
+    }
+
+    #[test]
+    fn a_pairing_link_names_the_daemon_to_dial_and_the_token_to_present() {
+        let device = DeviceIdentity::generate("Phone".to_string()).unwrap();
+        let pairing = PairingData::new(&device, None).expect("a pairing is built");
+        let origin = "http://192.168.1.20:8766";
+
+        let link = pairing.pairing_link(origin).expect("a link is built");
+        assert!(
+            link.starts_with("http://192.168.1.20:8766/?server="),
+            "the link does not open the daemon's own origin: {link}"
+        );
+        assert!(
+            link.contains("server=http%3A%2F%2F192.168.1.20%3A8766"),
+            "the `server` parameter is not the escaped origin a browser can read back: {link}"
+        );
+        // The token is the pairing secret's bearer form, which is what a relay's trust
+        // list and the daemon's session store both authenticate — so the link and the
+        // credential are the same value decided in one place.
+        assert!(
+            link.ends_with(&format!("&token={}", pairing.secret_token())),
+            "the link carries a token that is not this pairing's: {link}"
+        );
+        // Surrounding whitespace in a configured origin is not a second origin.
+        assert_eq!(
+            pairing
+                .pairing_link(&format!(" {origin} "))
+                .expect("a padded origin is still one"),
+            link
+        );
+    }
+
+    #[test]
+    fn a_blank_pairing_origin_is_refused_without_repeating_a_credential() {
+        let device = DeviceIdentity::generate("Phone".to_string()).unwrap();
+        let pairing = PairingData::new(&device, None).expect("a pairing is built");
+
+        for origin in ["", "   "] {
+            let error = pairing
+                .pairing_link(origin)
+                .expect_err("a blank origin names no daemon");
+            let printed = error.to_string();
+            assert!(
+                printed.contains("origin"),
+                "the refusal did not say what was missing: {printed}"
+            );
+            assert!(
+                !printed.contains(&pairing.secret_token()),
+                "the refusal carried the pairing's bearer token"
+            );
+        }
+    }
+
+    #[test]
+    fn an_offer_advertises_the_origin_it_was_minted_at_and_a_plate_that_matches() {
+        let device = DeviceIdentity::generate("Phone".to_string()).unwrap();
+        let origin = "http://127.0.0.1:8766";
+        let offer = PairingOffer::new(&device, origin, None, true)
+            .expect("an offer mints at a real origin");
+
+        assert_eq!(offer.server_origin, origin);
+        assert!(offer.loopback_only, "the loopback caveat was not carried");
+        assert_eq!(offer.pairing.device_id, device.device_id);
+        assert_eq!(offer.pairing.static_public, device.static_public);
+        assert!(offer.pairing.relay_url.is_none());
+        assert_eq!(
+            offer
+                .pairing
+                .pairing_link(&offer.server_origin)
+                .expect("the offer's own origin is usable"),
+            offer.pairing_link,
+            "the plate and the link are two different values"
+        );
+        assert!(
+            qr_code_png_base64(&offer.pairing_link)
+                .expect("the link is short enough to plate")
+                .len()
+                > 100,
+            "the plate is not an image"
+        );
+        // The expiry is the pairing's, so the offer cannot claim longer life than the
+        // credential it carries.
+        assert_eq!(offer.expires_at(), offer.pairing.expires_at);
+        assert!(offer.expires_at() > Utc::now());
+    }
+
+    /// Audit N-1 extended to the type that *renders* the plate: the offer is the value
+    /// most likely to be `debug!`-printed in a pairing screen, and its link is the same
+    /// bearer credential the plate carries in one readable line.
+    #[test]
+    fn no_printable_form_of_a_pairing_offer_carries_its_link_or_its_secret() {
+        let device = DeviceIdentity::generate("Phone".to_string()).unwrap();
+        let offer = PairingOffer::new(&device, "http://10.0.0.5:8766", None, false)
+            .expect("an offer mints");
+        let token = offer.pairing.secret_token();
+
+        let printed = format!("{offer:?}");
+        assert!(
+            !printed.contains(&token),
+            "an offer's Debug printed the bearer token"
+        );
+        assert!(
+            !printed.contains("token="),
+            "an offer's Debug printed the pairing link itself: {printed}"
+        );
+        assert!(
+            !printed.contains(&format!("{:?}", offer.pairing.pairing_secret)),
+            "an offer's Debug printed the raw secret bytes"
+        );
+        assert!(printed.contains("redacted"));
+        // What a reader does get: where the daemon is, and whether it is loopback.
+        assert!(printed.contains("http://10.0.0.5:8766"));
+        assert!(printed.contains("loopback_only"));
     }
 }

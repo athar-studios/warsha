@@ -68,7 +68,7 @@ describe('the queue under the owner’s thumb', () => {
     expect(screen.getByRole('button', { name: 'موافقة' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'رفض' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'طلب تعديلات' })).toBeInTheDocument();
-    expect(screen.getByText('البوابة ب')).toBeInTheDocument();
+    expect(screen.getByText('البوّابة ب')).toBeInTheDocument();
     const head = cardHead('قراءة من مرحلة التشغيل');
     expect(head.querySelector('[data-tone="lit"]')).not.toBeNull();
     expect(screen.getByText('التشغيل متوقف عند هذه المرحلة حتى يسجّل المالك قراراً.')).toBeInTheDocument();
@@ -85,14 +85,24 @@ describe('the queue under the owner’s thumb', () => {
     await settle();
 
     const detail = screen.getByTestId('remote-gate-detail');
-    expect(within(detail).getByText('البوابة ب')).toBeInTheDocument();
+    expect(within(detail).getByText('البوّابة ب')).toBeInTheDocument();
     expect(cardHead('قراءة من قائمة البوّابات').querySelector('[data-tone="lit"]')).not.toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: /البوابة ج/ }));
+    fireEvent.click(screen.getByRole('button', { name: /البوّابة ج/ }));
 
-    expect(within(detail).getByText('البوابة ج')).toBeInTheDocument();
+    expect(within(detail).getByText('البوّابة ج')).toBeInTheDocument();
     expect(within(detail).queryByText('التشغيل متوقف عند هذه المرحلة حتى يسجّل المالك قراراً.')).toBeNull();
-    expect(within(detail).getByText('يحتاج الفريق إلى قرارك للانتقال إلى المرحلة التالية.')).toBeInTheDocument();
+    // #70: a gate the run has not reached is a name on a quiet plate, not a raised card asking for a
+    // decision. It still tells the truth — the gate is pending (`gates.pending`) — and names where the run
+    // actually stands, but it says nothing that reads as "answer me" and offers nothing to press.
+    expect(within(detail).getByText('في الانتظار')).toBeInTheDocument();
+    expect(within(detail).getByText('المرحلة البوّابة ب')).toBeInTheDocument();
+    // The pre-#70 raised card must not come back for an un-reached gate: neither its waiting sentence nor
+    // any of the three decision affordances. This is the guard the semantics change demands.
+    expect(within(detail).queryByText('يحتاج الفريق إلى قرارك للانتقال إلى المرحلة التالية.')).toBeNull();
+    expect(within(detail).queryByRole('button', { name: 'موافقة' })).toBeNull();
+    expect(within(detail).queryByRole('button', { name: 'رفض' })).toBeNull();
+    expect(within(detail).queryByRole('button', { name: 'طلب تعديلات' })).toBeNull();
     expect(cardHead('قراءة من قائمة البوّابات').querySelector('[data-tone="lit"]')).toBeNull();
   });
 
@@ -181,7 +191,7 @@ describe('the queue under the owner’s thumb', () => {
     await settle();
 
     const alert = screen.getByRole('alert');
-    expect(alert).toHaveTextContent('لم يستجب الخادم للقرار؛ البوابة ما زالت بانتظارك.');
+    expect(alert).toHaveTextContent('لم يستجب الخادم للقرار؛ البوّابة ما زالت بانتظارك.');
     // The token never comes back in the daemon's own words (§7, and the client's redaction rule).
     expect(alert.textContent).toContain('[redacted]');
     expect(alert.textContent).not.toContain('sekrit-token-abcdef');
@@ -200,7 +210,7 @@ describe('the gates ledger', () => {
     });
     await settle();
 
-    const ledger = screen.getByRole('list', { name: 'صندوق الوارد للبوابات' });
+    const ledger = screen.getByRole('list', { name: 'صندوق الوارد للبوّابات' });
     expect(within(ledger).getAllByRole('listitem')).toHaveLength(4);
     // The pending ones say waiting; the decided one says approved (§9: a word, never a colour alone).
     expect(within(ledger).getAllByText('في الانتظار')).toHaveLength(3);
@@ -220,13 +230,13 @@ describe('the gates ledger', () => {
     // The oldest waiting gate is the default reading, in the region that names itself as the action.
     const detail = screen.getByTestId('remote-gate-detail');
     expect(detail).toHaveAccessibleName('الإجراء المطلوب');
-    expect(within(detail).getByText('البوابة ب')).toBeInTheDocument();
+    expect(within(detail).getByText('البوّابة ب')).toBeInTheDocument();
 
-    const rowGateC = screen.getByRole('button', { name: /البوابة ج/ });
+    const rowGateC = screen.getByRole('button', { name: /البوّابة ج/ });
     fireEvent.click(rowGateC);
     expect(rowGateC).toHaveAttribute('aria-current', 'true');
 
-    const rowGateA = screen.getByRole('button', { name: /البوابة أ/ });
+    const rowGateA = screen.getByRole('button', { name: /البوّابة أ/ });
     fireEvent.click(rowGateA);
     // A decided gate shows its record, not a fresh set of actions (§1.4).
     expect(within(detail).getByText('موافق عليه')).toBeInTheDocument();
@@ -300,7 +310,7 @@ describe('the gates ledger', () => {
     // words now, and the divergent spelling that used to sit beside them is gone (§57).
     expect(screen.getAllByText('لا بوّابات بانتظارك')).toHaveLength(2);
     expect(screen.queryByText('لا بوابات بانتظارك')).toBeNull();
-    expect(screen.getByText('كل البوابات حُسمت. يضيء المصباح عند قرار جديد.')).toBeInTheDocument();
+    expect(screen.getByText('كل البوّابات حُسمت. يضيء المصباح عند قرار جديد.')).toBeInTheDocument();
     expect(screen.queryByText('التشغيل متوقف عند هذه المرحلة حتى يسجّل المالك قراراً.')).toBeNull();
     expect(screen.getByTestId('remote-queue-next')).toHaveTextContent('افتح التشغيل');
   });

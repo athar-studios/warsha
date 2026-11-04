@@ -25,6 +25,7 @@ import {
   ChipMeta,
   EmptyState,
   Ledger,
+  MACHINE,
   Panel,
   Skeleton,
   Stream,
@@ -278,20 +279,24 @@ export function RunView({ run, onBack }: RunViewProps) {
         </Button>
 
         <Box style={{ flex: '1', minInlineSize: 0 }}>
-          {/* The project id is the run's name on this screen: mono, isolated, never translated (§11). */}
-          <Text
-            size="lg"
-            weight="bold"
-            dir="ltr"
-            style={{
-              fontFamily: 'var(--warsha-font-mono)',
-              fontVariantNumeric: 'tabular-nums',
-              unicodeBidi: 'isolate',
-              textAlign: 'start',
-              overflowWrap: 'anywhere',
-            }}
-          >
-            <span translate="no">{run.projectId}</span>
+          {/*
+            The project id is the run's name on this screen: mono, tabular, isolated, never translated
+            (§11). The isolation lives on the *value*, not on the line: a `dir="ltr"` block on an RTL
+            bench resolves `textAlign: 'start'` to left, so `proj-ui` sat orphaned at the left edge of a
+            box whose chips were right-aligned. The block keeps the page's direction; the id brings its
+            own LTR run with it, exactly the idiom `GatesInbox.tsx` and the artifact `<pre>` already use.
+          */}
+          <Text dir={dir} size="lg" weight="bold" style={{ textAlign: 'start', overflowWrap: 'anywhere' }}>
+            <span
+              dir="ltr"
+              translate="no"
+              style={{
+                ...MACHINE,
+                unicodeBidi: 'isolate',
+              }}
+            >
+              {run.projectId}
+            </span>
           </Text>
           <Box
             style={{

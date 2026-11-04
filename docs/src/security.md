@@ -68,9 +68,13 @@ actually implemented.
   the flag names: the RPC port is the one called `--ws-port`.
 - A caller's identity comes from the authenticated transport, never from the params it sends; a method that
   skipped that check would know nothing at all about its caller (`crates/warshad/src/lib.rs:1250-1285`).
-- Every method declares a policy tier (owner-only, standard, read) and a request ceiling; past the ceiling the
-  answer is a rate-limit error carrying `Retry-After` (`crates/warshad/src/auth.rs:629-668`,
-  `crates/warshad/src/lib.rs:438`, `:1273`).
+- Every method declares a policy tier (owner-only, standard, read) and a request ceiling (the tier and
+  ceiling declared per method at `crates/warshad/src/auth.rs:195-220`, the ceiling values configured at
+  `:570-641`); past the ceiling the answer is a rate-limit error carrying `Retry-After`: the header value is
+  built at `crates/warshad/src/lib.rs:399-402` and inserted into the refusals at `:386-390` (RPC transport,
+  `rpc_refusal`) and `:3710-3711` (HTTP listener, `http_refusal`), while the JSON-RPC form of the same answer
+  carries `retry_after_secs` in the error data (`:2638-2644`); the ceiling checks that produce them are at
+  `:438` and `:1272-1276`.
 - One daemon per data directory, enforced by a lock file that records the holding process id
   (`crates/warshad/src/lib.rs:3516-3533`).
 - CORS sits *outside* the auth layer, so a browser preflight is answered and the real POST still carries its

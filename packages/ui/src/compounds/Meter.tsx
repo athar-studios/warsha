@@ -3,7 +3,7 @@
 // The rule from REDESIGN §9 is that a meter is *never* the only channel: the numeric readout is a
 // required child, not an option, because a 3px-tall bar cannot tell an owner whether they are at 80% or
 // 99%. The tone is derived from thresholds (the fill darkens toward `warning` then `error`) and the
-// readout says the number in mono with tabular numerals, so two rows of meters compare.
+// readout says the number in the machine skin with tabular numerals, so two rows of meters compare.
 //
 // The fill is a percentage of the track, not a transform: in RTL the box grows from the inline-start
 // edge on its own, so there is no mirrored code path and no `transform-origin` to flip (§11, logical
@@ -12,9 +12,9 @@
 
 import React from 'react';
 
-import { aliasVar, colorVar, fontFamily, fontSize, fontWeight, radius, space } from '../tokens';
+import { aliasVar, colorVar, fontSize, fontWeight, radius, space } from '../tokens';
 
-import { RULE_BORDER } from './internal';
+import { machineSkin, RULE_BORDER } from './internal';
 
 /** How the fill is coloured: by threshold, or by an explicit statement from the screen. */
 export type MeterTone = 'auto' | 'neutral' | 'lit' | 'ok' | 'fail';
@@ -117,10 +117,10 @@ export function Meter({
         />
       </span>
       <span
-        // The readout is the accessible statement of the value; the bar is its shadow.
+        // The readout is the accessible statement of the value; the bar is its shadow. Machine data, so
+        // tabular — at the face its own words allow, since a screen may say the reading in Arabic (§11).
         style={{
-          fontFamily: fontFamily('mono'),
-          fontVariantNumeric: 'tabular-nums',
+          ...machineSkin(children),
           fontSize: fontSize('xs'),
           fontWeight: fontWeight('medium'),
           color: colorVar('text'),

@@ -16,7 +16,14 @@ import React from 'react';
 
 import { aliasVar, colorVar, fontSize, fontWeight, radius, size, space } from '../tokens';
 
-import { CONTROL_CLASS, CONTROL_COMPACT_CLASS, cx, EDGE_BORDER, HOVER_RECESS_CLASS, MACHINE } from './internal';
+import {
+  CONTROL_CLASS,
+  CONTROL_COMPACT_CLASS,
+  cx,
+  EDGE_BORDER,
+  HOVER_RECESS_CLASS,
+  machineSkin,
+} from './internal';
 
 export type ChipTone = 'default' | 'ok' | 'fail' | 'lit';
 
@@ -140,10 +147,15 @@ export function Chip({
   );
 }
 
-/** Machine data in a chip — a run id or a cost — keeps the mono skin (§11). */
+/**
+ * Machine data in a chip — a run id or a cost — keeps the mono skin (§11).
+ *
+ * A chip in this skin whose words are Arabic gets the sans face instead: the rule lives in
+ * `machineSkin`, so the same chip is mono for `run_9f3a` and readable for `البوابة 1 من 2`.
+ */
 export function ChipMeta({ children, ...props }: Omit<ChipProps, 'onPress'>) {
   return (
-    <Chip {...props} style={{ ...MACHINE, ...props.style }}>
+    <Chip {...props} style={{ ...machineSkin(children), ...props.style }}>
       {children}
     </Chip>
   );

@@ -22,6 +22,7 @@
 //!   the daemon's configuration and its own data directory, and fails closed.
 
 use serde::{Deserialize, Serialize};
+use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 use warsha_core::DeviceId;
 use warsha_pipeline::PhonePairing;
@@ -358,6 +359,20 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
     },
     M {
         method: "devices.pair",
+        policy: Owner,
+        tier: Pairing,
+    },
+    // The method that *mints* a pairing, as opposed to `devices.pair`, which consumes one.
+    //
+    // `Owner`, and the reason is the whole finding this method exists to close: its result
+    // is a fresh credential the daemon will later read as a caller's identity, so a caller
+    // that is only a paired device must not be able to hand out a second one — a `Session`
+    // tier here would let any phone that was ever paired mint its own pairing and pair
+    // further devices through the consume side. `Pairing` is the same ceiling
+    // `devices.pair` and `pairing.create` are measured on, which is what keeps the
+    // create-then-redeem walk inside one bounded budget rather than two.
+    M {
+        method: "devices.pair-start",
         policy: Owner,
         tier: Pairing,
     },
@@ -863,7 +878,7 @@ impl ProcessPolicy {
                 "`{command}` climbs with `..`; a program inside the daemon's scope is named by a path that stays in it"
             ));
         }
-        if path.is_absolute() && resolves_inside(path, &self.data_dir) {
+        if is_rooted(path) && resolves_inside(path, &self.data_dir) {
             return Ok(());
         }
 
@@ -923,6 +938,27 @@ impl ProcessPolicy {
     }
 }
 
+/// Whether `path` is named from a root, on either platform.
+///
+/// `Path::is_absolute` is the wrong question here. On Windows it demands a drive or UNC
+/// *prefix* as well as a root, so `\\?\C:\warsha\tool` is absolute while `\warsha\tool`
+/// and `/var/lib/warsha/tool` are not — and a data directory configured in the
+/// POSIX-shaped spelling (which is what a config file written on a Unix machine, a
+/// forwarded path from a phone, and every unit test in this module use) would never be
+/// reached by the scope exemption at all. Refusing a program the daemon really does own
+/// is the wrong answer, and it is the answer `is_absolute` gave on Windows.
+///
+/// What the exemption actually needs is that the path is anchored, so that the directory
+/// the daemon resolves is the directory the caller named rather than one that depends on
+/// a working directory: `Path::has_root` is exactly that, and it is true of
+/// `\warsha\tool`, `C:\warsha\tool` and `\\server\share\tool` on Windows and of
+/// `/var/lib/warsha/tool` on Unix. It stays false of a relative path (`warsha\tool`) and
+/// of a drive-relative one (`C:warsha\tool`), which remain outside the exemption and are
+/// decided by the allow-list alone.
+fn is_rooted(path: &Path) -> bool {
+    path.has_root()
+}
+
 /// Whether `candidate` is still inside `dir` once both are resolved (audit N-2).
 ///
 /// Both paths are canonicalized together, or — when either does not exist yet, which is
@@ -934,7 +970,19 @@ impl ProcessPolicy {
 /// command on to the allow-list rather than admitting it. That is the fail-closed
 /// direction: this function can only *grant* the scope exemption, so the case it must
 /// never get wrong is the one where it says yes.
+///
+/// The comparison itself is [`scope_contains`], not `Path::starts_with`, because the two
+/// platform differences above (verbatim prefixes and case) have to be folded explicitly
+/// and `starts_with` folds neither.
 fn resolves_inside(candidate: &Path, dir: &Path) -> bool {
+    // A data directory that is not itself rooted names nothing: `""` or `target` would
+    // be a prefix of every path on the machine once reduced to components, and the
+    // exemption would read as "the whole filesystem is the daemon's scope". The daemon's
+    // own data directory is always rooted in practice, so this refuses a misconfiguration
+    // rather than honouring it.
+    if !is_rooted(dir) {
+        return false;
+    }
     let (candidate, dir) = match (std::fs::canonicalize(candidate), std::fs::canonicalize(dir)) {
         (Ok(resolved_candidate), Ok(resolved_dir)) => (resolved_candidate, resolved_dir),
         _ => {
@@ -946,7 +994,104 @@ fn resolves_inside(candidate: &Path, dir: &Path) -> bool {
             (candidate, dir)
         }
     };
-    candidate.starts_with(&dir)
+    scope_contains(&dir, &candidate)
+}
+
+/// Whether `dir` is `candidate` or one of `candidate`'s ancestors.
+///
+/// The walk is component by component, which is the whole point and is what a string
+/// prefix is not: `/var/lib/warsha-evil/tool` begins with `/var/lib/warsha` as a string
+/// and is not inside it as a directory. Equal-length keys match only when every
+/// component matches, so the data directory is in its own scope, a path nested under it
+/// is in its scope, and a sibling whose name merely starts with it is not.
+fn scope_contains(dir: &Path, candidate: &Path) -> bool {
+    let dir = scope_key(dir);
+    let candidate = scope_key(candidate);
+    dir.len() <= candidate.len() && dir.iter().zip(candidate.iter()).all(|(a, b)| a == b)
+}
+
+/// The components of `path` in the form [`scope_contains`] compares them: no `.`
+/// components, and each remaining component reduced by [`component_key`].
+fn scope_key(path: &Path) -> Vec<OsString> {
+    path.components()
+        .filter(|component| !matches!(component, Component::CurDir))
+        .map(component_key)
+        .collect()
+}
+
+/// A Unix component compares as itself: the byte string *is* the name, and two names
+/// differing in case are two directories, so nothing is folded.
+#[cfg(not(windows))]
+fn component_key(component: Component<'_>) -> OsString {
+    component.as_os_str().to_os_string()
+}
+
+/// A Windows component, with the differences that would otherwise answer "outside"
+/// about a directory the daemon owns folded away:
+///
+/// - `std::fs::canonicalize` returns a *verbatim* path (`\\?\C:\Users\…`), and the
+///   `\\?\` form is a different component from the plain `C:\` form a joined path is
+///   built from, so the verbatim marker is dropped (`\\?\C:` → `C:`,
+///   `\\?\UNC\server\share` → `\\server\share`) and both spellings of the same drive or
+///   share reduce to one key.
+/// - NTFS names are case-insensitive and case-preserving, so `C:\WARSHA\TOOL` is a path
+///   inside `C:\warsha`; the components are compared ASCII-case-insensitively.
+/// - `/` and `\` are the same separator to the Windows parser outside a verbatim path,
+///   and a `Component::RootDir` only ever arrives from one of them, so the root is keyed
+///   as `\` however the caller spelled it.
+///
+/// What is deliberately *not* folded: non-ASCII case folding, trailing dots and spaces,
+/// and 8.3 short names (`PROGRA~1`). Each of those is only answerable by asking Win32,
+/// and this function may only widen the comparison as far as the filesystem itself
+/// asserts identity — folding wider than the OS is the one error the exemption is not
+/// allowed to make. A path that stays unfolded is a refusal, which sends the command to
+/// the allow-list instead of admitting it. Short forms are covered anyway for anything
+/// that exists, because canonicalize returns the long name for a path the OS can open —
+/// and they are never *expanded* here, so a short form of a sibling name cannot collapse
+/// onto the data directory either.
+///
+/// One exposure this leaves, stated rather than hidden: the ASCII case fold only matters
+/// for a path the filesystem could not resolve (see [`resolves_inside`], which canonicalizes
+/// first), and a case-sensitive Windows volume — a Dev Drive, or a directory flipped with
+/// `fsutil file setCaseSensitiveInfo` — can hold `C:\warsha` and `C:\WARSHA` as two
+/// directories. On such a volume a not-yet-built path spelled in the other case is read as
+/// in scope. The system volume a user profile lives on is case-insensitive, so this is not
+/// the ordinary configuration; the fail-closed alternative is to fold no case at all, which
+/// would refuse a wrongly-cased path to a program the daemon really does own and send it to
+/// the allow-list.
+#[cfg(windows)]
+fn component_key(component: Component<'_>) -> OsString {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    let raw: Vec<u16> = component.as_os_str().encode_wide().collect();
+    OsString::from_wide(&fold_verbatim_and_case(component, &raw))
+}
+
+/// The Windows fold [`component_key`] applies, kept separate and un-gated so that it is
+/// compiled and tested on every host rather than only on the platform that calls it.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn fold_verbatim_and_case(component: Component<'_>, raw: &[u16]) -> Vec<u16> {
+    const SEP: u16 = b'\\' as u16;
+    const VERBATIM: [u16; 4] = [b'\\' as u16, b'\\' as u16, b'?' as u16, b'\\' as u16];
+    const UNC: [u16; 4] = [b'U' as u16, b'N' as u16, b'C' as u16, b'\\' as u16];
+
+    if matches!(component, Component::RootDir) {
+        return vec![SEP];
+    }
+    let stripped = raw.strip_prefix(&VERBATIM).unwrap_or(raw);
+    let mut key = match stripped.strip_prefix(&UNC) {
+        // `UNC\server\share` is the verbatim spelling of `\\server\share`.
+        Some(share) => [&[SEP, SEP][..], share].concat(),
+        None => stripped.to_vec(),
+    };
+    // ASCII only: the case-insensitive identity Windows applies to drive letters, share
+    // names and the short (8.3) forms of names, none of which needs a wider table.
+    let fold = (b'a' - b'A') as u16;
+    for unit in &mut key {
+        if (u16::from(b'A')..=u16::from(b'Z')).contains(unit) {
+            *unit += fold;
+        }
+    }
+    key
 }
 
 /// `.` removed and `..` applied to the component before it, without touching the
@@ -1110,6 +1255,7 @@ mod tests {
             "providers.remove",
             "budget.set",
             "devices.pair",
+            "devices.pair-start",
             "devices.revoke",
             "pairing.create",
             "pairing.revoke",
@@ -1154,6 +1300,15 @@ mod tests {
         // Pairing and spend are the strictest ceilings, as the audit requires.
         assert_eq!(policy_of("pairing.create").expect("policy").tier, Pairing);
         assert_eq!(policy_of("devices.pair").expect("policy").tier, Pairing);
+        // The minting half of the pairing path is measured on the same ceiling as the
+        // redeeming half — and the brief's own hazard, a paired phone creating its own
+        // credential, is what the `Owner` policy above (asserted in the list walk) refuses.
+        assert_eq!(
+            policy_of("devices.pair-start")
+                .expect("the pairing minter has a policy")
+                .tier,
+            Pairing
+        );
         assert_eq!(policy_of("agent.turn").expect("policy").tier, Spend);
         assert_eq!(policy_of("runs.start").expect("policy").tier, Spend);
         assert_eq!(policy_of("process.spawn").expect("policy").tier, Spend);
@@ -1392,6 +1547,340 @@ mod tests {
         let inside_link = data_dir.join("good-link");
         symlink(&inside_tool, &inside_link).expect("the inside symlink is made");
         assert!(policy.check_command(&inside_link.to_string_lossy()).is_ok());
+    }
+
+    /// The scope test is a comparison of directories, not of strings: a sibling whose
+    /// name happens to begin with the data directory's name is a different directory.
+    ///
+    /// Pinned at the key level because this is the rule a future refactor to
+    /// `str::starts_with` would break silently on every platform at once, and the
+    /// version of it that was measured on Windows (CI run 41752421903) was the *other*
+    /// failure: a path spelled without a drive prefix never reached the comparison at
+    /// all.
+    #[test]
+    fn the_scope_test_compares_components_and_never_a_string_prefix() {
+        let data_dir = Path::new("/var/lib/warsha");
+
+        // In scope: the directory itself, anything under it at any depth, and the
+        // spellings of those that differ only in separators the parser collapses.
+        for candidate in [
+            "/var/lib/warsha",
+            "/var/lib/warsha/",
+            "/var/lib/warsha/workspace/tools/migrate",
+            "/var/lib/warsha//workspace//migrate",
+            "/var/lib/warsha/./workspace/migrate",
+        ] {
+            assert!(
+                scope_contains(data_dir, Path::new(candidate)),
+                "`{candidate}` is inside the data directory"
+            );
+        }
+
+        // Out of scope: a sibling that shares the name's prefix, a shorter path, a
+        // different root, and a component that merely begins with the same letters.
+        for candidate in [
+            "/var/lib/warsha-evil/tool",
+            "/var/lib/warsh/tool",
+            "/var/lib",
+            "/usr/local/bin/migrate",
+            "warsha/workspace/migrate",
+        ] {
+            assert!(
+                !scope_contains(data_dir, Path::new(candidate)),
+                "`{candidate}` was read as inside the data directory"
+            );
+        }
+    }
+
+    /// A program the daemon built in its own workspace is in scope whether or not the
+    /// file exists yet, and a sibling directory of the data directory never is — the
+    /// same rules as above, run against a real tree so the resolved branch of
+    /// [`resolves_inside`] is the one under test.
+    #[test]
+    fn a_sibling_of_the_data_dir_is_out_of_scope_in_a_real_tree() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let data_dir = dir.path().join("warsha");
+        std::fs::create_dir_all(data_dir.join("workspace")).expect("the workspace is made");
+
+        let policy = ProcessPolicy::from_config(&["npm".to_string()], &data_dir);
+        let spelled = |path: &str| format!("{}/{}", data_dir.display(), path);
+
+        // The data directory itself, and a nested path that does not exist yet: a run
+        // that has not built its tool still owns the place it would build it in.
+        assert!(policy.check_command(&data_dir.to_string_lossy()).is_ok());
+        assert!(policy
+            .check_command(&spelled("workspace/tools/build-not-built-yet"))
+            .is_ok());
+        assert!(
+            policy
+                .check_command(&format!("{}/", data_dir.display()))
+                .is_ok(),
+            "a trailing separator moved the boundary"
+        );
+
+        // The sibling a string prefix admits: `<data_dir>-evil/tool`.
+        let sibling = format!("{}-evil/tool", data_dir.display());
+        let error = policy
+            .check_command(&sibling)
+            .expect_err("a sibling of the data directory was read as project scope");
+        assert!(
+            error.contains("tool"),
+            "the refusal did not name the program: {error}"
+        );
+
+        // And a `..` traversal, refused before the comparison rather than resolved by it.
+        let escaped = format!("{}/../sibling/tool", data_dir.display());
+        assert!(policy.check_command(&escaped).is_err());
+    }
+
+    /// A data directory that names no root grants no scope at all.
+    ///
+    /// Reduced to components, `""` is a prefix of every path on the machine, and a
+    /// relative one is a prefix of whatever the current directory happens to be: reading
+    /// either as the daemon's scope would make the whole filesystem in scope. The
+    /// daemon's own data directory is always rooted, so this is a misconfiguration, and
+    /// a misconfiguration is refused rather than honoured.
+    #[test]
+    fn an_unrooted_data_dir_grants_no_scope() {
+        for data_dir in ["", "warsha", "target/debug", "."] {
+            let policy = ProcessPolicy::from_config(&["npm".to_string()], Path::new(data_dir));
+            assert!(
+                policy.check_command("/usr/local/bin/migrate").is_err(),
+                "a data directory spelled `{data_dir}` let an absolute path outside it into scope"
+            );
+            assert!(
+                policy.check_command("npm").is_ok(),
+                "the allow-list stopped working for a data directory spelled `{data_dir}`"
+            );
+        }
+    }
+
+    /// The two Windows spellings that would otherwise answer "outside" about a directory
+    /// the daemon does own are folded onto one key: the `\\?\` verbatim marker
+    /// `std::fs::canonicalize` returns, and ASCII case.
+    ///
+    /// Run on every host, from UTF-16 units, so the arithmetic that only Windows calls
+    /// is still measured here rather than trusted.
+    #[test]
+    fn the_windows_spelling_of_a_component_reduces_to_the_plain_form() {
+        fn a_component(text: &str) -> Component<'_> {
+            Component::Normal(std::ffi::OsStr::new(text))
+        }
+        fn fold(component: Component<'_>, text: &str) -> String {
+            let wide: Vec<u16> = text.encode_utf16().collect();
+            String::from_utf16(&fold_verbatim_and_case(component, &wide))
+                .expect("the fold keeps valid UTF-16")
+        }
+
+        // The text a prefix component carries, in each of the two forms the same drive
+        // or share is spelled in.
+        assert_eq!(fold(a_component(r"\\?\C:"), r"\\?\C:"), "c:");
+        assert_eq!(fold(a_component("C:"), "C:"), "c:");
+        assert_eq!(
+            fold(
+                a_component(r"\\?\UNC\SERVER\share"),
+                r"\\?\UNC\SERVER\share"
+            ),
+            r"\\server\share"
+        );
+        assert_eq!(
+            fold(a_component(r"\\SERVER\share"), r"\\SERVER\share"),
+            r"\\server\share"
+        );
+
+        // Only ASCII case, and only the verbatim marker: nothing else is invented,
+        // because a comparison wider than the filesystem is the error this cannot make.
+        assert_eq!(fold(a_component("PROGRA~1"), "PROGRA~1"), "progra~1");
+        assert_eq!(fold(a_component("DATA-evil"), "DATA-evil"), "data-evil");
+        assert_eq!(fold(a_component("warsha."), "warsha."), "warsha.");
+        assert_ne!(
+            fold(a_component("ÄÖÜ"), "ÄÖÜ"),
+            fold(a_component("äöü"), "äöü"),
+            "non-ASCII case was folded"
+        );
+
+        // The root is one key whichever separator typed it, and a name that merely
+        // begins with a separator is still a name and not a root.
+        assert_eq!(fold(Component::RootDir, r"\"), r"\");
+        assert_eq!(fold(Component::RootDir, "/"), r"\");
+        assert_ne!(
+            fold(a_component(r"\warsha"), r"\warsha"),
+            fold(a_component("warsha"), "warsha")
+        );
+    }
+
+    /// Off Windows, the case of a component is part of the directory's name, and a `\`
+    /// is an ordinary character rather than a separator. Case only decides anything at
+    /// the boundary and above it: what a path descends *into* below the data directory
+    /// is the daemon's scope whatever it is spelled like, because the boundary component
+    /// is still the data directory.
+    #[cfg(not(windows))]
+    #[test]
+    fn case_is_part_of_a_directory_name_off_windows() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let data_dir = dir.path().join("warsha");
+        std::fs::create_dir_all(data_dir.join("workspace")).expect("the workspace is made");
+        let policy = ProcessPolicy::from_config(&["npm".to_string()], &data_dir);
+
+        assert!(policy
+            .check_command(&format!("{}/workspace/migrate", data_dir.display()))
+            .is_ok());
+        assert!(
+            policy
+                .check_command(&format!("{}/WORKSPACE/MIGRATE", data_dir.display()))
+                .is_ok(),
+            "a name below the boundary was treated as a different directory"
+        );
+
+        // The boundary component itself, spelled another way, is another directory: the
+        // sibling `/tmp/x/WARSHA/workspace/migrate` is not `/tmp/x/warsha`.
+        assert!(policy
+            .check_command(&format!(
+                "{}/WARSHA/workspace/migrate",
+                dir.path().display()
+            ))
+            .is_err());
+        // A `\` is an ordinary character in a Unix name, never a separator.
+        assert!(policy
+            .check_command(&format!(r"{}\workspace", data_dir.display()))
+            .is_err());
+    }
+
+    /// On Windows, the boundary component is read case-insensitively, and both
+    /// separators mean the same thing: the same directory is one directory however the
+    /// caller spells it, and a sibling is still a sibling in every spelling.
+    #[cfg(windows)]
+    #[test]
+    fn case_is_not_part_of_a_directory_name_on_windows() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let data_dir = dir.path().join("warsha");
+        std::fs::create_dir_all(data_dir.join("workspace")).expect("the workspace is made");
+        let policy = ProcessPolicy::from_config(&["npm".to_string()], &data_dir);
+        let parent = dir.path().display().to_string();
+
+        assert!(
+            policy
+                .check_command(&format!(r"{}\WARSHA\workspace\migrate", parent))
+                .is_ok(),
+            "the same directory, shouted, was read as another one"
+        );
+        assert!(
+            policy
+                .check_command(&format!(
+                    r"{}/warsha/tools/not-built-yet",
+                    parent.replace('\\', "/")
+                ))
+                .is_ok(),
+            "a `/`-rooted spelling of an unbuilt tool was read as another directory"
+        );
+        // A sibling that differs by more than case stays outside.
+        assert!(policy
+            .check_command(&format!(r"{}\WARSHA-EVIL\workspace\migrate", parent))
+            .is_err());
+    }
+
+    /// On Windows, the scope test is reached by the spellings `is_absolute` used to
+    /// refuse: a rooted path with no drive prefix, in either separator, in either case,
+    /// and in the verbatim form a resolved path arrives in.
+    #[cfg(windows)]
+    #[test]
+    fn a_rooted_path_without_a_drive_prefix_is_in_scope_on_windows() {
+        // The exact shape CI run 41752421903 measured: a POSIX-spelled data directory
+        // and a program under it. `Path::is_absolute` calls it relative — no drive
+        // prefix — and the exemption used to stop there.
+        let policy = ProcessPolicy::from_config(&["npm".to_string()], Path::new("/var/lib/warsha"));
+        assert!(
+            policy
+                .check_command("/var/lib/warsha/workspace/tools/migrate")
+                .is_ok(),
+            "a rooted path with no drive prefix was refused the scope exemption"
+        );
+        assert!(policy.check_command("/var/lib/warsha-evil/tool").is_err());
+
+        let backslash =
+            ProcessPolicy::from_config(&["npm".to_string()], Path::new(r"\warsha-scope-boundary"));
+        assert!(backslash
+            .check_command(r"\warsha-scope-boundary\workspace\migrate")
+            .is_ok());
+        assert!(backslash
+            .check_command(r"\warsha-scope-boundary-evil\migrate")
+            .is_err());
+
+        // A drive-relative path (`C:foo`) is rooted nowhere: it names a directory under
+        // the current directory on drive C, so it is not the daemon's scope and only the
+        // allow-list decides it.
+        assert!(backslash
+            .check_command(r"C:warsha-scope-boundary\migrate")
+            .is_err());
+        // A relative path is refused the exemption for the same reason.
+        assert!(backslash
+            .check_command(r"warsha-scope-boundary\migrate")
+            .is_err());
+    }
+
+    /// On Windows, the boundary is the same directory under every spelling the OS
+    /// accepts for it — and still refuses the sibling under all of them.
+    #[cfg(windows)]
+    #[test]
+    fn a_verbatim_or_mixed_case_form_of_the_data_dir_is_in_scope_on_windows() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let data_dir = dir.path().join("warsha");
+        std::fs::create_dir_all(data_dir.join("workspace")).expect("the workspace is made");
+        let inside = data_dir.join("workspace").join("migrate");
+        std::fs::write(&inside, b"tool").expect("the tool is written");
+        let policy = ProcessPolicy::from_config(&["npm".to_string()], &data_dir);
+        let plain = inside.to_string_lossy().into_owned();
+
+        for (shape, candidate) in [
+            // What std::fs::canonicalize hands back for this very file.
+            ("verbatim", format!(r"\\?\{plain}")),
+            // NTFS names are case-insensitive: the same directory, shouted.
+            ("shouted", plain.to_uppercase()),
+            // `/` is a separator for the Windows parser too.
+            ("forward", plain.replace('\\', "/")),
+            // Both at once, the way a path copied out of a build log looks.
+            ("mixed", plain.replace('\\', "/").to_uppercase()),
+            // The same tool named by a directory that does not exist yet: the branch
+            // that never reaches the filesystem, so it never gets a resolved case or a
+            // resolved prefix to lean on either.
+            (
+                "unbuilt",
+                format!(r"{}\TOOLS\NOT-BUILT-YET", data_dir.display()).to_uppercase(),
+            ),
+        ] {
+            assert!(
+                policy.check_command(&candidate).is_ok(),
+                "a {shape} spelling of a program inside the data directory was refused: {candidate}"
+            );
+        }
+
+        for (shape, candidate) in [
+            (
+                "verbatim sibling",
+                format!(r"\\?\{}-evil\tool", data_dir.display()),
+            ),
+            (
+                "shouted sibling",
+                format!(r"{}-EVIL\tool", data_dir.display()),
+            ),
+            (
+                "forward sibling",
+                format!(
+                    r"{}/tool",
+                    format!(r"{}-evil", data_dir.display()).replace('\\', "/")
+                ),
+            ),
+            // A sibling that shares only the beginning of a component's letters.
+            (
+                "shorter-name sibling",
+                format!(r"{}sh/tool", data_dir.display()),
+            ),
+        ] {
+            assert!(
+                policy.check_command(&candidate).is_err(),
+                "a {shape} of a path outside the data directory was read as in scope: {candidate}"
+            );
+        }
     }
 
     #[test]

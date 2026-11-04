@@ -18,8 +18,9 @@ import {
   CONTROL_CLASS,
   cx,
   HOVER_PLATE_CLASS,
-  MACHINE_SMALL,
+  machineSkinSmall,
   QUIET_EDGE,
+  RAIL_HEAD,
   RULE_BORDER,
   SIGNAL_EDGE,
 } from './internal';
@@ -70,7 +71,7 @@ export function RailRow({
         )}
       </span>
       {meta && (
-        <span style={{ ...MACHINE_SMALL, color: colorVar('text'), flex: 'none', whiteSpace: 'nowrap' }}>
+        <span style={{ ...machineSkinSmall(meta), color: colorVar('text'), flex: 'none', whiteSpace: 'nowrap' }}>
           {meta}
         </span>
       )}
@@ -127,14 +128,9 @@ export function RailRow({
 export function RailHead({ children }: { children: React.ReactNode }) {
   return (
     <span
-      style={{
-        display: 'block',
-        paddingInline: space(4),
-        paddingBlock: space(2),
-        color: colorVar('text'),
-        fontSize: fontSize('xs'),
-        fontWeight: fontWeight('semibold'),
-      }}
+      // The head is `RAIL_HEAD` itself: the §11 rule that a rail head carries no tracking lives in one
+      // object, so a future tweak cannot miss this call site.
+      style={{ display: 'block', ...RAIL_HEAD }}
     >
       {children}
     </span>

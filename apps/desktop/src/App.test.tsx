@@ -19,15 +19,28 @@ import { SimpleMode } from './screens/SimpleMode';
 
 // The shell renders its screens only once onboarding is done, and onboarding reads the
 // Tauri config. `invoke` is mocked so these tests drive the shell instead of the
-// onboarding screen; nothing here reaches the real Tauri bridge.
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn((command: string, args?: { key?: string }) => {
-    if (command === 'get_config') {
-      return Promise.resolve(args?.key === 'onboarding_complete' ? 'true' : 'simple');
-    }
-    return Promise.resolve(undefined);
-  }),
-}));
+// onboarding screen; nothing here reaches the real Tauri bridge. The daemon keys are the
+// three the real shell reports (`apps/desktop/src-tauri/src/lib.rs`): the RPC base on the
+// RPC listener, the `/events` socket URL on the daemon's HTTP listener, and the session
+// token — all three deliberately distinct values, because the app must carry each to the
+// place it belongs and invent none of them.
+vi.mock('@tauri-apps/api/core', () => {
+  const configAnswers: Record<string, string> = {
+    onboarding_complete: 'true',
+    app_mode: 'simple',
+    daemon_url: 'http://127.0.0.1:8766',
+    daemon_ws_url: 'ws://127.0.0.1:8765',
+    daemon_token: 'real-session-token',
+  };
+  return {
+    invoke: vi.fn((command: string, args?: { key?: string }) => {
+      if (command === 'get_config') {
+        return Promise.resolve(configAnswers[args?.key ?? ''] ?? '');
+      }
+      return Promise.resolve(undefined);
+    }),
+  };
+});
 
 // Every client the app builds lists nothing, so no test opens a socket.
 vi.mock('@warsha/client', async (importOriginal) => {
@@ -85,7 +98,15 @@ const project: ProjectSummary = {
 function renderSimpleMode() {
   return render(
     <LocaleProvider initialLocale="ar">
-      <SimpleMode client={offlineClient()} project={project} />
+      <SimpleMode
+        client={offlineClient()}
+        project={project}
+        endpoint={{
+          baseUrl: 'http://127.0.0.1:8766',
+          eventsUrl: 'ws://127.0.0.1:8765',
+          token: 'real-session-token',
+        }}
+      />
     </LocaleProvider>
   );
 }

@@ -17,13 +17,14 @@
 
 import React from 'react';
 
-import { aliasVar, colorVar, fontWeight, size, space } from '../tokens';
+import { aliasVar, colorVar, fontSize, fontWeight, size, space } from '../tokens';
 
 import {
   CONTROL_CLASS,
   cx,
   HOVER_RECESS_CLASS,
   MACHINE_SMALL,
+  machineSkin,
   QUIET_EDGE,
   RULE_BORDER,
   SIGNAL_EDGE,
@@ -45,7 +46,7 @@ export interface LedgerRowProps {
   selected?: boolean;
   /** Present makes the row a button. */
   onSelect?: () => void;
-  /** Machine data at the row's end: a cost, a count, a timestamp. */
+  /** Machine data at the row's end: a cost, a count, a timestamp — tabular, at the face its words allow. */
   meta?: React.ReactNode;
   /** A control that is not part of selecting the row: archive, retry, revoke. */
   actions?: React.ReactNode;
@@ -108,7 +109,18 @@ function LedgerRow({
       {/* `1 1 auto`, not `1`: a basis of 0 leaves the name at the mercy of whatever the nowrap meta
           leaves over, and B4 found project titles sitting in a 0×84 box on a phone. */}
       <span style={{ flex: '1 1 auto', minInlineSize: 0 }}>{children}</span>
-      {meta && <span style={{ ...MACHINE_SMALL, color: colorVar('text'), flex: 'none' }}>{meta}</span>}
+      {meta && (
+        <span
+          style={{
+            ...machineSkin(meta),
+            fontSize: fontSize('xs'),
+            color: colorVar('text'),
+            flex: 'none',
+          }}
+        >
+          {meta}
+        </span>
+      )}
     </>
   );
 

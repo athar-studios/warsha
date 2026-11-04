@@ -18,6 +18,7 @@ use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use thiserror::Error;
+use tokio::sync::broadcast;
 use tracing::info;
 use ulid::Ulid;
 use uuid::Uuid;
@@ -164,10 +165,23 @@ pub struct CostRecord {
 }
 
 /// Thin wrapper around a SQLite connection pool.
+///
+/// The store also owns the live event bus: every [`Store::append_event`] that
+/// commits publishes the same [`Event`] on it. Producers reach the stream
+/// through the write, never beside it, so no caller can persist an event and
+/// forget to broadcast it.
 pub struct Store {
     pool: SqlitePool,
     db_path: PathBuf,
+    event_tx: broadcast::Sender<Event>,
 }
+
+/// How many events a subscriber may fall behind before the bus drops its oldest.
+///
+/// One burst of a full run's stage output is well under this; the number bounds
+/// what a slow socket costs the daemon in buffered events, not what a run may
+/// produce.
+const EVENT_BUS_CAPACITY: usize = 1024;
 
 impl Store {
     /// Open (creating if necessary) the default database beneath the user's config dir.
@@ -199,7 +213,15 @@ impl Store {
             .foreign_keys(true);
         let pool = SqlitePoolOptions::new().connect_with(options).await?;
         Self::run_migrations(&pool).await?;
-        Ok(Self { pool, db_path })
+        // The bus outlives every subscriber: the receiver here is deliberately
+        // dropped, so `send` reports "no receivers" while nobody is watching —
+        // which is the normal case, not an error.
+        let (event_tx, _rx) = broadcast::channel(EVENT_BUS_CAPACITY);
+        Ok(Self {
+            pool,
+            db_path,
+            event_tx,
+        })
     }
 
     async fn run_migrations(pool: &SqlitePool) -> Result<()> {
@@ -218,6 +240,14 @@ impl Store {
     /// Path of the database file backing this store.
     pub fn db_path(&self) -> &PathBuf {
         &self.db_path
+    }
+
+    /// Attach to the live event bus: every event this store commits after the
+    /// call arrives on the returned receiver. A fresh receiver starts empty;
+    /// events committed before the call are read with [`Store::get_events`],
+    /// not replayed here.
+    pub fn subscribe_events(&self) -> broadcast::Receiver<Event> {
+        self.event_tx.subscribe()
     }
 
     // ---------------------------------------------------------------- projects
@@ -355,7 +385,16 @@ impl Store {
 
     // ----------------------------------------------------------------- events
 
-    /// Append an event to a run's append-only log.
+    /// Append an event to a run's append-only log, and publish it on the live
+    /// event bus once the row is durable.
+    ///
+    /// The publish is the point of this method, not an addition to it: every
+    /// producer in the workspace writes through here, so a committed event is
+    /// a broadcast event. The clone is the same `Event` the store holds —
+    /// subscribers see exactly what a later `get_events` will read back.
+    /// A `send` that finds no receiver, or a subscriber that has lagged, is a
+    /// normal case and never fails the write; the payload is not logged, since
+    /// it can carry an idea or an artifact body.
     pub async fn append_event(&self, event: &Event) -> Result<()> {
         let role = match event.role {
             Some(role) => Some(serde_json::to_string(&role)?),
@@ -381,6 +420,7 @@ impl Store {
         .bind(event.device_id.map(|d| d.0.as_bytes().to_vec()))
         .execute(&self.pool)
         .await?;
+        let _ = self.event_tx.send(event.clone());
         Ok(())
     }
 
@@ -957,6 +997,56 @@ mod tests {
         assert_eq!(events[0].device_id, None);
         assert_eq!(events[1].kind, EventKind::GateDecision);
         assert_eq!(events[1].device_id, Some(device));
+    }
+
+    /// The live bus is the append, not a caller's chore: an event committed by
+    /// `append_event` arrives on a pre-existing subscriber as the same
+    /// [`Event`] the store read back, and an append with nobody watching is
+    /// still a clean write.
+    #[tokio::test]
+    async fn appending_an_event_publishes_it_on_the_stores_bus() {
+        let store = temp_store().await;
+        let project = sample_project();
+        store.create_project(&project).await.unwrap();
+        let run = sample_run(project.id);
+        store.create_run(&run).await.unwrap();
+
+        // Nobody subscribed yet: the write must not fail for want of a listener.
+        let unwatched = Event {
+            id: Ulid::new(),
+            run_id: run.id,
+            stage: Stage::Idea,
+            role: None,
+            kind: EventKind::StageStarted,
+            payload: serde_json::json!({ "note": "no listener" }),
+            cost_cents: None,
+            tokens: None,
+            created_at: Utc::now(),
+            device_id: None,
+        };
+        store.append_event(&unwatched).await.unwrap();
+
+        let mut rx = store.subscribe_events();
+        let watched = Event {
+            id: Ulid::new(),
+            created_at: unwatched.created_at + chrono::TimeDelta::seconds(1),
+            ..unwatched.clone()
+        };
+        store.append_event(&watched).await.unwrap();
+
+        let published = rx.recv().await.unwrap();
+        assert_eq!(published.id, watched.id);
+        assert_eq!(published.run_id, watched.run_id);
+        assert_eq!(published.kind, EventKind::StageStarted);
+        assert_eq!(published.payload, watched.payload);
+
+        let stored = store.get_events(run.id).await.unwrap();
+        assert_eq!(stored.len(), 2);
+        assert_eq!(
+            stored[1].id, published.id,
+            "the bus and the store agree about what an event is"
+        );
+        assert_eq!(stored[1].payload, published.payload);
     }
 
     #[tokio::test]

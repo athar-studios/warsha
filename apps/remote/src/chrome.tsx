@@ -20,11 +20,12 @@ import {
   Meter,
   StatusStrip,
   Text,
+  carriesJoinedScript,
   colorVar,
-  fontFamily,
   fontSize,
   fontWeight,
   lineHeight,
+  machineSkin,
   radius,
   shadow,
   size,
@@ -42,17 +43,24 @@ import { endpointHost, type DaemonSession } from './session';
  * One machine value, isolated from the line's direction (§11).
  *
  * `title` carries the full reading when the row shows a shortened one, so the value stays reachable.
+ *
+ * The isolation and the face are both answers to *what this slot actually holds*. A run id is Latin
+ * machinery: it gets `dir="ltr"`, `translate="no"`, bidi isolation and the mono face. A reading the
+ * screen wrote in words (`لم يُبلَّغ بعد`) is prose: it gets none of the direction overrides, and the
+ * sans Arabic face, because a fixed advance inside an Arabic word cuts the join and the owner reads
+ * `البوا ب ة`. `machineSkin` is the rule; this is only the phone's way of asking it.
  */
 export function Machine({ children, title }: { children: React.ReactNode; title?: string }) {
+  const isMachineValue = !carriesJoinedScript(children);
+
   return (
     <span
-      dir="ltr"
-      translate="no"
+      dir={isMachineValue ? 'ltr' : undefined}
+      translate={isMachineValue ? 'no' : undefined}
       title={title}
       style={{
-        fontFamily: fontFamily('mono'),
-        fontVariantNumeric: 'tabular-nums',
-        unicodeBidi: 'isolate',
+        ...machineSkin(children),
+        unicodeBidi: isMachineValue ? 'isolate' : undefined,
         fontSize: fontSize('xs'),
         color: colorVar('text'),
       }}
@@ -218,8 +226,11 @@ export function BenchStrip() {
             : `${t('bench.stage_label', {}, locale)} ${stageWord(run.stage, locale)}`}
         </StatusStrip.Item>
 
-        <StatusStrip.Item hideNarrow machine>
-          {`${pendingGates.length} ${t('bench.gates_waiting', {}, locale)}`}
+        <StatusStrip.Item hideNarrow>
+          {/* The count is the machine reading; the words beside it are the owner's language. They used to
+              share one `machine` skin, which set the Arabic phrase in a fixed-advance face (§11). */}
+          <Machine>{pendingGates.length}</Machine>
+          {` ${t('bench.gates_waiting', {}, locale)}`}
         </StatusStrip.Item>
 
         <StatusStrip.Item>
@@ -270,6 +281,14 @@ const NAV_ITEMS: readonly { to: string; key: string; end?: boolean; badge?: bool
  * edge on the selected item, so "where am I" is one attribute rather than two claims (§6). Links rather
  * than buttons: these change the URL, and the back button has to keep working (§4).
  *
+ * A label is one word and a word may not be broken: five places share 390px, and an item that is
+ * narrower than its own label used to fold `البوّابات` across two lines with an orphan `ت` beside the
+ * badge — on the tab that carries the lit lamp, which is the one thing the owner is glancing for. The
+ * English control broke the same way (`Gate`/`s`), so this is a missing constraint, not an RTL accident.
+ * `whiteSpace: 'nowrap'` here keeps the word whole; `index.css` keeps the *bar* inside the plate, by
+ * refusing to shrink an item and scrolling the row inside itself — the disclosure the settings strip
+ * already uses (§10).
+ *
  * The pending count rides the gates item and is the one lit thing on the bench: a lit lamp means the
  * owner's hand is what is missing (§1), and the number beside it is the colour-free channel (§9). Below
  * 768 the nav is the bar under the bench; at 768 and above it becomes the inline-start rail (§10).
@@ -302,6 +321,7 @@ export function BenchNav() {
                 fontFamily: 'inherit',
                 fontSize: fontSize('sm'),
                 textAlign: 'center',
+                whiteSpace: 'nowrap',
               }}
             >
               <span>{t(item.key, {}, locale)}</span>

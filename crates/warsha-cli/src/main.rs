@@ -3,7 +3,7 @@
 use clap::Parser;
 use std::path::Path;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use warsha_cli::{Cli, CliApp, DaemonConfig};
+use warsha_cli::{no_token_message, Cli, CliApp, CliLang, DaemonConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -55,9 +55,6 @@ fn load_token(cli: &Cli) -> Result<String, Box<dyn std::error::Error>> {
     }
 
     // No token found
-    Err(format!(
-        "No auth token found. Run 'warsha init' first or provide --token. Config path: {}",
-        config_path.display()
-    )
-    .into())
+    let lang = CliLang::from_process_locale(cli.json);
+    Err(no_token_message(lang, &config_path.display().to_string()).into())
 }

@@ -17,7 +17,9 @@ Warsha is licensed under the **PolyForm Noncommercial 1.0.0** license.
 
 ### Full License
 
-See [LICENSE](../LICENSE) for the complete license text.
+The complete license text is the `LICENSE` file at the repository root. It is named, not linked: the book
+builds only `docs/src` and copies nothing from outside it, so a relative link here would resolve on GitHub
+but 404 in the served book, and no public repository URL is recorded to link instead.
 
 ### Key Points
 
@@ -59,4 +61,8 @@ Contributions are welcome under the same license. By contributing, you agree you
 
 ## Third-Party Notices
 
-Warsha includes third-party software. See [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) for details.
+Warsha includes third-party software. The attribution source is the `THIRD_PARTY_NOTICES.md` file at the
+repository root — it records each declared component (Goose, Activepieces CE, mdBook and the reviewed
+design skills), the license that governs it, and where the license text lives, plus the `Cargo.lock` /
+`pnpm-lock.yaml` pointers for transitive dependencies. It is named, not linked: that file sits outside
+`docs/src`, so `mdbook build` does not copy it into the served book and a relative link here would 404.

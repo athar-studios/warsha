@@ -53,6 +53,135 @@ jobs:
         run: |
           brew install sqlite3 pkg-config
 
+      # --------------------------------------------------------------------
+      # cargo-deny: pinned prebuilt binary + a plain shell step, on every OS.
+      #
+      # EmbarkStudios/cargo-deny-action@v1 is a Docker container action (its
+      # action.yml is `runs: using: "docker", image: "Dockerfile"`), and BOTH
+      # run-41752421903 failures were properties of that container, not of our
+      # dependencies:
+      #   - macOS: "Container action is only supported on Linux" — the leg never
+      #     reached cargo-deny at all.
+      #   - ubuntu: "failed to parse lock file at: /github/workspace/Cargo.lock",
+      #     and the same from `cargo metadata` — the image's own cargo predates
+      #     lock format `version = 4` (Cargo.lock:3), which needs cargo >= 1.78.
+      #     Our repo's lock is v4 because it is written by cargo 1.99.
+      # A normal step uses the runner's own modern cargo for the metadata fetch,
+      # so all three legs behave identically and any failure left is about our
+      # graph. There is no continue-on-error here, and none was added: a finding
+      # fails the leg.
+      #
+      # Mechanism: prebuilt release asset rather than `cargo install cargo-deny
+      # --locked`. The install would compile cargo-deny's whole dependency graph
+      # from source on all three legs on every cache miss (minutes each, and on
+      # Windows it additionally needs a working MSVC link step), whereas the
+      # assets are the exact bytes the maintainers published and are
+      # checksum-verifiable. Pinned to 0.20.2 and asserted after extraction, so
+      # the pin is provable and not just a tag name.
+      #
+      # Each sha256 below is the release's own published
+      # cargo-deny-0.20.2-<triple>.tar.gz.sha256 sidecar, re-verified on
+      # 2026-11-04 by downloading all five assets and hashing them (the Windows
+      # sidecar is uppercase hex; the values stored here are lowercase so the
+      # comparison needs no case folding). `uname` drives the triple so the same
+      # step covers x86_64 and arm64 on each OS, and an unsupported triple fails
+      # loudly instead of silently skipping the gate.
+      - name: Install cargo-deny 0.20.2 (pinned, checksum-verified)
+        shell: bash
+        env:
+          CARGO_DENY_VERSION: 0.20.2
+        run: |
+          set -euo pipefail
+          case "$(uname -s)" in
+            Linux) os_tag="unknown-linux-musl" ;;
+            Darwin) os_tag="apple-darwin" ;;
+            MINGW*|MSYS*|CYGWIN*) os_tag="pc-windows-msvc" ;;
+            *)
+              echo "::error::cargo-deny: unsupported kernel '$(uname -s)'"
+              exit 1
+              ;;
+          esac
+          case "$(uname -m)" in
+            x86_64|amd64) arch_tag="x86_64" ;;
+            arm64|aarch64) arch_tag="aarch64" ;;
+            *)
+              echo "::error::cargo-deny: unsupported architecture '$(uname -m)'"
+              exit 1
+              ;;
+          esac
+          target="${arch_tag}-${os_tag}"
+          case "${target}" in
+            x86_64-unknown-linux-musl)
+              expected_sha="9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f"
+              ;;
+            aarch64-unknown-linux-musl)
+              expected_sha="995c82be0defc7a025cae49a2aa2644ce8245c9a3318fc4103907c6a285e8c7d"
+              ;;
+            x86_64-apple-darwin)
+              expected_sha="248da7f581724e470071990c088ffc55c811981715f4cbdb258621fb79f8b7a6"
+              ;;
+            aarch64-apple-darwin)
+              expected_sha="fe67d82a10d8597a3549364cb733a3f9cc1bfff9031b7ae46384a9f2a72090c3"
+              ;;
+            x86_64-pc-windows-msvc)
+              expected_sha="975a22143262fd27476d19ee00c7af67978426e40e1dee94eed6bbade1cf87dc"
+              ;;
+            *)
+              echo "::error::cargo-deny ${CARGO_DENY_VERSION} publishes no prebuilt asset for ${target}"
+              exit 1
+              ;;
+          esac
+          asset="cargo-deny-${CARGO_DENY_VERSION}-${target}.tar.gz"
+          archive="${RUNNER_TEMP}/${asset}"
+          curl -sSfL --retry 3 -o "${archive}" \
+            "https://github.com/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}/${asset}"
+          # sha256sum on Linux and on Git-for-Windows (MSYS coreutils); macOS
+          # ships no sha256sum but does ship shasum. Anything else fails the leg.
+          if command -v sha256sum >/dev/null 2>&1; then
+            actual_sha="$(sha256sum "${archive}" | cut -d' ' -f1)"
+          elif command -v shasum >/dev/null 2>&1; then
+            actual_sha="$(shasum -a 256 "${archive}" | cut -d' ' -f1)"
+          else
+            echo "::error::cargo-deny: neither sha256sum nor shasum found on ${target}"
+            exit 1
+          fi
+          if [ "${actual_sha}" != "${expected_sha}" ]; then
+            echo "::error::${asset} checksum mismatch: got ${actual_sha}, expected ${expected_sha}"
+            exit 1
+          fi
+          bindir="${HOME}/.cargo-deny-bin"
+          rm -rf "${bindir}"
+          mkdir -p "${bindir}"
+          # Each asset wraps one top-level directory, so strip it: the unix
+          # assets carry `cargo-deny`, the Windows one carries `cargo-deny.exe`.
+          tar -xzf "${archive}" -C "${bindir}" --strip-components=1
+          chmod +x "${bindir}/cargo-deny"*
+          if [ -x "${bindir}/cargo-deny" ]; then
+            deny_bin="${bindir}/cargo-deny"
+          else
+            deny_bin="${bindir}/cargo-deny.exe"
+          fi
+          # Prove the pinned artifact is what actually runs before trusting it.
+          case "$("${deny_bin}" --version)" in
+            *"${CARGO_DENY_VERSION}"*) ;;
+            *)
+              echo "::error::expected cargo-deny ${CARGO_DENY_VERSION}, got: $("${deny_bin}" --version)"
+              exit 1
+              ;;
+          esac
+          echo "cargo-deny ${CARGO_DENY_VERSION} installed for ${target} from a checksum-verified asset"
+          echo "${bindir}" >> "${GITHUB_PATH}"
+
+      # `--all-features` is kept because it is what the old action passed by
+      # default (its `arguments` input defaults to it), so the fetched graph is
+      # unchanged; it also matches deny.toml's evidence, which was collected with
+      # and without it and is identical either way (579 packages, 17 license terms).
+      - name: Run cargo-deny
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo deny --manifest-path Cargo.toml --all-features check
+
       - name: Check formatting
         run: cargo fmt --all --check
 
@@ -61,11 +190,6 @@ jobs:
 
       - name: Run tests
         run: cargo test --workspace --all-targets
-
-      - name: Run cargo-deny
-        uses: EmbarkStudios/cargo-deny-action@v1
-        with:
-          command: check
 
   # ============================================================
   # Secret scan: gitleaks, pinned binary, the repo's own config, hard-fail
@@ -144,10 +268,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ONE source of truth for the pnpm version: package.json's
+      # `"packageManager": "pnpm@9.0.0"` (package.json:41). pnpm/action-setup@v4
+      # reads that field when the `version` input is absent, and REFUSES to run
+      # when both are given and differ ("Multiple versions of pnpm specified") —
+      # which is what killed this job at Setup pnpm in run 41752421903, taking
+      # lint, typecheck, the e2e/arch/policy/wire checks, visual and build with it.
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
           run_install: false
 
       - name: Setup Node.js
@@ -267,6 +396,40 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # The two Build steps below invoke tools this job never installed. That is
+      # what run 41752421903 proved for the JS/TS leg: `Build (TypeScript)` died
+      # with exit 127, "command not found", because no pnpm/node setup step
+      # existed in this job, so `pnpm install --frozen-lockfile` resolved to
+      # nothing. The `Build (Rust)` step carried the identical defect (no Rust
+      # toolchain here either) but was never reached: that leg failed earlier at
+      # CodeQL init with "Advanced Security must be enabled for this repository",
+      # which is an organization/repository setting the owner must turn on, not
+      # something YAML can fix.
+      #
+      # Approach taken: keep the explicit build (no `Autobuild repo`) and give
+      # each leg the same setup the TypeScript job uses — same actions, same
+      # order, same packageManager-only version source. Autobuild would have used
+      # corepack and hidden which pnpm/node the trap is analysed against; the
+      # explicit steps pin it to node 20 + pnpm@9.0.0 exactly as the job that
+      # lints, typechecks and builds this same tree does. pnpm setup stays BEFORE
+      # setup-node, because setup-node's `cache: 'pnpm'` needs pnpm resolvable.
+      - name: Setup pnpm (javascript-typescript)
+        if: matrix.language == 'javascript-typescript'
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node.js (javascript-typescript)
+        if: matrix.language == 'javascript-typescript'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install Rust toolchain (rust)
+        if: matrix.language == 'rust'
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3

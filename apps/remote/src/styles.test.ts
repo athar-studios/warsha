@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const CSS = readFileSync(join(__dirname, 'index.css'), 'utf8');
+const CHROME = readFileSync(join(__dirname, 'chrome.tsx'), 'utf8');
 
 describe('the stylesheet loads the design system', () => {
   it('imports the tokens once, so every var() it references resolves', () => {
@@ -98,5 +99,27 @@ describe('the accessibility floors (§9)', () => {
   it('never lets a long machine value widen the page', () => {
     expect(CSS).toMatch(/overflow-x:\s*hidden/);
     expect(CSS).toMatch(/overflow-wrap:\s*anywhere/);
+  });
+});
+
+describe('the phone nav keeps its words whole', () => {
+  it('declares white-space: nowrap on the nav item, so a tab label cannot break mid-word', () => {
+    // The property, not the rule: pull the declaration body of the base `.app-nav-item` rule and require
+    // `white-space: nowrap` inside it. `overflow-wrap: anywhere` here would split `البوّابات` and leave an
+    // orphan `ت` beside the lit lamp — so the base rule must pin the word to one line.
+    const base = CSS.match(/\.app-nav-item\s*\{([^}]*)\}/);
+    expect(base, 'the base `.app-nav-item` rule is missing').not.toBeNull();
+    // Evaluate the declarations only: the block's own comment quotes the property it retired, and a
+    // comment is not a declaration. Strip `/* … */` so the negative check reads the rules that ship.
+    const body = base?.[1].replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(body).toMatch(/white-space:\s*nowrap\b/);
+    // And it must not reintroduce the mid-word breaker it replaced.
+    expect(body).not.toMatch(/overflow-wrap:\s*anywhere/);
+  });
+
+  it('sets the same nowrap inline on the label, so it holds however the item is rendered', () => {
+    // The CSS rule guards the shipped class; the shell also writes `whiteSpace: 'nowrap'` on the label
+    // itself (chrome.tsx), so the word survives even where the class is overridden or absent.
+    expect(CHROME).toMatch(/whiteSpace:\s*'nowrap'/);
   });
 });

@@ -53,10 +53,21 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { MentionPicker, type MentionKind } from '../components/MentionPicker';
 import { SlashCommandPicker, type SlashCommandItem } from '../components/SlashCommandPicker';
+import type { DaemonEndpoint } from '../daemon';
 
 interface SimpleModeProps {
   client: WarshaClient;
   project: ProjectSummary;
+  /**
+   * The endpoint the shell resolved from the Tauri config (`apps/desktop/src/daemon.ts`).
+   *
+   * The event stream is built from `eventsUrl` — the address `/events` is really served on,
+   * a socket URL on the daemon's HTTP listener, not the RPC base — and `token`, the session's
+   * own credential. This screen names no port and no secret of its own: when the shell
+   * resolved nothing the values are empty, `subscribeEvents` reports that, and the bench
+   * shows its offline banner instead of pretending to connect somewhere.
+   */
+  endpoint: DaemonEndpoint;
   onBack?: () => void;
 }
 
@@ -262,7 +273,7 @@ function MessageRow({
   );
 }
 
-export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
+export function SimpleMode({ client, project, endpoint, onBack }: SimpleModeProps) {
   const dir = useDirection();
   const locale = useLocale();
   const [agents, setAgents] = useState<Agent[]>([...TEAM]);
@@ -344,10 +355,16 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
   }, [client, project, locale]);
 
   // Subscribe to the daemon event stream so the activity panel stays live.
+  //
+  // The socket is built from what the shell resolved — `daemon_ws_url` (the `/events`
+  // endpoint, a `ws:` URL on the daemon's HTTP listener, which is *not* the RPC base) and
+  // `daemon_token` (offered on the handshake as the `warsha.token.<token>` subprotocol).
+  // Nothing is hardcoded here: when the shell resolved nothing, `subscribeEvents` reports
+  // the missing credential, `onError` fires, and the banner says the feed is offline.
   useEffect(() => {
     const subscription = subscribeEvents({
-      url: 'http://127.0.0.1:8766',
-      token: 'test-token',
+      url: endpoint.eventsUrl,
+      token: endpoint.token,
       onEvent: (event: WarshaEvent) => {
         setStreamOffline(false);
         setRecentActivity((previous) => [...previous, event].slice(-10));
@@ -358,8 +375,9 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
       },
     });
     return () => subscription.close();
-    // Keyed to the client and project only, so the socket is not re-opened on every keystroke.
-  }, [client, project]);
+    // Keyed to the resolved endpoint and the project only, so the socket is not re-opened on
+    // every keystroke.
+  }, [client, project, endpoint.eventsUrl, endpoint.token]);
 
   useEffect(
     () => () => {
@@ -943,7 +961,10 @@ export function SimpleMode({ client, project, onBack }: SimpleModeProps) {
                       // Cost is machine data: mono, tabular, four decimals of a dollar (§11).
                       <ChipMeta>${(event.costCents / 100).toFixed(4)}</ChipMeta>
                     ) : (
-                      <ChipMeta>{label(`run.stage.${event.stage}`)}</ChipMeta>
+                      // The stage is the catalog's *word* for the step (`البحث`, `Research`), not a wire
+                      // value, so it is a meta chip in the bench's own voice — not the machine skin, which
+                      // would set an Arabic word in a fixed-advance face and cut its join (§11).
+                      <Chip>{label(`run.stage.${event.stage}`)}</Chip>
                     )
                   }
                 >

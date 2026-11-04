@@ -25,3 +25,16 @@ export * from './StatusStrip';
 export * from './Stream';
 export * from './Tabs';
 export * from './TerminalDock';
+
+// The machine rule. A screen that builds its own inline data span — the phone's `Machine`, the desktop's
+// run-id line — must resolve the same face for the same word the compounds do, so the decision in
+// `internal.ts` is exported rather than copied. These are helpers and token objects, not components: no
+// story is owed for them, and the compounds keep the only copy of the rule.
+export {
+  carriesJoinedScript,
+  MACHINE,
+  MACHINE_SMALL,
+  machineSkin,
+  machineSkinSmall,
+  slotText,
+} from './internal';

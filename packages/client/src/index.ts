@@ -93,6 +93,34 @@ export interface DeviceSummary {
   lastSeen: string;
 }
 
+/**
+ * `warsha_remote::PairingData` exactly as the daemon deserialises it — the struct
+ * `devices.pair` binds (`crates/warshad/src/lib.rs:781`, the Rust type at
+ * `crates/warsha-remote/src/lib.rs:112-118`).
+ *
+ * The field names are snake_case and the key material is a JSON array of numbers because
+ * the Rust struct carries no serde renames and no byte encoding: `device_id` is the
+ * hyphenated UUID string, `static_public` and `pairing_secret` are `[u8; 32]` — arrays of
+ * exactly 32 integers 0..=255 — and `expires_at` is an RFC 3339 string. This is also what
+ * the pairing QR carries: `PairingData::to_qr_code` encodes `serde_json::to_vec(self)`,
+ * so the redeeming side reads the QR text back into this shape (`pairingDataFromQrPayload`)
+ * and puts the same object on the wire — nothing is lost between the plate and the daemon.
+ *
+ * `pairing_secret` is a bearer credential. It is never logged, never rendered, and never
+ * appears in an error message this client produces.
+ */
+export interface PairingData {
+  device_id: DeviceId;
+  /** The device's X25519 public key: `[u8; 32]` as 32 numbers, each 0..=255. */
+  static_public: number[];
+  /** Rust `Option<String>`; the QR payload always carries the key, `null` meaning "direct". */
+  relay_url: string | null;
+  /** The one-time pairing secret: `[u8; 32]` as 32 numbers. A secret — see above. */
+  pairing_secret: number[];
+  /** RFC 3339, as chrono's serde default writes `DateTime<Utc>`. */
+  expires_at: string;
+}
+
 export interface ProviderConfig {
   name: string;
   kind: string;
@@ -435,14 +463,103 @@ function eventLogLine(value: unknown): string {
   return pairs.length > 0 ? pairs.join(', ') : event.kind;
 }
 
-/** Base URL the `/events` endpoint lives under, tolerating a trailing slash. */
+/**
+ * The `/events` URL for a daemon base URL, tolerating a trailing slash.
+ *
+ * This is the one place the WebSocket scheme is decided. `subscribeEvents` opens
+ * `new WebSocket(...)`, not an HTTP GET, so the dialled URL must be `ws:` or `wss:`:
+ * a socket opened at an `http:` URL is rejected by the platform before it reaches the
+ * daemon, which is a permanently offline feed for a reason that has nothing to do with
+ * the daemon. An `http:` base therefore becomes `ws:` and an `https:` base becomes
+ * `wss:`; a URL already in socket form passes through untouched. Callers pass the
+ * endpoint the shell resolved — never a guessed port: `/events` is served by the
+ * daemon's HTTP listener, which is not the listener RPC answers on.
+ */
 function eventEndpoint(url: string): string {
-  const trimmed = url.replace(/\/+$/, '');
+  const socketUrl = url.replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:');
+  const trimmed = socketUrl.replace(/\/+$/, '');
   return trimmed.endsWith('/events') ? trimmed : `${trimmed}/events`;
 }
 
 /** Subprotocol carrying the bearer token on the WebSocket handshake. */
 const TOKEN_SUBPROTOCOL_PREFIX = 'warsha.token.';
+
+/**
+ * The `/events` data-plane subprotocol, offered first so the daemon can select it.
+ *
+ * RFC 6455 §1.9: a server answers a WebSocket handshake by selecting one of the
+ * subprotocols the client offered, and a client that offered one and sees no selection
+ * is entitled to consider the connection failed. The daemon's `/events` selects this
+ * name and never `warsha.token.<token>`, because echoing the credential back onto the
+ * response headers is exactly what the subprotocol form exists to avoid. The daemon
+ * reads the token entry as its credential and this entry as the protocol
+ * (`crates/warshad/src/lib.rs`, `EVENTS_SUBPROTOCOL`).
+ */
+const EVENTS_SUBPROTOCOL = 'warsha.events.v1';
+
+/** One of `PairingData`'s `[u8; 32]` fields, checked the way serde binds it. Never echoes the bytes. */
+function readPairingBytes(value: unknown, name: string): number[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`pairing payload: \`${name}\` is not an array of 32 byte values`);
+  }
+  const bytes: readonly unknown[] = value;
+  const out: number[] = [];
+  for (const byte of bytes) {
+    if (typeof byte !== 'number' || !Number.isInteger(byte) || byte < 0 || byte > 255) {
+      throw new Error(`pairing payload: \`${name}\` is not an array of 32 byte values`);
+    }
+    out.push(byte);
+  }
+  if (out.length !== 32) {
+    throw new Error(`pairing payload: \`${name}\` has ${out.length} bytes, expected 32`);
+  }
+  return out;
+}
+
+/** One required string field of a pairing payload; the error names the field, never its value. */
+function readPairingString(value: unknown, name: string): string {
+  if (typeof value !== 'string' || value === '') {
+    throw new Error(`pairing payload: \`${name}\` is not a string`);
+  }
+  return value;
+}
+
+/**
+ * The pairing QR text, read back into the struct `devices.pair` binds.
+ *
+ * The plate carries the JSON of the pairing itself — `PairingData::to_qr_code`
+ * (`crates/warsha-remote/src/lib.rs:156-169`) encodes `serde_json::to_vec(self)` into the image —
+ * so redeeming a pairing is `JSON.parse` plus the shape check serde would run: the four required
+ * fields, the two 32-byte arrays, and `relay_url` as a string or null (`Option<String>`). Anything
+ * else is refused here, before a byte of it can reach the daemon and be refused there in a message
+ * nobody wrote.
+ *
+ * The QR text is a bearer credential (`pairing_secret`). Every refusal from this function names
+ * the field that failed and carries none of the payload.
+ */
+export function pairingDataFromQrPayload(payload: string): PairingData {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(payload) as unknown;
+  } catch {
+    throw new Error('pairing payload is not JSON');
+  }
+  if (typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) {
+    throw new Error('invalid type: expected a PairingData object');
+  }
+  const source = decoded as Record<string, unknown>;
+  const relayUrl = source['relay_url'];
+  if (relayUrl !== undefined && relayUrl !== null && typeof relayUrl !== 'string') {
+    throw new Error('pairing payload: `relay_url` is not a string or null');
+  }
+  return {
+    device_id: readPairingString(source['device_id'], 'device_id') as DeviceId,
+    static_public: readPairingBytes(source['static_public'], 'static_public'),
+    relay_url: typeof relayUrl === 'string' ? relayUrl : null,
+    pairing_secret: readPairingBytes(source['pairing_secret'], 'pairing_secret'),
+    expires_at: readPairingString(source['expires_at'], 'expires_at'),
+  };
+}
 
 export class WarshaClient implements WarshaWiringApi {
   private baseUrl: string;
@@ -768,27 +885,25 @@ export class WarshaClient implements WarshaWiringApi {
   }
 
   /**
-   * `devices.pair` — the parameter is the daemon's `pairing_data`, not a name this client chose.
+   * `devices.pair` — the parameter is the daemon's whole `PairingData` struct, not text about it.
    *
-   * Measured against a running `warshad` (#54): `{ qrData }` answered `-32602 "missing field
-   * 'pairing_data'"`. `crates/warshad/src/lib.rs:781` binds `pairing_data`, and the decoder accepts
-   * that spelling or its camelCase form `pairingData`; `qrData` is a rename and matched neither, so
-   * remote pairing could not reach the daemon at all.
+   * Measured against a running `warshad` (#54, then #58): `{ qrData }` answered `-32602 "missing
+   * field 'pairing_data'"`; after the key was fixed, the string value answered `-32602 "invalid
+   * type: string …, expected struct PairingData"`, because `crates/warshad/src/lib.rs:781` binds
+   * `warsha_remote::PairingData` (`crates/warsha-remote/src/lib.rs:112-118`) as a struct. The struct
+   * carries everything the QR string did and nothing is left behind: `to_qr_code`
+   * (`crates/warsha-remote/src/lib.rs:156`) encodes exactly `serde_json::to_vec(self)` into the
+   * plate, so `pairingDataFromQrPayload` reads the QR text back into this shape and the wire sends
+   * the object the daemon binds. Pinned against a live daemon by
+   * `crates/warshad/tests/devices_pair.rs`; the e2e stub in `apps/desktop/e2e/harness.ts` answers
+   * the struct and still refuses the string in serde's shape.
    *
-   * What this rename does not claim to fix: the daemon deserialises `warsha_remote::PairingData`
-   * (`crates/warshad/src/lib.rs:781`, the struct at `crates/warsha-remote/src/lib.rs:112-118` —
-   * `device_id`, `static_public`, `relay_url`, `pairing_secret`, `expires_at`), so the QR text this
-   * method takes is the right *key* with the wrong *shape*: after the key it parses to an -32602
-   * `invalid type: string …, expected struct PairingData` rather than to a paired device. Settling
-   * that is a product decision about what the QR payload carries — not a key rename — and no screen
-   * calls this method yet (`apps/desktop/src/screens/Devices.tsx:169` still holds the TODO that
-   * waits on the daemon's pairing code). The return type carries the same drift: the daemon answers
-   * `()`, so `DeviceSummary` below is never filled by a live daemon. The e2e stub refuses both of
-   * these the way the daemon does — see `missing field 'pairing_data'` and the `invalid type` branch
-   * in `apps/desktop/e2e/harness.ts`'s `devices.pair` case.
+   * The daemon returns `()` — hence `void`. The old `DeviceSummary` result was a shape no live
+   * daemon ever answered (`pair_device` maps to `Ok(())`, `crates/warshad/src/lib.rs:1760-1779`);
+   * the paired device shows up on the next `devices.list` read instead.
    */
-  async pairDevice(qrData: string): Promise<DeviceSummary> {
-    return this.rpc('devices.pair', { pairing_data: qrData });
+  async pairDevice(pairingData: PairingData): Promise<void> {
+    await this.rpc<unknown>('devices.pair', { pairing_data: pairingData });
   }
 
   /**
@@ -1047,10 +1162,21 @@ export function parseHandoffApplySummary(json: string): HandoffApplySummary {
 /** Handle returned by `subscribeEvents`; `close()` is idempotent. */
 export interface EventSubscription {
   close(): void;
-}export interface SubscribeEventsOptions {
-  /** Base WebSocket URL of the daemon, e.g. `ws://127.0.0.1:8766`. */
+}
+
+export interface SubscribeEventsOptions {
+  /**
+   * Base URL of the daemon, e.g. `ws://127.0.0.1:8765` — the endpoint `/events` is
+   * really served on, not the RPC base. An `http(s)` URL is rewritten to `ws(s)` here
+   * (see `eventEndpoint`); the `/events` path is appended if it is not already there.
+   */
   url: string;
-  /** Daemon auth token, sent on the handshake as `warsha.token.<token>`. */
+  /**
+   * Daemon auth token. It is sent on the handshake as the `warsha.token.<token>`
+   * subprotocol — never in the URL, which a proxy, a browser history entry and a
+   * `Referer` would all log — and the daemon answers the handshake by selecting
+   * `warsha.events.v1`, not this entry.
+   */
   token: string;
   onEvent: (event: WarshaEvent) => void;
   onError?: (error: Error) => void;
@@ -1058,6 +1184,11 @@ export interface EventSubscription {
 
 /**
  * Stream `warsha_core::Event` values from the daemon's `/events` WebSocket endpoint.
+ *
+ * The handshake offers two subprotocols, in this order: `warsha.events.v1` — the name the
+ * daemon selects back, which is what stops a spec-checking client from treating an
+ * accepted socket as failed — and `warsha.token.<token>`, the credential the daemon
+ * authenticates with. The token never goes in the URL, and never comes back.
  * Connection and frame errors go to `onError`; nothing is thrown asynchronously.
  * No automatic reconnect in M1 — a dropped stream stays closed.
  */
@@ -1092,7 +1223,10 @@ export function subscribeEvents(options: SubscribeEventsOptions): EventSubscript
       return null;
     }
     try {
-      return new WebSocketCtor(endpoint, `${TOKEN_SUBPROTOCOL_PREFIX}${token}`);
+      return new WebSocketCtor(endpoint, [
+        EVENTS_SUBPROTOCOL,
+        `${TOKEN_SUBPROTOCOL_PREFIX}${token}`,
+      ]);
     } catch (cause) {
       reportError(
         new Error(redactToken(`Could not open event stream: ${describeCause(cause)}`, token))

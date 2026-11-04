@@ -65,14 +65,73 @@ async function expectStatus(page: Page): Promise<void> {
   await expect(page.locator('[role="status"]').first()).toBeVisible();
 }
 
-/** §1's lamp semantics: a pending gate is the one thing on the bench that is lit. */
-async function expectLitLamp(page: Page): Promise<void> {
-  await expect(page.locator('[data-state="waiting"]').first()).toBeVisible();
-}
-
-/** The same, decided: nothing is lit, and the queue says so. */
+/** Nothing is lit: no gate is the one the run is stopped at, and the queue says so. */
 async function expectQuietLamp(page: Page): Promise<void> {
   await expect(page.locator('[data-state="waiting"]')).toHaveCount(0);
+}
+
+/**
+ * The parked gate is the only lit thing in a four-pending queue, and the only gate with a decision bar.
+ *
+ * `gates.list` answers all four stages pending (`crates/warshad/src/lib.rs`, `list_gates`), so the inbox
+ * shows three names and one request. The counting is locale-free on purpose: `data-tone="lit"` is the chip,
+ * `data-gate-action` is the decision bar `GateCard` fastens to each of its three moves, and `data-state` is
+ * the lamp's own word — so the case pins the *rule*, not a string the catalog is free to re-vocalise.
+ */
+async function expectOneParkedGate(page: Page): Promise<void> {
+  const inbox = page.locator('.gates-inbox');
+  await expect(inbox.locator('[data-tone="lit"]')).toHaveCount(1);
+  await expect(inbox.locator('[data-gate-action="approve"]')).toHaveCount(1);
+  // The rail row and the card head of the one parked gate; the other three rows carry an idle dot.
+  await expect(inbox.locator('[data-state="waiting"]')).toHaveCount(2);
+  await expect(inbox.locator('[data-state="idle"]')).toHaveCount(3);
+}
+
+/**
+ * A queue of gates the run has not reached: named, counted, and asking for nothing.
+ *
+ * The other half of the parked rule. In this scenario the bench is showing a run standing at
+ * `review_qa_security` while the daemon reports two pending gates, so neither of them is the reason the run
+ * is not moving and the inbox must not look like it is — no lit chip, no decision bar.
+ *
+ * Two rail rows, both idle: the count is scoped to the rail (`.warsha-rail-row`) rather than to the
+ * whole inbox, because the detail column renders the selected unreached gate as its own idle plate
+ * (`UnreachedGate`), which is a second idle lamp telling the same story — counting it would make this
+ * assertion depend on which row happens to be selected, and would let one plate hide the other's claim.
+ */
+async function expectNoDecisionOffered(page: Page): Promise<void> {
+  const inbox = page.locator('.gates-inbox');
+  await expect(inbox.locator('[data-gate-action="approve"]')).toHaveCount(0);
+  await expect(inbox.locator('[data-tone="lit"]')).toHaveCount(0);
+  await expect(inbox.locator('.warsha-rail-row [data-state="idle"]')).toHaveCount(2);
+}
+
+/**
+ * §11's words state: a spend with no ceiling is said in words, never as a formatted zero.
+ *
+ * The case cannot read the catalog per locale — the table is built at module scope, outside the locale loop
+ * — so both shipped spellings of `bench.no_ceiling` are named here, in the two languages the matrix runs.
+ */
+const NO_CEILING_WORDS = /no ceiling reported|لم يُبلَّغ عن سقف/;
+
+async function expectNoCeilingWords(page: Page): Promise<void> {
+  await expect(page.getByText(NO_CEILING_WORDS).first()).toBeVisible();
+}
+
+/**
+ * A decided card keeps its record and loses the "waiting on you" band.
+ *
+ * `GateCard` paints the signal band on the card's inline-start unconditionally; the caller that knows a
+ * decision exists takes it back to the plate's edge (`QUIET_BAND`, in `GatePlate.tsx` and `GatesInbox.tsx`),
+ * which is what the attribute says. The stamp, the acting device and the recorded words are asserted by the
+ * quiet lamp above and by the screenshot itself.
+ */
+async function expectDecidedCardIsQuiet(page: Page): Promise<void> {
+  await expectQuietLamp(page);
+  const band = await page.locator('.warsha-gate-card').first().getAttribute('style');
+  expect(band, 'the decided card still carries the signal band').toMatch(
+    /border-inline-start:\s*3px solid var\(--warsha-bench-edge\)/
+  );
 }
 
 /**
@@ -150,12 +209,43 @@ export const STATE_CASES: readonly StateCase[] = [
   {
     screen: 'gates',
     scenario: 'permission',
-    expect: expectLitLamp,
+    // Two gates pending on a run standing at `review_qa_security`: neither is why the run waits, so the
+    // inbox names them and offers no decision. Round 3's G1 evidence was this capture lighting both of them
+    // with a live decision bar (`gates-permission-1440x900-en-light`).
+    expect: expectNoDecisionOffered,
+  },
+  {
+    screen: 'gates',
+    scenario: 'parked',
+    // The state no baseline showed: four stages pending, one of them the stage the run stands on, and that
+    // one the only lit plate with a decision bar on the bench.
+    expect: expectOneParkedGate,
   },
   {
     screen: 'gates',
     scenario: 'success',
-    expect: expectQuietLamp,
+    // Decided is a record, not a request: no waiting lamp and no signal band, stamp and note intact
+    // (round 3's G3, `gates-success-390x844-ar-light`).
+    expect: expectDecidedCardIsQuiet,
+  },
+  {
+    screen: 'budgets',
+    scenario: 'no-ceiling',
+    // Round 3's G4: `bench.no_ceiling` shipped on five surfaces and appeared in no baseline, because every
+    // scenario answered a 1200-cent ceiling. The ledger row is the copy's own surface.
+    expect: expectNoCeilingWords,
+  },
+  {
+    screen: 'projects',
+    scenario: 'no-ceiling',
+    expect: expectNoCeilingWords,
+  },
+  {
+    screen: 'simple',
+    scenario: 'no-ceiling',
+    // The instrument strip's budget item, which is the surface the words were written for and the one a
+    // list screen never reaches (G6 keeps the disagreement itself open).
+    expect: expectNoCeilingWords,
   },
   {
     screen: 'projects',

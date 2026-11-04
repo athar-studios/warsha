@@ -34,7 +34,7 @@
 
 ## M4 – CLI (`warsha`) ✅ DONE (validated 2026-10-29T11:43:54, all 14 checks green)
 - [x] Commands: `init`, `new "<idea>"`, `run`, `status`, `logs -f`, `gates`, `approve <gate>`, `reject <gate> --reason`, `providers add|list|test|remove`, `roles set`, `budget set`, `doctor`, `pair`, `devices list|revoke`
-- [x] Uses `--json` output for scripting, and human output follows the locale
+- [x] Uses `--json` output for scripting — its text is pinned to English, a machine contract — and human output follows the process locale: every message `warsha` writes in prose (confirmations, refusals, its own error sentences) has two inline wordings chosen by `CliLang` (`LC_ALL` then `LANG`, `ar*` → Arabic). Left English, by name: clap-generated `--help`, values rendered through Rust `Debug` (stage/status enum names), and error text owned by other crates
 - [x] AC: snapshot tests for the CLI output. `warsha doctor` reports missing tools, so the whole M3 E2E can be driven from the CLI
 
 ## M5 – Desktop app (Tauri 2) ✅ DONE (validated 2026-10-29T12:52:29, all 14 checks green)
@@ -99,7 +99,7 @@
 ## M8 – i18n ar/en + RTL ✅ DONE (validated 2026-10-29T13:12:45, all 14 checks green)
 - [x] All UI strings sit in the catalogs, with full RTL layout (logical CSS properties) and a language switch
 - [x] Agents can write artifacts in the user's chosen language
-- [x] AC: a lint fails on hardcoded UI strings, there are visual snapshot tests in both directions, and the CLI messages are localized
+- [x] AC: a lint fails on hardcoded UI strings, there are visual snapshot tests in both directions, and every human message the CLI itself writes is localized — one ar/en inline-wording pair per message behind `CliLang` in `crates/warsha-cli/src/lib.rs`, pinned by tests in both languages; clap `--help` and the `--json` machine contract are English by design
 
 ### M8b – Simple mode UI spec (docs/UI.md) (inspired by LingCode's public site; ideas only) ✅ DONE (validated 2026-10-29T19:44:00, exit=0, all check groups green; see PROGRESS.md for the exact commands and the one host limit)
 - [x] `docs/UI.md` documents the Simple mode layout, mirrored for RTL: sidebar (New chat, search, projects, today's chats, plan badge) | chat | live preview

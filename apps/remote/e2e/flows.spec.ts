@@ -124,6 +124,10 @@ test('a gate is decided from the keyboard, and the decision reaches the daemon',
     locale: 'ar',
     theme: 'light',
     scenario: 'permission',
+    // The fixture's pending gates are owned by `run-gate-a` standing at `gate_a`; without it the
+    // provider selects the newest run of the newest project (`run-code`, standing at `code`) and
+    // the parked rule renders every pending gate as an unreached name with no action.
+    search: `?server=${encodeURIComponent(REMOTE_DAEMON_URL)}&token=${REMOTE_TOKEN}&project=proj-store&run=run-gate-a`,
   });
 
   const approve = page.locator('[data-gate-action="approve"]').first();
@@ -148,6 +152,9 @@ test('a dropped feed says so and keeps the queue', async ({ page }) => {
     // client's own error path runs. An idle-but-open socket is not a dropped feed, and a clean close is
     // not an outage — `subscribeEvents` says nothing for one, on purpose.
     events: 'refuse',
+    // The default fixture's pending `gate_a` belongs to `run-gate-a`; the home queue only lights the
+    // gate the selected run stands on, so the same selection the keyboard case makes is needed here.
+    search: `?server=${encodeURIComponent(REMOTE_DAEMON_URL)}&token=${REMOTE_TOKEN}&project=proj-store&run=run-gate-a`,
   });
 
   // §7: a closed stream is not a lost queue. The way back is a real button, and the gate that was
@@ -183,7 +190,7 @@ test('the phone and the desktop say the same thing about the same gate', async (
     viewport: PHONE,
     locale: 'ar',
     theme: 'light',
-    scenario: 'permission',
+    scenario: 'parked',
   });
   const onPhone = await waitingWord(page);
 
@@ -196,7 +203,7 @@ test('the phone and the desktop say the same thing about the same gate', async (
     viewport: DESKTOP,
     locale: 'ar',
     theme: 'light',
-    scenario: 'permission',
+    scenario: 'parked',
     // Playwright's `baseURL` is a fixture option, so a page this test created needs the origin.
     origin: DESKTOP_ORIGIN,
   });

@@ -15,9 +15,9 @@
 
 import React from 'react';
 
-import { aliasVar, colorVar, fontFamily, fontSize, size, space } from '../tokens';
+import { aliasVar, colorVar, fontSize, size, space } from '../tokens';
 
-import { cx } from './internal';
+import { cx, machineSkin } from './internal';
 
 export interface StatusStripProps {
   children: React.ReactNode;
@@ -31,7 +31,7 @@ export interface StatusStripItemProps {
   children: React.ReactNode;
   /** Drop this reading below 768px. The daemon lamp and the budget meter never set it. */
   hideNarrow?: boolean;
-  /** Machine data — an id, a cost, a count — is mono with tabular numerals (§11). */
+  /** Machine data — an id, a cost, a count — is tabular, at the face its own words allow (§11). */
   machine?: boolean;
   className?: string;
   style?: React.CSSProperties;
@@ -53,8 +53,10 @@ function StatusStripItem({
       data-warsha-hide-narrow={hideNarrow ? 'true' : undefined}
       style={{
         color: colorVar('text'),
-        fontFamily: machine ? fontFamily('mono') : undefined,
-        fontVariantNumeric: machine ? 'tabular-nums' : undefined,
+        // The reading asks for the machine treatment; `machineSkin` answers it with the face its own
+        // words allow. `3 بوّابات بانتظارك` is a count *and* a sentence, and the sentence may not be set
+        // in a fixed-advance face — the count keeps its tabular width all the same (§11).
+        ...(machine ? machineSkin(children) : undefined),
         minInlineSize: 0,
         flex: 'none',
         ...style,

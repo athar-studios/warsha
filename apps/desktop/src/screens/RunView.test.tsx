@@ -50,6 +50,18 @@ describe('run view header', () => {
     expect(screen.getByText(t('run.back', {}, 'ar'))).toBeInTheDocument();
   });
 
+  it('keeps the LTR isolation on the id, never on the title block', () => {
+    // Round 3, Gap 2: `dir="ltr"` sat on the block-level title, so `textAlign: 'start'` resolved to
+    // left and `proj-1` was orphaned at the left edge of a right-aligned Arabic screen. The block keeps
+    // the page's direction; only the machine value brings its own isolated LTR run.
+    renderView('ar');
+
+    const id = screen.getByText('proj-1');
+    expect(id).toHaveAttribute('dir', 'ltr');
+    expect(id.style.unicodeBidi).toBe('isolate');
+    expect(id.parentElement).toHaveAttribute('dir', 'rtl');
+  });
+
   it('announces that manual advance is not wired, instead of calling alert()', async () => {
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
     renderView('en');

@@ -21,7 +21,7 @@ describe('the pipeline plate', () => {
     // A stage behind the run carries the done glyph, the current one the running glyph, the rest the todo
     // glyph (§9: the glyph says it, the tint only helps). The bench opened on the newest run, `gate_b`.
     expect(rows[0].getAttribute('data-state')).toBe('done');
-    expect(rows.find((row) => row.textContent?.includes('البوابة ب'))?.getAttribute('data-state')).toBe(
+    expect(rows.find((row) => row.textContent?.includes('البوّابة ب'))?.getAttribute('data-state')).toBe(
       'running'
     );
     expect(rows.find((row) => row.textContent?.includes('البرمجة'))?.getAttribute('data-state')).toBe('todo');
@@ -34,7 +34,7 @@ describe('the pipeline plate', () => {
     await settle();
 
     const plate = screen.getByRole('region', { name: 'التشغيل الحالي' });
-    expect(within(plate).getByText('معرف التشغيل')).toBeInTheDocument();
+    expect(within(plate).getByText('معرّف التشغيل')).toBeInTheDocument();
     expect(within(plate).getByText(RUN.id, { selector: '[translate="no"]' })).toBeInTheDocument();
     expect(within(plate).getByText('حالة التشغيل: يعمل')).toBeInTheDocument();
     expect(within(plate).getByText('المرحلة')).toBeInTheDocument();
@@ -113,10 +113,10 @@ describe('the readings, the feed and the log', () => {
 
     const feed = screen.getByRole('log', { name: 'تدفّق الأحداث' });
     expect(feed).toHaveAccessibleName('تدفّق الأحداث');
-    expect(within(feed).getByText('قرار بوّابة البوابة ب')).toBeInTheDocument();
+    expect(within(feed).getByText('قرار بوّابة البوّابة ب')).toBeInTheDocument();
     expect(within(feed).getByText('خطأ البرمجة')).toBeInTheDocument();
     // A gate line keeps the signal wash *and* the ☑ glyph; an error keeps its own glyph (§9).
-    expect(within(feed).getByText('قرار بوّابة البوابة ب').closest('[data-kind]')).toHaveAttribute(
+    expect(within(feed).getByText('قرار بوّابة البوّابة ب').closest('[data-kind]')).toHaveAttribute(
       'data-kind',
       'gate'
     );

@@ -323,6 +323,243 @@
 - **Incident (self-disclosed)**: two `--list` selector dry-runs predating the `--reporter=list` override let the config's JSON reporter overwrite `bridge-io/audit/visual-playwright.json` with an empty-list stub; the file was restored byte-identically from the prior lane's archived full-run report (sha256 `88020b169797fdc4c339b04ea81d76e65851261d3fe82c1b19913108650928fe`) and every later command carried the reporter override. No other bridge-io write.
 - **Reason**: the brief's decision rule is measurement, not argument — serial reproduction either collapses the failure (flake/jitter, report and stop) or pins it (repair item). Here the flow closure collapsed serially and the six owned pixel cases passed serially twice, so the correct outcome is a green verification record, not a code change. Owner need (b) is unchanged only for the other lanes' 3–20 px jitter captures listed above.
 
+## 2026-11-04 — The daemon serves the phone app: same-origin closes #16, and it needs no new dependency
+
+- **Decision (#16)**: `warshad` serves the built `apps/remote` PWA from its **HTTP listener**, so a pairing
+  link and a daemon origin are the *same* origin. This was forced by the seam found while reviewing the
+  pairing work: `PairingData::pairing_link(server_origin)` builds
+  `{origin}/?server={origin}&token={secret}`, using one value as both the page the phone opens and the
+  daemon it then dials — a link that lands on a **404** even when bind, CORS and pairing are each
+  correct, because nothing in the product serves `apps/remote/dist` today. Making the link's assumption
+  true is the fix; changing the link to take a second app origin would leave the 404 in place and just
+  move it to a value the owner has to supply.
+- **Feasibility measured first, not assumed**: `tower-http` is already a `warshad` dependency
+  (`crates/warshad/Cargo.toml:25`) and the workspace enables
+  `features = ["cors", "trace", "fs"]` (`Cargo.toml:54`) — the **`fs` feature is on but unused**: the only
+  import in `crates/warshad/src/lib.rs:33` is `tower_http::cors::{Any, CorsLayer}`. So `ServeDir` needs no
+  new crate and no install authorization.
+- **Why this option over the alternatives**:
+  1. *Same origin dissolves CORS for this path.* The G5 phone-origin question exists only because the app
+     and the daemon were assumed to be different origins. Serving the app from the daemon makes the
+     request same-origin, so #9 stops being a prerequisite for a phone to work at all (the allowlist still
+     matters for any externally hosted app, and for the Vite dev server on 5173/5174).
+  2. *One artifact for a local-first product.* The PC app already runs the daemon in-process, so bundling
+     the built front end means the owner installs one thing instead of standing up a web server.
+  3. *It keeps the pairing wire type untouched*, consistent with the lane's reasoning for not adding a
+     `server_origin` field to `PairingData`.
+- **Two things this must not silently break, both of which the implementing lane has to handle:**
+  - **SPA routes.** The remote app routes on real paths (`/gates`, `/run`, `/projects`, `/settings`), so a
+    plain `ServeDir` 404s every deep link on refresh. A `index.html` fallback for unmatched non-asset
+    paths is required, and `/?server=…&token=…` must still reach the app.
+  - **The credential surface.** `/health` is unauthenticated by design and `RPC`/`/events` require a
+     bearer; adding a public static surface must not widen auth. Static assets are public by nature, but
+     the daemon must not serve its own `config.toml`, `warsha.db`, or lock files through the same handler,
+     and `app.js`/`index.html` must not be able to traverse out of the asset root. Serving the app also
+     must not turn a lost token into a 200.
+- **Packaging consequence, recorded not yet solved**: in a packaged build the assets must *ship* — the
+  deb/MSI need `apps/remote/dist` inside the bundle, and the lookup path differs between a dev checkout
+  (`apps/remote/dist`) and an installed bundle. `bundle.resources` is currently `[]`. This connects to
+  #12: if the same in-process daemon both serves the app and holds the data, the desktop app becomes the
+  single thing an owner runs, which is what "PC and Android working version" actually needs.
+- **TLS note that still stands** (see the #11 entry): same-origin serving does **not** make
+  `http://192.168.x.x` a secure origin. It removes the cross-origin problem, not the
+  installability-on-insecure-HTTP problem. Those are different constraints and must not be conflated by
+  a future reader of this page.
+
+## 2026-11-04 — The shipped `warsha` CLI authenticates nothing: a live round-trip found what 884 green tests could not
+
+- **Measured, not reasoned.** On this host, against a real `warshad` in a throwaway `XDG_*` sandbox on
+  ports 18965/18966: `curl` with the daemon's own `auth_token` (43 chars, read from the `config.toml` the
+  daemon wrote) returned **HTTP 200 `{"result":[]}`** for `providers.list`, while
+  `warsha providers list --url … --token <same token>` returned
+  **`Rpc(Transport(Rejected { status_code: 401 }))`**. Nothing was listening on the default 8766, and
+  `--url`/`--token` were confirmed as real flags from the pinned binary's own `--help`, so the two calls
+  differed only in the client.
+- **Root cause**: `CliApp::new` (`crates/warsha-cli/src/lib.rs:346-373`) builds **two** HTTP clients. The
+  `Authorization: Bearer` header goes into the reqwest client at `:361`, which is used only for `/health`
+  probes (`:728`, `:829`). The jsonrpsee client that performs every actual RPC is built at `:364` with
+  `HttpClientBuilder::default()` — **no headers** — and the token is parked as `_token` (`:342`, `:371`),
+  underscore-prefixed because no code reads it. So no CLI RPC carries a credential, and the underscore is
+  the fingerprint.
+- **Why the suite missed it**: `crates/warsha-cli`'s tests around `:1629-1642` assert only *message
+  formatting* (`invalid_auth_token_message`, `no_token_message`), and `crates/warshad/tests/e2e_*.rs`
+  drive in-process Rust clients rather than this path. Every green signal in this repo is compatible with
+  the shipped CLI being wholly broken. This is the standing lesson applied to our own suite: **a stub or
+  an in-process client is not proof of the shipped seam** — the acceptance bar for "PC works" is driving
+  the real binary against the real daemon.
+- **Second symptom, not yet attributed**: `warsha new "<idea>"` failed with a bare `Error: NotConnected`.
+  It may be this same 401 surfacing differently, or a separate defect; deliberately left to measurement
+  rather than assumed, because calling it fixed without reproducing it would be exactly the kind of claim
+  this file exists to prevent.
+- **Also noted**: the running daemon accepted `--http-port 18965 --ws-port 18966` but wrote
+  `http_port = 8765` / `ws_port = 8766` into the generated `config.toml`, i.e. the file records defaults
+  while the process serves the overridden ports. Harmless for a CLI that passes `--url`, but it means
+  `config.toml` is not a reliable record of how a running daemon may be reached — relevant to #12, where
+  the fix is expected to be "read the address from config".
+- **Second defect, independent of the first — and fixing #14 does not clear it.** Measured in the same
+  sandbox: `warsha providers list` → **401** while `curl` with the same token → **200**, but
+  `warsha status` and `warsha new` fail earlier with a bare **`Error: NotConnected`**, a different path.
+  `ensure_daemon` (`crates/warsha-cli/src/lib.rs:826-835`) does `GET {base_url}/health`, and `--url` is
+  documented by the binary itself as the **JSON-RPC** URL (default `http://127.0.0.1:8766`, i.e.
+  `ws_port`). That listener answers `/health` with **405 "Used HTTP Method is not allowed. POST is
+  required"** given a valid bearer, and **401 `{"error":"unauthorized"}`** given none, so
+  `resp.status().is_success()` is false for every method and `NotConnected` is unavoidable. The real
+  `/health` — `{"status":"healthy","version":"0.1.0",…}` at HTTP 200 — lives on the *other* listener
+  (`http_port`, 8765), for which the CLI has no flag at all. This is the `--ws-port`-is-RPC trap already
+  recorded under the #40/#10 entry, now biting a shipped code path rather than a probe.
+- **Consequence for the PC claim**: the CLI is broken in two separate places — no credential on RPC, and a
+  connectivity probe that cannot succeed on any port the CLI can name. Tasks #14 and #15 are distinct
+  fixes in one file (`crates/warsha-cli/src/lib.rs`), so they serialize rather than run side by side.
+- **Dispatched**: lane `cli-auth` (agentId `aCoder-234e91ead0ffdf10`) on `crates/warsha-cli/**` only, with
+  orders to prove the jsonrpsee headers API against the locked version rather than guess it, and to add a
+  live-daemon regression test that **fails before the fix**. Task #14.
+
+## 2026-11-04 — TLS for the phone is an infrastructure boundary, not a code bug; decided rather than deferred
+
+- **Decision (#11)**: Android installability is delivered as an installable PWA **when served over HTTPS**,
+  and this host verifies the mechanics it actually can. Chrome treats `http://localhost` as a
+  potentially trustworthy origin, so manifest validity, emitted `dist/` assets and a real
+  `navigator.serviceWorker.getRegistration()` **are provable here with no certificate** — that is the
+  evidence bar for "the PWA is installable-shaped". A phone on a LAN address is not localhost, so
+  `http://192.168.x.x` is not a secure origin and the app will open in a browser tab without becoming
+  installable. Serving the phone app over TLS at an origin the phone resolves is the owner's
+  infrastructure decision, and the honest deliverable is: working app + the exact remaining step named.
+- **Three tempting "fixes" rejected, with reasons**:
+  1. *Self-signed cert on the daemon.* It makes the owner install a root certificate on a phone to reach
+     their own machine, and trains the habit of clicking through warnings. Not a security posture this
+     project should introduce quietly.
+  2. *Relaxing `apps/remote/src/session.ts:62` to accept `http:` differently.* It already accepts `http:`;
+     the blocker is the browser's secure-origin rule, which no code in this app can override. A change
+     here would look like progress and do nothing.
+  3. *A native APK to sidestep TLS entirely.* No JDK/Android SDK/NDK/Gradle/adb on this host, so it would
+     require an environment install this stage does not make.
+- **The architectural alternative, named but not taken now**: `warsha-relay` would solve reachability and
+  TLS together — the PWA lives on a public HTTPS origin, the phone connects through the relay, and no LAN
+  bind or port forwarding is needed. It is genuinely runnable code (`serve(state, bind)` at
+  `crates/warsha-relay/src/lib.rs:968`, plus WS channels, trust records and limits), **not** a stub. But
+  nothing in `crates/warshad` references it (grep is empty), `PairingData.relay_url` is
+  `Option<String>` and unset in practice, and it forwards device *frames*, not the daemon's RPC surface.
+  Wiring it is a milestone, not a patch. Recorded so nobody re-discovers it as a quick fix.
+- **An inconsistency worth noting for #6**: `warsha-relay::serve` takes `bind: &str` as a parameter, while
+  the daemon hardcodes `127.0.0.1` twice (`crates/warshad/src/lib.rs:3347`, `:3411`). The two servers in
+  this stack already disagree on whether the operator chooses the address; the daemon should follow the
+  relay's existing pattern rather than invent a third one.
+
+## 2026-11-04 — The QR is a *link* the phone's own camera opens; Warsha never decodes one
+
+- **Decision**: Correcting my own task list. I had filed "replace `PairingData::from_qr_code` with real
+  image decoding" as an Android blocker requiring a new decoder dependency. **It is not on the Android
+  path.** `from_qr_code` has exactly one production caller — `crates/warsha-cli/src/lib.rs:784`
+  (`warsha pair <qr>`) — plus a test comment. `apps/remote/src/` contains **no** QR scanning, camera,
+  `getUserMedia` or `BarcodeDetector` code at all; the phone gets its session by parsing the address it
+  was opened with (`apps/remote/src/App.tsx:57`, "what a scan produces", then `session.ts`'s
+  `readDaemonUrl`/`readToken`). The scanning is done by the phone's own camera app, which is the correct
+  design. So no decoder dependency is needed for Android, and the CLI's broken decode is a separate,
+  lower-priority defect.
+- **The consequence that actually matters — `to_qr_code` renders the wrong artifact.** It encodes
+  `serde_json::to_vec(self)` into a PNG and returns base64 of that image
+  (`crates/warsha-remote/src/lib.rs:156-168`). A phone camera scanning it obtains opaque JSON, not
+  something a browser can open. What the real flow needs is a **pairing URL** of the shape the remote app
+  already parses: `<app origin>?server=<daemon origin>&token=<opaque token>`, where `session.ts:62-83`
+  requires an `http(s)` absolute URL with a host and no embedded `user:pass`, and a token containing no
+  whitespace and none of `#&+`. `devices.pair-start` must therefore return a link, and whatever is rendered
+  as a QR must be that URL text — not `PairingData` serialized. This is why brief option (ii) (return the
+  pairing *and* the reachable origin as one link) was chosen over adding a field to the wire struct: the
+  struct is not the thing a phone consumes.
+- **Token identity still open, and it is not a detail.** The remote app treats `token=` as whatever reaches
+  the daemon as a session credential; `PairingData.pairing_secret` is a one-time 32-byte value with a
+  10-minute expiry, and the daemon's own bearer is `DaemonConfig.auth_token`. Which one a phone must be
+  handed decides both the auth path and whether `pair-start`'s link works at all (see the #58 note that
+  phone pairing was still refused against a live daemon). To be settled by measurement against a running
+  daemon, not by reading — a link that installs a session is the only proof that counts here.
+
+## 2026-11-04 — Android is scoped as a PWA by this repo itself; the APK reading of the goal is not buildable here
+
+- **Decision**: The Android half of the owner's "PC and Android" goal is delivered as the **`apps/remote`
+  PWA**, not as a native APK. Evidence, not preference: `rustup target list --installed` does show
+  `aarch64-linux-android` and `x86_64-linux-android`, but `java`, `javac`, `gradle`, `sdkmanager`, `adb`,
+  `emulator` and `ndk-build` are all absent, `ANDROID_HOME`/`ANDROID_SDK_ROOT`/`ANDROID_NDK_HOME` are
+  empty, there is no `apps/desktop/src-tauri/gen/`, and the string `android` appears nowhere in
+  `.github/`, `apps/*/package.json` or `tauri.conf.json`. An APK would mean installing a JDK + Android
+  SDK + NDK and scaffolding — an environment change this stage does not make.
+  **The repo already agrees with this reading**: `PLAN.md:229`/`:269` scope mobile as PWA + responsive,
+  and nothing published promises a Warsha APK (`docs/src/live-preview.md:169`, `docs/src/changelog.md:136`
+  and `docs/src/known-limitations.md:85-88` all say the Android/service-worker half is not built).
+- **Trap avoided**: `PROGRESS.md`'s "4 templates (web, cli, desktop, android)" is the **template the
+  factory generates for a user's project** — `crates/warsha-git/src/lib.rs:1003-1020`
+  `Template::android()` emits `build.gradle.kts` and a Kotlin/Compose `MainActivity.kt`. It is not a
+  Warsha Android app, and reading it as one would have sent the whole Android effort to the wrong stack.
+- **The gaps are ranked, and the first is not the one that looks biggest.** Measured by the audit lane;
+  G1–G3 (no `manifest.webmanifest` file at all so `index.html:15` 404s, no service-worker registration,
+  no PWA icons) are real but they only produce an installable page. G4/G5 (daemon binds `127.0.0.1` at
+  `crates/warshad/src/lib.rs:3347`/`:3411`, and the CORS allowlist at `:185-188` admits no phone origin)
+  mean that page can never reach a daemon, and G6/G7 (`Devices.tsx:168-173` fakes a pairing code with
+  `Math.random()`; `PairingData::from_qr_code` at `crates/warsha-remote/src/lib.rs:171-180` is itself a
+  stub that base64-decodes the PNG and reads it as JSON rather than decoding the image) mean there is no
+  pairing to scan. Order of work is therefore bind+CORS → pairing → PWA packaging, not the reverse.
+- **Constraint that bounds what can be claimed**: G9 — `apps/remote/src/session.ts:62` accepts `http:`
+  for the daemon, but Android Chrome treats a non-`localhost` insecure origin as non-installable and
+  refuses service workers. So a plain `http://<lan-ip>` pairing link silently defeats the PWA half even
+  after G1–G3 are fixed. HTTPS/serving posture (G8: nothing serves `apps/remote/dist`, no TLS dependency
+  exists in the tree) is an owner decision, not a lane's improvisation.
+- **What is verifiable without a phone**, and what is not: Chrome treats `localhost` as a secure context,
+  so manifest validity, `dist/` contents and a real `getRegistration()` service-worker hit **are**
+  provable on this host. A genuine cross-device handshake is not — there is no Android device attached
+  and no emulator installed. Any claim of "Android works" must state which of the two it rests on.
+- **Deps already locked, no install needed for G2**: `workbox-build@7.4.1` and `workbox-cli` are already
+  in `pnpm-lock.yaml` (`:4028`, `:199`), but `apps/remote/vite.config.ts:6` runs `plugins: [react()]`
+  only and no script invokes workbox — `workbox-config.js` is dead config.
+
+## 2026-11-04 — "Android" for Warsha is blocked in the daemon, not in the phone UI
+
+- **Decision**: Treat the Android half of the owner's goal as a **server-side** problem first. Three
+  independent breaks were measured in code, and only the third is a front-end matter:
+  1. **The daemon is unreachable from a phone by construction.** Both listeners bind loopback with the
+     address interpolated around a port and nothing else — RPC at `crates/warshad/src/lib.rs:3347`
+     (`format!("127.0.0.1:{}", config.ws_port)`) and HTTP/`/events` at `:3411`. `warshad --help`
+     exposes `--http-port` and `--ws-port` but **no bind/host option**, and there is no host field in
+     the config. A phone scanning a pairing link therefore has no address it can actually connect to;
+     `127.0.0.1` on the phone is the phone itself.
+  2. **Nothing produces a pairing artifact.** `PairingData::to_qr_code`
+     (`crates/warsha-remote/src/lib.rs:156`) has **zero production callers** — grep finds it only in
+     tests and doc comments. The method the desktop expects to call for it, `devices.pair-start`,
+     exists nowhere in the daemon registry: it appears only inside a TODO at
+     `apps/desktop/src/screens/Devices.tsx:169`. `devices.pair` *consumes* a pairing; no surface
+     ever creates one, so there is nothing for a phone to scan.
+  3. **The phone client is not installable** — `apps/remote` has no `public/`, no web manifest, and a
+     `workbox-config.js` with no consumer (the audit lane is confirming the shipped `dist/`).
+     Separately: even once 1–2 are fixed, an Android browser refuses service workers on a non-`localhost`
+     insecure origin, so a plain `http://<lan-ip>` pairing link would block installability by itself.
+- **Why this is a decision, not a task list**: the easy-looking fix (add a manifest and icons to
+  `apps/remote`) produces an installable page that can never reach a daemon, i.e. a demo rather than a
+  working version. Deciding the order — reachability and pairing initiation before PWA packaging — is
+  what keeps the Android claim honest. Loopback-by-default is a deliberate security posture elsewhere in
+  this repo, so any LAN bind must be opt-in and documented, not a silent `0.0.0.0`.
+- **PC half**: `@tauri-apps/cli` is a devDependency (no global `tauri` binary here), the bundle path is
+  `pnpm --filter warsha-desktop tauri build`, and `createUpdaterArtifacts: true` needs
+  `TAURI_SIGNING_PRIVATE_KEY`, which does not exist on this host — so builds take the command-line
+  override from the #10 entry rather than editing `tauri.conf.json`. Windows MSI/NSIS cannot be
+  produced on this Linux aarch64 host and must not be claimed from it.
+
+## 2026-11-04 — Working-version verification: four stale remote flow cases fixed at the selection, not the product
+
+- **Decision**: The 4 failures in the full Playwright run (880 passed / 4 failed) were all in
+  `apps/remote/e2e/flows.spec.ts` and are test-harness selection defects, not product defects. The
+  parked rule (`gateWaitsOnOwner` — pending **and** stage the run stands on) worked as designed; the
+  cases never selected the run the fixture's gates belong to. Fixes, all in the spec file:
+  (1) keyboard-approval and dropped-feed cases now pass `project=proj-store&run=run-gate-a` so the
+  pending `gate_a` coincides with the run's stage; (2) the phone/desktop parity case switches from
+  `permission` (no gate parked — desktop `states.spec.ts` documents a run at `review_qa_security`
+  offering no decision) to `parked`, the fixture that exists for one parked gate among four.
+  No product code changed for these. Separately, `deepLink.test.tsx` and `locale.test.tsx` were
+  updated to answer the three daemon config keys (`daemon_url`/`daemon_ws_url`/`daemon_token`)
+  after `daemon.ts` removed the dev defaults — without them the App stayed offline at onboarding,
+  mirroring `App.test.tsx`'s existing stub. No snapshots were updated.
+- **Evidence**: `remote/e2e/flows.spec.ts` 7/7 individual (was 3/7); `remote/e2e` 91/91;
+  `pnpm -r test` 808/808 across 6 packages; `cargo test --workspace --all-targets` 19 binaries ok;
+  desktop `screens.visual` gates visual (16/16), `states` gates permission (12/12), desktop `flows`
+  (30/30) all green. `warshad`/`warsha` built and smoke-started.
+
 ## 2026-11-03 — Linux aarch64 host is the authoritative visual capture host; wire-contract decisions for #25/#40; release-repo defect for #10
 
 - **Decision (B4/visual)**: `/home/dev/projects/warsha-dev` on the Ubuntu aarch64 server is the
@@ -575,3 +812,75 @@
   `simple.summary_gates` and `remote.queue_pending`, plus `المزوّد`/`المتبقّي` where the same
   vocalisation rule applied. This moves rendered Arabic text on many screens, which is one more
   reason the visual baselines are re-derived **after** these fixes rather than before.
+
+- **Decision (#49 — the event socket reads the subprotocol, and a URL token is refused by policy)**:
+  `auth_handler_inner` still takes the `Authorization` bearer first; only when that is empty **and** the
+  path is `/events` does it fall back to a `warsha.token.<token>` entry in `Sec-WebSocket-Protocol`
+  (`crates/warshad/src/lib.rs:3718`, `subprotocol_token` at `:411`), feeding the unchanged
+  `Sessions::resolve`. No code reads `uri().query()` for a credential, and a test asserts `?token=` is
+  refused: a URL token is logged by proxies, kept in browser history and leaked through `Referer`, so
+  the easier fix is the one this project rejects. The handshake now *selects* a non-secret protocol name
+  (`warsha.events.v1`, `:3809-3810`) because a WebSocket server must echo one of the offered names, and
+  the client offers `[warsha.events.v1, warsha.token.<token>]` so the secret is never the selected name.
+  Nine live-daemon cases in `crates/warshad/tests/events_ws_auth.rs` speak raw HTTP/1.1 and prove
+  acceptance, the header regression, four refusal shapes, and that no reply byte or tracing line
+  contains any credential. **Honest scope**: this does not make the shipped app stream live — see #66,
+  #73 and #74 below, and the docs must keep saying the feed is not live.
+- **Decision (#65 — the Windows path failure was too strict, and it also exposed a fail-open)**: the
+  CI panic was `assertion failed: policy.check_command("/var/lib/warsha/workspace/tools/migrate")`
+  `.is_ok()`. The scope exemption was gated on `Path::is_absolute()`, and on Windows a POSIX-style path
+  has a root but no prefix, so `is_absolute()` is false and the daemon refused **its own** data dir —
+  a usability defect, not a traversal hole. The predicate now grants the exemption only to a *rooted*
+  path (`has_root`), canonicalizes both sides or neither, and compares **component by component**, so
+  `…/warsha-evil` can never match `…/warsha`. While there, a pre-existing **fail-open** was closed: an
+  empty `data_dir` made every rooted path read as in scope (`crates/warshad/src/auth.rs:956`). Two
+  residuals are documented rather than hidden (`auth.rs:1035-1048`): the case fold applies only to
+  not-yet-existing paths, so a case-sensitive Windows volume (Dev Drive) can read a wrongly-cased
+  unbuilt path as in scope, and 8.3 short names are never expanded (fail-closed only). Verified as far
+  as a Linux host can: the `#[cfg(windows)]` branch was cross-compiled with
+  `rustc --target x86_64-pc-windows-msvc --test`, which caught a real `from_wid`/`from_wide` bug;
+  runtime behaviour on Windows is still owed to the next CI run and is not claimed here.
+- **Decision (#69 — the machine slot's face is derived from the script of its value, not from a prop)**:
+  `packages/ui/src/compounds/internal.ts:105-154` keeps the slot's layout and alignment but chooses the
+  **face** by what the value is: latin machine data gets IBM Plex Mono; a word in a joined script gets
+  the sans Arabic face with `letterSpacing: 'normal'`. The reason is physical, not stylistic — a fixed
+  advance plus tracking severs cursive joining, and the mono face has no Arabic coverage at all, so
+  today's Arabic in machine slots was a fallback run that could not join (`البوا ب ة 1 من 2`). Making
+  this one rule in the shared layer, rather than fifteen per-call-site patches, is what keeps the next
+  screen from repeating the bug.
+- **Decision (#70 — a pending gate the run has not reached is not a decidable object)**: with
+  `gates.list` serving all four stages defaulted to `pending`, the queue rendered four raised, lit,
+  Approve-offering plates while only one was the gate the run stands on. That is the exact failure
+  `GatePlate.tsx`'s own header warns about — an owner approving the wrong gate. The lit state is now
+  derived from a shared `gateWaitsOnOwner(gate, run.stage)` predicate and a non-parked pending gate
+  renders as a name with no decision affordance. **Why this is a decision and not a bug fix**: it
+  changes what the owner can click, and it was found by critique, not by a test.
+- **Decision (lane sizing — bound the work, not just the files)**: two lanes this session hit their
+  internal 150-turn ceiling while doing broad multi-file work (`#44` first attempt, `#70`), and in both
+  cases the edits were on disk while the report said otherwise. The corrective is not to distrust lanes
+  but to size them: one concern per lane, an explicit artifact budget (the visual review now caps at 18
+  images), and my own verification of the tree before believing any report — including my own briefs,
+  which were twice wrong about the code and were corrected by the lanes.
+
+- **Decision (#74 — closed as NOT A DEFECT, and the reason matters more than the verdict)**: a lane
+  reported that `/events` forwards one global broadcast, so "any authenticated session reads every
+  run", and I dispatched a per-session filter. Reading the code first killed that plan:
+  `Daemon::authorize` (`crates/warshad/src/lib.rs:1309-1336`) checks exactly two things — the
+  policy **role** (`Session` → `ActorRole::Paired`, `Owner` → `ActorRole::Owner`) and the rate ceiling
+  keyed to the actor. There is **no object-level scoping anywhere in the daemon**: `runs.get`
+  (`:1500-1507`), `runs.list` (`:1509-1515`) and `runs.events` (`:1518`) all resolve the requested id
+  for any session whose role covers the policy, with no project or device membership test. So the
+  socket was not the outlier — filtering only the socket would have invented an authorization boundary
+  that exists nowhere else, and would have broken the paired phone's legitimate reads while leaving the
+  RPC surface exactly as open. The documented model already says the true thing:
+  `docs/src/security.md:29` — "Someone else using your account … Out of scope, as it is for every
+  local-first app: **the daemon cannot tell you from yourself**". A paired device is the owner's own
+  device, so seeing the owner's runs is the intent, not the leak.
+  **What I decided instead**: no code change; state the model precisely where a reader would otherwise
+  assume per-project isolation (task #76), and record the honest consequence — if Warsha ever hosts
+  more than one human on a single daemon, this becomes a real horizontal-authorization vulnerability
+  and needs per-project grants on both the RPC and the socket, which is a milestone, not a patch.
+  **Why this is worth logging**: it is the second time today that a "security finding" I was about to
+  have a lane fix turned out to be a correct property of a model I had not read yet (the first was the
+  camelCase wire claim). The rule that caught it is the cheap one: read the callee before briefing the
+  fix.

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createClient,
   parseWarshaEvent,
+  pairingDataFromQrPayload,
   redactToken,
   subscribeEvents,
   WarshaClient,
@@ -12,6 +13,7 @@ import {
   type DeviceId,
   type GateState,
   type GateSummary,
+  type PairingData,
   type ProjectId,
   type ProjectSummary,
   type ProviderConfig,
@@ -407,17 +409,86 @@ describe('client', () => {
     expect(sentParams(1)).toEqual({ run_id: 'run-1' });
   });
 
-  it('names the devices.pair argument the way the daemon binds it (#54)', async () => {
+  it('sends devices.pair the whole PairingData struct the daemon binds (#58)', async () => {
     fetchMock.mockResolvedValueOnce(okResponse(null));
 
-    await client.pairDevice('{"device_id":"dev-1"}');
+    // The exact JSON a live daemon accepts (`crates/warshad/tests/devices_pair.rs`): the
+    // struct fields as serde writes them — snake_case names, a UUID string, and the two
+    // `[u8; 32]` keys as arrays of 32 numbers. The old bug was the *value*: a QR string
+    // under the right key answered -32602 "invalid type: string …, expected struct
+    // PairingData", so the wire must carry the object.
+    const qrPayload = JSON.stringify({
+      device_id: '9a12c0de-0000-4000-8000-000000000001',
+      static_public: Array.from({ length: 32 }, (_, index) => index),
+      relay_url: 'wss://relay.example.com',
+      pairing_secret: Array.from({ length: 32 }, () => 7),
+      expires_at: '2100-01-01T00:00:00Z',
+    });
+    const pairing = pairingDataFromQrPayload(qrPayload);
+    await client.pairDevice(pairing);
 
-    // `pair_device(&self, pairing_data)` (`crates/warshad/src/lib.rs:781`); the old `{ qrData }`
-    // matched neither the field nor its camelCase alias, so remote pairing was refused with -32602
-    // "missing field 'pairing_data'". The value shape is a separate, still-open drift — see the doc
-    // comment on `pairDevice` — so this pins the key only, which is what was measured.
-    expect(sentParams(0)).toEqual({ pairing_data: '{"device_id":"dev-1"}' });
+    expect(sentParams(0)).toEqual({ pairing_data: pairing });
+    expect(typeof sentParams(0).pairing_data).toBe('object');
     expect(Object.keys(sentParams(0))).not.toContain('qrData');
+    expect(sentParams(0).pairing_data).not.toBe(qrPayload);
+
+    // The daemon answers `()` — `pair_device` returns `Ok(())`. The client hands back void,
+    // not the `DeviceSummary` the old signature promised and no live daemon ever filled.
+    fetchMock.mockResolvedValueOnce(okResponse(null));
+    await expect(client.pairDevice(pairing)).resolves.toBeUndefined();
+  });
+
+  it('reads a pairing QR payload back into the struct and refuses malformed ones (#58)', () => {
+    const struct = {
+      device_id: '9a12c0de-0000-4000-8000-000000000001' as DeviceId,
+      static_public: Array.from({ length: 32 }, (_, index) => index),
+      relay_url: null as string | null,
+      pairing_secret: Array.from({ length: 32 }, () => 7),
+      expires_at: '2100-01-01T00:00:00Z',
+    };
+
+    // Round trip: the QR text is the struct's own JSON (`to_qr_code` encodes
+    // `serde_json::to_vec(self)`), so parsing it back loses nothing.
+    const parsed = pairingDataFromQrPayload(JSON.stringify(struct));
+    expect(parsed).toEqual({ ...struct, relay_url: null });
+
+    const malformed: string[] = [
+      'not json at all',
+      '"a bare string"',
+      '[]',
+      JSON.stringify({ ...struct, pairing_secret: Array.from({ length: 31 }, () => 7) }),
+      JSON.stringify({ ...struct, static_public: [...struct.static_public.slice(0, 31), 256] }),
+      JSON.stringify({ ...struct, device_id: 17 }),
+    ];
+    for (const payload of malformed) {
+      expect(() => pairingDataFromQrPayload(payload)).toThrow(/pairing payload|invalid type/);
+    }
+
+    // A pairing secret is a bearer credential: a refusal names the field and never repeats
+    // the payload back.
+    try {
+      pairingDataFromQrPayload(JSON.stringify({ ...struct, pairing_secret: [1] }));
+      throw new Error('expected the short secret to be refused');
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain('pairing_secret');
+      expect((error as Error).message).not.toContain(String(struct.pairing_secret[0]));
+    }
+  });
+
+  it('pairs a device over devices.pair with the named pairing_data argument (#54)', async () => {
+    // The key rename from #54 survives the shape fix: the argument is still the daemon's
+    // `pairing_data` (`crates/warshad/src/lib.rs:781`), never the client's old `qrData`.
+    fetchMock.mockResolvedValueOnce(okResponse(null));
+    const pairing: PairingData = {
+      device_id: 'dev-1' as DeviceId,
+      static_public: Array.from({ length: 32 }, () => 0),
+      relay_url: null,
+      pairing_secret: Array.from({ length: 32 }, () => 3),
+      expires_at: '2100-01-01T00:00:00Z',
+    };
+    await client.pairDevice(pairing);
+    expect(Object.keys(sentParams(0))).toEqual(['pairing_data']);
   });
 
   it('increments request ID for each call', async () => {
@@ -808,7 +879,20 @@ describe('subscribeEvents', () => {
     expect(FakeWebSocket.instances).toHaveLength(1);
     const socket = FakeWebSocket.last();
     expect(socket.url).toBe('ws://127.0.0.1:8766/events');
-    expect(socket.protocols).toBe(`warsha.token.${TOKEN}`);
+    // The credential is offered, but never as the protocol the daemon is asked to
+    // select: `/events` answers the handshake with `warsha.events.v1`, because echoing
+    // `warsha.token.<token>` back would put the token on the response headers.
+    expect(socket.protocols).toEqual(['warsha.events.v1', `warsha.token.${TOKEN}`]);
+
+    subscription.close();
+  });
+
+  it('keeps the credential out of the URL it opens', () => {
+    const subscription = subscribe();
+
+    const url = FakeWebSocket.last().url;
+    expect(url).not.toContain(TOKEN);
+    expect(url).not.toContain('token=');
 
     subscription.close();
   });
@@ -821,6 +905,27 @@ describe('subscribeEvents', () => {
     });
 
     expect(FakeWebSocket.last().url).toBe('ws://127.0.0.1:8766/events');
+    subscription.close();
+  });
+
+  it('rewrites an http(s) base to the socket scheme before dialling', () => {
+    // `subscribeEvents` opens a WebSocket, so an `http:` URL never reaches the socket:
+    // the scheme is converted here, at the one place that decides it.
+    const plain = subscribeEvents({ url: 'http://127.0.0.1:8765', token: TOKEN, onEvent });
+    expect(FakeWebSocket.last().url).toBe('ws://127.0.0.1:8765/events');
+    plain.close();
+
+    const secure = subscribeEvents({ url: 'https://daemon.example/', token: TOKEN, onEvent });
+    expect(FakeWebSocket.last().url).toBe('wss://daemon.example/events');
+    secure.close();
+  });
+
+  it('keeps a socket URL on the port it was given — the events port is not the RPC port', () => {
+    // The daemon serves `/events` from its HTTP listener (default 8765) while RPC is
+    // served from a different listener (default 8766), so the caller's resolved port
+    // must survive untouched; nothing here rewrites a port.
+    const subscription = subscribeEvents({ url: 'ws://127.0.0.1:8765', token: TOKEN, onEvent });
+    expect(FakeWebSocket.last().url).toBe('ws://127.0.0.1:8765/events');
     subscription.close();
   });
 

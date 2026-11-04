@@ -120,7 +120,11 @@ describe('InstrumentStrip', () => {
     expect(within(strip).getByText('daemon online')).toBeInTheDocument();
     expect(within(strip).getByText('run-7b1c')).toHaveAttribute('translate', 'no');
     expect(within(strip).getByText(/Stage Code/)).toBeInTheDocument();
-    expect(within(strip).getByText(/2 gates waiting on you/)).toBeInTheDocument();
+    // The waiting-gate reading is a *count plus a phrase*: the number is machine data and carries its
+    // own isolated LTR span, the words are the strip's voice and never enter the mono skin (round 3,
+    // Gap 1). The old single-node text `2 gates waiting on you` was the defect this split closes.
+    expect(within(strip).getByText('2')).toHaveAttribute('translate', 'no');
+    expect(within(strip).getByText(/gates waiting on you/)).toBeInTheDocument();
     // A meter is never the only channel: the readout says the number (§9).
     expect(within(strip).getByRole('meter')).toHaveAttribute('aria-valuenow', '1.5');
     expect(within(strip).getByText('$1.50 / $10.00 · 15%')).toBeInTheDocument();

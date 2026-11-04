@@ -1,5 +1,121 @@
 # PROGRESS.md — Warsha Build Log
 
+## Working version for PC + Android — 2026-11-04 (in flight; resume artifact)
+
+Objective: "warsha working version for PC and android final". Verification bank below is written
+**before** results land, so a later reader can see which claims are still unproven. Nothing in this
+section is a completion claim. `DECISIONS.md` holds the reasoning; this holds the evidence ledger.
+
+### Definition of done, and current state of each item
+
+| # | Requirement | Owner | Evidence that closes it | Status |
+|---|---|---|---|---|
+| 1 | PC: desktop bundle builds | lane `pc-artifact` (`aCoder-5350e33fd5199f67`) | `apps/desktop/src-tauri/target/release/bundle/**` listing w/ byte sizes | **open** — no bundle dir exists yet; load 8.0 on 2 CPUs |
+| 2 | PC: the built app actually starts | same lane | process reaches daemon-spawn path; `/health` JSON on test ports | **open** |
+| 3 | PC: CLI works against a real daemon | lanes `cli-auth`(stopped, my bad precondition) → `cli-auth-2` (`aCoder-a22023bb857635e6`) | live: `warsha providers list` returns `[]` not 401; `warsha status` not `NotConnected`; new tests fail-before/pass-after | **open**, two defects confirmed by measurement (#14 no bearer on RPC, #15 health probe GETs the RPC port → 405) |
+| 4 | Android: reachable daemon | lane `android-daemon` (`aCoder-5ac7e7c1bfc910db`) | opt-in bind, loopback **default**, startup log names resolved address | **open** |
+| 5 | Android: a pairing exists | same lane | `devices.pair-start` returns a URL the phone can open; daemon+auth+client+e2e stub all carry the name (R7 gate) | **partial as of 18:14 — plumbing yes, RPC no.** Present: `bind_host` (loopback default via `LOCALHOST_BIND`), `advertised_host`, `PairingData::pairing_link(server_origin)` carrying `secret_token()`, `qr_code_png_base64`, and a refusal-not-guess path for wildcard binds. **Absent (measured):** `devices.pair-start` is not a registered method — only `devices.list`/`devices.pair`/`devices.revoke` exist, and the diff adds **no `#[method]`**; `auth.rs` 0 hits, `packages/client/src/index.ts` 0 hits, `apps/desktop/e2e/harness.ts` 0 hits; `Devices.tsx:171` still fakes the code with `Math.random()`. **All four surfaces are required or the R7 gate goes red and the pairing is unreachable from any client.** Timestamp, not verdict — re-check at lane report. |
+| 5b | Bind default is loopback **asserted by a test** | same lane | a test naming `LOCALHOST_BIND` that fails if the default widens | **open** — the 4 `warshad/tests/*.rs` files mentioning `bind_host` are pre-existing fixtures updated so the crate compiles with a new required field; that is not an assertion about the default |
+| 5c | **Exact work left to make pairing callable** (re-checked 18:14:52: still absent; `warshad/src/lib.rs` actively growing, `devices.*` lines shifted 900→904 between checks) | next dispatch | all five, then R7 green | (1) register `#[method(name = "devices.pair-start", with_extensions)]` — daemon still has only `devices.list`/`pair`/`revoke`; (2) add its tier to `auth.rs` `METHOD_POLICIES` (owner-tier, so a paired phone cannot mint its own pairing); (3) client method in `packages/client/src/index.ts`; (4) entry in the e2e stub table `apps/desktop/e2e/harness.ts`; (5) replace `Devices.tsx:171`'s `Math.random()` with the returned link. 5c note (18:15:41): `node scripts/check-wire-contract.mjs` reports **"wire: 8 checks, 0 violations"** with `pair-start` absent from daemon, `auth.rs`, client and stub. That green is **vacuous with respect to pairing** — the gate compares names that exist on each side, so a method missing everywhere agrees perfectly and passes. It cannot tell you a capability is unimplemented, only that surfaces disagree. Do not cite R7 green as evidence pairing works; the only evidence is #13's live round trip. Registration still absent at 18:15:41; file still growing (`devices.*` lines 904→922). Any follow-up that lands `devices.pair-start` should also record this limitation in the gate's own docs, so the next reader does not mistake agreement for presence. |
+| 6 | Android: installable PWA | lane `android-pwa` (`aCoder-b18d7c65def8ff4e`) | built `dist/` contains manifest + SW + icons; `getRegistration()` resolves against served `localhost` | **artifacts proven (18:13)** — `dist/` = `manifest.webmanifest` 904 B, `sw.js` 1,543 B (real Workbox bootstrap, not a stub), `workbox-146ffa86.js` 14,894 B, `icons/` with all 5 files; `dist/index.html` keeps the manifest link. **Still open:** a served-build `getRegistration()` proof (`apps/remote/scripts/verify-pwa.mjs` just written, not yet run by me) |
+| 6c | SW registration is real code, not just a file | verified by me at 18:16 | registration call + build wiring + generator existence | **done (code-level)** — `main.tsx:44` calls `registerShellWorker({ prod: import.meta.env.PROD })`; `offline.ts` reads prod from the caller rather than from `import.meta.env` internally (which is what makes both directions testable), treats an absent `navigator.serviceWorker` as normal rather than an error, and returns a typed outcome `'registered' \| 'skipped-build' \| 'skipped-platform' \| 'failed'`. Build chain confirmed real: `package.json:8` = `tsc && vite build && node scripts/generate-service-worker.mjs`, and that script exists (2,022 B). Its stated policy — never show the owner a registration failure — is deliberate and documented, and correctly separates "worker refused" from "daemon unreachable on an insecure origin". **Checked for the `make-icons.py` path defect and it is NOT present here:** the cited generator resolves. Still open: the served-browser `getRegistration()` proof, which is behavior, not code. |
+| 6b | Android: icons are real, correctly sized | verified by me, not the lane | PIL dims vs manifest `sizes` claims | **done** — 192², 512², maskable 512², apple-touch 180², favicon 32², all RGBA PNG; the manifest's 404-on-missing-icon failure was **not** reproduced one layer down |
+| 7 | Android: app is served at the pairing origin | **unassigned** (task #16, decided in DECISIONS) | daemon serves `apps/remote` dist same-origin; SPA deep links resolve; no traversal to `config.toml`/`warsha.db` | **open** — closes the seam where a correct pairing link still 404s |
+| 8 | Live round trip, no stubs | **unassigned** (task #13) | real daemon → `pairing_link` → phone session established → a gate read succeeds over the wire | **open** — this is the only item that proves Android at all |
+| 9 | TLS boundary named honestly | decided (task #11) | prose in `docs/`/`DECISIONS.md` | **decided** — same-origin ≠ secure-origin; a LAN-IP link opens in a tab but is not installable |
+
+### Known-truthful statements, so nothing here is overclaimed
+- **Android means the `apps/remote` PWA** in this repo (`PLAN.md:229`,`:269`); no JDK/Gradle/SDK/adb/emulator
+  exists on this host, so no APK is produced here and none is claimed.
+- **No Android device or emulator is attached.** Cross-device pairing is therefore **not verifiable**
+  here; the ceiling is localhost-installability mechanics + a live wire round trip on this host.
+- **Windows MSI/NSIS cannot be built on this Linux aarch64 host**; not claimed.
+- The suite-green baseline from earlier today (cargo 19 binaries, `pnpm -r test` 808/808, Playwright
+  884/884) **did not catch** the CLI being 100% broken against its own daemon. Green tests are not
+  evidence for items 1–3 or 8. Any failure a lane reports is treated as a contention artifact until
+  reproduced serially (this host logged that rule on 2026-11-03).
+- One in-flight nit to hand back to the PWA lane: `apps/remote/index.html`'s new comment names
+  `scripts/make-icons.py`, but the generator lives at `apps/remote/scripts/make-icons.py`; the repo-root
+  `scripts/` has no such file.
+- Nothing committed, pushed, tagged, or deployed. No snapshot updated.
+
+### PARK NOTE — 18:17, goal auto-pausing with lanes still in flight
+
+**CORRECTION (18:17:59, measured): I predicted this state would make R7 red. It does not.**
+`node scripts/check-wire-contract.mjs` returned **"wire: 8 checks, 0 violations", exit 0**, while the
+surfaces stand at daemon 1 / `auth.rs` 3 / client **0** / e2e stub **0**. So the gate enforces
+"no client calls a method the daemon does not serve" (its original purpose — the nine unserved names) and
+does **not** enforce "every daemon method has a client caller and a harness stub". An RPC that exists on
+the server and nowhere else is invisible to it. **Do not use that command to verify pairing is complete**
+— it will report green on an unfinished feature. The real checks are: (a) the client method exists and is
+exercised, (b) the e2e stub answers `devices.pair-start` in the shape the daemon answers it, and (c) task
+#13's live round trip. Owed work: make the gate fail on daemon methods with no client/stub entry, or
+document explicitly that it deliberately does not cover that direction — a checker that passes on forms
+it cannot resolve is the pattern this file already records several times.
+Progress since the earlier snapshot: the method is now registered and `auth.rs` gained its tier (0→3).
+
+Still absent at park: `crates/warsha-cli/tests/` does not exist and no `set_headers` in
+`crates/warsha-cli/src/lib.rs` (tasks #14/#15 unfixed — the CLI remains unable to authenticate, and
+`status`/`new` still cannot work); no `apps/desktop/src-tauri/target/release/bundle/` (no PC artifact).
+Load was 6.89 on 2 CPUs. Lanes `pc-artifact`, `android-daemon`, `android-pwa`, `cli-auth-2` were launched
+and had not reported; their edits are on disk, their conclusions are not — treat anything they said in
+prose as unverified until re-measured.
+
+**Concrete next step, in order (one lane each, serialized by file, one heavy build at a time):**
+1. Finish the pairing contract (daemon lane's file set: `auth.rs` + client + e2e stub + `Devices.tsx`),
+   then require `check-wire-contract.mjs` green **and** a test asserting the bind default is loopback
+   (ledger item 5b — currently protected only by comments and compile-driven fixture edits).
+2. Land #16 as decided: `warshad` serves the built PWA same-origin, with SPA deep-link fallback and no
+   path traversal to `config.toml`/`warsha.db`.
+3. Run task #13 — real daemon → `pairing_link` → phone session → a gate read over the wire. **This is the
+   only evidence that Android works.** No R7 green substitutes for it; the gate passed vacuously at 18:15
+   while the feature existed nowhere.
+4. PC: resume the bundle build serially, or record the exact missing system prerequisite. Then re-run the
+   CLI reproduction (401 → `[]`, `NotConnected` → real output).
+
+**Nothing is committed, pushed, tagged or deployed; no snapshot was updated.** Owner's secret scan still
+gates the first push. The two path/claim nits for the PWA lane are recorded at ledger rows 6b/6c: the
+`index.html` comment names `scripts/make-icons.py` while the generator lives at
+`apps/remote/scripts/make-icons.py`; the `offline.ts` comment's generator path does resolve and is fine.
+
+## Working version verification — 2026-11-04
+
+Goal: `cargo test --workspace --all-targets` green, `pnpm -r test` green, targeted Playwright
+gates/flows subsets 0 failed, runnable artifact verified. No commit/push/deploy; no snapshot
+updates.
+
+Results (measured 2026-11-04 in this session):
+
+- `cargo test --workspace --all-targets`: 19 test binaries ok, 0 failed.
+- `pnpm -r test`: crypto 22, client 51, i18n 51, ui 151, remote 168, desktop 365 — all passed.
+  Two desktop test files (`deepLink.test.tsx`, `locale.test.tsx`) were fixed to answer the three
+  daemon config keys the App now requires after the no-dev-default change (`daemon.ts`); they had
+  kept the old `get_config` stub that only answered onboarding/mode, so the App stayed offline at
+  onboarding. The fix mirrors `App.test.tsx`'s existing stub.
+- `pnpm -r typecheck` and `pnpm -r build`: all packages pass.
+- `pnpm policy`: 8 checks, 0 failures.
+- Playwright (workers=2): `screens.visual.spec.ts -g "gates 390x844 en light"` passes;
+  `states.spec.ts -g "gates permission"` passes (12/12); full `flows.spec.ts` (desktop, 30 tests)
+  passes; full `screens.visual.spec.ts`, `states.spec.ts` and `remote/e2e` pass. A background
+  full-run earlier reported 880 passed / 4 failed; the 4 failures were all in
+  `remote/e2e/flows.spec.ts` and are now fixed (see below) and re-verified individually and as a
+  file (7/7) and `remote/e2e` (91/91). Desktop full `desktop/e2e` was rerun after the fixes and
+  completed in the background (see `DECISIONS.md` 2026-11-04 entry for the exact counts).
+- Remote flow fixes (`apps/remote/e2e/flows.spec.ts`, test-only, no product change): the
+  keyboard-approval and dropped-feed cases selected no run, so the provider picked the newest run
+  (`run-code`, standing at `code`) while the fixture's pending gates belong to `run-gate-a`
+  standing at `gate_a` — the parked rule correctly rendered them as unreached names with no
+  action, and the tests waited for an approvable gate that was never going to appear. Both now
+  pass `project=proj-store&run=run-gate-a`. The phone/desktop parity case used `permission`,
+  where by design no gate is parked (desktop `states.spec.ts` documents this: a run standing at
+  `review_qa_security` offers no decision); it now uses `parked`, the fixture that exists for
+  "four pending, one of them where the run stands".
+- Runnable artifact: `cargo build --bin warshad --bin warsha` succeeds; both `--help` run;
+  `warshad --foreground` smoke-started on test ports and logged HTTP + JSON-RPC listeners.
+  Desktop frontend builds to `dist/` (`pnpm -r build`).
+
+No snapshots were updated. Nothing was committed, pushed, or deployed.
+
 ## Session Start: 2026-10-28
 
 ### Current Milestone: v0.1.0 ready — M0-M19 all validated (final bridge run 2026-10-29T20:50:53, exit=0, 0 failures)
@@ -156,7 +272,12 @@ Bridge run 23 is the acceptance evidence. All 14 checks PASS with M8 complete:
 - **RTL-aware CSS** — `@warsha/ui` components use logical properties (margin-inline, padding-inline, border-inline) for RTL support
 - **Language switch** — Runtime locale switching via `LocaleProvider` and `useLocale`/`useDirection` hooks in both desktop and remote apps
 - **Agent artifact localization** — Prompt templates include locale context, agents emit artifacts in user's chosen language
-- **CLI localization** — All CLI messages via `t()` function with locale support
+- **CLI localization** — corrected 2026-11-04: the claim "all CLI messages via `t()` with locale
+  support" was never true (no Rust crate reads `@warsha/i18n`). What is true now: every human message
+  the CLI itself writes goes through `CliLang` with one Arabic and one English wording per message
+  (`crates/warsha-cli/src/lib.rs`), chosen from `LC_ALL`/`LANG`, while `--json` output stays English as
+  a machine contract. Left English by name: clap `--help`, `Debug`-rendered enum values, and errors
+  owned by other crates.
 - **Logical properties in UI** — Box, Text, Button, Card components use `marginInline`, `paddingInline`, `borderInline` instead of directional properties
 - **Direction hook** — `useDirection()` returns 'rtl' for Arabic, 'ltr' for English, applied to all components via `dir` prop
 
@@ -5327,3 +5448,165 @@ what a random per-capture difference looks like, and what a stale baseline or a 
   (284 of 596 changed), strict rerun **821 passed / 15 failed**, of which 14 are the nondeterministic
   pixel class above and 1 is the load-induced browser death that passes alone. This is **not** a green
   strict run, and I am not describing it as one.
+
+## Orchestrator log — 2026-11-04, the first commit and the first CI run (01:15Z)
+
+- **Committed and pushed**: `191d7c5` on `dev`, 355 files, +8,517/−901, pushed
+  `68dc78d..191d7c5 dev -> dev`. Pre-flight as the owner's rule requires: `gitleaks detect --source .
+  --no-banner --redact` → `30 commits scanned`, **no leaks**; staged-file review for
+  `.env`/secret/key/token/credential paths → none; `node_modules`/`dist`/`target`/`bridge-io` staged →
+  zero. The 10 previously untracked required files (both gate scripts, the fontconfig pin, the bundle
+  workflow, `ENGINEERING_POLICY.md`, `tsconfig.e2e.json`, `gates_list.rs`, the three new doc pages) are
+  now tracked.
+- **This host has no git identity** — `git commit` failed with `Author identity unknown`
+  (`dev@history-factory-a1.(none)`), because the identity lived on the laptop. I did **not** write git
+  config (forbidden, and it is a machine-wide change). The commit carries the identity the branch
+  already uses, supplied per-command through `GIT_AUTHOR_*`/`GIT_COMMITTER_*`. If the owner wants that
+  identity configured on this host, that is theirs to set.
+- **First CI run in the repository's history**: `41752421903`, event `push`, branch `dev`, started
+  01:12:24Z. `Secret scan (gitleaks): success` — the scanner I repaired today has now run on the
+  platform, not only on this host. Four jobs failed at their first meaningful step: **Actionlint →
+  "Run actionlint"**, **TypeScript → "Setup pnpm"**, **Rust (macos-latest) → "Run cargo-deny"**,
+  **CodeQL (javascript-typescript) → "Build (TypeScript)"**. Rust windows/ubuntu legs were still
+  running when I took this, and GitHub refuses log downloads until a run completes, so the *reasons* are
+  pending, not unknown-forever. Triage rules already decided before this event: a Windows `cargo test`
+  failure is environmental and is never silenced by deleting the leg or adding `continue-on-error`;
+  x86_64-vs-aarch64 pixel differences are the architecture question #41 was about; a job that fails at
+  *setup* (like `Setup pnpm`) is an infrastructure defect, not a product signal; and a missing commit
+  would have been my defect.
+- **#10 installers are blocked by a platform rule, not by a code defect, and I am not going to route
+  around it by pushing to `main`.** `.github/workflows/desktop-bundle.yml` is committed and clean under
+  actionlint, but GitHub only registers a workflow whose file exists on the **default branch**
+  (`main` here): `gh api actions/workflows` lists exactly two — `CI` and `Release` — and
+  `gh workflow run desktop-bundle.yml` fails with "could not find any workflows named
+  desktop-bundle.yml". Building locally is also impossible on this host: `webkit2gtk-4.1` and `gtk+-3.0`
+  dev packages are missing, `appimagetool`/`patchelf`/`linuxdeploy` are absent, and installing them is
+  an apt/sudo change I am not permitted to make. The owner step is one of: merge `dev` to `main`,
+  change the default branch, or approve a host with the Tauri Linux toolchain. Until then no installer
+  artifact exists, and `docs/INSTALL.md` must keep saying so.
+- **Dispatched after the push**: #58 (pairing payload must be the struct the daemon binds, pinned by a
+  live-daemon test) and #62 (broken book links and mis-pointed citations). Queued behind it: #49
+  (`/events` subprotocol — same file as #58, so serialized deliberately), #53, #48, #52.
+
+## Orchestrator log — 2026-11-04, the first CI run read end to end (01:30Z)
+
+Run `41752421903` completed: **failure overall, and every cause is now named from the real logs** — no
+hypotheses left in this triage.
+
+- **`Secret scan (gitleaks): success.`** The scanner I repaired today ran on the platform, with full
+  history (`fetch-depth: 0`), a checksum-pinned 8.30.1 binary and the repo's own `.gitleaks.toml`. That
+  is the security gate the old `gitleaks-action` step never actually provided.
+- **`TypeScript` died at `Setup pnpm`: `Multiple versions of pnpm specified`** — `ci.yml:147-151` passes
+  `version: 9` while `package.json:41` pins `pnpm@9.0.0`. Because that job also carries lint,
+  typecheck, test, **visual** and build, this single misconfiguration means the visual suite has still
+  never run in CI. Highest-impact item, and the kind of failure that looks like "CI is red" while the
+  real statement is "CI is dark".
+- **`cargo-deny` fails for a reason that is not about our dependencies at all**: macOS says `Container
+  action is only supported on Linux`, and ubuntu's container image is too old to parse our `Cargo.lock`
+  (`failed to parse lock file at: /github/workspace/Cargo.lock`). Both are properties of using a
+  container action, so the fix is to install cargo-deny per OS and run it as a shell step. Separately,
+  **`deny.toml` does not exist**, so even a working cargo-deny checks against built-in defaults (#63).
+- **`Actionlint` found real shellcheck defects in `release.yml`** (SC2086 unquoted expansions at :62
+  and :70, SC2046 word splitting at :350, SC2034 `VERSION` unused at :479, SC2129 redirects). This also
+  **exposes a vacuous gate I helped create**: a lane reported `actionlint exit 0` on this host, and it
+  was right — but `command -v shellcheck` here returns nothing, so the local run could not have seen
+  any of these. A green local actionlint is not evidence about shell scripts.
+- **`CodeQL (javascript-typescript)` exited 127 at `Build (TypeScript)`** — command not found, because
+  no package manager exists in that job before autobuild.
+- **`CodeQL (rust)` cannot run at all**: `Advanced Security must be enabled for this repository`. That
+  is an organization setting, not a YAML defect, and it is an owner action.
+- **Windows correction, and it matters**: the Windows leg compiled and ran the workspace tests —
+  **323 passed** — and failed on exactly one test,
+  `warshad::auth::tests::a_path_inside_the_daemon_s_own_data_dir_is_in_scope`, panicking at
+  `crates/warshad/src/auth.rs:1280`. So the old belief that "native Windows `cargo test` is blocked"
+  was a property of the Codex sandbox on the previous host, not of Windows or of this project: CI runs
+  it fine. What is left is a genuine cross-platform defect in the daemon's **in-scope path boundary**
+  (#65) — separators, casing or canonicalization on Windows — which is exactly the class of failure I
+  promised not to silence with `continue-on-error`, a skipped test, or a narrowed matrix.
+- **New product defect found while auditing docs** (#66): `apps/desktop/src/screens/SimpleMode.tsx:348`
+  `350` subscribes to the event stream with `url: 'http://127.0.0.1:8766'` and `token: 'test-token'`
+  hardcoded, while the shell already resolved the real endpoint and session token
+  (`daemonEndpoint()` in `apps/desktop/src/App.tsx`). Simple mode therefore points at a guessed port
+  with a fabricated credential: its "stream offline" state is permanent for a second, independent
+  reason beyond #49, and a credential literal has no business in product code.
+- **Lanes in flight**: #58 (pairing struct), #52 (CLI locale claim), #64 (the four CI infrastructure
+  causes), #44 (critique round 3). Queued: #49 (needs #58 to leave `warshad/src/lib.rs`), #65, #66, #53,
+  #48, #63.
+
+## Orchestrator log — 2026-11-04, critique round 3 and the second CI wave of fixes (02:16Z)
+
+- **Round 2's "zero actionable gaps" was true of the tree it looked at and false of this one.** The
+  first attempt at round 3 died at its own turn limit after 165 tool uses spent opening images — a
+  lesson about briefing visual review: bound the artifact list. Split into two bounded lanes (18
+  screenshots each, explicit file ownership), and they produced **17 actionable gaps** in
+  `bridge-io/audit/critique-round-3-rtl.md` and `critique-round-3-states.md`.
+- **Five are Arabic-integrity defects, and two of them were exposed by my own changes** (#69): prose
+  rendered in the mono "machine" skin breaks cursive joining (`البوا ب ة 1 من 2`) — the mono face has no
+  Arabic coverage at all, so what owners see today is a fallback face stretched and tracked; the phone
+  tab bar has no `nowrap`, so `البوّابـ`/`ت` splits on the lit tab; a `dir="ltr"` applied to a block
+  container orphans an id mid-screen; the raw key `awaiting_gate` reaches an Arabic ledger row; and the
+  catalog's own comment claiming one word never appears two ways is **false** — about 19 keys missed
+  today's vocalisation pass. That last one is a correction to a claim I logged as done.
+- **Twelve are state-communication defects** (#70, #71, #72). The most serious: with `gates.list`
+  serving all four stages defaulted to `pending`, **every un-parked pending gate renders as a lit,
+  decidable plate** — the exact "owner approves the wrong gate" failure `GatePlate.tsx`'s header warns
+  about, and today's #55 fix was right in rule and wrong in scope. Also: no baseline ever showed the
+  parked state, and no baseline shows `bench.no_ceiling`, which means both of today's accepted fixes are
+  invisible to the visual matrix — a fixture gap, not a code gap. G5 confirms the limitation I recorded
+  when #56 landed: the client folds a null ceiling into `0`, so "never set" and "set to zero" are the
+  same fact on screen, and the cap-reached lamp is suppressed for a real zero.
+- **CI fixes landed in the same window** (#63, #64): `pnpm/action-setup`'s double version was removed at
+  all four sites (one of which also had `Setup Node.js` before `Setup pnpm`, which cannot work with
+  `cache: pnpm`); `cargo-deny` was de-containerized — the action is a docker action, which is why macOS
+  refused it and why ubuntu's image could not parse `Cargo.lock` `version = 4` — now a pinned,
+  sha256-verified 0.20.2 binary per OS, ordered **before** fmt/clippy/tests so a Windows failure can no
+  longer hide it; `release.yml`'s shellcheck findings were fixed without a single `disable=` escape; and
+  the CodeQL JS job got an explicit build with the tools it needed. A real `deny.toml` now exists with
+  the 17-term license set measured from `cargo metadata`, replacing cargo-deny's empty default allow
+  list.
+- **Honest caveat I carry forward**: `shellcheck` is not installed on this host, so the local
+  `actionlint exit 0` proves nothing about shell scripts. The CI actionlint leg is the first real check,
+  and that is the point of running CI rather than trusting a green local tool with a missing dependency.
+- **In flight now**: #49 (`/events` subprotocol, with a URL-token alternative explicitly forbidden), #65
+  (the Windows in-scope path failure, treated as a security question rather than a nuisance), #69, #70.
+  Queued: #66, #67, #68, #71, #72, #53, #48.
+
+## Orchestrator log — 2026-11-04, the critique-fix wave (07:05Z)
+
+- **The tree went red between two lanes and went green again.** After #69 and #70 both landed, my own
+  run showed remote `15 failed / 151 passed` across 7 files while desktop, ui and i18n were green. The
+  cause was not a bad fix: the catalog re-vocalisation moved the Arabic spelling, and a batch of test
+  expectations still described the pre-#70 gate world. A prescriptive reconciliation lane took it file
+  by file and the suites are now, verified by it and consistent with what I measured:
+  remote `168 passed (168)`, desktop `362 passed (362)`, ui `151 passed (151)`, i18n `51 passed (51)`,
+  typecheck clean across all 7 projects.
+- **One failure was a real product defect, and the lane fixed the code, not the test**: the phone showed
+  `بوّابة واحدة بانتظارك` **twice** — the queue-panel header and the glance ledger row emitted the same
+  key with the same count. The header copy was removed; the ledger row was kept because two other tests
+  broke when it was removed first, proving it is also the only source of the count-0 wording. That is
+  the right call: a duplicated claim is a bug, a duplicated *string* is not.
+- **#73 changed the architecture, not just a line.** Rather than wiring a publisher to the existing
+  bus, the lane moved the bus into the store: `Store::append_event` publishes after the INSERT commits,
+  `DaemonState.event_tx` was deleted, and `/events` now subscribes through `store.subscribe_events()`.
+  All 12 producers go through `PipelineEngine → store.append_event` and `warshad/src` constructs no
+  `Event` itself, so publishing is structurally impossible to forget — which is the property I asked for
+  and did not know we would get. Verified by me: `cargo test --workspace --all-targets` → 28 result
+  lines, **all `ok`, 0 failed**, plus `cargo clippy --workspace --all-targets -- -D warnings` and
+  `cargo fmt --all --check` clean. New live-daemon test `crates/warshad/tests/events_ws_live.rs` drives
+  `projects.create` + `runs.start` + `gates.approve` over an authenticated socket and compares each
+  delivered frame to the row `runs.events` reads back.
+- **Honest limit recorded, not hidden**: a lagged subscriber silently loses frames (capacity 1024) and a
+  reconnecting phone gets nothing retroactively — catch-up is `runs.events`. And an owner still will not
+  see a live feed until #66 finishes, because the app connects to a hardcoded `http://127.0.0.1:8766`
+  with `token: 'test-token'` on the wrong port with the wrong scheme.
+- **#74 closed as NOT a defect** — see `DECISIONS.md`: the daemon authorizes by role and rate tier only,
+  everywhere, and `docs/src/security.md:29` already documents that trust model. Filtering only the
+  socket would have invented a boundary that exists nowhere else. The follow-on is a documentation task
+  (#76), not a code task.
+- **In flight**: #66 (real endpoint + scheme + credential for both desktop modes) and #71 (REDESIGN
+  §10's 320px contract for the phone). Queued: #72 (nullable ceiling — deliberately after #66, because
+  both edit `packages/client`), #68, #67, #53, #48, #75, #76.
+- **Plan from here**: once #66 and #71 land, verify, commit this stage and push to `dev`. That push
+  matters beyond the record: it is the first push where CI's `Setup pnpm` fix is in place, so the
+  TypeScript job will reach the **visual** step for the first time ever, which is how #41's
+  x86_64-vs-aarch64 question finally gets answered with data instead of argument.

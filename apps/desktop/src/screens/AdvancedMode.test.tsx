@@ -9,7 +9,7 @@ import {
   type WarshaClient,
   type WarshaEvent,
 } from '@warsha/client';
-import { LocaleProvider } from '@warsha/i18n';
+import { LocaleProvider, t } from '@warsha/i18n';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -17,21 +17,29 @@ import {
   AdvancedMode,
   eventPassesFilter,
   eventStreamKind,
-  eventStreamUrl,
   isGateEvent,
   runStateWord,
   todoState,
 } from './AdvancedMode';
+import type { DaemonEndpoint } from '../daemon';
 
 /** The one slot the stubbed socket pushes events into, so a test can feed the stream. */
 let emitEvent: ((event: WarshaEvent) => void) | null = null;
 let streamError: (() => void) | null = null;
+/** The options the last `subscribeEvents` call received — what the bench really dialled. */
+let streamOptions: { url: string; token: string } | null = null;
 
 vi.mock('@warsha/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@warsha/client')>();
   return {
     ...actual,
-    subscribeEvents: (options: { onEvent: (event: WarshaEvent) => void; onError?: (error: Error) => void }) => {
+    subscribeEvents: (options: {
+      url: string;
+      token: string;
+      onEvent: (event: WarshaEvent) => void;
+      onError?: (error: Error) => void;
+    }) => {
+      streamOptions = { url: options.url, token: options.token };
       emitEvent = options.onEvent;
       streamError = options.onError ? () => options.onError?.(new Error('socket closed')) : null;
       return { close: () => undefined };
@@ -91,10 +99,22 @@ function fakeClient(overrides: Partial<Record<string, () => Promise<unknown>>> =
   } as unknown as WarshaClient;
 }
 
+/**
+ * The endpoint a shell-resolved session has: the RPC base (`daemon_url`) is `http://…:8766`,
+ * `/events` is really served on the daemon's HTTP listener (`daemon_ws_url`, `ws://…:8765`),
+ * and the token is the session's own credential. All three are deliberately different values,
+ * so a subscription built from the wrong one fails the wiring assertions below.
+ */
+const RESOLVED_ENDPOINT: DaemonEndpoint = {
+  baseUrl: 'http://127.0.0.1:8766',
+  eventsUrl: 'ws://127.0.0.1:8765',
+  token: 'advanced-session-token',
+};
+
 function renderBench(client: WarshaClient = fakeClient()) {
   return render(
     <LocaleProvider initialLocale="en" storage={null}>
-      <AdvancedMode client={client} project={project} endpoint={{ baseUrl: 'http://127.0.0.1:8766', token: 'test-token' }} onBack={() => undefined} />
+      <AdvancedMode client={client} project={project} endpoint={RESOLVED_ENDPOINT} onBack={() => undefined} />
     </LocaleProvider>
   );
 }
@@ -102,6 +122,7 @@ function renderBench(client: WarshaClient = fakeClient()) {
 beforeEach(() => {
   emitEvent = null;
   streamError = null;
+  streamOptions = null;
 });
 
 /**
@@ -113,6 +134,26 @@ beforeEach(() => {
 async function streamOpen(): Promise<void> {
   await waitFor(() => expect(emitEvent).toBeInstanceOf(Function));
 }
+
+describe('AdvancedMode stream wiring (#66)', () => {
+  it('dials the resolved /events endpoint with the real session token, never the RPC base', async () => {
+    // The socket must be built from what the shell resolved — `daemon_ws_url` and `daemon_token`
+    // — not derived from the RPC base: `/events` lives on the daemon's HTTP listener
+    // (`ws://…:8765`), a different port from the RPC listener (`http://…:8766`), and a
+    // fabricated credential can only ever fail the handshake the daemon pins.
+    renderBench();
+    await streamOpen();
+
+    expect(streamOptions).toEqual({
+      url: 'ws://127.0.0.1:8765',
+      token: 'advanced-session-token',
+    });
+    const dialedText = JSON.stringify(streamOptions);
+    expect(dialedText).not.toContain('test-token');
+    expect(dialedText).not.toContain('8766');
+    expect(dialedText).not.toContain('http:');
+  });
+});
 
 describe('AdvancedMode helpers', () => {
   it('never lets a filter hide a gate event (§3)', () => {
@@ -144,20 +185,22 @@ describe('AdvancedMode helpers', () => {
     return event({ id: 'e-gate2', stage: 'gate_b', kind: 'approval' });
   }
 
-  it('maps a todo onto the board columns and the socket onto ws://', () => {
+  it('maps a todo onto the board columns', () => {
     expect(todoState('done')).toBe('done');
     expect(todoState('in_progress')).toBe('running');
     expect(todoState('pending')).toBe('todo');
     expect(todoState('cancelled')).toBe('todo');
-
-    // `subscribeEvents` opens a WebSocket, so an http base has to arrive as ws (§client contract).
-    expect(eventStreamUrl('http://127.0.0.1:8766')).toBe('ws://127.0.0.1:8766');
-    expect(eventStreamUrl('https://daemon.example')).toBe('wss://daemon.example');
   });
 
-  it('names the three run states it knows and keeps the daemon’s word for the rest', () => {
+  it('names the run states it knows and keeps the daemon’s word for the rest', () => {
     expect(runStateWord('running', 'en')).toBe('running');
     expect(runStateWord('queued', 'en')).toBe('queued');
+
+    // Round 3, Gap 5: `awaiting_gate` is the status `warshad` gives a run stopped at a gate — a state
+    // the owner reads in their queue, not an unknown wire word. Printing it raw put a snake_case
+    // identifier bare between an Arabic label and a mono id.
+    expect(runStateWord('awaiting_gate', 'ar')).toBe(t('run.state_awaiting_gate', {}, 'ar'));
+    expect(runStateWord('awaiting_gate', 'ar')).not.toBe('awaiting_gate');
   });
 });
 
@@ -323,7 +366,7 @@ describe('AdvancedMode bench', () => {
         <AdvancedMode
           client={fakeClient()}
           project={project}
-          endpoint={{ baseUrl: 'http://127.0.0.1:8766', token: 'test-token' }}
+          endpoint={RESOLVED_ENDPOINT}
           onBack={onBack}
         />
       </LocaleProvider>

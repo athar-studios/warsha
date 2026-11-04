@@ -13,11 +13,15 @@
 //   * **A token composed once** — `RULE_BORDER`, `PLATE`, `MACHINE`, … . A hairline is the same hairline
 //     in twenty components; writing it twenty times from primitives is how a system grows a second
 //     border colour. These are the names REDESIGN §12 introduced, in the form a `style` object wants.
+//   * **A rule read off the rendered text** — `slotText`, `carriesJoinedScript`, `machineSkin`. Which face
+//     a machine slot may use is a fact about the word it holds, not a prop, and §11's Arabic rule
+//     (a joined script never takes a fixed-advance face) has to be answered where every slot can reach
+//     it: once, here.
 //
 // Direction-aware keyboard help (`directionOf`, `arrowStep`, `moveGroupFocus`) reads the answer from the
 // DOM the app already set, so no component carries an `rtl` prop a screen can forget to pass.
 
-import type { CSSProperties, KeyboardEvent } from 'react';
+import type { CSSProperties, KeyboardEvent, ReactElement, ReactNode } from 'react';
 
 import {
   aliasVar,
@@ -81,6 +85,73 @@ export const MACHINE: CSSProperties = {
 
 /** Machine data at the smallest step, for a rail row's cost or a stream's timestamp. */
 export const MACHINE_SMALL: CSSProperties = { ...MACHINE, fontSize: fontSize('xs') };
+
+/**
+ * The characters of a joined (cursive) script: Arabic, its supplement, its Extended-A block and its
+ * presentation forms. Their printed glyphs touch, and the touch *is* the letter — so a fixed advance, or
+ * tracking laid over one, puts a seam inside the word where the join should be.
+ */
+const JOINED_SCRIPT = /[\u0600-\u06FF\u0750-\u077F\u0870-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+
+/**
+ * The text a slot will actually show, flattened out of whatever the screen put in it.
+ *
+ * A slot's skin is a decision about *rendered text*, so it is taken from the rendered text and not from
+ * a prop a screen can forget: a string, a number, an array, an iterable and the children of an element
+ * all flatten the same way. A nested element that paints itself (`<Machine>`, a `code` block) states its
+ * own family, so the slot's answer never overrules it — the slot only stops being mono for the words it
+ * holds itself.
+ */
+export function slotText(node: ReactNode): string {
+  if (node === null || node === undefined || typeof node === 'boolean') return '';
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(slotText).join('');
+
+  const candidate = node as Partial<ReactElement<{ children?: ReactNode }>> & {
+    [Symbol.iterator]?: unknown;
+  };
+  if (typeof candidate[Symbol.iterator] === 'function') {
+    return [...(node as Iterable<ReactNode>)].map(slotText).join('');
+  }
+
+  const props = candidate?.props;
+  if (typeof props !== 'object' || props === null) return '';
+  return slotText(props.children);
+}
+
+/** Whether the slot carries a joined script, which no fixed-advance face may set. */
+export function carriesJoinedScript(node: ReactNode): boolean {
+  return JOINED_SCRIPT.test(slotText(node));
+}
+
+/**
+ * The machine skin, resolved against the text the slot carries — §11's split, applied per slot.
+ *
+ * Two things are called "machine" on the bench: the *treatment* (tabular numerals, the slot's own size
+ * and alignment) and the *face* (a fixed-advance mono, so a column of ids and costs lines up). Only the
+ * second one is script-dependent. A Latin machine value takes the mono face. A word in a joined script
+ * takes the sans Arabic face with the tracking explicitly cleared, because a fixed advance plus
+ * letter-spacing puts a seam inside the word where the join should be — `البوا ب ة` instead of `البوابة`
+ * — and a face with no Arabic coverage resolves to a fallback run that cannot join at all. The
+ * treatment is kept for both, so the slot still aligns and still reads at its own step.
+ *
+ * This is the one place the decision lives: a compound that offers a machine skin asks here instead of
+ * naming a family, so a screen that puts prose in a data slot is answered by the rule rather than by
+ * fifteen call sites.
+ */
+export function machineSkin(node: ReactNode): CSSProperties {
+  if (!carriesJoinedScript(node)) return MACHINE;
+  return {
+    fontFamily: fontFamily('sans'),
+    fontVariantNumeric: 'tabular-nums',
+    letterSpacing: 'normal',
+  };
+}
+
+/** `machineSkin` at the smallest step — a rail or ledger row's meta column. */
+export function machineSkinSmall(node: ReactNode): CSSProperties {
+  return { ...machineSkin(node), fontSize: fontSize('xs') };
+}
 
 /** A raised plate: `surface` fastened with a hairline at `md` — the bench's default panel. */
 export const PLATE: CSSProperties = {

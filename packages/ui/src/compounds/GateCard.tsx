@@ -26,7 +26,7 @@ import { aliasVar, colorVar, fontSize, fontWeight, radius, size, space } from '.
 
 import { Lamp } from './Lamp';
 import { Stamp } from './Stamp';
-import { cx, EDGE_BORDER, FIELD, MACHINE, PROSE, RULE_BORDER } from './internal';
+import { cx, EDGE_BORDER, FIELD, machineSkin, PROSE, RULE_BORDER } from './internal';
 
 /** The three moves the gate state machine answers to. */
 export type GateDecision = 'approve' | 'reject' | 'changes_requested';
@@ -177,10 +177,11 @@ export function GateCard({
           {title}
         </Text>
         <span
-          // The gate id is machine data: mono, tabular, un-translated (§11).
+          // The gate id is machine data: tabular, un-translated — and mono only while it reads as an id
+          // (§11). A screen that puts the gate's *word* here (`البوابة ب`) gets the sans face for it.
           translate="no"
           style={{
-            ...MACHINE,
+            ...machineSkin(gateId),
             fontSize: fontSize('xs'),
             color: colorVar('text'),
             border: RULE_BORDER,
@@ -239,7 +240,9 @@ export function GateCard({
                 : labels.changesRequested}
           </Stamp>
           {device && (
-            <span style={{ ...MACHINE, fontSize: fontSize('xs'), color: colorVar('text') }}>{device}</span>
+            <span style={{ ...machineSkin(device), fontSize: fontSize('xs'), color: colorVar('text') }}>
+              {device}
+            </span>
           )}
         </footer>
       ) : choice ? (

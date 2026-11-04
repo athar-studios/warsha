@@ -48,8 +48,8 @@ describe('where the queue comes from', () => {
     expect(screen.getByText('قراءة من مرحلة التشغيل')).toBeInTheDocument();
     // A run parked at `gate_b` is one gate waiting; the other three are not invented.
     expect(screen.getByRole('status', { name: 'شريط الحالة' })).toHaveTextContent('1 بوّابات بانتظارك');
-    expect(screen.getAllByText('البوابة ب').length).toBeGreaterThan(0);
-    expect(screen.queryByText('البوابة ج')).toBeNull();
+    expect(screen.getAllByText('البوّابة ب').length).toBeGreaterThan(0);
+    expect(screen.queryByText('البوّابة ج')).toBeNull();
   });
 
   it('keeps a gate the owner decided on this device out of the queue, and in the ledger', async () => {
@@ -73,7 +73,7 @@ describe('what a selection resets', () => {
     await settle();
 
     stream.emit(event({ id: 'evt_first' }));
-    expect(screen.getByText('بدأت مرحلة البوابة ب')).toBeInTheDocument();
+    expect(screen.getByText('بدأت مرحلة البوّابة ب')).toBeInTheDocument();
 
     const ledger = screen.getByRole('list', { name: 'تشغيلات المشروع' });
     fireEvent.click(within(ledger).getByRole('button', { name: /البرمجة/ }));
@@ -81,7 +81,7 @@ describe('what a selection resets', () => {
 
     // A fresh run is a fresh feed: what the previous run streamed is not this run's evidence.
     expect(stream.closes()).toBe(1);
-    expect(screen.queryByText('بدأت مرحلة البوابة ب')).toBeNull();
+    expect(screen.queryByText('بدأت مرحلة البوّابة ب')).toBeNull();
     expect(screen.getByText('لا أحداث في هذا التشغيل بعد.')).toBeInTheDocument();
   });
 

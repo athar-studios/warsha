@@ -51,7 +51,7 @@ describe('the projects ledger', () => {
     await settle();
 
     // A run parked at a gate is the reason this row is lit (§1).
-    expect(screen.getByText('بوابة بانتظارك')).toBeInTheDocument();
+    expect(screen.getByText('بوّابة بانتظارك')).toBeInTheDocument();
   });
 
   it('says there is nothing yet, and gives one real next step', async () => {

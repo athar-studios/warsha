@@ -87,10 +87,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # No `version:` input here on purpose: package.json's
+      # `"packageManager": "pnpm@9.0.0"` is the single source of truth. Passing
+      # `version: 9` alongside that pin makes pnpm/action-setup@v4 fail with
+      # "Multiple versions of pnpm specified" (see ci.yml's TypeScript job, run
+      # 41752421903) — the same double-specification this file used to carry.
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
           run_install: false
 
       - name: Setup Node.js

@@ -6,19 +6,20 @@
 //
 //   * a banner when the bench has no live data — with the retry §7 asks for, because a closed feed is
 //     not a lost queue;
-//   * the queue plate — one lit gate card under the owner's thumb, the rest of the queue as ruled rows,
-//     and the *source* of the reading named in words (§1: only a pending gate is lit; §7: say what is
-//     unknown rather than implying you can see it);
+//   * the queue plate — the lit gate card under the owner's thumb (the one the run is stopped at), the rest
+//     of the queue as ruled rows, and the *source* of the reading named in words (§1: a lit lamp is a gate
+//     waiting on this hand, not a gate in the daemon's list; §7: say what is unknown rather than implying
+//     you can see it);
 //   * the glance plate — project, run, stage, status, budget: one reading per ruled row, each said even
 //     when the daemon did not answer it (§7: an unread reading is a word, never a zero).
 //
 // No literal lives here: every string is `@warsha/i18n` copy, every surface is a `@warsha/ui` compound.
+import type { Stage } from '@warsha/client';
 import { t, useDirection, useLocale } from '@warsha/i18n';
 import {
   Banner,
   Box,
   Button,
-  Chip,
   EmptyState,
   Lamp,
   Ledger,
@@ -34,11 +35,24 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 
 import { GatePlate } from '../GatePlate';
-import { useRemote } from '../bench';
+import { gateWaitsOnOwner, useRemote, type BenchGate } from '../bench';
 import { Machine, ScreenTitle } from '../chrome';
 import { clock, hasCeiling, money, percent, shortId } from '../format';
 import { gateLampState, gateStateWord, runLampState, runStatusWord, stageWord } from '../labels';
 import { UnpairedScreen } from '../pairing';
+
+/**
+ * The queue row's lamp: the pending gate the run is stopped at is the only one that lights (§1).
+ *
+ * `labels.ts` maps a gate *state* to a lamp, which was right while a pending row could only come from the
+ * run's stage. A serving `gates.list` answers all four stages pending, so the state alone cannot tell the
+ * parked gate from the three the run has not reached — and the comparison belongs to `bench.tsx`, not to
+ * the word list, because the card, the row and the desktop inbox must apply the same one.
+ */
+function queueLamp(gate: BenchGate, runStage: Stage | null): 'idle' | 'waiting' | 'ok' | 'fail' {
+  if (gate.state.state !== 'pending') return gateLampState(gate.state);
+  return gateWaitsOnOwner(gate, runStage) ? 'waiting' : 'idle';
+}
 
 export function NeedsYouScreen() {
   const dir = useDirection();
@@ -72,6 +86,7 @@ export function NeedsYouScreen() {
   }
 
   const spentCents = events.reduce((sum, event) => sum + (event.costCents ?? 0), 0);
+  const runStage: Stage | null = run === null ? null : run.stage;
 
   /**
    * The card at the front of the bench: the gate the owner just decided, or the oldest one waiting.
@@ -113,19 +128,15 @@ export function NeedsYouScreen() {
         </Banner>
       )}
 
-      <Panel
-        title={t('remote.queue_title', {}, locale)}
-        label={t('remote.queue_title', {}, locale)}
-        actions={
-          pendingGates.length > 0 ? (
-            // Lit because a pending gate *is* the owner's queue (§1); the number is the colour-free
-            // channel beside the fill (§9).
-            <Chip tone="lit" glyph="!" label={t('simple.pending_gates', {}, locale)}>
-              {pendingGates.length}
-            </Chip>
-          ) : undefined
-        }
-      >
+      <Panel title={t('remote.queue_title', {}, locale)} label={t('remote.queue_title', {}, locale)}>
+        {/* The queue's count is said once, in the glance plate below (`remote.queue_pending`) and as the number
+            on the gates destination — not restated here beside the title. An earlier pass lit a `! N` chip up
+            here while the ledger said the same quantity in plain words, and a serving daemon counts four
+            pending gates for a run standing at one of them (§1: a lit lamp is a hand that is needed, not a row
+            in a list). The header carried the identical `remote.queue_pending` sentence the glance row already
+            renders — so on a waiting run the same words appeared twice on one screen; the header copy is the
+            duplicate and it is the one removed, while the glance row stays because it is also the empty-queue
+            reading (`لا بوّابات بانتظارك`) the plate must still state when nothing waits. */}
         <Box dir={dir} style={{ display: 'grid', gap: space(3), minInlineSize: 0 }}>
           {/* A press must answer in words, not only by repainting: this is the decision's live line (§7).
               It exists only while there is something to report — an empty live region is a box that says
@@ -172,7 +183,7 @@ export function NeedsYouScreen() {
                     .map((gate) => (
                       <Ledger.Row key={gate.stage} meta={<Machine title={gate.stage}>{shortId(gate.stage, 10)}</Machine>}>
                         <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: space(2), minInlineSize: 0 }}>
-                          <Lamp state={gateLampState(gate.state)} size="xs">
+                          <Lamp state={queueLamp(gate, runStage)} size="xs">
                             {gateStateWord(gate.state, locale)}
                           </Lamp>
                           <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>

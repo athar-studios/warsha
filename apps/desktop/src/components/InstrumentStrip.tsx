@@ -18,7 +18,7 @@
 // `bench.no_ceiling` instead.
 import { type RunSummary, type Stage } from '@warsha/client';
 import { t, useDirection, useLocale, type Locale } from '@warsha/i18n';
-import { Lamp, Meter, StatusStrip } from '@warsha/ui';
+import { Lamp, MACHINE, Meter, StatusStrip } from '@warsha/ui';
 import React from 'react';
 
 /** What the project's budget is, as `client.getProjectBudget` reported it. */
@@ -76,13 +76,19 @@ export function InstrumentStrip({ daemonOnline, run, gatesWaiting, budget }: Ins
           </Lamp>
         </StatusStrip.Item>
 
-        <StatusStrip.Item hideNarrow machine>
+        {/*
+          Two readings on this strip are a *word plus a value*: `التشغيل run-9f3a` and `3 بوّابات بانتظارك`.
+          They used to carry `machine`, which set the whole reading — the Arabic word included — in a
+          fixed-advance face, and the join came apart on screen (`بوّا بات بانتظار ك`). §11's split is by
+          payload, so the word is the strip's own voice and only the identifier is machine data.
+        */}
+        <StatusStrip.Item hideNarrow>
           {run === null ? (
             t('bench.no_run', {}, locale)
           ) : (
             <>
               {`${t('bench.run_label', {}, locale)} `}
-              <span dir="ltr" translate="no">
+              <span dir="ltr" translate="no" style={MACHINE}>
                 {run.id}
               </span>
             </>
@@ -95,8 +101,17 @@ export function InstrumentStrip({ daemonOnline, run, gatesWaiting, budget }: Ins
             : `${t('bench.stage_label', {}, locale)} ${stageWord(run.stage, locale)}`}
         </StatusStrip.Item>
 
-        <StatusStrip.Item hideNarrow machine>
-          {`${gatesWaiting === null ? t('bench.not_reported', {}, locale) : gatesWaiting} ${t('bench.gates_waiting', {}, locale)}`}
+        <StatusStrip.Item hideNarrow>
+          {gatesWaiting === null ? (
+            t('bench.not_reported', {}, locale)
+          ) : (
+            <>
+              <span dir="ltr" translate="no" style={MACHINE}>
+                {gatesWaiting}
+              </span>
+              {` ${t('bench.gates_waiting', {}, locale)}`}
+            </>
+          )}
         </StatusStrip.Item>
 
         <StatusStrip.Item>

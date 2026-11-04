@@ -22,7 +22,7 @@ use rand::TryRngCore;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::future::Future;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
@@ -151,6 +151,38 @@ pub struct DaemonConfig {
     pub socket_path: PathBuf,
     pub http_port: u16,
     pub ws_port: u16,
+    /// The address *both* listeners bind: the JSON-RPC server on [`DaemonConfig::ws_port`]
+    /// and the HTTP/`/events` server on [`DaemonConfig::http_port`].
+    ///
+    /// **Loopback is the default and stays the default.** A daemon holds the owner's
+    /// projects, runs and provider configuration, and its only network-facing
+    /// credential is a bearer token; binding it to a LAN address publishes that token
+    /// to every host on the network, which is a change of security posture and has to be
+    /// an act the owner takes deliberately — by spelling this field in the config file
+    /// or passing `--bind-host`. It is a bare IP literal (`127.0.0.1`, `192.168.1.20`,
+    /// `::1`), not a hostname: a name would be resolved once at start and quietly mean a
+    /// different machine after a DHCP change, and the resolved address is what the
+    /// startup log and every pairing link have to agree with.
+    ///
+    /// `#[serde(default)]` because a `config.toml` written before this field existed
+    /// names no bind address, and a daemon that refused to start on an old file would be
+    /// a daemon that failed its owner at the worst moment — the same reasoning as
+    /// [`DaemonConfig::rate_limits`]. A file that names nothing binds loopback.
+    #[serde(default = "default_bind_host")]
+    pub bind_host: String,
+    /// The host a pairing link advertises when [`DaemonConfig::bind_host`] is a wildcard
+    /// (`0.0.0.0`, `::`).
+    ///
+    /// A wildcard bind means "every address this machine has", and the daemon cannot know
+    /// which of them the owner's phone is meant to dial — advertising the first interface
+    /// it happened to find would be a guess printed on a credential. So a wildcard bind
+    /// with no advertised host still *serves* (nothing about the listeners changes), and
+    /// the one thing it refuses is minting a pairing link: `devices.pair-start` answers an
+    /// actionable refusal instead of inventing an address. A bare host or IP only — the
+    /// daemon serves plain HTTP and does not terminate TLS, so the scheme is not a value
+    /// this field may carry.
+    #[serde(default)]
+    pub advertised_host: Option<String>,
     pub auth_token: String,
     pub allowed_origins: Vec<String>,
     /// The inbound ceilings the daemon enforces on every RPC and HTTP request, and
@@ -181,6 +213,8 @@ impl Default for DaemonConfig {
             socket_path: config_dir.join("warshad.sock"),
             http_port: 8765,
             ws_port: 8766,
+            bind_host: default_bind_host(),
+            advertised_host: None,
             auth_token: String::new(), // Generated on first run
             allowed_origins: vec![
                 "http://localhost:5173".to_string(),
@@ -192,6 +226,19 @@ impl Default for DaemonConfig {
     }
 }
 
+/// The address a daemon binds when its configuration names none: loopback.
+///
+/// A function rather than a literal so `#[serde(default = "default_bind_host")]` and
+/// [`DaemonConfig::default`] cannot drift apart — the file default and the code default
+/// must be the same address, or an owner who never opted into a LAN bind gets one on a
+/// restart and the other on a fresh install.
+fn default_bind_host() -> String {
+    LOCALHOST_BIND.to_string()
+}
+
+/// The literal [`default_bind_host`] returns, spelled once so a test can name it.
+const LOCALHOST_BIND: &str = "127.0.0.1";
+
 /// Handle to a running daemon instance.
 pub struct DaemonHandle {
     _lock_file: LockFile,
@@ -199,6 +246,13 @@ pub struct DaemonHandle {
     rpc_server: jsonrpsee::server::ServerHandle,
     http_port: u16,
     rpc_port: u16,
+    /// The address both listeners actually bound. Reported so a startup log and a test can
+    /// name where the daemon is rather than re-reading a configuration it may have
+    /// resolved differently.
+    bind_addr: IpAddr,
+    /// What [`DaemonHandle::pairing_origin`] answered at start: the address a pairing link
+    /// may advertise, or `None` when the daemon cannot name one.
+    pairing_origin: Option<String>,
     /// The one spawner, so shutdown can take the daemon's children with it.
     processes: Arc<dyn ProcessManager>,
     /// The runtime this daemon is running on, kept for the sweep a `Drop` has to run
@@ -225,6 +279,8 @@ impl std::fmt::Debug for DaemonHandle {
         f.debug_struct("DaemonHandle")
             .field("http_port", &self.http_port)
             .field("rpc_port", &self.rpc_port)
+            .field("bind_addr", &self.bind_addr)
+            .field("pairing_origin", &self.pairing_origin)
             .field(
                 "reaped",
                 &self.reaped.load(std::sync::atomic::Ordering::Relaxed),
@@ -242,6 +298,23 @@ impl DaemonHandle {
     /// Returns the actual RPC (WebSocket/JSON-RPC) port the server is bound to.
     pub fn rpc_port(&self) -> u16 {
         self.rpc_port
+    }
+
+    /// The address both listeners are bound to — loopback unless the owner opted into
+    /// another one (see [`DaemonConfig::bind_host`]).
+    pub fn bind_addr(&self) -> IpAddr {
+        self.bind_addr
+    }
+
+    /// The origin a pairing link advertises, or `None` when the daemon cannot say yet.
+    ///
+    /// `None` is one of exactly two states: the daemon is bound to a wildcard with no
+    /// `advertised_host` to resolve the ambiguity (see
+    /// [`DaemonConfig::advertised_host`]), which is the only case a *running* daemon can
+    /// be in. A pairing link is never minted against an address the daemon does not
+    /// listen on, so `devices.pair-start` refuses here rather than guessing one.
+    pub fn pairing_origin(&self) -> Option<String> {
+        self.pairing_origin.clone()
     }
 
     /// Shuts down the daemon: stops the RPC server, aborts the HTTP task,
@@ -371,6 +444,54 @@ fn bearer_token(headers: &axum::http::HeaderMap) -> String {
         .to_string()
 }
 
+/// The one route that also reads a credential from the WebSocket subprotocol list.
+///
+/// A browser — and the desktop's webview — cannot set `Authorization` on a WebSocket
+/// handshake: the constructor takes a URL and a subprotocol list and nothing else.
+/// `/events` is the only place that has to know this, so it is the only place that does.
+const EVENTS_PATH: &str = "/events";
+
+/// The subprotocol prefix a `/events` caller carries its credential in.
+///
+/// The client's half of this string is `TOKEN_SUBPROTOCOL_PREFIX` in
+/// `packages/client/src/index.ts`; the two ends have to agree, and a live-daemon test
+/// (`crates/warshad/tests/events_ws_auth.rs`) is what pins that they do.
+const TOKEN_SUBPROTOCOL_PREFIX: &str = "warsha.token.";
+
+/// The `/events` data-plane subprotocol, and the only one the daemon ever *selects*.
+///
+/// It carries no secret, which is the whole reason it exists: RFC 6455 §1.9 has the
+/// server answer the handshake with one of the protocols the client offered, and the
+/// only other thing the client offers is its credential. Echoing that back would put
+/// the token on the response headers of every hop that reads them.
+const EVENTS_SUBPROTOCOL: &str = "warsha.events.v1";
+
+/// The credential in a `/events` caller's `Sec-WebSocket-Protocol` list, or an empty
+/// string when the list carries none.
+///
+/// One entry of the list is treated exactly as the `Authorization` header is: its
+/// remainder goes to [`Sessions::resolve`] and nothing else happens with it. Every
+/// offered protocol is a candidate, not just the first, because a client is free to
+/// offer the data-plane name before its credential. Multiple header lines are joined
+/// the way the transport joins them (`get_all`), and a value that is not UTF-8 simply
+/// carries no credential. An empty result is not a session —
+/// [`Sessions::resolve`] refuses it — so a caller that offers `warsha.token.` with
+/// nothing after the prefix is refused like a caller that offers nothing.
+///
+/// Nothing here reads the request URI: a token in the query string is not a credential
+/// this daemon will ever accept, because a URL is logged by every proxy, browser history
+/// and `Referer` between the caller and this listener.
+fn subprotocol_token(headers: &axum::http::HeaderMap) -> String {
+    headers
+        .get_all(axum::http::header::SEC_WEBSOCKET_PROTOCOL)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .find_map(|offered| offered.trim().strip_prefix(TOKEN_SUBPROTOCOL_PREFIX))
+        .unwrap_or_default()
+        .to_string()
+}
+
 /// A refusal with a status and a body, on jsonrpsee's own response type.
 fn rpc_refusal(
     status: axum::http::StatusCode,
@@ -486,6 +607,23 @@ pub struct DaemonArgs {
     #[arg(long, default_value = "8766")]
     pub ws_port: u16,
 
+    /// The address both listeners bind: a bare IP literal, `127.0.0.1` by default.
+    ///
+    /// Naming this is an explicit decision to publish the daemon beyond this machine —
+    /// see [`DaemonConfig::bind_host`] for why the default is loopback and why a LAN
+    /// address has to be asked for rather than assumed.
+    ///
+    /// `Option` with no clap `default_value`, unlike the two ports above, so that a
+    /// `bind_host` written in `config.toml` survives: clap's default would otherwise
+    /// overwrite the owner's choice on every start, which for this particular field means
+    /// silently ignoring the one opt-in the owner deliberately made.
+    #[arg(long)]
+    pub bind_host: Option<String>,
+
+    /// The host a pairing link advertises when `--bind-host` is a wildcard (`0.0.0.0`).
+    #[arg(long)]
+    pub advertised_host: Option<String>,
+
     /// Socket path
     #[arg(long)]
     pub socket: Option<PathBuf>,
@@ -503,7 +641,6 @@ pub struct DaemonState {
     pub backends: Vec<Box<dyn warsha_backends::CodingBackend>>,
     pub github: Option<GitHubClient>,
     pub devices: Arc<DeviceRegistry>,
-    pub event_tx: broadcast::Sender<Event>,
     /// Backend kits by project id, seeded from [`SettingsStore`] at start.
     ///
     /// The key is the project, not the run: `backend.export` addresses a run, and
@@ -617,6 +754,18 @@ pub struct DaemonState {
     /// configured-provider path — row, routing, agent turn, restart — be driven with no
     /// key, no network and no bill (AGENTS.md).
     pub provider_factory: Arc<dyn ProviderFactory>,
+    /// The origin a device should dial to reach this daemon, as `http://<host>:<port>`.
+    ///
+    /// Written exactly once, by [`start_daemon_with_provider_factory`], *after* the RPC
+    /// listener has bound: the port it ended up on is the port a pairing link may
+    /// advertise, and a configuration that asked for `0` would otherwise send a phone to
+    /// a port nothing listens on. `devices.pair-start` reads it, which is why the pairing
+    /// link and the socket cannot disagree.
+    ///
+    /// Empty until the daemon is serving. A hand-built state (a unit test calling an RPC
+    /// directly) is exactly that case, and `devices.pair-start` refuses rather than
+    /// inventing an address — see [`DaemonConfig::advertised_host`] for the other refusal.
+    pub pairing_origin: std::sync::OnceLock<String>,
 }
 
 impl DaemonState {
@@ -779,6 +928,20 @@ pub trait WarshaApi {
 
     #[method(name = "devices.pair", with_extensions)]
     async fn pair_device(&self, pairing_data: warsha_remote::PairingData) -> RpcResult<()>;
+
+    /// `devices.pair-start` — mint a pairing and hand back what a phone can actually use.
+    ///
+    /// The producer the pairing path never had: `devices.pair` *consumes* a
+    /// [`warsha_remote::PairingData`], and nothing in the product made one, so the desktop
+    /// screen was showing a `Math.random()` string as a pairing code. This mints the
+    /// 32-byte one-time secret and its ten-minute expiry (`PairingData::new`), and returns
+    /// them together with the daemon's resolved listening origin as a pairing link and a QR
+    /// plate (`PairingOffer`).
+    ///
+    /// Takes no parameter. The pairing's expiry, secret and origin are all the daemon's to
+    /// decide, and a caller that could name them could name the address a phone is sent to.
+    #[method(name = "devices.pair-start", with_extensions)]
+    async fn start_pairing(&self) -> RpcResult<warsha_remote::PairingOffer>;
 
     #[method(name = "devices.revoke", with_extensions)]
     async fn revoke_device(&self, device_id: DeviceId) -> RpcResult<()>;
@@ -1776,6 +1939,49 @@ impl WarshaApiServer for WarshaRpc {
             .add_device(device)
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+    }
+
+    async fn start_pairing(&self, ext: &RpcExtensions) -> RpcResult<warsha_remote::PairingOffer> {
+        // Owner-only, deliberately (see `crates/warshad/src/auth.rs`): this is the method
+        // that mints the credential the daemon will later trust a caller as, so a caller
+        // that is already only a paired device must not be able to hand out a second one.
+        self.authorize(ext, "devices.pair-start")?;
+
+        // The address a phone is sent to, taken from the socket the daemon actually bound
+        // and not from the configuration that asked for it: a link may never advertise an
+        // address the daemon is not listening on, which is the one way parts A and B of
+        // this change could disagree and produce a pairing that cannot be used.
+        let server_origin = self.state.pairing_origin.get().cloned().ok_or_else(|| {
+            rpc_error(
+                "this daemon has no resolved listening origin to advertise yet; a pairing link \
+                 would send a phone to an address it cannot reach. If the daemon is bound to a \
+                 wildcard address (0.0.0.0), set `advertised_host` to the address your phone \
+                 reaches this machine at"
+                    .to_string(),
+            )
+        })?;
+        let loopback_only = origin_is_loopback(&server_origin);
+
+        let device = warsha_remote::DeviceIdentity::generate("Pairing in progress".to_string())
+            .map_err(|error| rpc_error(error.to_string()))?;
+        // `relay_url` is `None` on purpose. The daemon keeps a `RunModeConfig` per mode and
+        // no single one of them is "the mode this daemon serves" — there is no active-mode
+        // state to read — and the relay path carries encrypted frames rather than this RPC
+        // surface, so naming one would be a guess about where the phone connects. The
+        // origin in the pairing link is what a phone dials today; see DECISIONS/PLAN for the
+        // relay as its own milestone.
+        let offer = warsha_remote::PairingOffer::new(&device, &server_origin, None, loopback_only)
+            .map_err(|error| rpc_error(error.to_string()))?;
+
+        // The secret itself is never logged: the origin and the expiry are what an owner
+        // and a reviewer need, and a pairing line in a log is otherwise a bearer token in
+        // a file that gets shipped to support (audit N-1).
+        info!(
+            "minted a pairing for device {} at {server_origin}, valid until {}",
+            offer.pairing.device_id,
+            offer.expires_at().to_rfc3339()
+        );
+        Ok(offer)
     }
 
     async fn revoke_device(&self, ext: &RpcExtensions, device_id: DeviceId) -> RpcResult<()> {
@@ -3106,6 +3312,127 @@ async fn health_handler() -> impl IntoResponse {
     })
 }
 
+/// The address both listeners bind, as resolved from the configuration.
+///
+/// An IP literal and nothing else. A hostname would be resolved once at start and could
+/// mean another machine after a DHCP or DNS change, while the startup log and every
+/// pairing link quote the address the socket *really* opened — so the owner spells an
+/// address, and the daemon never resolves one behind their back. A value that does not
+/// parse is a configuration error the owner sees at startup rather than a listener that
+/// quietly came up somewhere else.
+fn resolve_bind_host(config: &DaemonConfig) -> Result<IpAddr> {
+    config.bind_host.trim().parse::<IpAddr>().map_err(|error| {
+        DaemonError::Config(format!(
+            "`{}` is not an address this daemon can bind: {error}; `bind_host` takes an IP literal \
+             such as `127.0.0.1`, and loopback is the default when the configuration names none",
+            config.bind_host
+        ))
+    })
+}
+
+/// Whether an address names "every interface" rather than one of them.
+fn is_wildcard(addr: IpAddr) -> bool {
+    addr.is_unspecified()
+}
+
+/// Whether `advertised_host` names a host a pairing link may carry, in its URL spelling.
+///
+/// Accepted: an IP literal of either version (an IPv6 one comes back bracketed, so the
+/// port separator stays unambiguous) and a plain hostname. Refused: anything carrying a
+/// URL separator or a space — a scheme, a path, a query, credentials — because the daemon
+/// serves plain HTTP and terminates no TLS, so a `https://` in this field would advertise
+/// an endpoint it does not have, and a host with a path in it is a link to somewhere else.
+fn advertised_host_spelling(raw: &str) -> Option<String> {
+    let host = raw.trim();
+    if host.is_empty() {
+        return None;
+    }
+    if let Ok(addr) = host.parse::<IpAddr>() {
+        return Some(match addr {
+            IpAddr::V6(_) => format!("[{addr}]"),
+            IpAddr::V4(_) => addr.to_string(),
+        });
+    }
+    let hostname_shape = host
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'));
+    if hostname_shape {
+        Some(host.to_string())
+    } else {
+        None
+    }
+}
+
+/// The origin `devices.pair-start` puts in a pairing link for a daemon listening on
+/// `bind` at the port it actually got, `port`.
+///
+/// Three cases, and the rule they share is that a link must never advertise an address
+/// the daemon is not reachable at:
+///
+///   * a **loopback** bind advertises that literal. It is honest and it is the default,
+///     and it is a link a phone on the same network cannot open — which is what
+///     [`warsha_remote::PairingOffer::loopback_only`] says out loud rather than hiding;
+///   * a **specific** non-loopback bind (`192.168.1.20`) advertises exactly that address,
+///     because the daemon bound only there and the owner named it;
+///   * a **wildcard** bind (`0.0.0.0`) is reachable at an address the daemon cannot pick
+///     out — enumerating interfaces would be a guess printed on a bearer credential — so
+///     it advertises [`DaemonConfig::advertised_host`] when the owner set one, and refuses
+///     when they did not. The refusal is actionable and names the flag; the bind itself
+///     still serves, because nothing about the listeners depends on this.
+fn pairing_origin(
+    bind: IpAddr,
+    port: u16,
+    advertised: Option<&str>,
+) -> std::result::Result<String, DaemonError> {
+    let host = if is_wildcard(bind) {
+        let raw = advertised.ok_or_else(|| {
+            DaemonError::Config(format!(
+            "this daemon is bound to the wildcard address `{bind}`, so it cannot say which of its \
+             addresses a phone should dial; set `advertised_host` in the configuration (or pass \
+             `--advertised-host`) to the address the phone reaches this machine at, such as \
+             `192.168.1.20`"
+        ))
+        })?;
+        advertised_host_spelling(raw).ok_or_else(|| {
+            DaemonError::Config(format!(
+            "`{raw}` is not a host a pairing link can advertise: `advertised_host` takes a bare \
+             hostname or IP (`warsha.local`, `192.168.1.20`, `fd00::2`) and never a scheme, a path \
+             or a port, because the daemon serves plain HTTP on the port it bound"
+        ))
+        })?
+    } else if bind.is_ipv6() {
+        format!("[{bind}]")
+    } else {
+        bind.to_string()
+    };
+    Ok(format!("http://{host}:{port}"))
+}
+
+/// Whether a pairing origin is reachable only from this machine.
+///
+/// Read off the origin the daemon built, so it is the same fact the listeners act on
+/// rather than a second opinion about the configuration. The host is what decides it: a
+/// bracketed IPv6 literal (`http://[::1]:8766/`), a plain one, or a hostname from
+/// `advertised_host` — which is by definition not a loopback address the daemon invented,
+/// and reads as "not loopback" exactly as it should.
+///
+/// This is the flag that keeps parts A and B honest with each other: a link minted over a
+/// loopback bind is a link no phone can open, and the screen has to say so instead of
+/// printing a plate that cannot work.
+fn origin_is_loopback(origin: &str) -> bool {
+    let after_scheme = origin.split("://").nth(1).unwrap_or(origin);
+    let authority = after_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default();
+    let host = authority.rsplit('@').next().unwrap_or_default();
+    let host = match host.strip_prefix('[') {
+        Some(bracketed) => bracketed.split(']').next().unwrap_or_default(),
+        None => host.split(':').next().unwrap_or_default(),
+    };
+    host.parse::<IpAddr>().is_ok_and(|addr| addr.is_loopback())
+}
+
 /// Start the daemon and return a handle for management.
 /// Accepts `http_port` and `ws_port` of 0 to let the OS choose ports.
 pub async fn start_daemon(config: DaemonConfig) -> Result<DaemonHandle> {
@@ -3210,8 +3537,9 @@ pub async fn start_daemon_with_provider_factory(
     let local_identity = warsha_remote::DeviceIdentity::generate("Warsha Daemon".to_string())?;
     let devices = Arc::new(DeviceRegistry::new(local_identity));
 
-    // Create broadcast channel for event streaming
-    let (event_tx, _) = broadcast::channel::<Event>(1024);
+    // The live event bus is the store's: every `append_event` publishes on it, and
+    // `/events` subscribes through `state.store`. There is deliberately no second
+    // sender a handler could attach to and feed itself a silent stream.
 
     // One spawner for the daemon: the MCP stdio transport starts its server
     // through it and the live preview runs its dev server on it, so `process.list`
@@ -3274,7 +3602,6 @@ pub async fn start_daemon_with_provider_factory(
         backends,
         github,
         devices,
-        event_tx,
         backend_kits: Arc::new(RwLock::new(backend_kits)),
         crash_reports: Arc::new(RwLock::new(InMemoryCrashReportStore::new())),
         store_reviews: Arc::new(RwLock::new(InMemoryStoreReviewStore::new())),
@@ -3294,12 +3621,18 @@ pub async fn start_daemon_with_provider_factory(
         rates,
         role_routings: Arc::new(RwLock::new(role_routings)),
         provider_factory,
+        // Filled the moment the RPC listener has bound — see [`DaemonState::pairing_origin`].
+        pairing_origin: std::sync::OnceLock::new(),
     });
 
     // Start JSON-RPC server (TCP for cross-platform compatibility)
-    let rpc_addr: SocketAddr = format!("127.0.0.1:{}", config.ws_port)
-        .parse()
-        .map_err(|e| DaemonError::Config(format!("invalid RPC bind address: {e}")))?;
+    //
+    // The host is the configuration's, not a literal: a phone cannot dial `127.0.0.1` and
+    // reach this machine — it would be dialling itself. Loopback remains the default, and
+    // every other address is an opt-in the owner made in the config file or with
+    // `--bind-host` (see [`DaemonConfig::bind_host`] for why that posture is deliberate).
+    let bind = resolve_bind_host(&config)?;
+    let rpc_addr: SocketAddr = SocketAddr::new(bind, config.ws_port);
     // The origins this daemon accepts, parsed once and used by both servers below.
     //
     // They are not optional for the RPC server: `warsha-desktop` serves its webview from
@@ -3332,6 +3665,30 @@ pub async fn start_daemon_with_provider_factory(
         .await
         .map_err(|e| DaemonError::Config(format!("could not bind RPC server: {e}")))?;
     let actual_rpc_port = rpc_server.local_addr()?.port();
+    // The origin a pairing link may advertise, decided now rather than at the call: this
+    // is the moment the daemon knows the address it is actually reachable at, and
+    // `devices.pair-start` must not put a port on a QR plate that no socket holds.
+    //
+    // A wildcard bind with no `advertised_host` is the one case that cannot be answered,
+    // and the answer is a startup warning plus a refusal at the call — never a guess. The
+    // listeners are already up by then, so a daemon that only *serves* is unaffected; only
+    // minting a pairing needs the owner to say which address their phone dials.
+    let resolved_origin =
+        match pairing_origin(bind, actual_rpc_port, config.advertised_host.as_deref()) {
+            Ok(origin) => {
+                if state.pairing_origin.set(origin.clone()).is_err() {
+                    warn!("the pairing origin was already set; this daemon served one before");
+                }
+                Some(origin)
+            }
+            Err(error) => {
+                warn!(
+                    "this daemon cannot yet say what address a phone should dial: {error}; \
+                     `devices.pair-start` will refuse until it is answered"
+                );
+                None
+            }
+        };
     let rpc = WarshaRpc::new(state.clone());
     let rpc_handle = rpc_server.start(rpc.into_rpc());
     {
@@ -3341,7 +3698,7 @@ pub async fn start_daemon_with_provider_factory(
             info!("RPC server stopped");
         });
     }
-    info!("JSON-RPC server listening on 127.0.0.1:{}", actual_rpc_port);
+    info!("JSON-RPC server listening on {}", rpc_server.local_addr()?);
 
     // Start HTTP/WebSocket server. The same origin list as the RPC server, parsed above.
     let cors = CorsLayer::new()
@@ -3360,12 +3717,15 @@ pub async fn start_daemon_with_provider_factory(
         .layer(cors)
         .with_state(state.clone());
 
-    let http_listener =
-        tokio::net::TcpListener::bind(format!("127.0.0.1:{}", config.http_port)).await?;
+    // The same host as the RPC listener: a phone that can reach one must be able to
+    // reach the other, and a daemon split across a loopback and a LAN address would be a
+    // daemon whose pairing link works for half its surface.
+    let http_addr = SocketAddr::new(bind, config.http_port);
+    let http_listener = tokio::net::TcpListener::bind(http_addr).await?;
     let actual_http_port = http_listener.local_addr()?.port();
     info!(
-        "HTTP server listening on http://127.0.0.1:{}",
-        actual_http_port
+        "HTTP server listening on http://{}",
+        http_listener.local_addr()?
     );
 
     // The HTTP listener is the daemon's surface that knows the peer address, and it
@@ -3389,6 +3749,8 @@ pub async fn start_daemon_with_provider_factory(
         rpc_server: rpc_handle,
         http_port: actual_http_port,
         rpc_port: actual_rpc_port,
+        bind_addr: bind,
+        pairing_origin: resolved_origin,
         // The daemon's own spawner, not a second one: the sweep at shutdown has to
         // see the children the RPCs started.
         processes: state.processes.clone(),
@@ -3400,6 +3762,31 @@ pub async fn start_daemon_with_provider_factory(
     })
 }
 
+/// Layer the command line over a configuration the daemon read from disk.
+///
+/// Its own function because the *shape* of each override is a decision, not an
+/// accident: the two ports arrive with clap defaults and therefore always overwrite the
+/// file (a wart this change leaves alone rather than silently widening), while the bind
+/// address and the advertised host are `Option`s that overwrite only when the owner
+/// actually passed them. That asymmetry is deliberate and load-bearing — `bind_host` is
+/// the one field an owner may legitimately set in `config.toml` and never pass a flag
+/// again, especially from the desktop shell that starts the daemon in-process and gives
+/// them no way to pass one at all. A default here would put their LAN bind back to
+/// loopback on every start.
+fn apply_cli_overrides(config: &mut DaemonConfig, args: &DaemonArgs) {
+    config.http_port = args.http_port;
+    config.ws_port = args.ws_port;
+    if let Some(bind_host) = args.bind_host.as_deref() {
+        config.bind_host = bind_host.to_string();
+    }
+    if args.advertised_host.is_some() {
+        config.advertised_host = args.advertised_host.clone();
+    }
+    if let Some(socket) = &args.socket {
+        config.socket_path = socket.clone();
+    }
+}
+
 /// Main daemon entry point (kept for CLI compatibility)
 pub async fn run_daemon(args: DaemonArgs) -> Result<()> {
     // Load or create config
@@ -3407,11 +3794,7 @@ pub async fn run_daemon(args: DaemonArgs) -> Result<()> {
 
     // Override with CLI args
     let mut config = config;
-    config.http_port = args.http_port;
-    config.ws_port = args.ws_port;
-    if let Some(socket) = args.socket {
-        config.socket_path = socket;
-    }
+    apply_cli_overrides(&mut config, &args);
 
     let handle = start_daemon(config).await?;
     // The listener lines are `start_daemon`'s to write — it is the one that knows the
@@ -3421,8 +3804,13 @@ pub async fn run_daemon(args: DaemonArgs) -> Result<()> {
     // hand is a log that hides the lines that matter. The mode line stays, because which
     // mode the process came up in is a fact about *this* entry point, not about the
     // listeners.
+    //
+    // The address it names is the one the sockets bound, not `127.0.0.1`: an owner who
+    // opted into a LAN bind reads a startup log that says where the daemon really is, and
+    // an owner who did not sees loopback because that is what is listening.
+    let bind = handle.bind_addr();
     info!(
-        "warshad serving on http://127.0.0.1:{} and RPC 127.0.0.1:{}",
+        "warshad serving on http://{bind}:{} and RPC {bind}:{}",
         handle.http_port(),
         handle.rpc_port()
     );
@@ -3647,6 +4035,12 @@ fn get_github_token() -> Result<String> {
 ///   bucket and the address is the fallback for a caller that never got authenticated.
 /// - **The verified caller, in the request.** A handler that wants to know who asked
 ///   reads the [`Actor`] the credential produced — never a field of its own params.
+///
+/// The credential is a bearer header on every route, and additionally a
+/// `warsha.token.<token>` subprotocol on `/events` — the only form a browser can send on
+/// a WebSocket handshake, and the reason that socket was being refused (task #49). Both
+/// forms go to the same [`Sessions::resolve`] and are refused the same way. Neither is a
+/// URL query parameter, which this listener never reads.
 async fn auth_handler_inner(
     State(state): State<Arc<DaemonState>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -3655,7 +4049,17 @@ async fn auth_handler_inner(
     next: axum::middleware::Next,
 ) -> Response {
     let path = request.uri().path();
+    // The credential, in the order the two forms are trusted. A bearer header is what
+    // every HTTP caller sends and what every other route answers to; the subprotocol
+    // form exists only because a browser cannot set a header on a WebSocket handshake,
+    // and it is read on `/events` and nowhere else. A token in the URL is never read at
+    // all — see [`subprotocol_token`].
     let token = bearer_token(&headers);
+    let token = if token.is_empty() && path == EVENTS_PATH {
+        subprotocol_token(&headers)
+    } else {
+        token
+    };
 
     if path == "/health" {
         // The one route that answers without a credential is still bounded, per peer:
@@ -3726,11 +4130,24 @@ fn http_refusal(
 }
 
 /// WebSocket handler for /events endpoint
+///
+/// Authentication is the middleware's job ([`auth_handler_inner`], which reads either
+/// the bearer header or the `warsha.token.<token>` subprotocol for this path). What is
+/// this handler's job is the second half of the handshake: RFC 6455 §1.9 has the server
+/// select one of the protocols the client offered, and a client that offered a
+/// subprotocol and sees no selection back is entitled to treat the connection as failed.
+///
+/// The value selected is [`EVENTS_SUBPROTOCOL`] and nothing else. `protocols` only ever
+/// answers with a name the client actually offered, so a caller that sends no subprotocol
+/// — every `Authorization`-header caller that exists today — gets a reply identical to
+/// the one this handler sent before, and a caller that offers only its credential gets no
+/// echo of that credential either.
 async fn events_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<DaemonState>>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_events_socket(socket, state.event_tx.subscribe()))
+    ws.protocols([EVENTS_SUBPROTOCOL])
+        .on_upgrade(move |socket| handle_events_socket(socket, state.store.subscribe_events()))
 }
 
 async fn handle_events_socket(
@@ -3837,7 +4254,6 @@ mod tests {
         let pipeline = Arc::new(PipelineEngine::new(store.clone(), providers.clone()));
         let identity = warsha_remote::DeviceIdentity::generate("test daemon".to_string())
             .expect("a device identity");
-        let (event_tx, _) = broadcast::channel::<Event>(16);
 
         let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared();
         let mcp: Arc<dyn McpManager> = Arc::new(InMemoryMcpManager::new(processes.clone()));
@@ -3869,7 +4285,6 @@ mod tests {
             backends: BackendFactory::all_available(),
             github: None,
             devices: Arc::new(DeviceRegistry::new(identity)),
-            event_tx,
             backend_kits: Arc::new(RwLock::new(HashMap::new())),
             crash_reports: Arc::new(RwLock::new(InMemoryCrashReportStore::new())),
             store_reviews: Arc::new(RwLock::new(InMemoryStoreReviewStore::new())),
@@ -3900,6 +4315,9 @@ mod tests {
             // test, and a test that wants a routing sets one through `roles.set`.
             role_routings: Arc::new(RwLock::new(HashMap::new())),
             provider_factory: Arc::new(MockProviderFactory::new()),
+            // No listener has bound: a hand-built state is a daemon that is not serving,
+            // and `devices.pair-start` refuses rather than advertising a made-up origin.
+            pairing_origin: std::sync::OnceLock::new(),
         });
         (state, store)
     }

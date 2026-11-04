@@ -41,6 +41,11 @@ import {
 import { BenchTopbar } from './components/BenchTopbar';
 import { InstrumentStrip } from './components/InstrumentStrip';
 import { ProviderSetupWizard } from './components/ProviderSetupWizard';
+import {
+  readDaemonEndpoint,
+  UNRESOLVED_ENDPOINT,
+  type DaemonEndpoint,
+} from './daemon';
 import { AdvancedMode } from './screens/AdvancedMode';
 import { ArtifactViewer } from './screens/ArtifactViewer';
 import { Budgets } from './screens/Budgets';
@@ -221,30 +226,14 @@ async function readConfig(key: string): Promise<string> {
  * Where the daemon is, and the token that reaches it.
  *
  * The shell starts `warshad` itself and lets the OS choose the ports, so neither the URL nor the
- * token can be a constant in this file: `src-tauri/src/lib.rs` publishes both as the `daemon_url`
- * and `daemon_token` config keys, and this reads them back. A reported URL that is not an HTTP
- * URL is ignored — an empty or malformed answer must not become the client's endpoint.
- *
- * A browser has no shell: `pnpm dev` in a plain browser and the Playwright harness
- * (`e2e/harness.ts`) both answer those keys with the development defaults below, which is what the
- * harness stubs, so the visual checks measure the same client they always did.
+ * token can be a constant in this file: `src-tauri/src/lib.rs` publishes `daemon_url` (the RPC
+ * base), `daemon_ws_url` (where `/events` is really served — a different listener, so a different
+ * port) and `daemon_token` (the session credential), and `readDaemonEndpoint` in `./daemon` reads
+ * the three back and shapes them. A value the shell did not report stays unresolved — there is no
+ * development default and no invented token here: a browser that stubs nothing sees the bench
+ * honestly offline. The Playwright harness (`e2e/harness.ts`) answers the three keys itself, which
+ * is what lets the visual checks measure the same client a real shell drives.
  */
-const DEV_DAEMON_URL = 'http://127.0.0.1:8766';
-const DEV_DAEMON_TOKEN = 'test-token';
-
-interface DaemonEndpoint {
-  baseUrl: string;
-  token: string;
-}
-
-async function daemonEndpoint(): Promise<DaemonEndpoint> {
-  const reportedUrl = await readConfig('daemon_url');
-  const reportedToken = await readConfig('daemon_token');
-  const baseUrl = /^https?:\/\/\S+$/.test(reportedUrl)
-    ? reportedUrl.replace(/\/+$/, '')
-    : DEV_DAEMON_URL;
-  return { baseUrl, token: reportedToken === '' ? DEV_DAEMON_TOKEN : reportedToken };
-}
 
 /** The mode the shell last saved for itself: `app_mode` in the Tauri config, not a daemon reading. */
 async function getSavedMode(): Promise<WorkbenchMode> {
@@ -308,7 +297,7 @@ function AppContent() {
   const [screen, setScreen] = useState<Screen>('onboarding');
   const [mode, setModeState] = useState<WorkbenchMode>('simple');
   const [client, setClient] = useState<WarshaClient | null>(null);
-  const [endpoint, setEndpoint] = useState<DaemonEndpoint>({ baseUrl: DEV_DAEMON_URL, token: DEV_DAEMON_TOKEN });
+  const [endpoint, setEndpoint] = useState<DaemonEndpoint>(UNRESOLVED_ENDPOINT);
   const [, setProjects] = useState<ProjectSummary[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(null);
   const [selectedRun, setSelectedRun] = useState<RunSummary | null>(null);
@@ -341,8 +330,16 @@ function AppContent() {
   useEffect(() => {
     const initApp = async () => {
       try {
-        const daemon = await daemonEndpoint();
+        const daemon = await readDaemonEndpoint(readConfig);
         setEndpoint(daemon);
+        if (daemon.baseUrl === '') {
+          // No shell reported where the daemon answers. The honest reading is "offline":
+          // the bench does not dial a guessed port with an invented credential, and the
+          // wizard's own start-up read is what says so on screen.
+          setDaemonOnline(false);
+          setScreen('onboarding');
+          return;
+        }
         const apiClient = createClient(daemon.baseUrl, daemon.token);
         setClient(apiClient);
 
@@ -641,7 +638,14 @@ function AppContent() {
       case 'simple': {
         const project = selectedProject;
         if (!project) return <ProjectsBoard client={client} onProjectSelect={handleProjectSelect} />;
-        return <SimpleMode client={client} project={project} onBack={() => setScreen('projects')} />;
+        return (
+          <SimpleMode
+            client={client}
+            project={project}
+            endpoint={endpoint}
+            onBack={() => setScreen('projects')}
+          />
+        );
       }
 
       case 'advanced': {

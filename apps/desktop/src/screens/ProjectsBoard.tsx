@@ -365,9 +365,15 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
                 {label('projects.awaiting_gate')}
               </Lamp>
             )}
-            {/* A count is machine data, so it reads mono and tabular beside the stage word (§11). It also
-                says "no runs yet" for a project the owner has only just named (§7). */}
-            <Machine>{label('projects.run_count', { count: runCount })}</Machine>
+            {/*
+              How many runs a project has is a count, but the catalog says it as a *phrase* — `لا تشغيل بعد`
+              / `تشغيل واحد` — and a phrase is not machine data: this row used to hand it to `Machine`,
+              which set the Arabic in a fixed-advance face and pinned it LTR. The count is read in the
+              row's own voice, and the machine skin stays on the ids and the dates (§11).
+            */}
+            <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text)' }}>
+              {label('projects.run_count', { count: runCount })}
+            </Text>
           </Box>
         </Box>
       </Ledger.Row>

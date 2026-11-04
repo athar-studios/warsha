@@ -1,0 +1,34 @@
+{
+  "id": "/",
+  "name": "ورشة — طاولة العمل عن بُعد",
+  "short_name": "ورشة",
+  "description": "طاولة العمل عن بُعد: ما ينتظر قرارك، والبوّابات، والتشغيل من الهاتف. تحتاج إلى إقران بجهاز يعمل عليه الخادم.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0e0e0e",
+  "theme_color": "#fafafa",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

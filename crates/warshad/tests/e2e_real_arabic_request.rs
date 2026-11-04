@@ -32,7 +32,7 @@ use std::time::Duration;
 use chrono::Utc;
 use serde_json::json;
 use tempfile::tempdir;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::RwLock;
 use warsha_backends::BackendFactory;
 use warsha_core::{
     Artifact, CredentialsRef, DeviceId, Event, EventKind, GateState, Role, RoleRouting,
@@ -1068,7 +1068,6 @@ async fn daemon_state(data_dir: &Path, provider_mode: RealOrMockProvider) -> Arc
     let pipeline = Arc::new(PipelineEngine::new(store.clone(), providers.clone()));
 
     let identity = DeviceIdentity::generate("arabic e2e daemon".to_string()).expect("device id");
-    let (event_tx, _receiver) = broadcast::channel::<Event>(64);
     let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared();
     let mcp: Arc<dyn McpManager> = Arc::new(InMemoryMcpManager::new(processes.clone()));
     let previews = Arc::new(LivePreviewManager::new(processes.clone()));
@@ -1103,7 +1102,6 @@ async fn daemon_state(data_dir: &Path, provider_mode: RealOrMockProvider) -> Arc
         backends: BackendFactory::all_available(),
         github: None,
         devices: Arc::new(DeviceRegistry::new(identity)),
-        event_tx,
         backend_kits: Arc::new(RwLock::new(HashMap::new())),
         crash_reports: Arc::new(RwLock::new(InMemoryCrashReportStore::new())),
         store_reviews: Arc::new(RwLock::new(InMemoryStoreReviewStore::new())),

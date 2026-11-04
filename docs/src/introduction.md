@@ -46,7 +46,10 @@ way to run it is to build it.
 
 ## License
 
-Warsha is licensed under the **PolyForm Noncommercial 1.0.0** license. See [LICENSE](../LICENSE) for details.
+Warsha is licensed under the **PolyForm Noncommercial 1.0.0** license. The complete text is the `LICENSE`
+file at the repository root. It is named, not linked: `mdbook build` ships only `docs/src` and copies no file
+from outside it, so no relative path to the root `LICENSE` resolves inside the served book, and no public
+repository URL is recorded (see *Community* below) to link against instead.
 
 ## Community
 

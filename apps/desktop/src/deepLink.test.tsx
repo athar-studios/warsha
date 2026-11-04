@@ -31,15 +31,25 @@ const run: RunSummary = {
 };
 
 // Onboarding is done and the mode is Simple, exactly as the browser suite stubs it. One project with
-// one run exists, so a screen that needs one has something to select.
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn((command: string, args?: { key?: string }) => {
-    if (command === 'get_config') {
-      return Promise.resolve(args?.key === 'onboarding_complete' ? 'true' : 'simple');
-    }
-    return Promise.resolve(undefined);
-  }),
-}));
+// one run exists, so a screen that needs one has something to select. The daemon keys are what a
+// real shell reports (see `App.test.tsx` / `daemon.ts`): the App stays offline with no RPC base.
+vi.mock('@tauri-apps/api/core', () => {
+  const configAnswers: Record<string, string> = {
+    onboarding_complete: 'true',
+    app_mode: 'simple',
+    daemon_url: 'http://127.0.0.1:8766',
+    daemon_ws_url: 'ws://127.0.0.1:8765',
+    daemon_token: 'real-session-token',
+  };
+  return {
+    invoke: vi.fn((command: string, args?: { key?: string }) => {
+      if (command === 'get_config') {
+        return Promise.resolve(configAnswers[args?.key ?? ''] ?? '');
+      }
+      return Promise.resolve(undefined);
+    }),
+  };
+});
 
 vi.mock('@warsha/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@warsha/client')>();

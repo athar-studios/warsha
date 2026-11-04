@@ -6,13 +6,71 @@
 // component rather than a block of JSX in each screen because the home queue and the gates ledger must
 // show the *same* object for the same gate — two slightly different approval affordances on one bench is
 // how an owner approves the wrong one.
+//
+// The wiring has one branch, and it is the branch §1's lamp rule forces now that `warshad` serves
+// `gates.list`: a pending gate is lit **only** when it is the stage the run stands on. A pending gate the
+// run has not reached is not an invitation to decide — it is a name on a quiet plate (`UnreachedGate`).
 import { t, useDirection, useLocale } from '@warsha/i18n';
-import { Box, Chip, ChipMeta, GateCard, Text, colorVar, fontSize, size, space } from '@warsha/ui';
+import {
+  Box,
+  Chip,
+  ChipMeta,
+  GateCard,
+  Lamp,
+  Panel,
+  Text,
+  colorVar,
+  fontSize,
+  size,
+  space,
+} from '@warsha/ui';
 import React, { useMemo } from 'react';
 
-import { useRemote, type BenchGate } from './bench';
+import { useRemote, gateWaitsOnOwner, type BenchGate } from './bench';
 import { Machine } from './chrome';
 import { gateCardLabels, gateCardState, gateRecordNote, gateRecordWord, stageWord } from './labels';
+
+/** The gate card's inline-start band, taken back to the plate's own edge once the decision is on record. */
+const QUIET_BAND = { borderInlineStart: `${size('edge')} solid var(--warsha-bench-edge)` } as const;
+
+/**
+ * A pending gate the run has not reached: its name, its state word, and no way to decide it.
+ *
+ * `GateCard` is the one raised object on the bench and every part of it says *answer me* — the lit band,
+ * the `!` lamp, the primary Approve. Handing that to a gate three stages away is the failure this plate's
+ * own header was written against, and the daemon will take the press: `approve_gate`
+ * (`crates/warsha-pipeline/src/lib.rs:620`) checks only that the gate is pending, so an approval here
+ * clears a gate whose work has not run and a refusal pauses a run that never reached it. The owner is shown
+ * where the run actually stands instead, in the same two catalog words the instrument strip uses for it.
+ */
+function UnreachedGate({ gate, sourceKey }: { gate: BenchGate; sourceKey: string }) {
+  const dir = useDirection();
+  const locale = useLocale();
+  const { run } = useRemote();
+
+  return (
+    <Panel
+      title={stageWord(gate.stage, locale)}
+      label={t('gates.title', {}, locale)}
+      actions={<ChipMeta>{t(sourceKey, {}, locale)}</ChipMeta>}
+      recessed
+    >
+      <Box dir={dir} style={{ display: 'grid', gap: space(2), minInlineSize: 0 }}>
+        {/* `idle`, never `waiting`: the dot, the `·` glyph and the word agree that this is not the queue
+            (§1, §9). The state is still the truth — the gate is pending — the claim is what changes. */}
+        <Lamp state="idle" size="xs">
+          {t('gates.pending', {}, locale)}
+        </Lamp>
+        <Text size="sm" dir={dir} style={{ color: colorVar('text'), fontSize: fontSize('sm'), minInlineSize: 0 }}>
+          {run === null
+            ? t('bench.no_run', {}, locale)
+            : // The run's own stage is the reason nothing is asked: named the way the strip names it.
+              `${t('bench.stage_label', {}, locale)} ${stageWord(run.stage, locale)}`}
+        </Text>
+      </Box>
+    </Panel>
+  );
+}
 
 export function GatePlate({ gate }: { gate: BenchGate }) {
   const dir = useDirection();
@@ -34,12 +92,16 @@ export function GatePlate({ gate }: { gate: BenchGate }) {
   const sourceKey =
     gatesSource === 'daemon' ? 'remote.queue_source_daemon' : 'remote.queue_source_stage';
 
-  // The parked-here reading is a comparison of *stages*, never of the row's source. `warshad` serves
-  // `gates.list` now, so on the normal path the gate the run is stopped at arrives tagged `daemon` — and
-  // §1's "only a pending gate is lit" plus §6's "a gate the run is parked on is the lit one" are about
-  // where the run stands, which both readings can answer. `meta` above is dropped for a decided gate, so
-  // this can only ever light a pending one; a pending gate further along the pipeline stays a name.
-  const parkedHere = run !== null && gate.stage === run.stage;
+  // The parked-here reading is a comparison of *stages*, never of the row's source, and it lives in
+  // `bench.tsx` so this plate, the home queue's rows and the desktop inbox cannot disagree about it. Both
+  // readings can answer it; `meta` below is dropped for a decided gate, so it can only ever light a
+  // pending one.
+  const parkedHere = gateWaitsOnOwner(gate, run === null ? null : run.stage);
+
+  // The one presentation rule: a pending gate that is not where the run stands is a name, not a plate.
+  if (!decided && !parkedHere) {
+    return <UnreachedGate gate={gate} sourceKey={sourceKey} />;
+  }
 
   return (
     <GateCard
@@ -48,6 +110,10 @@ export function GatePlate({ gate }: { gate: BenchGate }) {
       state={gateCardState(gate.state)}
       labels={labels}
       busy={busy}
+      // §3 of the critique round: a decision is a record, not a standing request. `GateCard` hides the lamp
+      // and the actions for a decided gate and repaints the stamp; the band is the one thing it still draws
+      // unconditionally, so the caller that knows the decision exists takes it back to the plate's edge.
+      style={decided ? QUIET_BAND : undefined}
       onDecision={(next, detail) => decide(gate.stage, next, detail.note)}
       device={
         decided && recordedAt !== null ? (
@@ -88,11 +154,9 @@ export function GatePlate({ gate }: { gate: BenchGate }) {
     >
       <Box dir={dir} style={{ display: 'grid', gap: space(2) }}>
         <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-          {decided
-            ? t('gates.decisions_label', {}, locale)
-            : parkedHere
-              ? t('remote.stage_gate_waiting', {}, locale)
-              : t('gates.pending_desc', {}, locale)}
+          {/* Past this point a pending card *is* the parked gate — the other reading is `UnreachedGate` —
+              so the two sentences here are the only two the plate can honestly say. */}
+          {decided ? t('gates.decisions_label', {}, locale) : t('remote.stage_gate_waiting', {}, locale)}
         </Text>
 
         {note !== null && noteWord !== null && (

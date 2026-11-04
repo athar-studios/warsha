@@ -220,8 +220,10 @@ export function RunScreen() {
                   meta={
                     row.position === 'running' ? (
                       // Not lit: a stage in progress is the team's work, and the signal is the owner's
-                      // queue (§1). The `»` glyph on the row already says running.
-                      <ChipMeta>{t('advanced.state_running', {}, locale)}</ChipMeta>
+                      // queue (§1). The `»` glyph on the row already says running. And the word itself is
+                      // a word — `جارٍ`, `يعمل الآن` — so it takes the plain meta chip, not the machine
+                      // skin, which would set it in a fixed-advance face (§11).
+                      <Chip>{t('advanced.state_running', {}, locale)}</Chip>
                     ) : (
                       <Machine>{row.stage}</Machine>
                     )

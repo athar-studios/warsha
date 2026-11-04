@@ -22,15 +22,25 @@ import App from './App';
 import { Onboarding } from './screens/Onboarding';
 
 // The shell renders its screens only once onboarding is read from the Tauri config. Nothing here
-// reaches the real bridge, and the client lists nothing, so no socket is opened.
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn((command: string, args?: { key?: string }) => {
-    if (command === 'get_config') {
-      return Promise.resolve(args?.key === 'onboarding_complete' ? 'true' : 'simple');
-    }
-    return Promise.resolve(undefined);
-  }),
-}));
+// reaches the real bridge, and the client lists nothing, so no socket is opened. The daemon keys
+// are what a real shell reports; without an RPC base the App stays offline at onboarding.
+vi.mock('@tauri-apps/api/core', () => {
+  const configAnswers: Record<string, string> = {
+    onboarding_complete: 'true',
+    app_mode: 'simple',
+    daemon_url: 'http://127.0.0.1:8766',
+    daemon_ws_url: 'ws://127.0.0.1:8765',
+    daemon_token: 'real-session-token',
+  };
+  return {
+    invoke: vi.fn((command: string, args?: { key?: string }) => {
+      if (command === 'get_config') {
+        return Promise.resolve(configAnswers[args?.key ?? ''] ?? '');
+      }
+      return Promise.resolve(undefined);
+    }),
+  };
+});
 
 vi.mock('@warsha/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@warsha/client')>();

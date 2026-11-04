@@ -256,20 +256,26 @@ pub enum DeviceAction {
 
 /// The language `warsha` writes its own human messages in.
 ///
-/// English is the fallback and the language every message written so far is in: the
-/// crate has no locale of its own yet (`warsha init --lang` takes a language and writes
-/// a `config.toml` whose fields belong to the daemon, which nothing reads back), so
-/// [`CliLang::from_locale`] follows the process locale the way a command-line program
-/// normally does. The one Rust-side precedent for a bilingual human message in this
-/// workspace is `DailySummaryBuilder` in `crates/warsha-pipeline/src/post_launch.rs`:
-/// two inline wordings, one language enum, chosen at build time — because `packages/i18n`
-/// is a TypeScript catalog that no Rust crate reads, and adding a dependency here was not
-/// an option.
+/// English is the fallback and the reading of any locale that does not say `ar`. Every
+/// message this crate writes in prose — confirmations, refusals, its own error sentences
+/// — is built by a `_message` function below with exactly two inline wordings, one per
+/// language, chosen by the process locale (`LC_ALL` then `LANG`). That is the pattern
+/// `DailySummaryBuilder` in `crates/warsha-pipeline/src/post_launch.rs` established: two
+/// inline wordings, one language enum — because `packages/i18n` is a TypeScript catalog
+/// that no Rust crate reads, and adding a dependency here was not an option.
+///
+/// Three surfaces stay English by design, and the test
+/// `no_human_word_reaches_output_without_a_language_choice` guards the rest: clap's
+/// generated `--help` (it renders doc comments, not `CliLang` output), `--json` (a machine
+/// contract — [`CliLang::for_output`] pins it to English), and anything rendered through
+/// Rust's `Debug` (stage and status enum names, errors whose text belongs to another
+/// crate).
 ///
 /// The Arabic wordings are written unvocalised — no harakat, no shadda, the way the
-/// shipped catalog strings read — because `src/main.rs` prints a returned error with
-/// `Debug`, and `Debug` escapes Unicode combining marks as `\u{64f}`. A refusal an owner
-/// cannot read is not a refusal; the test on that printing keeps the wordings honest.
+/// shipped catalog strings read but without their tashkeel — because `src/main.rs` prints
+/// a returned error with `Debug`, and `Debug` escapes Unicode combining marks as
+/// `\u{64f}`. A refusal an owner cannot read is not a refusal; the test on that printing
+/// keeps the wordings honest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CliLang {
     /// Arabic, the product's first language.
@@ -301,6 +307,14 @@ impl CliLang {
         } else {
             Self::from_locale(locale)
         }
+    }
+
+    /// The message language of this process, read from its environment.
+    ///
+    /// Public because `src/main.rs` writes one human message of its own (the missing
+    /// auth token) before any [`CliApp`] exists, and that message follows the locale too.
+    pub fn from_process_locale(json_output: bool) -> Self {
+        Self::for_output(json_output, &locale_from_env())
     }
 }
 
@@ -336,8 +350,12 @@ impl CliApp {
             let auth_value = format!("Bearer {}", token);
             headers.insert(
                 reqwest::header::AUTHORIZATION,
-                reqwest::header::HeaderValue::from_str(&auth_value)
-                    .map_err(|e| CliError::Config(format!("Invalid auth token: {e}")))?,
+                reqwest::header::HeaderValue::from_str(&auth_value).map_err(|e| {
+                    CliError::Config(invalid_auth_token_message(
+                        CliLang::from_process_locale(json_output),
+                        &e.to_string(),
+                    ))
+                })?,
             );
         }
         let http_client = Client::builder().default_headers(headers).build()?;
@@ -379,8 +397,9 @@ impl CliApp {
     }
 
     async fn cmd_init(&self, _lang: String) -> Result<()> {
+        let lang = self.message_lang();
         let config_dir = dirs::config_dir()
-            .ok_or_else(|| CliError::Config("Config directory not found".to_string()))?
+            .ok_or_else(|| CliError::Config(config_dir_missing_message(lang)))?
             .join("warsha");
         std::fs::create_dir_all(&config_dir)?;
 
@@ -392,7 +411,7 @@ impl CliApp {
         let content = toml::to_string_pretty(&config)?;
         std::fs::write(config_dir.join("config.toml"), content)?;
 
-        self.output("Warsha initialized".to_string())?;
+        self.output(init_done_message(lang))?;
         Ok(())
     }
 
@@ -421,9 +440,10 @@ impl CliApp {
             .request::<warsha_core::Run, _>("runs.start", (project.id, idea))
             .await?;
 
-        self.output(format!(
-            "Created project {} and started run {}",
-            project.id.0, run.id.0
+        self.output(created_project_message(
+            self.message_lang(),
+            &project.id.0.to_string(),
+            &run.id.0.to_string(),
         ))?;
         Ok(())
     }
@@ -441,18 +461,20 @@ impl CliApp {
             .await?;
 
         if let Some(run) = runs.first() {
-            self.output(format!(
-                "Run {} is at stage {:?}",
-                run.id.0, run.current_stage
+            self.output(run_at_stage_message(
+                self.message_lang(),
+                &run.id.0.to_string(),
+                &format!("{:?}", run.current_stage),
             ))?;
         } else {
-            self.output("No runs found".to_string())?;
+            self.output(no_runs_message(self.message_lang()))?;
         }
         Ok(())
     }
 
     async fn cmd_status(&self, project: Option<String>, run: Option<String>) -> Result<()> {
         self.ensure_daemon().await?;
+        let lang = self.message_lang();
 
         if let Some(run_id_str) = run {
             let run_id =
@@ -461,9 +483,11 @@ impl CliApp {
                 .client
                 .request::<warsha_core::Run, _>("runs.get", (run_id,))
                 .await?;
-            self.output(format!(
-                "Run {}: {:?} ({:?})",
-                run.id.0, run.current_stage, run.status
+            self.output(run_status_line_message(
+                lang,
+                &run.id.0.to_string(),
+                &format!("{:?}", run.current_stage),
+                &format!("{:?}", run.status),
             ))?;
         } else if let Some(project_str) = project {
             let project_id = self.resolve_project(&project_str).await?;
@@ -509,7 +533,7 @@ impl CliApp {
 
         if follow {
             // In real implementation, subscribe to WebSocket
-            self.output("Following... (WebSocket not implemented)".to_string())?;
+            self.output(following_message(self.message_lang()))?;
         }
         Ok(())
     }
@@ -530,30 +554,33 @@ impl CliApp {
     }
 
     async fn cmd_approve(&self, run: String, gate: String) -> Result<()> {
+        let lang = self.message_lang();
         let run_id = RunId(Ulid::from_string(&run).map_err(|e| CliError::Other(e.to_string()))?);
-        let stage = parse_gate_stage(&gate)?;
+        let stage = parse_gate_stage(&gate, lang)?;
         let device_id = DeviceId::new(); // In real implementation, get from config
 
         self.client
             .request::<warsha_core::Run, _>("gates.approve", (run_id, stage, device_id))
             .await?;
-        self.output(format!("Gate {:?} approved", stage))?;
+        self.output(gate_approved_message(lang, &format!("{stage:?}")))?;
         Ok(())
     }
 
     async fn cmd_reject(&self, run: String, gate: String, reason: String) -> Result<()> {
+        let lang = self.message_lang();
         let run_id = RunId(Ulid::from_string(&run).map_err(|e| CliError::Other(e.to_string()))?);
-        let stage = parse_gate_stage(&gate)?;
+        let stage = parse_gate_stage(&gate, lang)?;
         let device_id = DeviceId::new();
 
         self.client
             .request::<warsha_core::Run, _>("gates.reject", (run_id, stage, reason, device_id))
             .await?;
-        self.output(format!("Gate {:?} rejected", stage))?;
+        self.output(gate_rejected_message(lang, &format!("{stage:?}")))?;
         Ok(())
     }
 
     async fn cmd_providers(&self, action: ProviderAction) -> Result<()> {
+        let lang = self.message_lang();
         match action {
             ProviderAction::List => {
                 let providers = self
@@ -568,7 +595,7 @@ impl CliApp {
                 // Whether `--key` is required is the *kind's* answer — `ProviderKind::needs_api_key`
                 // — not a rule this crate imposes on every provider. A local server has no
                 // credential, so demanding a flag for it was asking the owner to invent one.
-                match plan_provider_add(&id, &kind, key, self.message_lang()) {
+                match plan_provider_add(&id, &kind, key, lang) {
                     AddPlan::Call { key } => {
                         // Positional, in the order the RPC declares: name, kind, key,
                         // api_base. `None` lets the daemon use the kind's default URL.
@@ -579,10 +606,7 @@ impl CliApp {
                                 (id.clone(), kind, key, None::<String>),
                             )
                             .await?;
-                        self.output(format!(
-                            "Provider {} added ({})",
-                            provider.name, provider.kind
-                        ))?;
+                        self.output(provider_added_message(lang, &provider.name, &provider.kind))?;
                     }
                     // Both refusals happen here, before the call: no RPC is sent, so no
                     // invented key can reach the daemon and be filed in the keychain under
@@ -597,19 +621,20 @@ impl CliApp {
                     .client
                     .request::<warsha_providers::HealthCheck, _>("providers.test", (id,))
                     .await?;
-                self.output(format!("Provider health: {health:?}"))?;
+                self.output(provider_health_message(lang, &format!("{health:?}")))?;
             }
             ProviderAction::Remove { id } => {
                 self.client
                     .request::<warshad::ProviderRecord, _>("providers.remove", (id,))
                     .await?;
-                self.output("Provider removed".to_string())?;
+                self.output(provider_removed_message(lang))?;
             }
         }
         Ok(())
     }
 
     async fn cmd_roles(&self, action: RoleAction) -> Result<()> {
+        let lang = self.message_lang();
         match action {
             RoleAction::List => {
                 let roles = self
@@ -617,15 +642,15 @@ impl CliApp {
                     .request::<Vec<warshad::RoleRoutingConfig>, _>("roles.list", rpc_params![])
                     .await?;
                 for r in roles {
-                    self.output(format!(
-                        "{} -> {} (fallback: {})",
-                        r.role,
-                        r.targets
+                    self.output(role_row_message(
+                        lang,
+                        &r.role,
+                        &r.targets
                             .iter()
                             .map(|t| format!("{}:{}", t.provider_id, t.model_id))
                             .collect::<Vec<_>>()
                             .join(", "),
-                        r.fallback_enabled
+                        r.fallback_enabled,
                     ))?;
                 }
             }
@@ -635,10 +660,7 @@ impl CliApp {
                     .map(|s| {
                         let parts: Vec<&str> = s.split(':').collect();
                         if parts.len() != 2 {
-                            return Err(CliError::Config(format!(
-                                "Invalid target format: {} (expected provider:model)",
-                                s
-                            )));
+                            return Err(CliError::Config(invalid_target_message(lang, s)));
                         }
                         Ok(warshad::RoutingTargetConfig {
                             provider_id: parts[0].to_string(),
@@ -655,13 +677,14 @@ impl CliApp {
                     budget_cents_per_run: None,
                 };
                 self.client.request::<(), _>("roles.set", (config,)).await?;
-                self.output(format!("Role routing set for {}", role))?;
+                self.output(role_routing_set_message(lang, &role))?;
             }
         }
         Ok(())
     }
 
     async fn cmd_budget(&self, action: BudgetAction) -> Result<()> {
+        let lang = self.message_lang();
         match action {
             BudgetAction::Show { project } => {
                 let project_id = self.resolve_project(&project).await?;
@@ -669,18 +692,18 @@ impl CliApp {
                     .client
                     .request::<warshad::BudgetStatus, _>("budget.show", (project_id,))
                     .await?;
-                self.output(format!(
-                    "Budget: {} / {} cents ({}% used)",
+                self.output(budget_summary_message(
+                    lang,
                     budget.spent_cents,
                     budget.budget_cents.unwrap_or(0),
                     if budget.budget_cents.unwrap_or(0) > 0 {
                         (budget.spent_cents * 100) / budget.budget_cents.unwrap()
                     } else {
                         0
-                    }
+                    },
                 ))?;
                 if let Some(remaining) = budget.remaining_cents {
-                    self.output(format!("Remaining: {} cents", remaining))?;
+                    self.output(budget_remaining_message(lang, remaining))?;
                 }
             }
             BudgetAction::Set { project, cents } => {
@@ -688,14 +711,15 @@ impl CliApp {
                 self.client
                     .request::<(), _>("budget.set", (project_id, cents))
                     .await?;
-                self.output(format!("Budget set to {} cents for {}", cents, project))?;
+                self.output(budget_set_message(lang, cents, &project))?;
             }
         }
         Ok(())
     }
 
     async fn cmd_doctor(&self) -> Result<()> {
-        self.output("Warsha Doctor".to_string())?;
+        let lang = self.message_lang();
+        self.output(doctor_header_message(lang))?;
         self.output("=============".to_string())?;
 
         // Check daemon
@@ -706,10 +730,10 @@ impl CliApp {
             .await
         {
             Ok(resp) if resp.status().is_success() => {
-                self.output("✓ Daemon: Running".to_string())?;
+                self.output(daemon_running_message(lang))?;
             }
             _ => {
-                self.output("✗ Daemon: Not running".to_string())?;
+                self.output(daemon_not_running_message(lang))?;
             }
         }
 
@@ -725,14 +749,14 @@ impl CliApp {
 
         for (name, cmd) in tools {
             if which::which(cmd).is_ok() {
-                self.output(format!("✓ {}: Found", name))?;
+                self.output(tool_found_message(lang, name))?;
             } else {
-                self.output(format!("✗ {}: Not found", name))?;
+                self.output(tool_not_found_message(lang, name))?;
             }
         }
 
         // Check providers
-        self.output("\nProviders:".to_string())?;
+        self.output(providers_section_message(lang))?;
         // Check CLIs
         let clis = [
             ("Claude Code", "claude"),
@@ -747,7 +771,7 @@ impl CliApp {
             if which::which(cmd).is_ok() {
                 self.output(format!("  ✓ {}", name))?;
             } else {
-                self.output(format!("  ✗ {} (not installed)", name))?;
+                self.output(agent_cli_missing_message(lang, name))?;
             }
         }
 
@@ -761,11 +785,12 @@ impl CliApp {
         self.client
             .request::<(), _>("devices.pair", (pairing,))
             .await?;
-        self.output("Device paired successfully".to_string())?;
+        self.output(device_paired_message(self.message_lang()))?;
         Ok(())
     }
 
     async fn cmd_devices(&self, action: DeviceAction) -> Result<()> {
+        let lang = self.message_lang();
         match action {
             DeviceAction::List => {
                 let devices = self
@@ -773,8 +798,12 @@ impl CliApp {
                     .request::<Vec<DeviceIdentity>, _>("devices.list", rpc_params![])
                     .await?;
                 for d in devices {
-                    let status = if d.revoked { "REVOKED" } else { "active" };
-                    self.output(format!("{} {} ({})", d.device_id.0, d.name, status))?;
+                    self.output(device_row_message(
+                        lang,
+                        &d.device_id.0.to_string(),
+                        &d.name,
+                        d.revoked,
+                    ))?;
                 }
             }
             DeviceAction::Revoke { id } => {
@@ -783,7 +812,7 @@ impl CliApp {
                 self.client
                     .request::<(), _>("devices.revoke", (device_id,))
                     .await?;
-                self.output("Device revoked".to_string())?;
+                self.output(device_revoked_message(lang))?;
             }
         }
         Ok(())
@@ -823,15 +852,15 @@ impl CliApp {
             }
         }
 
-        Err(CliError::Other(format!(
-            "Project not found: {}",
-            name_or_id
+        Err(CliError::Other(project_not_found_message(
+            self.message_lang(),
+            name_or_id,
         )))
     }
 
     /// The language this call writes its human messages in.
     fn message_lang(&self) -> CliLang {
-        CliLang::for_output(self.json_output, &locale_from_env())
+        CliLang::from_process_locale(self.json_output)
     }
 
     fn output(&self, msg: String) -> Result<()> {
@@ -844,13 +873,13 @@ impl CliApp {
     }
 }
 
-fn parse_gate_stage(s: &str) -> Result<Stage> {
+fn parse_gate_stage(s: &str, lang: CliLang) -> Result<Stage> {
     match s.to_lowercase().as_str() {
         "gate_a" | "gatea" | "a" => Ok(Stage::GateA),
         "gate_b" | "gateb" | "b" => Ok(Stage::GateB),
         "gate_c" | "gatec" | "c" => Ok(Stage::GateC),
         "gate_d" | "gated" | "d" => Ok(Stage::GateD),
-        _ => Err(CliError::Other(format!("Unknown gate stage: {}", s))),
+        _ => Err(CliError::Other(unknown_gate_message(lang, s))),
     }
 }
 
@@ -945,23 +974,330 @@ fn no_key_kind_message(lang: CliLang, id: &str, kind: &str, key_passed: bool) ->
     }
 }
 
+// ---------------------------------------------------------------------------
+// Human message wordings
+//
+// One pure function per message, each with exactly two inline wordings — the
+// pattern `needs_key_message` and `no_key_kind_message` set. The English arm
+// reproduces the sentence this CLI has always printed, byte for byte: `--json`
+// pins its language to English, and a script that matches on a sentence must
+// get the same one after localization as before it. `every_message_pair` in
+// the tests below enumerates them, so a wording collapsed back to
+// English-only fails a test rather than the owner.
+// ---------------------------------------------------------------------------
+
+fn init_done_message(lang: CliLang) -> String {
+    match lang {
+        CliLang::English => "Warsha initialized".to_string(),
+        CliLang::Arabic => "تم تجهيز Warsha".to_string(),
+    }
+}
+
+fn created_project_message(lang: CliLang, project: &str, run: &str) -> String {
+    match lang {
+        CliLang::English => format!("Created project {project} and started run {run}"),
+        CliLang::Arabic => format!("أنشأت المشروع {project} وبدأت التشغيل {run}"),
+    }
+}
+
+fn run_at_stage_message(lang: CliLang, run: &str, stage: &str) -> String {
+    match lang {
+        CliLang::English => format!("Run {run} is at stage {stage}"),
+        CliLang::Arabic => format!("التشغيل {run} في المرحلة {stage}"),
+    }
+}
+
+fn no_runs_message(lang: CliLang) -> String {
+    match lang {
+        CliLang::English => "No runs found".to_string(),
+        CliLang::Arabic => "لا تشغيل بعد".to_string(),
+    }
+}
+
+/// A status line whose stage and status arrive already `Debug`-rendered: the sentence
+/// around them follows the locale, the enum names inside it do not (they are machine
+/// data owned by `warsha-core`, printed through `Debug` like every other `{:?}` value).
+fn run_status_line_message(lang: CliLang, run: &str, stage: &str, status: &str) -> String {
+    match lang {
+        CliLang::English => format!("Run {run}: {stage} ({status})"),
+        CliLang::Arabic => format!("التشغيل {run}: {stage} ({status})"),
+    }
+}
+
+fn following_message(lang: CliLang) -> String {
+    match lang {
+        CliLang::English => "Following... (WebSocket not implemented)".to_string(),
+        CliLang::Arabic => "متابعة مستمرة... (WebSocket غير متوفر بعد)".to_string(),
+    }
+}
+
+fn gate_approved_message(lang: CliLang, stage: &str) -> String {
+    match lang {
+        CliLang::English => format!("Gate {stage} approved"),
+        CliLang::Arabic => format!("تمت الموافقة على البوابة {stage}"),
+    }
+}
+
+fn gate_rejected_message(lang: CliLang, stage: &str) -> String {
+    match lang {
+        CliLang::English => format!("Gate {stage} rejected"),
+        CliLang::Arabic => format!("تم رفض البوابة {stage}"),
+    }
+}
+
+fn provider_added_message(lang: CliLang, name: &str, kind: &str) -> String {
+    match lang {
+        CliLang::English => format!("Provider {name} added ({kind})"),
+        CliLang::Arabic => format!("تمت إضافة المزود {name} ({kind})"),
+    }
+}
+
+fn provider_health_message(lang: CliLang, health: &str) -> String {
+    match lang {
+        CliLang::English => format!("Provider health: {health}"),
+        CliLang::Arabic => format!("فحص المزود: {health}"),
+    }
+}
+
+fn provider_removed_message(lang: CliLang) -> String {
+    match lang {
+        CliLang::English => "Provider removed".to_string(),
+        CliLang::Arabic => "تم حذف المزود".to_string(),
+    }
+}
+
+/// A `roles list` row: id-shaped data stays as-is; only the "(fallback: …)" label
+/// is a human word, so only it follows the locale. The `->` separator is kept in
+/// both languages — flipping it for RTL would rewrite the reading of the routing.
+fn role_row_message(lang: CliLang, role: &str, targets: &str, fallback: bool) -> String {
+    match lang {
+        CliLang::English => format!("{role} -> {targets} (fallback: {fallback})"),
+        CliLang::Arabic => format!("{role} -> {targets} (البديل: {fallback})"),
+    }
+}
+
+fn role_routing_set_message(lang: CliLang, role: &str) -> String {
+    match lang {
+        CliLang::English => format!("Role routing set for {role}"),
+        CliLang::Arabic => format!("تم ضبط توجيه الدور {role}"),
+    }
+}
+
+fn budget_summary_message(lang: CliLang, spent: u64, budget: u64, used_pct: u64) -> String {
+    match lang {
+        CliLang::English => format!("Budget: {spent} / {budget} cents ({used_pct}% used)"),
+        CliLang::Arabic => format!("الميزانية: {spent} / {budget} سنت (تم صرف {used_pct}%)"),
+    }
+}
+
+fn budget_remaining_message(lang: CliLang, remaining: u64) -> String {
+    match lang {
+        CliLang::English => format!("Remaining: {remaining} cents"),
+        CliLang::Arabic => format!("المتبقي: {remaining} سنت"),
+    }
+}
+
+fn budget_set_message(lang: CliLang, cents: u64, project: &str) -> String {
+    match lang {
+        CliLang::English => format!("Budget set to {cents} cents for {project}"),
+        CliLang::Arabic => format!("تم ضبط الميزانية على {cents} سنت للمشروع {project}"),
+    }
+}
+
+fn doctor_header_message(lang: CliLang) -> String {
+    match lang {
+        CliLang::English => "Warsha Doctor".to_string(),
+        CliLang::Arabic => "فحص Warsha".to_string(),
+    }
+}
+
+fn daemon_running_message(lang: CliLang) -> String {
+    match lang {
+        CliLang::English => "✓ Daemon: Running".to_string(),
+        CliLang::Arabic => "✓ الخادم: متصل".to_string(),
+    }
+}
+
+fn daemon_not_running_message(lang: CliLang) -> String {
+    match lang {
+        CliLang::English => "✗ Daemon: Not running".to_string(),
+        CliLang::Arabic => "✗ الخادم: غير متصل".to_string(),
+    }
+}
+
+fn tool_found_message(lang: CliLang, name: &str) -> String {
+    match lang {
+        CliLang::English => format!("✓ {name}: Found"),
+        CliLang::Arabic => format!("✓ {name}: متوفر"),
+    }
+}
+
+fn tool_not_found_message(lang: CliLang, name: &str) -> String {
+    match lang {
+        CliLang::English => format!("✗ {name}: Not found"),
+        CliLang::Arabic => format!("✗ {name}: غير متوفر"),
+    }
+}
+
+fn providers_section_message(lang: CliLang) -> String {
+    match lang {
+        CliLang::English => "\nProviders:".to_string(),
+        CliLang::Arabic => "\nالمزودون:".to_string(),
+    }
+}
+
+fn agent_cli_missing_message(lang: CliLang, name: &str) -> String {
+    match lang {
+        CliLang::English => format!("  ✗ {name} (not installed)"),
+        CliLang::Arabic => format!("  ✗ {name} (غير مثبت)"),
+    }
+}
+
+fn device_paired_message(lang: CliLang) -> String {
+    match lang {
+        CliLang::English => "Device paired successfully".to_string(),
+        CliLang::Arabic => "تم اقتران الجهاز بنجاح".to_string(),
+    }
+}
+
+/// A `devices list` row: the UUID and the name are data; the status word is a human
+/// word, so it follows the locale.
+fn device_row_message(lang: CliLang, id: &str, name: &str, revoked: bool) -> String {
+    let status = match lang {
+        CliLang::English => {
+            if revoked {
+                "REVOKED"
+            } else {
+                "active"
+            }
+        }
+        CliLang::Arabic => {
+            if revoked {
+                "ملغى"
+            } else {
+                "نشط"
+            }
+        }
+    };
+    format!("{id} {name} ({status})")
+}
+
+fn device_revoked_message(lang: CliLang) -> String {
+    match lang {
+        CliLang::English => "Device revoked".to_string(),
+        CliLang::Arabic => "تم إلغاء الجهاز".to_string(),
+    }
+}
+
+fn project_not_found_message(lang: CliLang, name: &str) -> String {
+    match lang {
+        CliLang::English => format!("Project not found: {name}"),
+        CliLang::Arabic => format!("المشروع غير موجود: {name}"),
+    }
+}
+
+fn unknown_gate_message(lang: CliLang, stage: &str) -> String {
+    match lang {
+        CliLang::English => format!("Unknown gate stage: {stage}"),
+        CliLang::Arabic => format!("مرحلة بوابة غير معروفة: {stage}"),
+    }
+}
+
+fn invalid_target_message(lang: CliLang, target: &str) -> String {
+    match lang {
+        CliLang::English => {
+            format!("Invalid target format: {target} (expected provider:model)")
+        }
+        CliLang::Arabic => format!("صيغة الهدف غير صحيحة: {target} (المطلوب provider:model)"),
+    }
+}
+
+fn config_dir_missing_message(lang: CliLang) -> String {
+    match lang {
+        CliLang::English => "Config directory not found".to_string(),
+        CliLang::Arabic => "لم يتم العثور على مجلد الإعدادات".to_string(),
+    }
+}
+
+fn invalid_auth_token_message(lang: CliLang, error: &str) -> String {
+    match lang {
+        CliLang::English => format!("Invalid auth token: {error}"),
+        CliLang::Arabic => format!("رمز المصادقة غير صالح: {error}"),
+    }
+}
+
+/// The one human message `src/main.rs` writes: no token, so no daemon call can be
+/// authenticated. Public with [`CliLang::from_process_locale`] because the binary
+/// needs it before any [`CliApp`] exists.
+pub fn no_token_message(lang: CliLang, config_path: &str) -> String {
+    match lang {
+        CliLang::English => format!(
+            "No auth token found. Run 'warsha init' first or provide --token. Config path: {config_path}"
+        ),
+        CliLang::Arabic => format!(
+            "لم يتم العثور على رمز مصادقة. شغل أمر 'warsha init' أولا أو مرر --token. مسار الملف: {config_path}"
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_parse_gate_stage() {
-        assert_eq!(parse_gate_stage("gate_a").unwrap(), Stage::GateA);
-        assert_eq!(parse_gate_stage("gatea").unwrap(), Stage::GateA);
-        assert_eq!(parse_gate_stage("a").unwrap(), Stage::GateA);
-        assert_eq!(parse_gate_stage("gate_b").unwrap(), Stage::GateB);
-        assert_eq!(parse_gate_stage("gateb").unwrap(), Stage::GateB);
-        assert_eq!(parse_gate_stage("b").unwrap(), Stage::GateB);
-        assert_eq!(parse_gate_stage("gate_c").unwrap(), Stage::GateC);
-        assert_eq!(parse_gate_stage("gatec").unwrap(), Stage::GateC);
-        assert_eq!(parse_gate_stage("c").unwrap(), Stage::GateC);
-        assert_eq!(parse_gate_stage("gate_d").unwrap(), Stage::GateD);
-        assert!(parse_gate_stage("invalid").is_err());
+        assert_eq!(
+            parse_gate_stage("gate_a", CliLang::English).unwrap(),
+            Stage::GateA
+        );
+        assert_eq!(
+            parse_gate_stage("gatea", CliLang::English).unwrap(),
+            Stage::GateA
+        );
+        assert_eq!(
+            parse_gate_stage("a", CliLang::English).unwrap(),
+            Stage::GateA
+        );
+        assert_eq!(
+            parse_gate_stage("gate_b", CliLang::English).unwrap(),
+            Stage::GateB
+        );
+        assert_eq!(
+            parse_gate_stage("gateb", CliLang::English).unwrap(),
+            Stage::GateB
+        );
+        assert_eq!(
+            parse_gate_stage("b", CliLang::English).unwrap(),
+            Stage::GateB
+        );
+        assert_eq!(
+            parse_gate_stage("gate_c", CliLang::English).unwrap(),
+            Stage::GateC
+        );
+        assert_eq!(
+            parse_gate_stage("gatec", CliLang::English).unwrap(),
+            Stage::GateC
+        );
+        assert_eq!(
+            parse_gate_stage("c", CliLang::English).unwrap(),
+            Stage::GateC
+        );
+        assert_eq!(
+            parse_gate_stage("gate_d", CliLang::English).unwrap(),
+            Stage::GateD
+        );
+        let english = parse_gate_stage("invalid", CliLang::English)
+            .expect_err("an unknown gate must be refused");
+        let arabic = parse_gate_stage("invalid", CliLang::Arabic)
+            .expect_err("an unknown gate must be refused");
+        assert!(
+            format!("{english}").contains("Unknown gate stage"),
+            "the English parse error keeps its sentence: {english}"
+        );
+        assert!(
+            has_arabic(&format!("{arabic}")),
+            "and the Arabic parse error follows the locale: {arabic}"
+        );
     }
 
     #[test]
@@ -1139,5 +1475,321 @@ mod tests {
                 "and still name the command the owner typed: {printed}"
             );
         }
+    }
+
+    /// True when the string carries a character from the Arabic block.
+    fn has_arabic(s: &str) -> bool {
+        s.chars().any(|c| ('\u{0600}'..='\u{06FF}').contains(&c))
+    }
+
+    /// Every human message the CLI can write, in both wordings, with fixed sample
+    /// arguments. Any `_message` function missing from this list is untested, and any
+    /// wording collapsed back to English-only fails the tests over this list.
+    fn every_message_pair() -> Vec<(&'static str, String, String)> {
+        let en = CliLang::English;
+        let ar = CliLang::Arabic;
+        vec![
+            ("init_done", init_done_message(en), init_done_message(ar)),
+            (
+                "created_project",
+                created_project_message(en, "P-1", "R-1"),
+                created_project_message(ar, "P-1", "R-1"),
+            ),
+            (
+                "run_at_stage",
+                run_at_stage_message(en, "R-1", "Build"),
+                run_at_stage_message(ar, "R-1", "Build"),
+            ),
+            ("no_runs", no_runs_message(en), no_runs_message(ar)),
+            (
+                "run_status_line",
+                run_status_line_message(en, "R-1", "Build", "Running"),
+                run_status_line_message(ar, "R-1", "Build", "Running"),
+            ),
+            ("following", following_message(en), following_message(ar)),
+            (
+                "gate_approved",
+                gate_approved_message(en, "GateC"),
+                gate_approved_message(ar, "GateC"),
+            ),
+            (
+                "gate_rejected",
+                gate_rejected_message(en, "GateC"),
+                gate_rejected_message(ar, "GateC"),
+            ),
+            (
+                "provider_added",
+                provider_added_message(en, "or", "open_router"),
+                provider_added_message(ar, "or", "open_router"),
+            ),
+            (
+                "provider_health",
+                provider_health_message(en, "Healthy"),
+                provider_health_message(ar, "Healthy"),
+            ),
+            (
+                "provider_removed",
+                provider_removed_message(en),
+                provider_removed_message(ar),
+            ),
+            (
+                "role_row",
+                role_row_message(en, "planner", "or:gpt", true),
+                role_row_message(ar, "planner", "or:gpt", true),
+            ),
+            (
+                "role_routing_set",
+                role_routing_set_message(en, "planner"),
+                role_routing_set_message(ar, "planner"),
+            ),
+            (
+                "budget_summary",
+                budget_summary_message(en, 10, 100, 10),
+                budget_summary_message(ar, 10, 100, 10),
+            ),
+            (
+                "budget_remaining",
+                budget_remaining_message(en, 90),
+                budget_remaining_message(ar, 90),
+            ),
+            (
+                "budget_set",
+                budget_set_message(en, 100, "proj"),
+                budget_set_message(ar, 100, "proj"),
+            ),
+            (
+                "doctor",
+                doctor_header_message(en),
+                doctor_header_message(ar),
+            ),
+            (
+                "daemon_running",
+                daemon_running_message(en),
+                daemon_running_message(ar),
+            ),
+            (
+                "daemon_not_running",
+                daemon_not_running_message(en),
+                daemon_not_running_message(ar),
+            ),
+            (
+                "tool_found",
+                tool_found_message(en, "git"),
+                tool_found_message(ar, "git"),
+            ),
+            (
+                "tool_not_found",
+                tool_not_found_message(en, "git"),
+                tool_not_found_message(ar, "git"),
+            ),
+            (
+                "providers_section",
+                providers_section_message(en),
+                providers_section_message(ar),
+            ),
+            (
+                "agent_cli_missing",
+                agent_cli_missing_message(en, "claude"),
+                agent_cli_missing_message(ar, "claude"),
+            ),
+            (
+                "device_paired",
+                device_paired_message(en),
+                device_paired_message(ar),
+            ),
+            (
+                "device_row_active",
+                device_row_message(en, "u-1", "phone", false),
+                device_row_message(ar, "u-1", "phone", false),
+            ),
+            (
+                "device_row_revoked",
+                device_row_message(en, "u-1", "phone", true),
+                device_row_message(ar, "u-1", "phone", true),
+            ),
+            (
+                "device_revoked",
+                device_revoked_message(en),
+                device_revoked_message(ar),
+            ),
+            (
+                "project_not_found",
+                project_not_found_message(en, "nope"),
+                project_not_found_message(ar, "nope"),
+            ),
+            (
+                "unknown_gate",
+                unknown_gate_message(en, "zz"),
+                unknown_gate_message(ar, "zz"),
+            ),
+            (
+                "invalid_target",
+                invalid_target_message(en, "oops"),
+                invalid_target_message(ar, "oops"),
+            ),
+            (
+                "config_dir_missing",
+                config_dir_missing_message(en),
+                config_dir_missing_message(ar),
+            ),
+            (
+                "invalid_auth_token",
+                invalid_auth_token_message(en, "e"),
+                invalid_auth_token_message(ar, "e"),
+            ),
+            (
+                "no_token",
+                no_token_message(en, "/c.toml"),
+                no_token_message(ar, "/c.toml"),
+            ),
+            (
+                "needs_key_refusal",
+                needs_key_message(en, "or", "open_router"),
+                needs_key_message(ar, "or", "open_router"),
+            ),
+            (
+                "no_key_kind_refusal",
+                no_key_kind_message(en, "local", "ollama", false),
+                no_key_kind_message(ar, "local", "ollama", false),
+            ),
+            (
+                "no_key_kind_refusal_with_key",
+                no_key_kind_message(en, "local", "ollama", true),
+                no_key_kind_message(ar, "local", "ollama", true),
+            ),
+        ]
+    }
+
+    #[test]
+    fn every_human_message_has_two_wordings() {
+        for (name, english, arabic) in every_message_pair() {
+            assert_ne!(
+                english, arabic,
+                "{name}: an Arabic locale must not get the English sentence — \
+                 collapse this wording to English-only and this test fails"
+            );
+            assert!(
+                has_arabic(&arabic),
+                "{name}: the Arabic wording must be written in Arabic script: {arabic}"
+            );
+            assert!(
+                !has_arabic(&english),
+                "{name}: the English wording must stay English: {english}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_arabic_wordings_print_as_they_are_written() {
+        // Same rule `src/main.rs`'s `Debug` printing forced on the refusals, for every
+        // message: no harakat, no shadda — a Debug-escaped Arabic string is unreadable.
+        for (name, _, arabic) in every_message_pair() {
+            let printed = format!("{arabic:?}");
+            assert!(
+                !printed.contains("\\u{"),
+                "{name}: the Arabic wording must survive Debug unescaped: {printed}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_english_wordings_stay_the_machine_contract_sentences() {
+        // `--json` pins its language to English, so the English arm is what any script
+        // has matched since M4. A byte that changes here changes the contract.
+        for (name, english, _) in every_message_pair() {
+            assert!(
+                english
+                    .chars()
+                    .all(|c| c.is_ascii() || c == '✓' || c == '✗'),
+                "{name}: the English wording must stay ASCII (the ✓/✗ glyphs excepted): \
+                 {english}"
+            );
+        }
+    }
+
+    #[test]
+    fn no_human_word_reaches_output_without_a_language_choice() {
+        // The re-hardcoding guard on the call sites: the argument of every `self.output`
+        // call either goes through a `_message(...)` function or is pure data — a
+        // literal with no human word in it. The needle is built at runtime so the
+        // scanner does not match this test's own source.
+        let src = include_str!("lib.rs");
+        let needle = ["self.output", "("].concat();
+        let mut offenders: Vec<String> = Vec::new();
+        for (byte_idx, _) in src.match_indices(&needle) {
+            let rest = &src[byte_idx + needle.len()..];
+            let mut depth = 1usize;
+            let mut in_str = false;
+            let mut escaped = false;
+            let mut arg = None;
+            for (off, c) in rest.char_indices() {
+                if escaped {
+                    escaped = false;
+                    continue;
+                }
+                if in_str {
+                    match c {
+                        '\\' => escaped = true,
+                        '"' => in_str = false,
+                        _ => {}
+                    }
+                    continue;
+                }
+                match c {
+                    '"' => in_str = true,
+                    '(' => depth += 1,
+                    ')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            arg = Some(&rest[..off]);
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let arg = arg.unwrap_or_else(|| panic!("unbalanced `{needle}` at byte {byte_idx}"));
+            if arg.contains("_message(") {
+                continue;
+            }
+            // No language choice in the argument: no quoted literal inside it may carry
+            // a run of two ASCII letters (a human word). Data placeholders — `{}`,
+            // `{:?}`, `%H:%M:%S`, `=============` — carry none.
+            let mut in_str = false;
+            let mut escaped = false;
+            let mut run = 0usize;
+            for c in arg.chars() {
+                if escaped {
+                    escaped = false;
+                    continue;
+                }
+                if in_str {
+                    match c {
+                        '\\' => escaped = true,
+                        '"' => in_str = false,
+                        x if x.is_ascii_alphabetic() => {
+                            run += 1;
+                            if run >= 2 {
+                                let line = src[..byte_idx].matches('\n').count() + 1;
+                                offenders.push(format!("line {line}: {arg}"));
+                                break;
+                            }
+                        }
+                        _ => run = 0,
+                    }
+                    continue;
+                }
+                if c == '"' {
+                    in_str = true;
+                    run = 0;
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "these output calls print a human word without choosing a language — \
+             route them through a `_message` function:\n{}",
+            offenders.join("\n")
+        );
     }
 }

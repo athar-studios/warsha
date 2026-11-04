@@ -528,7 +528,7 @@ describe('Bench & Signal remote copy', () => {
     expect(t('remote.brand_role', {}, 'ar')).toBe('طاولة العمل عن بُعد');
     expect(t('remote.decision_done', {}, 'en')).toBe('decision recorded');
     expect(t('remote.decision_failed', {}, 'ar')).toBe(
-      'لم يستجب الخادم للقرار؛ البوابة ما زالت بانتظارك.'
+      'لم يستجب الخادم للقرار؛ البوّابة ما زالت بانتظارك.'
     );
     expect(t('remote.queue_source_stage', {}, 'en')).toBe('read from the run stage');
     expect(t('remote.run_state_paused', {}, 'ar')).toBe('موقوف مؤقتاً');
@@ -692,5 +692,38 @@ describe('the Arabic catalog spells one sentence one way', () => {
     // The ceiling copy is why `bench.no_ceiling` exists: a formatted `$0.00` claims the budget is spent.
     expect(t('bench.no_ceiling', {}, 'ar')).toBe('لم يُبلَّغ عن سقف');
     expect(t('bench.no_ceiling', {}, 'en')).toBe('no ceiling reported');
+  });
+});
+
+describe('the Arabic catalog spells the gate and provider words one way (round 3, Gap 4)', () => {
+  // The canonical spellings carry a shadda on the waw: `بوّابة`, `مزوّد`. The unmarked forms therefore
+  // spell `ب` + `و` + `ا` and `م` + `ز` + `و` + `د` with no combining mark in between, and the probes
+  // below hit a drifted value and nothing else. Should a future legitimate word collide, refine the
+  // probe deliberately — never by letting an unmarked gate/provider spelling through.
+  const reportOffenders = (entries: [string, string][]): string[] =>
+    entries.map(([key, value]) => `${key} = ${value}`);
+
+  it('never spells the gate word without its shadda', () => {
+    const offenders = Object.entries(messages.ar).filter(([, value]) => /بوا/.test(value));
+    expect(reportOffenders(offenders)).toEqual([]);
+  });
+
+  it('never spells the provider word without its shadda', () => {
+    const offenders = Object.entries(messages.ar).filter(([, value]) => /مزود/.test(value));
+    expect(reportOffenders(offenders)).toEqual([]);
+  });
+
+  it('says the inbox title with the same marked word the rail says', () => {
+    // The pair that made Gap 4 visible: the marked nav item one line above an unmarked screen title.
+    expect(t('gates.title', {}, 'ar')).toBe('صندوق الوارد للبوّابات');
+    expect(t('gates.title', {}, 'ar')).toContain('بوّاب');
+    expect(t('nav.gates', {}, 'ar')).toContain('بوّاب');
+  });
+
+  it('names the parked-at-a-gate status in words in both catalogs', () => {
+    // The keys that keep the wire name `awaiting_gate` out of the Arabic ledger row (Gap 5): pinned in
+    // both locales, because `t()` printing the key name is the same leak in either direction.
+    expect(t('run.state_awaiting_gate', {}, 'ar')).toBe('بوّابة بانتظارك');
+    expect(t('run.state_awaiting_gate', {}, 'en')).toBe('awaiting a gate');
   });
 });

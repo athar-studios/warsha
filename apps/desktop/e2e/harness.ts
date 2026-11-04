@@ -134,18 +134,31 @@ export const RPC_METHODS = [
 export type RpcMethod = (typeof RPC_METHODS)[number];
 
 /**
- * Daemon endpoint the app's client falls back to in a browser (`apps/desktop/src/App.tsx`,
- * `daemonEndpoint`).
+ * The endpoint the stubbed shell reports, under the keys `src-tauri/src/lib.rs` publishes.
  *
- * The Tauri shell reports the ports and token the daemon it started is really using, through the
- * `daemon_url` / `daemon_token` config keys. A browser has no shell, so the stub below answers
- * those keys with the empty string and the client uses these two development defaults — which is
- * why the stubbed RPC still has to see this exact bearer token.
+ * The app resolves its daemon purely from the Tauri config (`daemon_url`, `daemon_ws_url`,
+ * `daemon_token` — see `apps/desktop/src/daemon.ts`); it carries no development default, so a
+ * browser has to hear these values from the shell stub or the benches honestly show offline.
+ * The answers match a real daemon's layout exactly:
+ *
+ *   * `daemon_url` is the RPC base on the daemon's RPC listener (`ws_port`, 8766);
+ *   * `daemon_ws_url` is where `/events` is actually served — the daemon's axum HTTP listener
+ *     (`http_port`, 8765), reported in socket form because the events port is not the RPC port
+ *     and cannot be derived from it (`crates/warshad/src/lib.rs` routes `/events` on
+ *     `http_port`; the shell's own test asserts `ws://127.0.0.1:8765` for these defaults);
+ *   * `daemon_token` is the bearer the stubbed RPC asserts on every request, and the credential
+ *     the mocked `/events` handshake would carry as `warsha.token.<token>`.
  */
 export const DAEMON_URL = 'http://127.0.0.1:8766';
-
-/** Token the app's client falls back to; asserted on every stubbed RPC so a wrong stub cannot pass. */
+export const DAEMON_WS_URL = 'ws://127.0.0.1:8765';
 export const DAEMON_TOKEN = 'test-token';
+
+/** The three config keys the stub merges into every case, in the shape the shell answers them. */
+const DAEMON_CONFIG: Record<string, string> = {
+  daemon_url: DAEMON_URL,
+  daemon_ws_url: DAEMON_WS_URL,
+  daemon_token: DAEMON_TOKEN,
+};
 
 /**
  * How far the first-run wizard is driven before a case is measured.
@@ -186,6 +199,8 @@ export type ScenarioId =
   | 'offline'
   | 'permission'
   | 'success'
+  | 'parked'
+  | 'no-ceiling'
   | 'dense';
 
 /**
@@ -524,6 +539,23 @@ const GATES = [
     stage: 'gate_b',
     state: { state: 'approved', by: 'device-owner', at: '2026-10-05T09:30:00.000Z' },
   },
+];
+
+/**
+ * What `gates.list` answers for a run that has decided nothing: **all four** gate stages, every one of them
+ * `pending`.
+ *
+ * This is the daemon's real shape, not a stress case — `list_gates` maps `Stage::all()` filtered to gates
+ * over `run.gate_states.get(stage).unwrap_or_default()` (`crates/warshad/src/lib.rs:1577-1613`), so a stage
+ * the run never wrote is `Pending`. It is the reason the parked reading exists: four pending rows are four
+ * facts about a table, and only the one whose stage the run stands on is a request to the owner. The `GATES`
+ * fixture above cannot show that, because it answers only the two stages a run has actually touched.
+ */
+const GATES_ALL_PENDING = [
+  { stage: 'gate_a', state: { state: 'pending' } },
+  { stage: 'gate_b', state: { state: 'pending' } },
+  { stage: 'gate_c', state: { state: 'pending' } },
+  { stage: 'gate_d', state: { state: 'pending' } },
 ];
 
 /** One provider `providers.list` can report — the shape `@warsha/client` calls `ProviderConfig`. */
@@ -887,6 +919,78 @@ function serdeUnexpected(value: unknown): string {
   return 'map';
 }
 
+/**
+ * One `PairingData` 32-byte array (`[u8; 32]`, `crates/warsha-remote/src/lib.rs:114-116`) as serde
+ * binds it: a sequence of exactly 32 integers 0..=255, each refusal in serde's shape.
+ */
+function pairingBytesRefusal(value: unknown): StubOutcome | null {
+  if (!Array.isArray(value)) {
+    return {
+      ok: false,
+      code: -32602,
+      message: `invalid type: ${serdeUnexpected(value)}, expected an array of length 32`,
+    };
+  }
+  const bytes: readonly unknown[] = value;
+  if (bytes.length !== 32) {
+    return {
+      ok: false,
+      code: -32602,
+      message: `invalid length ${bytes.length}, expected an array of length 32`,
+    };
+  }
+  const badIndex = bytes.findIndex(
+    (byte) => typeof byte !== 'number' || !Number.isInteger(byte) || byte < 0 || byte > 255
+  );
+  if (badIndex >= 0) {
+    return {
+      ok: false,
+      code: -32602,
+      message: `invalid value: ${serdeUnexpected(bytes[badIndex])}, expected u8`,
+    };
+  }
+  return null;
+}
+
+/**
+ * Bind a `devices.pair` params object the way `warsha_remote::PairingData` does, or refuse it the
+ * way serde refuses it.
+ *
+ * The four required fields are serde's required fields — `relay_url` is an `Option` and may be
+ * absent or null — and the two key fields are `[u8; 32]` arrays. A pairing that binds answers the
+ * daemon's `()`: `result: null`, never a device summary, because `pair_device` returns `Ok(())`
+ * (`crates/warshad/src/lib.rs:1760-1779`) and the paired device shows up on the next
+ * `devices.list`.
+ */
+function bindPairingData(source: Record<string, unknown>): StubOutcome {
+  for (const field of ['device_id', 'static_public', 'pairing_secret', 'expires_at'] as const) {
+    if (!(field in source)) return missingField(field);
+  }
+  for (const field of ['device_id', 'expires_at'] as const) {
+    const value = source[field];
+    if (typeof value !== 'string') {
+      return {
+        ok: false,
+        code: -32602,
+        message: `invalid type: ${serdeUnexpected(value)}, expected a formatted UUID string`,
+      };
+    }
+  }
+  const relay = source['relay_url'];
+  if (relay !== undefined && relay !== null && typeof relay !== 'string') {
+    return {
+      ok: false,
+      code: -32602,
+      message: `invalid type: ${serdeUnexpected(relay)}, expected a string`,
+    };
+  }
+  for (const field of ['static_public', 'pairing_secret'] as const) {
+    const refusal = pairingBytesRefusal(source[field]);
+    if (refusal !== null) return refusal;
+  }
+  return { ok: true, result: null };
+}
+
 /** What the stub answers for one call: a result, or an error the screen is meant to show. */
 type StubOutcome = { ok: true; result: unknown } | { ok: false; code: number; message: string };
 
@@ -989,31 +1093,24 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
     case 'devices.list':
       return { ok: true, result: DEVICES };
     case 'devices.pair': {
-      // `pair_device(&self, pairing_data)` (`crates/warshad/src/lib.rs:781`): the client's old
-      // `{ qrData }` was a rename and a live daemon answered `-32602 "missing field
-      // 'pairing_data'"` (#54), so that is what the stub answers now.
+      // `pair_device(&self, pairing_data)` (`crates/warshad/src/lib.rs:781`) binds the whole
+      // `warsha_remote::PairingData` struct (`crates/warsha-remote/src/lib.rs:112-118`), and a
+      // live daemon is measured answering both halves of that (#54, #58): a request without the
+      // key is -32602 `missing field 'pairing_data'`, and a QR *string* under the right key is
+      // -32602 `invalid type: string …, expected struct PairingData`. The client now sends the
+      // struct, so the stub binds it field by field the way serde does and refuses a malformed
+      // pairing in the daemon's own shape — the pin is `crates/warshad/tests/devices_pair.rs`.
       const pairing = paramEntry(params, 'pairing_data');
       if (!pairing.found) return missingField('pairing_data');
-      // And the daemon deserialises the whole `PairingData` object, not a QR string
-      // (`crates/warsha-remote/src/lib.rs:112-118`). The shipped client still sends a string — #54
-      // renamed the key, and what the QR payload carries is a product decision, not a casing
-      // question — so the stub refuses in serde's shape rather than completing a pairing no real
-      // daemon would finish. A pairing screen that parses the QR into this object gets an answer.
-      if (
-        typeof pairing.value !== 'object' ||
-        pairing.value === null ||
-        Array.isArray(pairing.value)
-      ) {
+      const raw = pairing.value;
+      if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
         return {
           ok: false,
           code: -32602,
-          message: `invalid type: ${serdeUnexpected(pairing.value)}, expected struct PairingData`,
+          message: `invalid type: ${serdeUnexpected(raw)}, expected struct PairingData`,
         };
       }
-      return {
-        ok: true,
-        result: { id: 'dev-new', name: 'جهاز جديد', pairedAt: CREATED_AT, lastSeen: CREATED_AT },
-      };
+      return bindPairingData(raw as Record<string, unknown>);
     }
     case 'health':
       return { ok: true, result: { status: 'ok', version: '0.2.0' } };
@@ -1319,7 +1416,10 @@ export async function openScreen(page: Page, options: OpenScreenOptions): Promis
   await page.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
 
   const search = options.search ?? screen.search ?? `?screen=${options.screen}`;
+  // The stubbed shell answers the three daemon keys like `src-tauri/src/lib.rs` does — the app
+  // carries no defaults of its own — then the case's own preferences on top.
   const config = {
+    ...DAEMON_CONFIG,
     onboarding_complete: 'true',
     app_mode: 'simple',
     ...(screen.config ?? {}),
@@ -1519,6 +1619,50 @@ export const SCENARIOS: readonly Scenario[] = [
       },
       'budget.show': {
         result: { project_id: 'proj-ui', budget_cents: 1200, spent_cents: 210, remaining_cents: 990 },
+      },
+    },
+    settle: 'settled',
+  },
+  {
+    id: 'parked',
+    note: 'the run is stopped at one gate while the daemon reports all four pending — one lit plate, three names (§1)',
+    // The state the parked reading was written for and no baseline showed: `run-gate-a` stands at `gate_a`,
+    // `gates.list` answers four pending stages, and exactly one of them is why the run is not moving. The
+    // queue's whole presentation depends on that one fact, so the fixture states it — and the shell selects
+    // it by both rules at once: the desktop takes `projects[0]` then `runs[0]`, the phone takes the newest
+    // project and its newest run (`apps/remote/src/bench.tsx`, `newestBy`), so the project list is narrowed
+    // to one and the run carries the newest `updatedAt` in its project.
+    fixtures: {
+      'projects.list': { result: [PROJECTS[1]] },
+      'runs.list': {
+        result: [
+          {
+            id: 'run-gate-a',
+            projectId: 'proj-store',
+            stage: 'gate_a',
+            status: 'awaiting_gate',
+            startedAt: RUN_STARTED,
+            updatedAt: '2026-10-05T09:50:00.000Z',
+          },
+        ],
+      },
+      'gates.list': { result: GATES_ALL_PENDING },
+    },
+    settle: 'settled',
+  },
+  {
+    id: 'no-ceiling',
+    note: 'a project that has spent money and never named a ceiling — `budget.show` answers its `Option` as null',
+    // `bench.no_ceiling` ("no ceiling reported" / "لم يُبلَّغ عن سقف") shipped with five surfaces and zero
+    // pixels: every other scenario answers `budget.show` with a 1200-cent ceiling, and the error, delay and
+    // unreachable cases all land on the `budget === null` branch rather than the `!hasCeiling` one
+    // (critique round 3, G4). `warshad` keeps `budget_cents` as an `Option`
+    // (`crates/warshad/src/lib.rs:1045-1050`) and `@warsha/client` folds a null ceiling to `0` at the edge
+    // (`packages/client/src/index.ts`, `centsToUsd`), which is the only no-ceiling signal a screen can get —
+    // so the fixture answers the spend (437¢, a reading) without the cap (a word), on a settled daemon.
+    fixtures: {
+      'budget.show': {
+        result: { project_id: 'proj-ui', budget_cents: null, spent_cents: 437, remaining_cents: null },
       },
     },
     settle: 'settled',

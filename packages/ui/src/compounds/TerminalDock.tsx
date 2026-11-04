@@ -17,7 +17,7 @@ import React, { useCallback, useId, useState } from 'react';
 import { Button } from '../components';
 import { aliasVar, colorVar, fontFamily, fontSize, fontWeight, radius, space } from '../tokens';
 
-import { cx, FIELD, MACHINE, RULE_BORDER, VISUALLY_HIDDEN } from './internal';
+import { cx, FIELD, MACHINE, machineSkin, RULE_BORDER, VISUALLY_HIDDEN } from './internal';
 
 export interface TerminalDockProps {
   /** The transcript: `TerminalLine`s, or the screen's own text nodes. */
@@ -176,7 +176,11 @@ export function TerminalDock({
       )}
 
       {hint && (
-        <span style={{ ...MACHINE, fontSize: fontSize('xs'), color: colorVar('textMuted') }}>{hint}</span>
+        // The hint is a sentence the screen wrote (`advanced.terminal_hint`), not transcript text, so it
+        // takes the face its own words allow — the transcript above it stays mono (§11).
+        <span style={{ ...machineSkin(hint), fontSize: fontSize('xs'), color: colorVar('textMuted') }}>
+          {hint}
+        </span>
       )}
     </section>
   );

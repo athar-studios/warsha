@@ -294,7 +294,10 @@ commit; the ids are what a failing build prints, so they are part of the interfa
     `missing field 'run_id'`.
   - `W8` param-name-drift — every key of a resolvable literal params object must be one of the two
     spellings the generated decoder accepts for some bound argument of that method. Those spellings
-    come from the macro, not from taste: `jsonrpsee-proc-macros-0.26.1/src/render_server.rs:398-421`
+    come from the macro, not from taste: `src/render_server.rs:398-421` of `jsonrpsee-proc-macros`
+    v0.26.1 — the crates.io dependency `Cargo.lock` pins, not a file in this repository; a reader opens
+    the vendored copy at `~/.cargo/registry/src/index.crates.io-*/jsonrpsee-proc-macros-0.26.1/src/render_server.rs`
+    after any cargo build, or the same published source from crates.io — where the `decode_map` block
     emits `#[serde(rename = "<arg>")]` plus an `alias` for `heck::ToSnakeCase` and one for
     `heck::ToLowerCamelCase` of every argument name, and serde ignores fields that match neither. So
     `run_id`, `runId` and the shorthand `{ run_id }` / `{ runId }` bind, and a key that is no spelling
