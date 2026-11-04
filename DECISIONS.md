@@ -884,3 +884,102 @@
   have a lane fix turned out to be a correct property of a model I had not read yet (the first was the
   camelCase wire claim). The rule that caught it is the cheap one: read the callee before briefing the
   fix.
+
+## 2026-11-05 — Ship run Phase 0: the checkout was stale, so every "missing file" claim in the handoff was an artifact of it
+
+New device (Windows, `DESKTOP-J4EQ70A`, 12 logical CPUs — **not** the 2-CPU Linux aarch64 host the
+handoff prompts were measured on; the concurrency caps below are re-derived, not inherited). The run
+started with this worktree **detached at `2f042d1` (= `main`)**, which is 6 commits behind
+`private/dev`. `docs/ORCHESTRATOR_PROMPT.md`, `docs/CONTINUE_PROMPT.md` and `ENGINEERING_POLICY.md`
+did not exist at that commit — they were added by `881d300` itself, the tip. So "the authoritative lane
+plan is missing from the repo" was false; it was missing from the *checkout*. Local `dev` now tracks
+`private/dev` at `881d300`. **Baseline for every lane in this run: `881d300`.** Commits `881d300` and
+`e17ccdb` were not present as objects locally until `git fetch private` — a fresh device must fetch
+before it can believe any line number in the handoff.
+
+- **Decision (do NOT repoint `origin`)**: both handoff prompts say `gh-warsha-dev` is a machine-local
+  SSH alias and that a fresh device may need
+  `git remote set-url origin git@github.com:athar-studios/warsha-dev.git`. Measured: no
+  `gh-warsha-dev` remote exists here; `origin` → `https://github.com/athar-studios/warsha.git` (the
+  **public** repo) and `private` → `https://github.com/athar-studios/warsha-dev.git`, with working
+  credentials (`git ls-remote --heads private` rc=0, returned 18 heads; `gh auth status` →
+  `ashrymahrm`, scopes `repo`+`workflow`). Running the prompt's command verbatim would have pointed
+  `origin` at the private repo and destroyed the public/private distinction, so that a habitual
+  `git push` would target the wrong repository. **Both remotes are left unchanged; every fetch and push
+  in this run names `private` explicitly.**
+- **Decision (Phase 0, not delegated — track `Cargo.lock`)**: `.gitignore:4` (`Cargo.lock`) and
+  `.gitignore:70` (`**/Cargo.lock`) exclude it; the file exists on disk (145,613 bytes, `version = 4`)
+  but `git ls-files --error-unmatch Cargo.lock` → "did not match any file(s) known to git". **The
+  repo already contradicts itself about this**: `deny.toml:14` states its 17-term license allow-list
+  was "Generated 2026-11-04 against the committed Cargo.lock". There is no committed `Cargo.lock`, so
+  the license policy CI enforces was derived from a file that cannot be re-derived identically on
+  another machine — and `cargo metadata` re-resolves per host. **Decided: track `Cargo.lock`.** Warsha
+  is an end-product workspace (it ships the `warshad` daemon binary, a CLI and a Tauri desktop app),
+  not a library, which is exactly the case Cargo's own guidance says to commit for. It buys four
+  things this run needs: the same dependency graph on ubuntu/macos/windows and on a fresh clone (the
+  portability claim `PROGRESS.md` 2026-11-04 21:57Z makes but cannot currently deliver for Rust);
+  **attributable** cargo-deny results (without a lockfile each CI run re-resolves, so an upstream
+  release can flip the advisory leg red with no commit — the unattributable-failure class this run
+  exists to eliminate); the 6 `unmaintained` advisories become reviewable as paths in a fixed graph
+  rather than a floating set; and renovate's existing `lock-file-maintenance` branch has something to
+  maintain. **Cost accepted and mitigated**: a 145 KB generated file will churn, so `Cargo.lock` is
+  assigned to **W4's exclusive ownership** — it is the only lane permitted to change dependency
+  versions — and no other lane may run `cargo update` or add a dependency. The *decision* is recorded
+  here and was not delegated; the mechanical un-ignore + commit is W4's, in the same commit as its
+  `deny.toml`/`Cargo.toml` changes, so the lockfile it pins is the one its advisory policy is argued
+  against.
+- **Decision (owner pre-authorization for `dev` pushes vs. `ENGINEERING_POLICY.md` §7)**: the policy
+  says only the owner approves acceptance and merge and that "agents can never approve gates", while
+  this run's kickoff instruction from the owner explicitly directs "Push each wave as its own
+  Conventional Commit" to `dev`. Read together, the owner has given standing approval for `dev` pushes
+  **in this run**, so pushing a verified wave is not an agent self-approving a gate. Recorded so the
+  interpretation is visible and refutable. It does **not** extend past `dev`: the `dev`→`main` merge,
+  tags, releases (draft or not), force push, branch protection, signing keys, store submission and
+  relay hosting all remain owner-only. **Role merge recorded per §2**: the orchestrator holds
+  planner + reviewer + integrator; each lane holds implementer only; the frozen acceptance gates are
+  executed by a separate verifier dispatch, never by the implementer that wrote the code and never
+  solely by me.
+- **Decision (isolation and evidence are real here, with one recorded limitation)**: per §3 each lane
+  got its own `git worktree` on its own branch off `881d300` — `lane/w1-build`, `lane/w2-lint`,
+  `lane/w3-ci`, relocated under `bridge-io/lanes/` so they sit inside the workspace a sub-agent may
+  write to while staying git-ignored (`git check-ignore -v` → `.gitignore:73`); no worker writes into
+  this checkout. **Limitation**: §4 puts evidence under `bridge-io/policy/<run-id>/`,
+  and `.gitignore:16` ignores `bridge-io/`, so the evidence trail is local-only and does not travel to
+  another device — the same pattern prior runs used (`bridge-io/audit/critique-round-3-*.md`). The
+  resumable record that *does* travel stays `PROGRESS.md` + `DECISIONS.md` + the pushed commits.
+  Rust build artifacts are shared across lanes via one `CARGO_TARGET_DIR` to avoid re-compiling ~300
+  dependency crates per worktree; sources stay isolated, and sharing the target dir also serializes
+  cargo on its own lock, which enforces "one build owns the machine".
+- **Measured CI state at `881d300` (run `41924821106`) — 6 of 9 jobs red, with the failing *step* for
+  each, which is what determines wave order**: `TypeScript :: Lint` (2 ESLint errors → W2);
+  `Rust (ubuntu) :: Run cargo-deny` and `Rust (macos) :: Run cargo-deny` (6 `error[unmaintained]`:
+  RUSTSEC-2024-0388 `derivative`, -2024-0384 `instant`, -2025-0119 `number_prefix`, -2024-0436 `paste`,
+  -2026-0370 `zvariant`, -2026-0372 `zvariant_derive` → W4);
+  `Rust (windows) :: Install cargo-deny 0.20.2 (pinned, checksum-verified)` (→ W3);
+  `CodeQL (rust) :: Build (Rust)` (the `warshad` compile failure → W1);
+  `CodeQL (javascript-typescript) :: Build (TypeScript)` (→ W3); `Summary :: Check all jobs passed`
+  (aggregator only). Green: `Secret scan (gitleaks)`, `Actionlint`. Local `cargo check -p warshad`
+  reproduced the compile failure exactly, exit 101:
+  `crates/warshad/src/lib.rs:3701:46 error[E0382] borrow of moved value: rpc_server` and
+  `crates/warshad/src/lib.rs:801:1 error[E0277] PairingOffer: serde::Serialize is not satisfied`.
+- **Two corrections to the handoff, both measured**: (1) the Windows checksum failure is
+  `got \975a22143262fd27476d19ee00c7af67978426e40e1dee94eed6bbade1cf87dc, expected 975a2214…` — the
+  hex **is** identical and the captured value carries a stray leading backslash, consistent with GNU
+  coreutils `sha256sum` escaping its output line when the *path* contains backslashes
+  (`D:\a\warsha-dev\…`), then `cut -d' ' -f1` keeping the `\`. The pin is correct; the comparison is
+  not. (2) `mdbook build` does not fail as a standalone CI step — it fails **inside** the CodeQL
+  JavaScript/TypeScript job's `Build (TypeScript)` step, because `pnpm -r run build` includes the
+  `docs` workspace project whose build script is `mdbook build`, and that job never installs mdbook:
+  `docs build: sh: 1: mdbook: not found` → `ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL`. `mdbook` **is**
+  installed locally (`~/.cargo/bin/mdbook`), so this one is verifiable here.
+- **Ordering consequence the handoff does not state**: `cargo-deny` runs *before* fmt/clippy/tests in
+  the Rust legs, so all three Rust jobs died without ever reaching a build step — the `warshad`
+  compile error is currently visible **only** through `CodeQL (rust)`. Fixing W4 alone will therefore
+  make the Rust legs fail *later*, at clippy/test, with the same W1 error. That is expected movement,
+  not a regression, and W1 must be in the same push as W4 for any Rust leg to go green.
+- **Local gate availability (measured, `command -v`)**: present — `actionlint`, `pnpm` 9.0.0,
+  `cargo`/`rustc` 1.99.1, `node` v26.8.1, `mdbook`, `gh` 2.102.0. **Missing — `gitleaks` and
+  `cargo-deny`.** So neither the secret-scan nor the advisory gate can be run locally as-is; W4 must
+  either install the pinned 0.20.2 binary or prove its gate through CI, and any "gitleaks is green"
+  claim made on this host is not evidence. This matters because the policy's rule is that a gate can
+  only be satisfied by running it.
