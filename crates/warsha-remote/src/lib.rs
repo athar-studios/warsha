@@ -335,7 +335,10 @@ pub fn qr_code_png_base64(text: &str) -> Result<String> {
 /// `pairing_link` and the secret inside it are a bearer credential, so this type's
 /// `Debug` prints the origin and the expiry and redacts everything else — the same rule
 /// [`PairingData`] follows and for the same reason (audit N-1).
-#[derive(Clone)]
+// `Serialize` and no `Deserialize`: this type is only ever produced by the daemon and
+// sent to the desktop, and the bearer link has to survive the trip for the plate to
+// render. The manual `Debug` below is what keeps it out of logs (audit N-1).
+#[derive(Clone, Serialize)]
 pub struct PairingOffer {
     /// The pairing itself: what the redeeming `devices.pair` call binds.
     pub pairing: PairingData,
@@ -1266,6 +1269,12 @@ mod tests {
             !printed.contains("token="),
             "an offer's Debug printed the pairing link itself: {printed}"
         );
+        // The whole link, not just its `token=` substring: the plate's payload is a
+        // bearer credential and must not reach a log in any form (audit N-1).
+        assert!(
+            !printed.contains(&offer.pairing_link),
+            "an offer's Debug printed the full pairing link: {printed}"
+        );
         assert!(
             !printed.contains(&format!("{:?}", offer.pairing.pairing_secret)),
             "an offer's Debug printed the raw secret bytes"
@@ -1274,5 +1283,25 @@ mod tests {
         // What a reader does get: where the daemon is, and whether it is loopback.
         assert!(printed.contains("http://10.0.0.5:8766"));
         assert!(printed.contains("loopback_only"));
+    }
+
+    /// The opposite direction of the test above: `devices.pair-start` exists so the
+    /// desktop can render the plate, so the bearer link and the PNG must be on the wire.
+    /// A `skip_serializing` on either would compile and pass every other test while
+    /// shipping an empty plate, which is the dead path this chain was repaired for.
+    #[test]
+    fn a_serialized_offer_carries_the_link_and_the_plate_it_was_minted_with() {
+        let device = DeviceIdentity::generate("Phone".to_string()).unwrap();
+        let offer = PairingOffer::new(&device, "http://10.0.0.5:8766", None, false)
+            .expect("an offer mints");
+
+        let wire = serde_json::to_value(&offer).expect("an offer serializes");
+        assert_eq!(wire["pairing_link"], serde_json::json!(offer.pairing_link));
+        assert_eq!(wire["qr_code_png"], serde_json::json!(offer.qr_code_png));
+        assert_eq!(
+            wire["server_origin"],
+            serde_json::json!("http://10.0.0.5:8766")
+        );
+        assert_eq!(wire["loopback_only"], serde_json::json!(false));
     }
 }

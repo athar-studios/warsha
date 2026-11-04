@@ -3698,7 +3698,13 @@ pub async fn start_daemon_with_provider_factory(
             info!("RPC server stopped");
         });
     }
-    info!("JSON-RPC server listening on {}", rpc_server.local_addr()?);
+    // The port was resolved from the socket before `.start()` consumed the server; the
+    // handle it returns exposes no address, so that captured value is the only truthful
+    // source for what this listener is bound to.
+    info!(
+        "JSON-RPC server listening on {}",
+        SocketAddr::new(bind, actual_rpc_port)
+    );
 
     // Start HTTP/WebSocket server. The same origin list as the RPC server, parsed above.
     let cors = CorsLayer::new()
