@@ -38,9 +38,39 @@
 # than special-cased away: they are genuinely reachable (r-efi ships
 # "MIT OR Apache-2.0 OR LGPL-2.1-or-later"; option-ext is "MPL-2.0" only). Under
 # cargo-deny's default `copyleft = "warn"` they surface as warnings, not errors.
-# "LLVM-exception" ("Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT":
-# rustix, linux-raw-sys, io-lifetimes) needs no entry — it is an SPDX *exception*,
-# not a license term.
+#
+# SPDX WITH-clauses DO need an entry (measured, contrary to the earlier note
+# here). `cargo-deny check licenses` treats a bare `"<license> WITH <exception>"`
+# as a distinct requirement, so it is satisfied by the plain `Apache-2.0` allow
+# entry only when the crate also offers a non-exception alternative:
+#   - Root workspace graph: every LLVM crate (rustix, linux-raw-sys, io-lifetimes,
+#     wasi, wasip2, wit-bindgen) ships "Apache-2.0 WITH LLVM-exception OR
+#     Apache-2.0 OR MIT", so the plain Apache-2.0/MIT terms already satisfy it
+#     and no per-crate exception is exercised.
+#   - apps/desktop/src-tauri graph: `target-lexicon 0.12.16` (via `cfg-expr ->
+#     system-deps`, pulled in by the gtk/webkit2gtk build deps of `tauri 2.12.5`)
+#     ships "Apache-2.0 WITH LLVM-exception" with NO alternative, which
+#     `rejected: license is not explicitly allowed`. Hence the `[licenses]
+#     exceptions` entry below.
+#
+# NOTE on cargo-deny's misleading key name: `[licenses].exceptions` is NOT a
+# declaration of SPDX WITH-exceptions. Per deny.template.toml it is a per-crate
+# allow list ("Allow 1 or more licenses on a per-crate basis, so that particular
+# licenses aren't accepted for every possible crate as with the normal allow
+# list"), whose entries require BOTH `allow` and `crate` — an entry without
+# `allow` fails config parsing with `error[missing-field]`. It is used here
+# instead of a global "Apache-2.0 WITH LLVM-exception" allow entry so the
+# concession stays scoped to the single crate that needs it.
+#
+# `Unicode-DFS-2016` is allowed pre-emptively for the `src-tauri` manifest as well
+# as the workspace one. Measured state of both graphs today: no crate resolves to
+# that id (`unicode-ident` ships the newer `Unicode-3.0`, already allowed; the
+# Unicode-DFS-2016 reference in the earlier wave summary is stale, like
+# RUSTSEC-2025-0012/RUSTSEC-2025-0134 above). It is kept because `cargo-deny`
+# reports an unused allow entry only as `warning[license-not-encountered]` — it
+# never fails a check (CI runs `cargo deny check` without `--deny-warnings`) — so
+# allowing it costs nothing and keeps the gate stable if an older Unicode-derived
+# crate re-enters either lockfile.
 #
 # What is NOT asserted here
 # ------------------------
@@ -50,14 +80,59 @@
 # reports as warnings rather than errors, and that all 22 wildcard (`*`)
 # requirements are workspace-internal path deps, not registry wildcards.
 #
-# `[advisories]` (version = 2) is configured explicitly below. Two unmaintained
-# advisories were eliminated at the dependency level by removing unused
-# `indicatif = "0.17"` (`number_prefix 0.4.0`, RUSTSEC-2025-0119) and narrowing
-# `image = "0.25"` in `warsha-remote` to `default-features = false, features = ["png"]`
-# (`paste 1.0.15` via `ravif`, RUSTSEC-2024-0436). The remaining four entries in
-# `ignore` are non-vulnerability `unmaintained` notices pulled in exclusively
-# through `keyring 1.2.1` (`secret-service 2.0.2 -> zbus 1.9.3`), which is pinned
-# across `warsha-providers`, `warsha-relay`, and `warshad`.
+# `[advisories]` (version = 2) is configured explicitly below. The ignore list
+# is exactly the set of notices the two committed lockfiles still resolve to —
+# reconciled lockfile-by-lockfile, not copied from any wave summary:
+#
+#   Root Cargo.lock (workspace) — 4 transitive `unmaintained` notices, all
+#   pulled in exclusively via `keyring 1.2.1 -> secret-service 2.0.2 ->
+#   zbus 1.9.3` (keyring is pinned across `warsha-providers`, `warsha-relay`
+#   and `warshad`):
+#     - RUSTSEC-2024-0384  instant 0.1.13
+#     - RUSTSEC-2024-0388  derivative 2.2.0
+#     - RUSTSEC-2026-0370  zvariant 2.10.0
+#     - RUSTSEC-2026-0372  zvariant_derive 2.10.0
+#
+#   Eliminated at the dependency level (so they need NO ignore entry, and must
+#   not be re-added — if they reappear, a dependency narrowing regressed):
+#     - RUSTSEC-2025-0119  number_prefix 0.4.0 — removed by deleting the unused
+#       `indicatif = "0.17"` dependency.
+#     - RUSTSEC-2024-0436  paste 1.0.15 (via `image -> ravif`) — removed by
+#       narrowing `image = "0.25"` in `warsha-remote` to
+#       `default-features = false, features = ["png"]`.
+#
+#   NOT PRESENT IN EITHER LOCKFILE AT ALL (verified against Cargo.lock):
+#     - RUSTSEC-2025-0012  backoff
+#     - RUSTSEC-2025-0134  rustls-pemfile
+#   These two only ever appeared as prose in an earlier wave summary; neither
+#   crate is resolved by this workspace, so they are deliberately NOT ignored
+#   here. An ignore entry for an advisory that cannot fire would silently mask
+#   it forever if either crate is ever introduced.
+#
+#   apps/desktop/src-tauri/Cargo.lock — 1 additional notice on top of the 4
+#   above (its own lock graph re-resolves the same keyring chain), reachable
+#   only on the Linux/GTK target graph:
+#     - RUSTSEC-2024-0370  proc-macro-error 1.0.4, via `tauri 2.12.5 ->
+#       gtk 0.18.2 -> glib 0.18.5 -> glib-macros 0.18.5`.
+#   That is why the 5th `ignore` entry below exists. Note that both ci.yml
+#   (`Rust (ubuntu|macos|windows)`, line 192) and release.yml (`Generate
+#   Artifacts`, line 442) currently run `cargo deny --manifest-path Cargo.toml
+#   --all-features check` ONLY — the `src-tauri` manifest is not a CI step, so
+#   its graph is covered by this config plus the repo-hygiene gate that runs
+#   `cargo-deny --manifest-path apps/desktop/src-tauri/Cargo.toml --all-features
+#   check --config deny.toml` explicitly.
+#
+#   Side effect of sharing ONE config across both graphs (intentional — a second
+#   deny.toml under apps/desktop/src-tauri/ would drift from this one): each check
+#   reports the other graph's concessions as non-fatal warnings, which is why
+#   neither invocation may be run with `--deny-warnings`:
+#     - root: `warning[advisory-not-detected]` for RUSTSEC-2024-0370, since
+#       proc-macro-error is not in the root Cargo.lock; plus the pre-existing
+#       `warning[license-not-encountered]` for CC0-1.0, NCSA and
+#       Unicode-DFS-2016.
+#     - src-tauri: `warning[license-not-encountered]` for allow entries its graph
+#       does not resolve (measured today: NCSA, Unicode-DFS-2016).
+#   Both checks exit 0 (`advisories ok, bans ok, licenses ok, sources ok`).
 
 [advisories]
 version = 2
@@ -66,6 +141,7 @@ ignore = [
     { id = "RUSTSEC-2024-0388", reason = "Transitive unmaintained notice on derivative 2.2.0 pulled in only via keyring 1.2.1 -> secret-service 2.0.2 -> zbus 1.9.3; paste (RUSTSEC-2024-0436) and number_prefix (RUSTSEC-2025-0119) were eliminated by narrowing image to png and removing unused indicatif." },
     { id = "RUSTSEC-2026-0370", reason = "Transitive unmaintained notice on zvariant 2.10.0 pulled in only via keyring 1.2.1 -> secret-service 2.0.2 -> zbus 1.9.3; paste (RUSTSEC-2024-0436) and number_prefix (RUSTSEC-2025-0119) were eliminated by narrowing image to png and removing unused indicatif." },
     { id = "RUSTSEC-2026-0372", reason = "Transitive unmaintained notice on zvariant_derive 2.10.0 pulled in only via keyring 1.2.1 -> secret-service 2.0.2 -> zbus 1.9.3 -> zvariant 2.10.0; paste (RUSTSEC-2024-0436) and number_prefix (RUSTSEC-2025-0119) were eliminated by narrowing image to png and removing unused indicatif." },
+    { id = "RUSTSEC-2024-0370", reason = "Transitive unmaintained notice on proc-macro-error 1.0.4 pulled in only via tauri 2.12.5 -> gtk 0.18.2 -> glib 0.18.5 -> glib-macros 0.18.5 on the Linux target graph; no safe upstream upgrade exists in gtk 0.18." },
 ]
 
 [licenses]
@@ -86,6 +162,17 @@ allow = [
     "NCSA",
     "PolyForm-Noncommercial-1.0.0",
     "Unicode-3.0",
+    "Unicode-DFS-2016",
     "Unlicense",
     "Zlib",
+]
+
+# cargo-deny's per-crate allow list (see the NOTE above — despite the name it is
+# not an SPDX-exception declaration). `target-lexicon 0.12.16`, reached via
+# cfg-expr -> system-deps as a build dep of the gtk/webkit2gtk stack behind
+# tauri 2.12.5 in apps/desktop/src-tauri/Cargo.lock, is the only crate in either
+# lockfile that ships a WITH-clause with no plain-license alternative, so the
+# concession is scoped to it alone instead of widening the global allow list.
+exceptions = [
+    { allow = ["Apache-2.0 WITH LLVM-exception"], crate = "target-lexicon" },
 ]
