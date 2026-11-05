@@ -1,0 +1,64 @@
+# deploy/Caddyfile — the only TLS endpoint of a Warsha deployment.
+#
+# Caddy terminates TLS for {$WARSHA_DOMAIN} (automatic certificate via the
+# ACME issuance built into Caddy; `localhost` falls back to Caddy's local
+# CA for a LAN/IP-less test) and reverse-proxies to `warshad`, which is
+# plain HTTP and never sees a certificate, a key, or the Internet.
+#
+# Routing (docs/DEPLOY.md section 2):
+#   /events* and /health  -> warshad:8765  (the axum HTTP surface)
+#   /rpc*   and  /*       -> warshad:8766  (the JSON-RPC surface: WebSocket
+#                           upgrade plus JSON POST)
+# WebSocket upgrades and streamed event frames are transparent to Caddy's
+# reverse_proxy; `flush_interval -1` keeps event frames unbuffered.
+
+{
+	# The admin API is a local control plane; a read-only container with no
+	# need for runtime config reloads does not expose it at all.
+	admin off
+}
+
+{$WARSHA_DOMAIN:localhost} {
+	# --- strict security headers on every response -----------------------
+	# HSTS: once the domain has served HTTPS, downgrade attempts are
+	# refused by the browser for a year including subdomains.
+	# X-Frame-Options DENY: the remote PWA is never framed; clickjacking a
+	# gate-approval button is the exact attack this stops.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	# --- daemon HTTP surface: health probe and the live event stream -----
+	@daemon_http {
+		path /health /health/* /events /events*
+	}
+	handle @daemon_http {
+		reverse_proxy warshad:8765 {
+			flush_interval -1
+		}
+	}
+
+	# --- daemon RPC surface: the /rpc prefix the CLI and PWA use ---------
+	@daemon_rpc {
+		path /rpc /rpc/*
+	}
+	handle @daemon_rpc {
+		reverse_proxy warshad:8766
+	}
+
+	# --- everything else goes to the daemon too ---------------------------
+	# While the daemon image's /usr/share/warsha/remote bundle is not yet
+	# served by warshad itself, this catch-all answers 404s for GET paths;
+	# the PWA remains reachable through the daemon's RPC/HTTP surfaces.
+	# See docs/DEPLOY.md section 2 "remote UI serving" and the open items
+	# reported by the deploy worker.
+	handle {
+		reverse_proxy warshad:8766
+	}
+
+	encode gzip zstd
+}

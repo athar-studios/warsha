@@ -1,0 +1,71 @@
+# deploy/docker-compose.yml — production topology, run from deploy/:
+#   cd deploy && cp .env.example .env && $EDITOR .env
+#   docker compose up -d --build
+#
+# Identical in structure to docker/compose.yml; only the relative paths
+# (build context, Caddyfile mount) differ. Design rules and the rationale
+# for the zero-host-port daemon live in docs/DEPLOY.md section 2.
+
+name: warsha
+
+services:
+  warshad:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: warsha/warshad:0.1.0
+    expose:
+      - "8765"
+      - "8766"
+    networks:
+      - warsha_internal
+    volumes:
+      - warsha-data:/var/lib/warsha
+    user: "10001:10001"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    environment:
+      WARSHA_ADVERTISED_HOST: ${WARSHA_ADVERTISED_HOST:-}
+      WARSHA_LLM_BASE_URL: ${WARSHA_LLM_BASE_URL:-https://router.sayl.site/v1}
+      WARSHA_LLM_API_KEY: ${WARSHA_LLM_API_KEY:-}
+      WARSHA_LLM_MODEL: ${WARSHA_LLM_MODEL:-bzl/deepseek-v4-flash-0731free}
+      WARSHA_ALLOWED_ORIGINS: ${WARSHA_ALLOWED_ORIGINS:-}
+
+  caddy:
+    image: caddy:2.8-alpine
+    depends_on:
+      warshad:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      WARSHA_DOMAIN: ${WARSHA_DOMAIN:-localhost}
+    networks:
+      - warsha_public
+      - warsha_internal
+    restart: unless-stopped
+
+networks:
+  warsha_internal:
+    internal: true
+  warsha_public:
+    driver: bridge
+
+volumes:
+  warsha-data:
+  caddy-data:
+  caddy-config:
