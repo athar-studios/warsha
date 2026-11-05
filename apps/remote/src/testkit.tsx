@@ -14,10 +14,13 @@ import type {
   DeviceId,
   GateState,
   GateSummary,
+  HandoffApplySummary,
   ProjectId,
   ProjectSummary,
   Role,
+  RunArtifact,
   RunId,
+  RunStreamSync,
   RunSummary,
   Stage,
   WarshaEvent,
@@ -27,7 +30,13 @@ import React from 'react';
 import { MemoryRouter, BrowserRouter } from 'react-router-dom';
 
 import App from './App';
-import { GATE_STAGES, type BenchApi, type EventStreamOpener } from './bench';
+import {
+  GATE_STAGES,
+  type BenchApi,
+  type DeviceInfo,
+  type EventStreamOpenOptions,
+  type EventStreamOpener,
+} from './bench';
 import type { DaemonSession } from './session';
 import type { ThemePreference } from './theme';
 
@@ -164,8 +173,133 @@ export function event(overrides: Partial<WarshaEvent> = {}): WarshaEvent {
   };
 }
 
-/** The RPC surface with the daemon's real defaults, and one seam per case. */
-export function stubApi(overrides: Partial<BenchApi> = {}): BenchApi {
+/**
+ * A sequenced frame: the same event with the daemon-wide `seq` the `/events` transport carries.
+ * A test that wants cursor behaviour (reconnect replay, gap rebuild) emits these.
+ */
+export function seqEvent(seq: number, overrides: Partial<WarshaEvent> = {}): WarshaEvent {
+  return event({ id: `evt_seq_${seq}`, seq, ...overrides });
+}
+
+/** The documents the run's stages produced, as `runs.artifacts` answers them. */
+export const ARTIFACTS: RunArtifact[] = [
+  {
+    name: 'prd.md',
+    content: '# PRD\nthe product document this run wrote',
+    stage: 'prd_spec',
+    role: 'pm',
+    created_at: '2026-11-02T09:00:00.000Z',
+    updated_at: '2026-11-02T09:30:00.000Z',
+    version: 1,
+  },
+  {
+    name: 'plan.md',
+    content: '# Plan\nthe task list this run planned',
+    stage: 'plan_tasks',
+    role: 'pm',
+    created_at: '2026-11-02T09:40:00.000Z',
+    updated_at: '2026-11-02T09:50:00.000Z',
+    version: 2,
+  },
+];
+
+/** Devices paired to the daemon, as `devices.list` answers them: the owner's desktop and one phone. */
+export const DEVICES: DeviceInfo[] = [
+  {
+    id: 'device-desktop' as DeviceId,
+    name: 'Surface',
+    pairedAt: '2026-11-01T09:00:00.000Z',
+    lastSeen: '2026-11-02T10:00:00.000Z',
+  },
+  {
+    id: 'device-phone-b' as DeviceId,
+    name: 'Pixel',
+    pairedAt: '2026-11-01T12:00:00.000Z',
+    lastSeen: '2026-11-02T08:30:00.000Z',
+  },
+];
+
+/** What `handoff.apply` answers when a bundle lands clean. */
+export const HANDOFF_SUMMARY: HandoffApplySummary = {
+  applied: ['prd.md', 'plan.md'],
+  conflicts: [],
+  backups: [],
+  resolved: [],
+};
+
+/** The P0/P1 capability methods, spelled out once so `fullApi` and a case can each name them. */
+function capabilityDefaults(call: (name: string) => void): Partial<BenchApi> {
+  return {
+    createProject: (name, _description) => {
+      call('createProject');
+      return Promise.resolve({ ...PROJECT, id: projectId('prj_new001'), name });
+    },
+    startRun: (ownerId, _idea) => {
+      call('startRun');
+      return Promise.resolve({
+        ...RUN,
+        id: runId('run_new001'),
+        projectId: ownerId,
+        stage: 'idea' as Stage,
+        status: 'running',
+      });
+    },
+    advanceRun: (id) => {
+      call('advanceRun');
+      return Promise.resolve({ ...RUN, id, stage: 'research' as Stage });
+    },
+    cancelRun: (id) => {
+      call('cancelRun');
+      return Promise.resolve({ ...RUN, id, status: 'cancelled' });
+    },
+    followupRun: (id, _prompt) => {
+      call('followupRun');
+      return Promise.resolve({ ...RUN, id });
+    },
+    getRunArtifacts: (_id) => {
+      call('getRunArtifacts');
+      return Promise.resolve(ARTIFACTS);
+    },
+    subscribeRun: (_runId, sinceSeq) => {
+      call('subscribeRun');
+      const sync: RunStreamSync = {
+        seq: 12,
+        gap_detected: false,
+        resync_required: false,
+        dropped_count: 0,
+        run: RUN,
+        events: [seqEvent(11), seqEvent(12)],
+      };
+      // The cursor the bench asked to resume from is part of the answer's honesty in tests too.
+      return Promise.resolve(sinceSeq === undefined ? sync : { ...sync, events: sync.events.filter((e) => (e.seq ?? 0) > sinceSeq) });
+    },
+    createHandoff: (_id, _files) => {
+      call('createHandoff');
+      return Promise.resolve('/srv/warsha/handoff/handoff.zip');
+    },
+    applyHandoff: (_path, _ownerWins) => {
+      call('applyHandoff');
+      return Promise.resolve(HANDOFF_SUMMARY);
+    },
+    listDevices: () => {
+      call('listDevices');
+      return Promise.resolve(DEVICES);
+    },
+    revokeDevice: (_deviceId) => {
+      call('revokeDevice');
+      return Promise.resolve();
+    },
+  };
+}
+
+/**
+ * The RPC surface with the daemon's real defaults, and one seam per case.
+ *
+ * By default it answers **only** the ten methods the bench has always called: the P0/P1 capability
+ * panels must stay hidden against it, which is exactly what the capability-gating tests assert.
+ * `fullApi` below is the same stub with the capability methods answered too.
+ */
+export function stubApi(overrides: Partial<BenchApi> = {}, capabilities = false): BenchApi {
   const calls: string[] = [];
   /** Name the write or the read the test is asserting on. */
   const call = (name: string): void => {
@@ -217,10 +351,17 @@ export function stubApi(overrides: Partial<BenchApi> = {}): BenchApi {
       call(`changes:${stage}`);
       return Promise.resolve();
     },
+    // The optional P0/P1 surface is only there when the case asked for the full daemon.
+    ...(capabilities ? capabilityDefaults(call) : {}),
     ...overrides,
   };
 
   return Object.assign(api, { calls });
+}
+
+/** The same stub with the capability methods answered: a daemon that serves the P0/P1 surface. */
+export function fullApi(overrides: Partial<BenchApi> = {}): BenchApi {
+  return stubApi(overrides, true);
 }
 
 /** The RPC names a stub answered — so a test asserts the write happened rather than that a colour changed. */
@@ -228,22 +369,36 @@ export function callsOf(api: BenchApi): string[] {
   return (api as BenchApi & { calls: string[] }).calls;
 }
 
-/** A feed a test can push into, fail, and count the closes of. */
+/** One recorded open: what the bench asked the feed to resume from, and on which run. */
+export interface StreamOpenRecord {
+  url: string;
+  sinceSeq: number | undefined;
+  runId: RunId | undefined;
+}
+
+/** A feed a test can push into, fail, announce loss on, and count the closes of. */
 export function fakeStream(): {
   opener: EventStreamOpener;
   emit: (event: WarshaEvent) => void;
   fail: (message?: string) => void;
+  /** The stream announces lost frames (what the client calls `onGap` with). */
+  gap: (info?: { droppedCount: number; seq: number }) => void;
+  /** The stream says it cannot resume from this cursor (what the client calls `onResyncRequired` with). */
+  resync: (info?: { seq: number }) => void;
   closes: () => number;
   urls: string[];
+  opens: StreamOpenRecord[];
 } {
-  const sinks: { onEvent: (event: WarshaEvent) => void; onError: (error: Error) => void }[] = [];
+  const sinks: EventStreamOpenOptions[] = [];
   const urls: string[] = [];
+  const opens: StreamOpenRecord[] = [];
   let closes = 0;
 
   return {
-    opener: ({ url, onEvent, onError }) => {
-      urls.push(url);
-      sinks.push({ onEvent, onError });
+    opener: (options) => {
+      urls.push(options.url);
+      opens.push({ url: options.url, sinceSeq: options.sinceSeq, runId: options.runId });
+      sinks.push(options);
       return {
         close: () => {
           closes += 1;
@@ -262,8 +417,19 @@ export function fakeStream(): {
         for (const sink of sinks) sink.onError(new Error(message));
       });
     },
+    gap: (info = { droppedCount: 3, seq: 10 }) => {
+      act(() => {
+        for (const sink of sinks) sink.onGap?.(info);
+      });
+    },
+    resync: (info = { seq: 10 }) => {
+      act(() => {
+        for (const sink of sinks) sink.onResyncRequired?.(info);
+      });
+    },
     closes: () => closes,
     urls,
+    opens,
   };
 }
 

@@ -24,12 +24,16 @@
 import {
   type BudgetStatus,
   type DeviceId,
+  type DeviceSummary,
   type EventSubscription,
   type GateState,
   type GateSummary,
+  type HandoffApplySummary,
   type ProjectId,
   type ProjectSummary,
+  type RunArtifact,
   type RunId,
+  type RunStreamSync,
   type RunSummary,
   type Stage,
   type WarshaEvent,
@@ -72,11 +76,25 @@ export interface DecisionState {
 }
 
 /**
+ * The paired-device row the bench lists.
+ *
+ * `@warsha/client` names this shape `DeviceSummary`; the bench's surface keeps the shorter name the
+ * screens were written against, and the alias means the wire type cannot drift from the client's.
+ */
+export type DeviceInfo = DeviceSummary;
+
+/**
  * The slice of `WarshaClient` the remote bench calls.
  *
  * A subset rather than the class, because `WarshaClient` satisfies it structurally while a test hands in
  * only the methods the case exercises. Every shape still comes from `@warsha/client`, so a wire type
  * cannot drift from what the screen renders.
+ *
+ * The first ten methods are the parity the bench has always had, and they stay required. The rest are
+ * **optional**: the P0/P1 run-control surface (create, start, advance, cancel, follow up, artifacts,
+ * resync, handoff, devices) is capability-gated, so a daemon — or a test stub — that does not answer a
+ * name simply does not get a control on the screen. A `null` action in the context means "unsupported",
+ * and screens render nothing for it rather than a disabled lie.
  */
 export interface BenchApi {
   health(): Promise<{ status: string; version: string }>;
@@ -89,15 +107,37 @@ export interface BenchApi {
   approveGate(runId: RunId, stage: Stage): Promise<void>;
   rejectGate(runId: RunId, stage: Stage, reason: string): Promise<void>;
   requestChanges(runId: RunId, stage: Stage, notes: string): Promise<void>;
+
+  createProject?(name: string, description: string, language: string): Promise<ProjectSummary>;
+  startRun?(projectId: ProjectId, idea: string): Promise<RunSummary>;
+  advanceRun?(runId: RunId): Promise<RunSummary>;
+  cancelRun?(runId: RunId, reason?: string): Promise<RunSummary>;
+  followupRun?(runId: RunId, prompt: string): Promise<RunSummary>;
+  getRunArtifacts?(runId: RunId): Promise<RunArtifact[]>;
+  subscribeRun?(runId?: RunId, sinceSeq?: number): Promise<RunStreamSync>;
+  createHandoff?(runId: RunId, files: ReadonlyArray<readonly [string, string]>): Promise<string>;
+  applyHandoff?(path: string, ownerWins: boolean): Promise<HandoffApplySummary>;
+  listDevices?(): Promise<DeviceInfo[]>;
+  revokeDevice?(deviceId: DeviceId): Promise<void>;
 }
 
 /** How the `/events` feed is opened. The app hands in `subscribeEvents`; a test hands in a recorder. */
-export type EventStreamOpener = (options: {
+export interface EventStreamOpenOptions {
   url: string;
   token: string;
+  /** Replay cursor: every frame after the last `seq` this device saw, when it has seen one. */
+  sinceSeq?: number;
+  /** Narrow the stream to the run the owner is reading. */
+  runId?: RunId;
   onEvent: (event: WarshaEvent) => void;
   onError: (error: Error) => void;
-}) => EventSubscription;
+  /** The stream says frames went past unseen: rebuild from the cursor, do not pretend nothing fell. */
+  onGap?: (info: { droppedCount: number; seq: number }) => void;
+  /** The stream cannot resume from this cursor: same rebuild, announced reason. */
+  onResyncRequired?: (info: { seq: number }) => void;
+}
+
+export type EventStreamOpener = (options: EventStreamOpenOptions) => EventSubscription;
 
 /** The stages that are gates, in pipeline order — the queue the phone is built to answer. */
 export const GATE_STAGES: readonly Stage[] = ['gate_a', 'gate_b', 'gate_c', 'gate_d'];
@@ -226,6 +266,38 @@ export interface RemoteContextValue {
   streamState: StreamState;
   reconnectStream: () => void;
 
+  /** The last daemon sequence number this device saw; the cursor a reconnect resumes from. */
+  lastSeq: number | null;
+
+  /** The run's artifacts, read from `runs.artifacts` — `idle` on a daemon that does not serve it. */
+  artifacts: RunArtifact[];
+  artifactsState: LoadState;
+
+  /** Devices paired to this daemon, read from `devices.list`. */
+  devices: DeviceInfo[];
+  devicesState: LoadState;
+
+  /** The bundle path the last `handoff.create` wrote on the server, or `null`. */
+  handoffPath: string | null;
+  /** The summary the last `handoff.apply` answered with, or `null`. */
+  handoffSummary: HandoffApplySummary | null;
+
+  /** The daemon's own words when a run-control write was refused, token-redacted; `null` when clean. */
+  actionError: string | null;
+  /** Forget the action error, once the owner has read it. */
+  clearActionError: () => void;
+
+  // The P0/P1 run-control actions. Each is `null` when the daemon (or the stub) does not answer its
+  // RPC name — capability gating, not a disabled control: the screen renders nothing it cannot honour.
+  createNewProject: ((name: string, description: string) => Promise<void>) | null;
+  startNewRun: ((idea: string) => Promise<void>) | null;
+  advanceCurrentRun: (() => Promise<void>) | null;
+  cancelCurrentRun: (() => Promise<void>) | null;
+  sendFollowup: ((prompt: string) => Promise<void>) | null;
+  triggerHandoff: (() => Promise<void>) | null;
+  applyHandoffBundle: (() => Promise<void>) | null;
+  revokePairedDevice: ((deviceId: DeviceId) => Promise<void>) | null;
+
   decision: DecisionState;
   decide: (stage: Stage, next: GateDecision, note?: string) => void;
 
@@ -253,10 +325,16 @@ export function RemoteProvider({
 }: RemoteProviderProps) {
   const locale = useLocale();
 
-  const api = useMemo<BenchApi | null>(
-    () => (apiOverride !== undefined ? apiOverride : session === null ? null : createClient(session.baseUrl, session.token)),
-    [apiOverride, session]
-  );
+  const api = useMemo<BenchApi | null>(() => {
+    if (apiOverride !== undefined) return apiOverride;
+    if (session === null) return null;
+    const client = createClient(session.baseUrl, session.token);
+    // The client spells revocation `removeDevice` (RPC `devices.revoke`); the bench surface — and the
+    // screens built on it — call it by what it does. One adapter line, so the names cannot drift.
+    return Object.assign(client, {
+      revokeDevice: (deviceId: DeviceId): Promise<void> => client.removeDevice(deviceId),
+    });
+  }, [apiOverride, session]);
 
   const [connection, setConnection] = useState<ConnectionState>(session === null ? 'unpaired' : 'checking');
   const [daemonVersion, setDaemonVersion] = useState<string | null>(null);
@@ -283,6 +361,24 @@ export function RemoteProvider({
   const [events, setEvents] = useState<WarshaEvent[]>([]);
   const [streamState, setStreamState] = useState<StreamState>('idle');
   const [streamNonce, setStreamNonce] = useState(0);
+
+  // The sequence cursor. `lastSeq` is the rendering half (the strip and tests read it); `lastSeqRef`
+  // is the half the socket is opened *from* — a ref, because putting the state into the stream
+  // effect's dependencies would tear down and re-open the socket on every frame the daemon sends.
+  const [lastSeq, setLastSeq] = useState<number | null>(null);
+  const lastSeqRef = useRef<number | null>(null);
+  const streamStateRef = useRef<StreamState>('idle');
+
+  const [artifacts, setArtifacts] = useState<RunArtifact[]>([]);
+  const [artifactsState, setArtifactsState] = useState<LoadState>('idle');
+  const [artifactsNonce, setArtifactsNonce] = useState(0);
+
+  const [devices, setDevices] = useState<DeviceInfo[]>([]);
+  const [devicesState, setDevicesState] = useState<LoadState>('idle');
+
+  const [handoffPath, setHandoffPath] = useState<string | null>(null);
+  const [handoffSummary, setHandoffSummary] = useState<HandoffApplySummary | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const [decision, setDecision] = useState<DecisionState>({ stage: null, status: 'idle', detail: null });
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -502,7 +598,93 @@ export function RemoteProvider({
     };
   }, [api, run, reloadNonce]);
 
+  // ------------------------------------------------------------------------------------ the artifacts
+  // Capability-gated twice over: a daemon (or stub) without `runs.artifacts` never gets asked, and
+  // the state stays `idle` — the screen reads `idle` as "this surface does not exist here" and
+  // renders nothing, rather than an empty list that claims the run has produced nothing.
+  useEffect(() => {
+    if (api === null || api.getRunArtifacts === undefined || run === null) {
+      setArtifacts([]);
+      setArtifactsState('idle');
+      return undefined;
+    }
+    let cancelled = false;
+    setArtifactsState('loading');
+    api
+      .getRunArtifacts(run.id)
+      .then((answer) => {
+        if (cancelled) return;
+        setArtifacts(answer);
+        setArtifactsState('ready');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setArtifactsState('failed');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, run, artifactsNonce]);
+
+  // ------------------------------------------------------------------------------------- the devices
+  useEffect(() => {
+    if (api === null || api.listDevices === undefined || session === null) {
+      setDevices([]);
+      setDevicesState('idle');
+      return undefined;
+    }
+    let cancelled = false;
+    setDevicesState('loading');
+    api
+      .listDevices()
+      .then((answer) => {
+        if (cancelled) return;
+        setDevices(answer);
+        setDevicesState('ready');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setDevicesState('failed');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, session, reloadNonce]);
+
   // -------------------------------------------------------------------------------- the live feed
+  // A new session is a new daemon: its sequence numbers mean nothing to the last one, so the cursor
+  // starts over. Declared before the feed effect, so on a session change the reset lands first.
+  useEffect(() => {
+    lastSeqRef.current = null;
+    setLastSeq(null);
+  }, [session]);
+
+  useEffect(() => {
+    streamStateRef.current = streamState;
+  }, [streamState]);
+
+  // The rebuild a gap or a refused cursor calls for: ask the daemon for the run's whole current view
+  // (`runs.subscribe` → `RunStreamSync`) and make the on-screen feed what it answers, then adopt its
+  // sequence as the new cursor. A daemon without `runs.subscribe` gets the older treatment — read
+  // everything again — because a gap the bench cannot bridge is a reason to reload, not to lie.
+  const resyncFromCursor = useCallback(() => {
+    if (api === null) return;
+    if (api.subscribeRun === undefined) {
+      setReloadNonce((nonce) => nonce + 1);
+      return;
+    }
+    void api
+      .subscribeRun(run === null ? undefined : run.id, lastSeqRef.current ?? undefined)
+      .then((sync) => {
+        setEvents(sync.events.slice(-500));
+        lastSeqRef.current = sync.seq;
+        setLastSeq(sync.seq);
+      })
+      .catch(() => {
+        setReloadNonce((nonce) => nonce + 1);
+      });
+  }, [api, run]);
+
   useEffect(() => {
     if (session === null || run === null) {
       setStreamState('idle');
@@ -512,8 +694,18 @@ export function RemoteProvider({
     const subscription = openEvents({
       url: eventStreamUrl(session.baseUrl),
       token: session.token,
+      // Resume where this device last saw a frame, and narrow the feed to the run on screen: a phone
+      // that slept through forty frames should get them back, not a wall of silence.
+      sinceSeq: lastSeqRef.current ?? undefined,
+      runId: run.id,
       onEvent: (event) => {
         setStreamState('open');
+        if (typeof event.seq === 'number') {
+          lastSeqRef.current = event.seq;
+          setLastSeq(event.seq);
+        }
+        // An artifact frame is a standing invitation to read the artifact list again.
+        if (event.kind.includes('artifact')) setArtifactsNonce((nonce) => nonce + 1);
         // A 500-line ceiling: the phone is a glance surface, and an unbounded feed is a leak on the
         // least capable device in the house.
         setEvents((previous) => [...previous, event].slice(-500));
@@ -522,13 +714,33 @@ export function RemoteProvider({
         // The feed is down; the queue is not (§7). Nothing here is cleared.
         setStreamState('closed');
       },
+      // Loss announced is loss answered: rebuild from the cursor rather than show a feed with a hole
+      // in it (§7's "never imply"; a silent gap is exactly that).
+      onGap: () => resyncFromCursor(),
+      onResyncRequired: () => resyncFromCursor(),
     });
     return () => {
       subscription.close();
     };
-  }, [openEvents, run, session, streamNonce]);
+  }, [openEvents, resyncFromCursor, run, session, streamNonce]);
 
   const reconnectStream = useCallback(() => setStreamNonce((nonce) => nonce + 1), []);
+
+  // A phone wakes when its owner looks at it. If the feed died while the tab was in a pocket — the
+  // WebView suspends sockets, and the daemon eventually drops them — the first look back is the
+  // reconnect, not a stale "offline" the owner has to press twice to clear.
+  useEffect(() => {
+    if (session === null) return undefined;
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible' && streamStateRef.current === 'closed') {
+        reconnectStream();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [reconnectStream, session]);
 
   // ------------------------------------------------------------------------------------ the decision
   const decide = useCallback(
@@ -574,6 +786,134 @@ export function RemoteProvider({
 
   const reloadAll = useCallback(() => setReloadNonce((nonce) => nonce + 1), []);
   const reloadGates = useCallback(() => setGatesNonce((nonce) => nonce + 1), []);
+
+  // ------------------------------------------------------------------------ the run-control actions
+  // One shape for every P0/P1 write: the daemon's method is *bound* to the surface before the screen
+  // ever sees it (a class client's methods need their `this`), the answer is merged into the lists
+  // the bench already renders, and a refusal lands in `actionError` as the token-redacted words the
+  // screens already have a slot for. A method the daemon (or the stub) does not answer yields `null`
+  // — capability gating, not a control that lies about working.
+  const runAction = useCallback(
+    (call: () => Promise<unknown>): Promise<void> =>
+      call()
+        .then(() => {
+          setActionError(null);
+        })
+        .catch((error: unknown) => {
+          setActionError(safeMessage(failureDetail(error), session));
+        }),
+    [session]
+  );
+
+  const clearActionError = useCallback(() => setActionError(null), []);
+
+  const createNewProject = useMemo(() => {
+    const create = api?.createProject?.bind(api);
+    if (create === undefined) return null;
+    return (name: string, description: string): Promise<void> =>
+      runAction(async () => {
+        const answer = await create(name, description, locale);
+        setProjects((previous) => [answer, ...previous.filter((row) => row.id !== answer.id)]);
+        // A created project is the one the owner just made: open it, and let its (empty) runs reload.
+        setProjectIdState(answer.id);
+        setRunIdState(null);
+      });
+  }, [api, locale, runAction]);
+
+  const startNewRun = useMemo(() => {
+    const start = api?.startRun?.bind(api);
+    if (start === undefined) return null;
+    return (idea: string): Promise<void> => {
+      if (projectId === null) return Promise.resolve();
+      return runAction(async () => {
+        const answer = await start(projectId, idea);
+        setRuns((previous) => [answer, ...previous.filter((row) => row.id !== answer.id)]);
+        pendingRunId.current = null;
+        setRunIdState(answer.id);
+      });
+    };
+  }, [api, projectId, runAction]);
+
+  const advanceCurrentRun = useMemo(() => {
+    const advance = api?.advanceRun?.bind(api);
+    if (advance === undefined) return null;
+    return (): Promise<void> => {
+      if (run === null) return Promise.resolve();
+      return runAction(async () => {
+        // The daemon's own new row replaces the stale one; every panel keyed on the run re-reads.
+        const answer = await advance(run.id);
+        setRuns((previous) => previous.map((row) => (row.id === answer.id ? answer : row)));
+      });
+    };
+  }, [api, run, runAction]);
+
+  const cancelCurrentRun = useMemo(() => {
+    const cancel = api?.cancelRun?.bind(api);
+    if (cancel === undefined) return null;
+    return (): Promise<void> => {
+      if (run === null) return Promise.resolve();
+      return runAction(async () => {
+        const answer = await cancel(run.id);
+        setRuns((previous) => previous.map((row) => (row.id === answer.id ? answer : row)));
+      });
+    };
+  }, [api, run, runAction]);
+
+  const sendFollowup = useMemo(() => {
+    const followup = api?.followupRun?.bind(api);
+    if (followup === undefined) return null;
+    return (prompt: string): Promise<void> => {
+      if (run === null) return Promise.resolve();
+      return runAction(async () => {
+        const answer = await followup(run.id, prompt);
+        setRuns((previous) => previous.map((row) => (row.id === answer.id ? answer : row)));
+      });
+    };
+  }, [api, run, runAction]);
+
+  const triggerHandoff = useMemo(() => {
+    const createBundle = api?.createHandoff?.bind(api);
+    if (createBundle === undefined) return null;
+    return (): Promise<void> => {
+      if (run === null) return Promise.resolve();
+      return runAction(async () => {
+        // The bundle carries exactly what this bench has read for this run — the daemon's own
+        // artifacts, by name and content, nothing invented on the phone.
+        const files = artifacts.map((artifact): readonly [string, string] => [artifact.name, artifact.content]);
+        const path = await createBundle(run.id, files);
+        setHandoffPath(path);
+        setHandoffSummary(null);
+      });
+    };
+  }, [api, artifacts, run, runAction]);
+
+  const applyHandoffBundle = useMemo(() => {
+    const apply = api?.applyHandoff?.bind(api);
+    if (apply === undefined) return null;
+    return (): Promise<void> => {
+      if (handoffPath === null) return Promise.resolve();
+      const path = handoffPath;
+      return runAction(async () => {
+        // The phone is the owner's hand: `owner_wins` resolves conflicts toward the owner's side,
+        // and the summary the daemon answers says what landed, what clashed, what was backed up.
+        const summary = await apply(path, true);
+        setHandoffSummary(summary);
+        // An applied bundle rewrote the run's documents: read the bench again, artifacts included.
+        setReloadNonce((nonce) => nonce + 1);
+        setArtifactsNonce((nonce) => nonce + 1);
+      });
+    };
+  }, [api, handoffPath, runAction]);
+
+  const revokePairedDevice = useMemo(() => {
+    const revoke = api?.revokeDevice?.bind(api);
+    if (revoke === undefined) return null;
+    return (deviceId: DeviceId): Promise<void> =>
+      runAction(async () => {
+        await revoke(deviceId);
+        setDevices((previous) => previous.filter((row) => row.id !== deviceId));
+      });
+  }, [api, runAction]);
 
   // -------------------------------------------------------------------------------------- the queue
   const queue = useMemo<BenchGate[]>(
@@ -625,6 +965,24 @@ export function RemoteProvider({
       streamState,
       reconnectStream,
 
+      lastSeq,
+      artifacts,
+      artifactsState,
+      devices,
+      devicesState,
+      handoffPath,
+      handoffSummary,
+      actionError,
+      clearActionError,
+      createNewProject,
+      startNewRun,
+      advanceCurrentRun,
+      cancelCurrentRun,
+      sendFollowup,
+      triggerHandoff,
+      applyHandoffBundle,
+      revokePairedDevice,
+
       decision,
       decide,
 
@@ -633,15 +991,28 @@ export function RemoteProvider({
       locale,
     }),
     [
+      actionError,
+      advanceCurrentRun,
+      applyHandoffBundle,
+      artifacts,
+      artifactsState,
       budget,
       budgetState,
+      cancelCurrentRun,
+      clearActionError,
       connection,
+      createNewProject,
       daemonVersion,
       decide,
       decision,
+      devices,
+      devicesState,
       events,
       gatesSource,
       gatesState,
+      handoffPath,
+      handoffSummary,
+      lastSeq,
       locale,
       logs,
       logsState,
@@ -657,13 +1028,17 @@ export function RemoteProvider({
       reconnectStream,
       reloadAll,
       reloadGates,
+      revokePairedDevice,
       run,
       runs,
       runsState,
+      sendFollowup,
       session,
       setProjectId,
       setRunId,
+      startNewRun,
       streamState,
+      triggerHandoff,
     ]
   );
 
