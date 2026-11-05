@@ -1,0 +1,78 @@
+# docker/compose.yml — production topology for the Warsha daemon.
+#   docker compose -f docker/compose.yml --env-file deploy/.env up -d
+# (deploy/docker-compose.yml is the same topology from the deploy/ side.)
+#
+# Design rules (docs/DEPLOY.md section 2):
+#   * warshad sits on warsha_internal ONLY — an internal bridge with no
+#     route to the Internet — and publishes NO host ports. The daemon is
+#     plain HTTP; the only TLS endpoint in this stack is Caddy.
+#   * caddy lives on both networks: it is the one thing that talks to the
+#     outside world (80/443 + 443/udp) and to warshad (by service name).
+#   * warsha-data is the single mutable state: config.toml (0600, holds the
+#     admin token), warsha.db, projects/ and the bootstrap marker.
+
+name: warsha
+
+services:
+  warshad:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: warsha/warshad:0.1.0
+    # Container-internal publication only; reverse_proxy reaches these on
+    # the shared network. There is deliberately no `ports:` key here.
+    expose:
+      - "8765"
+      - "8766"
+    networks:
+      - warsha_internal
+    volumes:
+      - warsha-data:/var/lib/warsha
+    user: "10001:10001"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    environment:
+      WARSHA_ADVERTISED_HOST: ${WARSHA_ADVERTISED_HOST:-}
+      WARSHA_LLM_BASE_URL: ${WARSHA_LLM_BASE_URL:-https://router.sayl.site/v1}
+      WARSHA_LLM_API_KEY: ${WARSHA_LLM_API_KEY:-}
+      WARSHA_LLM_MODEL: ${WARSHA_LLM_MODEL:-bzl/deepseek-v4-flash-0731free}
+      WARSHA_ALLOWED_ORIGINS: ${WARSHA_ALLOWED_ORIGINS:-}
+
+  caddy:
+    image: caddy:2.8-alpine
+    depends_on:
+      warshad:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ../deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      WARSHA_DOMAIN: ${WARSHA_DOMAIN:-localhost}
+    networks:
+      - warsha_public
+      - warsha_internal
+    restart: unless-stopped
+
+networks:
+  warsha_internal:
+    internal: true
+  warsha_public:
+    driver: bridge
+
+volumes:
+  warsha-data:
+  caddy-data:
+  caddy-config:
