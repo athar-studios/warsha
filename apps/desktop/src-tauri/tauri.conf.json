@@ -35,7 +35,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -67,13 +67,5 @@
       "tsp": false
     }
   },
-  "plugins": {
-    "updater": {
-      "active": true,
-      "endpoints": [
-        "https://github.com/athar-studios/warsha/releases/latest/download/latest.json"
-      ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk3MzFEREJGNTAyNjRBOEMKUldTTVNpWlF2OTB4bDdnU1pVbHExdytpaWw2d2lSb29mWkVEaUVtbVBBS2NWNnZ5WTFzVTAvbzYK"
-    }
-  }
+  "plugins": {}
 }

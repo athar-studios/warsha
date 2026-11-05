@@ -100,11 +100,7 @@ impl ShellState {
             CONFIG_DAEMON_URL => self.endpoint.base_url.clone(),
             CONFIG_DAEMON_WS_URL => self.endpoint.ws_url.clone(),
             CONFIG_DAEMON_TOKEN => self.endpoint.token.clone(),
-            _ => self
-                .preferences()
-                .get(key)
-                .cloned()
-                .unwrap_or_default(),
+            _ => self.preferences().get(key).cloned().unwrap_or_default(),
         }
     }
 
@@ -198,7 +194,9 @@ static SETTINGS_WRITE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::Ato
 /// as an empty map, which is an owner who lost their mode, their theme and their
 /// onboarding answer without a word about it.
 fn write_settings(path: &Path, settings: &BTreeMap<String, String>) -> Result<(), String> {
-    let parent = path.parent().ok_or_else(|| format!("{path:?} has no directory"))?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("{path:?} has no directory"))?;
     std::fs::create_dir_all(parent).map_err(|error| format!("{parent:?}: {error}"))?;
     let json = serde_json::to_string_pretty(settings).map_err(|error| error.to_string())?;
 
@@ -376,6 +374,276 @@ fn preflight_request(host: &str, origin: &str) -> String {
     )
 }
 
+/// A JSON-RPC POST with a caller-supplied `params` value.
+///
+/// `warsha-client` sends its params as a named map, and the daemon binds both the snake_case
+/// and the camelCase spelling (`crates/warshad/tests/gates_list.rs` proves it), so the smoke
+/// calls below use exactly the shapes that client uses rather than inventing a third.
+fn rpc_post_request(host: &str, token: &str, method: &str, params: serde_json::Value) -> String {
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": method,
+        "params": params,
+    })
+    .to_string();
+    format!(
+        "POST /rpc HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\nAuthorization: Bearer {token}\r\n\r\n{body}",
+        body.len()
+    )
+}
+
+/// The `result` of a JSON-RPC answer, or `None` when the response is not a 200 with a result.
+///
+/// The smoke calls need three things from one response — the status line says 200, there is no
+/// `error` object, and the `result` is there to read ids and artifact names out of — and they
+/// need them from the *whole* response, headers included, so the body is separated here once.
+fn rpc_json_body(response: &str) -> Option<serde_json::Value> {
+    let (headers, body) = response.split_once("\r\n\r\n")?;
+    if !headers.contains("200") {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(body.trim()).ok()?;
+    if value.get("error").is_some() {
+        return None;
+    }
+    value.get("result").cloned()
+}
+
+/// The daemon's `result` from a [`raw_request`] outcome: `None` unless the socket round trip
+/// succeeded *and* the answer is a 200 with a JSON-RPC result.
+fn rpc_result(outcome: &Result<String, String>) -> Option<serde_json::Value> {
+    outcome.as_deref().ok().and_then(rpc_json_body)
+}
+
+/// The one-line detail for a failed smoke call: the status line when the daemon answered,
+/// the connect/write error when it did not.
+fn response_detail(outcome: &Result<String, String>) -> String {
+    match outcome {
+        Ok(response) => first_line(response),
+        Err(error) => error.clone(),
+    }
+}
+
+/// The first `key` found as a string anywhere in a JSON-RPC `result`, depth first.
+///
+/// The smoke run needs two ids out of two different replies — the project's from
+/// `projects.create` and the run's from `runs.start` — and neither call site should have to
+/// restate the daemon's exact field layout for the second time; the field names those replies
+/// use (`id`) are the same in both, and a wrong shape reads as `None`, which the caller reports
+/// as a failed check rather than a panic.
+fn first_string(value: &serde_json::Value, key: &str) -> Option<String> {
+    match value {
+        serde_json::Value::Object(map) => map
+            .get(key)
+            .and_then(|found| found.as_str())
+            .map(str::to_string)
+            .or_else(|| map.values().find_map(|child| first_string(child, key))),
+        serde_json::Value::Array(items) => items.iter().find_map(|item| first_string(item, key)),
+        _ => None,
+    }
+}
+
+/// `GET /health` on the daemon's HTTP port, with no credential.
+///
+/// `/health` is the one route the daemon answers without a bearer token (the same exemption
+/// documented in `crates/warshad/src/lib.rs`), so it is also the one the installer check can
+/// aim at the `ws_url` the frontend gets: `ws://` becomes `http://` and the port is the
+/// daemon's events port, which is exactly where the window's live feed would connect.
+fn health_request(host: &str) -> String {
+    format!("GET /health HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n")
+}
+
+/// The shape of the `PASS`/`FAIL` recorder [`self_check`] defines for its own run: it takes
+/// the run's failure list, the condition being proved, the label to print, and the one-line
+/// detail for the failure. Named here because the installer checks receive it as a trait
+/// object and clippy is right that the inline type is too dense to repeat.
+type CheckFn = dyn for<'a> Fn(&'a mut Vec<String>, bool, &'a str, &'a str);
+
+/// Prove `GET /health` answers 200 with a status field, and record the outcome.
+fn check_health(failures: &mut Vec<String>, ws_url: &str) {
+    let health_host = ws_url.trim_start_matches("ws://");
+    let outcome = raw_request(health_host, &health_request(health_host));
+    match &outcome {
+        Ok(response) => {
+            let answered = response.contains("200")
+                && response.contains(r#""status""#)
+                && (response.contains("healthy") || response.contains("ok"));
+            if answered {
+                println!(
+                    "PASS  GET /health on the daemon's HTTP port answers 200 with a healthy status"
+                );
+            } else {
+                println!(
+                    "FAIL  GET /health on the daemon's HTTP port answers 200 with a healthy status — {}",
+                    first_line(response)
+                );
+                failures.push("GET /health answers 200 with a healthy status".to_string());
+            }
+        }
+        Err(error) => {
+            println!("FAIL  GET /health on the daemon's HTTP port answers 200 with a healthy status — {error}");
+            failures.push("GET /health answers 200 with a healthy status".to_string());
+        }
+    }
+}
+
+/// The installer smoke test: one complete pipeline run driven over JSON-RPC with **no API
+/// key at all**, against a daemon whose data lives in a scratch directory.
+///
+/// This is the zero-configuration path a fresh install takes its first steps on, proved
+/// end-to-end rather than by a unit test in one crate: `projects.create` → `runs.start` →
+/// `gates.approve` (Gate A) → `runs.advance` (which walks Idea → GateA → Research → PrdSpec
+/// and stops at the pending Gate B) → `runs.artifacts`. The stage calls are answered by the
+/// pipeline's deterministic `FakeProvider` (`crates/warsha-pipeline` dispatch case 3), which
+/// makes no network call; `WARSHA_LLM_PROVIDER=fake` is set here so a `WARSHA_LLM_API_KEY`
+/// inherited from this machine's environment cannot quietly turn the smoke run into a real,
+/// paid model call — the same guarantee the repository's rules make for every test.
+///
+/// The checks this appends are only run when the daemon answered with a result; a refusal at
+/// any step stops the walk early, because a `runs.advance` over a run that was never created
+/// would prove nothing except that the store says "not found".
+fn check_fake_provider_pipeline(
+    failures: &mut Vec<String>,
+    host: &str,
+    token: &str,
+    check: &CheckFn,
+) {
+    std::env::set_var("WARSHA_LLM_PROVIDER", "fake");
+
+    let create = raw_request(
+        host,
+        &rpc_post_request(
+            host,
+            token,
+            "projects.create",
+            serde_json::json!({
+                "name": "smoke-project",
+                "description": "Installer smoke test",
+                "language": "ar"
+            }),
+        ),
+    );
+    let project_id = rpc_result(&create).and_then(|result| first_string(&result, "id"));
+    check(
+        failures,
+        project_id.is_some(),
+        "projects.create creates the smoke project",
+        &response_detail(&create),
+    );
+    let Some(project_id) = project_id else {
+        failures.push("the zero-key FakeProvider run needs a project".to_string());
+        return;
+    };
+
+    let start = raw_request(
+        host,
+        &rpc_post_request(
+            host,
+            token,
+            "runs.start",
+            serde_json::json!({ "projectId": project_id, "idea": "Build an Arabic task tracker" }),
+        ),
+    );
+    let run_id = rpc_result(&start).and_then(|result| first_string(&result, "id"));
+    check(
+        failures,
+        run_id.is_some(),
+        "runs.start starts the smoke run at the Idea stage",
+        &response_detail(&start),
+    );
+    let Some(run_id) = run_id else {
+        failures.push("the zero-key FakeProvider run needs a run".to_string());
+        return;
+    };
+
+    let approve = raw_request(
+        host,
+        &rpc_post_request(
+            host,
+            token,
+            "gates.approve",
+            serde_json::json!({ "run_id": run_id, "stage": "gate_a", "device_id": null }),
+        ),
+    );
+    let approved = rpc_result(&approve).is_some();
+    check(
+        failures,
+        approved,
+        "gates.approve records the Gate A decision over RPC",
+        &response_detail(&approve),
+    );
+    if !approved {
+        failures.push("the zero-key FakeProvider run needs Gate A approved".to_string());
+        return;
+    }
+
+    let advance = raw_request(
+        host,
+        &rpc_post_request(
+            host,
+            token,
+            "runs.advance",
+            serde_json::json!({ "run_id": run_id }),
+        ),
+    );
+    let advanced = rpc_result(&advance);
+    check(
+        failures,
+        advanced.is_some(),
+        "runs.advance walks Idea → GateA → Research → PrdSpec on the zero-key FakeProvider",
+        &response_detail(&advance),
+    );
+    if let Some(run) = &advanced {
+        // `Stage` serializes snake_case on the wire (`serde(rename_all = "snake_case")` in
+        // `warsha-core`), and the walk is defined to stop at the first gate with no decision,
+        // which after approving Gate A is Gate B.
+        check(
+            failures,
+            run.get("current_stage").and_then(|stage| stage.as_str()) == Some("gate_b"),
+            "the smoke run is waiting at Gate B",
+            &response_detail(&advance),
+        );
+    } else {
+        failures.push("the zero-key FakeProvider run must reach Gate B".to_string());
+        return;
+    }
+
+    let artifacts = raw_request(
+        host,
+        &rpc_post_request(
+            host,
+            token,
+            "runs.artifacts",
+            serde_json::json!({ "run_id": run_id }),
+        ),
+    );
+    let names: Vec<String> = rpc_result(&artifacts)
+        .and_then(|result| result.as_array().cloned())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.get("name"))
+                .filter_map(|name| name.as_str())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let produced = ["idea", "research", "prd_spec"]
+        .iter()
+        .all(|wanted| names.iter().any(|name| name == *wanted));
+    if produced {
+        println!("PASS  zero-key FakeProvider run produced research and prd_spec artifacts");
+    } else {
+        println!(
+            "FAIL  zero-key FakeProvider run produced research and prd_spec artifacts — the run carries {:?}",
+            names
+        );
+        failures
+            .push("zero-key FakeProvider run produced research and prd_spec artifacts".to_string());
+    }
+}
+
 /// `--self-check [--data-dir <path>]` — start the daemon exactly as the window does, prove the
 /// webview could reach it, and stop it again. Returns an error naming every check that failed.
 ///
@@ -385,8 +653,10 @@ fn preflight_request(host: &str, origin: &str) -> String {
 ///
 /// `--data-dir` points the check at a scratch directory instead of the owner's real one, which is
 /// what a CI runner wants: the check must not touch the projects of whoever runs it. It is also
-/// the only case that runs [`restart_safety_report`], because that check starts and stops daemons
-/// over the directory twice, and no check has any business doing that to a live install.
+/// the only case that runs [`restart_safety_report`] and the installer checks
+/// ([`check_health`] and [`check_fake_provider_pipeline`]), because those start and stop daemons
+/// over the directory twice and write a smoke project and a full pipeline run into it, and no
+/// check has any business doing that to a live install.
 pub fn self_check(scratch: Option<&Path>) -> anyhow::Result<()> {
     let (data_dir, outcome, restart_config) = match scratch {
         None => {
@@ -479,6 +749,15 @@ pub fn self_check(scratch: Option<&Path>) -> anyhow::Result<()> {
             "the webview's CORS preflight is answered",
             error,
         ),
+    }
+
+    if scratch.is_some() {
+        // The two installer checks live here, in the scratch-only half, for the same reason
+        // the restart check does: one of them writes nothing to the daemon it shares with the
+        // owner, and the other creates a smoke project and a whole run. Neither has any
+        // business touching the owner's real data directory.
+        check_health(&mut failures, &endpoint.ws_url);
+        check_fake_provider_pipeline(&mut failures, &host, &endpoint.token, &check);
     }
 
     if let Some(handle) = process {
@@ -757,15 +1036,23 @@ mod tests {
     fn a_write_keeps_the_keys_another_writer_stored() {
         let directory = scratch("settings-merge");
         let first = shell(&directory);
-        first.set("routine_enabled", "true").expect("the first key is stored");
+        first
+            .set("routine_enabled", "true")
+            .expect("the first key is stored");
 
         // A second state over the same file, which is what a second window of the same
         // install is: it read the file at start, and its write must not be the whole file
         // as it remembers it.
         let second = shell(&directory);
-        second.set(THEME, "light").expect("the second key is stored");
+        second
+            .set(THEME, "light")
+            .expect("the second key is stored");
 
-        assert_eq!(second.get("routine_enabled"), "true", "the other window's key is still there");
+        assert_eq!(
+            second.get("routine_enabled"),
+            "true",
+            "the other window's key is still there"
+        );
         assert_eq!(second.get(THEME), "light");
 
         // And the first writer sees the second's change on its next read of the file.
@@ -811,10 +1098,12 @@ mod tests {
 
     #[test]
     fn the_webview_origins_are_added_once_and_the_endpoint_matches_the_configuration() {
-        let mut config = warshad::DaemonConfig::default();
-        config.http_port = 8765;
-        config.ws_port = 8766;
-        config.auth_token = "the-token".to_string();
+        let config = warshad::DaemonConfig {
+            http_port: 8765,
+            ws_port: 8766,
+            auth_token: "the-token".to_string(),
+            ..warshad::DaemonConfig::default()
+        };
         let configured = config.clone();
 
         let once = with_webview_origins(config.clone());
@@ -837,7 +1126,10 @@ mod tests {
         assert_eq!(endpoint.base_url, "http://127.0.0.1:8766");
         assert_eq!(endpoint.ws_url, "ws://127.0.0.1:8765");
         assert_eq!(endpoint.token, "the-token");
-        assert!(!endpoint.owned, "the shell does not own what it did not start");
+        assert!(
+            !endpoint.owned,
+            "the shell does not own what it did not start"
+        );
     }
 
     #[test]
@@ -850,5 +1142,45 @@ mod tests {
         assert!(log.contains("first") && log.contains("second"), "{log}");
         // One stamped line per note, so a report can be read in order.
         assert_eq!(log.lines().count(), 2, "{log}");
+    }
+
+    /// The bundle file this test reads, resolved from the crate directory rather than the
+    /// current working directory: `cargo test` runs the test binary from inside `target/`,
+    /// and the manifest is a sibling of `src/`, not of anything under `target/`.
+    fn tauri_config_text() -> String {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tauri.conf.json");
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("{} must be readable: {error}", path.display()))
+    }
+
+    #[test]
+    fn the_shipped_config_builds_unsigned_and_ships_no_active_updater() {
+        // The Windows NSIS installer ships unsigned: no code-signing certificate and no
+        // updater minisign key exist for this release. A `true` here makes `tauri build`
+        // demand `TAURI_SIGNING_PRIVATE_KEY` and fail the packaging run, and an active
+        // `plugins.updater` would ship a window pointed at an endpoint that publishes no
+        // signed artifacts (it 404s). Both are refused by this test, which reads the very
+        // file `tauri build` consumes, so the packaged install and the checked-in config
+        // can never disagree.
+        let config: serde_json::Value =
+            serde_json::from_str(&tauri_config_text()).expect("tauri.conf.json is valid JSON");
+
+        assert_eq!(
+            config["bundle"]["createUpdaterArtifacts"].as_bool(),
+            Some(false),
+            "bundle.createUpdaterArtifacts must be false so an unsigned build needs no signing key"
+        );
+
+        match config
+            .get("plugins")
+            .and_then(|plugins| plugins.get("updater"))
+        {
+            None => {}
+            Some(updater) => assert_ne!(
+                updater.get("active").and_then(serde_json::Value::as_bool),
+                Some(true),
+                "plugins.updater must not be active: the updater endpoint ships no signed artifact"
+            ),
+        }
     }
 }
