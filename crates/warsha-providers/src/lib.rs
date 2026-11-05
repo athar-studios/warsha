@@ -12,6 +12,8 @@ use tokio::sync::Semaphore;
 use warsha_core::*;
 
 mod anthropic;
+mod env_llm;
+mod fake;
 mod ollama;
 mod openai;
 mod provider_setup;
@@ -19,6 +21,8 @@ mod provider_update;
 mod secrets;
 
 pub use anthropic::AnthropicProvider;
+pub use env_llm::{EnvLlmConfig, DEFAULT_LLM_BASE_URL, DEFAULT_LLM_MODEL};
+pub use fake::{FakeProvider, FAKE_MODEL_ID, FAKE_PROVIDER_ID};
 pub use ollama::OllamaProvider;
 pub use openai::{delete_key, load_key, store_key, OpenAIProvider};
 pub use provider_setup::{
@@ -618,9 +622,18 @@ impl ProviderRouter {
 
     fn with_capacity_and_policy(max_concurrent: usize, retry: RetryPolicy) -> Self {
         let max_concurrent = max_concurrent.max(1);
+        // The deterministic fake provider is pre-registered on *every* router under
+        // `"fake"`, so an end-to-end run is always executable with zero configured
+        // providers, zero keys and zero network. It carries no role routing, so it
+        // never hijacks a role the owner explicitly routed.
+        let mut providers = HashMap::new();
+        providers.insert(
+            FAKE_PROVIDER_ID.to_string(),
+            Arc::new(FakeProvider::new()) as Arc<dyn ChatProvider>,
+        );
         Self {
             core: Arc::new(RouterCore {
-                providers: std::sync::RwLock::new(HashMap::new()),
+                providers: std::sync::RwLock::new(providers),
                 role_routings: std::sync::RwLock::new(HashMap::new()),
                 retry: std::sync::RwLock::new(retry),
                 permits: std::sync::RwLock::new(Arc::new(Semaphore::new(max_concurrent))),

@@ -64,6 +64,43 @@ impl OpenAIProvider {
         Ok(Self { models, ..provider })
     }
 
+    /// Build an OpenAI-compatible provider directly from an [`EnvLlmConfig`] —
+    /// its `base_url`, its key and its model — without touching the OS keychain
+    /// and without making any network call at construction time.
+    ///
+    /// A config with no key cannot serve a hosted endpoint, so this refuses with
+    /// [`ProviderError::Auth`] rather than building a client that would fail at
+    /// the first call. The key never appears in the error text.
+    pub fn from_env_config(id: String, config: &EnvLlmConfig) -> Result<Self> {
+        let api_key = config.api_key.as_ref().ok_or_else(|| {
+            ProviderError::Auth(format!(
+                "no API key in the environment (WARSHA_LLM_API_KEY) for provider {id}"
+            ))
+        })?;
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {api_key}"))
+                .map_err(|e| ProviderError::Auth(format!("Invalid API key: {e}")))?,
+        );
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+        let client = Client::builder()
+            .default_headers(headers)
+            .timeout(Duration::from_secs(120))
+            .build()
+            .map_err(|e| ProviderError::Other(e.to_string()))?;
+
+        Ok(Self {
+            models: vec![default_model_info(&id, &config.model)],
+            id,
+            client,
+            api_base: config.base_url.clone(),
+            _api_key: api_key.clone(),
+        })
+    }
+
     async fn fetch_models(&self) -> Result<Vec<ModelInfo>> {
         let url = format!("{}/models", self.api_base.trim_end_matches('/'));
         let resp = self
@@ -425,5 +462,82 @@ pub async fn delete_key(credentials: &CredentialsRef) -> Result<()> {
             Ok(())
         }
         _ => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config_with_key() -> EnvLlmConfig {
+        EnvLlmConfig {
+            base_url: "https://router.test/v1".to_string(),
+            api_key: Some("sk-test-not-a-real-key".to_string()),
+            model: "vendor/test-model".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn from_env_config_builds_without_keychain_or_network() {
+        // Construction reads nothing but the config it is given: no keychain and
+        // no model fetch. `list_models` answering from the stored catalog proves
+        // the built client carries the config's model.
+        let provider =
+            OpenAIProvider::from_env_config("env-openai".to_string(), &config_with_key())
+                .expect("a config with a key builds");
+        assert_eq!(provider.id(), "env-openai");
+        let models = provider
+            .list_models()
+            .await
+            .expect("the catalog is read locally");
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "vendor/test-model");
+    }
+
+    #[test]
+    fn from_env_config_without_a_key_is_an_auth_error_that_leaks_nothing() {
+        let config = EnvLlmConfig {
+            base_url: "https://router.test/v1".to_string(),
+            api_key: None,
+            model: "vendor/test-model".to_string(),
+        };
+        // `OpenAIProvider` carries live request headers, so it deliberately has no
+        // `Debug`; the result is matched by hand instead of `expect_err`.
+        let error = match OpenAIProvider::from_env_config("env-openai".to_string(), &config) {
+            Ok(_) => panic!("a config without a key must not build a provider"),
+            Err(error) => error,
+        };
+        match &error {
+            ProviderError::Auth(message) => {
+                assert!(
+                    !message.contains("sk-"),
+                    "the error text names a key: {message}"
+                );
+            }
+            other => panic!("expected an auth error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn from_env_config_uses_the_env_defaults_when_the_lookup_is_empty() {
+        // The defaults a caller gets from `EnvLlmConfig::from_lookup` land in the
+        // provider unchanged — the base url and model wiring is the whole point.
+        match OpenAIProvider::from_env_config(
+            "env-openai".to_string(),
+            &EnvLlmConfig::from_lookup(|_| None),
+        ) {
+            Ok(_) => panic!("the default config has no key"),
+            Err(ProviderError::Auth(_)) => {}
+            Err(other) => panic!("expected an auth error, got {other:?}"),
+        }
+
+        let config = EnvLlmConfig {
+            api_key: Some("sk-again-not-real".to_string()),
+            ..EnvLlmConfig::from_lookup(|_| None)
+        };
+        let provider = OpenAIProvider::from_env_config("env-openai".to_string(), &config)
+            .expect("a key completes the default config");
+        assert_eq!(provider.api_base, DEFAULT_LLM_BASE_URL);
+        assert_eq!(provider.models[0].id, DEFAULT_LLM_MODEL);
     }
 }
