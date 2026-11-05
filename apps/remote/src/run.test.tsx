@@ -7,7 +7,7 @@ import { fireEvent, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { describe, expect, it } from 'vitest';
 
-import { RUN, SESSION, event, fakeStream, renderRemote, settle, stubApi } from './testkit';
+import { RUN, SESSION, event, fakeStream, fullApi, renderRemote, settle, stubApi } from './testkit';
 
 describe('the pipeline plate', () => {
   it('draws every stage of the run, with the current one lit', async () => {
@@ -198,5 +198,99 @@ describe('the run the daemon moved', () => {
     // The stage the bench reports is the one the daemon answered with, not the one the phone kept.
     expect(statusReads).toBeGreaterThan(0);
     expect(screen.getByRole('status', { name: 'شريط الحالة' })).toHaveTextContent('التصميم');
+  });
+});
+
+describe('the run under the owner’s thumb (W4 run controls)', () => {
+  it('advances the run through `runs.advance` and follows the stage the daemon answered with', async () => {
+    const { calls } = renderRemote({ session: SESSION, route: '/run', api: fullApi() });
+    await settle();
+
+    fireEvent.click(screen.getByTestId('remote-run-advance'));
+    await settle();
+
+    expect(calls).toContain('advanceRun');
+    // The stub's advance answers the same run at `research`; the strip reads that stage, not the old one.
+    expect(screen.getByRole('status', { name: 'شريط الحالة' })).toHaveTextContent('البحث');
+  });
+
+  it('cancels the run through `runs.cancel`, and the plate says cancelled in the daemon’s word', async () => {
+    const { calls } = renderRemote({ session: SESSION, route: '/run', api: fullApi() });
+    await settle();
+
+    fireEvent.click(screen.getByTestId('remote-run-cancel'));
+    await settle();
+
+    expect(calls).toContain('cancelRun');
+    const plate = screen.getByRole('region', { name: 'التشغيل الحالي' });
+    expect(within(plate).getByText('حالة التشغيل: ملغى')).toBeInTheDocument();
+  });
+
+  it('sends a follow-up through `runs.followup` and clears the field only when the daemon took it', async () => {
+    const { calls } = renderRemote({ session: SESSION, route: '/run', api: fullApi() });
+    await settle();
+
+    const form = screen.getByTestId('remote-followup-form');
+    fireEvent.change(within(form).getByTestId('remote-followup-input'), { target: { value: 'أضف تصدير PDF' } });
+    fireEvent.click(within(form).getByTestId('remote-followup-submit'));
+    await settle();
+
+    expect(calls).toContain('followupRun');
+    expect(within(form).getByTestId('remote-followup-input')).toHaveValue('');
+  });
+
+  it('asks for the follow-up words before it writes anything', async () => {
+    const { calls } = renderRemote({ session: SESSION, route: '/run', api: fullApi() });
+    await settle();
+
+    const form = screen.getByTestId('remote-followup-form');
+    fireEvent.click(within(form).getByTestId('remote-followup-submit'));
+    await settle();
+
+    expect(within(form).getByText('اكتب التكملة أولاً.')).toBeInTheDocument();
+    expect(calls).not.toContain('followupRun');
+  });
+
+  it('lists the artifacts the run produced, read from `runs.artifacts`', async () => {
+    const { calls } = renderRemote({ session: SESSION, route: '/run', api: fullApi() });
+    await settle();
+
+    expect(calls).toContain('getRunArtifacts');
+    const plate = screen.getByTestId('remote-run-artifacts');
+    expect(within(plate).getByText('prd.md')).toBeInTheDocument();
+    expect(within(plate).getByText('plan.md')).toBeInTheDocument();
+    // The version is machine data, kept in the mono face beside each name.
+    expect(within(plate).getByText('v1', { selector: '[translate="no"]' })).toBeInTheDocument();
+  });
+
+  it('prepares a handoff bundle and applies it, showing the server’s own path and summary', async () => {
+    const { calls } = renderRemote({ session: SESSION, route: '/run', api: fullApi() });
+    await settle();
+
+    fireEvent.click(screen.getByTestId('remote-handoff-create'));
+    await settle();
+    expect(calls).toContain('createHandoff');
+    // The bundle path is the server's, printed as machine data — the phone never moves bytes itself.
+    const plate = screen.getByTestId('remote-run-handoff');
+    expect(
+      within(plate).getByText('/srv/warsha/handoff/handoff.zip', { selector: '[translate="no"]' })
+    ).toBeInTheDocument();
+
+    fireEvent.click(within(plate).getByTestId('remote-handoff-apply'));
+    await settle();
+    expect(calls).toContain('applyHandoff');
+    // The apply summary is the daemon's answer: two files applied, counted in the catalog's own Arabic
+    // dual form (`review_apply.summary` with count 2).
+    expect(within(plate).getByText('ملفان متغيران')).toBeInTheDocument();
+  });
+
+  it('shows none of it to a daemon that answers only the ten parity methods', async () => {
+    // Capability gating: a control the daemon cannot honour is a lie, so the plates stay unrendered.
+    renderRemote({ session: SESSION, route: '/run', api: stubApi() });
+    await settle();
+
+    expect(screen.queryByTestId('remote-run-controls')).toBeNull();
+    expect(screen.queryByTestId('remote-run-artifacts')).toBeNull();
+    expect(screen.queryByTestId('remote-run-handoff')).toBeNull();
   });
 });

@@ -8,7 +8,7 @@ import { fireEvent, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { describe, expect, it } from 'vitest';
 
-import { SESSION, renderRemote, settle, stubApi } from './testkit';
+import { DEVICES, SESSION, fullApi, renderRemote, settle, stubApi } from './testkit';
 
 async function openSettings(options: Parameters<typeof renderRemote>[0] = {}) {
   renderRemote({ session: SESSION, route: '/settings', ...options });
@@ -189,5 +189,87 @@ describe('the about plate', () => {
       screen.getByText('ورشة مصنع برمجيات يقودُه مالكه: يعمل الفريق بالذكاء الاصطناعي، ولا تعبر البوّابات إلا بقرارك. هذه الطاولة البعيدة للقراءة والقرار فقط.')
     ).toBeInTheDocument();
     expect(screen.getByText('ورشة — مصنع برمجيات بالذكاء الاصطناعي، عربي أولاً')).toBeInTheDocument();
+  });
+});
+
+describe('the no-keys notice', () => {
+  const AR_NOTICE =
+    'مفاتيح نماذج الذكاء الاصطناعي تبقى على خادم ورشة؛ أدرها من طاولة الحاسوب أو عبر متغيّرات بيئة الخادم.';
+
+  it('stands on the session plate, and no key field is there to mistype into', async () => {
+    await openSettings();
+    fireEvent.click(screen.getByRole('tab', { name: 'جلسة هذا الجهاز' }));
+
+    const plate = screen.getByRole('tabpanel', { name: 'جلسة هذا الجهاز' });
+    expect(within(plate).getByTestId('remote-no-llm-keys-notice')).toHaveTextContent(AR_NOTICE);
+    // The companion boundary is structural: a paired session plate has no text field at all,
+    // and no secret field anywhere on the screen — keys live on the server, and the phone says so.
+    expect(within(plate).queryByRole('textbox')).toBeNull();
+    expect(plate.querySelector('input[type="password"]')).toBeNull();
+  });
+
+  it('stands on the about plate too, in Arabic', async () => {
+    await openSettings();
+    fireEvent.click(screen.getByRole('tab', { name: 'عن التطبيق' }));
+
+    expect(screen.getByTestId('remote-no-llm-keys-notice')).toHaveTextContent(AR_NOTICE);
+  });
+
+  it('says the same sentence in English when the owner reads in English', async () => {
+    await openSettings({ locale: 'en' });
+    fireEvent.click(screen.getByRole('tab', { name: 'About' }));
+
+    expect(screen.getByTestId('remote-no-llm-keys-notice')).toHaveTextContent(
+      'Model keys live on your Warsha server — manage them on Desktop or via server environment variables.'
+    );
+  });
+});
+
+describe('the paired-devices plate on the session tab', () => {
+  it('lists the devices the daemon reports, with each id in the mono face', async () => {
+    renderRemote({ session: SESSION, route: '/settings', api: fullApi() });
+    await settle();
+    fireEvent.click(screen.getByRole('tab', { name: 'جلسة هذا الجهاز' }));
+
+    const list = screen.getByTestId('remote-devices-list');
+    expect(within(list).getByText('Surface')).toBeInTheDocument();
+    expect(within(list).getByText('Pixel')).toBeInTheDocument();
+    // A 390px row shortens the id but keeps it reachable in the title (§11).
+    expect(within(list).getByText('device-des…', { selector: '[translate="no"]' })).toBeInTheDocument();
+  });
+
+  it('revokes another device through `devices.revoke` and drops its row', async () => {
+    const { calls } = renderRemote({ session: SESSION, route: '/settings', api: fullApi() });
+    await settle();
+    fireEvent.click(screen.getByRole('tab', { name: 'جلسة هذا الجهاز' }));
+
+    fireEvent.click(screen.getByTestId('remote-device-revoke-device-phone-b'));
+    await settle();
+
+    expect(calls).toContain('revokeDevice');
+    const list = screen.getByTestId('remote-devices-list');
+    expect(within(list).queryByText('Pixel')).toBeNull();
+    expect(within(list).getByText('Surface')).toBeInTheDocument();
+  });
+
+  it('never offers a revoke for the device this session belongs to', async () => {
+    const api = fullApi({
+      listDevices: () => Promise.resolve([{ ...DEVICES[0], isCurrent: true }, DEVICES[1]]),
+    });
+    renderRemote({ session: SESSION, route: '/settings', api });
+    await settle();
+    fireEvent.click(screen.getByRole('tab', { name: 'جلسة هذا الجهاز' }));
+
+    // Ending your own session is the two-press button on the session plate, not a row action.
+    expect(screen.queryByTestId('remote-device-revoke-device-desktop')).toBeNull();
+    expect(screen.getByTestId('remote-device-revoke-device-phone-b')).toBeInTheDocument();
+  });
+
+  it('stays unrendered against a daemon that does not answer `devices.list`', async () => {
+    // Capability gating: no plate claiming "no paired devices" when nothing was ever read (§7).
+    await openSettings();
+    fireEvent.click(screen.getByRole('tab', { name: 'جلسة هذا الجهاز' }));
+
+    expect(screen.queryByTestId('remote-devices-list')).toBeNull();
   });
 });

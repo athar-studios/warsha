@@ -1,15 +1,17 @@
 // @warsha/remote — the projects ledger on a phone: ruled rows, one lamp, and the run underneath.
 //
-// §5 gives the desktop a projects board with an inline new-project plate. The phone gets the ledger only:
-// creating a project is the desktop bench's job (§2's mobile checker reads and decides), so this screen's
-// whole promise is "pick one and its run appears" — plus the three states §7 insists every list owns.
+// §5 gives the desktop a projects board with an inline new-project plate; W4 moved the phone from
+// read-and-decide to supervise, so the ledger also owns a create-project form and a start-run form —
+// both capability-gated: a ten-method daemon sees the ledger exactly as §5 drew it, with no form at
+// all. Nothing on this screen carries a model key: that boundary is the settings plate's notice.
+// The rest of the file is the three states §7 insists every list owns.
 import { fireEvent, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import type { ProjectSummary } from '@warsha/client';
 import { describe, expect, it } from 'vitest';
 
 
-import { PROJECT, SESSION, renderRemote, settle, stubApi } from './testkit';
+import { PROJECT, SESSION, fullApi, renderRemote, settle, stubApi } from './testkit';
 
 const SECOND: ProjectSummary = {
   ...PROJECT,
@@ -97,5 +99,73 @@ describe('the projects ledger', () => {
 
     fireEvent.click(screen.getByTestId('remote-projects-open-run'));
     expect(await screen.findByRole('heading', { level: 1, name: 'التشغيل الحالي' })).toBeInTheDocument();
+  });
+});
+
+describe('the create-project and start-run plates', () => {
+  it('creates a project through `projects.create` when the daemon answers it, and clears only on acceptance', async () => {
+    const { calls } = renderRemote({ session: SESSION, route: '/projects', api: fullApi() });
+    await settle();
+
+    const form = screen.getByTestId('remote-create-project-form');
+    fireEvent.change(within(form).getByTestId('remote-project-name-input'), { target: { value: 'تطبيق الوصفة' } });
+    fireEvent.change(within(form).getByTestId('remote-project-desc-input'), { target: { value: 'قائمة تسوق وصفات' } });
+    fireEvent.click(within(form).getByTestId('remote-project-create-submit'));
+    await settle();
+
+    // The write happened as an RPC, and the daemon's own new row joined the ledger.
+    expect(calls).toContain('createProject');
+    expect(within(screen.getByRole('list', { name: 'لوحة المشاريع' })).getByText('تطبيق الوصفة')).toBeInTheDocument();
+    // The field clears only on a write the daemon took (§7: nothing the owner typed is silently eaten).
+    expect(within(form).getByTestId('remote-project-name-input')).toHaveValue('');
+    expect(within(form).getByTestId('remote-project-desc-input')).toHaveValue('');
+  });
+
+  it('asks for a name before it writes, and keeps the owner’s words when the daemon refuses', async () => {
+    const refuse = fullApi({
+      createProject: () => Promise.reject(new Error('no')),
+    });
+    const { calls } = renderRemote({ session: SESSION, route: '/projects', api: refuse });
+    await settle();
+
+    const form = screen.getByTestId('remote-create-project-form');
+    fireEvent.click(within(form).getByTestId('remote-project-create-submit'));
+    await settle();
+    expect(calls).not.toContain('createProject');
+    expect(within(form).getByText('اكتب اسماً للمشروع أولاً.')).toBeInTheDocument();
+  });
+
+  it('starts a run on the selected project through `runs.start`', async () => {
+    const { calls } = renderRemote({ session: SESSION, route: '/projects', api: fullApi() });
+    await settle();
+
+    // The bench opened on the ledger's only project, so the start-run plate is there with it.
+    const form = screen.getByTestId('remote-start-run-form');
+    fireEvent.change(within(form).getByTestId('remote-run-idea-input'), { target: { value: 'سوق للأسر المنتجة' } });
+    fireEvent.click(within(form).getByTestId('remote-run-start-submit'));
+    await settle();
+
+    expect(calls).toContain('startRun');
+    expect(within(form).getByTestId('remote-run-idea-input')).toHaveValue('');
+  });
+
+  it('shows neither form to a daemon that does not serve the writes', async () => {
+    // The ten-method stub is exactly that: capability gating, not a control that lies about working.
+    renderRemote({ session: SESSION, route: '/projects', api: stubApi() });
+    await settle();
+
+    expect(screen.queryByTestId('remote-create-project-form')).toBeNull();
+    expect(screen.queryByTestId('remote-start-run-form')).toBeNull();
+  });
+
+  it('offers no model-key field on either plate — the phone never holds keys', async () => {
+    renderRemote({ session: SESSION, route: '/projects', api: fullApi() });
+    await settle();
+
+    const create = screen.getByTestId('remote-create-project-form');
+    const start = screen.getByTestId('remote-start-run-form');
+    expect(within(create).queryByRole('textbox', { name: /key|مفتاح/i })).toBeNull();
+    expect(within(start).queryByRole('textbox', { name: /key|مفتاح/i })).toBeNull();
+    expect(document.querySelector('input[type="password"]')).toBeNull();
   });
 });
