@@ -18,7 +18,9 @@ import {
   type ProjectSummary,
   type ProviderConfig,
   type Role,
+  type RunArtifact,
   type RunId,
+  type RunStreamSync,
   type RunSummary,
   type Stage,
   type WarshaEvent,
@@ -50,6 +52,8 @@ class FakeWebSocket {
   readonly protocols: string | string[] | undefined;
   readyState = 0;
   closeCallCount = 0;
+  /** Text frames written down the socket, in order — what `runs.subscribe` commands use. */
+  sent: string[] = [];
   onmessage: MessageHandler | null = null;
   onerror: ErrorHandler | null = null;
   onclose: CloseHandler | null = null;
@@ -58,6 +62,10 @@ class FakeWebSocket {
     this.url = url;
     this.protocols = protocols;
     FakeWebSocket.instances.push(this);
+  }
+
+  send(data: string): void {
+    this.sent.push(data);
   }
 
   close(): void {
@@ -1061,5 +1069,354 @@ describe('subscribeEvents', () => {
     expect(errors[0].message).toContain('Event handler failed');
 
     subscription.close();
+  });
+});
+
+describe('run stream RPCs (WS3)', () => {
+  const RUN = {
+    id: '01JRUN000000000000000000',
+    project_id: 'proj-1',
+    current_stage: 'code',
+    status: 'running',
+    started_at: '2026-10-28T00:00:00Z',
+    updated_at: '2026-10-28T00:01:00Z',
+  };
+
+  function frame(index: number): Record<string, unknown> {
+    return {
+      id: `evt-${index}`,
+      run_id: '01JRUN000000000000000000',
+      stage: 'code',
+      role: 'coder',
+      kind: 'agent_step',
+      payload: { summary: `step ${index}` },
+      cost_cents: null,
+      created_at: '2026-10-28T00:00:00Z',
+      device_id: null,
+      seq: index,
+      gap_detected: false,
+      dropped_count: 0,
+      resync_required: false,
+    };
+  }
+
+  it('subscribeRun calls runs.subscribe with the daemon argument names', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse({
+        seq: 3,
+        gap_detected: false,
+        resync_required: false,
+        dropped_count: 0,
+        run: null,
+        events: [frame(2), frame(3)],
+      })
+    );
+
+    const sync: RunStreamSync = await client.subscribeRun(undefined, 1);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/rpc',
+      expect.objectContaining({ body: expect.stringContaining('"method":"runs.subscribe"') })
+    );
+    expect(sentParams(0)).toEqual({
+      run_id: null,
+      since_seq: 1,
+    });
+    expect(sync.seq).toBe(3);
+    expect(sync.gap_detected).toBe(false);
+    expect(sync.resync_required).toBe(false);
+    expect(sync.dropped_count).toBe(0);
+    expect(sync.run).toBeNull();
+    // Each wire frame is a flattened SequencedEventFrame: decoded as an event
+    // with its sequence metadata populated.
+    expect(sync.events).toHaveLength(2);
+    expect(sync.events[0].id).toBe('evt-2');
+    expect(sync.events[0].seq).toBe(2);
+    expect(sync.events[1].runId).toBe('01JRUN000000000000000000');
+  });
+
+  it('subscribeRun sends both arguments explicitly null when nothing is named', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse({
+        seq: 0,
+        gap_detected: false,
+        resync_required: false,
+        dropped_count: 0,
+        run: null,
+        events: [],
+      })
+    );
+
+    const sync = await client.subscribeRun();
+    expect(sentParams(0)).toEqual({ run_id: null, since_seq: null });
+    expect(sync.events).toEqual([]);
+  });
+
+  it('subscribeRun keeps a named run on the wire and carries the run through', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse({
+        seq: 9,
+        gap_detected: true,
+        resync_required: true,
+        dropped_count: 4,
+        run: RUN,
+        events: [],
+      })
+    );
+
+    const sync = await client.subscribeRun('01JRUN000000000000000000' as RunId, 2);
+    expect(sentParams(0)).toEqual({ run_id: '01JRUN000000000000000000', since_seq: 2 });
+    expect(sync.gap_detected).toBe(true);
+    expect(sync.resync_required).toBe(true);
+    expect(sync.dropped_count).toBe(4);
+    expect(sync.run).toEqual(RUN);
+  });
+
+  it('subscribeRun refuses a malformed sync response', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ seq: 1, events: 'nope' }));
+    await expect(client.subscribeRun()).rejects.toThrow(/runs\.subscribe/);
+
+    fetchMock.mockResolvedValueOnce(okResponse({ events: [] }));
+    await expect(client.subscribeRun()).rejects.toThrow(/runs\.subscribe/);
+  });
+
+  it('advanceRun calls runs.advance with run_id', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(RUN));
+
+    const run = await client.advanceRun('run-1' as RunId);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/rpc',
+      expect.objectContaining({ body: expect.stringContaining('"method":"runs.advance"') })
+    );
+    expect(sentParams(0)).toEqual({ run_id: 'run-1' });
+    expect(run).toEqual(RUN as unknown as RunSummary);
+  });
+
+  it('cancelRun calls runs.cancel with the reason, and null when none is given', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ ...RUN, status: 'cancelled' }));
+    await client.cancelRun('run-1' as RunId, 'owner changed course');
+    expect(sentParams(0)).toEqual({ run_id: 'run-1', reason: 'owner changed course' });
+
+    fetchMock.mockResolvedValueOnce(okResponse({ ...RUN, status: 'cancelled' }));
+    await client.cancelRun('run-1' as RunId);
+    expect(sentParams(1)).toEqual({ run_id: 'run-1', reason: null });
+  });
+
+  it('followupRun calls runs.followup with run_id and prompt', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(RUN));
+
+    await client.followupRun('run-1' as RunId, 'أضف دعم العربية');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/rpc',
+      expect.objectContaining({ body: expect.stringContaining('"method":"runs.followup"') })
+    );
+    expect(sentParams(0)).toEqual({ run_id: 'run-1', prompt: 'أضف دعم العربية' });
+  });
+
+  it('getRunArtifacts calls runs.artifacts and hands back the artifact rows', async () => {
+    const artifacts: RunArtifact[] = [
+      {
+        name: 'prd_spec',
+        content: '# PRD',
+        stage: 'prd_spec',
+        role: 'pm',
+        created_at: '2026-10-28T00:00:00Z',
+        updated_at: '2026-10-28T00:00:00Z',
+        version: 1,
+      },
+    ];
+    fetchMock.mockResolvedValueOnce(okResponse(artifacts));
+
+    const result = await client.getRunArtifacts('run-1' as RunId);
+
+    expect(sentParams(0)).toEqual({ run_id: 'run-1' });
+    expect(result).toEqual(artifacts);
+  });
+});
+
+describe('subscribeEvents sequence handling (WS3)', () => {
+  let errors: Error[];
+  let gaps: { droppedCount: number; seq: number }[];
+  let resyncs: { seq: number }[];
+  let events: WarshaEvent[];
+
+  beforeEach(() => {
+    FakeWebSocket.reset();
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    errors = [];
+    gaps = [];
+    resyncs = [];
+    events = [];
+  });
+
+  function sequencedFrame(overrides: Record<string, unknown>): string {
+    return JSON.stringify({
+      id: 'evt-1',
+      run_id: 'run-1',
+      stage: 'code',
+      role: 'coder',
+      kind: 'agent_step',
+      payload: { summary: 'ok' },
+      cost_cents: null,
+      created_at: '2026-10-28T00:00:00Z',
+      device_id: null,
+      ...overrides,
+    });
+  }
+
+  function subscribe(): ReturnType<typeof subscribeEvents> {
+    return subscribeEvents({
+      url: 'ws://127.0.0.1:8765',
+      token: TOKEN,
+      onEvent: (event) => {
+        events.push(event);
+      },
+      onError: (error) => {
+        errors.push(error);
+      },
+      onGap: (info) => {
+        gaps.push(info);
+      },
+      onResyncRequired: (info) => {
+        resyncs.push(info);
+      },
+    });
+  }
+
+  it('appends since_seq and run_id to the socket URL when provided', () => {
+    const subscription = subscribeEvents({
+      url: 'http://127.0.0.1:8765',
+      token: TOKEN,
+      onEvent: () => undefined,
+      sinceSeq: 42,
+      runId: '01JRUN000000000000000000' as RunId,
+    });
+
+    expect(FakeWebSocket.last().url).toBe(
+      'ws://127.0.0.1:8765/events?since_seq=42&run_id=01JRUN000000000000000000'
+    );
+    subscription.close();
+  });
+
+  it('leaves the URL bare when no cursor is named', () => {
+    const subscription = subscribe();
+    expect(FakeWebSocket.last().url).toBe('ws://127.0.0.1:8765/events');
+    subscription.close();
+  });
+
+  it('populates the sequence fields on a decoded frame', () => {
+    const subscription = subscribe();
+    FakeWebSocket.last().emitMessage(
+      sequencedFrame({ seq: 5, gap_detected: false, dropped_count: 0, resync_required: false })
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0].seq).toBe(5);
+    expect(events[0].gapDetected).toBe(false);
+    expect(events[0].droppedCount).toBe(0);
+    expect(events[0].resyncRequired).toBe(false);
+    expect(errors).toHaveLength(0);
+
+    subscription.close();
+  });
+
+  it('routes a gap frame to onGap and a resync frame to onResyncRequired', () => {
+    const subscription = subscribe();
+    const socket = FakeWebSocket.last();
+
+    socket.emitMessage(
+      sequencedFrame({ seq: 8, gap_detected: true, dropped_count: 3, resync_required: false })
+    );
+    expect(gaps).toEqual([{ droppedCount: 3, seq: 8 }]);
+    expect(events).toHaveLength(1);
+
+    socket.emitMessage(
+      sequencedFrame({ seq: 9, gap_detected: false, dropped_count: 0, resync_required: true })
+    );
+    expect(resyncs).toEqual([{ seq: 9 }]);
+
+    subscription.close();
+  });
+
+  it('detects an unannounced seq skip as a gap between live frames', () => {
+    const subscription = subscribe();
+    const socket = FakeWebSocket.last();
+
+    socket.emitMessage(sequencedFrame({ seq: 1 }));
+    socket.emitMessage(sequencedFrame({ seq: 4 }));
+
+    expect(gaps).toEqual([{ droppedCount: 2, seq: 4 }]);
+    expect(events).toHaveLength(2);
+
+    subscription.close();
+  });
+
+  it('starts the cursor at sinceSeq so replay frames do not fake a gap', () => {
+    const subscription = subscribeEvents({
+      url: 'ws://127.0.0.1:8765',
+      token: TOKEN,
+      onEvent: (event) => {
+        events.push(event);
+      },
+      onError: (error) => {
+        errors.push(error);
+      },
+      onGap: (info) => {
+        gaps.push(info);
+      },
+      sinceSeq: 10,
+    });
+
+    FakeWebSocket.last().emitMessage(sequencedFrame({ seq: 11 }));
+    FakeWebSocket.last().emitMessage(sequencedFrame({ seq: 12 }));
+
+    expect(gaps).toHaveLength(0);
+    expect(events).toHaveLength(2);
+
+    subscription.close();
+  });
+
+  it('subscribeRun sends the runs.subscribe command down the open socket', () => {
+    const subscription = subscribe();
+    const socket = FakeWebSocket.last();
+    if (typeof subscription.subscribeRun !== 'function') {
+      throw new Error('subscription is missing subscribeRun');
+    }
+
+    subscription.subscribeRun('run-9' as RunId, 7);
+    expect(socket.sent).toEqual([
+      JSON.stringify({ method: 'runs.subscribe', params: { run_id: 'run-9', since_seq: 7 } }),
+    ]);
+
+    subscription.subscribeRun('run-9' as RunId);
+    expect(JSON.parse(socket.sent[1] ?? '').params).toEqual({ run_id: 'run-9' });
+
+    subscription.close();
+  });
+
+  it('unsubscribeRun sends the runs.unsubscribe command down the socket', () => {
+    const subscription = subscribe();
+    const socket = FakeWebSocket.last();
+    if (typeof subscription.unsubscribeRun !== 'function') {
+      throw new Error('subscription is missing unsubscribeRun');
+    }
+
+    subscription.unsubscribeRun('run-9' as RunId);
+    expect(socket.sent).toEqual([
+      JSON.stringify({ method: 'runs.unsubscribe', params: { run_id: 'run-9' } }),
+    ]);
+
+    subscription.close();
+  });
+
+  it('refuses to command a closed subscription and reports instead of throwing', () => {
+    const subscription = subscribe();
+    subscription.close();
+
+    expect(() => subscription.subscribeRun?.('run-9' as RunId)).not.toThrow();
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain('closed event stream');
   });
 });

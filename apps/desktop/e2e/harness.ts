@@ -127,10 +127,15 @@ export const RPC_METHODS = [
   'providers.test',
   'roles.list',
   'roles.set',
+  'runs.advance',
+  'runs.artifacts',
+  'runs.cancel',
   'runs.events',
+  'runs.followup',
   'runs.get',
   'runs.list',
   'runs.start',
+  'runs.subscribe',
 ] as const;
 export type RpcMethod = (typeof RPC_METHODS)[number];
 
@@ -1034,6 +1039,78 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
       return { ok: true, result: RUN_EVENTS };
     case 'runs.start':
       return { ok: true, result: RUNS[0] };
+    // Run stream synchronisation and run control (WS3). The stub answers the
+    // daemon's own wire shapes: `runs.subscribe` returns a `RunStreamSync`
+    // (seq / gap flags / run / sequenced events), the run-control methods
+    // return the daemon's snake_case-free `Run` summary rows, and
+    // `runs.artifacts` returns `warsha_core::Artifact` rows.
+    case 'runs.subscribe': {
+      // Both params are `Option`s on the daemon, so neither is required; a
+      // named but unparseable `since_seq` is the one refusal, mirroring the
+      // daemon's own `-32602` for a mistyped bound argument.
+      const runId = paramValue(params, 'run_id');
+      const sinceEntry = paramEntry(params, 'since_seq');
+      const sinceRaw = sinceEntry.value;
+      let sinceSeq = 0;
+      if (sinceRaw !== null && sinceRaw !== undefined) {
+        const parsed = Number(sinceRaw);
+        if (!Number.isFinite(parsed) || parsed < 0) {
+          return { ok: false, code: -32602, message: "invalid value: 'since_seq', expected u64" };
+        }
+        sinceSeq = parsed;
+      }
+      const frames = RUN_EVENTS.map((event, index) => ({ ...event, seq: index + 1 })).filter(
+        (frame) => frame.seq > sinceSeq && (runId === null || frame.run_id === runId)
+      );
+      const run = runId === null ? null : (RUNS.find((item) => item.id === runId) ?? RUNS[0]);
+      return {
+        ok: true,
+        result: {
+          seq: RUN_EVENTS.length,
+          gap_detected: false,
+          resync_required: false,
+          dropped_count: 0,
+          run,
+          events: frames,
+        },
+      };
+    }
+    case 'runs.advance': {
+      if (!paramEntry(params, 'run_id').found) return missingField('run_id');
+      const id = paramValue(params, 'run_id');
+      const run = RUNS.find((item) => item.id === id) ?? RUNS[0];
+      return { ok: true, result: { ...run, status: 'awaiting_gate' } };
+    }
+    case 'runs.cancel': {
+      if (!paramEntry(params, 'run_id').found) return missingField('run_id');
+      const id = paramValue(params, 'run_id');
+      const run = RUNS.find((item) => item.id === id) ?? RUNS[0];
+      return { ok: true, result: { ...run, status: 'cancelled' } };
+    }
+    case 'runs.followup': {
+      if (!paramEntry(params, 'run_id').found) return missingField('run_id');
+      if (!paramEntry(params, 'prompt').found) return missingField('prompt');
+      const id = paramValue(params, 'run_id');
+      const run = RUNS.find((item) => item.id === id) ?? RUNS[0];
+      return { ok: true, result: run };
+    }
+    case 'runs.artifacts': {
+      if (!paramEntry(params, 'run_id').found) return missingField('run_id');
+      return {
+        ok: true,
+        result: [
+          {
+            name: 'prd_spec',
+            content: '# متجر ورشة — PRD\n\nDeterministic stub artifact for the e2e lane.',
+            stage: 'prd_spec',
+            role: 'pm',
+            created_at: CREATED_AT,
+            updated_at: CREATED_AT,
+            version: 1,
+          },
+        ],
+      };
+    }
     case 'projects.get': {
       // `get_project(&self, id)` really is named `id` (`crates/warshad/src/lib.rs:677`), so this one
       // is the checked-and-correct case; it still refuses a request that never carried it rather

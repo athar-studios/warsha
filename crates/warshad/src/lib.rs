@@ -1,8 +1,8 @@
 //! Warshad — Daemon binary: local API (JSON-RPC over Unix socket / named pipe + localhost HTTP/WebSocket with token)
 
 use axum::{
-    extract::{ws::WebSocketUpgrade, ConnectInfo, State},
-    http::header::AUTHORIZATION,
+    extract::{ws::WebSocketUpgrade, ConnectInfo, Query, State},
+    http::{header::AUTHORIZATION, HeaderMap},
     response::{IntoResponse, Json, Response},
     routing::get,
     Router,
@@ -20,11 +20,12 @@ use jsonrpsee::{
 use keyring::Entry;
 use rand::TryRngCore;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use thiserror::Error;
@@ -143,6 +144,373 @@ pub type Result<T> = std::result::Result<T, DaemonError>;
 fn provider_refusal(message: impl Into<String>) -> ErrorObjectOwned {
     ErrorObject::owned(-32000, message.into(), None::<()>)
 }
+
+// =============================================================== the event stream
+
+/// How many sequenced events the daemon keeps buffered for replay — to a
+/// reconnecting `/events` client that names a `since_seq` (or sends a
+/// `Last-Event-ID`), and to a `runs.subscribe` that asks to catch up.
+///
+/// A ring, not an unbounded log. The durable history is the store's job
+/// (`runs.events`); this buffer exists only to close the gap between a client's
+/// last seen `seq` and the live stream. Once an event scrolls off the front the
+/// daemon stops pretending it can replay it and answers with
+/// `gap_detected`/`resync_required` instead of silently skipping, so the client
+/// catches up from the store rather than believing it saw everything.
+pub const EVENT_REPLAY_CAPACITY: usize = 2048;
+
+/// One [`Event`] plus the daemon-wide sequence number every client agrees on.
+///
+/// `seq` is the ordering, from one counter shared by every subscriber, so two
+/// clients watching one daemon see the same event under the same `seq` and
+/// cannot disagree about order. The three flags are `#[serde(default)]` so a
+/// normal frame decodes with them false; they carry the only two abnormal things
+/// a bounded, live stream can produce:
+///   * `gap_detected` + `dropped_count`: this subscriber fell behind the bus and
+///     `dropped_count` frames went past between the last one it saw and this one;
+///   * `resync_required`: the daemon cannot resume from where the client asked
+///     (its cursor predates the ring, or points past anything this process has
+///     published — a restart), so the client should rebuild from `runs.events`.
+///
+/// `#[serde(flatten)] event` keeps the `Event`'s own fields at the top level of
+/// the frame, so a consumer that still parses a frame as a bare
+/// `warsha_core::Event` — the desktop client and the existing `/events` tests —
+/// keeps working untouched: `seq` and the flags are extra fields serde ignores.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SequencedEventFrame {
+    pub seq: u64,
+    #[serde(default)]
+    pub gap_detected: bool,
+    #[serde(default)]
+    pub dropped_count: u64,
+    #[serde(default)]
+    pub resync_required: bool,
+    #[serde(flatten)]
+    pub event: Event,
+}
+
+/// What a `/events` reconnect and the `runs.subscribe` RPC agree a client holds
+/// after it catches up: where the stream is (`seq`), whether a gap or a full
+/// resync is owed (`gap_detected` / `resync_required` / `dropped_count`), the run
+/// the client named when it named one (`run`), and the buffered frames after its
+/// cursor in exact order (`events`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunStreamSync {
+    pub seq: u64,
+    pub gap_detected: bool,
+    pub resync_required: bool,
+    pub dropped_count: u64,
+    pub run: Option<Run>,
+    pub events: Vec<SequencedEventFrame>,
+}
+
+/// The answer to "give me everything from `since_seq` onward": the current end of
+/// the stream, the ordered buffered frames the ring still holds, and whether a
+/// gap (frames already evicted) or a full resync (a restart, or a cursor past the
+/// end) is owed. This is the one decision `/events` connect, `/events` replay and
+/// `runs.subscribe` all read from, so they cannot disagree.
+///
+/// Public so an integration test can drive the gap/resync decision on a
+/// small-capacity sequencer (`EventSequencer::with_capacity`) without booting a
+/// daemon that would have to evict 2048 real frames to reach the same state.
+#[derive(Debug, Clone)]
+pub struct StreamSync {
+    /// The `seq` of the most recently published frame (0 before the first).
+    pub current_seq: u64,
+    /// The contiguous buffered frames after the cursor, oldest first.
+    pub frames: Vec<SequencedEventFrame>,
+    /// True when frames between the cursor and the ring's front have been evicted.
+    pub gap_detected: bool,
+    /// True when the client must rebuild from the store rather than resume.
+    pub resync_required: bool,
+    /// How many frames the cursor cannot recover.
+    pub dropped_count: u64,
+}
+
+/// The daemon-wide sequencer: one monotonic `seq` counter, one bounded replay
+/// ring, and one live bus every `/events` socket subscribes to.
+///
+/// A single source stamps each event exactly once, which is what makes "two
+/// clients see identical events in identical order" provable rather than
+/// emergent. It is fed by the one background pump in
+/// [`start_daemon_with_provider_factory`], which drains the store's event bus,
+/// scrubs each event, and calls [`EventSequencer::publish`]; because the pump is
+/// the only writer, `seq` order is the store's arrival order and no two RPCs can
+/// race to stamp the same instant.
+pub struct EventSequencer {
+    /// The next `seq` to hand out. Starts at 1, so `seq` 0 is never used and a
+    /// client's `since_seq: 0` means "from the very beginning of the ring".
+    next_seq: AtomicU64,
+    /// The bounded replay buffer, oldest at the front. An async lock because
+    /// `publish` runs on the pump task while `sync` runs inside request handlers.
+    ring: RwLock<VecDeque<SequencedEventFrame>>,
+    /// The live bus. Its capacity equals the ring's, so a subscriber that pauses
+    /// is reported `Lagged` at the same backlog that would have evicted a frame
+    /// from replay — the two ways to lose events stay in step.
+    tx: broadcast::Sender<SequencedEventFrame>,
+    capacity: usize,
+}
+
+impl Default for EventSequencer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl EventSequencer {
+    pub fn new() -> Self {
+        Self::with_capacity(EVENT_REPLAY_CAPACITY)
+    }
+
+    /// A sequencer with a named replay capacity.
+    ///
+    /// Exposed for tests, which cannot cheaply fill a 2048-frame ring on a live
+    /// socket: a small capacity makes the two loss paths (`Lagged` on the live
+    /// bus, eviction off the ring front) reachable in a handful of publishes.
+    pub fn with_capacity(capacity: usize) -> Self {
+        let capacity = capacity.max(1);
+        let (tx, _rx) = broadcast::channel(capacity);
+        Self {
+            next_seq: AtomicU64::new(1),
+            ring: RwLock::new(VecDeque::with_capacity(capacity)),
+            tx,
+            capacity,
+        }
+    }
+
+    /// The `seq` of the most recently published frame, or 0 before the first.
+    pub fn current_seq(&self) -> u64 {
+        self.next_seq.load(Ordering::SeqCst).saturating_sub(1)
+    }
+
+    /// Stamp `event` with the next `seq`, append it to the ring (evicting the
+    /// oldest frame when the ring is already full), and broadcast it live.
+    pub async fn publish(&self, event: Event) -> SequencedEventFrame {
+        let seq = self.next_seq.fetch_add(1, Ordering::SeqCst);
+        let frame = SequencedEventFrame {
+            seq,
+            gap_detected: false,
+            dropped_count: 0,
+            resync_required: false,
+            event,
+        };
+        {
+            let mut ring = self.ring.write().await;
+            if ring.len() >= self.capacity {
+                ring.pop_front();
+            }
+            ring.push_back(frame.clone());
+        }
+        // A failed send means no live subscriber is attached right now. The frame
+        // is still in the ring for the next `sync`, so the ring and the store —
+        // never the broadcast — are the record of what happened.
+        let _ = self.tx.send(frame.clone());
+        frame
+    }
+
+    /// A fresh live subscriber, starting at whatever is published after this call.
+    pub fn subscribe(&self) -> broadcast::Receiver<SequencedEventFrame> {
+        self.tx.subscribe()
+    }
+
+    /// Replay everything after `since_seq`, optionally narrowed to one run, and
+    /// decide whether the caller instead owes a gap or a full resync.
+    ///
+    /// Three outcomes:
+    ///   * `since_seq` points *past* `current_seq` — the client talked to a
+    ///     process that is no longer here — so a resync is owed immediately;
+    ///   * `since_seq` predates the oldest frame still in the ring, so the frames
+    ///     between it and the front have scrolled off: a gap with their true
+    ///     count, and no partial replay to imply the client saw the whole tail;
+    ///   * otherwise the contiguous frames after `since_seq` come back in order
+    ///     and nothing abnormal is owed.
+    pub async fn sync(&self, since_seq: u64, run_filter: Option<RunId>) -> StreamSync {
+        let current_seq = self.current_seq();
+
+        if since_seq > current_seq {
+            return StreamSync {
+                current_seq,
+                frames: Vec::new(),
+                gap_detected: true,
+                resync_required: true,
+                dropped_count: since_seq.saturating_sub(current_seq),
+            };
+        }
+
+        let ring = self.ring.read().await;
+        if let Some(front_seq) = ring.front().map(|frame| frame.seq) {
+            if since_seq.saturating_add(1) < front_seq {
+                return StreamSync {
+                    current_seq,
+                    frames: Vec::new(),
+                    gap_detected: true,
+                    resync_required: true,
+                    dropped_count: front_seq.saturating_sub(since_seq).saturating_sub(1),
+                };
+            }
+        }
+
+        let frames = ring
+            .iter()
+            .filter(|frame| frame.seq > since_seq)
+            .filter(|frame| run_filter.is_none() || Some(frame.event.run_id) == run_filter)
+            .cloned()
+            .collect();
+        StreamSync {
+            current_seq,
+            frames,
+            gap_detected: false,
+            resync_required: false,
+            dropped_count: 0,
+        }
+    }
+}
+
+/// The value every scrubbed secret is replaced with.
+const REDACTED: &str = "[REDACTED]";
+
+/// The object keys (compared lowercased) whose every string value is redacted
+/// whatever it holds, because the key alone says the value is a secret.
+const SECRET_KEY_NAMES: &[&str] = &[
+    "api_key",
+    "apikey",
+    "secret",
+    "token",
+    "auth_token",
+    "password",
+    "authorization",
+];
+
+/// Scrub an event payload in place before it is stored, streamed, or returned.
+///
+/// Runs *before* an event enters the sequencer, before it goes out over `/events`,
+/// and before `runs.events`/`runs.subscribe` hand it back, so a secret can never
+/// reach a wire no matter which path a caller took. The two halves of the rule:
+///   * a string *value* is replaced whole if it contains the daemon's
+///     (non-empty) `auth_token`, an `sk-`-shaped provider key, or a `Bearer …`
+///     credential; and
+///   * the value under any object key naming a secret (see
+///     [`SECRET_KEY_NAMES`]) is replaced whatever it holds.
+///
+/// Hand-rolled rather than regex because the crate has no `regex` dependency and
+/// `Cargo.lock` is off-limits to this change; the patterns are fixed, short, and
+/// ASCII, so a byte scan is exact and cannot panic on a multibyte boundary.
+pub fn scrub_event_payload(payload: &mut serde_json::Value, auth_token: &str) {
+    scrub_value(payload, auth_token);
+}
+
+/// Recurse one [`serde_json::Value`], redacting strings and secret-named entries.
+fn scrub_value(value: &mut serde_json::Value, auth_token: &str) {
+    match value {
+        serde_json::Value::String(text) => {
+            if redact_string(text, auth_token) {
+                *text = REDACTED.to_string();
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                scrub_value(item, auth_token);
+            }
+        }
+        serde_json::Value::Object(entries) => {
+            for (key, inner) in entries.iter_mut() {
+                let lower = key.to_lowercase();
+                if SECRET_KEY_NAMES.contains(&lower.as_str()) {
+                    *inner = serde_json::Value::String(REDACTED.to_string());
+                } else {
+                    scrub_value(inner, auth_token);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Whether a string value carries a secret and so must be replaced whole.
+fn redact_string(text: &str, auth_token: &str) -> bool {
+    (!auth_token.is_empty() && text.contains(auth_token))
+        || contains_sk_token(text)
+        || contains_bearer(text)
+}
+
+/// A byte-level prefix test that never panics on a multibyte boundary.
+fn starts_with_at(haystack: &[u8], at: usize, needle: &[u8]) -> bool {
+    haystack.get(at..at + needle.len()) == Some(needle)
+}
+
+/// Whether `c` continues an `sk-…` provider key body.
+fn is_sk_body(c: u8) -> bool {
+    c.is_ascii_alphanumeric() || c == b'_' || c == b'-'
+}
+
+/// Whether `s` contains `sk-` followed by eight or more key-body characters.
+fn contains_sk_token(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if starts_with_at(bytes, i, b"sk-") {
+            let mut run = 0;
+            let mut j = i + 3;
+            while j < bytes.len() && is_sk_body(bytes[j]) {
+                run += 1;
+                j += 1;
+            }
+            if run >= 8 {
+                return true;
+            }
+            i = j;
+            continue;
+        }
+        i += 1;
+    }
+    false
+}
+
+/// Whether `c` continues the credential that follows a `Bearer ` scheme.
+fn is_bearer_body(c: u8) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'-')
+}
+
+/// Whether `s` contains a `Bearer` scheme followed by whitespace and a non-empty
+/// token of [`is_bearer_body`] characters — the wire spelling of an auth header
+/// value, matched case-sensitively because that is how it is minted.
+fn contains_bearer(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if starts_with_at(bytes, i, b"Bearer") {
+            let mut j = i + b"Bearer".len();
+            while j < bytes.len() && matches!(bytes[j], b' ' | b'\t') {
+                j += 1;
+            }
+            let start = j;
+            while j < bytes.len() && is_bearer_body(bytes[j]) {
+                j += 1;
+            }
+            if j > start {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
+/// The `netsh` command that opens a LAN-bound daemon's two ports on Windows.
+///
+/// A `0.0.0.0` bind publishes the daemon to the local network, and on Windows the
+/// inbound firewall rule does not create itself — so the daemon prints the exact
+/// one-command fix rather than leaving the owner to guess the verb, the profile,
+/// or which of its two ports to open. Returned as a string (the daemon never runs
+/// it: raising the firewall is the owner's deliberate, elevated act), and spelled
+/// here once so a startup log line and a test agree on the same text.
+pub fn windows_firewall_command(http_port: u16, ws_port: u16) -> String {
+    format!(
+        "netsh advfirewall firewall add rule name=\"Warsha Daemon\" dir=in action=allow protocol=TCP localport={http_port},{ws_port} profile=private"
+    )
+}
+
+// ============================================================= /end event stream
 
 /// Daemon configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -766,6 +1134,16 @@ pub struct DaemonState {
     /// directly) is exactly that case, and `devices.pair-start` refuses rather than
     /// inventing an address — see [`DaemonConfig::advertised_host`] for the other refusal.
     pub pairing_origin: std::sync::OnceLock<String>,
+    /// The daemon-wide event stream: one sequencer stamping every event with a shared
+    /// monotonic `seq`, holding a bounded replay ring, and broadcasting live frames to
+    /// every `/events` socket and every `runs.subscribe`.
+    ///
+    /// Fed by the single background pump in [`start_daemon_with_provider_factory`],
+    /// which drains the store's event bus, scrubs each event, and publishes it here. It
+    /// is the one reason two clients can be proven to see the same events in the same
+    /// order, and the same reason the `/events` replay and the `runs.subscribe` sync
+    /// cannot disagree about where the stream is.
+    pub events: Arc<EventSequencer>,
 }
 
 impl DaemonState {
@@ -1111,6 +1489,44 @@ pub trait WarshaApi {
 
     #[method(name = "routines.resume", with_extensions)]
     async fn resume_routine(&self, id: String) -> RpcResult<Routine>;
+
+    // The sequenced event stream. `runs.subscribe` is the RPC mirror of the `/events`
+    // WebSocket's replay: it answers where the daemon-wide stream is and hands back the
+    // buffered, scrubbed frames after the caller's cursor, so a client that cannot hold
+    // a socket (or reconnects after one dropped) resynchronises from one call. Both
+    // `run_id` and `since_seq` are optional: no run means every run, no cursor means the
+    // current end (nothing replayed).
+    #[method(name = "runs.subscribe", with_extensions)]
+    async fn subscribe_run(
+        &self,
+        run_id: Option<RunId>,
+        since_seq: Option<u64>,
+    ) -> RpcResult<RunStreamSync>;
+
+    /// Drive a run one gate forward. Walks `advance_to_next_gate` until the run reaches
+    /// a gate, the final `Feedback` stage, or a terminal status; reaching `Feedback`
+    /// completes the run. An unrouted pipeline role is answered by the pipeline's own
+    /// dispatch (W5's deterministic fake provider, or the env-configured model), so a
+    /// fresh daemon advances out of the box with no key and no network.
+    #[method(name = "runs.advance", with_extensions)]
+    async fn advance_run(&self, run_id: RunId) -> RpcResult<Run>;
+
+    /// Cancel a running run. Sets the status to `Cancelled`, records why, and appends an
+    /// `Error`-kind event carrying `{"action": "run_cancelled", …}` to the same stream a
+    /// live viewer watches. (The stream needs *some* event kind for a cancellation and
+    /// `warsha_core::EventKind` has no `StageFailed`; `Error` is the closest existing.)
+    #[method(name = "runs.cancel", with_extensions)]
+    async fn cancel_run(&self, run_id: RunId, reason: Option<String>) -> RpcResult<Run>;
+
+    /// Add a follow-up to a run at its current stage. Writes a `followup` artifact and
+    /// appends an `AgentStep` event with the prompt and the response, both of which flow
+    /// to `/events`. An empty or whitespace-only prompt is refused with `-32602`.
+    #[method(name = "runs.followup", with_extensions)]
+    async fn followup_run(&self, run_id: RunId, prompt: String) -> RpcResult<Run>;
+
+    /// The run's artifacts, sorted by name — the seam `ArtifactViewer.tsx` names.
+    #[method(name = "runs.artifacts", with_extensions)]
+    async fn list_run_artifacts(&self, run_id: RunId) -> RpcResult<Vec<Artifact>>;
 }
 
 /// Health response
@@ -1632,11 +2048,18 @@ impl WarshaApiServer for WarshaRpc {
 
     async fn get_events(&self, ext: &RpcExtensions, run_id: RunId) -> RpcResult<Vec<Event>> {
         self.authorize(ext, "runs.events")?;
-        self.state
+        let token = self.state.config.auth_token.clone();
+        let mut events = self
+            .state
             .store
             .get_events(run_id)
             .await
-            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+            .map_err(rpc_error)?;
+        // The store holds the payload as it was written; the wire never sees a secret.
+        for event in &mut events {
+            scrub_event_payload(&mut event.payload, &token);
+        }
+        Ok(events)
     }
 
     async fn approve_gate(
@@ -2848,14 +3271,165 @@ impl WarshaApiServer for WarshaRpc {
             .cloned()
             .ok_or_else(|| rpc_error(format!("routine {id} not found")))
     }
+
+    async fn subscribe_run(
+        &self,
+        ext: &RpcExtensions,
+        run_id: Option<RunId>,
+        since_seq: Option<u64>,
+    ) -> RpcResult<RunStreamSync> {
+        self.authorize(ext, "runs.subscribe")?;
+        // No cursor means "start from where the stream is now", so nothing is replayed;
+        // `0` means "everything the ring still holds".
+        let sync = self.state.events.sync(since_seq.unwrap_or(0), run_id).await;
+        let run = match run_id {
+            Some(id) => self.state.store.get_run(id).await.ok(),
+            None => None,
+        };
+        Ok(RunStreamSync {
+            seq: sync.current_seq,
+            gap_detected: sync.gap_detected,
+            resync_required: sync.resync_required,
+            dropped_count: sync.dropped_count,
+            run,
+            events: sync.frames,
+        })
+    }
+
+    async fn advance_run(&self, ext: &RpcExtensions, run_id: RunId) -> RpcResult<Run> {
+        self.authorize(ext, "runs.advance")?;
+        // No mock routing is seeded here: W5's pipeline dispatch answers an unrouted
+        // role with the deterministic `FakeProvider` (or the env-configured model), so
+        // a fresh daemon with no provider still advances a run offline with rich stage
+        // artifacts. `advance_to_next_gate` walks the run to the next undecided gate
+        // (passing approved ones) and marks a run that reaches `Feedback` completed.
+        self.state
+            .pipeline
+            .advance_to_next_gate(run_id)
+            .await
+            .map_err(rpc_error)
+    }
+
+    async fn cancel_run(
+        &self,
+        ext: &RpcExtensions,
+        run_id: RunId,
+        reason: Option<String>,
+    ) -> RpcResult<Run> {
+        self.authorize(ext, "runs.cancel")?;
+        let mut run = self.state.store.get_run(run_id).await.map_err(rpc_error)?;
+        let reason = reason.unwrap_or_else(|| "Cancelled by user".to_string());
+        run.status = RunStatus::Cancelled;
+        run.updated_at = Utc::now();
+        self.state.store.update_run(&run).await.map_err(rpc_error)?;
+        // `warsha_core::EventKind` has no cancellation/stage-failed variant and that
+        // crate is outside this change's ownership, so `Error` carries it; the payload
+        // names the action so a viewer never has to infer it from the kind.
+        let event = Event {
+            id: ulid::Ulid::new(),
+            run_id,
+            stage: run.current_stage,
+            role: None,
+            kind: EventKind::Error,
+            payload: serde_json::json!({ "action": "run_cancelled", "reason": reason }),
+            cost_cents: None,
+            tokens: None,
+            created_at: Utc::now(),
+            device_id: None,
+        };
+        self.state
+            .store
+            .append_event(&event)
+            .await
+            .map_err(rpc_error)?;
+        Ok(run)
+    }
+
+    async fn followup_run(
+        &self,
+        ext: &RpcExtensions,
+        run_id: RunId,
+        prompt: String,
+    ) -> RpcResult<Run> {
+        self.authorize(ext, "runs.followup")?;
+        if prompt.trim().is_empty() {
+            return Err(ErrorObject::owned(
+                -32602,
+                "runs.followup needs a non-empty prompt",
+                None::<()>,
+            ));
+        }
+        let mut run = self.state.store.get_run(run_id).await.map_err(rpc_error)?;
+        let trimmed = prompt.trim();
+        let content = format!(
+            "Follow-up applied at stage {:?}: {}",
+            run.current_stage, trimmed
+        );
+        let now = Utc::now();
+        run.updated_at = now;
+        // Store first, then the run's own artifact map: the write is the durable record,
+        // and `run.artifacts` is what `runs.get` and `runs.artifacts` report from.
+        self.state
+            .store
+            .write_artifact(run.project_id, "followup", &content)
+            .await
+            .map_err(rpc_error)?;
+        run.artifacts.insert(
+            "followup".to_string(),
+            Artifact {
+                name: "followup".to_string(),
+                content: content.clone(),
+                stage: run.current_stage,
+                role: None,
+                created_at: now,
+                updated_at: now,
+                version: 1,
+            },
+        );
+        self.state.store.update_run(&run).await.map_err(rpc_error)?;
+        let event = Event {
+            id: ulid::Ulid::new(),
+            run_id,
+            stage: run.current_stage,
+            role: None,
+            kind: EventKind::AgentStep,
+            payload: serde_json::json!({
+                "action": "followup",
+                "prompt": trimmed,
+                "response": content,
+            }),
+            cost_cents: None,
+            tokens: None,
+            created_at: now,
+            device_id: None,
+        };
+        self.state
+            .store
+            .append_event(&event)
+            .await
+            .map_err(rpc_error)?;
+        Ok(run)
+    }
+
+    async fn list_run_artifacts(
+        &self,
+        ext: &RpcExtensions,
+        run_id: RunId,
+    ) -> RpcResult<Vec<Artifact>> {
+        self.authorize(ext, "runs.artifacts")?;
+        let run = self.state.store.get_run(run_id).await.map_err(rpc_error)?;
+        let mut artifacts: Vec<Artifact> = run.artifacts.values().cloned().collect();
+        artifacts.sort_by(|left, right| left.name.cmp(&right.name));
+        Ok(artifacts)
+    }
 }
 
 /// One JSON-RPC error object for every failure these methods can return.
 ///
 /// `-32000` is the daemon's existing "server error" code; the message is the
 /// `thiserror` rendering, which names the process, server or project involved.
-fn rpc_error(message: String) -> ErrorObjectOwned {
-    ErrorObject::owned(-32000, message, None::<()>)
+fn rpc_error(message: impl std::fmt::Display) -> ErrorObjectOwned {
+    ErrorObject::owned(-32000, message.to_string(), None::<()>)
 }
 
 /// The caller has no verified session: the transport could not say who it was.
@@ -3539,6 +4113,13 @@ pub async fn start_daemon_with_provider_factory(
         .register_provider(Box::new(warsha_providers::MockProvider::new(
             MOCK_PROVIDER_ID,
         )));
+    // W5's deterministic fake provider: unrouted pipeline stages already answer
+    // through it inside the pipeline's dispatch, and registering it here makes it
+    // visible to `providers.list` and routable by the owner like any provider.
+    providers
+        .write()
+        .await
+        .register_provider(Box::new(warsha_providers::FakeProvider::new()));
 
     // The providers the owner configured, before anything is served. This is the
     // bridge C2 was missing: `providers.add` stores a row and files a key, and a
@@ -3632,6 +4213,11 @@ pub async fn start_daemon_with_provider_factory(
     ));
     let rates = Arc::new(RateGovernor::new(&config.rate_limits));
 
+    // The daemon-wide event stream. One sequencer gives every `/events` socket and every
+    // `runs.subscribe` the same monotonic ordering and the same replay ring; the pump
+    // spawned just below is its only writer, draining the store's event bus.
+    let events = Arc::new(EventSequencer::new());
+
     let state = Arc::new(DaemonState {
         config: config.clone(),
         store,
@@ -3661,7 +4247,37 @@ pub async fn start_daemon_with_provider_factory(
         provider_factory,
         // Filled the moment the RPC listener has bound — see [`DaemonState::pairing_origin`].
         pairing_origin: std::sync::OnceLock::new(),
+        events,
     });
+
+    // The single writer of the event stream: drain the store's event bus, scrub each
+    // event against the daemon's own token, and publish it under the next `seq`. Running
+    // it here — rather than in each producer — is what makes `seq` order equal the
+    // store's arrival order and guarantees the *same* scrub runs whether an event came
+    // from a pipeline stage, a gate decision, or one of the new `runs.*` writes.
+    {
+        let pump = Arc::clone(&state);
+        tokio::spawn(async move {
+            let mut rx = pump.store.subscribe_events();
+            let token = pump.config.auth_token.clone();
+            let sequencer = pump.events.clone();
+            loop {
+                match rx.recv().await {
+                    Ok(mut event) => {
+                        scrub_event_payload(&mut event.payload, &token);
+                        sequencer.publish(event).await;
+                    }
+                    // The pump lags only if it is starved of the runtime; nothing is
+                    // dropped from the durable record (the store already holds it), so
+                    // resynchronising the bus and continuing is the whole recovery.
+                    Err(broadcast::error::RecvError::Lagged(dropped)) => {
+                        warn!("the event pump lagged the store bus by {dropped} events");
+                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+    }
 
     // Start JSON-RPC server (TCP for cross-platform compatibility)
     //
@@ -3771,6 +4387,31 @@ pub async fn start_daemon_with_provider_factory(
         "HTTP server listening on http://{}",
         http_listener.local_addr()?
     );
+
+    // A non-loopback bind publishes the daemon past this machine. On Windows the inbound
+    // firewall rule for it is not created on the daemon's behalf — raising the firewall is
+    // the owner's elevated, deliberate act — so the exact one-command fix is printed here
+    // rather than left to be guessed. The address and the two ports only: never the token.
+    if !bind.is_loopback() {
+        let firewall = windows_firewall_command(actual_http_port, actual_rpc_port);
+        info!("LAN bind on {bind}: open the Windows firewall with `{firewall}`");
+        // Which host a peer dials. A wildcard bind cannot name one, so the owner's
+        // `advertised_host` (a LAN address, or a Tailscale IP) is what makes the link real.
+        let share_host = match config.advertised_host.as_deref().map(str::trim) {
+            Some(host) if !host.is_empty() => host.to_string(),
+            _ => bind.to_string(),
+        };
+        // Bracket a bare IPv6 address so the port separator stays unambiguous.
+        let share_spelling = if share_host.contains(':') && !share_host.starts_with('[') {
+            format!("[{share_host}]")
+        } else {
+            share_host
+        };
+        info!(
+            "reachable over the local network or Tailscale at http://{share_spelling}:{actual_rpc_port} \
+             (events at http://{share_spelling}:{actual_http_port})"
+        );
+    }
 
     // The HTTP listener is the daemon's surface that knows the peer address, and it
     // is the one that has to: a rate limit with no identity to key on falls back to
@@ -3915,10 +4556,9 @@ pub async fn load_or_create_config(config_path: Option<&Path>) -> Result<DaemonC
     let default_config_path = config_dir.join("config.toml");
     let path = config_path.unwrap_or(&default_config_path);
 
-    if path.exists() {
+    let config = if path.exists() {
         let content = std::fs::read_to_string(path)?;
-        let config: DaemonConfig = toml::from_str(&content)?;
-        Ok(config)
+        toml::from_str(&content)?
     } else {
         // Generate auth token
         let mut token = [0u8; 32];
@@ -3943,8 +4583,68 @@ pub async fn load_or_create_config(config_path: Option<&Path>) -> Result<DaemonC
             std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
         }
 
-        Ok(config)
+        // A brand-new daemon has just minted the one owner token it will never show
+        // again, because after this the file already holds it. Printing it is the way a
+        // headless operator captures that first token, and it is deliberately gated
+        // behind `WARSHA_PRINT_BOOTSTRAP_TOKEN=1`: a normal run, and every test, must
+        // not leak a freshly minted secret into a log or a CI capture (AGENTS.md).
+        if std::env::var("WARSHA_PRINT_BOOTSTRAP_TOKEN")
+            .ok()
+            .is_some_and(|value| value == "1")
+        {
+            info!("BOOTSTRAP_ADMIN_TOKEN={}", config.auth_token);
+        }
+        config
+    };
+
+    // The environment is the deployment-time knob, overlaid last so it wins over both
+    // a `config.toml` and the defaults a fresh file was written from.
+    Ok(apply_env_overrides(config))
+}
+
+/// Overlay `WARSHA_*` environment variables on a configuration the daemon read or made.
+///
+/// A container image sets the bind address and the ports without rewriting a
+/// `config.toml`, and an operator supplies an already-held token through
+/// `WARSHA_AUTH_TOKEN` instead of letting one be minted. A port that does not parse as
+/// a `u16` is ignored rather than failing the start — a stray `WARSHA_HTTP_PORT=abc`
+/// must not brick a deploy — while the bind address is passed through as written and
+/// validated by [`resolve_bind_host`], which owns the error an owner should actually
+/// see for a non-address.
+fn apply_env_overrides(mut config: DaemonConfig) -> DaemonConfig {
+    if let Some(host) = env_string("WARSHA_BIND_HOST") {
+        config.bind_host = host;
     }
+    if let Some(host) = env_string("WARSHA_ADVERTISED_HOST") {
+        config.advertised_host = Some(host);
+    }
+    if let Some(port) = env_port("WARSHA_HTTP_PORT") {
+        config.http_port = port;
+    }
+    if let Some(port) = env_port("WARSHA_WS_PORT") {
+        config.ws_port = port;
+    }
+    if let Some(dir) = env_string("WARSHA_DATA_DIR") {
+        config.data_dir = PathBuf::from(dir);
+    }
+    if let Some(token) = env_string("WARSHA_AUTH_TOKEN") {
+        config.auth_token = token;
+    }
+    config
+}
+
+/// A non-empty environment value, trimmed; `None` when the name is unset, blank, or
+/// not valid UTF-8.
+fn env_string(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+/// An environment value parsed as a `u16` port number.
+fn env_port(name: &str) -> Option<u16> {
+    env_string(name).and_then(|value| value.parse::<u16>().ok())
 }
 
 /// Take the daemon's single-instance lock over `data_dir`.
@@ -4199,39 +4899,301 @@ fn http_refusal(
 /// — every `Authorization`-header caller that exists today — gets a reply identical to
 /// the one this handler sent before, and a caller that offers only its credential gets no
 /// echo of that credential either.
+///
+/// Beyond the handshake the socket is a *sequenced* stream: it subscribes to the
+/// daemon's [`EventSequencer`] (not the raw store bus), so every frame carries the
+/// same `seq` every other client sees. A `?since_seq` query or a `Last-Event-ID`
+/// header replays the buffered frames after that point (or, when they have scrolled
+/// off the ring, answers one gap frame); a `?run_id` narrows the stream to one run;
+/// and the client may drive the subscription live with `runs.subscribe` /
+/// `runs.unsubscribe` commands down the socket.
 async fn events_handler(
-    ws: WebSocketUpgrade,
     State(state): State<Arc<DaemonState>>,
+    Query(params): Query<EventStreamParams>,
+    headers: HeaderMap,
+    ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
+    let last_event_id = last_event_id_header(&headers);
     ws.protocols([EVENTS_SUBPROTOCOL])
-        .on_upgrade(move |socket| handle_events_socket(socket, state.store.subscribe_events()))
+        .on_upgrade(move |socket| handle_events_socket(socket, state, params, last_event_id))
+}
+
+/// The `/events` query string: an optional replay cursor and an optional run filter.
+/// Both default to absent, so a bare `GET /events` still upgrades and streams live
+/// exactly as it did before this existed.
+#[derive(Debug, Clone, Deserialize, Default)]
+struct EventStreamParams {
+    #[serde(default)]
+    since_seq: Option<u64>,
+    #[serde(default)]
+    run_id: Option<String>,
+}
+
+/// The `Last-Event-ID` cursor a reconnecting client sends — an unsigned `seq` — or
+/// `None` when the header is absent or not a number. Consulted only when the client
+/// sent no `?since_seq`, so the query parameter wins.
+fn last_event_id_header(headers: &HeaderMap) -> Option<u64> {
+    headers
+        .get("Last-Event-ID")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<u64>().ok())
+}
+
+/// Parse a run id out of a query value or a command's `run_id`, tolerating the empty
+/// and the malformed by answering `None` (= every run) rather than failing the socket.
+fn parse_run_id(raw: Option<&str>) -> Option<RunId> {
+    raw.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .and_then(|value| value.parse::<ulid::Ulid>().ok())
+        .map(RunId)
+}
+
+/// Serialise and send one sequenced frame, mapping a closed socket to the error the
+/// caller breaks on.
+async fn send_frame(
+    socket: &mut axum::extract::ws::WebSocket,
+    frame: &SequencedEventFrame,
+) -> std::result::Result<(), axum::Error> {
+    let text = serde_json::to_string(frame).unwrap_or_default();
+    socket.send(axum::extract::ws::Message::Text(text)).await
+}
+
+/// A synthetic frame carrying stream-level state rather than a pipeline event: a
+/// replay gap, a live-consumer lag, or an unsubscribe acknowledgement.
+///
+/// It is a [`SequencedEventFrame`] so a client parses one kind of frame for the whole
+/// stream, and its `event.payload` names the `action` so the meaning never has to be
+/// inferred from the event kind — `warsha_core::EventKind` has no "stream control"
+/// variant and that crate is outside this change's ownership, so a gap rides as
+/// [`EventKind::Error`] and an ack as [`EventKind::AgentStep`] with a telling payload.
+fn control_frame(
+    seq: u64,
+    run_filter: Option<RunId>,
+    kind: EventKind,
+    payload: serde_json::Value,
+    gap_detected: bool,
+    dropped_count: u64,
+    resync_required: bool,
+) -> SequencedEventFrame {
+    SequencedEventFrame {
+        seq,
+        gap_detected,
+        dropped_count,
+        resync_required,
+        event: Event {
+            id: ulid::Ulid::new(),
+            run_id: run_filter.unwrap_or_default(),
+            stage: Stage::Idea,
+            role: None,
+            kind,
+            payload,
+            cost_cents: None,
+            tokens: None,
+            created_at: Utc::now(),
+            device_id: None,
+        },
+    }
+}
+
+/// A command a client sends *down* the `/events` socket. Only the two subscribe verbs
+/// are recognised; any other text is ignored so an unexpected frame cannot kill a
+/// connection that is otherwise healthy.
+#[derive(Debug, Deserialize)]
+struct SocketCommand {
+    method: String,
+    #[serde(default)]
+    params: SocketCommandParams,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct SocketCommandParams {
+    #[serde(default)]
+    run_id: Option<String>,
+    #[serde(default)]
+    since_seq: Option<u64>,
+}
+
+/// Apply one down-socket command and return the frames to send back, mutating the
+/// socket's live subscription (`subscribed`, `run_filter`).
+///
+/// `runs.subscribe` turns the stream on, optionally re-narrows it to a run, and — when
+/// the command names a `since_seq` — replays after that point or answers one gap frame.
+/// `runs.unsubscribe` turns it off and answers a single acknowledgement.
+async fn handle_socket_command(
+    text: &str,
+    state: &DaemonState,
+    subscribed: &mut bool,
+    run_filter: &mut Option<RunId>,
+) -> Vec<SequencedEventFrame> {
+    let Ok(command) = serde_json::from_str::<SocketCommand>(text) else {
+        return Vec::new();
+    };
+    match command.method.as_str() {
+        "runs.subscribe" => {
+            *subscribed = true;
+            *run_filter = parse_run_id(command.params.run_id.as_deref());
+            let mut frames = Vec::new();
+            if let Some(since) = command.params.since_seq {
+                let sync = state.events.sync(since, *run_filter).await;
+                if sync.gap_detected || sync.resync_required {
+                    frames.push(control_frame(
+                        sync.current_seq,
+                        *run_filter,
+                        EventKind::Error,
+                        serde_json::json!({
+                            "action": "replay_gap",
+                            "dropped_count": sync.dropped_count,
+                            "resync_required": true,
+                        }),
+                        true,
+                        sync.dropped_count,
+                        true,
+                    ));
+                } else {
+                    frames.extend(sync.frames);
+                }
+            }
+            frames
+        }
+        "runs.unsubscribe" => {
+            *subscribed = false;
+            vec![control_frame(
+                state.events.current_seq(),
+                *run_filter,
+                EventKind::AgentStep,
+                serde_json::json!({ "action": "unsubscribed" }),
+                false,
+                0,
+                false,
+            )]
+        }
+        _ => Vec::new(),
+    }
 }
 
 async fn handle_events_socket(
     mut socket: axum::extract::ws::WebSocket,
-    mut rx: broadcast::Receiver<Event>,
+    state: Arc<DaemonState>,
+    params: EventStreamParams,
+    last_event_id: Option<u64>,
 ) {
-    // Send ping every 30 seconds to keep connection alive
+    // The subscription the client starts on: every run unless `?run_id` narrows it, and
+    // live from the moment it connects unless a cursor asks for the past.
+    let mut run_filter = parse_run_id(params.run_id.as_deref());
+    let mut subscribed = true;
+    // An explicit `?since_seq` wins over a `Last-Event-ID` header; with neither there is
+    // no replay and the socket's first frame stays the keepalive Ping (the contract the
+    // existing `/events` delivery test asserts).
+    let cursor = params.since_seq.or(last_event_id);
+
+    // Subscribe to the live bus *before* reading the ring, so an event published while
+    // the replay is in flight is not missed; `last_seq_seen` then drops the frames the
+    // replay already delivered instead of sending them twice.
+    let mut rx = state.events.subscribe();
+    let mut last_seq_seen;
+
+    if let Some(since) = cursor {
+        last_seq_seen = since;
+        let sync = state.events.sync(since, run_filter).await;
+        if sync.gap_detected || sync.resync_required {
+            let frame = control_frame(
+                sync.current_seq,
+                run_filter,
+                EventKind::Error,
+                serde_json::json!({
+                    "action": "replay_gap",
+                    "dropped_count": sync.dropped_count,
+                    "resync_required": true,
+                }),
+                true,
+                sync.dropped_count,
+                true,
+            );
+            last_seq_seen = last_seq_seen.max(frame.seq);
+            if send_frame(&mut socket, &frame).await.is_err() {
+                return;
+            }
+        } else {
+            for frame in sync.frames {
+                last_seq_seen = last_seq_seen.max(frame.seq);
+                if send_frame(&mut socket, &frame).await.is_err() {
+                    return;
+                }
+            }
+        }
+    } else {
+        // Live from the current end onward; the ring's history is the store's job.
+        last_seq_seen = state.events.current_seq();
+    }
+
+    // Send ping every 30 seconds to keep the connection alive.
     let mut ping_interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
 
     loop {
         tokio::select! {
-            event = rx.recv() => {
-                match event {
-                    Ok(event) => {
-                        let json = serde_json::to_string(&event).unwrap_or_default();
-                        if socket.send(axum::extract::ws::Message::Text(json)).await.is_err() {
+            received = rx.recv() => {
+                match received {
+                    Ok(frame) => {
+                        // A monotonic filter: never resend a frame the replay (or an
+                        // earlier live tick) already put on the wire.
+                        if frame.seq <= last_seq_seen {
+                            continue;
+                        }
+                        last_seq_seen = frame.seq;
+                        let matches_run =
+                            run_filter.is_none() || Some(frame.event.run_id) == run_filter;
+                        if subscribed && matches_run && send_frame(&mut socket, &frame).await.is_err() {
                             break;
                         }
                     }
-                    Err(broadcast::error::RecvError::Lagged(_)) => {
-                        // Subscriber lagged, skip
-                        continue;
+                    Err(broadcast::error::RecvError::Lagged(dropped)) => {
+                        // A slow consumer is *not* silently skipped: the old handler
+                        // `continue`d here and the client never learned it had missed
+                        // frames. Instead send a gap frame naming how many were dropped
+                        // and that a resync is required, so the client catches up from
+                        // `runs.events`/`runs.subscribe` rather than trusting a hole.
+                        let frame = control_frame(
+                            state.events.current_seq(),
+                            run_filter,
+                            EventKind::Error,
+                            serde_json::json!({
+                                "action": "stream_gap",
+                                "dropped_count": dropped,
+                                "resync_required": true,
+                            }),
+                            true,
+                            dropped,
+                            true,
+                        );
+                        last_seq_seen = last_seq_seen.max(frame.seq);
+                        if send_frame(&mut socket, &frame).await.is_err() {
+                            break;
+                        }
                     }
-                    Err(broadcast::error::RecvError::Closed) => {
-                        // Channel closed, exit
-                        break;
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+            incoming = socket.recv() => {
+                match incoming {
+                    Some(Ok(axum::extract::ws::Message::Text(text))) => {
+                        let replies = handle_socket_command(
+                            text.as_str(),
+                            &state,
+                            &mut subscribed,
+                            &mut run_filter,
+                        )
+                        .await;
+                        for frame in replies {
+                            last_seq_seen = last_seq_seen.max(frame.seq);
+                            if send_frame(&mut socket, &frame).await.is_err() {
+                                return;
+                            }
+                        }
                     }
+                    Some(Ok(axum::extract::ws::Message::Close(_))) | None => break,
+                    // Ping/Pong/Binary carry no subscription intent.
+                    Some(Ok(_)) => {}
+                    Some(Err(_)) => break,
                 }
             }
             _ = ping_interval.tick() => {
@@ -4375,6 +5337,10 @@ mod tests {
             // No listener has bound: a hand-built state is a daemon that is not serving,
             // and `devices.pair-start` refuses rather than advertising a made-up origin.
             pairing_origin: std::sync::OnceLock::new(),
+            // A hand-built state has no background pump, so this sequencer stays empty
+            // unless a test publishes onto it directly; the live stream is exercised by
+            // the real-daemon tests.
+            events: Arc::new(EventSequencer::new()),
         });
         (state, store)
     }
