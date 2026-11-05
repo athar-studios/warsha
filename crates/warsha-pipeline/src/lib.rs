@@ -8,7 +8,10 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 use ulid::Ulid;
 use warsha_core::*;
-use warsha_providers::{ChatMessage, ChatRequest, MessageRole, ProviderRouter};
+use warsha_providers::{
+    ChatMessage, ChatProvider, ChatRequest, EnvLlmConfig, FakeProvider, MessageRole,
+    OpenAIProvider, ProviderRouter,
+};
 use warsha_store::Store;
 
 mod agent_loop;
@@ -399,9 +402,8 @@ impl PipelineEngine {
             stream: false,
         };
 
-        let response = providers
-            .chat_with_fallback(role, &run.project_id.0.to_string(), request)
-            .await?;
+        let response =
+            Self::dispatch_chat(&providers, role, &run.project_id.0.to_string(), request).await?;
 
         // Parse the JSON response
         let artifact_content = response
@@ -488,6 +490,189 @@ impl PipelineEngine {
         }
 
         Ok(())
+    }
+
+    /// Take one stage/follow-up request to the provider that should answer it.
+    ///
+    /// Three cases, in order:
+    ///
+    /// 1. The role IS routed (`providers.route(role).is_some()`): the request goes
+    ///    through [`ProviderRouter::chat_with_fallback`] exactly as before, so the
+    ///    routed adapter (a `MockProvider` in tests, any configured provider in
+    ///    production) answers with the router's retry, fallback, budget and spend
+    ///    accounting intact. This is the backward-compatible path and it is
+    ///    unchanged.
+    /// 2. Nothing is routed for the role, but the environment carries
+    ///    `WARSHA_LLM_API_KEY` and `WARSHA_LLM_PROVIDER` is not explicitly `"fake"`:
+    ///    an OpenAI-compatible client built from [`EnvLlmConfig`] answers, so a
+    ///    developer with a key gets real model output on unrouted stages without
+    ///    registering a provider or touching the OS keychain.
+    /// 3. Otherwise — the default zero-configuration path — the deterministic,
+    ///    zero-network [`FakeProvider`] answers, so a full pipeline run is always
+    ///    executable and reproducible offline.
+    async fn dispatch_chat(
+        providers: &ProviderRouter,
+        role: Role,
+        project_id: &str,
+        request: ChatRequest,
+    ) -> Result<warsha_providers::ChatResponse> {
+        if providers.route(role).is_some() {
+            return Ok(providers
+                .chat_with_fallback(role, project_id, request)
+                .await?);
+        }
+
+        let env_cfg = EnvLlmConfig::from_env();
+        let forced_fake = std::env::var("WARSHA_LLM_PROVIDER")
+            .ok()
+            .map(|value| value.trim() == "fake")
+            .unwrap_or(false);
+        if env_cfg.api_key.is_some() && !forced_fake {
+            let provider = OpenAIProvider::from_env_config("env-openai".to_string(), &env_cfg)?;
+            let request = ChatRequest {
+                model: env_cfg.model.clone(),
+                ..request
+            };
+            return Ok(provider.chat(request).await?);
+        }
+
+        Ok(FakeProvider::new().chat(request).await?)
+    }
+
+    /// Walk the run forward until it is waiting at a gate or has reached the final
+    /// `Feedback` stage.
+    ///
+    /// Each step is a normal [`advance_stage`](Self::advance_stage), so the walk
+    /// stops at the first gate that still needs a decision (a pending, rejected or
+    /// changes-requested gate) and passes straight through a gate the owner already
+    /// approved. Landing on `Stage::Feedback` means the pipeline has produced
+    /// everything it can: the run's status becomes [`RunStatus::Completed`] and is
+    /// persisted before the run is returned.
+    pub async fn advance_to_next_gate(&self, run_id: RunId) -> Result<Run> {
+        let mut run = self.store.get_run(run_id).await?;
+        loop {
+            if run.current_stage == Stage::Feedback {
+                run.status = RunStatus::Completed;
+                run.updated_at = Utc::now();
+                self.store.update_run(&run).await?;
+                return Ok(run);
+            }
+            if run.current_stage.is_gate() {
+                let decided = matches!(
+                    run.gate_states.get(&run.current_stage),
+                    Some(GateState::Approved { .. })
+                );
+                if !decided {
+                    return Ok(run);
+                }
+            }
+            run = self.advance_stage(run.id).await?;
+        }
+    }
+
+    /// Cancel a run, recording why.
+    ///
+    /// The run's status becomes [`RunStatus::Cancelled`], the new state is persisted,
+    /// and one event is appended so the run's log explains its own ending: the note
+    /// asks for `EventKind::StageFailed`, which the core event vocabulary does not
+    /// have, so the cancel is carried by [`EventKind::Error`] with an explicit
+    /// `"action": "run_cancelled"` payload instead.
+    pub async fn cancel_run(&self, run_id: RunId, reason: Option<String>) -> Result<Run> {
+        let mut run = self.store.get_run(run_id).await?;
+        run.status = RunStatus::Cancelled;
+        run.updated_at = Utc::now();
+        self.store.update_run(&run).await?;
+
+        let event = Event {
+            id: Ulid::new(),
+            run_id,
+            stage: run.current_stage,
+            role: None,
+            kind: EventKind::Error,
+            payload: serde_json::json!({ "action": "run_cancelled", "reason": reason }),
+            cost_cents: None,
+            tokens: None,
+            created_at: Utc::now(),
+            device_id: None,
+        };
+        self.store.append_event(&event).await?;
+
+        info!("Run {} cancelled: {:?}", run_id.0, reason);
+        Ok(run)
+    }
+
+    /// Answer a follow-up prompt on an existing run without moving its stage.
+    ///
+    /// The reply goes through the same dispatch as a stage call — the routed
+    /// provider when the owner routed the current stage's role, the deterministic
+    /// fake (or env-configured model) otherwise — and is recorded as the `followup`
+    /// artifact and an [`EventKind::AgentStep`] event, so the run's log and factory
+    /// directory carry the answer exactly like any stage output.
+    pub async fn followup_run(&self, run_id: RunId, prompt: &str) -> Result<Run> {
+        let mut run = self.store.get_run(run_id).await?;
+        let role = crate::prompts::role_for_stage(run.current_stage).unwrap_or(Role::Intake);
+
+        let providers = {
+            let router = self.providers.read().await;
+            (*router).clone()
+        };
+        let request = ChatRequest {
+            model: "default".to_string(),
+            messages: vec![ChatMessage {
+                role: MessageRole::User,
+                content: prompt.to_string(),
+            }],
+            temperature: Some(0.7),
+            max_tokens: Some(4000),
+            stream: false,
+        };
+        let response =
+            Self::dispatch_chat(&providers, role, &run.project_id.0.to_string(), request).await?;
+        let answer = response
+            .choices
+            .first()
+            .map(|choice| choice.message.content.clone())
+            .unwrap_or_default();
+        let cost_cents = providers.cost_of(&response.model, &response.usage)?;
+
+        let now = Utc::now();
+        let artifact = Artifact {
+            name: "followup".to_string(),
+            content: answer.clone(),
+            stage: run.current_stage,
+            role: Some(role),
+            created_at: now,
+            updated_at: now,
+            version: 1,
+        };
+        self.store
+            .write_artifact(run.project_id, &artifact.name, &artifact.content)
+            .await?;
+        run.artifacts.insert(artifact.name.clone(), artifact);
+        run.spent_cents += cost_cents;
+        run.updated_at = now;
+
+        let event = Event {
+            id: Ulid::new(),
+            run_id,
+            stage: run.current_stage,
+            role: Some(role),
+            kind: EventKind::AgentStep,
+            payload: serde_json::json!({
+                "action": "followup",
+                "prompt": prompt,
+                "response": answer,
+            }),
+            cost_cents: Some(cost_cents),
+            tokens: Some(response.usage.clone()),
+            created_at: now,
+            device_id: None,
+        };
+        self.store.append_event(&event).await?;
+        self.store.update_run(&run).await?;
+
+        info!("Follow-up answered for run {}", run_id.0);
+        Ok(run)
     }
 
     /// Build context from previous artifacts for the prompt
