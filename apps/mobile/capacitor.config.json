@@ -1,0 +1,13 @@
+{
+  "appId": "dev.warsha.remote",
+  "appName": "Warsha Remote",
+  "webDir": "../remote/dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowIntegration": false,
+    "packageName": "dev.warsha.remote"
+  }
+}

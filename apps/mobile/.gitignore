@@ -1,0 +1,19 @@
+# --- Gradle / Android build outputs (never commit) -------------------------
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/*.iml
+build/
+.gradle/
+
+# --- Synced web assets: copied from apps/remote/dist at build time ---------
+android/app/src/main/assets/public/
+
+# --- Signing material must NEVER live inside the repository (SECURITY.md) ---
+# Keystores live outside every working tree, in ~/.warsha/signing/.
+*.jks
+*.keystore
+*.p12
+keystore.properties
