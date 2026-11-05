@@ -34,6 +34,7 @@ import {
   readStoredSession,
   storeSession,
   stripSessionParams,
+  warshaNativeBridge,
   type DaemonSession,
   type PairingFailure,
   type SessionStore,
@@ -94,6 +95,37 @@ function useSessionController(
     setSession(null);
     clearStoredSession(store);
   }, [store]);
+
+  // The native shell's `warsha:` handler. Inside the Capacitor app the scheme is registered natively,
+  // so a pairing link arrives one of two ways: as the URI that *launched* the app (cold start — the
+  // WebView was not there to hear it) or as a `warsha:pair-deeplink` event on the window (warm start).
+  // Both feed the same `pair` the pairing plate uses, so the deep link and the pasted link cannot drift
+  // apart on validation, storage or the token-strip rules.
+  useEffect(() => {
+    const bridge = warshaNativeBridge();
+    if (bridge === null) return;
+
+    const initial = bridge.getInitialPairingUri?.() ?? null;
+    if (initial !== null && initial.trim() !== '') pair(initial);
+
+    // The shell may send the link as the event's detail directly or under a `uri` field; either shape
+    // pairs, anything else (no payload, an unexpected type) is ignored rather than guessed at.
+    const linkFrom = (event: Event): string | null => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      if (typeof detail === 'string') return detail;
+      if (typeof detail === 'object' && detail !== null) {
+        const uri = (detail as Record<string, unknown>)['uri'];
+        if (typeof uri === 'string') return uri;
+      }
+      return null;
+    };
+    const onDeepLink = (event: Event) => {
+      const link = linkFrom(event);
+      if (link !== null) pair(link);
+    };
+    window.addEventListener('warsha:pair-deeplink', onDeepLink);
+    return () => window.removeEventListener('warsha:pair-deeplink', onDeepLink);
+  }, [pair]);
 
   return { session, pair, unpair };
 }
