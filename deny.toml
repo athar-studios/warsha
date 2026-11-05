@@ -93,13 +93,20 @@
 #     - RUSTSEC-2026-0370  zvariant 2.10.0
 #     - RUSTSEC-2026-0372  zvariant_derive 2.10.0
 #
-#   Eliminated at the dependency level (so they need NO ignore entry, and must
-#   not be re-added — if they reappear, a dependency narrowing regressed):
+#   Eliminated / non-firing, so they need NO ignore entry here (and must not be
+#   re-added — if either ever appears as an error, a dependency narrowing
+#   regressed and the fix belongs in the manifest, not in this file):
 #     - RUSTSEC-2025-0119  number_prefix 0.4.0 — removed by deleting the unused
-#       `indicatif = "0.17"` dependency.
-#     - RUSTSEC-2024-0436  paste 1.0.15 (via `image -> ravif`) — removed by
-#       narrowing `image = "0.25"` in `warsha-remote` to
-#       `default-features = false, features = ["png"]`.
+#       `indicatif = "0.17"` dependency; not present in either lockfile.
+#     - RUSTSEC-2024-0436  paste (via `image -> ravif`) — narrowed away in the
+#       ROOT graph by setting `image = "0.25"` in `warsha-remote` to
+#       `default-features = false, features = ["png"]`. Measured with an empty
+#       `ignore` list, this advisory fires in NEITHER graph today. Caveat for
+#       whoever reads this file: `paste 1.0.15` is still a lock entry of
+#       apps/desktop/src-tauri/Cargo.lock (reached through `image` default
+#       features -> ravif -> rav1e -> pulp), and it does not trigger the notice,
+#       so the check's green result there is not evidence that the src-tauri
+#       graph dropped paste.
 #
 #   NOT PRESENT IN EITHER LOCKFILE AT ALL (verified against Cargo.lock):
 #     - RUSTSEC-2025-0012  backoff
