@@ -535,6 +535,33 @@ describe('Bench & Signal remote copy', () => {
     expect(t('remote.run_state_cancelled', {}, 'en')).toBe('cancelled');
   });
 
+  it('says the companion boundary and the run-control copy in both catalogs', () => {
+    // The no-keys notice is the phone's one security promise about models: the copy is pinned because
+    // `settings.test.tsx` asserts these exact words on screen, in Arabic and English both.
+    expect(t('remote.no_llm_keys', {}, 'en')).toBe(
+      'Model keys live on your Warsha server — manage them on Desktop or via server environment variables.'
+    );
+    expect(t('remote.no_llm_keys', {}, 'ar')).toContain('مفاتيح نماذج الذكاء الاصطناعي');
+    for (const key of [
+      'remote.create_project_title',
+      'remote.project_desc_label',
+      'remote.project_create_submit',
+      'remote.start_run_title',
+      'remote.run_start_submit',
+      'remote.run_controls_title',
+      'remote.run_cancel',
+      'remote.followup_label',
+      'remote.handoff_create',
+      'remote.handoff_apply',
+      'remote.handoff_path_label',
+      'remote.action_failed',
+      'settings.devices_revoke',
+    ]) {
+      expect(t(key, {}, 'ar'), `${key} has no Arabic copy`).not.toBe(key);
+      expect(t(key, {}, 'en'), `${key} has no English copy`).not.toBe(key);
+    }
+  });
+
   it('keeps the remote bench inside the shared key sets', () => {
     // The remote reuses the bench's own words rather than re-naming them: the strip, the gates, the
     // settings plates and the retry all read keys the desktop already answers from.

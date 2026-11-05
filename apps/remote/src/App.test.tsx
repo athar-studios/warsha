@@ -5,10 +5,11 @@
 // line in both languages, `<html lang>`/`<html dir>` — because the phone's redesign must not break the way
 // B4's harness finds it (docs/design/REDESIGN.md §10: the *pixels* are regenerated, the anchors are not
 // rewritten).
-import { fireEvent, screen, within } from '@testing-library/react';
+import { act, fireEvent, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { describe, expect, it } from 'vitest';
 
+import type { WarshaNativeBridge } from './session';
 import { SESSION, renderRemote, settle, stubApi } from './testkit';
 
 describe('the bench shell', () => {
@@ -278,5 +279,67 @@ describe('the address bar after a pairing hand-off', () => {
     expect(window.location.search).toMatch(/[?&]run=/);
     // And nowhere else on the page repeats it.
     expect(document.body.textContent).not.toContain('sekrit-token-abcdef');
+  });
+});
+
+describe('the native shell’s warsha: deep link', () => {
+  // The Capacitor app registers the `warsha:` scheme natively, so a pairing link reaches the WebView
+  // either as the launch URI (cold start) or as a `warsha:pair-deeplink` window event (warm start).
+  // Both must feed the same pairing path the plate uses — same validation, same tab-scoped storage.
+  const inertBridge: WarshaNativeBridge = {
+    loadSecret: () => null,
+    saveSecret: () => true,
+    deleteSecret: () => true,
+  };
+
+  it('pairs on mount from the URI that launched the app', async () => {
+    window.WarshaNative = { ...inertBridge, getInitialPairingUri: () => 'warsha://pair?host=10.0.2.2&port=8766&token=deep-1' };
+    try {
+      const { sessionStore } = renderRemote({ session: null });
+      await settle();
+
+      expect(screen.getByText('ما ينتظر قرارك')).toBeInTheDocument();
+      expect(sessionStore.values['warsha.remote.session']).toContain('deep-1');
+    } finally {
+      delete window.WarshaNative;
+    }
+  });
+
+  it('pairs when the shell delivers a warsha:pair-deeplink event while the app is open', async () => {
+    window.WarshaNative = inertBridge;
+    try {
+      renderRemote({ session: null });
+      await settle();
+
+      // Still the pairing plate — no launch URI, no event yet.
+      expect(screen.getByRole('textbox', { name: 'رابط الإقران' })).toBeInTheDocument();
+
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent('warsha:pair-deeplink', {
+            detail: { uri: 'warsha://pair?server=https%3A%2F%2F10.0.0.5%3A8766&token=deep-2' },
+          })
+        );
+      });
+      await settle();
+
+      expect(screen.getByText('ما ينتظر قرارك')).toBeInTheDocument();
+    } finally {
+      delete window.WarshaNative;
+    }
+  });
+
+  it('refuses a deep link that is not a pairing, and stays unpaired', async () => {
+    window.WarshaNative = { ...inertBridge, getInitialPairingUri: () => 'warsha://pair?host=8.8.8.8&token=x' };
+    try {
+      const { sessionStore } = renderRemote({ session: null });
+      await settle();
+
+      // A public cleartext host fails the same policy a pasted link would; the plate stays up.
+      expect(screen.getByRole('textbox', { name: 'رابط الإقران' })).toBeInTheDocument();
+      expect(sessionStore.values['warsha.remote.session']).toBeUndefined();
+    } finally {
+      delete window.WarshaNative;
+    }
   });
 });

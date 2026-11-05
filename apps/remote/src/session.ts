@@ -42,15 +42,94 @@ export type PairingResult =
   | { readonly ok: true; readonly session: DaemonSession }
   | { readonly ok: false; readonly reason: PairingFailure };
 
-/** The slice of `sessionStorage` this module needs, so a test can pass its own. */
+/**
+ * The slice of `sessionStorage` this module needs, so a test can pass its own.
+ *
+ * The same three methods are what a native keystore adapter has to answer with, which is why the
+ * interface — and not `Storage` — is the seam.
+ */
 export interface SessionStore {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
   removeItem(key: string): void;
 }
 
-/** `sessionStorage` when the browser gives us one, `null` when it is blocked or absent. */
+/**
+ * The Android bridge the Capacitor shell injects as `window.WarshaNative`.
+ *
+ * `loadSecret`/`saveSecret`/`deleteSecret` are backed by the Android Keystore (AES-256-GCM at rest),
+ * so a session token kept through the bridge never sits in a world-readable WebView file. The
+ * methods answer synchronously because the shell bridges them that way; a key the keystore cannot
+ * produce reads back as `null`, and a write the keystore refuses returns `false`.
+ *
+ * `getInitialPairingUri` exposes the deep link that launched the app, if any — the cold-start twin
+ * of the `warsha:pair-deeplink` event a warm start receives.
+ */
+export interface WarshaNativeBridge {
+  loadSecret(key: string): string | null;
+  saveSecret(key: string, value: string): boolean;
+  deleteSecret(key: string): boolean;
+  getInitialPairingUri?(): string | null;
+}
+
+declare global {
+  interface Window {
+    WarshaNative?: WarshaNativeBridge;
+  }
+}
+
+/** The native bridge when the app runs inside the Capacitor shell, `null` in a plain browser. */
+export function warshaNativeBridge(): WarshaNativeBridge | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    const bridge = window.WarshaNative;
+    if (
+      bridge === undefined ||
+      typeof bridge.loadSecret !== 'function' ||
+      typeof bridge.saveSecret !== 'function' ||
+      typeof bridge.deleteSecret !== 'function'
+    ) {
+      return null;
+    }
+    return bridge;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A `SessionStore` backed by the native bridge.
+ *
+ * `setItem`/`removeItem` report failure by throwing, so the callers' existing try/catch — the one
+ * that treats a blocked store as "this tab still works, the memory does not" — keeps working
+ * unchanged when the store is the keystore.
+ */
+export function nativeSessionStore(bridge: WarshaNativeBridge): SessionStore {
+  return {
+    getItem: (key) => bridge.loadSecret(key),
+    setItem: (key, value) => {
+      if (!bridge.saveSecret(key, value)) {
+        throw new Error('native keystore refused the write');
+      }
+    },
+    removeItem: (key) => {
+      if (!bridge.deleteSecret(key)) {
+        throw new Error('native keystore refused the delete');
+      }
+    },
+  };
+}
+
+/**
+ * The store this session's token is remembered in.
+ *
+ * The native keystore wins whenever the shell provides one — at-rest encryption is strictly better
+ * than the WebView's plaintext `sessionStorage` — and a plain browser keeps `sessionStorage`. A
+ * blocked or absent store costs the *remembered* session, not the current one.
+ */
 export function sessionStore(): SessionStore | null {
+  const bridge = warshaNativeBridge();
+  if (bridge !== null) return nativeSessionStore(bridge);
   try {
     return typeof window === 'undefined' ? null : window.sessionStorage;
   } catch {
@@ -60,6 +139,64 @@ export function sessionStore(): SessionStore | null {
 
 /** The protocols a daemon may be reached at. Anything else is refused, not repaired. */
 const ALLOWED_PROTOCOLS: readonly string[] = ['http:', 'https:'];
+
+/** Four dot-separated decimal octets — and nothing that walks outside 0–255. */
+const IPV4_OCTETS = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+
+/** The IPv4 first octet of a private range that may be reached in cleartext (10/8, 127/8). */
+function privateFirstOctet(a: number): boolean {
+  return a === 10 || a === 127;
+}
+
+/** 172.16.0.0/12 — the second octet is what bounds it, not the first alone. */
+function is172Range(a: number, b: number): boolean {
+  return a === 172 && b >= 16 && b <= 31;
+}
+
+/** 100.64.0.0/10 — Tailscale's CGNAT range; a tailnet is a private network by construction. */
+function isCgnatRange(a: number, b: number): boolean {
+  return a === 100 && b >= 64 && b <= 127;
+}
+
+/**
+ * A host `http://` (cleartext) may be aimed at.
+ *
+ * The pairing link is typed or pasted on a phone that is usually *not* on the daemon's LAN, so
+ * cleartext to the open internet would leak the session token on every request. The daemon's own
+ * pairing flow prints LAN/tailnet addresses, so those — and nothing else — are allowed without TLS:
+ *
+ *   * loopback: `localhost`, `127/8` (the desktop's own daemon), `::1` (also `http://[::1]:8766`);
+ *   * `10.0.2.2`, the Android emulator's alias for the host machine, which 10/8 already covers;
+ *   * RFC1918: `10/8`, `172.16–31`, `192.168/16` — the home/office LANs pairing lives on;
+ *   * Tailscale: `100.64–127` (CGNAT) and `*.ts.net` hostnames — a tailnet's addresses are private
+ *     by construction;
+ *   * mDNS: `*.local` — the same LAN claim, spelled as a name.
+ *
+ * Anything else — a public IPv4, a public hostname, anything that merely fails to parse as a
+ * private address — is not cleartext-allowed, and the caller refuses the link rather than repairing it.
+ */
+export function isPrivateCleartextHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  if (host === '') return false;
+
+  // `new URL` brackets IPv6 hosts; the bare form appears in some stores.
+  const bracketed = host.startsWith('[') && host.endsWith(']');
+  const bare = bracketed ? host.slice(1, -1) : host;
+
+  if (bracketed) return bare === '::1';
+  if (bare === '::1') return true;
+
+  if (host === 'localhost') return true;
+  if (host.endsWith('.local') || host.endsWith('.ts.net')) return true;
+
+  const octets = IPV4_OCTETS.exec(bare);
+  if (octets === null) return false;
+  const [a, b] = [Number(octets[1]), Number(octets[2])];
+  if (!Number.isInteger(a) || !Number.isInteger(b)) return false;
+  if ([a, b, Number(octets[3]), Number(octets[4])].some((n) => n > 255)) return false;
+
+  return privateFirstOctet(a) || is172Range(a, b) || (a === 192 && b === 168) || isCgnatRange(a, b);
+}
 
 /** One absolute URL, or `null` when the text is not one, is not http(s), hides credentials or has no host. */
 function readDaemonUrl(value: string): URL | null {
@@ -73,6 +210,8 @@ function readDaemonUrl(value: string): URL | null {
   // `user:pass@host` is a credential in the address: the pairing link never carries one.
   if (url.username !== '' || url.password !== '') return null;
   if (url.hostname === '') return null;
+  // Cleartext is trusted only inside the private networks a pairing link actually comes from (§ above).
+  if (url.protocol === 'http:' && !isPrivateCleartextHost(url.hostname)) return null;
   return url;
 }
 
@@ -106,17 +245,80 @@ function carriesApiKey(params: URLSearchParams): boolean {
 }
 
 /**
+ * The session a `warsha://pair` deep link carries.
+ *
+ * The native apps register the `warsha:` scheme, so their pairing links arrive as
+ * `warsha://pair?...` rather than as a page URL. Two parameter shapes are accepted, because the
+ * desktop dialog and the native share sheet describe the daemon differently:
+ *
+ *   * `server` — the daemon's absolute URL, checked by `readDaemonUrl` like any other link, so a
+ *     `warsha:` link gets no cleartext exemption the web link would refuse;
+ *   * `host` + `port` (with optional `scheme`, default `http`) — the daemon spelled in parts, which
+ *     is reassembled and put through the *same* `readDaemonUrl` gate.
+ *
+ * The token is the `token` parameter either way. A `warsha:` link with neither shape is refused
+ * with `url`, the same refusal a malformed address gets.
+ */
+function parseDeepLink(link: URL): PairingResult {
+  const params = link.searchParams;
+  if (carriesApiKey(params)) return { ok: false, reason: 'userinfo' };
+
+  const server = params.get(SERVER_PARAM);
+  let daemonUrl: string | null = server;
+  if (daemonUrl === null && params.get('host') !== null) {
+    const host = params.get('host');
+    const port = params.get('port');
+    const schemeParam = params.get('scheme');
+    const scheme = schemeParam === 'https' ? 'https:' : 'http:';
+    if (schemeParam !== null && schemeParam !== 'http' && schemeParam !== 'https') {
+      return { ok: false, reason: 'url' };
+    }
+    // Reassemble, then let `readDaemonUrl` police it — including the cleartext host policy.
+    daemonUrl = `${scheme}//${host}${port === null || port === '' ? '' : `:${port}`}`;
+  }
+  if (daemonUrl === null) return { ok: false, reason: 'url' };
+
+  const daemon = readDaemonUrl(daemonUrl);
+  if (daemon === null) return { ok: false, reason: 'url' };
+
+  const token = readToken(params.get(TOKEN_PARAM));
+  if (token === null) return { ok: false, reason: 'token' };
+
+  const session = buildSession(daemon.toString(), token);
+  return session === null ? { ok: false, reason: 'url' } : { ok: true, session };
+}
+
+/**
  * The session a pairing link carries.
  *
- * Two shapes are accepted, because the desktop's dialog and a relay's redirect do not always agree:
+ * Three shapes are accepted, because the desktop's dialog, a relay's redirect and the native
+ * `warsha:` handler do not always agree:
  *
  *   * a **PWA link** — `https://remote.example/?server=https%3A%2F%2F10.0.0.5%3A8766&token=…`, where
  *     `server` names the daemon and `token` is this device's access token;
- *   * a **daemon link** — `https://10.0.0.5:8766/?token=…`, where the address itself is the daemon.
+ *   * a **daemon link** — `https://10.0.0.5:8766/?token=…`, where the address itself is the daemon;
+ *   * a **deep link** — `warsha://pair?server=…&token=…` (or `host`/`port`/`token`), the shape the
+ *     native apps hand over; see `parseDeepLink`.
  */
 export function parsePairingLink(value: string): PairingResult {
   const raw = value.trim();
   if (raw === '') return { ok: false, reason: 'missing' };
+
+  // The native scheme arrives before any web URL is attempted. `warsha:pair` and `warsha://pair`
+  // are the same intent; anything else on the scheme (a stale `warsha:run?id=…`) is not a pairing.
+  if (raw.toLowerCase().startsWith('warsha:')) {
+    let link: URL;
+    try {
+      link = new URL(raw);
+    } catch {
+      return { ok: false, reason: 'url' };
+    }
+    // `warsha://pair` arrives with host `pair`; `warsha:pair` with path `pair`. Either is a pairing;
+    // any other `warsha:` target (a stale `warsha:run?id=…`) is not this link kind and is refused.
+    const isPair = link.hostname === 'pair' || (link.hostname === '' && link.pathname === 'pair');
+    if (!isPair) return { ok: false, reason: 'url' };
+    return parseDeepLink(link);
+  }
 
   const link = readDaemonUrl(raw);
   if (link === null) return { ok: false, reason: 'url' };

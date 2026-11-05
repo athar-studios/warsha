@@ -9,13 +9,18 @@ import {
   clearStoredSession,
   endpointHost,
   eventStreamUrl,
+  isPrivateCleartextHost,
+  nativeSessionStore,
   parsePairingLink,
   readSessionFromSearch,
   readStoredSession,
   safeMessage,
   SESSION_STORAGE_KEY,
+  sessionStore,
   storeSession,
   stripSessionParams,
+  warshaNativeBridge,
+  type WarshaNativeBridge,
 } from './session';
 import { memoryStore } from './testkit';
 
@@ -81,6 +86,118 @@ describe('parsePairingLink', () => {
   });
 });
 
+describe('the cleartext host policy', () => {
+  it('trusts the private networks a pairing link comes from', () => {
+    expect(isPrivateCleartextHost('localhost')).toBe(true);
+    expect(isPrivateCleartextHost('127.0.0.1')).toBe(true);
+    expect(isPrivateCleartextHost('127.5.5.5')).toBe(true);
+    // The Android emulator's alias for the host machine lives inside 10/8.
+    expect(isPrivateCleartextHost('10.0.2.2')).toBe(true);
+    expect(isPrivateCleartextHost('10.255.0.1')).toBe(true);
+    expect(isPrivateCleartextHost('172.16.0.1')).toBe(true);
+    expect(isPrivateCleartextHost('172.31.255.255')).toBe(true);
+    expect(isPrivateCleartextHost('192.168.1.50')).toBe(true);
+    // Tailscale's CGNAT range and its MagicDNS hostnames.
+    expect(isPrivateCleartextHost('100.64.0.1')).toBe(true);
+    expect(isPrivateCleartextHost('100.127.255.255')).toBe(true);
+    expect(isPrivateCleartextHost('desktop.ts.net')).toBe(true);
+    // mDNS names, the LAN spelled as a name.
+    expect(isPrivateCleartextHost('warsha-box.local')).toBe(true);
+    // IPv6 loopback, bracketed as a URL carries it and bare as a stored value may hold it.
+    expect(isPrivateCleartextHost('[::1]')).toBe(true);
+    expect(isPrivateCleartextHost('::1')).toBe(true);
+  });
+
+  it('refuses everything else, including near-misses on the ranges', () => {
+    expect(isPrivateCleartextHost('8.8.8.8')).toBe(false);
+    expect(isPrivateCleartextHost('example.com')).toBe(false);
+    expect(isPrivateCleartextHost('172.15.0.1')).toBe(false);
+    expect(isPrivateCleartextHost('172.32.0.1')).toBe(false);
+    expect(isPrivateCleartextHost('192.169.1.1')).toBe(false);
+    expect(isPrivateCleartextHost('100.63.255.255')).toBe(false);
+    expect(isPrivateCleartextHost('100.128.0.1')).toBe(false);
+    expect(isPrivateCleartextHost('256.1.1.1')).toBe(false);
+    expect(isPrivateCleartextHost('[fd00::1]')).toBe(false);
+    expect(isPrivateCleartextHost('')).toBe(false);
+  });
+
+  it('accepts cleartext http only for those hosts, and https for any valid host', () => {
+    const lan = parsePairingLink('http://192.168.1.5:8766/?token=abc');
+    expect(lan.ok).toBe(true);
+    expect(parsePairingLink('http://8.8.8.8:8766/?token=abc')).toEqual({ ok: false, reason: 'url' });
+    expect(parsePairingLink('http://example.com/?token=abc')).toEqual({ ok: false, reason: 'url' });
+    // The same public host over TLS is a legitimate endpoint — the policy is about cleartext, not names.
+    expect(parsePairingLink('https://example.com/?token=abc').ok).toBe(true);
+    // A PWA link's `server` parameter is policed too: the wrapper cannot smuggle a public cleartext daemon.
+    expect(
+      parsePairingLink('https://remote.example.com/?server=http%3A%2F%2F8.8.8.8%3A8766&token=abc')
+    ).toEqual({ ok: false, reason: 'url' });
+    expect(
+      parsePairingLink('https://remote.example.com/?server=http%3A%2F%2F10.0.2.2%3A8766&token=abc').ok
+    ).toBe(true);
+  });
+});
+
+describe('parsePairingLink on a warsha:// deep link', () => {
+  it('reads the server form', () => {
+    const parsed = parsePairingLink('warsha://pair?server=http%3A%2F%2F10.0.2.2%3A8766&token=deep1');
+
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.session).toEqual({ baseUrl: 'http://10.0.2.2:8766', token: 'deep1' });
+    }
+  });
+
+  it('reads the host/port form over the default cleartext scheme', () => {
+    const parsed = parsePairingLink('warsha://pair?host=192.168.0.10&port=8766&token=deep2');
+
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(parsed.session.baseUrl).toBe('http://192.168.0.10:8766');
+  });
+
+  it('honours an explicit scheme, and still polices cleartext with the host policy', () => {
+    const tls = parsePairingLink('warsha://pair?host=gate.example.com&port=443&scheme=https&token=deep3');
+    expect(tls.ok).toBe(true);
+    // The URL normaliser drops a scheme-default port; what survives is the daemon address as a client
+    // would write it.
+    if (tls.ok) expect(tls.session.baseUrl).toBe('https://gate.example.com');
+
+    // A public host without a scheme defaults to http — and the cleartext policy refuses it.
+    expect(parsePairingLink('warsha://pair?host=8.8.8.8&port=8766&token=x')).toEqual({
+      ok: false,
+      reason: 'url',
+    });
+    expect(parsePairingLink('warsha://pair?host=gate.example.com&port=443&scheme=http&token=x')).toEqual({
+      ok: false,
+      reason: 'url',
+    });
+    expect(parsePairingLink('warsha://pair?host=gate.example.com&scheme=ftp&token=x')).toEqual({
+      ok: false,
+      reason: 'url',
+    });
+  });
+
+  it('accepts the no-authority spelling of the same link', () => {
+    const parsed = parsePairingLink('warsha:pair?host=mybox.local&port=8766&token=deep4');
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(parsed.session.baseUrl).toBe('http://mybox.local:8766');
+  });
+
+  it('refuses a deep link with no token, an API key, or no daemon in it', () => {
+    expect(parsePairingLink('warsha://pair?host=10.0.0.5&port=8766')).toEqual({ ok: false, reason: 'token' });
+    expect(parsePairingLink('warsha://pair?host=10.0.0.5&port=8766&api_key=sk-1')).toEqual({
+      ok: false,
+      reason: 'userinfo',
+    });
+    expect(parsePairingLink('warsha://pair?token=abc')).toEqual({ ok: false, reason: 'url' });
+  });
+
+  it('refuses a warsha: link that is not a pairing, and one that is not a URL at all', () => {
+    expect(parsePairingLink('warsha://run?id=run_1&token=abc')).toEqual({ ok: false, reason: 'url' });
+    expect(parsePairingLink('warsha:')).toEqual({ ok: false, reason: 'url' });
+  });
+});
+
 describe('readSessionFromSearch', () => {
   it('reads the app URL a pairing opened', () => {
     const parsed = readSessionFromSearch('?server=http%3A%2F%2F127.0.0.1%3A8766&token=t-1');
@@ -143,6 +260,61 @@ describe('the tab-scoped session store', () => {
     expect(readStoredSession(throwing)).toBeNull();
     expect(() => clearStoredSession(throwing)).not.toThrow();
     expect(readStoredSession(null)).toBeNull();
+  });
+
+  it('prefers the native keystore bridge when the shell provides one', () => {
+    // A stand-in for the Capacitor shell: the bridge holds its rows the way the keystore does, and
+    // the session must round-trip through it rather than the WebView's plaintext storage.
+    const rows = new Map<string, string>();
+    const bridge: WarshaNativeBridge = {
+      loadSecret: (key) => rows.get(key) ?? null,
+      saveSecret: (key, value) => {
+        rows.set(key, value);
+        return true;
+      },
+      deleteSecret: (key) => {
+        rows.delete(key);
+        return true;
+      },
+    };
+    window.WarshaNative = bridge;
+    try {
+      const store = sessionStore();
+      expect(store).not.toBeNull();
+      const session = { baseUrl: 'http://127.0.0.1:8766', token: 'keystore-token' };
+
+      expect(storeSession(session, store)).toBe(true);
+      expect(rows.get(SESSION_STORAGE_KEY)).toContain('keystore-token');
+      expect(readStoredSession(store)).toEqual(session);
+
+      clearStoredSession(store);
+      expect(readStoredSession(store)).toBeNull();
+    } finally {
+      delete window.WarshaNative;
+    }
+  });
+
+  it('treats a refused keystore write like a blocked store: this tab lives, the memory does not', () => {
+    const bridge: WarshaNativeBridge = {
+      loadSecret: () => null,
+      saveSecret: () => false,
+      deleteSecret: () => false,
+    };
+    const store = nativeSessionStore(bridge);
+    expect(storeSession({ baseUrl: 'http://127.0.0.1:8766', token: 't-1' }, store)).toBe(false);
+    expect(() => clearStoredSession(store)).not.toThrow();
+  });
+
+  it('only trusts a bridge that answers all three secret methods', () => {
+    // A half-implemented bridge (a shell from an older APK) must not become the session store.
+    window.WarshaNative = { loadSecret: () => null } as unknown as WarshaNativeBridge;
+    try {
+      expect(warshaNativeBridge()).toBeNull();
+      // …and without a usable bridge the store falls back to the tab's own sessionStorage.
+      expect(sessionStore()).toBe(window.sessionStorage);
+    } finally {
+      delete window.WarshaNative;
+    }
   });
 });
 

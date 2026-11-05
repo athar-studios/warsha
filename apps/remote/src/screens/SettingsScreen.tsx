@@ -19,10 +19,12 @@ import {
   Ledger,
   Panel,
   Segmented,
+  Skeleton,
   Tabs,
   Text,
   colorVar,
   fontSize,
+  fontWeight,
   space,
   tabPanelProps,
 } from '@warsha/ui';
@@ -30,6 +32,7 @@ import React, { useCallback, useState } from 'react';
 
 import { useRemote } from '../bench';
 import { Machine, ScreenTitle } from '../chrome';
+import { shortId } from '../format';
 import { PairingPlate } from '../pairing';
 import {
   THEME_PREFERENCES,
@@ -48,7 +51,16 @@ export function SettingsScreen() {
   const locale = useLocale();
   const { setLocale } = useLocaleControl();
   const { preference, setPreference } = useTheme();
-  const { session, connection, daemonVersion, unpair, reloadAll } = useRemote();
+  const {
+    session,
+    connection,
+    daemonVersion,
+    unpair,
+    reloadAll,
+    devices,
+    devicesState,
+    revokePairedDevice,
+  } = useRemote();
 
   const [tab, setTab] = useState<SettingsTab>('preferences');
   const [confirming, setConfirming] = useState(false);
@@ -162,94 +174,148 @@ export function SettingsScreen() {
           (session === null ? (
             <PairingPlate title={t('remote.session_title', {}, locale)} />
           ) : (
-            <Panel title={t('remote.session_title', {}, locale)} label={t('remote.session_title', {}, locale)}>
-              <Box dir={dir} style={{ display: 'grid', gap: space(3) }}>
-                <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: space(2), flexWrap: 'wrap', minInlineSize: 0 }}>
-                  <Lamp state={connection === 'online' ? 'ok' : connection === 'offline' ? 'fail' : 'working'} size="sm">
-                    {connection === 'online'
-                      ? t('bench.daemon_online', {}, locale)
-                      : connection === 'offline'
-                        ? t('bench.daemon_offline', {}, locale)
-                        : t('remote.daemon_checking', {}, locale)}
-                  </Lamp>
+            <>
+              <Panel title={t('remote.session_title', {}, locale)} label={t('remote.session_title', {}, locale)}>
+                <Box dir={dir} style={{ display: 'grid', gap: space(3) }}>
+                  <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: space(2), flexWrap: 'wrap', minInlineSize: 0 }}>
+                    <Lamp state={connection === 'online' ? 'ok' : connection === 'offline' ? 'fail' : 'working'} size="sm">
+                      {connection === 'online'
+                        ? t('bench.daemon_online', {}, locale)
+                        : connection === 'offline'
+                          ? t('bench.daemon_offline', {}, locale)
+                          : t('remote.daemon_checking', {}, locale)}
+                    </Lamp>
+                    <Text size="xs" dir={dir} style={{ color: colorVar('text'), fontSize: fontSize('xs') }}>
+                      {t('remote.session_paired', {}, locale)}
+                    </Text>
+                  </Box>
+
+                  <Ledger label={t('remote.session_title', {}, locale)}>
+                    <Ledger.Row meta={<Machine title={session.baseUrl}>{session.baseUrl}</Machine>}>
+                      <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
+                        {t('remote.session_endpoint', {}, locale)}
+                      </Text>
+                    </Ledger.Row>
+                    <Ledger.Row
+                      meta={
+                        daemonVersion === null ? (
+                          <Machine>{t('bench.not_reported', {}, locale)}</Machine>
+                        ) : (
+                          <Machine title={daemonVersion}>{daemonVersion}</Machine>
+                        )
+                      }
+                    >
+                      <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
+                        {t('remote.daemon_version', {}, locale)}
+                      </Text>
+                    </Ledger.Row>
+                  </Ledger>
+
                   <Text size="xs" dir={dir} style={{ color: colorVar('text'), fontSize: fontSize('xs') }}>
-                    {t('remote.session_paired', {}, locale)}
+                    {t('remote.session_token_note', {}, locale)}
                   </Text>
-                </Box>
 
-                <Ledger label={t('remote.session_title', {}, locale)}>
-                  <Ledger.Row meta={<Machine title={session.baseUrl}>{session.baseUrl}</Machine>}>
-                    <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-                      {t('remote.session_endpoint', {}, locale)}
+                  {/* The companion's one boundary, said where the owner looks for settings: this phone
+                      holds a session, never model keys — there is no key field on any remote screen. */}
+                  <div dir={dir} data-testid="remote-no-llm-keys-notice">
+                    <Text size="xs" dir={dir} style={{ color: colorVar('text'), fontSize: fontSize('xs') }}>
+                      {t('remote.no_llm_keys', {}, locale)}
                     </Text>
-                  </Ledger.Row>
-                  <Ledger.Row
-                    meta={
-                      daemonVersion === null ? (
-                        <Machine>{t('bench.not_reported', {}, locale)}</Machine>
-                      ) : (
-                        <Machine title={daemonVersion}>{daemonVersion}</Machine>
-                      )
-                    }
-                  >
-                    <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-                      {t('remote.daemon_version', {}, locale)}
-                    </Text>
-                  </Ledger.Row>
-                </Ledger>
+                  </div>
 
-                <Text size="xs" dir={dir} style={{ color: colorVar('text'), fontSize: fontSize('xs') }}>
-                  {t('remote.session_token_note', {}, locale)}
-                </Text>
+                  <Box dir={dir} style={{ display: 'flex', gap: space(2), flexWrap: 'wrap', rowGap: space(2) }}>
+                    <Button variant="secondary" dir={dir} onClick={reloadAll} data-testid="remote-session-reconnect">
+                      {t('simple.stream_retry', {}, locale)}
+                    </Button>
 
-                <Box dir={dir} style={{ display: 'flex', gap: space(2), flexWrap: 'wrap', rowGap: space(2) }}>
-                  <Button variant="secondary" dir={dir} onClick={reloadAll} data-testid="remote-session-reconnect">
-                    {t('simple.stream_retry', {}, locale)}
-                  </Button>
-
-                  {/**
-                   * Ending a session is destructive, so it is one button that has to be pressed twice —
-                   * and the second press keeps the owner's focus exactly where it already is (§9: no
-                   * `window.confirm`, which leaves the keyboard outside the app). Escape steps back.
-                   */}
-                  <Button
-                    variant={confirming ? 'primary' : 'ghost'}
-                    dir={dir}
-                    aria-describedby={confirming ? 'remote-session-end-hint' : undefined}
-                    data-testid="remote-session-end"
-                    onKeyDown={(event) => {
-                      if (event.key === 'Escape' && confirming) {
-                        event.preventDefault();
-                        setConfirming(false);
-                      }
-                    }}
-                    onClick={() => {
-                      if (confirming) {
-                        endSession();
-                        return;
-                      }
-                      setConfirming(true);
-                    }}
-                  >
-                    {t(confirming ? 'remote.session_end_confirm' : 'remote.session_end', {}, locale)}
-                  </Button>
-
-                  {confirming && (
-                    <span
-                      id="remote-session-end-hint"
-                      style={{
-                        color: colorVar('text'),
-                        fontSize: fontSize('xs'),
-                        minInlineSize: 0,
-                        overflowWrap: 'anywhere',
+                    {/**
+                     * Ending a session is destructive, so it is one button that has to be pressed twice —
+                     * and the second press keeps the owner's focus exactly where it already is (§9: no
+                     * `window.confirm`, which leaves the keyboard outside the app). Escape steps back.
+                     */}
+                    <Button
+                      variant={confirming ? 'primary' : 'ghost'}
+                      dir={dir}
+                      aria-describedby={confirming ? 'remote-session-end-hint' : undefined}
+                      data-testid="remote-session-end"
+                      onKeyDown={(event) => {
+                        if (event.key === 'Escape' && confirming) {
+                          event.preventDefault();
+                          setConfirming(false);
+                        }
+                      }}
+                      onClick={() => {
+                        if (confirming) {
+                          endSession();
+                          return;
+                        }
+                        setConfirming(true);
                       }}
                     >
-                      {`${t('remote.session_end_hint', {}, locale)} ${t('common.escape_hint', {}, locale)}`}
-                    </span>
-                  )}
+                      {t(confirming ? 'remote.session_end_confirm' : 'remote.session_end', {}, locale)}
+                    </Button>
+
+                    {confirming && (
+                      <span
+                        id="remote-session-end-hint"
+                        style={{
+                          color: colorVar('text'),
+                          fontSize: fontSize('xs'),
+                          minInlineSize: 0,
+                          overflowWrap: 'anywhere',
+                        }}
+                      >
+                        {`${t('remote.session_end_hint', {}, locale)} ${t('common.escape_hint', {}, locale)}`}
+                      </span>
+                    )}
+                  </Box>
                 </Box>
-              </Box>
-            </Panel>
+              </Panel>
+
+              {/* The devices paired to this daemon, read from `devices.list` — capability-gated: a
+                  daemon that does not answer the name leaves `devicesState` at `idle` and this plate
+                  unrendered, rather than an empty list claiming nothing is paired (§7). */}
+              {(devicesState !== 'idle' || devices.length > 0) && (
+                <Panel title={t('devices.title', {}, locale)} label={t('devices.title', {}, locale)}>
+                  <div dir={dir} data-testid="remote-devices-list">
+                    {devicesState === 'loading' ? (
+                      <Skeleton label={t('devices.loading', {}, locale)} variant="row" lines={2} />
+                    ) : devices.length === 0 ? (
+                      <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
+                        {t('devices.no_devices', {}, locale)}
+                      </Text>
+                    ) : (
+                      <Ledger label={t('devices.title', {}, locale)}>
+                        {devices.map((device) => (
+                          <Ledger.Row key={device.id} meta={<Machine title={device.id}>{shortId(device.id, 10)}</Machine>}>
+                            <Box dir={dir} style={{ display: 'grid', gap: space(1), minInlineSize: 0 }}>
+                              <Text size="sm" dir={dir} style={{ color: colorVar('text'), fontWeight: fontWeight('bold') }}>
+                                {device.name}
+                              </Text>
+                              {/* The row's own device ends its session from the session plate's
+                                  two-press button, not from here — no control to revoke yourself. */}
+                              {!device.isCurrent && revokePairedDevice !== null && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  dir={dir}
+                                  data-testid={`remote-device-revoke-${device.id}`}
+                                  onClick={() => {
+                                    void revokePairedDevice(device.id);
+                                  }}
+                                >
+                                  {t('settings.devices_revoke', {}, locale)}
+                                </Button>
+                              )}
+                            </Box>
+                          </Ledger.Row>
+                        ))}
+                      </Ledger>
+                    )}
+                  </div>
+                </Panel>
+              )}
+            </>
           ))}
 
         {tab === 'about' && (
@@ -258,6 +324,13 @@ export function SettingsScreen() {
               <Text size="md" dir={dir} style={{ color: colorVar('text'), lineHeight: 'var(--warsha-line-height-relaxed)' }}>
                 {t('remote.about_desc', {}, locale)}
               </Text>
+
+              {/* The same boundary on the about plate: what this app is includes what it never holds. */}
+              <div dir={dir} data-testid="remote-no-llm-keys-notice">
+                <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
+                  {t('remote.no_llm_keys', {}, locale)}
+                </Text>
+              </div>
 
               <Box dir={dir} className="remote-copy">
                 <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
