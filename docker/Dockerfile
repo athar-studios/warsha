@@ -18,8 +18,8 @@
 # 0600 /var/lib/warsha/config.toml on the data volume, and the provider API
 # key is only ever passed through the process environment. See docs/DEPLOY.md.
 
-# Pinned for reproducibility; must be >= 1.85 because Cargo.lock is version 4.
-ARG RUST_IMAGE=rust:1.88.0-bookworm
+# Pinned for reproducibility; must be >= 1.89 because uuid@1.29.0 requires rustc >= 1.89.0.
+ARG RUST_IMAGE=rust:1-bookworm
 ARG NODE_IMAGE=node:22-bookworm-slim
 ARG RUNTIME_IMAGE=debian:bookworm-slim
 

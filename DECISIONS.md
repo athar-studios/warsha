@@ -347,6 +347,22 @@
      the built front end means the owner installs one thing instead of standing up a web server.
   3. *It keeps the pairing wire type untouched*, consistent with the lane's reasoning for not adding a
      `server_origin` field to `PairingData`.
+
+## 2026-11-05 — Wire Contract Normalization & Root Error Boundary (P0 Desktop Black Screen Fix)
+- **Decision**: Wrap the root desktop application in a resilient `ErrorBoundary` and normalize the JSON-RPC wire contract between Rust `jsonrpsee` and `@warsha/client`.
+- **Reason**: Rust daemon returns snake_case fields (`created_at`, `current_stage`, `device_id`), while client components expected camelCase properties (`createdAt`, `stage`, `id`), leading to `undefined` field access and uncaught `RangeError: Invalid time value` in `ProjectsBoard.tsx` and `TypeError: Cannot read properties of undefined` in `InstrumentStrip.tsx`. These unhandled runtime exceptions unmounted React and left the desktop at the raw Tauri window background (`#0c0d10`). Normalizing the wire contract at the boundary via explicit decoders in `@warsha/client` (`decodeProjectSummary`, `decodeRunSummary`, `decodeDeviceSummary`) and implementing safe date parsing in `apps/desktop/src/date.ts` fully resolved the black screen.
+
+## 2026-11-05 — Static Remote UI Serving in Warshad (GAP 1)
+- **Decision**: Implement dynamic static file serving in `warshad` behind `WARSHA_REMOTE_ASSETS_DIR` env variable with zero behavior changes when unset.
+- **Reason**: Enables the containerized daemon to serve the built remote PWA bundle directly over HTTP with SPA client-route fallback to `index.html`, path traversal rejection, content-type mapping, and immutable caching for hashed assets (`assets/*`) versus `no-cache` for `index.html`. Internal endpoints `/rpc`, `/events`, and `/health` retain routing priority.
+
+## 2026-11-05 — Dockerfile Rust Builder Base Image Upgrade (GAP 2)
+- **Decision**: Update Docker multi-stage builder base image from `rust:1.88.0-bookworm` to `rust:1-bookworm` (providing `rustc 1.99.1`).
+- **Reason**: `uuid v1.29.0` transitively requires rustc >= 1.89.0; `rust:1.88.0-bookworm` failed during `cargo build` in docker. `rust:1-bookworm` compiles cleanly without modifying pinned crate dependencies.
+
+## 2026-11-05 — Bounded Real-LLM Failure Handling (GAP 3)
+- **Decision**: In `crates/warsha-pipeline/src/lib.rs`, handle unauthenticated or failed LLM provider calls cleanly by transitioning the run to `RunStatus::Failed`, emitting an `EventKind::Error` with action `stage_failed`, sanitizing error messages via `scrub_llm_error`, and preventing retry loops or unbounded hangs.
+- **Reason**: Real-LLM failure path was previously unhandled, risking retry storms and leaking sensitive API keys or credential substrings into error events. Key scrubbing and state termination ensure safe, bounded failure recovery.
 - **Two things this must not silently break, both of which the implementing lane has to handle:**
   - **SPA routes.** The remote app routes on real paths (`/gates`, `/run`, `/projects`, `/settings`), so a
     plain `ServeDir` 404s every deep link on refresh. A `index.html` fallback for unmatched non-asset
@@ -1080,3 +1096,27 @@ before it can believe any line number in the handoff.
   - **How to reverse**: In `deploy/docker-compose.yml`, remove the `caddy` service and publish `ports: ["7431:7431", "7432:7432"]` directly on `warshad` (recommended only inside a private Tailscale tailnet).
 
 
+## 2026-11-05 — GAP 4/5 documentation correctness: single package id, single executable name, updater words match the shipped config (docs only)
+- **Decision**: Treat `dev.warsha.remote` (from `apps/mobile/capacitor.config.json`,
+  `apps/mobile/android/app/build.gradle` `namespace`/`applicationId`, and the Java package
+  `dev.warsha.remote`) as the one Android id in all docs — a repo-wide grep finds **zero** occurrences of
+  the stale id `studio.athar.warsha.remote`, so there is no contradiction left to resolve; treat
+  `warsha-desktop.exe` (not `Warsha.exe`) as the installed desktop binary in all docs (also zero stale
+  hits outside the dated DECISIONS/PROGRESS records); and rewrite the updater prose in
+  `docs/src/known-limitations.md`, `docs/src/security.md`, `docs/src/quickstart.md` and
+  `docs/launch/provider-auto-update.md` to the shipped truth — `bundle.createUpdaterArtifacts: false` and
+  `plugins: {}` in `apps/desktop/src-tauri/tauri.conf.json`, no updater plugin, no updater artifacts —
+  and added a `docs/src/changelog.md` "Removed" entry superseding the dated M16 updater wording rather
+  than rewriting it.
+  Create `docs/VERIFY.md` as the reproduction guide for APK/PWA/NSIS verification plus the GAP 5
+  deferred-device ledger (§5.1 device/emulator run, §5.2 camera QR scan, §5.3 static shell fixes).
+- **Evidence**: audit greps in `docs/VERIFY.md` §1.1 all pass on this tree; `mdbook build` and
+  `mdbook test` in `docs/` exit 0 after the edits.
+- **Open item recorded, not resolved**: the two shipped NSIS installer SHA-256 records disagree
+  (`INSTALL.md` §2 `7e9c35d9433c…369e` vs `PROGRESS.md` W1 ledger `7e9c35d99fe9…369e`, same byte size);
+  the `target/` tree is no longer on disk so this host cannot adjudicate — `docs/VERIFY.md` §4.3 flags it
+  for re-measurement instead of silently picking a winner.
+- **Alternatives**: rewrite the dated `PROGRESS.md`/`DECISIONS.md`/`PLAN.md` history rows — rejected;
+  those are timestamped logs and the repo's convention is to supersede, not erase.
+- **How to reverse**: no reversal wanted; if the updater is ever configured again, update the same four
+  docs pages from `tauri.conf.json` and re-run the §1.1 greps.

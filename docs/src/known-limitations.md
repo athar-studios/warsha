@@ -60,7 +60,7 @@ list; do not read this page as a replacement for it:
 |---|---|
 | Nothing is published | no release tag, no release page, no installer built on the maintenance host (Linux aarch64). `git tag --list` is empty, and any `.../releases/latest/download/...` URL is a 404. |
 | Unsigned installers | when a Windows bundle exists, SmartScreen will warn on every install; there is no certificate. |
-| Self-update not wired | `plugins.updater` is configured, but `tauri-plugin-updater` is not a dependency and no signed `latest.json` exists, so nothing updates itself. |
+| Self-update not configured | The shipped `apps/desktop/src-tauri/tauri.conf.json` sets `bundle.createUpdaterArtifacts: false` (`:38`) and `plugins: {}` (`:70`): no auto-updater plugin is configured and no updater artifacts (`latest.json`, `.sig`) are produced, so nothing updates itself and `tauri build` requires no signing key. Wiring an updater back in is human-only work (minisign key + published `latest.json`); see [`docs/INSTALL.md` §5](../INSTALL.md) and [`docs/VERIFY.md`](../VERIFY.md). |
 | The live event feed is unreachable from the app | `/events` authenticates from the `Authorization` header alone (`crates/warshad/src/lib.rs:3658`, and `bearer_token` at `:365-372` reads nothing else), which a webview cannot set on a WebSocket handshake; the client already carries the token in a subprotocol (`packages/client/src/index.ts:445`, used at `:1095`) and the middleware ignores it, so the socket is refused. Both desktop modes open it and show their own offline banner — state and `subscribeEvents` call at `apps/desktop/src/screens/SimpleMode.tsx:283` and `:348-359`, banner at `:676-695`; state and `subscribeEvents` call at `apps/desktop/src/screens/AdvancedMode.tsx:220` and `:333-344`, banner at `:464-481`. |
 | A provider key needs a real OS keychain | Windows Credential Manager, macOS Keychain or the freedesktop Secret Service. With none running — headless Linux, a container — `providers.add` refuses and there is deliberately no plaintext fallback file (`crates/warsha-providers/src/secrets.rs:105-110`). |
 | Ports are not guaranteed | if 8765/8766 are taken the OS picks others and the `warsha` CLI does not learn them ([`docs/INSTALL.md` §5](../INSTALL.md)). |
@@ -82,10 +82,12 @@ list; do not read this page as a replacement for it:
 - `warsha logs <run> --follow` prints the events it already has and then
   `Following... (WebSocket not implemented)` (`crates/warsha-cli/src/lib.rs:510-513`). The flag
   exists; the tail does not.
-- The mobile PWA has **no push notifications on any platform**: no service worker is registered, no
-  notification permission is requested, no `PushManager` is used
-  ([Quickstart](quickstart.md) carries the measurement). Its pairing channel is not end-to-end
-  encrypted either ([Security Model](security.md)).
+- The mobile PWA has **no push notifications on any platform**: no notification permission is
+  requested and no `PushManager` is used ([Quickstart](quickstart.md) carries the measurement).
+  The service-worker half has since changed: the built app registers a real Workbox worker
+  (`apps/remote/src/main.tsx`, browser-proved — `docs/VERIFY.md` §3.1) — but that changes caching,
+  not push. Its pairing channel is not end-to-end encrypted either
+  ([Security Model](security.md)).
 - `docs/src/changelog.md` says some M17–M19 features "do not exist in the repository"
   (crash reports, the backend kit). That line has aged: `backend.export` (`crates/warshad/src/lib.rs:805`),
   `backend.get` and `backend.set` (`:908-:911`), `postlaunch.crashes` (`:820`) and
@@ -118,6 +120,8 @@ list; do not read this page as a replacement for it:
 
 - [`docs/INSTALL.md`](../INSTALL.md) — install, uninstall, data locations, and §5 for the gaps this
   page consolidates.
+- [`docs/VERIFY.md`](../VERIFY.md) — how to re-measure the APK, the PWA, and the NSIS installer,
+  which verification items are deferred to a device, and what counts as evidence.
 - [Changelog](changelog.md) — what landed, in which milestone, and what it refuses to claim.
 - [Quickstart](quickstart.md) — the commands that work from source today.
 - `PROGRESS.md` and `DECISIONS.md` at the repository root — the running state and the reasoning

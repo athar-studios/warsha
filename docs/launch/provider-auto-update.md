@@ -69,8 +69,10 @@ driven by the caller, which is what keeps the decision logic testable without to
 
 ## Boundaries
 
-* Warsha **never** updates itself through this path; that is the Tauri updater configured in
-  `apps/desktop/tauri.conf.json`, which verifies a signed release before installing.
+* Warsha **never** updates itself through this path. The self-update channel would be the Tauri updater,
+  and the shipped `apps/desktop/src-tauri/tauri.conf.json` configures none: `bundle.createUpdaterArtifacts`
+  is `false` and `plugins` is `{}`, so no updater plugin, artifacts, or signed-release verification runs
+  at all today (see `docs/src/known-limitations.md` and `docs/VERIFY.md`).
 * Warsha **never** installs a provider the owner does not have; detection only reports what exists.
 * Warsha **never** pulls a version from an unofficial mirror. Only the vendor's own release channel.
 * Network access follows the provider's own consent model: an update downloads from the vendor, not through

@@ -612,6 +612,12 @@ export const messages: Record<Locale, Record<string, string>> = {
     'bench.lanes_active': 'مسارات نشطة',
     'bench.gates_waiting': 'بوّابات بانتظارك',
     'bench.not_reported': 'لم يُبلَّغ بعد',
+    // The root error boundary's card. The values are bilingual on purpose — the card renders when
+    // the app may be too broken to trust the locale machinery, so each string says both languages.
+    'error.boundary_title': 'حدث خطأ غير متوقع / An unexpected error occurred',
+    'error.boundary_message_fallback': 'خطأ في العرض / A rendering error was caught.',
+    'error.boundary_reload': 'إعادة التحميل / Reload',
+    'error.boundary_retry': 'إعادة المحاولة / Try again',
     // A ceiling the daemon never set arrives as `0`, because `@warsha/client` folds `budget.show`'s null
     // cents into the dollars it has always declared. The screens therefore say this instead of `$0.00`:
     // a formatted zero reads as "you have no budget", which is a different claim from "no ceiling reported".
@@ -1483,6 +1489,10 @@ export const messages: Record<Locale, Record<string, string>> = {
     'bench.lanes_active': 'active lanes',
     'bench.gates_waiting': 'gates waiting on you',
     'bench.not_reported': 'not reported yet',
+    'error.boundary_title': 'حدث خطأ غير متوقع / An unexpected error occurred',
+    'error.boundary_message_fallback': 'خطأ في العرض / A rendering error was caught.',
+    'error.boundary_reload': 'إعادة التحميل / Reload',
+    'error.boundary_retry': 'إعادة المحاولة / Try again',
     'bench.no_ceiling': 'no ceiling reported',
     'bench.budget_label': 'Budget',
 

@@ -89,6 +89,7 @@ impl Daemon {
             allowed_origins: Vec::new(),
             allowed_commands: Vec::new(),
             rate_limits: RateLimitConfig::default(),
+            remote_assets_dir: None,
         };
         Daemon {
             handle: start_daemon(config).await.expect("the daemon starts"),

@@ -14,6 +14,7 @@
 //! Everything here is offline and reproducible: the fake provider never opens a
 //! socket, and the suite never mutates the process environment.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -56,8 +57,34 @@ const ALL_DISPATCH_ROLES: [Role; 10] = [
     Role::Feedback,
 ];
 
+/// A fresh temp directory preferring cargo's `CARGO_TARGET_TMPDIR`: the same
+/// three-way fallback the daemon tests use
+/// (`crates/warshad/tests/events_ws_auth.rs`), because some Windows machines
+/// protect `%TEMP%` against even creating a directory there (`Access is denied`).
+fn fresh_tempdir() -> TempDir {
+    if let Some(base) = std::env::var_os("CARGO_TARGET_TMPDIR") {
+        let base = PathBuf::from(base);
+        if base.is_dir() {
+            if let Ok(dir) = TempDir::new_in(&base) {
+                return dir;
+            }
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(deps) = exe.parent() {
+            let base = deps.join("tmp");
+            if std::fs::create_dir_all(&base).is_ok() {
+                if let Ok(dir) = TempDir::new_in(&base) {
+                    return dir;
+                }
+            }
+        }
+    }
+    TempDir::new().expect("tempdir for the test data")
+}
+
 async fn fresh_store() -> (TempDir, Arc<Store>) {
-    let dir = TempDir::new().expect("a temp data directory");
+    let dir = fresh_tempdir();
     let store = Store::open_at(dir.path().join("pipeline.db"))
         .await
         .expect("the store opens");

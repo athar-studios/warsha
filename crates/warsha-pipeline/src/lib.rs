@@ -154,6 +154,26 @@ fn stage_to_string(stage: Stage) -> &'static str {
     }
 }
 
+/// Scrub the API key out of a provider failure before it is recorded or logged.
+///
+/// A real-LLM call can fail with a message this layer did not write — the
+/// provider's own text, an echo of the request, a wrapper error — and the one
+/// thing such a message may never carry is the credential that was refused
+/// (AGENTS.md: secrets are never logged, and the run's event log is a thing
+/// owners read). Two passes close that from both ends: the exact
+/// `WARSHA_LLM_API_KEY` value is replaced wherever it appears, and
+/// [`mask_secrets`] then masks any credential-shaped token that survived the
+/// first — the same heuristic the agent loop guards its transcripts with,
+/// reused here so one table defines what a secret looks like.
+fn scrub_llm_error(error: &PipelineError) -> String {
+    let raw = error.to_string();
+    let scrubbed = match EnvLlmConfig::from_env().api_key {
+        Some(key) if !key.is_empty() => raw.replace(key.as_str(), REDACTED),
+        _ => raw,
+    };
+    mask_secrets(&scrubbed)
+}
+
 #[derive(Error, Debug)]
 pub enum PipelineError {
     #[error("Store error: {0}")]
@@ -403,7 +423,20 @@ impl PipelineEngine {
         };
 
         let response =
-            Self::dispatch_chat(&providers, role, &run.project_id.0.to_string(), request).await?;
+            match Self::dispatch_chat(&providers, role, &run.project_id.0.to_string(), request)
+                .await
+            {
+                Ok(response) => response,
+                Err(error) => {
+                    // The real-LLM failure path: a refused key, a timeout, a dead
+                    // endpoint. The run does not stay `Running` at a half-started
+                    // stage and the operator does not have to guess — the failure
+                    // is recorded (scrubbed) in the run's own event log before the
+                    // error keeps travelling up to the caller that asked for the
+                    // advance.
+                    return Err(self.record_stage_failure(run, stage, role, error).await);
+                }
+            };
 
         // Parse the JSON response
         let artifact_content = response
@@ -539,6 +572,68 @@ impl PipelineEngine {
         Ok(FakeProvider::new().chat(request).await?)
     }
 
+    /// Record a stage whose model call failed, and hand the caller back the error.
+    ///
+    /// This is the real-LLM failure path the walk used to miss: a refused key, a
+    /// timeout, a dead endpoint made `dispatch_chat` return an error that left the
+    /// run `Running` at the stage that could not produce anything, with no event
+    /// explaining why. Here the run's own record carries the ending instead: the
+    /// status becomes [`RunStatus::Failed`] and is persisted, and one
+    /// [`EventKind::Error`] with `"action": "stage_failed"` says which stage and,
+    /// after [`scrub_llm_error`], what the provider said without saying what the
+    /// key is. The error itself is *not* swallowed — the caller gets it back so
+    /// the RPC reply is still an honest failure of the call that made it.
+    async fn record_stage_failure(
+        &self,
+        run: &mut Run,
+        stage: Stage,
+        role: Role,
+        error: PipelineError,
+    ) -> PipelineError {
+        let message = scrub_llm_error(&error);
+
+        run.status = RunStatus::Failed;
+        run.updated_at = Utc::now();
+        if let Err(store_error) = self.store.update_run(run).await {
+            warn!(
+                "the failed-run write for run {} did not land: {store_error}",
+                run.id.0
+            );
+        }
+
+        let error_event = Event {
+            id: Ulid::new(),
+            run_id: run.id,
+            stage,
+            role: Some(role),
+            kind: EventKind::Error,
+            payload: serde_json::json!({
+                "action": "stage_failed",
+                "stage": stage_to_string(stage),
+                "message": message,
+            }),
+            cost_cents: None,
+            tokens: None,
+            created_at: Utc::now(),
+            device_id: None,
+        };
+        if let Err(store_error) = self.store.append_event(&error_event).await {
+            warn!(
+                "the stage_failed event for run {} did not land: {store_error}",
+                run.id.0
+            );
+        }
+
+        // The scrubbed message only: an API key is never a log line's content
+        // (AGENTS.md — secrets never reach a log).
+        warn!(
+            "Stage {} failed for run {}: {message}",
+            stage_to_string(stage),
+            run.id.0
+        );
+        error
+    }
+
     /// Walk the run forward until it is waiting at a gate or has reached the final
     /// `Feedback` stage.
     ///
@@ -551,6 +646,13 @@ impl PipelineEngine {
     pub async fn advance_to_next_gate(&self, run_id: RunId) -> Result<Run> {
         let mut run = self.store.get_run(run_id).await?;
         loop {
+            // A failed run has no next gate: it is finished, answered as itself,
+            // and never re-walked. Without this the caller of a failed advance
+            // would sit at the stage that cannot execute and retry-storm the
+            // provider through repeated advances.
+            if run.status == RunStatus::Failed {
+                return Ok(run);
+            }
             if run.current_stage == Stage::Feedback {
                 run.status = RunStatus::Completed;
                 run.updated_at = Utc::now();
@@ -566,7 +668,22 @@ impl PipelineEngine {
                     return Ok(run);
                 }
             }
-            run = self.advance_stage(run.id).await?;
+            run = match self.advance_stage(run.id).await {
+                Ok(run) => run,
+                Err(error) => {
+                    // The one advance failure this walk must answer with a run
+                    // rather than an error is the recorded one: a stage whose
+                    // model call failed is already persisted as `Failed` with
+                    // its event ([`PipelineEngine::record_stage_failure`]), and
+                    // handing that run back is what a caller polling the walk
+                    // needs. Anything else is not the walk's to reinterpret.
+                    let current = self.store.get_run(run_id).await?;
+                    if current.status == RunStatus::Failed {
+                        return Ok(current);
+                    }
+                    return Err(error);
+                }
+            };
         }
     }
 

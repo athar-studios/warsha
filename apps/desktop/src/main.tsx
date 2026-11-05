@@ -4,6 +4,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 
 import App from './App';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { applyStoredTheme } from './theme';
 import './index.css';
 
@@ -18,12 +19,16 @@ applyStoredTheme();
 const storedLocale = readStoredLocale();
 applyLocale(storedLocale);
 
+// The boundary sits outermost on purpose: a throw anywhere inside — locale provider, router, a
+// screen — lands on the recovery card instead of blacking the window with nothing to click.
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <LocaleProvider initialLocale={storedLocale}>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-    </LocaleProvider>
+    <ErrorBoundary>
+      <LocaleProvider initialLocale={storedLocale}>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </LocaleProvider>
+    </ErrorBoundary>
   </React.StrictMode>
 );

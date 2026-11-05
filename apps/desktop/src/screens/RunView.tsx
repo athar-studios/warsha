@@ -40,6 +40,7 @@ import { HandoffDialog, type HandoffPhase } from '../components/HandoffDialog';
 import { LivePreview, type PreviewStatus } from '../components/LivePreview';
 import { LocalCloudBadge, type TargetKind } from '../components/LocalCloudBadge';
 import { ReviewApplyPanel, type HandoffChangedFile } from '../components/ReviewApplyPanel';
+import { formatTime as formatTimeSafe } from '../date';
 
 interface RunViewProps {
   client: WarshaClient;
@@ -112,7 +113,12 @@ export function RunView({ client, run, onBack }: RunViewProps) {
 
   /** A stage or an event kind is machine data, but a stage also has a word in the catalog (§11). */
   const stageWord = useCallback(
-    (stage: Stage | string) => {
+    (stage: Stage | string | null | undefined) => {
+      // A run the daemon has not placed in a stage answers `''` (or nothing): the chip says so in
+      // words rather than calling `.startsWith`/template lookup on a non-string and throwing.
+      if (typeof stage !== 'string' || stage.length === 0) {
+        return t('bench.not_reported', {}, locale);
+      }
       const key = `run.stage.${stage}`;
       const translated = t(key, {}, locale);
       return translated === key ? stage : translated;
@@ -211,13 +217,7 @@ export function RunView({ client, run, onBack }: RunViewProps) {
    * keeps 0–9 so two lines of a feed can be compared at a glance.
    */
   const formatTime = useCallback(
-    (iso: string) =>
-      new Intl.DateTimeFormat(locale === 'ar' ? 'ar-u-nu-latn' : locale, {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-      }).format(new Date(iso)),
+    (iso: unknown) => formatTimeSafe(iso, locale),
     [locale]
   );
 

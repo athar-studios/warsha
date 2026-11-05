@@ -33,6 +33,23 @@ Orchestrator-managed execution across seven strict file-isolated workstreams (`W
 
 ---
 
+## Gap Closure & P0 Black Screen Resolution (GAPs 1–5) — 2026-11-05 (COMPLETE)
+
+Closed all 5 operational gaps and resolved the P0 black screen root cause on `ship/gaps`.
+
+### Gap Closure Ledger
+
+| Gap | Objective | Implementation | Verification & Evidence | Status |
+|---|---|---|---|---|
+| **P0** | Fix desktop black screen (`#0c0d10`) | Wire contract deserializer decoding snake_case Rust responses in `@warsha/client`; safe date parsing in `apps/desktop/src/date.ts`; guarded `InstrumentStrip.tsx`; top-level `ErrorBoundary.tsx` | All 41 desktop test files passing (387 tests); zero unhandled date or stage render exceptions | **completed** |
+| **GAP 1** | Static remote UI serving in `warshad` | Added `remote_assets_dir` behind `WARSHA_REMOTE_ASSETS_DIR` in `crates/warshad/src/lib.rs` with SPA fallback, MIME types, cache-control (`immutable` vs `no-cache`), traversal guard; updated `deploy/Caddyfile` | 6 real socket integration tests passing in `crates/warshad/tests/static_serving.rs` | **completed** |
+| **GAP 2** | Docker build & container verification | Upgraded Rust toolchain builder to `rust:1-bookworm` in `docker/Dockerfile`; built `warsha/warshad:0.1.0`; deployed `deploy/docker-compose.yml` | Verified: `/health` 200 JSON; `/` SPA index.html; bootstrap token prints once and suppressed on restart; container UID 10001; 0 ports published on host; client paired and completed 4-gate run on FakeProvider | **completed** |
+| **GAP 3** | Real LLM failure path | Implemented `scrub_llm_error` in `crates/warsha-pipeline/src/lib.rs`; transitions run to `RunStatus::Failed`; appends `EventKind::Error` with action `stage_failed`; no hang/retry storms; zero key leaks | Verified by integration test `crates/warsha-pipeline/tests/real_llm_failure.rs` | **completed** |
+| **GAP 4** | Documentation correctness | Aligned Android app ID `dev.warsha.remote` in `apps/mobile/README.md`; corrected binary references to `warsha-desktop.exe` in `docs/INSTALL.md`; updated updater docs in `docs/src/known-limitations.md` and `docs/src/security.md` to reflect `createUpdaterArtifacts=false` and `plugins={}`; created `docs/VERIFY.md` | `mdbook build docs` clean; zero broken doc links | **completed** |
+| **GAP 5** | Verification & deferred emulator items | Created comprehensive verification guide in `docs/VERIFY.md` documenting PWA, APK signing, NSIS installer testing, and explicit technical rationale for deferred emulator items | Documented in `docs/VERIFY.md` | **completed** |
+
+---
+
 ## Working version for PC + Android — 2026-11-04 (in flight; resume artifact)
 
 Objective: "warsha working version for PC and android final". Verification bank below is written
@@ -5769,3 +5786,69 @@ hypotheses left in this triage.
   updater private key (`TAURI_SIGNING_PRIVATE_KEY`), Apple notarization, store submissions, relay
   hosting + VAPID, real provider key for live paid E2E (`WARSHA_E2E_REAL=1`), physical Android
   hardware pairing, GitHub branch protection, and `dev` → `main` merge.
+
+## Documentation run — 2026-11-05 — GAP 4 (doc correctness) + GAP 5 (deferred device verification) — docs only, nothing committed
+- **GAP 4 — corrected docs to the shipped truth** (files changed:
+  `docs/src/known-limitations.md`, `docs/src/security.md`, `docs/src/quickstart.md`,
+  `docs/launch/provider-auto-update.md`, `docs/src/changelog.md` (new "Removed" entry superseding the
+  M16 updater wording); new: `docs/VERIFY.md`):
+  - Android id: verified `dev.warsha.remote` is the only package id in the tree — grep counts:
+    `studio.athar.warsha.remote` 0 hits repo-wide; `dev.warsha.remote` present in
+    `capacitor.config.json`, `app/build.gradle` (`namespace` + `applicationId`), the Java sources,
+    `apps/mobile/README.md`, `docs/VERIFY.md`. No doc contradiction remains.
+  - Desktop binary: `warsha-desktop.exe` is the name used across `docs/INSTALL.md` (§2/§3/§5 tables) and
+    `docs/VERIFY.md`; `grep -rn "Warsha\.exe" docs --exclude=VERIFY.md` → 0 hits (the installer file
+    `Warsha_0.2.0_x64-setup.exe` is a different artifact and is named as such).
+  - Updater: docs now state `createUpdaterArtifacts: false` (`tauri.conf.json:38`) and `plugins: {}`
+    (`:70`) — no updater plugin, no updater artifacts, no signing key needed — replacing the stale
+    "`plugins.updater` is configured" wording; `grep -rn "plugins\.updater" docs/src` → 0 hits.
+  - `docs/VERIFY.md` created: reproduction of the localhost PWA proof (`verify-pwa.mjs --browser`,
+    Playwright `--project=remote`), the APK build + `apksigner verify --print-certs` +
+    `aapt2 dump badging` checks (package id, label, permissions, `warsha://pair` filter), the
+    `network_security_config.xml` cleartext audit, the NSIS silent-install
+    (`Start-Process … -ArgumentList '/S', …`) + installed-binary `--self-check --data-dir`
+    transcript, and the evidence bar (verbatim logs, exact exit codes, SHA-256 + byte size, no stubs).
+- **GAP 5 — deferred emulator/device items logged** (`docs/VERIFY.md` §5): (5.1) physical
+  device/emulator run of the APK deferred — no Android hardware attached and no emulator installed on
+  the verification hosts (`DECISIONS.md` 2026-11-04, 2026-11-05 owner-blocked list); covered instead by
+  localhost PWA verification + host-built signed APK (`apksigner` v2 true). (5.2) QR hardware camera
+  scan deferred — no camera device; the software fallback `manual_code_and_url` is tested instead
+  (`MainActivity.java` dispatch; `apps/remote/e2e/flows.spec.ts` typed-link pairing;
+  `App.test.tsx` deep-link tests). (5.3) shell fixes verified statically: `values/strings.xml` and
+  `values-ar/strings.xml` complete (`app_name`, RTL), `network_security_config.xml` denies cleartext by
+  default and allows loopback/emulator/LAN/Tailscale hosts exactly as listed in VERIFY §3.3.
+- **Measured this run**: `mdbook build` exit 0, `mdbook test` exit 0 (from `docs/`); all §1.1 audit
+  greps exit as documented. Open flag: the NSIS SHA-256 disagreement between `INSTALL.md` §2 and the
+  `PROGRESS.md` W1 row is recorded in `docs/VERIFY.md` §4.3 for re-measurement, not adjudicated (the
+  `target/` tree was cleaned, so no file hash is reproducible on this host right now).
+- **Extra correctness in the same files (found while auditing)**: the quickstart bundle table now
+  records the measured 2026-11-05 Windows NSIS build (MSI still not built) instead of "planned, not
+  produced" across the board; the stale "no service worker is registered" claims in
+  `docs/src/quickstart.md`/`docs/src/known-limitations.md` were corrected to the browser-proved
+  Workbox worker (`verify-pwa.mjs --browser` exit 0) while the "no push notifications" claim stands
+  (no `PushManager`, no notification permission — grep 0 hits in `apps/remote/src`).
+- Nothing committed or pushed; changed files: `docs/VERIFY.md` (new),
+  `docs/src/known-limitations.md`, `docs/src/security.md`, `docs/src/quickstart.md`,
+  `docs/src/changelog.md`, `docs/launch/provider-auto-update.md`, plus this log and the
+  `DECISIONS.md` entry. Final `mdbook build` + `mdbook test`: exit 0.
+
+## 2026-11-08 — P0: Desktop black screen + client wire contract decoding (Coder subagent 1)
+- **Root cause pinned**: `@warsha/client` returned `warshad`'s snake_case JSON raw, so screens read
+  `undefined` for `createdAt`/`stage`/`lastSeen`; `new Date(undefined)` threw `RangeError: Invalid time
+  value` and `stage.startsWith` threw on a non-string during render — uncaught, the window went black.
+- **Client**: added exported `decodeProjectSummary`/`decodeRunSummary`/`decodeDeviceSummary` (accepts the
+  daemon's snake_case and the e2e harness's camelCase; never emits `undefined` fields; `last_seen` falls
+  back to `pairedAt` then now) and wired them into `listProjects`/`createProject`/`getProject`,
+  `listRuns`/`startRun`/`getRun`/`getRunStatus`/`advanceRun`/`cancelRun`/`followupRun`, `listDevices`.
+- **Desktop**: new `src/date.ts` (`parseSafeDate`, `formatDate`, `formatInstant`, `formatTime` — fall back
+  to `—`, never throw); `ProjectsBoard`/`RunView`/`Devices`/`AdvancedMode` now format through it;
+  `InstrumentStrip.stageWord` and the stage `StatusStrip.Item` guard a missing stage with
+  `bench.not_reported`; `Devices.reachability(undefined|invalid)` answers `offline`; new root
+  `ErrorBoundary` (token-redacted message, Reload + Try again, catalog `error.boundary_*` keys added to
+  ar+en) wraps `<App/>` in `main.tsx`.
+- **Tests**: `packages/client/src/index.test.ts` +18 decode tests (advanceRun now asserts the decoded
+  shape); new `packages/client/src/wire-contract.test.ts` (live-daemon shapes); new
+  `apps/desktop/src/date.test.ts`, `components/ErrorBoundary.test.tsx`, `components/InstrumentStrip.test.tsx`.
+- **Measured**: `pnpm -F @warsha/client test` 90/90; `pnpm -F warsha-desktop test` 387/387 (41 files);
+  `pnpm -F @warsha/i18n test` 52/52; `pnpm -F warsha-desktop typecheck` exit 0; eslint clean on all
+  changed files. Nothing committed or pushed.

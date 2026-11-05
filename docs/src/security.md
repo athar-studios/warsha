@@ -249,10 +249,13 @@ log.
 - **No telemetry** — true: no analytics or telemetry dependency exists under `apps/`, `packages/` or `crates/`
 - **Local-first** — true: data and code stay on your machine; the only outbound calls are to the provider
   endpoints and MCP servers you configured
-- **No auto-update** — true in effect, with a caveat: `plugins.updater` is configured in
-  `apps/desktop/src-tauri/tauri.conf.json:70-77` (active, with a minisign public key and an endpoint under the
-  product repository), but `tauri-plugin-updater` is not a dependency of the shell and no `latest.json` is
-  published, so nothing can update itself today
+- **No auto-update** — true in the shipped config, not just in effect: `apps/desktop/src-tauri/tauri.conf.json`
+  sets `bundle.createUpdaterArtifacts: false` (`:38`) and `plugins: {}` (`:70`), so no updater plugin is
+  configured, no update artifacts or `latest.json` are produced, and nothing can update itself. (Earlier
+  revisions of this page described a configured-but-inert updater block under `plugins`; that block was
+  removed — the `DECISIONS.md` W1 entry of 2026-11-05 and
+  [`docs/INSTALL.md`](../INSTALL.md) §5 record the change, and
+  [`docs/VERIFY.md`](../VERIFY.md) shows how to re-measure it.)
 - **Minimal permissions** — true: the daemon binds loopback only and runs as your user
 - **No sudo** — true: no code path and no document asks for it
 - **Programs the daemon may start** — an allow-list read from `config.toml`

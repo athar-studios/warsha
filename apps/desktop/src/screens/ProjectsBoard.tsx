@@ -43,6 +43,8 @@ import {
 } from '@warsha/ui';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { formatDate } from '../date';
+
 /** The stages that stop for the owner: a project resting here has a lamp, not a chip alone (§1). */
 const GATE_STAGES: readonly Stage[] = ['gate_a', 'gate_b', 'gate_c', 'gate_d'];
 
@@ -278,16 +280,8 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
     [rows, archived]
   );
 
-  const formatDate = useCallback(
-    (iso: string) =>
-      new Intl.DateTimeFormat(locale === 'ar' ? 'ar-u-nu-latn' : locale, {
-        year: 'numeric',
-        month: 'short',
-        day: '2-digit',
-      }).format(new Date(iso)),
-    [locale]
-  );
-
+  // Date text goes through `../date` — a wire value that is `''`/`undefined`/malformed renders
+  // the fallback dash instead of throwing `RangeError: Invalid time value` into the render.
   const newProjectButton = (variant: 'primary' | 'secondary', id?: string) => (
     <Button
       variant={variant}
@@ -328,7 +322,7 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
                 {`$${budget.spentUsd.toFixed(2)} / $${budget.totalBudgetUsd.toFixed(2)}`}
               </Meter>
             )}
-            <Machine title={label('projects.updated')}>{formatDate(project.updatedAt)}</Machine>
+            <Machine title={label('projects.updated')}>{formatDate(project.updatedAt, locale)}</Machine>
           </Box>
         }
         actions={
@@ -514,7 +508,7 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
                 {archivedRows.map((row) => (
                   <Ledger.Row
                     key={row.project.id}
-                    meta={<Machine>{formatDate(row.project.updatedAt)}</Machine>}
+                    meta={<Machine>{formatDate(row.project.updatedAt, locale)}</Machine>}
                     actions={
                       <Button
                         variant="ghost"

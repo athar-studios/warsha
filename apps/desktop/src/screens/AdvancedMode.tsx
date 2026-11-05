@@ -70,6 +70,7 @@ import { SnapshotRestoreButton } from '../components/SnapshotRestoreButton';
 import { initialDeliveryStages, StatusStrip, type DeliveryStage } from '../components/StatusStrip';
 import { WebDeployButton, type DeployStatus } from '../components/WebDeployButton';
 import type { DaemonEndpoint } from '../daemon';
+import { DATE_FALLBACK, parseSafeDate } from '../date';
 
 interface AdvancedModeProps {
   client: WarshaClient;
@@ -128,8 +129,17 @@ function roleWord(lane: Lane, locale: Locale): string {
     : t(`role.${lane.role}`, {}, locale);
 }
 
-/** The stage's word: the four gates keep their own labels, the pipeline stages read from `run.stage.*`. */
-function stageWord(stage: string, locale: Locale): string {
+/**
+ * The stage's word: the four gates keep their own labels, the pipeline stages read from `run.stage.*`.
+ *
+ * A stage the daemon has not reported (`undefined`, `null`, `''`) is said in words — the bench's own
+ * `bench.not_reported` — and never reaches `stage.startsWith`, which threw on a non-string and blacked
+ * the render.
+ */
+function stageWord(stage: string | null | undefined, locale: Locale): string {
+  if (typeof stage !== 'string' || stage.length === 0) {
+    return t('bench.not_reported', {}, locale);
+  }
   return t(stage.startsWith('gate_') ? `gates.label.${stage}` : `run.stage.${stage}`, {}, locale);
 }
 
@@ -384,26 +394,29 @@ export function AdvancedMode({ client, project, onBack, endpoint }: AdvancedMode
 
   /** `14:22:07.318` — Arabic keeps 0–9 so two lines of a feed compare (§11). */
   const formatTime = useCallback(
-    (iso: string) =>
-      new Intl.DateTimeFormat(locale === 'ar' ? 'ar-u-nu-latn' : locale, {
+    (iso: unknown) => {
+      // `parseSafeDate` first: an unparseable feed timestamp falls back to the dash instead of
+      // throwing `RangeError: Invalid time value` out of `Intl.format` and blacking the pane.
+      const date = parseSafeDate(iso);
+      if (date === null) return DATE_FALLBACK;
+      return new Intl.DateTimeFormat(locale === 'ar' ? 'ar-u-nu-latn' : locale, {
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',
         fractionalSecondDigits: 3,
         hour12: false,
-      }).format(new Date(iso)),
+      }).format(date);
+    },
     [locale]
   );
 
   /** `2026-10-05 07:15` in UTC, so a run's start reads the same in every timezone. */
-  const formatStart = useCallback(
-    (iso: string) => {
-      const date = new Date(iso);
-      const pad = (value: number) => String(value).padStart(2, '0');
-      return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
-    },
-    []
-  );
+  const formatStart = useCallback((iso: unknown) => {
+    const date = parseSafeDate(iso);
+    if (date === null) return DATE_FALLBACK;
+    const pad = (value: number) => String(value).padStart(2, '0');
+    return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
+  }, []);
 
   // ------------------------------------------------------------------ the pane tab strip (§9 roving)
   const onTabsKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {

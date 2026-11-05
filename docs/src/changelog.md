@@ -190,6 +190,12 @@ nothing is written ahead of the work.
 - **M16 — n8n as an automation option.** Its Sustainable Use License forbids end users building
   workflows, so it is not embedded and not offered; `THIRD_PARTY_NOTICES.md` records the decision and
   Activepieces CE (MIT core only) is the optional engine instead.
+- **M20 (W1, 2026-11-05) — the Tauri updater configuration.** The `plugins.updater` block and
+  `bundle.createUpdaterArtifacts: true` described in the M16 dependency-and-update-policy entry above
+  were removed from
+  `apps/desktop/src-tauri/tauri.conf.json`: the shipped file now reads `createUpdaterArtifacts: false`
+  and `plugins: {}`, so no auto-updater plugin is configured and no updater artifacts are built, and an
+  unsigned `tauri build` needs no signing key. Superseded history; how to re-measure is `docs/VERIFY.md` §1.
 
 ### Not in this page
 

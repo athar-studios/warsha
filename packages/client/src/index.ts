@@ -93,6 +93,115 @@ export interface DeviceSummary {
   lastSeen: string;
 }
 
+const SUMMARY_ERROR = 'Malformed summary';
+
+/** The object half of a summary decode: anything but a JSON object is refused by name. */
+function summaryObject(value: unknown, name: string): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`${SUMMARY_ERROR}: "${name}" is not a JSON object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+/** A summary string field: non-strings read as absent so the caller picks the fallback. */
+function summaryString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+/** The one required identifier of a summary row; the refusal names the field, never the value. */
+function summaryId(value: unknown, name: string): string {
+  const text = summaryString(value);
+  if (text === undefined || text.length === 0) {
+    throw new Error(`${SUMMARY_ERROR}: "${name}" is missing "id"`);
+  }
+  return text;
+}
+
+/**
+ * One `warsha_core::Project` (snake_case, as `projects.list`/`projects.get`/`projects.create`
+ * serialise it) into the camelCase `ProjectSummary` the screens declare.
+ *
+ * The daemon's `DateTime<Utc>` is an RFC 3339 string, so `created_at`/`updated_at` pass through
+ * unchanged in value and only change name. A camelCase wire (the e2e harness, older stubs) decodes
+ * too: every read accepts both spellings. A missing timestamp decodes to `''` — the desktop's safe
+ * formatters render that as the em-dash fallback rather than throwing `RangeError: Invalid time value`.
+ */
+export function decodeProjectSummary(source: unknown): ProjectSummary {
+  const record = summaryObject(source, 'project');
+  const createdAt = summaryString(field(record, 'created_at', 'createdAt')) ?? '';
+  return {
+    id: summaryId(field(record, 'id'), 'project') as ProjectId,
+    name: summaryString(field(record, 'name')) ?? '',
+    createdAt,
+    updatedAt: summaryString(field(record, 'updated_at', 'updatedAt')) ?? createdAt,
+  };
+}
+
+/**
+ * One `warsha_core::Run` (snake_case, as `runs.list`/`runs.get`/`runs.start`/`runs.advance`/
+ * `runs.cancel`/`runs.followup` serialise it) into the camelCase `RunSummary`.
+ *
+ * `current_stage` becomes `stage`, `project_id` becomes `projectId` and `created_at` (or the
+ * harness's `started_at`) becomes `startedAt`. `status` is `RunStatus` as the daemon's snake_case
+ * string; a tagged or non-string answer is folded to its `state` word or its `String()` form, so
+ * a screen never calls `.startsWith` on an object. A missing stage decodes to `''` — never
+ * `undefined`, which is what made `InstrumentStrip` throw and black the desktop.
+ */
+export function decodeRunSummary(source: unknown): RunSummary {
+  const record = summaryObject(source, 'run');
+  const stage = summaryString(field(record, 'current_stage', 'currentStage', 'stage')) ?? '';
+  const statusValue = field(record, 'status');
+  let status = '';
+  if (typeof statusValue === 'string') {
+    status = statusValue;
+  } else if (typeof statusValue === 'object' && statusValue !== null) {
+    // A tagged enum (`{ "state": "awaiting_gate", … }`): the tag word is the status.
+    const tagged = statusValue as Record<string, unknown>;
+    status = summaryString(field(tagged, 'state', 'variant', 'type')) ?? JSON.stringify(tagged);
+  } else if (statusValue !== undefined && statusValue !== null) {
+    status = String(statusValue);
+  }
+  const startedAt =
+    summaryString(field(record, 'created_at', 'createdAt', 'started_at', 'startedAt')) ?? '';
+  return {
+    id: summaryId(field(record, 'id'), 'run') as RunId,
+    projectId: (summaryString(field(record, 'project_id', 'projectId')) ?? '') as ProjectId,
+    stage: stage as Stage,
+    status,
+    startedAt,
+    updatedAt: summaryString(field(record, 'updated_at', 'updatedAt')) ?? startedAt,
+  };
+}
+
+/**
+ * One `warsha_remote::DeviceIdentity` (snake_case, as `devices.list` serialises it) into the
+ * camelCase `DeviceSummary`.
+ *
+ * The daemon's device row carries `device_id` and `created_at`, and `last_seen` only where the
+ * daemon tracked a recent connection — so `lastSeen` falls back to `pairedAt`, and to the current
+ * time when neither was reported, which reads `offline` on the ledger rather than crashing the
+ * `reachability()` age arithmetic on `Invalid Date`.
+ */
+export function decodeDeviceSummary(source: unknown): DeviceSummary {
+  const record = summaryObject(source, 'device');
+  const pairedAt = summaryString(field(record, 'created_at', 'createdAt', 'pairedAt', 'paired_at')) ?? '';
+  const lastSeen = summaryString(field(record, 'last_seen', 'lastSeen'));
+  return {
+    id: summaryId(field(record, 'device_id', 'id'), 'device') as DeviceId,
+    name: summaryString(field(record, 'name')) ?? '',
+    pairedAt,
+    lastSeen: lastSeen ?? (pairedAt.length > 0 ? pairedAt : new Date().toISOString()),
+  };
+}
+
+/** A `projects.*`/`runs.*`/`devices.*` list result, decoded row by row. */
+function summaryList<T>(value: unknown, name: string, decode: (row: unknown) => T): T[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${SUMMARY_ERROR}: "${name}" is not a list`);
+  }
+  return value.map((row) => decode(row));
+}
+
 /**
  * `warsha_remote::PairingData` exactly as the daemon deserialises it — the struct
  * `devices.pair` binds (`crates/warshad/src/lib.rs:781`, the Rust type at
@@ -789,8 +898,16 @@ export class WarshaClient implements WarshaWiringApi {
   }
 
   // Projects
+  //
+  // Every `projects.*`/`runs.*`/`devices.*` result is decoded here, at the client edge: the daemon
+  // speaks snake_case (`crates/warsha-core/src/lib.rs` serialises `Project`/`Run` with serde's
+  // default field names) and the screens speak the camelCase types this file declares. A screen
+  // that read `run.currentStage`/`project.created_at` off the raw wire got `undefined`, and the
+  // desktop's `new Date(undefined)` threw `RangeError: Invalid time value` into the render —
+  // the black screen. Decoding is the only place the two shapes meet.
   async listProjects(): Promise<ProjectSummary[]> {
-    return this.rpc('projects.list');
+    const rows = await this.rpc<unknown>('projects.list');
+    return summaryList(rows, 'projects.list', decodeProjectSummary);
   }
 
   /**
@@ -811,20 +928,24 @@ export class WarshaClient implements WarshaWiringApi {
     description: string,
     language: string
   ): Promise<ProjectSummary> {
-    return this.rpc('projects.create', { name, description, language });
+    const row = await this.rpc<unknown>('projects.create', { name, description, language });
+    return decodeProjectSummary(row);
   }
 
   async getProject(id: ProjectId): Promise<ProjectSummary> {
-    return this.rpc('projects.get', { id });
+    const row = await this.rpc<unknown>('projects.get', { id });
+    return decodeProjectSummary(row);
   }
 
   // Runs
   async listRuns(projectId: ProjectId): Promise<RunSummary[]> {
-    return this.rpc('runs.list', { projectId });
+    const rows = await this.rpc<unknown>('runs.list', { projectId });
+    return summaryList(rows, 'runs.list', decodeRunSummary);
   }
 
   async startRun(projectId: ProjectId, idea: string): Promise<RunSummary> {
-    return this.rpc('runs.start', { projectId, idea });
+    const row = await this.rpc<unknown>('runs.start', { projectId, idea });
+    return decodeRunSummary(row);
   }
 
   /**
@@ -840,7 +961,8 @@ export class WarshaClient implements WarshaWiringApi {
    * Casing is not the problem and was not swept for it: `{"runId": …}` parses today.
    */
   async getRun(id: RunId): Promise<RunSummary> {
-    return this.rpc('runs.get', { run_id: id });
+    const row = await this.rpc<unknown>('runs.get', { run_id: id });
+    return decodeRunSummary(row);
   }
 
   /**
@@ -902,17 +1024,23 @@ export class WarshaClient implements WarshaWiringApi {
    * works on a fresh daemon with no key and no network.
    */
   async advanceRun(runId: RunId): Promise<RunSummary> {
-    return this.rpc('runs.advance', { run_id: runId });
+    const row = await this.rpc<unknown>('runs.advance', { run_id: runId });
+    return decodeRunSummary(row);
   }
 
   /** `runs.cancel` — cancel the run and record why in its event stream. */
   async cancelRun(runId: RunId, reason?: string): Promise<RunSummary> {
-    return this.rpc('runs.cancel', { run_id: runId, reason: reason ?? null });
+    const row = await this.rpc<unknown>('runs.cancel', {
+      run_id: runId,
+      reason: reason ?? null,
+    });
+    return decodeRunSummary(row);
   }
 
   /** `runs.followup` — answer a follow-up prompt on the run's current stage. */
   async followupRun(runId: RunId, prompt: string): Promise<RunSummary> {
-    return this.rpc('runs.followup', { run_id: runId, prompt });
+    const row = await this.rpc<unknown>('runs.followup', { run_id: runId, prompt });
+    return decodeRunSummary(row);
   }
 
   /** `runs.artifacts` — the run's artifacts, sorted by name. */
@@ -1104,7 +1232,8 @@ export class WarshaClient implements WarshaWiringApi {
 
   // Devices (pairing)
   async listDevices(): Promise<DeviceSummary[]> {
-    return this.rpc('devices.list');
+    const rows = await this.rpc<unknown>('devices.list');
+    return summaryList(rows, 'devices.list', decodeDeviceSummary);
   }
 
   /**

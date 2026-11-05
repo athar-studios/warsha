@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createClient,
+  decodeDeviceSummary,
+  decodeProjectSummary,
+  decodeRunSummary,
   parseWarshaEvent,
   pairingDataFromQrPayload,
   redactToken,
@@ -1190,7 +1193,16 @@ describe('run stream RPCs (WS3)', () => {
       expect.objectContaining({ body: expect.stringContaining('"method":"runs.advance"') })
     );
     expect(sentParams(0)).toEqual({ run_id: 'run-1' });
-    expect(run).toEqual(RUN as unknown as RunSummary);
+    // The client edge decodes: `current_stage`/`project_id`/`started_at` on the wire arrive at the
+    // screen as `stage`/`projectId`/`startedAt` — the camelCase `RunSummary` the screens declare.
+    expect(run).toEqual({
+      id: RUN.id,
+      projectId: 'proj-1',
+      stage: 'code',
+      status: 'running',
+      startedAt: '2026-10-28T00:00:00Z',
+      updatedAt: '2026-10-28T00:01:00Z',
+    });
   });
 
   it('cancelRun calls runs.cancel with the reason, and null when none is given', async () => {
@@ -1418,5 +1430,255 @@ describe('subscribeEvents sequence handling (WS3)', () => {
     expect(() => subscription.subscribeRun?.('run-9' as RunId)).not.toThrow();
     expect(errors).toHaveLength(1);
     expect(errors[0].message).toContain('closed event stream');
+  });
+});
+
+describe('summary decoding — the snake_case wire into camelCase screens (P0 black screen)', () => {
+  // The daemon serialises `warsha_core::Project`/`Run` and `warsha_remote::DeviceIdentity` with
+  // serde's default snake_case names. Before the client decoded them, a screen read `undefined`
+  // off the raw wire (`project.created_at` is not `createdAt`), `new Date(undefined)` threw
+  // `RangeError: Invalid time value` in render, and the desktop went black.
+
+  it('decodes a projects.list row: created_at/updated_at become createdAt/updatedAt', () => {
+    const wire = {
+      id: 'proj-1',
+      name: 'ورشة',
+      created_at: '2026-10-28T00:00:00Z',
+      updated_at: '2026-10-28T00:05:00Z',
+    };
+    expect(decodeProjectSummary(wire)).toEqual({
+      id: 'proj-1',
+      name: 'ورشة',
+      createdAt: '2026-10-28T00:00:00Z',
+      updatedAt: '2026-10-28T00:05:00Z',
+    });
+  });
+
+  it('decodes the camelCase aliases too, so a harness stub reads like the daemon', () => {
+    expect(
+      decodeProjectSummary({
+        id: 'p',
+        name: 'P',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-02T00:00:00Z',
+      })
+    ).toEqual({
+      id: 'p',
+      name: 'P',
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-02T00:00:00Z',
+    });
+  });
+
+  it('a project with no timestamps decodes to empty strings, never undefined', () => {
+    const project = decodeProjectSummary({ id: 'p', name: 'P' });
+    expect(project.createdAt).toBe('');
+    expect(project.updatedAt).toBe('');
+  });
+
+  it('refuses a non-object and a row without an id, naming the field not the value', () => {
+    expect(() => decodeProjectSummary(null)).toThrow(
+      'Malformed summary: "project" is not a JSON object'
+    );
+    expect(() => decodeProjectSummary({ name: 'x' })).toThrow(
+      'Malformed summary: "project" is missing "id"'
+    );
+  });
+
+  it('decodes a runs row: project_id/current_stage/created_at become projectId/stage/startedAt', () => {
+    const wire = {
+      id: 'run-1',
+      project_id: 'proj-1',
+      current_stage: 'gate_b',
+      status: 'running',
+      created_at: '2026-10-28T00:00:00Z',
+      updated_at: '2026-10-28T00:03:00Z',
+    };
+    expect(decodeRunSummary(wire)).toEqual({
+      id: 'run-1',
+      projectId: 'proj-1',
+      stage: 'gate_b',
+      status: 'running',
+      startedAt: '2026-10-28T00:00:00Z',
+      updatedAt: '2026-10-28T00:03:00Z',
+    });
+  });
+
+  it('decodes a run whose status arrives as a tagged object as its state word', () => {
+    const run = decodeRunSummary({
+      id: 'run-2',
+      project_id: 'proj-1',
+      current_stage: 'code',
+      status: { state: 'awaiting_gate', by: 'dev-1' },
+      created_at: '',
+      updated_at: '',
+    });
+    expect(run.status).toBe('awaiting_gate');
+  });
+
+  it('a run with no stage decodes stage as the empty string — the screen guard, not a throw', () => {
+    const run = decodeRunSummary({ id: 'run-3', project_id: 'p', status: 'completed' });
+    expect(run.stage).toBe('');
+    expect(typeof run.stage).toBe('string');
+    expect(run.startedAt).toBe('');
+    expect(run.updatedAt).toBe('');
+  });
+
+  it('decodes a devices.list row: device_id/created_at become id/pairedAt, lastSeen falls back', () => {
+    const wire = {
+      device_id: '9a12c0de-0000-4000-8000-000000000001',
+      name: 'Pixel',
+      created_at: '2026-10-28T00:00:00Z',
+      revoked: false,
+    };
+    const device = decodeDeviceSummary(wire);
+    expect(device.id).toBe('9a12c0de-0000-4000-8000-000000000001');
+    expect(device.pairedAt).toBe('2026-10-28T00:00:00Z');
+    // No `last_seen` on the wire: it falls back to `pairedAt`, never to undefined.
+    expect(device.lastSeen).toBe('2026-10-28T00:00:00Z');
+  });
+
+  it('keeps a reported last_seen and falls back to now when nothing was recorded', () => {
+    const seen = decodeDeviceSummary({
+      device_id: 'd',
+      name: 'D',
+      created_at: '2026-10-28T00:00:00Z',
+      last_seen: '2026-10-28T00:10:00Z',
+    });
+    expect(seen.lastSeen).toBe('2026-10-28T00:10:00Z');
+
+    const bare = decodeDeviceSummary({ device_id: 'd', name: 'D' });
+    expect(new Date(bare.lastSeen).getTime()).not.toBeNaN();
+    expect(new Date(bare.lastSeen).getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+  });
+
+  it('refuses a run or device row without an id', () => {
+    expect(() => decodeRunSummary({ project_id: 'p' })).toThrow(
+      'Malformed summary: "run" is missing "id"'
+    );
+    expect(() => decodeDeviceSummary({ name: 'n' })).toThrow(
+      'Malformed summary: "device" is missing "id"'
+    );
+  });
+
+  it('the client methods decode what the daemon answers', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse([
+        {
+          id: 'proj-1',
+          name: 'P',
+          created_at: '2026-10-28T00:00:00Z',
+          updated_at: '2026-10-28T00:00:00Z',
+        },
+      ])
+    );
+    await expect(client.listProjects()).resolves.toEqual([
+      {
+        id: 'proj-1',
+        name: 'P',
+        createdAt: '2026-10-28T00:00:00Z',
+        updatedAt: '2026-10-28T00:00:00Z',
+      },
+    ]);
+
+    const RUN_WIRE = {
+      id: 'run-1',
+      project_id: 'proj-1',
+      current_stage: 'idea',
+      status: 'running',
+      created_at: '2026-10-28T00:00:00Z',
+      updated_at: '2026-10-28T00:01:00Z',
+    };
+    const DECODED_RUN = {
+      id: 'run-1',
+      projectId: 'proj-1',
+      stage: 'idea' as Stage,
+      status: 'running',
+      startedAt: '2026-10-28T00:00:00Z',
+      updatedAt: '2026-10-28T00:01:00Z',
+    };
+
+    fetchMock.mockResolvedValueOnce(okResponse(RUN_WIRE));
+    await expect(client.startRun('proj-1' as ProjectId, 'idea')).resolves.toEqual(DECODED_RUN);
+
+    fetchMock.mockResolvedValueOnce(okResponse(RUN_WIRE));
+    await expect(client.getRun('run-1' as RunId)).resolves.toEqual(DECODED_RUN);
+
+    fetchMock.mockResolvedValueOnce(okResponse(RUN_WIRE));
+    await expect(client.getRunStatus('run-1' as RunId)).resolves.toEqual(DECODED_RUN);
+
+    fetchMock.mockResolvedValueOnce(okResponse([RUN_WIRE]));
+    await expect(client.listRuns('proj-1' as ProjectId)).resolves.toEqual([DECODED_RUN]);
+
+    fetchMock.mockResolvedValueOnce(okResponse(RUN_WIRE));
+    await expect(client.advanceRun('run-1' as RunId)).resolves.toEqual(DECODED_RUN);
+
+    fetchMock.mockResolvedValueOnce(okResponse({ ...RUN_WIRE, status: 'cancelled' }));
+    await expect(client.cancelRun('run-1' as RunId)).resolves.toEqual({
+      ...DECODED_RUN,
+      status: 'cancelled',
+    });
+
+    fetchMock.mockResolvedValueOnce(okResponse({ ...RUN_WIRE, current_stage: 'research' }));
+    await expect(client.followupRun('run-1' as RunId, 'أضف دعم العربية')).resolves.toEqual({
+      ...DECODED_RUN,
+      stage: 'research',
+    });
+
+    fetchMock.mockResolvedValueOnce(
+      okResponse([
+        {
+          device_id: 'dev-1',
+          name: 'Phone',
+          created_at: '2026-10-28T00:00:00Z',
+          revoked: false,
+          last_seen: '2026-10-28T00:02:00Z',
+        },
+      ])
+    );
+    await expect(client.listDevices()).resolves.toEqual([
+      {
+        id: 'dev-1',
+        name: 'Phone',
+        pairedAt: '2026-10-28T00:00:00Z',
+        lastSeen: '2026-10-28T00:02:00Z',
+      },
+    ]);
+  });
+
+  it('createProject and getProject decode the daemon row', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse({
+        id: 'p',
+        name: 'n',
+        created_at: '2026-10-28T00:00:00Z',
+        updated_at: '2026-10-28T00:00:00Z',
+      })
+    );
+    await expect(client.createProject('n', 'd', 'ar')).resolves.toEqual({
+      id: 'p',
+      name: 'n',
+      createdAt: '2026-10-28T00:00:00Z',
+      updatedAt: '2026-10-28T00:00:00Z',
+    });
+
+    fetchMock.mockResolvedValueOnce(
+      okResponse({
+        id: 'p',
+        name: 'n',
+        created_at: '2026-10-28T00:00:00Z',
+        updated_at: '2026-10-28T00:09:00Z',
+      })
+    );
+    const project = await client.getProject('p' as ProjectId);
+    expect(project.createdAt).toBe('2026-10-28T00:00:00Z');
+    expect(project.updatedAt).toBe('2026-10-28T00:09:00Z');
+  });
+
+  it('refuses a list method answered with a bare object', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ id: 'p' }));
+    await expect(client.listProjects()).rejects.toThrow(
+      'Malformed summary: "projects.list" is not a list'
+    );
   });
 });

@@ -55,8 +55,18 @@ function hasCeiling(totalUsd: number): boolean {
   return totalUsd > 0;
 }
 
-/** The stage's word: the four gates keep their own labels, the pipeline stages read from `run.stage.*`. */
-function stageWord(stage: Stage, locale: Locale): string {
+/**
+ * The stage's word: the four gates keep their own labels, the pipeline stages read from `run.stage.*`.
+ *
+ * A stage the daemon has not reported — `undefined`, `null`, the empty string, anything that is not a
+ * non-empty string — is said in words (`bench.not_reported`), the §7 rule for a missing reading. This
+ * is also the P0 guard: `stage.startsWith` threw on a non-string and the uncaught render error blacked
+ * the desktop window.
+ */
+function stageWord(stage: Stage | string | null | undefined, locale: Locale): string {
+  if (typeof stage !== 'string' || stage.length === 0) {
+    return t('bench.not_reported', {}, locale);
+  }
   return t(stage.startsWith('gate_') ? `gates.label.${stage}` : `run.stage.${stage}`, {}, locale);
 }
 
@@ -96,7 +106,8 @@ export function InstrumentStrip({ daemonOnline, run, gatesWaiting, budget }: Ins
         </StatusStrip.Item>
 
         <StatusStrip.Item hideNarrow>
-          {run === null
+          {/* A run without a reported stage shows the word, not a label over a blank reading. */}
+          {!run || typeof run.stage !== 'string' || run.stage.length === 0
             ? t('bench.not_reported', {}, locale)
             : `${t('bench.stage_label', {}, locale)} ${stageWord(run.stage, locale)}`}
         </StatusStrip.Item>

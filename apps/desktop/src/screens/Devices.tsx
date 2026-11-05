@@ -33,6 +33,8 @@ import {
 } from '@warsha/ui';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import { formatInstant as formatInstantSafe, parseSafeDate } from '../date';
+
 interface DevicesProps {
   client: WarshaClient;
   onBack: () => void;
@@ -41,9 +43,17 @@ interface DevicesProps {
 /** How recently the daemon saw a device, in the three words the bench has for it. */
 type Reachability = 'online' | 'recent' | 'offline';
 
-/** Five minutes is "online", an hour is "recently active" — the same thresholds the ledger had before. */
-function reachability(lastSeen: string): Reachability {
-  const age = Date.now() - new Date(lastSeen).getTime();
+/**
+ * Five minutes is "online", an hour is "recently active" — the same thresholds the ledger had before.
+ *
+ * `lastSeen` may be `undefined` or an unparseable wire string — a daemon that never tracked a
+ * connection, a row the decode left empty. A device whose last sighting is not a real instant is
+ * offline: that is the honest reading, and `parseSafeDate` keeps the age arithmetic off `Invalid Date`.
+ */
+function reachability(lastSeen: string | undefined): Reachability {
+  const seen = parseSafeDate(lastSeen);
+  if (seen === null) return 'offline';
+  const age = Date.now() - seen.getTime();
   if (age < 300_000) return 'online';
   if (age < 3_600_000) return 'recent';
   return 'offline';
@@ -162,11 +172,7 @@ export function Devices({ client, onBack }: DevicesProps) {
   }, [client, reload]);
 
   const formatInstant = useCallback(
-    (iso: string) =>
-      new Intl.DateTimeFormat(locale === 'ar' ? 'ar-u-nu-latn' : locale, {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-      }).format(new Date(iso)),
+    (iso: unknown) => formatInstantSafe(iso, locale),
     [locale]
   );
 

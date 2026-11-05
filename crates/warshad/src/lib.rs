@@ -569,6 +569,21 @@ pub struct DaemonConfig {
     /// only way a program joins the list — nothing on the RPC can add to it.
     #[serde(default)]
     pub allowed_commands: Vec<String>,
+    /// A pre-built remote UI bundle the HTTP listener serves statically.
+    ///
+    /// `Some` turns the daemon's own listener on [`DaemonConfig::http_port`] into the
+    /// static host for a built SPA (the shipped `apps/remote` bundle): files come from
+    /// this directory, unknown extension-less paths fall back to its `index.html` so
+    /// client routes like `/runs/<id>` load, and hashed assets are served immutable.
+    /// `None` — the default — keeps the listener exactly as it was: `/health`, `/events`
+    /// and a 404 for everything else. The daemon never invents a bundle directory.
+    ///
+    /// The deployment knob is the `WARSHA_REMOTE_ASSETS_DIR` environment variable,
+    /// overlaid by [`apply_env_overrides`] like every other `WARSHA_*` value; a
+    /// `config.toml` may name `remote_assets_dir` directly. A caller driving
+    /// [`start_daemon`] in-process can set the field without touching the environment.
+    #[serde(default)]
+    pub remote_assets_dir: Option<PathBuf>,
 }
 
 impl Default for DaemonConfig {
@@ -590,6 +605,9 @@ impl Default for DaemonConfig {
             ],
             rate_limits: RateLimitConfig::default(),
             allowed_commands: Vec::new(),
+            // No bundle until an owner names one: unset, the listener answers 404 for
+            // every static path exactly as it did before remote serving existed.
+            remote_assets_dir: None,
         }
     }
 }
@@ -4086,6 +4104,15 @@ pub async fn start_daemon_with_provider_factory(
     secrets: Arc<dyn SecretStore>,
     provider_factory: Arc<dyn ProviderFactory>,
 ) -> Result<DaemonHandle> {
+    // The environment is consulted here and not only in [`load_or_create_config`]:
+    // an embedded host that builds a [`DaemonConfig`] in-process still gets the
+    // deployment knob of [`REMOTE_ASSETS_DIR_ENV`], and a configuration that named
+    // a bundle directory directly is never overwritten by it.
+    let mut config = config;
+    if config.remote_assets_dir.is_none() {
+        config.remote_assets_dir = env_string(REMOTE_ASSETS_DIR_ENV).map(PathBuf::from);
+    }
+
     // Ensure single instance lock
     let lock_file = acquire_lock(&config.data_dir)?;
 
@@ -4370,9 +4397,20 @@ pub async fn start_daemon_with_provider_factory(
     // on every route except /health (security audit H-01, H-03, H-04).
     let auth_middleware = axum::middleware::from_fn_with_state(state.clone(), auth_handler_inner);
 
+    // `/health` and `/events` are real routes, so they match before any fallback and
+    // keep their existing handlers whatever the static surface does; `/rpc` lives on
+    // the other listener and is refused from the static path by name
+    // ([`is_reserved_static_path`]). The fallback is mounted only when a bundle is
+    // configured: with none, an unmatched path 404s exactly as it did before.
     let app = Router::new()
         .route("/health", get(health_handler))
-        .route("/events", get(events_handler))
+        .route("/events", get(events_handler));
+    let app = if state.config.remote_assets_dir.is_some() {
+        app.fallback(static_asset_handler)
+    } else {
+        app
+    };
+    let app = app
         .layer(auth_middleware)
         .layer(cors)
         .with_state(state.clone());
@@ -4630,6 +4668,9 @@ fn apply_env_overrides(mut config: DaemonConfig) -> DaemonConfig {
     if let Some(token) = env_string("WARSHA_AUTH_TOKEN") {
         config.auth_token = token;
     }
+    if let Some(dir) = env_string(REMOTE_ASSETS_DIR_ENV) {
+        config.remote_assets_dir = Some(PathBuf::from(dir));
+    }
     config
 }
 
@@ -4848,6 +4889,18 @@ async fn auth_handler_inner(
     }
 
     let Some(actor) = actor else {
+        // `/events` is the only authenticated surface on this listener. Everything
+        // else it can answer without a session is the static remote UI (a built SPA's
+        // `index.html`, its hashed assets, its client routes) or a 404 — neither is a
+        // secret, and a browser loading a remote page cannot attach a bearer header
+        // to the `<script>`/`<link>`/history-route requests it makes. The ceiling
+        // above still bounds every caller per peer. With no bundle configured this
+        // pass-through reaches a router that 404s the path, exactly as before; an
+        // unauthenticated `/events` is still refused, and the RPC surface on the
+        // other port authenticates in its own transport and is unaffected.
+        if path != EVENTS_PATH {
+            return next.run(request).await;
+        }
         warn!("Unauthorized request to {path}");
         return http_refusal(
             axum::http::StatusCode::UNAUTHORIZED,
@@ -4884,6 +4937,264 @@ fn http_refusal(
             )
                 .into_response()
         })
+}
+
+// ============================================================ static remote UI
+
+/// The environment variable that opts the daemon's HTTP listener into serving a
+/// pre-built remote UI bundle from disk (see [`DaemonConfig::remote_assets_dir`]).
+pub const REMOTE_ASSETS_DIR_ENV: &str = "WARSHA_REMOTE_ASSETS_DIR";
+
+/// Paths static serving must never answer, even through the fallback. `/events` and
+/// `/health` are matched routes that win over the fallback at the router, and their
+/// *prefixed* children are refused here so a stray `/health/notes` or `/events/x`
+/// cannot render the SPA shell instead of the daemon's own answer; `/rpc` belongs to
+/// the RPC listener on [`DaemonConfig::ws_port`], and a request that reached this
+/// port for it gets a refusal, not an HTML page that would hide the misroute.
+fn is_reserved_static_path(path: &str) -> bool {
+    path == EVENTS_PATH
+        || path.starts_with("/events/")
+        || path == "/health"
+        || path.starts_with("/health/")
+        || path == "/rpc"
+        || path.starts_with("/rpc/")
+}
+
+/// The fallback handler of the HTTP listener when a remote UI bundle is configured.
+///
+/// What it serves, in priority order: a real file under the bundle directory; an
+/// `index.html` inside a matched directory; the SPA history fallback for an
+/// extension-less client route (`/runs/<id>` and friends); otherwise 404. Anything
+/// that tries to leave the bundle directory — a `..` in any spelling, percent-encoded
+/// included, or the Windows separators — is a 400 rather than a read attempt, and a
+/// reserved daemon path is a 404 rather than a page. The bundle is public UI: no
+/// response here carries a credential, and the rate ceiling in
+/// [`auth_handler_inner`] bounds the caller per peer exactly as it bounds every
+/// other route.
+async fn static_asset_handler(
+    State(state): State<Arc<DaemonState>>,
+    request: axum::http::Request<axum::body::Body>,
+) -> Response {
+    let Some(assets_dir) = state.config.remote_assets_dir.clone() else {
+        return static_not_found();
+    };
+    if !matches!(request.method().as_str(), "GET" | "HEAD") {
+        return static_not_found();
+    }
+    let path = request.uri().path();
+    if is_reserved_static_path(path) {
+        return static_not_found();
+    }
+
+    // Decode *before* splitting: a traversal arrives as `/%2e%2e/etc/passwd` exactly
+    // as it arrives as `/../etc/passwd`, and the second form is what a naive proxy
+    // forwards. Every segment is then checked for the shapes that mean "outside" —
+    // the dot-dot, the backslash and colon spellings of a Windows escape (a bare
+    // drive letter is the colon case), and control characters no served file is
+    // named with.
+    let decoded = percent_decode_path(path);
+    let mut segments: Vec<&str> = Vec::new();
+    for segment in decoded.split('/') {
+        if segment.is_empty() || segment == "." {
+            continue;
+        }
+        if segment == ".."
+            || segment.contains('\\')
+            || segment.contains(':')
+            || segment.chars().any(|c| (c as u32) < 0x20)
+        {
+            return static_bad_request();
+        }
+        segments.push(segment);
+    }
+
+    // The bundle root as the operating system sees it, so the containment check
+    // below compares resolved paths and a symlink into `/etc` cannot pass it. A root
+    // that does not exist serves nothing; that is a 404, not a broken daemon.
+    let Ok(root) = assets_dir.canonicalize() else {
+        return static_not_found();
+    };
+    let mut candidate = root.clone();
+    for segment in &segments {
+        candidate.push(segment);
+    }
+    if !candidate.starts_with(&root) {
+        return static_bad_request();
+    }
+
+    match tokio::fs::metadata(&candidate).await {
+        Ok(meta) if meta.is_file() => serve_static_file(&candidate, path).await,
+        _ => {
+            // A directory gets its own index.html when it has one; a missing path
+            // falls through to the SPA rule.
+            let dir_index = candidate.join("index.html");
+            if tokio::fs::metadata(&dir_index)
+                .await
+                .map(|meta| meta.is_file())
+                .unwrap_or(false)
+            {
+                return serve_static_file(&dir_index, path).await;
+            }
+            // History fallback: a client route's last segment carries no extension.
+            // A path that *looks* like a file (`/missing-hash.js`) is a plain 404, so
+            // a stale bundle reference never masquerades as the app shell.
+            if segments.last().is_some_and(|last| last.contains('.')) {
+                return static_not_found();
+            }
+            let spa_index = root.join("index.html");
+            if tokio::fs::metadata(&spa_index)
+                .await
+                .map(|meta| meta.is_file())
+                .unwrap_or(false)
+            {
+                return serve_static_file(&spa_index, path).await;
+            }
+            static_not_found()
+        }
+    }
+}
+
+/// One bundle file onto the wire, with the type and caching its name decides.
+async fn serve_static_file(full: &Path, request_path: &str) -> Response {
+    let Ok(bytes) = tokio::fs::read(full).await else {
+        return static_not_found();
+    };
+    let response = axum::http::Response::builder()
+        .status(axum::http::StatusCode::OK)
+        .header(
+            axum::http::header::CONTENT_TYPE,
+            axum::http::HeaderValue::from_static(static_content_type(full)),
+        )
+        .header(
+            axum::http::header::CACHE_CONTROL,
+            axum::http::HeaderValue::from_static(static_cache_control(request_path, full)),
+        )
+        .body(axum::body::Body::from(bytes));
+    response.unwrap_or_else(|_| {
+        (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "could not build the static response",
+        )
+            .into_response()
+    })
+}
+
+fn static_not_found() -> Response {
+    http_refusal(
+        axum::http::StatusCode::NOT_FOUND,
+        serde_json::json!({ "error": "not found" }),
+        None,
+    )
+}
+
+fn static_bad_request() -> Response {
+    http_refusal(
+        axum::http::StatusCode::BAD_REQUEST,
+        serde_json::json!({ "error": "invalid path" }),
+        None,
+    )
+}
+
+/// Percent-decode a URI path. A malformed escape (`%zz`, a truncated `%a`) is kept
+/// verbatim rather than refused: it cannot form a path segment this handler serves,
+/// and passing it through keeps the segment checks the single place refusals happen.
+fn percent_decode_path(input: &str) -> String {
+    fn hex_value(byte: u8) -> Option<u8> {
+        match byte {
+            b'0'..=b'9' => Some(byte - b'0'),
+            b'a'..=b'f' => Some(byte - b'a' + 10),
+            b'A'..=b'F' => Some(byte - b'A' + 10),
+            _ => None,
+        }
+    }
+
+    let bytes = input.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            let high = hex_value(bytes[index + 1]);
+            let low = hex_value(bytes[index + 2]);
+            if let (Some(high), Some(low)) = (high, low) {
+                out.push(high * 16 + low);
+                index += 3;
+                continue;
+            }
+        }
+        out.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// The `Content-Type` a bundle file is served with, by extension. The set is the one
+/// a built SPA ships; anything else is opaque bytes, never guessed HTML, so a bundle
+/// file with an unknown name cannot become an active document on the daemon's origin.
+fn static_content_type(full: &Path) -> &'static str {
+    let extension = full
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase());
+    match extension.as_deref() {
+        Some("html") | Some("htm") => "text/html; charset=utf-8",
+        Some("js") | Some("mjs") | Some("cjs") => "application/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("json") | Some("map") => "application/json",
+        Some("webmanifest") => "application/manifest+json",
+        Some("txt") => "text/plain; charset=utf-8",
+        Some("xml") => "application/xml",
+        Some("wasm") => "application/wasm",
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("avif") => "image/avif",
+        Some("svg") => "image/svg+xml",
+        Some("ico") => "image/x-icon",
+        Some("woff") => "font/woff",
+        Some("woff2") => "font/woff2",
+        Some("ttf") => "font/ttf",
+        Some("otf") => "font/otf",
+        _ => "application/octet-stream",
+    }
+}
+
+/// The `Cache-Control` a bundle file is served with.
+///
+/// `index.html` — directly, as `/`, or as the history fallback — is `no-cache`: it is
+/// the one file whose content a redeploy changes without changing its name, and a
+/// stale shell is a black screen (the remote UI's P0). A hashed asset — under the
+/// bundle's `/assets/` prefix or carrying a content hash in its name — is immutable
+/// for a year, which is what its name is *for*: the same URL never means different
+/// bytes. Everything else is `no-cache` too; serving a misnamed live file from a CDN
+/// cache is the failure this table exists to prevent.
+fn static_cache_control(request_path: &str, full: &Path) -> &'static str {
+    let file_name = full.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    if file_name.eq_ignore_ascii_case("index.html") {
+        return "no-cache";
+    }
+    let under_assets = percent_decode_path(request_path).starts_with("/assets/");
+    if under_assets || looks_hashed_file_name(file_name) {
+        return "public, max-age=31536000, immutable";
+    }
+    "no-cache"
+}
+
+/// Whether a bundle file name carries a content hash after its last hyphen — the
+/// `app-1234abcd.js`, `index-D2hP1rSv9Q.js` shape every modern bundler emits. The
+/// tail must be at least eight alphanumeric characters and contain a digit, so
+/// `vendor-polyfill.js` and `-legacy` suffixes stay cache-revalidating.
+fn looks_hashed_file_name(file_name: &str) -> bool {
+    let stem = file_name
+        .rsplit_once('.')
+        .map_or(file_name, |(stem, _extension)| stem);
+    stem.rsplit_once('-')
+        .map(|(_prefix, hash)| {
+            hash.len() >= 8
+                && hash.chars().all(|c| c.is_ascii_alphanumeric())
+                && hash.chars().any(|c| c.is_ascii_digit())
+        })
+        .unwrap_or(false)
 }
 
 /// WebSocket handler for /events endpoint
