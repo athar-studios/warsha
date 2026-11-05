@@ -20,12 +20,13 @@
 //! real socket to a real daemon and reads the bytes back, the way `gates_list.rs` and
 //! `devices_pair.rs` drive the real daemon over the RPC transport.
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use base64::Engine as _;
 use serde_json::{json, Value};
-use tempfile::{tempdir, TempDir};
+use tempfile::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use warshad::{start_daemon, DaemonConfig, DaemonHandle, RateLimitConfig};
@@ -47,6 +48,34 @@ const TOKEN_PREFIX: &str = "warsha.token.";
 /// How long a test waits for one thing the daemon does on its own initiative.
 const BEAT: Duration = Duration::from_secs(5);
 
+/// A fresh temp directory for one daemon's data dir.
+///
+/// Prefers cargo's `CARGO_TARGET_TMPDIR`, then a `tmp` sibling of the test
+/// binary's `deps` directory (the target dir is writable wherever the build
+/// ran), and only then the system temp dir — which on some Windows machines is
+/// protected and rejects even creating a tempdir (`Access is denied`).
+fn fresh_tempdir() -> TempDir {
+    if let Some(base) = std::env::var_os("CARGO_TARGET_TMPDIR") {
+        let base = PathBuf::from(base);
+        if base.is_dir() {
+            if let Ok(dir) = TempDir::new_in(&base) {
+                return dir;
+            }
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(deps) = exe.parent() {
+            let base = deps.join("tmp");
+            if std::fs::create_dir_all(&base).is_ok() {
+                if let Ok(dir) = TempDir::new_in(&base) {
+                    return dir;
+                }
+            }
+        }
+    }
+    TempDir::new().expect("tempdir for the daemon data dir")
+}
+
 /// A running daemon, the port its HTTP listener answers on, and the data directory it
 /// holds a lock in for as long as the test is talking to it.
 struct Daemon {
@@ -56,7 +85,7 @@ struct Daemon {
 
 impl Daemon {
     async fn start() -> Self {
-        let dir = tempdir().expect("a temporary directory");
+        let dir = fresh_tempdir();
         let config = DaemonConfig {
             data_dir: dir.path().to_path_buf(),
             socket_path: dir.path().join("warshad.sock"),
@@ -66,6 +95,9 @@ impl Daemon {
             allowed_origins: vec!["http://localhost:5173".to_string()],
             allowed_commands: Vec::new(),
             rate_limits: RateLimitConfig::default(),
+            // The bind address keeps the loopback default and nothing is advertised:
+            // this daemon is only ever dialed from the test process on this machine.
+            ..DaemonConfig::default()
         };
         Daemon {
             handle: start_daemon(config).await.expect("the daemon starts"),
@@ -896,6 +928,50 @@ fn capture_subscriber(capture: &LogCapture) -> impl tracing::Subscriber + Send +
         .with(tracing_subscriber::filter::Targets::new().with_default(tracing::Level::TRACE))
 }
 
+/// Force the middleware's refusal callsite into a state a thread-scoped capture can see.
+///
+/// The race this warms away is the one the file's own comment describes, arriving from
+/// the other direction: tracing caches one `Interest` per callsite for the whole process,
+/// and a `DefaultCallsite` is registered exactly once — by whichever thread reaches it
+/// first. Under parallel libtest a sibling test usually reaches the middleware's
+/// `warn!("Unauthorized request to {path}")` first, on a thread with no scoped subscriber
+/// and no global default, and that registration caches `Interest::never()`. The cached
+/// value is only recomputed when a new `Dispatch` is registered, and `set_default` creates
+/// one, so installing the capture rebuilds the cache — but a callsite whose *first*
+/// registration lands after that rebuild is cached `never` again, and the capture is
+/// silently blind for the rest of the process. That is why the bare capture passed at
+/// `--test-threads=1` (one thread fixes the order) and failed in parallel.
+///
+/// Each probe attempt therefore does both halves in one deterministic order: it installs a
+/// scoped subscriber (rebuilding the interest of every callsite registered so far), then
+/// speaks one refusal, which either captures the line — proving the shared callsite is
+/// routed to a scoped capture and, because registration is once-per-process, *stays* routed
+/// that way — or completes the registration itself so the next attempt's rebuild sees it.
+/// The last successful probe leaves the callsite permanently enabled for scoped dispatch,
+/// which is the precondition the real capture below then asserts on.
+async fn warm_the_refusal_callsite(daemon: &Daemon) {
+    for _attempt in 0..8 {
+        let probe = LogCapture::default();
+        {
+            let _probe_guard = tracing::subscriber::set_default(capture_subscriber(&probe));
+            open(daemon.http(), &Connect::to("/events").with_bearer(UNKNOWN))
+                .await
+                .expect_refused();
+            if probe
+                .lines()
+                .iter()
+                .any(|line| line.contains("Unauthorized request to /events"))
+            {
+                return;
+            }
+        }
+    }
+    panic!(
+        "the middleware's refusal callsite never became visible to a scoped capture, so \
+         the log assertions below would be blind rather than clean"
+    );
+}
+
 /// The credential is not a thing this listener says out loud. Accepted, refused, and
 /// refused in a different shape: none of the replies carry it, and none of the log lines
 /// do — at TRACE, on every target in the process, including the URL-token handshake whose
@@ -912,10 +988,14 @@ fn capture_subscriber(capture: &LogCapture) -> impl tracing::Subscriber + Send +
 /// never produces one.
 #[tokio::test]
 async fn the_credential_never_reaches_the_wire_or_the_logs() {
+    let daemon = Daemon::start().await;
+
+    // Register the shared callsite *before* the capture this test asserts on, so the
+    // capture below sees the refusal line whatever order the parallel suite produced.
+    warm_the_refusal_callsite(&daemon).await;
+
     let capture = LogCapture::default();
     let _guard = tracing::subscriber::set_default(capture_subscriber(&capture));
-
-    let daemon = Daemon::start().await;
     capture.clear();
 
     let accepted = open(

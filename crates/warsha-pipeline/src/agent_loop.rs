@@ -914,10 +914,10 @@ mod tests {
     use super::*;
     use crate::agent_tools::FilesystemToolExecutor;
     use crate::agent_workflow::MentionKind;
+    use crate::test_util::fresh_tempdir;
     use async_trait::async_trait;
     use std::path::Path;
     use std::sync::Mutex;
-    use tempfile::tempdir;
     use warsha_core::{RoleRouting, RoutingTarget};
     use warsha_providers::MockProvider;
 
@@ -1256,7 +1256,7 @@ mod tests {
 
     #[tokio::test]
     async fn agent_mode_reads_a_file_through_the_tool_layer() {
-        let temp = tempdir().expect("a temporary directory");
+        let temp = fresh_tempdir();
         std::fs::write(temp.path().join("notes.md"), "the file\n").expect("the file is written");
         let mut agent_loop = tool_loop(temp.path());
 
@@ -1281,7 +1281,7 @@ mod tests {
 
     #[tokio::test]
     async fn agent_mode_writes_a_file_through_the_tool_layer() {
-        let temp = tempdir().expect("a temporary directory");
+        let temp = fresh_tempdir();
         let mut agent_loop = tool_loop(temp.path());
 
         let turn = agent_loop
@@ -1306,7 +1306,7 @@ mod tests {
 
     #[tokio::test]
     async fn agent_mode_runs_a_command_through_the_tool_layer() {
-        let temp = tempdir().expect("a temporary directory");
+        let temp = fresh_tempdir();
         let mut agent_loop = tool_loop(temp.path());
         let (command, args) = printing_command();
         let input = format!(
@@ -1346,7 +1346,7 @@ mod tests {
 
     #[tokio::test]
     async fn plan_mode_never_runs_a_tool() {
-        let temp = tempdir().expect("a temporary directory");
+        let temp = fresh_tempdir();
         let mut agent_loop =
             AgentLoop::with_tool_executor(Box::new(FilesystemToolExecutor::new(temp.path())));
 
@@ -1587,7 +1587,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_tool_turn_names_its_call_on_the_wire() {
-        let temp = tempdir().expect("a temporary directory");
+        let temp = fresh_tempdir();
         let mut agent_loop = tool_loop(temp.path());
 
         let turn = agent_loop

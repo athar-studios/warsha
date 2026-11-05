@@ -5656,3 +5656,83 @@ hypotheses left in this triage.
   the null signing knobs are `tauri.conf.json:61` and `:65`, not `:61,64`; and the
   wire gap is 62 `#[method]` declarations against 30 stubbed in
   `apps/desktop/e2e/harness.ts:99-130`, not 61-vs-31.
+
+## Orchestrator log — 2026-11-05, the owner's Windows PC: native `cargo test` brought to green without touching the machine
+
+- **Root cause, and the test-only fix that cleared it**: `tempfile::tempdir()` in the system `%TEMP%`
+  (`C:\Users\DRAGON~1\AppData\Local\Temp`) fails `PermissionDenied` (OS error 5) on this PC, and
+  env-var redirection did not help. The fix is **test-only, no production change**: a `fresh_tempdir()`
+  helper that tries `CARGO_TARGET_TMPDIR`, then `deps/tmp` next to the test exe, then the system temp
+  only as a last resort. It is applied to the `crates/warsha-git` tests; `crates/warsha-pipeline`
+  (shared `src/test_util.rs`); `crates/warsha-store`; `crates/warsha-relay`; `crates/warshad`
+  (`src/test_util.rs` declared at the **end** of `lib.rs`, because the source-guard test
+  `the_startup_listener_lines_are_written_once` splits `include_str!("lib.rs")` at the first
+  `#[cfg(test)]`) plus 14 integration test files there; and the `crates/warsha-cli` tests. The two e2e
+  cargo-spawning tests also got an empty `[workspace]` added to the generated `Cargo.toml` and had
+  `TMP`/`TEMP` pinned. See `DECISIONS.md` for why this was done in the harness and not to the ACLs.
+- **Windows lock repair — this one is a production change, unlike the test-only work above**: `fs2`'s
+  `LockFileEx` is mandatory on Windows, so the held lock file itself cannot be read while the lock is
+  taken. `LockFile::acquire` now mirrors the PID into an unlocked `warshad.pid`, and `lock_holder`
+  reads that first and falls back to the lock file. `child_reaping` passes 3 consecutive runs.
+- **`events_ws_auth` flake, root-caused rather than silenced**: the cause is tracing's process-wide
+  per-callsite `Interest` cache — a sibling test that registers the middleware's
+  `warn!("Unauthorized request …")` callsite first, under `NoSubscriber`, caches it as never-included.
+  The fix is a `warm_the_refusal_callsite` probe run before the real capture; no assertion was
+  weakened and no serialisation was added. 9/9 on repeated parallel runs.
+- **CLI**: `warsha-cli` now uses a bearer-authenticated RPC client; the new tests `cli_rpc.rs` (4) and
+  `cli_rpc_auth.rs` (7) pass.
+- **Gate results measured today**: `cargo fmt --all -- --check` clean;
+  `cargo clippy --workspace --all-targets -- -D warnings` clean;
+  `cargo test --workspace --all-targets --no-fail-fast` exit 0 with **634 passed / 0 failed / 10
+  ignored** (the 10 ignored are child-process probe binaries marked "a child process, not a test").
+  `pnpm lint` and `pnpm typecheck` exit 0. Vitest all pass — apps/desktop 365, apps/remote 181,
+  packages/client 51, crypto 22, i18n 51, ui 151. Playwright functional + a11y + layout + onboarding
+  (desktop `flows`/`layout`/`onboarding`/`screens.a11y` + remote `flows`): 240 expected, 0 unexpected,
+  0 flaky, 0 skipped.
+- **The one Playwright failure I saw today, recorded as what it was**: a single `flows.spec.ts`
+  mode-group case at 1440x900 en reported `Target page, context or browser has been closed`. It fired
+  while a background cargo build saturated the CPU, and it passed 12/12 on an isolated repeat and in
+  two later full runs. I am recording it as **resource contention, not a code defect** — not folding it
+  into a clean sweep, and not changing code for a machine-load artifact.
+- **NOT verified on this PC — stated plainly, not claimed green**: Playwright **visual snapshots** (the
+  committed baselines are Linux IBM Plex; a Windows run generates `*-win32.png` and fails the font
+  check — the thresholds were deliberately **not** loosened and the win32 PNGs must **not** be
+  committed); the Tauri installer build/launch; physical Android pairing; GitHub owner-level settings;
+  `cargo-deny` and `gitleaks` (the binaries are not installed locally); and CodeQL. `Cargo.lock` is
+  gitignored. **Nothing was committed or pushed at the time of writing.**
+
+## Orchestrator log — 2026-11-05, Ship-run waves W1–W10 completed, verified locally, and pushed to dev
+
+- **Waves recorded**:
+  - W1 (`0cf7918`)
+  - W2 (`7ecb629`)
+  - W3 (`46ef2ea`)
+  - W4 (`deny.toml`, `Cargo.toml`, `crates/warsha-cli/Cargo.toml`, `crates/warsha-remote/Cargo.toml`,
+    `.gitignore`, `Cargo.lock`)
+  - W5+W6 (end-to-end pairing in `crates/warshad`, `packages/client`,
+    `apps/desktop/src/screens/Devices.tsx`, `apps/desktop/e2e/harness.ts`)
+  - W7 (`bind_host`/`advertised_host` in `warshad` and opt-in `dev:lan`/`preview:lan` in `apps/remote`)
+  - W8 (`RunView.tsx` & `RunView.test.tsx` `createHandoff`/`applyHandoff` wiring)
+  - Windows native test/daemon fixes (`fresh_tempdir()`, `warshad.pid` mirror documented in
+    `docs/DAEMON.md`, `events_ws_auth` callsite warm-up).
+- **Local verification evidence on this Windows PC**:
+  - `cargo fmt --all -- --check`: PASS (exit 0)
+  - `cargo clippy --workspace --all-targets -- -D warnings`: PASS (exit 0)
+  - `cargo test --workspace --all-targets --no-fail-fast`: PASS (634 passed, 0 failed, 10 ignored)
+  - `cargo-deny --manifest-path Cargo.toml --all-features check` (pinned 0.20.2 binary): PASS
+    (`advisories ok, bans ok, licenses ok, sources ok`, exit 0)
+  - `gitleaks detect --source . --config .gitleaks.toml --no-banner --redact --exit-code 1` (pinned
+    8.30.1 binary): PASS (no leaks found, exit 0)
+  - `node scripts/check-arch.mjs --self-test` & `node scripts/check-arch.mjs`: PASS
+    (`arch: 5 rules, 0 violations`)
+  - `node scripts/check-engineering-policy.mjs --self-test` & `node scripts/check-engineering-policy.mjs`: PASS (`policy: 8 checks, 0 failures`)
+  - `node scripts/check-wire-contract.mjs --self-test` & `node scripts/check-wire-contract.mjs`: PASS (`wire: 8 checks, 0 violations`)
+  - `pnpm lint` & `pnpm typecheck`: PASS (exit 0)
+  - Vitest across all 6 packages: PASS (824 passed, 0 failed — desktop 368, remote 181, client 51,
+    crypto 22, i18n 51, ui 151)
+  - Playwright functional + a11y + layout + onboarding: PASS (240 passed, 0 failed)
+  - `pnpm --dir docs build` & `pnpm --dir docs test`: PASS (exit 0)
+- **Honest record of owner-blocked items remaining unchanged**: code-signing certificates & Tauri
+  updater private key (`TAURI_SIGNING_PRIVATE_KEY`), Apple notarization, store submissions, relay
+  hosting + VAPID, real provider key for live paid E2E (`WARSHA_E2E_REAL=1`), physical Android
+  hardware pairing, GitHub branch protection, and `dev` → `main` merge.

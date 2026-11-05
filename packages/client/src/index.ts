@@ -121,6 +121,24 @@ export interface PairingData {
   expires_at: string;
 }
 
+/**
+ * `warsha_remote::PairingOffer` as returned by `devices.pair-start`.
+ *
+ * Mints the 32-byte one-time secret and returns it together with the daemon's resolved
+ * listening origin as a pairing link and a base64 PNG QR plate.
+ */
+export interface PairingOffer {
+  pairing: PairingData;
+  /** Where the daemon is listening, as `http://<host>:<port>`. */
+  server_origin: string;
+  /** The pairing link for a phone. A bearer credential. */
+  pairing_link: string;
+  /** Base64-encoded PNG image of the QR code. */
+  qr_code_png: string;
+  /** True when server_origin is loopback only. */
+  loopback_only: boolean;
+}
+
 export interface ProviderConfig {
   name: string;
   kind: string;
@@ -882,6 +900,14 @@ export class WarshaClient implements WarshaWiringApi {
   // Devices (pairing)
   async listDevices(): Promise<DeviceSummary[]> {
     return this.rpc('devices.list');
+  }
+
+  /**
+   * `devices.pair-start` — mints a one-time pairing credential and returns the pairing
+   * offer containing the QR plate, link, and origin. Requires Owner token.
+   */
+  async startPairing(): Promise<PairingOffer> {
+    return this.rpc('devices.pair-start');
   }
 
   /**

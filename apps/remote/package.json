@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:lan": "vite --host",
     "build": "tsc && vite build && node scripts/generate-service-worker.mjs",
     "preview": "vite preview",
+    "preview:lan": "vite preview --host",
     "check:pwa": "node scripts/verify-pwa.mjs",
     "lint": "eslint src --ext .ts,.tsx",
     "typecheck": "tsc --noEmit",

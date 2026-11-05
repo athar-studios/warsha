@@ -806,7 +806,7 @@ mod tests {
 
     #[test]
     fn write_bundle_writes_one_json_file_named_after_the_run() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let bundle = bundle_with(&[("src/main.rs", "fn main() {}\n"), ("docs/notes.md", "")]);
 
         // The target directory does not exist yet: the write creates it.
@@ -832,7 +832,7 @@ mod tests {
 
     #[test]
     fn write_bundle_refuses_a_run_id_that_is_not_a_file_name() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let dir = temp.path().join("handoff").to_string_lossy().into_owned();
         let manager = HandoffManager::new();
 
@@ -1025,7 +1025,7 @@ mod tests {
 
     #[test]
     fn apply_to_disk_writes_new_files_and_leaves_an_agreed_one_alone() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let root = temp.path();
         std::fs::write(root.join("README.md"), "# x\n").expect("the readme is written");
 
@@ -1054,7 +1054,7 @@ mod tests {
 
     #[test]
     fn apply_to_disk_remote_wins_overwrites_a_local_edit_and_keeps_it_as_a_backup() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let root = temp.path();
         std::fs::create_dir_all(root.join("src")).expect("the source directory is made");
         std::fs::write(root.join("src/lib.rs"), "local edit\n").expect("the local file is written");
@@ -1103,7 +1103,7 @@ mod tests {
 
     #[test]
     fn apply_to_disk_owner_wins_keeps_the_local_file_and_still_backs_it_up() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let root = temp.path();
         std::fs::write(root.join("src-lib.rs"), "local edit\n").expect("the local file is written");
 
@@ -1139,7 +1139,7 @@ mod tests {
 
     #[test]
     fn apply_to_disk_writes_the_other_files_around_a_conflict() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let root = temp.path();
         std::fs::write(root.join("a.rs"), "local a\n").expect("the local file is written");
 
@@ -1163,7 +1163,7 @@ mod tests {
 
     #[test]
     fn apply_to_disk_gives_each_apply_its_own_backup_directory() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let root = temp.path();
         std::fs::write(root.join("a.rs"), "local a\n").expect("the local file is written");
 
@@ -1198,7 +1198,7 @@ mod tests {
 
     #[test]
     fn apply_to_disk_refuses_a_path_that_leaves_the_working_tree() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let root = temp.path();
         let manager = HandoffManager::new();
 
@@ -1226,7 +1226,7 @@ mod tests {
 
     #[test]
     fn apply_to_disk_refuses_a_bundle_whose_checksum_no_longer_matches() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let root = temp.path();
         let mut bundle = bundle_with(&[("a.rs", "remote\n")]);
         bundle.files[0].content = "tampered\n".to_string();

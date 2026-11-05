@@ -15,13 +15,42 @@
 
 use reqwest::Client;
 use serde_json::{json, Value};
-use tempfile::{tempdir, TempDir};
+use std::path::PathBuf;
+use tempfile::TempDir;
 use warshad::{start_daemon, DaemonConfig, DaemonHandle, RateLimitConfig};
 
 /// The daemon's own bearer token: the owner credential the desktop holds.
 const OWNER: &str = "s1a-owner-token";
 /// The secret one phone is paired with, which is that phone's whole credential.
 const PHONE_SECRET: &str = "a-phone-pairing-secret";
+
+/// A fresh temp directory for one daemon's data dir.
+///
+/// Prefers cargo's `CARGO_TARGET_TMPDIR`, then a `tmp` sibling of the test
+/// binary's `deps` directory (the target dir is writable wherever the build
+/// ran), and only then the system temp dir — which on some Windows machines is
+/// protected and rejects even creating a tempdir (`Access is denied`).
+fn fresh_tempdir() -> TempDir {
+    if let Some(base) = std::env::var_os("CARGO_TARGET_TMPDIR") {
+        let base = PathBuf::from(base);
+        if base.is_dir() {
+            if let Ok(dir) = TempDir::new_in(&base) {
+                return dir;
+            }
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(deps) = exe.parent() {
+            let base = deps.join("tmp");
+            if std::fs::create_dir_all(&base).is_ok() {
+                if let Ok(dir) = TempDir::new_in(&base) {
+                    return dir;
+                }
+            }
+        }
+    }
+    TempDir::new().expect("tempdir for the daemon data dir")
+}
 
 /// A running daemon, the ports it answers on, and the data directory it holds a lock
 /// in for as long as the test is talking to it.
@@ -32,7 +61,7 @@ struct Daemon {
 
 impl Daemon {
     async fn start(allowed_commands: Vec<String>) -> Self {
-        let dir = tempdir().expect("a temporary directory");
+        let dir = fresh_tempdir();
         let config = DaemonConfig {
             data_dir: dir.path().to_path_buf(),
             socket_path: dir.path().join("warshad.sock"),
@@ -42,6 +71,7 @@ impl Daemon {
             allowed_origins: vec!["http://localhost:5173".to_string()],
             allowed_commands,
             rate_limits: RateLimitConfig::default(),
+            ..DaemonConfig::default()
         };
         Daemon {
             handle: start_daemon(config).await.expect("the daemon starts"),
@@ -293,7 +323,6 @@ async fn a_paired_device_is_a_session_but_not_the_owner() {
         ("mcp.call", json!(["x", "tool", {}])),
         ("runmode.set", json!([local_run_mode()])),
         ("roles.set", json!([role_config()])),
-        ("devices.pair", json!([pairing_data(&project_id)])),
         ("devices.revoke", json!([project_id])),
         (
             "pairing.create",
@@ -317,6 +346,15 @@ async fn a_paired_device_is_a_session_but_not_the_owner() {
         let code = rpc_error_code(port, PHONE_SECRET, method, params).await;
         assert_eq!(code, -32002, "{method} was reachable by a paired device");
     }
+
+    // `devices.pair` is a Session-policy method: a paired device CAN redeem / register a pairing.
+    rpc_ok(
+        port,
+        PHONE_SECRET,
+        "devices.pair",
+        json!([pairing_data(&project_id)]),
+    )
+    .await;
 
     // A credential that is nobody's is not a session at all.
     let (status, _body) = rpc(port, "not-a-credential", "projects.list", json!([])).await;

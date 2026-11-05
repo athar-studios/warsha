@@ -72,7 +72,7 @@ function streamKind(kind: string): StreamKind {
   return 'default';
 }
 
-export function RunView({ run, onBack }: RunViewProps) {
+export function RunView({ client, run, onBack }: RunViewProps) {
   const dir = useDirection();
   const locale = useLocale();
   const [events, setEvents] = useState<WarshaEvent[]>([]);
@@ -89,9 +89,12 @@ export function RunView({ run, onBack }: RunViewProps) {
   // Continue on server (M6a): the dialog reports intent, the phase and the remote URL are what the
   // daemon tells the caller, and the changed files are what it brings back.
   const [handoffOpen, setHandoffOpen] = useState(false);
-  const [handoffPhase] = useState<HandoffPhase>('idle');
-  const [handoffRemoteUrl] = useState('');
-  const [handoffFiles] = useState<HandoffChangedFile[]>([]);
+  const [handoffPhase, setHandoffPhase] = useState<HandoffPhase>('idle');
+  const [handoffRemoteUrl, setHandoffRemoteUrl] = useState('');
+  const [handoffFiles, setHandoffFiles] = useState<HandoffChangedFile[]>([]);
+  const [handoffBundlePath, setHandoffBundlePath] = useState('');
+  const [handoffBackupName, setHandoffBackupName] = useState('');
+  const [handoffFailureReason, setHandoffFailureReason] = useState<string | undefined>(undefined);
   // Router & cost (M14b): Eco mode and one local/cloud badge per target. The battery, the network and
   // the target list are caller-supplied until a router RPC exists.
   const [ecoEnabled, setEcoEnabled] = useState(false);
@@ -234,14 +237,69 @@ export function RunView({ run, onBack }: RunViewProps) {
     // TODO(M20 wiring): hand `elementMention(selector)` to the composer once RunView has one.
   };
 
-  // Continue on server (M6a): the handoff and the apply both need a daemon RPC, so the dialog and the
-  // review panel report intent and nothing is written from here.
-  const handleHandOff = (_url: string) => {
-    // TODO(M20 wiring): call the daemon's handoff RPC once it exists.
+  // Continue on server (M6a, wired in M20): the handoff writes the bundle through `client.createHandoff`
+  // and the apply goes through `client.applyHandoff` with owner-wins, exactly as the panel promises.
+  const handleHandOff = (url: string) => {
+    const trimmed = url.trim();
+    setHandoffRemoteUrl(trimmed);
+    setHandoffFailureReason(undefined);
+    setHandoffPhase('preparing');
+    const files: ReadonlyArray<readonly [string, string]> = Object.entries(artifacts)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([stage, content]) => [`factory/${stage}.md`, content] as const);
+    void client
+      .createHandoff(run.id, files)
+      .then((bundlePath) => {
+        setHandoffBundlePath(bundlePath);
+        setHandoffBackupName(`warsha-handoff-backup-${run.id}.tar.gz`);
+        setHandoffFiles(
+          files.map(([path, content]) => ({
+            path,
+            local: null,
+            remote: content,
+          }))
+        );
+        setHandoffPhase('handed_off');
+      })
+      .catch((err: unknown) => {
+        setHandoffFailureReason(err instanceof Error ? err.message : String(err));
+        setHandoffPhase('failed');
+      });
   };
 
-  const handleApplyChanges = (_paths: string[]) => {
-    // TODO(M20 wiring): apply through the daemon after it writes the backup bundle.
+  const handleApplyChanges = (paths: string[]) => {
+    if (!handoffBundlePath || paths.length === 0) return;
+    setHandoffFailureReason(undefined);
+    setHandoffPhase('applying');
+    void client
+      .applyHandoff(handoffBundlePath, true)
+      .then((summary) => {
+        if (summary.backup_dir) {
+          setHandoffBackupName(summary.backup_dir);
+        }
+        const unresolved = new Set(
+          summary.conflicts
+            .map((conflict) => conflict.path)
+            .filter((path) => !summary.resolved.includes(path))
+        );
+        const appliedSet = new Set(
+          summary.applied.length > 0 ? summary.applied : paths
+        );
+        setHandoffFiles((current) =>
+          current.map((file) =>
+            unresolved.has(file.path)
+              ? { ...file, conflict: true }
+              : appliedSet.has(file.path)
+                ? { ...file, local: file.remote, conflict: false }
+                : file
+          )
+        );
+        setHandoffPhase('applied');
+      })
+      .catch((err: unknown) => {
+        setHandoffFailureReason(err instanceof Error ? err.message : String(err));
+        setHandoffPhase('failed');
+      });
   };
 
   const spentCents = events.reduce((total, event) => total + (event.costCents ?? 0), 0);
@@ -591,7 +649,13 @@ export function RunView({ run, onBack }: RunViewProps) {
           </Button>
           {/* `files` stays empty until the remote run brings changes back, so the panel shows its empty
               state; applying needs the daemon's backup + apply RPC. */}
-          <ReviewApplyPanel files={handoffFiles} backupName="" onApply={handleApplyChanges} />
+          <ReviewApplyPanel
+            files={handoffFiles}
+            backupName={handoffBackupName}
+            disabled={handoffPhase === 'preparing' || handoffPhase === 'applying'}
+            runId={run.id}
+            onApply={handleApplyChanges}
+          />
         </div>
       )}
 
@@ -647,6 +711,10 @@ export function RunView({ run, onBack }: RunViewProps) {
         open={handoffOpen}
         phase={handoffPhase}
         remoteUrl={handoffRemoteUrl}
+        remoteRunId={
+          handoffPhase === 'handed_off' || handoffPhase === 'applied' ? run.id : undefined
+        }
+        failureReason={handoffFailureReason}
         onHandOff={handleHandOff}
         onClose={() => setHandoffOpen(false)}
       />

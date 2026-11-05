@@ -424,12 +424,11 @@ fn read_document(directory: &Path, name: &str) -> SettingsResult<Option<serde_js
 mod tests {
     use super::*;
     use std::path::Path;
-    use tempfile::tempdir;
     use warsha_pipeline::{BackendKind, ColumnDef, RunMode, RunModeConfig, TableDef};
 
     /// A settings store over a fresh temporary database.
     async fn settings() -> (tempfile::TempDir, SettingsStore) {
-        let dir = tempdir().expect("a temporary directory");
+        let dir = crate::test_util::fresh_tempdir();
         let store = SettingsStore::open(&dir.path().join("warsha.db"))
             .await
             .expect("the settings open");

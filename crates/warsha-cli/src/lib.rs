@@ -2,9 +2,8 @@
 
 use clap::{Parser, Subcommand};
 use jsonrpsee::core::client::ClientT;
-use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
+use jsonrpsee::http_client::{HeaderMap, HeaderValue, HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
-use reqwest::Client;
 use std::path::PathBuf;
 use thiserror::Error;
 use ulid::Ulid;
@@ -336,39 +335,35 @@ enum AddPlan {
 /// CLI application
 pub struct CliApp {
     client: HttpClient,
-    http_client: Client,
-    base_url: String,
     json_output: bool,
-    _token: String,
 }
 
 impl CliApp {
     pub fn new(base_url: String, token: String, json_output: bool) -> Result<Self> {
-        // Build HTTP client with auth header
-        let mut headers = reqwest::header::HeaderMap::new();
+        // The daemon guards the JSON-RPC port with `RpcAuthLayer`: every request
+        // must carry `Authorization: Bearer <token>` or it is answered 401 before
+        // jsonrpsee even routes the method. The token is loaded from config.toml
+        // (or `--token`) by the binary entry point and rides on every RPC call
+        // through jsonrpsee's per-client default headers.
+        let mut rpc_headers = HeaderMap::new();
         if !token.is_empty() {
-            let auth_value = format!("Bearer {}", token);
-            headers.insert(
-                reqwest::header::AUTHORIZATION,
-                reqwest::header::HeaderValue::from_str(&auth_value).map_err(|e| {
-                    CliError::Config(invalid_auth_token_message(
-                        CliLang::from_process_locale(json_output),
-                        &e.to_string(),
-                    ))
-                })?,
-            );
+            let auth_value = HeaderValue::from_str(&format!("Bearer {}", token)).map_err(|e| {
+                CliError::Config(invalid_auth_token_message(
+                    CliLang::from_process_locale(json_output),
+                    &e.to_string(),
+                ))
+            })?;
+            rpc_headers.insert("authorization", auth_value);
         }
-        let http_client = Client::builder().default_headers(headers).build()?;
 
         // JSON-RPC client (no /rpc suffix - daemon serves at root)
-        let client = HttpClientBuilder::default().build(base_url.clone())?;
+        let client = HttpClientBuilder::default()
+            .set_headers(rpc_headers)
+            .build(base_url.clone())?;
 
         Ok(Self {
             client,
-            http_client,
-            base_url,
             json_output,
-            _token: token,
         })
     }
 
@@ -722,14 +717,14 @@ impl CliApp {
         self.output(doctor_header_message(lang))?;
         self.output("=============".to_string())?;
 
-        // Check daemon
+        // Check the daemon over the same authenticated RPC path every other
+        // command uses — on the RPC URL there is no `GET /health`.
         match self
-            .http_client
-            .get(format!("{}/health", self.base_url))
-            .send()
+            .client
+            .request::<warshad::HealthResponse, _>("health", rpc_params![])
             .await
         {
-            Ok(resp) if resp.status().is_success() => {
+            Ok(_health) => {
                 self.output(daemon_running_message(lang))?;
             }
             _ => {
@@ -824,15 +819,29 @@ impl CliApp {
     }
 
     async fn ensure_daemon(&self) -> Result<()> {
-        let resp = self
-            .http_client
-            .get(format!("{}/health", self.base_url))
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            return Err(CliError::NotConnected);
+        // Liveness is the authenticated RPC `health` method, not a
+        // `GET {rpc_url}/health`: `/health` is served by the separate HTTP
+        // surface (config `http_port`, default 8765) and does not exist on the
+        // JSON-RPC port, where every non-POST was answered 401/404 — the probe
+        // reported "not connected" even against a running daemon.
+        match self
+            .client
+            .request::<warshad::HealthResponse, _>("health", rpc_params![])
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(err) => {
+                // `Request rejected \`<code>\`` is a live daemon refusing this
+                // request (e.g. a wrong token); anything else is no daemon at
+                // all. Report the refusal as the RPC error it is rather than
+                // hiding it behind "Not connected".
+                if err.to_string().contains("Request rejected") {
+                    Err(CliError::Rpc(err))
+                } else {
+                    Err(CliError::NotConnected)
+                }
+            }
         }
-        Ok(())
     }
 
     async fn resolve_project(&self, name_or_id: &str) -> Result<ProjectId> {
@@ -902,7 +911,7 @@ fn locale_from_env() -> String {
 /// `custom` URL) is OpenAI-compatible, and every hosted endpoint is called with a key, so
 /// the fall-through answer is the flag the daemon itself insists on.
 fn kind_needs_key(kind: &str) -> bool {
-    warshad::adapter_kind(kind).provider_kind().needs_api_key()
+    !matches!(warshad::adapter_kind(kind), warshad::AdapterKind::Ollama)
 }
 
 /// Decide what `providers add` does, from its three arguments and the message language.
@@ -1561,11 +1570,6 @@ mod tests {
                 "doctor",
                 doctor_header_message(en),
                 doctor_header_message(ar),
-            ),
-            (
-                "daemon_running",
-                daemon_running_message(en),
-                daemon_running_message(ar),
             ),
             (
                 "daemon_not_running",

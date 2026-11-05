@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use reqwest::Client;
 use serde_json::{json, Value};
-use tempfile::tempdir;
+use tempfile::TempDir;
 use warshad::{start_daemon, DaemonConfig};
 
 /// The token the daemon under test is started with.
@@ -19,6 +19,34 @@ const TEST_TOKEN: &str = "child-reaping-token";
 
 /// The environment variable the probe is told to write its pid to.
 const PID_FILE_ENV: &str = "WARSHA_REAP_PID_FILE";
+
+/// A fresh temp directory for one daemon's data dir.
+///
+/// Prefers cargo's `CARGO_TARGET_TMPDIR`, then a `tmp` sibling of the test
+/// binary's `deps` directory (the target dir is writable wherever the build
+/// ran), and only then the system temp dir — which on some Windows machines is
+/// protected and rejects even creating a tempdir (`Access is denied`).
+fn fresh_tempdir() -> TempDir {
+    if let Some(base) = std::env::var_os("CARGO_TARGET_TMPDIR") {
+        let base = PathBuf::from(base);
+        if base.is_dir() {
+            if let Ok(dir) = TempDir::new_in(&base) {
+                return dir;
+            }
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(deps) = exe.parent() {
+            let base = deps.join("tmp");
+            if std::fs::create_dir_all(&base).is_ok() {
+                if let Ok(dir) = TempDir::new_in(&base) {
+                    return dir;
+                }
+            }
+        }
+    }
+    TempDir::new().expect("tempdir for the daemon data dir")
+}
 
 /// A child that stays alive until the daemon kills it.
 ///
@@ -100,6 +128,9 @@ fn config(data_dir: &Path) -> DaemonConfig {
         // RPC can add to it (audit H-05).
         allowed_commands: current_program(),
         rate_limits: warshad::RateLimitConfig::default(),
+        // The bind address keeps the loopback default and nothing is advertised:
+        // this daemon is only ever dialed from the test process on this machine.
+        ..DaemonConfig::default()
     }
 }
 
@@ -189,7 +220,7 @@ impl Rpc {
 
 #[tokio::test]
 async fn shutting_the_daemon_down_kills_and_reaps_every_child() {
-    let dir = tempdir().expect("a temporary directory");
+    let dir = fresh_tempdir();
     let data_dir = dir.path().to_path_buf();
     let exe = std::env::current_exe().expect("the test binary names itself");
 
@@ -239,7 +270,7 @@ async fn shutting_the_daemon_down_kills_and_reaps_every_child() {
 
 #[tokio::test]
 async fn a_child_that_already_exited_does_not_stop_a_shutdown() {
-    let dir = tempdir().expect("a temporary directory");
+    let dir = fresh_tempdir();
     let data_dir = dir.path().to_path_buf();
     let exe = std::env::current_exe().expect("the test binary names itself");
     let pid_file: PathBuf = data_dir.join("child.pid");
@@ -283,7 +314,7 @@ async fn a_child_that_already_exited_does_not_stop_a_shutdown() {
 /// is the situation being proved.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_handle_dropped_without_a_shutdown_still_reaps_its_children() {
-    let dir = tempdir().expect("a temporary directory");
+    let dir = fresh_tempdir();
     let data_dir = dir.path().to_path_buf();
     let exe = std::env::current_exe().expect("the test binary names itself");
 
@@ -324,7 +355,7 @@ async fn a_handle_dropped_without_a_shutdown_still_reaps_its_children() {
 /// name, and two daemons end up sharing a data directory.
 #[tokio::test]
 async fn a_restart_takes_the_data_directory_back_and_the_lock_file_stays() {
-    let dir = tempdir().expect("a temporary directory");
+    let dir = fresh_tempdir();
     let data_dir = dir.path().to_path_buf();
     let lock_file = data_dir.join("warshad.lock");
 

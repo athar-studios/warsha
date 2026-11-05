@@ -1051,10 +1051,39 @@ impl ProjectTemplate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
+
+    /// A fresh temp directory for one test's workspace.
+    ///
+    /// Prefers cargo's `CARGO_TARGET_TMPDIR`, then a `tmp` sibling of the test
+    /// binary's `deps` directory (the target dir is writable wherever the build
+    /// ran), and only then the system temp dir — which on some Windows machines is
+    /// protected and rejects even creating a tempdir (`Access is denied`).
+    fn fresh_tempdir() -> TempDir {
+        if let Some(base) = std::env::var_os("CARGO_TARGET_TMPDIR") {
+            let base = PathBuf::from(base);
+            if base.is_dir() {
+                if let Ok(dir) = TempDir::new_in(&base) {
+                    return dir;
+                }
+            }
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(deps) = exe.parent() {
+                let base = deps.join("tmp");
+                if std::fs::create_dir_all(&base).is_ok() {
+                    if let Ok(dir) = TempDir::new_in(&base) {
+                        return dir;
+                    }
+                }
+            }
+        }
+        TempDir::new().expect("tempdir for the test workspace")
+    }
 
     #[test]
     fn init_creates_repository_in_temp_dir() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = fresh_tempdir();
         let repo = GitRepo::init(dir.path()).expect("init repository");
 
         assert_eq!(repo.path().as_path(), dir.path());
@@ -1067,7 +1096,7 @@ mod tests {
 
     #[test]
     fn open_rejects_a_missing_directory() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = fresh_tempdir();
         let missing = dir.path().join("no-such-repo");
         assert!(matches!(GitRepo::open(&missing), Err(GitError::Git(_))));
     }
@@ -1093,7 +1122,7 @@ mod tests {
 
     #[test]
     fn scaffold_writes_template_files() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = fresh_tempdir();
         ProjectTemplate::cli()
             .scaffold(dir.path())
             .expect("scaffold template");
@@ -1107,7 +1136,7 @@ mod tests {
 
     #[test]
     fn scaffold_rejects_paths_that_escape_the_root() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = fresh_tempdir();
         for bad in ["../escape.txt", "/etc/passwd", ""] {
             let template = ProjectTemplate {
                 name: "bad".to_string(),
@@ -1145,7 +1174,7 @@ mod tests {
 
     #[test]
     fn create_branch_rejects_invalid_names() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = fresh_tempdir();
         let repo = GitRepo::init(dir.path()).expect("init repository");
 
         assert!(matches!(
@@ -1162,7 +1191,7 @@ mod tests {
 
     #[test]
     fn commit_rejects_an_empty_message() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = fresh_tempdir();
         let repo = GitRepo::init(dir.path()).expect("init repository");
         assert!(matches!(repo.commit("   "), Err(GitError::Other(_))));
     }

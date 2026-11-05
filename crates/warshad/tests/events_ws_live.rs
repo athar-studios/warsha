@@ -15,11 +15,12 @@
 //! (it catches up through `runs.events`), and the pipeline is never stalled or
 //! corrupted to satisfy a slow viewer.
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use base64::Engine as _;
 use serde_json::{json, Value};
-use tempfile::{tempdir, TempDir};
+use tempfile::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use warshad::{start_daemon, DaemonConfig, DaemonHandle, RateLimitConfig};
@@ -33,6 +34,34 @@ const TOKEN_PREFIX: &str = "warsha.token.";
 /// How long a test waits for one thing the daemon does on its own initiative.
 const BEAT: Duration = Duration::from_secs(5);
 
+/// A fresh temp directory for one daemon's data dir.
+///
+/// Prefers cargo's `CARGO_TARGET_TMPDIR`, then a `tmp` sibling of the test
+/// binary's `deps` directory (the target dir is writable wherever the build
+/// ran), and only then the system temp dir — which on some Windows machines is
+/// protected and rejects even creating a tempdir (`Access is denied`).
+fn fresh_tempdir() -> TempDir {
+    if let Some(base) = std::env::var_os("CARGO_TARGET_TMPDIR") {
+        let base = PathBuf::from(base);
+        if base.is_dir() {
+            if let Ok(dir) = TempDir::new_in(&base) {
+                return dir;
+            }
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(deps) = exe.parent() {
+            let base = deps.join("tmp");
+            if std::fs::create_dir_all(&base).is_ok() {
+                if let Ok(dir) = TempDir::new_in(&base) {
+                    return dir;
+                }
+            }
+        }
+    }
+    TempDir::new().expect("tempdir for the daemon data dir")
+}
+
 /// A running daemon, the ports it answers on, and the data directory it holds a lock
 /// in for as long as the test is talking to it.
 struct Daemon {
@@ -42,7 +71,7 @@ struct Daemon {
 
 impl Daemon {
     async fn start() -> Self {
-        let dir = tempdir().expect("a temporary directory");
+        let dir = fresh_tempdir();
         let config = DaemonConfig {
             data_dir: dir.path().to_path_buf(),
             socket_path: dir.path().join("warshad.sock"),
@@ -52,6 +81,9 @@ impl Daemon {
             allowed_origins: vec!["http://localhost:5173".to_string()],
             allowed_commands: Vec::new(),
             rate_limits: RateLimitConfig::default(),
+            // The bind address keeps the loopback default and nothing is advertised:
+            // this daemon is only ever dialed from the test process on this machine.
+            ..DaemonConfig::default()
         };
         Daemon {
             handle: start_daemon(config).await.expect("the daemon starts"),

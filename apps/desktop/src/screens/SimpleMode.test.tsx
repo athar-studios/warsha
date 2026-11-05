@@ -14,8 +14,9 @@ import { LocaleProvider, t } from '@warsha/i18n';
 import React from 'react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
-import { SimpleMode, composerTriggerFor, insertComposerToken, simpleSlashCommands } from './SimpleMode';
 import type { DaemonEndpoint } from '../daemon';
+
+import { SimpleMode, composerTriggerFor, insertComposerToken, simpleSlashCommands } from './SimpleMode';
 
 /**
  * The endpoint a shell-resolved session has: the RPC base is `http://…:8766` (the daemon's RPC

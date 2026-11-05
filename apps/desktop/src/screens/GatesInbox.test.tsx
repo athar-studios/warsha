@@ -21,6 +21,7 @@ import type { ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { scenarioById } from '../../e2e/harness';
+
 import { GatesInbox, gateWaitsOnOwner } from './GatesInbox';
 
 /** The run the bench opens on: standing at `code`, so no gate in its list is the reason it waits. */

@@ -26,7 +26,8 @@ use jsonrpsee::core::client::Error as RpcError;
 use jsonrpsee::http_client::transport::Error as HttpTransportError;
 use serde_json::{json, Value};
 use std::net::TcpListener;
-use tempfile::{tempdir, TempDir};
+use std::path::PathBuf;
+use tempfile::TempDir;
 use warsha_cli::{Cli, CliApp, CliError, Commands, ProviderAction};
 use warshad::{start_daemon, DaemonConfig, DaemonHandle, RateLimitConfig};
 
@@ -43,9 +44,37 @@ struct Daemon {
     _dir: TempDir,
 }
 
+/// A fresh temp directory for one daemon's data dir.
+///
+/// Prefers cargo's `CARGO_TARGET_TMPDIR`, then a `tmp` sibling of the test
+/// binary's `deps` directory (the target dir is writable wherever the build
+/// ran), and only then the system temp dir — which on some Windows machines is
+/// protected and rejects even creating a tempdir (`Access is denied`).
+fn fresh_tempdir() -> TempDir {
+    if let Some(base) = std::env::var_os("CARGO_TARGET_TMPDIR") {
+        let base = PathBuf::from(base);
+        if base.is_dir() {
+            if let Ok(dir) = TempDir::new_in(&base) {
+                return dir;
+            }
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(deps) = exe.parent() {
+            let base = deps.join("tmp");
+            if std::fs::create_dir_all(&base).is_ok() {
+                if let Ok(dir) = TempDir::new_in(&base) {
+                    return dir;
+                }
+            }
+        }
+    }
+    TempDir::new().expect("tempdir for the daemon data dir")
+}
+
 impl Daemon {
     async fn start() -> Self {
-        let dir = tempdir().expect("a temporary directory");
+        let dir = fresh_tempdir();
         let config = DaemonConfig {
             data_dir: dir.path().to_path_buf(),
             socket_path: dir.path().join("warshad.sock"),
@@ -53,6 +82,9 @@ impl Daemon {
             // daemon another lane is running.
             http_port: 0,
             ws_port: 0,
+            // Loopback, the daemon's default and the only address the URLs below name.
+            bind_host: "127.0.0.1".to_string(),
+            advertised_host: None,
             auth_token: OWNER.to_string(),
             allowed_origins: Vec::new(),
             allowed_commands: Vec::new(),
@@ -151,10 +183,12 @@ async fn providers_list_carries_the_bearer_token_to_the_rpc() {
         ))
         .await;
 
-    result.expect("a daemon that holds the owner's token must answer `providers list` \
+    result.expect(
+        "a daemon that holds the owner's token must answer `providers list` \
                    with its result instead of an HTTP 401 — before the fix the JSON-RPC \
                    client was built with `HttpClientBuilder::default()` and no headers, so \
-                   this call left the credential behind");
+                   this call left the credential behind",
+    );
 
     daemon.shutdown().await;
 }
@@ -218,9 +252,11 @@ async fn status_reaches_a_running_daemon() {
         ))
         .await;
 
-    result.expect("`warsha status` reported the daemon absent while it was running — the \
+    result.expect(
+        "`warsha status` reported the daemon absent while it was running — the \
                    probe `GET {rpc_url}/health` asks the JSON-RPC listener for a route it \
-                   does not have, so no URL and no token could ever satisfy it");
+                   does not have, so no URL and no token could ever satisfy it",
+    );
 
     daemon.shutdown().await;
 }
@@ -358,7 +394,7 @@ async fn text_of(response: reqwest::Response) -> String {
     let bytes = response
         .bytes()
         .await
-        .map(|bytes| bytes.iter().take(limit).copied().collect())
+        .map(|bytes| bytes.iter().take(limit).copied().collect::<Vec<u8>>())
         .unwrap_or_default();
     String::from_utf8_lossy(&bytes).into_owned()
 }

@@ -869,7 +869,7 @@ mod tests {
 
     /// A `warsha-store` database on a temporary file, with the M20 schema applied.
     fn temp_sqlite_store() -> (SqliteStore, tempfile::TempDir) {
-        let dir = tempfile::tempdir().expect("a temporary directory");
+        let dir = crate::test_util::fresh_tempdir();
         let path = dir.path().join("warsha.db");
         let store = SqliteStore::open(&path.to_string_lossy()).expect("the store opens");
         store.migrate().expect("the schema is applied");

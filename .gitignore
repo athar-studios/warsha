@@ -1,7 +1,6 @@
 # Rust
 /target/
 **/*.rs.bk
-Cargo.lock
 
 # Node.js
 node_modules/
@@ -30,6 +29,8 @@ Thumbs.db
 *.db
 *.db-journal
 *.lock
+!Cargo.lock
+!**/Cargo.lock
 
 # Environment
 .env
@@ -65,9 +66,9 @@ cargo_log.txt
 .vscode/*
 !.vscode/extensions.json
 .idea/*
+.qoder/
 
 # Cargo
-**/Cargo.lock
 .cargo/
 .bridge/
 bridge-io/

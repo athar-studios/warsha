@@ -44,14 +44,29 @@
 #
 # What is NOT asserted here
 # ------------------------
-# `[advisories]`, `[bans]` and `[sources]` are intentionally ABSENT, so those
-# three checks run under cargo-deny's built-in defaults. Whether they pass is
-# owed verification: it needs a real `cargo deny check` run, which the change
-# that added this file could not perform (no builds/tests in that lane). Note
-# the graph does contain 54 crates with more than one version in it, which the
-# default `[bans] multiple-versions = "warn"` reports as warnings rather than
-# errors, and that all 22 wildcard (`*`) requirements are workspace-internal path
-# deps, not registry wildcards.
+# `[bans]` and `[sources]` are intentionally ABSENT, so those two checks run
+# under cargo-deny's built-in defaults. Note the graph contains crates with
+# more than one version in it, which the default `[bans] multiple-versions = "warn"`
+# reports as warnings rather than errors, and that all 22 wildcard (`*`)
+# requirements are workspace-internal path deps, not registry wildcards.
+#
+# `[advisories]` (version = 2) is configured explicitly below. Two unmaintained
+# advisories were eliminated at the dependency level by removing unused
+# `indicatif = "0.17"` (`number_prefix 0.4.0`, RUSTSEC-2025-0119) and narrowing
+# `image = "0.25"` in `warsha-remote` to `default-features = false, features = ["png"]`
+# (`paste 1.0.15` via `ravif`, RUSTSEC-2024-0436). The remaining four entries in
+# `ignore` are non-vulnerability `unmaintained` notices pulled in exclusively
+# through `keyring 1.2.1` (`secret-service 2.0.2 -> zbus 1.9.3`), which is pinned
+# across `warsha-providers`, `warsha-relay`, and `warshad`.
+
+[advisories]
+version = 2
+ignore = [
+    { id = "RUSTSEC-2024-0384", reason = "Transitive unmaintained notice on instant 0.1.13 pulled in only via keyring 1.2.1 -> secret-service 2.0.2 -> zbus 1.9.3 -> fastrand 1.9.0 / async-io 1.13.0 (and parking_lot 0.11.2); paste (RUSTSEC-2024-0436) and number_prefix (RUSTSEC-2025-0119) were eliminated by narrowing image to png and removing unused indicatif." },
+    { id = "RUSTSEC-2024-0388", reason = "Transitive unmaintained notice on derivative 2.2.0 pulled in only via keyring 1.2.1 -> secret-service 2.0.2 -> zbus 1.9.3; paste (RUSTSEC-2024-0436) and number_prefix (RUSTSEC-2025-0119) were eliminated by narrowing image to png and removing unused indicatif." },
+    { id = "RUSTSEC-2026-0370", reason = "Transitive unmaintained notice on zvariant 2.10.0 pulled in only via keyring 1.2.1 -> secret-service 2.0.2 -> zbus 1.9.3; paste (RUSTSEC-2024-0436) and number_prefix (RUSTSEC-2025-0119) were eliminated by narrowing image to png and removing unused indicatif." },
+    { id = "RUSTSEC-2026-0372", reason = "Transitive unmaintained notice on zvariant_derive 2.10.0 pulled in only via keyring 1.2.1 -> secret-service 2.0.2 -> zbus 1.9.3 -> zvariant 2.10.0; paste (RUSTSEC-2024-0436) and number_prefix (RUSTSEC-2025-0119) were eliminated by narrowing image to png and removing unused indicatif." },
+]
 
 [licenses]
 version = 1

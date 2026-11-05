@@ -983,3 +983,56 @@ before it can believe any line number in the handoff.
   either install the pinned 0.20.2 binary or prove its gate through CI, and any "gitleaks is green"
   claim made on this host is not evidence. This matters because the policy's rule is that a gate can
   only be satisfied by running it.
+
+## 2026-11-05 — Fix the Windows test-environment false-failures with test-only helpers, not by touching ACLs/permissions or weakening tests
+- **Decision**: Two Windows failures that are artifacts of the environment/harness, not of product
+  behaviour, are fixed **in test code only**. (1) `tempfile::tempdir()` `PermissionDenied` / OS error 5
+  in the system `%TEMP%` — handled by a `fresh_tempdir()` helper that falls back
+  `CARGO_TARGET_TMPDIR` -> `deps/tmp` beside the test exe -> system temp last. (2) the
+  `events_ws_auth` flake — caused by tracing's process-wide per-callsite `Interest` cache (a sibling
+  test registering the middleware's `warn!("Unauthorized request …")` callsite first under
+  `NoSubscriber` caches it as never) — handled by a `warm_the_refusal_callsite` probe before the real
+  capture. No ACL, mandatory label, sandbox service or user security setting was touched, no assertion
+  was weakened, and the flake fix was **not** serialised. This is the test-only class only: the
+  `warshad` single-instance-lock change (the unlocked `warshad.pid` mirror `lock_holder` reads before
+  the `LockFileEx`-held file) is a genuine cross-platform **production** fix surfaced by `child_reaping`
+  and is logged in `PROGRESS.md`, not covered by this "test-only" decision.
+- **Alternatives**: (1) change the `%TEMP%` ACLs / integrity labels so `tempfile::tempdir()` succeeds —
+  rejected, it edits the owner's live security posture to satisfy a test helper, the same refusal every
+  prior Windows run recorded (see the 2026-11-02 decision that kept the sandbox and deferred Rust tests
+  to WSL); (2) relax, skip, or serialise the failing tests — rejected, it turns real signal into a false
+  green, and `events_ws_auth` must stay a parallel run; (3) keep deferring native `cargo test` to
+  another host — rejected now, because on this machine the helpers clear the same OS-error-5 failure
+  inside the harness, so native `cargo test --workspace` runs green (634 passed / 0 failed / 10 ignored)
+  and is usable evidence again.
+- **Reason**: an environment false-failure should be corrected where the falsehood lives — in the
+  harness — not in the product and not in the owner's machine. `fresh_tempdir()` still tries the system
+  temp as its last resort, so it hides a real filesystem problem only if the real problem is present; the
+  callsite probe pre-seeds tracing's `Interest` so whichever sibling test runs first cannot pin the
+  refusal callsite to `never`. Nothing about the owner's machine is altered to obtain the green, and no
+  assertion is weakened, so a native green here means the same thing a CI green means.
+- **Consequence (what this does NOT buy)**: the fix is scoped to the test environment, so it makes the
+  **functional** suites trustworthy on Windows while leaving the **visual snapshots** unproven here —
+  the committed baselines were captured on Linux with IBM Plex, a Windows run generates `*-win32.png`
+  and fails the font check, and the thresholds were deliberately not loosened (win32 PNGs must not be
+  committed). Visual baselines therefore remain **CI-only evidence**, as do the still-unverified Tauri
+  installer build/launch, physical Android pairing, GitHub owner-level settings, `cargo-deny` and
+  `gitleaks` (binaries absent locally) and CodeQL. `Cargo.lock` stays gitignored and nothing was
+  committed or pushed as of this entry.
+- **Decision (W4 — `cargo-deny` advisories and tracked `Cargo.lock`)**: Eliminated two transitive
+  `unmaintained` advisories at the dependency level by removing unused `indicatif = "0.17"` from root
+  `Cargo.toml` and `crates/warsha-cli/Cargo.toml` (`RUSTSEC-2025-0119` on `number_prefix 0.4.0`) and
+  narrowing `image = "0.25"` in `crates/warsha-remote/Cargo.toml` to
+  `default-features = false, features = ["png"]` (`RUSTSEC-2024-0436` on `paste 1.0.15` via `ravif`).
+  Configured `[advisories]` (`version = 2`) in `deny.toml` with explicit `ignore` entries and reasons
+  for the four remaining non-vulnerability `unmaintained` notices pulled in only through
+  `keyring 1.2.1 -> secret-service 2.0.2 -> zbus 1.9.3` (`RUSTSEC-2024-0384`, `RUSTSEC-2024-0388`,
+  `RUSTSEC-2026-0370`, `RUSTSEC-2026-0372`), and un-ignored `Cargo.lock` in `.gitignore` so the
+  lockfile `deny.toml` is verified against travels with the repository.
+- **Decision (W5–W8 — end-to-end pairing, LAN reachability, and RunView continue-on-server
+  handoff/apply wiring)**: Persisted `devices.pair-start` offers via `save_pairings()`, relaxed
+  `devices.pair` policy to `Session` under the `Pairing` rate tier so an unpaired phone can complete
+  the handshake, added `WarshaClient.startPairing()` and wired `Devices.tsx` without `Math.random()`,
+  added `bind_host`/`advertised_host` in `warshad` plus opt-in `dev:lan`/`preview:lan` in
+  `apps/remote`, and wired `RunView.tsx`'s `handleHandOff` and `handleApplyChanges` to
+  `client.createHandoff` and `client.applyHandoff`.

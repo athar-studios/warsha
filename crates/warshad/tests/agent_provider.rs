@@ -29,12 +29,12 @@
 //! directory, and ask it the same questions — which is the only way to test what an
 //! owner gets rather than what a file contains.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use reqwest::Client;
 use serde_json::{json, Value};
-use tempfile::tempdir;
+use tempfile::TempDir;
 use warsha_providers::InMemorySecretStore;
 use warshad::{start_daemon_with_provider_factory, DaemonConfig, MockProviderFactory};
 
@@ -52,6 +52,34 @@ const KIND: &str = "qwen";
 
 /// The role an agent turn is routed as — the owner's own conversation (`Intake`).
 const AGENT_ROLE_NAME: &str = "intake";
+
+/// A fresh temp directory for one daemon's data dir.
+///
+/// Prefers cargo's `CARGO_TARGET_TMPDIR`, then a `tmp` sibling of the test
+/// binary's `deps` directory (the target dir is writable wherever the build
+/// ran), and only then the system temp dir — which on some Windows machines is
+/// protected and rejects even creating a tempdir (`Access is denied`).
+fn fresh_tempdir() -> TempDir {
+    if let Some(base) = std::env::var_os("CARGO_TARGET_TMPDIR") {
+        let base = PathBuf::from(base);
+        if base.is_dir() {
+            if let Ok(dir) = TempDir::new_in(&base) {
+                return dir;
+            }
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(deps) = exe.parent() {
+            let base = deps.join("tmp");
+            if std::fs::create_dir_all(&base).is_ok() {
+                if let Ok(dir) = TempDir::new_in(&base) {
+                    return dir;
+                }
+            }
+        }
+    }
+    TempDir::new().expect("tempdir for the daemon data dir")
+}
 
 /// One daemon's RPC surface.
 struct Rpc {
@@ -179,6 +207,10 @@ fn config(data_dir: &Path) -> DaemonConfig {
         allowed_origins: vec!["http://localhost:5173".to_string()],
         allowed_commands: Vec::new(),
         rate_limits: warshad::RateLimitConfig::default(),
+        // The bind address stays the loopback default: the provider routing under
+        // test is the same on any address, so this test names neither
+        // `bind_host` nor `advertised_host` (see `DaemonConfig::bind_host`).
+        ..DaemonConfig::default()
     }
 }
 
@@ -198,7 +230,7 @@ async fn daemon(data_dir: &Path) -> (warshad::DaemonHandle, Rpc) {
 /// The whole C2 story on one daemon: configure, route, approve, and the model answers.
 #[tokio::test]
 async fn agent_mode_reaches_the_provider_the_owner_configured_and_routed() {
-    let dir = tempdir().expect("a temporary directory");
+    let dir = fresh_tempdir();
     let (handle, rpc) = daemon(dir.path()).await;
 
     // Before anything is configured, a turn says honestly that it planned only: no
@@ -253,7 +285,7 @@ async fn agent_mode_reaches_the_provider_the_owner_configured_and_routed() {
 /// The routing and the conversation are what the *next* daemon runs and continues.
 #[tokio::test]
 async fn a_restart_keeps_the_routing_the_approval_history_and_the_todos() {
-    let dir = tempdir().expect("a temporary directory");
+    let dir = fresh_tempdir();
     let (handle, rpc) = daemon(dir.path()).await;
 
     rpc.add_provider().await;
@@ -330,7 +362,7 @@ async fn a_restart_keeps_the_routing_the_approval_history_and_the_todos() {
 /// refused, with the router left exactly as it was.
 #[tokio::test]
 async fn roles_set_refuses_a_routing_it_could_not_honour() {
-    let dir = tempdir().expect("a temporary directory");
+    let dir = fresh_tempdir();
     let (handle, rpc) = daemon(dir.path()).await;
 
     // A role the pipeline does not know.
@@ -419,7 +451,7 @@ async fn roles_set_refuses_a_routing_it_could_not_honour() {
 /// name the owner can no longer see.
 #[tokio::test]
 async fn removing_a_provider_removes_the_routings_that_named_it() {
-    let dir = tempdir().expect("a temporary directory");
+    let dir = fresh_tempdir();
     let (handle, rpc) = daemon(dir.path()).await;
 
     rpc.add_provider().await;
@@ -459,7 +491,7 @@ async fn removing_a_provider_removes_the_routings_that_named_it() {
 /// the ceiling the *next* daemon enforces too.
 #[tokio::test]
 async fn the_budget_in_the_routing_caps_the_agents_spend_and_comes_back_after_a_restart() {
-    let dir = tempdir().expect("a temporary directory");
+    let dir = fresh_tempdir();
     let (handle, rpc) = daemon(dir.path()).await;
 
     rpc.add_provider().await;
@@ -518,7 +550,7 @@ async fn the_budget_in_the_routing_caps_the_agents_spend_and_comes_back_after_a_
 /// The daemon's own offline provider is not a name an owner can take over.
 #[tokio::test]
 async fn the_reserved_mock_provider_name_cannot_be_configured() {
-    let dir = tempdir().expect("a temporary directory");
+    let dir = fresh_tempdir();
     let (handle, rpc) = daemon(dir.path()).await;
 
     let refused = rpc
@@ -547,7 +579,7 @@ async fn the_reserved_mock_provider_name_cannot_be_configured() {
 /// refusal here and the accepted routing in every other test in this file.
 #[tokio::test]
 async fn an_unauthorized_caller_changes_no_routing() {
-    let dir = tempdir().expect("a temporary directory");
+    let dir = fresh_tempdir();
     let (handle, rpc) = daemon(dir.path()).await;
     rpc.add_provider().await;
 
@@ -588,7 +620,7 @@ async fn an_unauthorized_caller_changes_no_routing() {
 /// A mode switch back to Plan is recorded too, and the history keeps both.
 #[tokio::test]
 async fn returning_to_plan_mode_is_recorded_and_stored() {
-    let dir = tempdir().expect("a temporary directory");
+    let dir = fresh_tempdir();
     let (handle, rpc) = daemon(dir.path()).await;
     rpc.add_provider().await;
     rpc.route(AGENT_ROLE_NAME, PROVIDER, Value::Null).await;

@@ -59,7 +59,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { PermissionModeChip, type PermissionMode } from '../components/PermissionModeChip';
 import { PlanModeBadge, type AgentMode } from '../components/PlanModeBadge';
-import type { DaemonEndpoint } from '../daemon';
 import {
   preflightCheckNames,
   preflightReady,
@@ -70,6 +69,7 @@ import { RunModeBadge, type RunMode } from '../components/RunModeBadge';
 import { SnapshotRestoreButton } from '../components/SnapshotRestoreButton';
 import { initialDeliveryStages, StatusStrip, type DeliveryStage } from '../components/StatusStrip';
 import { WebDeployButton, type DeployStatus } from '../components/WebDeployButton';
+import type { DaemonEndpoint } from '../daemon';
 
 interface AdvancedModeProps {
   client: WarshaClient;

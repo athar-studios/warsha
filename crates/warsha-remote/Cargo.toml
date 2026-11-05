@@ -20,7 +20,7 @@ rand = { workspace = true }
 zeroize = { workspace = true }
 ring = { workspace = true }
 qrcode = "0.14"
-image = "0.25"
+image = { version = "0.25", default-features = false, features = ["png"] }
 base64 = "0.22"
 chrono = { workspace = true }
 

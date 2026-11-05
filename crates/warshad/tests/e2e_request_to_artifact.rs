@@ -30,7 +30,7 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use serde_json::json;
-use tempfile::tempdir;
+use tempfile::TempDir;
 use tokio::sync::RwLock;
 use warsha_backends::BackendFactory;
 use warsha_core::{
@@ -96,6 +96,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+
+# Standalone: the scratch data dir can sit inside another workspace (the
+# daemon's fresh_tempdir lives under the repo's target dir), and cargo refuses
+# a package that is inside a workspace that does not list it as a member.
+[workspace]
 --- FILE: src/lib.rs ---
 //! Greeting logic for the hello-world CLI.
 
@@ -134,10 +139,38 @@ fn greets_the_name_it_is_given() {
 }
 "#;
 
+/// A fresh temp directory for the daemon's data tree.
+///
+/// Prefers cargo's `CARGO_TARGET_TMPDIR`, then a `tmp` sibling of the test
+/// binary's `deps` directory (the target dir is writable wherever the build
+/// ran), and only then the system temp dir — which on some Windows machines is
+/// protected and rejects even creating a tempdir (`Access is denied`).
+fn fresh_tempdir() -> TempDir {
+    if let Some(base) = std::env::var_os("CARGO_TARGET_TMPDIR") {
+        let base = PathBuf::from(base);
+        if base.is_dir() {
+            if let Ok(dir) = TempDir::new_in(&base) {
+                return dir;
+            }
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(deps) = exe.parent() {
+            let base = deps.join("tmp");
+            if std::fs::create_dir_all(&base).is_ok() {
+                if let Ok(dir) = TempDir::new_in(&base) {
+                    return dir;
+                }
+            }
+        }
+    }
+    TempDir::new().expect("tempdir for the daemon data dir")
+}
+
 #[tokio::test]
 async fn e2e_request_to_artifact() {
     // ---- 1. Setup: a temporary tree, a store, and the daemon state over it.
-    let temp = tempdir().expect("a temporary directory");
+    let temp = fresh_tempdir();
     let data_dir = temp.path().join("data");
     let project_dir = temp.path().join(PACKAGE_NAME);
     let state = daemon_state(&data_dir).await;
@@ -547,6 +580,9 @@ async fn daemon_state(data_dir: &Path) -> Arc<DaemonState> {
         // The offline factory: this test routes the mock it registers itself, so no
         // configured-provider path is taken and nothing reaches a network.
         provider_factory: Arc::new(warshad::MockProviderFactory::new()),
+        // Hand-built state: no listener has bound a pairing origin, so a pairing
+        // link would be refused rather than invented — exactly as documented.
+        pairing_origin: std::sync::OnceLock::new(),
     })
 }
 
@@ -717,15 +753,23 @@ impl CommandRun {
 /// `--offline` and `CARGO_NET_OFFLINE` keep the nested build off the network (the
 /// generated project has no dependencies, so nothing needs a registry), and the
 /// target directory is pinned inside the project so an inherited `CARGO_TARGET_DIR`
-/// cannot point this build at the workspace's own lock.
+/// cannot point this build at the workspace's own lock. `TMP`/`TEMP` are pinned
+/// inside the project too: the Windows linker stages `lnk*.tmp` in the system temp
+/// directory, which on some machines is protected and rejects even creating them
+/// (`Access is denied`) — the same failure `fresh_tempdir` works around.
 async fn run_cargo(project_dir: &Path, args: &[&str]) -> Result<CommandRun, String> {
     let program = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+    let scratch_tmp = project_dir.join(".tmp");
+    std::fs::create_dir_all(&scratch_tmp)
+        .map_err(|error| format!("could not make {}: {error}", scratch_tmp.display()))?;
     let output = tokio::process::Command::new(&program)
         .current_dir(project_dir)
         .arg("--offline")
         .args(args)
         .env("CARGO_TARGET_DIR", project_dir.join("target"))
         .env("CARGO_NET_OFFLINE", "true")
+        .env("TMP", &scratch_tmp)
+        .env("TEMP", &scratch_tmp)
         .stdin(std::process::Stdio::null())
         .output()
         .await

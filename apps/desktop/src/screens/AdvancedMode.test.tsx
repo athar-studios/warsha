@@ -13,6 +13,8 @@ import { LocaleProvider, t } from '@warsha/i18n';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { DaemonEndpoint } from '../daemon';
+
 import {
   AdvancedMode,
   eventPassesFilter,
@@ -21,7 +23,6 @@ import {
   runStateWord,
   todoState,
 } from './AdvancedMode';
-import type { DaemonEndpoint } from '../daemon';
 
 /** The one slot the stubbed socket pushes events into, so a test can feed the stream. */
 let emitEvent: ((event: WarshaEvent) => void) | null = null;

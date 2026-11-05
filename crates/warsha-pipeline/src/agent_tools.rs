@@ -339,7 +339,7 @@ impl ToolExecutor for FilesystemToolExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
+    use crate::test_util::fresh_tempdir;
 
     /// A program plus arguments that print `hello` on this platform.
     ///
@@ -386,7 +386,7 @@ mod tests {
 
     #[test]
     fn a_read_file_tool_returns_the_file_content() {
-        let temp = tempdir().expect("a temporary directory");
+        let temp = fresh_tempdir();
         std::fs::write(temp.path().join("notes.md"), "first\nsecond\n")
             .expect("the file is written");
 
@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn a_write_file_tool_writes_the_content() {
-        let temp = tempdir().expect("a temporary directory");
+        let temp = fresh_tempdir();
 
         let result = executor(temp.path()).execute(&AgentTool::WriteFile {
             path: "notes.md".to_string(),
@@ -419,7 +419,7 @@ mod tests {
 
     #[test]
     fn a_write_file_tool_creates_the_parent_directories() {
-        let temp = tempdir().expect("a temporary directory");
+        let temp = fresh_tempdir();
 
         let result = executor(temp.path()).execute(&AgentTool::WriteFile {
             path: "factory/runs/turn-1/notes.md".to_string(),
@@ -437,7 +437,7 @@ mod tests {
 
     #[test]
     fn a_read_of_a_missing_file_is_a_failed_result() {
-        let temp = tempdir().expect("a temporary directory");
+        let temp = fresh_tempdir();
 
         let result = executor(temp.path()).execute(&AgentTool::ReadFile {
             path: "missing.md".to_string(),
@@ -455,7 +455,7 @@ mod tests {
 
     #[test]
     fn a_run_command_tool_runs_the_command_in_the_working_directory() {
-        let temp = tempdir().expect("a temporary directory");
+        let temp = fresh_tempdir();
         let (command, args) = printing_command();
 
         let result = executor(temp.path()).execute(&AgentTool::RunCommand { command, args });
@@ -475,7 +475,7 @@ mod tests {
 
     #[test]
     fn a_run_command_tool_reports_a_non_zero_exit_as_a_failed_result() {
-        let temp = tempdir().expect("a temporary directory");
+        let temp = fresh_tempdir();
         let (command, args) = failing_command();
 
         let result = executor(temp.path()).execute(&AgentTool::RunCommand { command, args });
@@ -496,7 +496,7 @@ mod tests {
 
     #[test]
     fn a_missing_program_is_a_refusal() {
-        let temp = tempdir().expect("a temporary directory");
+        let temp = fresh_tempdir();
 
         let result = executor(temp.path()).execute(&AgentTool::RunCommand {
             command: "warsha-no-such-program".to_string(),
@@ -515,7 +515,7 @@ mod tests {
 
     #[test]
     fn a_path_outside_the_working_directory_is_refused() {
-        let temp = tempdir().expect("a temporary directory");
+        let temp = fresh_tempdir();
         // The workspace is one directory inside the temporary one, so the file an
         // escaping write would reach is known to be absent before the attempt.
         let workspace = temp.path().join("work");
@@ -547,7 +547,7 @@ mod tests {
 
     #[test]
     fn a_blank_path_and_a_blank_command_are_refused() {
-        let temp = tempdir().expect("a temporary directory");
+        let temp = fresh_tempdir();
         let executor = executor(temp.path());
 
         assert_eq!(executor.resolve("   "), Err(ToolError::BlankPath));
@@ -567,7 +567,7 @@ mod tests {
 
     #[test]
     fn a_dotted_path_resolves_inside_the_working_directory() {
-        let temp = tempdir().expect("a temporary directory");
+        let temp = fresh_tempdir();
         let executor = executor(temp.path());
 
         let resolved = executor

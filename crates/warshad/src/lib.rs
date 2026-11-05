@@ -1938,7 +1938,20 @@ impl WarshaApiServer for WarshaRpc {
             .devices
             .add_device(device)
             .await
-            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+
+        {
+            let mut pairings = self.state.pairings.write().await;
+            if pairings.get(&pairing_data.device_id.to_string()).is_none() {
+                let _ = pairings.create(
+                    &pairing_data.device_id.to_string(),
+                    &pairing_data.secret_token(),
+                    now_epoch_secs(),
+                );
+            }
+        }
+        self.save_pairings().await?;
+        Ok(())
     }
 
     async fn start_pairing(&self, ext: &RpcExtensions) -> RpcResult<warsha_remote::PairingOffer> {
@@ -1976,6 +1989,24 @@ impl WarshaApiServer for WarshaRpc {
         // The secret itself is never logged: the origin and the expiry are what an owner
         // and a reviewer need, and a pairing line in a log is otherwise a bearer token in
         // a file that gets shipped to support (audit N-1).
+        self.state
+            .devices
+            .add_device(device.clone())
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+
+        {
+            let mut pairings = self.state.pairings.write().await;
+            pairings
+                .create(
+                    &device.device_id.to_string(),
+                    &offer.pairing.secret_token(),
+                    now_epoch_secs(),
+                )
+                .map_err(|error| rpc_error(error.to_string()))?;
+        }
+        self.save_pairings().await?;
+
         info!(
             "minted a pairing for device {} at {server_origin}, valid until {}",
             offer.pairing.device_id,
@@ -1990,7 +2021,14 @@ impl WarshaApiServer for WarshaRpc {
             .devices
             .revoke_device(device_id)
             .await
-            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+
+        {
+            let mut pairings = self.state.pairings.write().await;
+            let _ = pairings.revoke(&device_id.to_string());
+        }
+        self.save_pairings().await?;
+        Ok(())
     }
 
     // Providers
@@ -3915,10 +3953,11 @@ pub async fn load_or_create_config(config_path: Option<&Path>) -> Result<DaemonC
 /// named in a config file and never created would otherwise fail the start with an
 /// I/O error that reads like a refusal to run twice.
 ///
-/// The holder's process id is written into the file (see [`LockFile`]) so a second
-/// daemon — or the desktop shell that found one already running — can say *which*
-/// process has the directory, which is the difference between "restart the app" and a
-/// half-hour of hunting a stray `warshad`.
+/// The holder's process id is written into the file, and mirrored into an unlocked
+/// `warshad.pid` beside it (see [`LockFile`]), so a second daemon — or the desktop
+/// shell that found one already running — can say *which* process has the directory,
+/// which is the difference between "restart the app" and a half-hour of hunting a
+/// stray `warshad`.
 fn acquire_lock(data_dir: &Path) -> Result<LockFile> {
     std::fs::create_dir_all(data_dir)?;
     let lock_path = data_dir.join("warshad.lock");
@@ -3936,23 +3975,28 @@ fn acquire_lock(data_dir: &Path) -> Result<LockFile> {
 
 /// Who the lock file says holds the lock, as a hint for an error message.
 ///
+/// The holder mirrors its pid into a `warshad.pid` beside the lock precisely because
+/// the lock file itself can be unreadable while held (on Windows the holder opens it
+/// for writing without sharing read access), so the mirror is tried first and the
+/// lock file is the fallback — a holder that predates the mirror, or a mirror that
+/// was cleaned away, still names its pid if the lock file can be read at all.
+///
 /// A pid in a file is a *hint*: the operating system releases the advisory lock when a
 /// process dies, so a stale file can name a process that has been gone for years and a
 /// recycled pid can name something that has nothing to do with Warsha. Nothing here acts
 /// on it — no signal is sent and no lock is taken over another's — because the safe way
 /// to stop a daemon the owner cannot see is to ask them, with the number to look at.
 fn lock_holder(path: &Path) -> String {
-    match std::fs::read_to_string(path) {
-        Ok(text) => {
+    let mirror = path.with_extension("pid");
+    for candidate in [&mirror, path] {
+        if let Ok(text) = std::fs::read_to_string(candidate) {
             let pid = text.split_whitespace().next().unwrap_or_default();
-            if pid.is_empty() {
-                "no pid recorded".to_string()
-            } else {
-                format!("pid {pid}")
+            if !pid.is_empty() {
+                return format!("pid {pid}");
             }
         }
-        Err(_) => "no pid recorded".to_string(),
     }
+    "no pid recorded".to_string()
 }
 
 /// The daemon's single-instance lock.
@@ -4003,6 +4047,13 @@ impl LockFile {
         let pid = std::process::id().to_string();
         file.set_len(0)?;
         (&file).write_all(pid.as_bytes())?;
+
+        // Mirror the pid into an ordinary, unlocked file next to the lock. On Windows
+        // the lock file is open by its holder for writing, and a write-only open there
+        // does not share read access, so a second instance's read of `warshad.lock`
+        // fails with a sharing violation — exactly when the refusal needs a name. The
+        // mirror is that name; it decides nothing about the lock itself.
+        std::fs::write(self.path.with_extension("pid"), pid.as_bytes())?;
 
         self.file = Some(file);
         Ok(())
@@ -4212,7 +4263,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_config_generation() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = crate::test_util::fresh_tempdir();
         let config_path = temp_dir.path().join("config.toml");
 
         let config = DaemonConfig {
@@ -4377,7 +4428,7 @@ mod tests {
     /// fails here instead of shipping unauthenticated-by-omission.
     #[tokio::test]
     async fn every_registered_method_has_a_policy_and_no_policy_names_a_missing_one() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let (state, _store) = test_state(temp.path()).await;
         let module = WarshaRpc::new(state).into_rpc();
 
@@ -4436,7 +4487,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_authorized_method_refuses_no_session_and_a_paired_device_differently() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let (state, _store) = test_state(temp.path()).await;
         let rpc = WarshaRpc::new(state);
         let project = ProjectId::new();
@@ -4496,7 +4547,7 @@ mod tests {
     async fn a_gate_decision_refuses_a_device_id_that_is_not_the_session() {
         // Audit H-03, at the seam: the legacy param is accepted, and a value that is
         // not the authenticated device is refused without touching the run.
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let (state, store) = test_state(temp.path()).await;
         let run = stored_run_with_gate(&store, "Shop").await;
         let rpc = WarshaRpc::new(state.clone());
@@ -4552,7 +4603,7 @@ mod tests {
     async fn a_session_with_no_device_id_cannot_be_recorded_as_an_approver() {
         // A pairing whose id is not a device id is a real session for reads, and has no
         // approver to record: the daemon says so rather than storing an invented uuid.
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let (state, store) = test_state(temp.path()).await;
         let run = stored_run_with_gate(&store, "Shop").await;
         let rpc = WarshaRpc::new(state);
@@ -4577,7 +4628,7 @@ mod tests {
     async fn the_pipeline_refuses_a_gate_decision_for_no_device() {
         // The floor under the daemon (audit H-03): even a caller that reached the
         // pipeline directly cannot record the nil device as an approver.
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let (state, store) = test_state(temp.path()).await;
         let run = stored_run_with_gate(&store, "Shop").await;
 
@@ -4597,7 +4648,7 @@ mod tests {
 
     #[tokio::test]
     async fn gates_list_answers_every_gate_stage_in_pipeline_order() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let (state, store) = test_state(temp.path()).await;
         let run = stored_run_with_gate(&store, "Shop").await;
         let rpc = WarshaRpc::new(state);
@@ -4641,7 +4692,7 @@ mod tests {
 
     #[tokio::test]
     async fn gates_list_answers_the_flat_state_shape_the_client_declares() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let (state, store) = test_state(temp.path()).await;
         let run = stored_run(&store, "Shop", None).await;
         let mut run = store.get_run(run.id).await.expect("the run is readable");
@@ -4723,7 +4774,7 @@ mod tests {
 
     #[tokio::test]
     async fn gates_list_refuses_a_run_the_store_does_not_have() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let (state, _store) = test_state(temp.path()).await;
         let rpc = WarshaRpc::new(state);
 
@@ -4744,7 +4795,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_gates_queue_reads_on_any_verified_session_and_refuses_without_one() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let (state, store) = test_state(temp.path()).await;
         let run = stored_run_with_gate(&store, "Shop").await;
         let rpc = WarshaRpc::new(state);
@@ -4788,7 +4839,7 @@ mod tests {
         // `every_registered_method_has_a_policy_and_no_policy_names_a_missing_one`;
         // this pins `gates.list` by name so a one-sided addition fails at the name
         // rather than only at the count.
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let (state, _store) = test_state(temp.path()).await;
         let module = WarshaRpc::new(state).into_rpc();
         assert!(
@@ -4803,7 +4854,7 @@ mod tests {
 
     #[tokio::test]
     async fn process_and_mcp_control_refuse_an_unlisted_program_and_a_remote_transport() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         // Only `cargo` is admitted, by configuration rather than by a caller.
         let (state, _store) = test_state_with(temp.path(), |config| {
             config.allowed_commands = vec!["cargo".to_string()];
@@ -5062,7 +5113,7 @@ mod tests {
     async fn apply_handoff_writes_the_files_and_reports_the_conflict_and_backup() {
         use warsha_pipeline::ApplyResult;
 
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let working_tree = temp.path().join("repo");
         std::fs::create_dir_all(working_tree.join("src")).expect("the working tree is made");
         std::fs::write(working_tree.join("src/lib.rs"), "local edit\n")
@@ -5119,7 +5170,7 @@ mod tests {
 
     #[tokio::test]
     async fn apply_handoff_refuses_a_run_with_no_project_repo() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let (state, store) = test_state(temp.path()).await;
         let run = stored_run(&store, "Shop", None).await;
 
@@ -5144,7 +5195,7 @@ mod tests {
 
     #[tokio::test]
     async fn export_backend_names_the_dump_after_the_run_project() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let (state, store) = test_state(&temp.path().join("data")).await;
         let run = stored_run(&store, "Shop", None).await;
 
@@ -5167,7 +5218,7 @@ mod tests {
 
     #[tokio::test]
     async fn skills_list_reports_the_slash_command_catalog() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let (state, _store) = test_state(temp.path()).await;
 
         let skills = WarshaRpc::new(state)
@@ -5196,7 +5247,7 @@ mod tests {
     async fn agent_turn_plans_first_and_executes_after_the_owner_approves() {
         use warsha_pipeline::AgentMode;
 
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let (state, _store) = test_state(temp.path()).await;
         let rpc = WarshaRpc::new(state.clone());
 
@@ -5247,7 +5298,7 @@ mod tests {
     async fn agent_turn_runs_a_tool_inside_the_agent_workspace() {
         use warsha_pipeline::AgentMode;
 
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let data_dir = temp.path().join("data");
         let (state, _store) = test_state(&data_dir).await;
         let rpc = WarshaRpc::new(state.clone());
@@ -5430,7 +5481,7 @@ mod tests {
 
     #[tokio::test]
     async fn process_rpcs_spawn_list_report_and_stop_a_real_process() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         // The owner's own configuration is what admits a program: this test's
         // long-running stand-in is `cmd`/`sh`, which the default list deliberately
         // does not carry.
@@ -5477,7 +5528,7 @@ mod tests {
 
     #[tokio::test]
     async fn mcp_rpcs_connect_send_and_disconnect_a_stdio_server() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let (command, args) = probe_command("mcp_probe_server");
         // The stdio transport starts this test's own binary as the MCP server, and the
         // daemon's configuration is what admits that exact program.
@@ -5548,7 +5599,7 @@ mod tests {
 
     #[tokio::test]
     async fn mcp_connect_records_an_http_transport_without_dialling_it() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let (state, _store) = test_state(temp.path()).await;
         let rpc = WarshaRpc::new(state);
 
@@ -5583,7 +5634,7 @@ mod tests {
 
     #[tokio::test]
     async fn preview_rpcs_start_report_and_stop_one_dev_server_per_project() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let command = probe_line("preview_probe");
         // A preview's command line names this test binary as its program, so the
         // owner's configuration is what admits that exact path.
@@ -5652,7 +5703,7 @@ mod tests {
 
     #[tokio::test]
     async fn routines_rpcs_list_get_run_now_pause_and_resume() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let (state, _store) = test_state(temp.path()).await;
         let rpc = WarshaRpc::new(state.clone());
 
@@ -5743,7 +5794,7 @@ mod tests {
 
     #[tokio::test]
     async fn providers_check_models_rpc() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let (state, _store) = test_state(temp.path()).await;
         let rpc = WarshaRpc::new(state.clone());
 
@@ -5799,7 +5850,7 @@ mod tests {
     /// `security_identity.rs` and `security_rate_limits.rs`.
     #[tokio::test]
     async fn every_read_method_refuses_a_caller_with_no_session() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let (state, _store) = test_state(temp.path()).await;
         let rpc = WarshaRpc::new(state);
         let anonymous = anonymous_session();
@@ -5936,7 +5987,7 @@ mod tests {
     /// ceiling in front of it is still serving traffic normally.
     #[tokio::test]
     async fn a_read_is_measured_by_its_own_tier_and_not_only_by_the_transport() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let (state, _store) = test_state_with(temp.path(), |config| {
             // The transport stays wide — the refusal below has to come from the method
             // tier, not from the whole-request bucket in front of it.
@@ -6001,7 +6052,7 @@ mod tests {
     /// still allowed to record taste, which is what the table has always said.
     #[tokio::test]
     async fn recording_a_preference_is_a_write_with_a_ceiling_and_an_actor() {
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let (state, _store) = test_state_with(temp.path(), |config| {
             config.rate_limits = RateLimitConfig {
                 standard: QuotaConfig {
@@ -6156,7 +6207,7 @@ mod tests {
             .enable_all()
             .build()
             .expect("a current-thread runtime");
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
         let data_dir = temp.path().to_path_buf();
 
         tracing::subscriber::with_default(subscriber, || {
@@ -6227,7 +6278,7 @@ mod tests {
             .enable_all()
             .build()
             .expect("a current-thread runtime");
-        let temp = tempfile::tempdir().expect("a temporary directory");
+        let temp = crate::test_util::fresh_tempdir();
 
         runtime.block_on(async {
             let (state, _store) = test_state_with(temp.path(), |config| {
@@ -6281,3 +6332,9 @@ mod tests {
         });
     }
 }
+
+// Declared last, after the test module above: `tests::the_startup_listener_lines_are_written_once`
+// treats everything before the first `#[cfg(test)]` attribute in this file as the production
+// part of the crate, and an earlier declaration here would empty that region.
+#[cfg(test)]
+pub(crate) mod test_util;

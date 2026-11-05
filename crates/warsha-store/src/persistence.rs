@@ -534,13 +534,43 @@ fn stored_provider_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredP
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    /// A fresh temp directory for one test's workspace.
+    ///
+    /// Prefers cargo's `CARGO_TARGET_TMPDIR`, then a `tmp` sibling of the test
+    /// binary's `deps` directory (the target dir is writable wherever the build
+    /// ran), and only then the system temp dir — which on some Windows machines is
+    /// protected and rejects even creating a tempdir (`Access is denied`).
+    fn fresh_tempdir() -> TempDir {
+        if let Some(base) = std::env::var_os("CARGO_TARGET_TMPDIR") {
+            let base = PathBuf::from(base);
+            if base.is_dir() {
+                if let Ok(dir) = TempDir::new_in(&base) {
+                    return dir;
+                }
+            }
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(deps) = exe.parent() {
+                let base = deps.join("tmp");
+                if std::fs::create_dir_all(&base).is_ok() {
+                    if let Ok(dir) = TempDir::new_in(&base) {
+                        return dir;
+                    }
+                }
+            }
+        }
+        TempDir::new().expect("tempdir for the test workspace")
+    }
 
     /// A store on a fresh temporary file, with the schema applied.
     ///
     /// The directory is returned so it outlives the connection: the tuple drops
     /// the store first.
     fn temp_store() -> (SqliteStore, tempfile::TempDir) {
-        let dir = tempfile::tempdir().expect("a temporary directory");
+        let dir = fresh_tempdir();
         let path = dir.path().join("warsha.db");
         let store = SqliteStore::open(&path.to_string_lossy()).expect("the store opens");
         store.migrate().expect("the schema is applied");
@@ -564,7 +594,7 @@ mod tests {
 
     #[test]
     fn open_creates_the_database_file_in_wal_mode() {
-        let dir = tempfile::tempdir().expect("a temporary directory");
+        let dir = fresh_tempdir();
         let path = dir.path().join("nested").join("warsha.db");
         // The directory is the caller's to create — that is documented.
         std::fs::create_dir_all(path.parent().expect("the path has a parent"))
@@ -593,7 +623,7 @@ mod tests {
 
     #[test]
     fn migrate_creates_the_five_tables_and_is_idempotent() {
-        let dir = tempfile::tempdir().expect("a temporary directory");
+        let dir = fresh_tempdir();
         let path = dir.path().join("warsha.db");
         let store = SqliteStore::open(&path.to_string_lossy()).expect("the store opens");
 
@@ -616,7 +646,7 @@ mod tests {
 
     #[test]
     fn wal_mode_survives_a_reopen() {
-        let dir = tempfile::tempdir().expect("a temporary directory");
+        let dir = fresh_tempdir();
         let path = dir.path().join("warsha.db");
         let opened = path.to_string_lossy().into_owned();
 

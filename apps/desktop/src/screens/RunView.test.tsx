@@ -5,9 +5,10 @@
 // stage words come from the catalog, and the actions that have no daemon call behind them say so instead of
 // firing a browser `alert()` that no screen reader ever heard.
 import '@testing-library/jest-dom';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import {
   createClient,
+  type HandoffApplySummary,
   type ProjectId,
   type RunId,
   type RunSummary,
@@ -146,5 +147,122 @@ describe('run view stream and artifacts', () => {
     expect(
       within(ledger).getAllByRole('button', { name: t('common.download', {}, 'en') })
     ).toHaveLength(2);
+  });
+});
+
+// W8 (M20 wiring): the handoff dialog and the review & apply panel now drive the client's
+// `createHandoff` / `applyHandoff` RPCs. These pin the seam: what is sent, which phase the dialog
+// moves through, and what lands in the panel once the bundle comes back.
+const ideaContent = '# Project Idea\n\nBuild a todo app with React and TypeScript.';
+const researchContent =
+  '# Research Report\n\n## Competitors\n- Todoist\n- Microsoft To Do\n\n## Tech Stack\n- React 18\n- TypeScript\n- Vite';
+
+const bundlePath = '/data/handoff/handoff-run-1.json';
+
+const applySummary: HandoffApplySummary = {
+  applied: ['factory/idea.md', 'factory/research.md'],
+  conflicts: [],
+  backups: ['factory/idea.md'],
+  resolved: [],
+  backup_dir: '/data/backups/warsha-handoff-backup-run-1',
+};
+
+function handoffClient(): WarshaClient {
+  const client = offlineClient();
+  client.createHandoff = vi.fn(async () => bundlePath);
+  client.applyHandoff = vi.fn(async () => applySummary);
+  return client;
+}
+
+function renderWithClient(client: WarshaClient, locale: 'ar' | 'en' = 'en'): void {
+  render(
+    <LocaleProvider initialLocale={locale} storage={null}>
+      <RunView client={client} run={run} onBack={() => undefined} />
+    </LocaleProvider>
+  );
+}
+
+/** Open the dialog, type the remote URL and submit the hand-off. Artifacts must be loaded first. */
+async function submitHandOff(): Promise<void> {
+  await screen.findByRole('list', { name: t('run.artifacts', {}, 'en') });
+  fireEvent.click(screen.getByTestId('handoff-open'));
+  fireEvent.change(screen.getByTestId('handoff-remote-url'), {
+    target: { value: 'https://remote.warsha.dev' },
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('handoff-submit'));
+  });
+}
+
+describe('run view continue on server handoff and apply', () => {
+  it('hands the artifacts off through the client and fills the review panel', async () => {
+    const client = handoffClient();
+    renderWithClient(client);
+
+    await submitHandOff();
+
+    await waitFor(() =>
+      expect(client.createHandoff).toHaveBeenCalledWith('run-1', [
+        ['factory/idea.md', ideaContent],
+        ['factory/research.md', researchContent],
+      ])
+    );
+
+    const dialog = screen.getByTestId('handoff-dialog');
+    await waitFor(() => expect(dialog).toHaveAttribute('data-phase', 'handed_off'));
+    const remoteInfo = within(dialog).getByTestId('handoff-remote-info');
+    expect(remoteInfo).toHaveTextContent('run-1');
+    expect(remoteInfo).toHaveTextContent('https://remote.warsha.dev');
+
+    fireEvent.click(screen.getByTestId('run-tab-handoff'));
+    const panel = screen.getByTestId('review-apply-panel');
+    expect(within(panel).getByTestId('review-file-0')).toHaveTextContent('factory/idea.md');
+    expect(within(panel).getByTestId('review-file-1')).toHaveTextContent('factory/research.md');
+    expect(screen.queryByTestId('review-apply-empty')).not.toBeInTheDocument();
+    expect(within(panel).getByTestId('review-apply-backup-notice')).toHaveTextContent(
+      'warsha-handoff-backup-run-1.tar.gz'
+    );
+  });
+
+  it('applies every changed file through the client and moves to applied', async () => {
+    const client = handoffClient();
+    renderWithClient(client);
+
+    await submitHandOff();
+    await waitFor(() =>
+      expect(screen.getByTestId('handoff-dialog')).toHaveAttribute('data-phase', 'handed_off')
+    );
+
+    fireEvent.click(screen.getByTestId('run-tab-handoff'));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('review-apply-all'));
+    });
+
+    await waitFor(() =>
+      expect(client.applyHandoff).toHaveBeenCalledWith(bundlePath, true)
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('handoff-dialog')).toHaveAttribute('data-phase', 'applied')
+    );
+    expect(screen.getByTestId('review-apply-backup-notice')).toHaveTextContent(
+      '/data/backups/warsha-handoff-backup-run-1'
+    );
+  });
+
+  it('moves the dialog to failed with the reason when the handoff rejects', async () => {
+    const client = offlineClient();
+    client.createHandoff = vi.fn(async () => {
+      throw new Error('remote daemon refused the handoff');
+    });
+    renderWithClient(client);
+
+    await submitHandOff();
+
+    await waitFor(() =>
+      expect(screen.getByTestId('handoff-dialog')).toHaveAttribute('data-phase', 'failed')
+    );
+    expect(screen.getByTestId('handoff-error')).toHaveTextContent(
+      'remote daemon refused the handoff'
+    );
   });
 });

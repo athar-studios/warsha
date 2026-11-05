@@ -107,6 +107,7 @@ export const RPC_METHODS = [
   'budget.show',
   'devices.list',
   'devices.pair',
+  'devices.pair-start',
   'devices.revoke',
   'gates.approve',
   'gates.changes',
@@ -1092,6 +1093,25 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
       return { ok: true, result: ROLE_ROUTINGS };
     case 'devices.list':
       return { ok: true, result: DEVICES };
+    case 'devices.pair-start':
+      return {
+        ok: true,
+        result: {
+          pairing: {
+            device_id: 'dev-phone-1',
+            static_public: Array.from({ length: 32 }, (_, i) => i),
+            relay_url: null,
+            pairing_secret: Array.from({ length: 32 }, (_, i) => 255 - i),
+            expires_at: new Date(Date.now() + 600_000).toISOString(),
+          },
+          server_origin: 'http://127.0.0.1:8766',
+          pairing_link:
+            'http://127.0.0.1:8766/?server=http%3A%2F%2F127.0.0.1%3A8766&token=dGVzdC10b2tlbg',
+          qr_code_png:
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+          loopback_only: true,
+        },
+      };
     case 'devices.pair': {
       // `pair_device(&self, pairing_data)` (`crates/warshad/src/lib.rs:781`) binds the whole
       // `warsha_remote::PairingData` struct (`crates/warsha-remote/src/lib.rs:112-118`), and a

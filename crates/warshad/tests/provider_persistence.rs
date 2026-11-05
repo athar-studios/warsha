@@ -38,13 +38,13 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 use reqwest::Client;
 use serde_json::{json, Value};
-use tempfile::tempdir;
+use tempfile::TempDir;
 use warsha_providers::InMemorySecretStore;
 use warshad::{start_daemon_with_secrets, DaemonConfig};
 
@@ -57,6 +57,34 @@ const CANARY_KEY: &str = "sk-canary-provider-key-9f3c1d";
 /// The provider's `kind`: a one-click preset, so the daemon knows a default model
 /// for the connection test without the owner naming one.
 const KIND: &str = "qwen";
+
+/// A fresh temp directory for one daemon's data dir.
+///
+/// Prefers cargo's `CARGO_TARGET_TMPDIR`, then a `tmp` sibling of the test
+/// binary's `deps` directory (the target dir is writable wherever the build
+/// ran), and only then the system temp dir — which on some Windows machines is
+/// protected and rejects even creating a tempdir (`Access is denied`).
+fn fresh_tempdir() -> TempDir {
+    if let Some(base) = std::env::var_os("CARGO_TARGET_TMPDIR") {
+        let base = PathBuf::from(base);
+        if base.is_dir() {
+            if let Ok(dir) = TempDir::new_in(&base) {
+                return dir;
+            }
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(deps) = exe.parent() {
+            let base = deps.join("tmp");
+            if std::fs::create_dir_all(&base).is_ok() {
+                if let Ok(dir) = TempDir::new_in(&base) {
+                    return dir;
+                }
+            }
+        }
+    }
+    TempDir::new().expect("tempdir for the daemon data dir")
+}
 
 /// One daemon's RPC surface.
 struct Rpc {
@@ -276,7 +304,7 @@ async fn daemon_over(
 
 #[tokio::test]
 async fn a_provider_added_over_rpc_survives_a_restart_and_leaves_no_key_on_disk() {
-    let dir = tempdir().expect("a temporary directory");
+    let dir = fresh_tempdir();
     let data_dir = dir.path().join("data");
     let endpoint = StubEndpoint::start(200);
     // One store, two daemons: the key the first writes is the key the second reads
@@ -405,7 +433,7 @@ async fn a_provider_added_over_rpc_survives_a_restart_and_leaves_no_key_on_disk(
 
 #[tokio::test]
 async fn a_wrong_key_an_unreachable_endpoint_and_a_good_key_are_three_answers() {
-    let dir = tempdir().expect("a temporary directory");
+    let dir = fresh_tempdir();
     let data_dir = dir.path().join("data");
     let good = StubEndpoint::start(200);
     let refusing = StubEndpoint::start(401);
@@ -477,7 +505,7 @@ async fn a_wrong_key_an_unreachable_endpoint_and_a_good_key_are_three_answers() 
 
 #[tokio::test]
 async fn a_provider_whose_key_the_keychain_lost_is_refused() {
-    let dir = tempdir().expect("a temporary directory");
+    let dir = fresh_tempdir();
     let data_dir = dir.path().join("data");
     let endpoint = StubEndpoint::start(200);
 
@@ -517,7 +545,7 @@ async fn a_provider_whose_key_the_keychain_lost_is_refused() {
 
 #[tokio::test]
 async fn removing_a_provider_removes_its_row_and_its_key() {
-    let dir = tempdir().expect("a temporary directory");
+    let dir = fresh_tempdir();
     let data_dir = dir.path().join("data");
     let doomed_endpoint = StubEndpoint::start(200);
     let kept_endpoint = StubEndpoint::start(200);
@@ -578,7 +606,7 @@ async fn removing_a_provider_removes_its_row_and_its_key() {
 
 #[tokio::test]
 async fn adding_a_provider_refuses_input_it_cannot_use() {
-    let dir = tempdir().expect("a temporary directory");
+    let dir = fresh_tempdir();
     let data_dir = dir.path().join("data");
     let secrets = Arc::new(InMemorySecretStore::new());
 
@@ -640,7 +668,7 @@ async fn adding_a_provider_refuses_input_it_cannot_use() {
 /// key rather than one with a newline in it, which every endpoint would refuse.
 #[tokio::test]
 async fn a_key_pasted_with_surrounding_whitespace_is_stored_trimmed() {
-    let dir = tempdir().expect("a temporary directory");
+    let dir = fresh_tempdir();
     let data_dir = dir.path().join("data");
     let endpoint = StubEndpoint::start(200);
     let secrets = Arc::new(InMemorySecretStore::new());

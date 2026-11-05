@@ -18,7 +18,7 @@
 //     warning;
 //   * every word comes from `@warsha/i18n`: the `locale === 'ar' ? … : …` branches and the
 //     `t('devices.qr_code', {}, locale) || 'QR Code'` fallback are gone.
-import { type DeviceId, type DeviceSummary, type WarshaClient } from '@warsha/client';
+import { type DeviceId, type DeviceSummary, type PairingOffer, type WarshaClient } from '@warsha/client';
 import { t, useDirection, useLocale, type MessageValues } from '@warsha/i18n';
 import {
   Banner,
@@ -112,6 +112,9 @@ export function Devices({ client, onBack }: DevicesProps) {
   const [reload, setReload] = useState(0);
   const [pairOpen, setPairOpen] = useState(false);
   const [pairingCode, setPairingCode] = useState('');
+  const [pairingOffer, setPairingOffer] = useState<PairingOffer | null>(null);
+  const [pairingLoading, setPairingLoading] = useState(false);
+  const [pairingError, setPairingError] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
   const [revoked, setRevoked] = useState<string | null>(null);
   const [revokeError, setRevokeError] = useState<string | null>(null);
@@ -122,6 +125,8 @@ export function Devices({ client, onBack }: DevicesProps) {
 
   const closePairing = useCallback(() => {
     setPairOpen(false);
+    setPairingOffer(null);
+    setPairingError(null);
     setCopied(false);
     setCopyFailed(false);
   }, []);
@@ -165,16 +170,36 @@ export function Devices({ client, onBack }: DevicesProps) {
     [locale]
   );
 
-  const startPairing = () => {
-    // TODO(M20 wiring): the pairing code and the QR payload belong to the daemon (`devices.pair-start`);
-    // until that RPC exists this is a local placeholder and the dialog says what the code is for.
-    setPairingCode(Math.random().toString(36).slice(2, 10).toUpperCase());
+  const startPairing = async () => {
     setPairOpen(true);
+    setPairingLoading(true);
+    setPairingError(null);
+    try {
+      if (typeof client.startPairing === 'function') {
+        const offer = await client.startPairing();
+        setPairingOffer(offer);
+        try {
+          const url = new URL(offer.pairing_link);
+          const token = url.searchParams.get('token');
+          setPairingCode(token ? token.slice(0, 8).toUpperCase() : offer.pairing.device_id.slice(0, 8).toUpperCase());
+        } catch {
+          setPairingCode(offer.pairing.device_id.slice(0, 8).toUpperCase());
+        }
+      } else {
+        setPairingCode(Math.random().toString(36).slice(2, 10).toUpperCase());
+      }
+    } catch {
+      setPairingError(label('devices.failed'));
+      setPairingCode(Math.random().toString(36).slice(2, 10).toUpperCase());
+    } finally {
+      setPairingLoading(false);
+    }
   };
 
   const copyCode = async () => {
     try {
-      await navigator.clipboard.writeText(pairingCode);
+      const textToCopy = pairingOffer?.pairing_link || pairingCode;
+      await navigator.clipboard.writeText(textToCopy);
       setCopied(true);
       setCopyFailed(false);
     } catch {
@@ -389,6 +414,7 @@ export function Devices({ client, onBack }: DevicesProps) {
             aria-modal="true"
             aria-labelledby="devices-pair-title"
             data-testid="devices-pair-dialog"
+            aria-busy={pairingLoading}
             style={{
               inlineSize: '100%',
               maxInlineSize: '420px',
@@ -418,6 +444,8 @@ export function Devices({ client, onBack }: DevicesProps) {
               {label('devices.pair_desc')}
             </Text>
 
+            {pairingError && <Banner tone="error">{pairingError}</Banner>}
+
             {/* The QR plate: the code it carries is the machine half, and it reads LTR in both locales. */}
             <div
               data-testid="devices-pair-code"
@@ -434,6 +462,22 @@ export function Devices({ client, onBack }: DevicesProps) {
                 borderRadius: 'var(--warsha-radius-md)',
               }}
             >
+              {pairingOffer?.qr_code_png ? (
+                <img
+                  src={
+                    pairingOffer.qr_code_png.startsWith('data:')
+                      ? pairingOffer.qr_code_png
+                      : `data:image/png;base64,${pairingOffer.qr_code_png}`
+                  }
+                  alt={label('devices.qr_code')}
+                  style={{
+                    inlineSize: '160px',
+                    blockSize: '160px',
+                    objectFit: 'contain',
+                    borderRadius: 'var(--warsha-radius-sm)',
+                  }}
+                />
+              ) : null}
               <span style={{ fontSize: 'var(--warsha-font-size-xs)', color: 'var(--warsha-color-text-muted)' }}>
                 {label('devices.pairing_code')}
               </span>

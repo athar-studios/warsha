@@ -8,10 +8,39 @@
 use reqwest::Client;
 use reqwest::StatusCode;
 use serde_json::json;
-use tempfile::tempdir;
+use std::path::PathBuf;
+use tempfile::TempDir;
 use warshad::{start_daemon, DaemonConfig, DaemonError};
 
 const TEST_TOKEN: &str = "test-auth-token-12345";
+
+/// A fresh temp directory for one daemon's data dir.
+///
+/// Prefers cargo's `CARGO_TARGET_TMPDIR`, then a `tmp` sibling of the test
+/// binary's `deps` directory (the target dir is writable wherever the build
+/// ran), and only then the system temp dir — which on some Windows machines is
+/// protected and rejects even creating a tempdir (`Access is denied`).
+fn fresh_tempdir() -> TempDir {
+    if let Some(base) = std::env::var_os("CARGO_TARGET_TMPDIR") {
+        let base = PathBuf::from(base);
+        if base.is_dir() {
+            if let Ok(dir) = TempDir::new_in(&base) {
+                return dir;
+            }
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(deps) = exe.parent() {
+            let base = deps.join("tmp");
+            if std::fs::create_dir_all(&base).is_ok() {
+                if let Ok(dir) = TempDir::new_in(&base) {
+                    return dir;
+                }
+            }
+        }
+    }
+    TempDir::new().expect("tempdir for the daemon data dir")
+}
 
 /// Build a test client with the given auth token.
 fn client_with_token(token: &str) -> Client {
@@ -83,7 +112,7 @@ async fn http_get(client: &Client, http_port: u16, path: &str) -> reqwest::Respo
 
 #[tokio::test]
 async fn restart_survives_with_state_intact() {
-    let dir = tempdir().expect("tempdir");
+    let dir = fresh_tempdir();
     let data_dir = dir.path().to_path_buf();
     let db_path = data_dir.join("warsha.db");
 
@@ -179,7 +208,7 @@ async fn restart_survives_with_state_intact() {
 
 #[tokio::test]
 async fn unauthenticated_calls_are_rejected() {
-    let dir = tempdir().expect("tempdir");
+    let dir = fresh_tempdir();
     let config = DaemonConfig {
         data_dir: dir.path().to_path_buf(),
         socket_path: dir.path().join("warshad.sock"),
@@ -274,7 +303,7 @@ async fn unauthenticated_calls_are_rejected() {
 
 #[tokio::test]
 async fn second_instance_is_locked_out() {
-    let dir = tempdir().expect("tempdir");
+    let dir = fresh_tempdir();
     let data_dir = dir.path().to_path_buf();
 
     let config = DaemonConfig {

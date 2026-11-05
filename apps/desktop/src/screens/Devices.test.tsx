@@ -2,7 +2,7 @@
 // confirmation, and the pairing dialog's focus contract.
 import '@testing-library/jest-dom';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { type DeviceId, type DeviceSummary, type WarshaClient } from '@warsha/client';
+import { type DeviceId, type DeviceSummary, type PairingOffer, type WarshaClient } from '@warsha/client';
 import { LocaleProvider, t } from '@warsha/i18n';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -32,10 +32,25 @@ const tablet: DeviceSummary = {
   lastSeen: ago(30),
 };
 
+const mockOffer: PairingOffer = {
+  pairing: {
+    device_id: 'dev-phone-1' as DeviceId,
+    static_public: Array.from({ length: 32 }, (_, i) => i),
+    relay_url: null,
+    pairing_secret: Array.from({ length: 32 }, (_, i) => 255 - i),
+    expires_at: '2026-11-05T12:00:00Z',
+  },
+  server_origin: 'http://127.0.0.1:8766',
+  pairing_link: 'http://127.0.0.1:8766/?server=http%3A%2F%2F127.0.0.1%3A8766&token=TESTTOKEN123',
+  qr_code_png: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  loopback_only: true,
+};
+
 function clientStub(overrides: Partial<WarshaClient> = {}): WarshaClient {
   const client = {} as WarshaClient;
   client.listDevices = vi.fn(async () => [phone, tablet]);
   client.removeDevice = vi.fn(async () => undefined);
+  client.startPairing = vi.fn(async () => mockOffer);
   return Object.assign(client, overrides);
 }
 
@@ -111,6 +126,11 @@ describe('Devices', () => {
       const code = within(dialog).getByTestId('devices-pair-code');
       expect(code).toHaveAttribute('dir', 'ltr');
       expect(code).toHaveTextContent(ar('devices.code_hint'));
+
+      // The QR code plate image is rendered from the daemon's PairingOffer
+      const qrImg = await within(code).findByRole('img', { name: ar('devices.qr_code') });
+      expect(qrImg).toBeInTheDocument();
+      expect(qrImg).toHaveAttribute('src', expect.stringContaining('iVBORw0KGgo'));
 
       fireEvent.keyDown(dialog, { key: 'Escape' });
       await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());

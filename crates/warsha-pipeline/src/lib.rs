@@ -39,6 +39,9 @@ mod run_modes;
 mod scale_standards;
 mod scout;
 mod skills;
+/// Test-only helpers shared by this crate's test modules.
+#[cfg(test)]
+pub(crate) mod test_util;
 mod work_protection;
 
 pub use crate::agent_loop::{
@@ -892,13 +895,13 @@ impl PipelineEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
+    use crate::test_util::fresh_tempdir;
     use warsha_core::{RoleRouting, RoutingTarget};
     use warsha_providers::{MockProvider, ProviderRouter};
     use warsha_store::Store;
 
     async fn temp_store() -> Arc<Store> {
-        let dir = tempdir().unwrap();
+        let dir = fresh_tempdir();
         let path = dir.path().join("test.db");
         let store = Store::open_at(path).await.unwrap();
         std::mem::forget(dir);

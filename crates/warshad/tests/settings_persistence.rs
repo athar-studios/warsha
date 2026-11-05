@@ -12,11 +12,11 @@
 //! because "settings persist" has to mean all of them or it means nothing about
 //! the ones that were left out.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use reqwest::Client;
 use serde_json::{json, Value};
-use tempfile::tempdir;
+use tempfile::TempDir;
 use warshad::{start_daemon, DaemonConfig};
 
 /// The token both daemons in a test are started with.
@@ -24,6 +24,34 @@ const TEST_TOKEN: &str = "settings-persistence-token";
 
 /// The relay a Hosted run mode is not valid without.
 const RELAY_URL: &str = "wss://relay.example.invalid";
+
+/// A fresh temp directory for one daemon's data dir.
+///
+/// Prefers cargo's `CARGO_TARGET_TMPDIR`, then a `tmp` sibling of the test
+/// binary's `deps` directory (the target dir is writable wherever the build
+/// ran), and only then the system temp dir — which on some Windows machines is
+/// protected and rejects even creating a tempdir (`Access is denied`).
+fn fresh_tempdir() -> TempDir {
+    if let Some(base) = std::env::var_os("CARGO_TARGET_TMPDIR") {
+        let base = PathBuf::from(base);
+        if base.is_dir() {
+            if let Ok(dir) = TempDir::new_in(&base) {
+                return dir;
+            }
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(deps) = exe.parent() {
+            let base = deps.join("tmp");
+            if std::fs::create_dir_all(&base).is_ok() {
+                if let Ok(dir) = TempDir::new_in(&base) {
+                    return dir;
+                }
+            }
+        }
+    }
+    TempDir::new().expect("tempdir for the daemon data dir")
+}
 
 /// One daemon's RPC surface.
 struct Rpc {
@@ -103,7 +131,7 @@ fn config(data_dir: &Path) -> DaemonConfig {
 
 #[tokio::test]
 async fn every_stored_setting_comes_back_after_a_restart() {
-    let dir = tempdir().expect("a temporary directory");
+    let dir = fresh_tempdir();
     let data_dir = dir.path().to_path_buf();
 
     // ---- The first life: change one setting of each kind through the RPCs. ----
@@ -253,7 +281,7 @@ async fn every_stored_setting_comes_back_after_a_restart() {
 
 #[tokio::test]
 async fn a_revoked_pairing_stays_revoked_and_a_refused_setting_is_not_stored() {
-    let dir = tempdir().expect("a temporary directory");
+    let dir = fresh_tempdir();
     let data_dir = dir.path().to_path_buf();
 
     let first = start_daemon(config(&data_dir))

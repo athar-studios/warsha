@@ -359,7 +359,7 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
     },
     M {
         method: "devices.pair",
-        policy: Owner,
+        policy: Session,
         tier: Pairing,
     },
     // The method that *mints* a pairing, as opposed to `devices.pair`, which consumes one.
@@ -1254,7 +1254,6 @@ mod tests {
             "providers.add",
             "providers.remove",
             "budget.set",
-            "devices.pair",
             "devices.pair-start",
             "devices.revoke",
             "pairing.create",
@@ -1300,6 +1299,7 @@ mod tests {
         // Pairing and spend are the strictest ceilings, as the audit requires.
         assert_eq!(policy_of("pairing.create").expect("policy").tier, Pairing);
         assert_eq!(policy_of("devices.pair").expect("policy").tier, Pairing);
+        assert_eq!(policy_of("devices.pair").expect("policy").policy, Session);
         // The minting half of the pairing path is measured on the same ceiling as the
         // redeeming half — and the brief's own hazard, a paired phone creating its own
         // credential, is what the `Owner` policy above (asserted in the list walk) refuses.
@@ -1451,7 +1451,7 @@ mod tests {
     /// have caught it.
     #[test]
     fn an_absolute_path_that_climbs_out_of_the_data_dir_is_not_in_scope() {
-        let dir = tempfile::tempdir().expect("a temporary directory");
+        let dir = crate::test_util::fresh_tempdir();
         let data_dir = dir.path().join("warsha");
         std::fs::create_dir_all(data_dir.join("workspace")).expect("the data directory is made");
         let inside = data_dir.join("workspace").join("migrate");
@@ -1520,7 +1520,7 @@ mod tests {
     fn a_symlink_inside_the_data_dir_reaches_only_what_is_inside_it() {
         use std::os::unix::fs::symlink;
 
-        let dir = tempfile::tempdir().expect("a temporary directory");
+        let dir = crate::test_util::fresh_tempdir();
         let data_dir = dir.path().join("warsha");
         let outside = dir.path().join("elsewhere");
         std::fs::create_dir_all(&data_dir).expect("the data directory is made");
@@ -1598,7 +1598,7 @@ mod tests {
     /// [`resolves_inside`] is the one under test.
     #[test]
     fn a_sibling_of_the_data_dir_is_out_of_scope_in_a_real_tree() {
-        let dir = tempfile::tempdir().expect("a temporary directory");
+        let dir = crate::test_util::fresh_tempdir();
         let data_dir = dir.path().join("warsha");
         std::fs::create_dir_all(data_dir.join("workspace")).expect("the workspace is made");
 
@@ -1717,7 +1717,7 @@ mod tests {
     #[cfg(not(windows))]
     #[test]
     fn case_is_part_of_a_directory_name_off_windows() {
-        let dir = tempfile::tempdir().expect("a temporary directory");
+        let dir = crate::test_util::fresh_tempdir();
         let data_dir = dir.path().join("warsha");
         std::fs::create_dir_all(data_dir.join("workspace")).expect("the workspace is made");
         let policy = ProcessPolicy::from_config(&["npm".to_string()], &data_dir);
@@ -1752,7 +1752,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn case_is_not_part_of_a_directory_name_on_windows() {
-        let dir = tempfile::tempdir().expect("a temporary directory");
+        let dir = crate::test_util::fresh_tempdir();
         let data_dir = dir.path().join("warsha");
         std::fs::create_dir_all(data_dir.join("workspace")).expect("the workspace is made");
         let policy = ProcessPolicy::from_config(&["npm".to_string()], &data_dir);
@@ -1823,7 +1823,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn a_verbatim_or_mixed_case_form_of_the_data_dir_is_in_scope_on_windows() {
-        let dir = tempfile::tempdir().expect("a temporary directory");
+        let dir = crate::test_util::fresh_tempdir();
         let data_dir = dir.path().join("warsha");
         std::fs::create_dir_all(data_dir.join("workspace")).expect("the workspace is made");
         let inside = data_dir.join("workspace").join("migrate");

@@ -181,6 +181,7 @@ vector and `providers.add` / `providers.test` return success without touching an
 <config_dir>/warsha/                 # data_dir by default
 ├── config.toml                      # DaemonConfig, 0600 on creation (Unix)
 ├── warshad.lock                     # single-instance lock file
+├── warshad.pid                      # unlocked PID mirror of the lock holder (read first on Windows)
 ├── warshad.sock                     # reserved path; no listener yet
 ├── warsha.db                        # SQLite database (WAL not enabled)
 └── projects/
