@@ -273,6 +273,58 @@ export interface WarshaEvent {
   costCents: number | null;
   createdAt: string;
   deviceId: DeviceId | null;
+  /**
+   * Daemon-wide sequence number from `warshad::SequencedEventFrame`, present only
+   * when the frame carried one. Bare `Event` rows (older daemons, `runs.events`)
+   * decode without it.
+   */
+  seq?: number;
+  /** True when this frame announces that `droppedCount` frames went past unseen. */
+  gapDetected?: boolean;
+  /** Frames lost between the last seen `seq` and this frame (gap frames only). */
+  droppedCount?: number;
+  /** True when the daemon cannot resume from the client's cursor; rebuild from `runs.events`. */
+  resyncRequired?: boolean;
+}
+
+/**
+ * `warshad::SequencedEventFrame` — one [`WarshaEvent`] plus the daemon-wide
+ * sequence metadata. Re-exported here as a named alias so callers can type the
+ * sequence fields explicitly; a decoded frame is a `WarshaEvent` whose optional
+ * `seq`/`gapDetected`/`droppedCount`/`resyncRequired` fields are populated.
+ */
+export interface SequencedEventFrame extends WarshaEvent {
+  seq: number;
+}
+
+/**
+ * `warshad::RunStreamSync` — the answer to `runs.subscribe`: where the daemon's
+ * stream is (`seq`), whether a gap or a full resync is owed (`gap_detected`,
+ * `resync_required`, `dropped_count`), the run the caller named (`run`, raw as
+ * the daemon returned it, or null), and the buffered scrubbed frames after the
+ * cursor in exact order (`events`).
+ */
+export interface RunStreamSync {
+  seq: number;
+  gap_detected: boolean;
+  resync_required: boolean;
+  dropped_count: number;
+  run: unknown | null;
+  events: WarshaEvent[];
+}
+
+/**
+ * `warsha_core::Artifact` as `runs.artifacts` returns it — snake_case on the
+ * wire, one versioned document a pipeline stage produced for the run.
+ */
+export interface RunArtifact {
+  name: string;
+  content: string;
+  stage: Stage;
+  role: Role | null;
+  created_at: string;
+  updated_at: string;
+  version: number;
 }
 
 const STAGE_VALUES: readonly Stage[] = [
@@ -361,6 +413,24 @@ function isRole(value: unknown): value is Role {
   return typeof value === 'string' && ROLE_VALUES.some((role) => role === value);
 }
 
+/** A sequence flag off a `SequencedEventFrame`: absent/null is false, wrong types throw. */
+function optionalBoolean(value: unknown, name: string): boolean | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value !== 'boolean') {
+    throw new Error(`${EVENT_FRAME_ERROR}: invalid "${name}"`);
+  }
+  return value;
+}
+
+/** A sequence number off a `SequencedEventFrame`: absent/null is unset, wrong types throw. */
+function optionalSequence(value: unknown, name: string): number | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${EVENT_FRAME_ERROR}: invalid "${name}"`);
+  }
+  return value;
+}
+
 /**
  * Decode one `/events` text frame into a `WarshaEvent`.
  * Accepts the daemon's snake_case field names and camelCase aliases.
@@ -406,7 +476,23 @@ function decodeWarshaEvent(source: Record<string, unknown>): WarshaEvent {
   const createdAt = requiredString(field(source, 'created_at', 'createdAt'), 'created_at');
   const deviceId = optionalString(field(source, 'device_id', 'deviceId'), 'device_id');
 
-  return {
+  // Sequence metadata is only on `SequencedEventFrame`s (the `/events` wire and
+  // `runs.subscribe`); a bare `Event` row decodes with these left unset.
+  const seq = optionalSequence(field(source, 'seq'), 'seq');
+  const gapDetected = optionalBoolean(
+    field(source, 'gap_detected', 'gapDetected'),
+    'gap_detected'
+  );
+  const droppedCount = optionalSequence(
+    field(source, 'dropped_count', 'droppedCount'),
+    'dropped_count'
+  );
+  const resyncRequired = optionalBoolean(
+    field(source, 'resync_required', 'resyncRequired'),
+    'resync_required'
+  );
+
+  const event: WarshaEvent = {
     id,
     runId: runId as RunId,
     stage,
@@ -416,6 +502,65 @@ function decodeWarshaEvent(source: Record<string, unknown>): WarshaEvent {
     costCents,
     createdAt,
     deviceId: deviceId === null ? null : (deviceId as DeviceId),
+  };
+  if (seq !== undefined) event.seq = seq;
+  if (gapDetected !== undefined) event.gapDetected = gapDetected;
+  if (droppedCount !== undefined) event.droppedCount = droppedCount;
+  if (resyncRequired !== undefined) event.resyncRequired = resyncRequired;
+  return event;
+}
+
+const SUBSCRIBE_SYNC_ERROR = 'Malformed runs.subscribe response';
+
+/**
+ * Decode `warshad::RunStreamSync` from the `runs.subscribe` wire JSON.
+ *
+ * The `run` field is the daemon's own `Run` shape and is carried through raw (or
+ * null): `runs.subscribe` exists to synchronise the *stream*, and a caller that
+ * wants the run reads it with `getRun`. Each `events` entry is a flattened
+ * `SequencedEventFrame`, so the same `decodeWarshaEvent` reads it — including
+ * its sequence metadata.
+ */
+function decodeRunStreamSync(value: unknown): RunStreamSync {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`${SUBSCRIBE_SYNC_ERROR}: expected a JSON object`);
+  }
+  const source = value as Record<string, unknown>;
+  const seq = source['seq'];
+  if (typeof seq !== 'number' || !Number.isFinite(seq) || seq < 0) {
+    throw new Error(`${SUBSCRIBE_SYNC_ERROR}: invalid "seq"`);
+  }
+  const flag = (name: string): boolean => {
+    const v = source[name];
+    if (typeof v !== 'boolean') throw new Error(`${SUBSCRIBE_SYNC_ERROR}: invalid "${name}"`);
+    return v;
+  };
+  const droppedCount = source['dropped_count'];
+  if (
+    typeof droppedCount !== 'number' ||
+    !Number.isFinite(droppedCount) ||
+    droppedCount < 0
+  ) {
+    throw new Error(`${SUBSCRIBE_SYNC_ERROR}: invalid "dropped_count"`);
+  }
+  const run = source['run'];
+  const eventsValue = source['events'];
+  if (!Array.isArray(eventsValue)) {
+    throw new Error(`${SUBSCRIBE_SYNC_ERROR}: invalid "events"`);
+  }
+  const events = eventsValue.map((item) => {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+      throw new Error(`${SUBSCRIBE_SYNC_ERROR}: "events" entry is not an object`);
+    }
+    return decodeWarshaEvent(item as Record<string, unknown>);
+  });
+  return {
+    seq,
+    gap_detected: flag('gap_detected'),
+    resync_required: flag('resync_required'),
+    dropped_count: droppedCount,
+    run: run === null || run === undefined ? null : run,
+    events,
   };
 }
 
@@ -493,10 +638,21 @@ function eventLogLine(value: unknown): string {
  * endpoint the shell resolved — never a guessed port: `/events` is served by the
  * daemon's HTTP listener, which is not the listener RPC answers on.
  */
-function eventEndpoint(url: string): string {
+function eventEndpoint(
+  url: string,
+  cursor?: { sinceSeq?: number; runId?: RunId }
+): string {
   const socketUrl = url.replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:');
   const trimmed = socketUrl.replace(/\/+$/, '');
-  return trimmed.endsWith('/events') ? trimmed : `${trimmed}/events`;
+  const base = trimmed.endsWith('/events') ? trimmed : `${trimmed}/events`;
+  const query: string[] = [];
+  if (cursor?.sinceSeq !== undefined) {
+    query.push(`since_seq=${encodeURIComponent(String(cursor.sinceSeq))}`);
+  }
+  if (cursor?.runId !== undefined) {
+    query.push(`run_id=${encodeURIComponent(String(cursor.runId))}`);
+  }
+  return query.length === 0 ? base : `${base}?${query.join('&')}`;
 }
 
 /** Subprotocol carrying the bearer token on the WebSocket handshake. */
@@ -713,6 +869,55 @@ export class WarshaClient implements WarshaWiringApi {
       throw new Error(`${WIRING_RESULT_ERROR} from runs.events: expected a list`);
     }
     return events.map(eventLogLine);
+  }
+
+  // Run stream synchronisation and run control (WS3).
+  //
+  // The parameter names are the daemon's own snake_case spellings
+  // (`crates/warshad/src/lib.rs`, the `runs.subscribe` … `runs.artifacts` rpc
+  // trait methods): jsonrpsee binds arguments by those names, so anything else
+  // is a `-32602` on the wire. `null` is the honest spelling of "not named" —
+  // the daemon's `Option` parameters bind `null` and an omitted key alike, and
+  // sending the key keeps the request self-describing in a log.
+
+  /**
+   * `runs.subscribe` — the RPC mirror of the `/events` reconnect: where the
+   * daemon-wide stream is, whether this client's cursor owes a gap or a full
+   * resync, and the buffered scrubbed frames after `sinceSeq` in exact order.
+   * No run means every run; no cursor means "from the current end" (nothing
+   * replayed).
+   */
+  async subscribeRun(runId?: RunId, sinceSeq?: number): Promise<RunStreamSync> {
+    const value = await this.rpc<unknown>('runs.subscribe', {
+      run_id: runId ?? null,
+      since_seq: sinceSeq ?? null,
+    });
+    return decodeRunStreamSync(value);
+  }
+
+  /**
+   * `runs.advance` — walk the run to the next gate that still needs a decision
+   * (or to the terminal `Feedback` stage, which completes it). Unrouted stage
+   * roles are answered by the daemon's deterministic fake provider, so this
+   * works on a fresh daemon with no key and no network.
+   */
+  async advanceRun(runId: RunId): Promise<RunSummary> {
+    return this.rpc('runs.advance', { run_id: runId });
+  }
+
+  /** `runs.cancel` — cancel the run and record why in its event stream. */
+  async cancelRun(runId: RunId, reason?: string): Promise<RunSummary> {
+    return this.rpc('runs.cancel', { run_id: runId, reason: reason ?? null });
+  }
+
+  /** `runs.followup` — answer a follow-up prompt on the run's current stage. */
+  async followupRun(runId: RunId, prompt: string): Promise<RunSummary> {
+    return this.rpc('runs.followup', { run_id: runId, prompt });
+  }
+
+  /** `runs.artifacts` — the run's artifacts, sorted by name. */
+  async getRunArtifacts(runId: RunId): Promise<RunArtifact[]> {
+    return this.rpc('runs.artifacts', { run_id: runId });
   }
 
   // Gates
@@ -1188,6 +1393,19 @@ export function parseHandoffApplySummary(json: string): HandoffApplySummary {
 /** Handle returned by `subscribeEvents`; `close()` is idempotent. */
 export interface EventSubscription {
   close(): void;
+  /**
+   * Send `runs.subscribe` down the open `/events` socket: the daemon turns the
+   * stream on, narrows it to `runId`, and — when `sinceSeq` is named — replays
+   * the buffered frames after that cursor (or answers one gap frame). Optional
+   * because a subscription whose socket never opened has no down-channel; on one
+   * that closed, calling this reports an error rather than throwing.
+   */
+  subscribeRun?: (runId: RunId, sinceSeq?: number) => void;
+  /**
+   * Send `runs.unsubscribe` down the socket: the daemon stops the stream and
+   * answers one acknowledgement frame. Same optionality rules as `subscribeRun`.
+   */
+  unsubscribeRun?: (runId: RunId) => void;
 }
 
 export interface SubscribeEventsOptions {
@@ -1204,8 +1422,28 @@ export interface SubscribeEventsOptions {
    * `warsha.events.v1`, not this entry.
    */
   token: string;
+  /**
+   * Replay cursor: ask the daemon for every frame after this `seq` at connect
+   * time (appended to the socket URL as `since_seq`, and honoured the same way
+   * via the `Last-Event-ID` header on transports that can set one).
+   */
+  sinceSeq?: number;
+  /** Narrow the stream to one run at connect time (`run_id` on the socket URL). */
+  runId?: RunId;
   onEvent: (event: WarshaEvent) => void;
   onError?: (error: Error) => void;
+  /**
+   * Called when the stream announces lost frames: a frame with `gap_detected`,
+   * or a live frame whose `seq` jumped past the last one seen. Carries the
+   * daemon's own `droppedCount` when it named one.
+   */
+  onGap?: (info: { droppedCount: number; seq: number }) => void;
+  /**
+   * Called when the daemon says it cannot resume from this client's cursor
+   * (`resync_required`): the client should rebuild from `runs.events` and
+   * re-subscribe from the current `seq`.
+   */
+  onResyncRequired?: (info: { seq: number }) => void;
 }
 
 /**
@@ -1217,9 +1455,14 @@ export interface SubscribeEventsOptions {
  * authenticates with. The token never goes in the URL, and never comes back.
  * Connection and frame errors go to `onError`; nothing is thrown asynchronously.
  * No automatic reconnect in M1 — a dropped stream stays closed.
+ *
+ * Sequence handling: every frame that carries a `seq` advances the subscription's
+ * cursor; a frame announcing `gap_detected`/`resync_required`, or one whose `seq`
+ * skips past the cursor, reaches `onGap`/`onResyncRequired` beside `onEvent`, so a
+ * viewer never has to infer loss from a silent gap.
  */
 export function subscribeEvents(options: SubscribeEventsOptions): EventSubscription {
-  const { url, token, onEvent, onError } = options;
+  const { url, token, onEvent, onError, onGap, onResyncRequired } = options;
 
   const reportError = (error: Error): void => {
     try {
@@ -1240,7 +1483,7 @@ export function subscribeEvents(options: SubscribeEventsOptions): EventSubscript
     return inert;
   }
 
-  const endpoint = eventEndpoint(url);
+  const endpoint = eventEndpoint(url, { sinceSeq: options.sinceSeq, runId: options.runId });
 
   const socket = ((): WebSocket | null => {
     const WebSocketCtor = globalThis.WebSocket;
@@ -1264,6 +1507,28 @@ export function subscribeEvents(options: SubscribeEventsOptions): EventSubscript
   if (socket === null) return inert;
 
   let closed = false;
+  // The highest frame `seq` this subscription has seen; `undefined` until the
+  // first sequenced frame, so a bare-`Event` daemon never trips the gap check.
+  let lastSeq: number | undefined =
+    options.sinceSeq !== undefined && Number.isFinite(options.sinceSeq) && options.sinceSeq >= 0
+      ? options.sinceSeq
+      : undefined;
+
+  const reportGap = (info: { droppedCount: number; seq: number }): void => {
+    try {
+      onGap?.(info);
+    } catch {
+      // A throwing onGap callback must not escape the socket handler.
+    }
+  };
+
+  const reportResync = (seq: number): void => {
+    try {
+      onResyncRequired?.({ seq });
+    } catch {
+      // A throwing onResyncRequired callback must not escape the socket handler.
+    }
+  };
 
   socket.onmessage = (event: MessageEvent<unknown>): void => {
     if (closed) return;
@@ -1279,6 +1544,26 @@ export function subscribeEvents(options: SubscribeEventsOptions): EventSubscript
       reportError(new Error(redactToken(describeCause(cause), token)));
       return;
     }
+
+    // Stream-level announcements come through their flags, not the event body.
+    if (parsed.gapDetected === true) {
+      reportGap({ droppedCount: parsed.droppedCount ?? 0, seq: parsed.seq ?? 0 });
+    }
+    if (parsed.resyncRequired === true) {
+      reportResync(parsed.seq ?? 0);
+    }
+
+    if (parsed.seq !== undefined) {
+      // A sequenced frame whose `seq` skips past the cursor is a gap the daemon
+      // did not announce; count the skipped frames and move the cursor anyway.
+      if (lastSeq !== undefined && parsed.seq > lastSeq + 1) {
+        reportGap({ droppedCount: parsed.seq - lastSeq - 1, seq: parsed.seq });
+      }
+      if (lastSeq === undefined || parsed.seq > lastSeq) {
+        lastSeq = parsed.seq;
+      }
+    }
+
     try {
       onEvent(parsed);
     } catch (cause) {
@@ -1298,6 +1583,18 @@ export function subscribeEvents(options: SubscribeEventsOptions): EventSubscript
     }
   };
 
+  const sendCommand = (method: string, params: Record<string, unknown>): void => {
+    if (closed) {
+      reportError(new Error(`Cannot send ${method} on a closed event stream`));
+      return;
+    }
+    try {
+      socket.send(JSON.stringify({ method, params }));
+    } catch (cause) {
+      reportError(new Error(redactToken(`Could not send ${method}: ${describeCause(cause)}`, token)));
+    }
+  };
+
   return {
     close: (): void => {
       if (closed) return;
@@ -1310,6 +1607,14 @@ export function subscribeEvents(options: SubscribeEventsOptions): EventSubscript
       } catch {
         // Closing an already-detached socket is harmless.
       }
+    },
+    subscribeRun: (runId: RunId, sinceSeq?: number): void => {
+      const params: Record<string, unknown> = { run_id: String(runId) };
+      if (sinceSeq !== undefined) params.since_seq = sinceSeq;
+      sendCommand('runs.subscribe', params);
+    },
+    unsubscribeRun: (runId: RunId): void => {
+      sendCommand('runs.unsubscribe', { run_id: String(runId) });
     },
   };
 }

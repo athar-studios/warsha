@@ -583,6 +583,9 @@ async fn daemon_state(data_dir: &Path) -> Arc<DaemonState> {
         // Hand-built state: no listener has bound a pairing origin, so a pairing
         // link would be refused rather than invented — exactly as documented.
         pairing_origin: std::sync::OnceLock::new(),
+        // A hand-built state has no background pump draining the store bus, so this
+        // sequencer simply starts empty; direct RPC calls read the store, not this.
+        events: std::sync::Arc::new(warshad::EventSequencer::new()),
     })
 }
 

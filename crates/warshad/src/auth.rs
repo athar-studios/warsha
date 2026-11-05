@@ -575,6 +575,36 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Owner,
         tier: Standard,
     },
+    // The sequenced event stream. Every method here is a `Session`/`Standard` read or a
+    // pipeline write measured on the ordinary ceiling: a paired phone must be able to
+    // subscribe to and drive the runs it can already see and decide, and none of them
+    // spends a paid model call of its own (`runs.advance` runs pipeline stages, but the
+    // spend is metered inside the provider router, not here).
+    M {
+        method: "runs.subscribe",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "runs.advance",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "runs.cancel",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "runs.followup",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "runs.artifacts",
+        policy: Session,
+        tier: Standard,
+    },
 ];
 
 /// The policy of a method, or `None` for one the table does not name.
