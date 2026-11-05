@@ -160,4 +160,8 @@ regexes = [
   # rule (base64 shape, entropy 3.52, 14 chars), so it is exempted by its exact
   # literal only: a real base64 token of any other value still fires.
   '''^dGVzdC10b2tlbg$''',
+  # PROGRESS.md prose ("manual token, RFC1918/Tailscale cleartext guard"):
+  # "RFC1918/Tailscale" is a networking term (private IPv4 + CGNAT range),
+  # not a credential.
+  '''^RFC1918/Tailscale$''',
 ]
