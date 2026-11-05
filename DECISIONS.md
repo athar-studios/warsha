@@ -1073,3 +1073,10 @@ before it can believe any line number in the handoff.
   - **Why**: The upstream router key currently has no usable free model (429/401/expired free tier); deterministic `FakeProvider` in `warsha-providers` + `warsha-pipeline` lets Desktop, Android Remote, CLI, and Docker execute real multi-stage runs end-to-end offline while keeping the OpenAI-compatible path ready whenever `WARSHA_LLM_API_KEY` is supplied.
   - **How to reverse**: Set `WARSHA_LLM_API_KEY` (and optionally `WARSHA_LLM_BASE_URL` / `WARSHA_LLM_MODEL`) or configure role routings via `providers.add` + `roles.set`.
 
+- **Decision (D-2026-11-05-06 — Hardened Docker & Caddy deployment topology with non-root daemon and zero direct port exposure, W6)**:
+  - **Decision**: Ship `docker/Dockerfile` (multi-stage build compiling `warshad` and `warsha-cli`, running as non-root `warsha:warsha` UID/GID 10001 with `/var/lib/warsha` volume and `/health` `HEALTHCHECK`), `docker/compose.yml` (local single-command stack binding `127.0.0.1:7431`), and `deploy/docker-compose.yml` + `deploy/Caddyfile` (production stack where `warshad` sits on an `internal: true` Docker network with no host `ports:` published and Caddy terminates TLS on 80/443 and reverse-proxies `/health`, `/rpc`, `/events`, and `/` to `warshad`).
+  - **Alternatives**: Expose `warshad` ports `7431`/`7432` directly on `0.0.0.0` on a public VPS or run the container as `root`.
+  - **Why**: Terminating TLS in Caddy while keeping `warshad` on an internal bridge network guarantees encrypted HTTPS/WSS transport on the open internet without exposing raw daemon ports, and running as UID 10001 enforces least privilege.
+  - **How to reverse**: In `deploy/docker-compose.yml`, remove the `caddy` service and publish `ports: ["7431:7431", "7432:7432"]` directly on `warshad` (recommended only inside a private Tailscale tailnet).
+
+
