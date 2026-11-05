@@ -918,6 +918,29 @@ export const messages: Record<Locale, Record<string, string>> = {
     'remote.about_title': 'عن الطاولة البعيدة',
     'remote.about_desc':
       'ورشة مصنع برمجيات يقودُه مالكه: يعمل الفريق بالذكاء الاصطناعي، ولا تعبر البوّابات إلا بقرارك. هذه الطاولة البعيدة للقراءة والقرار فقط.',
+
+    // The companion's one boundary, said where the owner looks for settings: this phone holds a
+    // session, never model keys. The sentence is pinned in both catalogs by the remote test suite.
+    'remote.no_llm_keys':
+      'مفاتيح نماذج الذكاء الاصطناعي تبقى على خادم ورشة؛ أدرها من طاولة الحاسوب أو عبر متغيّرات بيئة الخادم.',
+
+    // The P0/P1 run-control surface: create, start, advance, cancel, follow up, artifacts, handoff.
+    'remote.create_project_title': 'أضف مشروعاً',
+    'remote.project_desc_label': 'وصف المشروع',
+    'remote.project_create_submit': 'أنشئ المشروع',
+    'remote.start_run_title': 'ابدأ تشغيلاً جديداً',
+    'remote.run_start_submit': 'ابدأ التشغيل',
+    'remote.run_controls_title': 'تحكّمات التشغيل',
+    'remote.run_cancel': 'ألغِ التشغيل',
+    'remote.followup_label': 'تكملة للتشغيل',
+    'remote.followup_needed': 'اكتب التكملة أولاً.',
+    'remote.handoff_create': 'جهّز حزمة المتابعة',
+    'remote.handoff_apply': 'طبّق الحزمة',
+    'remote.handoff_path_label': 'مسار الحزمة على الخادم',
+    'remote.action_failed': 'لم يقبل الخادم هذا الطلب.',
+
+    // The session plate's paired-device list: the one word the revoke control needs there.
+    'settings.devices_revoke': 'ألغِ إقران الجهاز',
   },
   en: {
     'app.name': 'Warsha',
@@ -1736,6 +1759,25 @@ export const messages: Record<Locale, Record<string, string>> = {
     'remote.about_title': 'About the remote bench',
     'remote.about_desc':
       'Warsha is an owner-led software factory: the AI team works, and nothing crosses a gate without your decision. This remote bench is for reading and deciding.',
+
+    'remote.no_llm_keys':
+      'Model keys live on your Warsha server — manage them on Desktop or via server environment variables.',
+
+    'remote.create_project_title': 'Add a project',
+    'remote.project_desc_label': 'Project description',
+    'remote.project_create_submit': 'Create the project',
+    'remote.start_run_title': 'Start a new run',
+    'remote.run_start_submit': 'Start the run',
+    'remote.run_controls_title': 'Run controls',
+    'remote.run_cancel': 'Cancel the run',
+    'remote.followup_label': 'Follow-up for this run',
+    'remote.followup_needed': 'Write the follow-up first.',
+    'remote.handoff_create': 'Prepare a handoff bundle',
+    'remote.handoff_apply': 'Apply the bundle',
+    'remote.handoff_path_label': 'bundle on the server',
+    'remote.action_failed': 'The daemon did not accept this request.',
+
+    'settings.devices_revoke': 'Unpair this device',
   },
 };
 
