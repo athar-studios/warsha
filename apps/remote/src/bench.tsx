@@ -80,8 +80,12 @@ export interface DecisionState {
  *
  * `@warsha/client` names this shape `DeviceSummary`; the bench's surface keeps the shorter name the
  * screens were written against, and the alias means the wire type cannot drift from the client's.
+ * The one local addition is `isCurrent`: a daemon that knows which row is *this* device can say so,
+ * and the session plate then hides the revoke control for it — ending your own session is the
+ * session plate's own two-press button, not a device-list action. A daemon that does not answer the
+ * field leaves it `undefined`, and every row gets the revoke like on the desktop's devices screen.
  */
-export type DeviceInfo = DeviceSummary;
+export type DeviceInfo = DeviceSummary & { isCurrent?: boolean };
 
 /**
  * The slice of `WarshaClient` the remote bench calls.
@@ -289,14 +293,14 @@ export interface RemoteContextValue {
 
   // The P0/P1 run-control actions. Each is `null` when the daemon (or the stub) does not answer its
   // RPC name — capability gating, not a disabled control: the screen renders nothing it cannot honour.
-  createNewProject: ((name: string, description: string) => Promise<void>) | null;
-  startNewRun: ((idea: string) => Promise<void>) | null;
-  advanceCurrentRun: (() => Promise<void>) | null;
-  cancelCurrentRun: (() => Promise<void>) | null;
-  sendFollowup: ((prompt: string) => Promise<void>) | null;
-  triggerHandoff: (() => Promise<void>) | null;
-  applyHandoffBundle: (() => Promise<void>) | null;
-  revokePairedDevice: ((deviceId: DeviceId) => Promise<void>) | null;
+  createNewProject: ((name: string, description: string) => Promise<boolean>) | null;
+  startNewRun: ((idea: string) => Promise<boolean>) | null;
+  advanceCurrentRun: (() => Promise<boolean>) | null;
+  cancelCurrentRun: (() => Promise<boolean>) | null;
+  sendFollowup: ((prompt: string) => Promise<boolean>) | null;
+  triggerHandoff: (() => Promise<boolean>) | null;
+  applyHandoffBundle: (() => Promise<boolean>) | null;
+  revokePairedDevice: ((deviceId: DeviceId) => Promise<boolean>) | null;
 
   decision: DecisionState;
   decide: (stage: Stage, next: GateDecision, note?: string) => void;
@@ -791,16 +795,19 @@ export function RemoteProvider({
   // One shape for every P0/P1 write: the daemon's method is *bound* to the surface before the screen
   // ever sees it (a class client's methods need their `this`), the answer is merged into the lists
   // the bench already renders, and a refusal lands in `actionError` as the token-redacted words the
-  // screens already have a slot for. A method the daemon (or the stub) does not answer yields `null`
-  // — capability gating, not a control that lies about working.
+  // screens already have a slot for, resolving `true` when the daemon took the write and `false` when
+  // it refused — so a form clears itself only on a real acceptance. A method the daemon (or the stub)
+  // does not answer yields `null` — capability gating, not a control that lies about working.
   const runAction = useCallback(
-    (call: () => Promise<unknown>): Promise<void> =>
+    (call: () => Promise<unknown>): Promise<boolean> =>
       call()
         .then(() => {
           setActionError(null);
+          return true;
         })
         .catch((error: unknown) => {
           setActionError(safeMessage(failureDetail(error), session));
+          return false;
         }),
     [session]
   );
@@ -810,7 +817,7 @@ export function RemoteProvider({
   const createNewProject = useMemo(() => {
     const create = api?.createProject?.bind(api);
     if (create === undefined) return null;
-    return (name: string, description: string): Promise<void> =>
+    return (name: string, description: string): Promise<boolean> =>
       runAction(async () => {
         const answer = await create(name, description, locale);
         setProjects((previous) => [answer, ...previous.filter((row) => row.id !== answer.id)]);
@@ -823,8 +830,8 @@ export function RemoteProvider({
   const startNewRun = useMemo(() => {
     const start = api?.startRun?.bind(api);
     if (start === undefined) return null;
-    return (idea: string): Promise<void> => {
-      if (projectId === null) return Promise.resolve();
+    return (idea: string): Promise<boolean> => {
+      if (projectId === null) return Promise.resolve(false);
       return runAction(async () => {
         const answer = await start(projectId, idea);
         setRuns((previous) => [answer, ...previous.filter((row) => row.id !== answer.id)]);
@@ -837,8 +844,8 @@ export function RemoteProvider({
   const advanceCurrentRun = useMemo(() => {
     const advance = api?.advanceRun?.bind(api);
     if (advance === undefined) return null;
-    return (): Promise<void> => {
-      if (run === null) return Promise.resolve();
+    return (): Promise<boolean> => {
+      if (run === null) return Promise.resolve(false);
       return runAction(async () => {
         // The daemon's own new row replaces the stale one; every panel keyed on the run re-reads.
         const answer = await advance(run.id);
@@ -850,8 +857,8 @@ export function RemoteProvider({
   const cancelCurrentRun = useMemo(() => {
     const cancel = api?.cancelRun?.bind(api);
     if (cancel === undefined) return null;
-    return (): Promise<void> => {
-      if (run === null) return Promise.resolve();
+    return (): Promise<boolean> => {
+      if (run === null) return Promise.resolve(false);
       return runAction(async () => {
         const answer = await cancel(run.id);
         setRuns((previous) => previous.map((row) => (row.id === answer.id ? answer : row)));
@@ -862,8 +869,8 @@ export function RemoteProvider({
   const sendFollowup = useMemo(() => {
     const followup = api?.followupRun?.bind(api);
     if (followup === undefined) return null;
-    return (prompt: string): Promise<void> => {
-      if (run === null) return Promise.resolve();
+    return (prompt: string): Promise<boolean> => {
+      if (run === null) return Promise.resolve(false);
       return runAction(async () => {
         const answer = await followup(run.id, prompt);
         setRuns((previous) => previous.map((row) => (row.id === answer.id ? answer : row)));
@@ -874,8 +881,8 @@ export function RemoteProvider({
   const triggerHandoff = useMemo(() => {
     const createBundle = api?.createHandoff?.bind(api);
     if (createBundle === undefined) return null;
-    return (): Promise<void> => {
-      if (run === null) return Promise.resolve();
+    return (): Promise<boolean> => {
+      if (run === null) return Promise.resolve(false);
       return runAction(async () => {
         // The bundle carries exactly what this bench has read for this run — the daemon's own
         // artifacts, by name and content, nothing invented on the phone.
@@ -890,8 +897,8 @@ export function RemoteProvider({
   const applyHandoffBundle = useMemo(() => {
     const apply = api?.applyHandoff?.bind(api);
     if (apply === undefined) return null;
-    return (): Promise<void> => {
-      if (handoffPath === null) return Promise.resolve();
+    return (): Promise<boolean> => {
+      if (handoffPath === null) return Promise.resolve(false);
       const path = handoffPath;
       return runAction(async () => {
         // The phone is the owner's hand: `owner_wins` resolves conflicts toward the owner's side,
@@ -908,7 +915,7 @@ export function RemoteProvider({
   const revokePairedDevice = useMemo(() => {
     const revoke = api?.revokeDevice?.bind(api);
     if (revoke === undefined) return null;
-    return (deviceId: DeviceId): Promise<void> =>
+    return (deviceId: DeviceId): Promise<boolean> =>
       runAction(async () => {
         await revoke(deviceId);
         setDevices((previous) => previous.filter((row) => row.id !== deviceId));

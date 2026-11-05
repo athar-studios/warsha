@@ -9,6 +9,13 @@
 // §3's disclosure rule still applies to a phone: no tool names, no JSON, no token counts in prose. The
 // feed says what happened in the catalog's plain words and keeps the timestamp mono; the log is the one
 // surface that shows the daemon's own lines, and it says so (`advanced.terminal_hint`).
+//
+// W4 moved the phone from read-and-decide to supervise (docs/design/REDESIGN.md §2, handoff first): when
+// the daemon answers `runs.advance` / `runs.cancel` / `runs.followup` the screen puts the run under the
+// owner's thumb, when it answers `runs.artifacts` the documents the run produced get a plate of their
+// own, and when it answers `handoff.create` / `handoff.apply` the bundle that continues the work on the
+// server is prepared and applied here. All three are capability-gated: a ten-method daemon sees this
+// screen exactly as before, panel for panel, because a control the daemon cannot honour is a lie.
 import { t, useDirection, useLocale } from '@warsha/i18n';
 import {
   Banner,
@@ -16,6 +23,7 @@ import {
   Button,
   Chip,
   EmptyState,
+  Field,
   Lamp,
   Ledger,
   Meter,
@@ -26,10 +34,12 @@ import {
   TerminalLine,
   Text,
   colorVar,
+  fieldControl,
   fontSize,
+  fontWeight,
   space,
 } from '@warsha/ui';
-import React from 'react';
+import React, { useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { useRemote } from '../bench';
@@ -60,7 +70,24 @@ export function RunScreen() {
     pendingGates,
     reloadAll,
     session,
+    advanceCurrentRun,
+    cancelCurrentRun,
+    sendFollowup,
+    triggerHandoff,
+    applyHandoffBundle,
+    artifacts,
+    artifactsState,
+    handoffPath,
+    handoffSummary,
+    actionError,
+    clearActionError,
   } = useRemote();
+
+  // The follow-up field's own state, declared before the unpaired early return so the hooks run on
+  // every render (a conditional `useState` would change the hook order between paired and unpaired).
+  const [followup, setFollowup] = useState('');
+  const [followupMissing, setFollowupMissing] = useState(false);
+  const followupId = useId();
 
   // Nothing to read without a session: the phone says so and offers the pairing plate (§7).
   if (session === null) {
@@ -69,6 +96,34 @@ export function RunScreen() {
 
   const spentCents = events.reduce((sum, event) => sum + (event.costCents ?? 0), 0);
   const reportedCost = events.some((event) => event.costCents !== null);
+
+  const submitFollowup = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (sendFollowup === null) return;
+    if (followup.trim() === '') {
+      setFollowupMissing(true);
+      return;
+    }
+    setFollowupMissing(false);
+    void sendFollowup(followup.trim()).then((accepted) => {
+      // The field clears only on a write the daemon took; a refusal keeps the owner's words.
+      if (accepted) setFollowup('');
+    });
+  };
+
+  const followupError = followupMissing ? t('remote.followup_needed', {}, locale) : undefined;
+  const followupControl = fieldControl(followupId, {
+    hint: followupError === undefined,
+    error: followupError !== undefined,
+    required: true,
+  });
+
+  // At least one run-control is live: advance, cancel, or follow-up. A ten-method daemon answers none
+  // of them, so the controls plate stays unrendered rather than showing a plate with nothing in it.
+  const hasRunControls = advanceCurrentRun !== null || cancelCurrentRun !== null || sendFollowup !== null;
+
+  // The handoff is its own surface: shown when either half — prepare or apply — is answered.
+  const hasHandoff = triggerHandoff !== null || applyHandoffBundle !== null;
 
   return (
     <div dir={dir} className="remote-screen" data-testid="remote-screen-run">
@@ -354,7 +409,187 @@ export function RunScreen() {
               }
             />
           </Panel>
+
+          {/* A daemon that serves the run-control RPCs gets the owner's thumb on the run itself. */}
+          {hasRunControls && (
+            <Panel
+              title={t('remote.run_controls_title', {}, locale)}
+              label={t('remote.run_controls_title', {}, locale)}
+            >
+              <div dir={dir} data-testid="remote-run-controls" className="remote-run-controls">
+                <Box dir={dir} style={{ display: 'flex', flexWrap: 'wrap', gap: space(2) }}>
+                  {advanceCurrentRun !== null && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      dir={dir}
+                      onClick={() => {
+                        void advanceCurrentRun();
+                      }}
+                      data-testid="remote-run-advance"
+                    >
+                      {t('run.advance', {}, locale)}
+                    </Button>
+                  )}
+                  {cancelCurrentRun !== null && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      dir={dir}
+                      onClick={() => {
+                        void cancelCurrentRun();
+                      }}
+                      data-testid="remote-run-cancel"
+                    >
+                      {t('remote.run_cancel', {}, locale)}
+                    </Button>
+                  )}
+                </Box>
+
+                {sendFollowup !== null && (
+                  <form onSubmit={submitFollowup} dir={dir} className="remote-form" data-testid="remote-followup-form">
+                    <Field
+                      id={followupId}
+                      label={t('remote.followup_label', {}, locale)}
+                      error={followupError}
+                      required
+                    >
+                      <input
+                        {...followupControl}
+                        autoComplete="off"
+                        value={followup}
+                        onChange={(event) => {
+                          setFollowup(event.target.value);
+                          if (followupMissing) setFollowupMissing(false);
+                          if (actionError !== null) clearActionError();
+                        }}
+                        data-testid="remote-followup-input"
+                      />
+                    </Field>
+                    <Button type="submit" variant="secondary" dir={dir} data-testid="remote-followup-submit">
+                      {t('common.send', {}, locale)}
+                    </Button>
+                  </form>
+                )}
+              </div>
+            </Panel>
+          )}
+
+          {/* The documents the run produced, read from `runs.artifacts`. `idle` means the daemon does
+              not serve the name — the plate does not exist here, rather than an empty list claiming
+              the run produced nothing (§7). */}
+          {artifactsState !== 'idle' && (
+            <Panel title={t('run.artifacts', {}, locale)} label={t('run.artifacts', {}, locale)}>
+              <div dir={dir} data-testid="remote-run-artifacts" className="remote-run-artifacts">
+                {artifactsState === 'loading' ? (
+                  <Skeleton label={t('run.artifacts', {}, locale)} variant="row" lines={2} />
+                ) : artifacts.length === 0 ? (
+                  <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
+                    {t('run.no_artifacts', {}, locale)}
+                  </Text>
+                ) : (
+                  <Ledger label={t('run.artifacts', {}, locale)}>
+                    {artifacts.map((artifact) => (
+                      <Ledger.Row
+                        key={artifact.name}
+                        meta={<Machine title={artifact.name}>{`v${artifact.version}`}</Machine>}
+                      >
+                        <Box dir={dir} style={{ display: 'grid', gap: space(1), minInlineSize: 0 }}>
+                          <Text size="sm" dir={dir} style={{ color: colorVar('text'), fontWeight: fontWeight('bold') }}>
+                            {artifact.name}
+                          </Text>
+                          <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: space(2), minInlineSize: 0 }}>
+                            <Text size="xs" dir={dir} style={{ color: colorVar('text'), fontSize: fontSize('xs') }}>
+                              {stageWord(artifact.stage, locale)}
+                            </Text>
+                            <Machine title={artifact.content}>{artifact.content.split('\n')[0]}</Machine>
+                          </Box>
+                        </Box>
+                      </Ledger.Row>
+                    ))}
+                  </Ledger>
+                )}
+              </div>
+            </Panel>
+          )}
+
+          {/* The handoff: bundle the run's artifacts on the server, apply a prepared one. The phone
+              never moves bytes itself — it names the pair and the daemon does the carrying. */}
+          {hasHandoff && (
+            <Panel title={t('run.tab_handoff', {}, locale)} label={t('run.tab_handoff', {}, locale)}>
+              <div dir={dir} data-testid="remote-run-handoff" className="remote-run-handoff">
+                <Box dir={dir} style={{ display: 'grid', gap: space(2) }}>
+                  {triggerHandoff !== null && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      dir={dir}
+                      onClick={() => {
+                        void triggerHandoff();
+                      }}
+                      data-testid="remote-handoff-create"
+                    >
+                      {t('remote.handoff_create', {}, locale)}
+                    </Button>
+                  )}
+
+                  {handoffPath !== null && (
+                    <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: space(2), minInlineSize: 0 }}>
+                      <Text size="xs" dir={dir} style={{ color: colorVar('text'), fontSize: fontSize('xs') }}>
+                        {`${t('remote.handoff_path_label', {}, locale)} `}
+                      </Text>
+                      <Machine title={handoffPath}>{handoffPath}</Machine>
+                    </Box>
+                  )}
+
+                  {applyHandoffBundle !== null && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      dir={dir}
+                      onClick={() => {
+                        void applyHandoffBundle();
+                      }}
+                      data-testid="remote-handoff-apply"
+                    >
+                      {t('remote.handoff_apply', {}, locale)}
+                    </Button>
+                  )}
+
+                  {handoffSummary !== null && (
+                    <Box dir={dir} style={{ display: 'grid', gap: space(1) }}>
+                      <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
+                        {t('review_apply.summary', { count: handoffSummary.applied.length }, locale)}
+                      </Text>
+                      {handoffSummary.applied.map((name) => (
+                        <Machine key={name}>{name}</Machine>
+                      ))}
+                    </Box>
+                  )}
+                </Box>
+              </div>
+            </Panel>
+          )}
         </>
+      )}
+
+      {/* A refused run-control write says so, in the daemon's redacted words, beside what it failed. */}
+      {actionError !== null && (
+        <Banner
+          tone="error"
+          action={
+            <Button variant="secondary" size="sm" dir={dir} onClick={clearActionError} data-testid="remote-action-dismiss">
+              {t('common.close', {}, locale)}
+            </Button>
+          }
+        >
+          <Box dir={dir} style={{ display: 'grid', gap: space(1), minInlineSize: 0 }}>
+            <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
+              {t('remote.action_failed', {}, locale)}
+            </Text>
+            <Machine title={actionError}>{actionError}</Machine>
+          </Box>
+        </Banner>
       )}
     </div>
   );
