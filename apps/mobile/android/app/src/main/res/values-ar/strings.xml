@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ورشة عن بُعد — Arabic app name (RTL-safe; supportsRtl=true). -->
+    <string name="app_name">ورشة عن بُعد</string>
+</resources>

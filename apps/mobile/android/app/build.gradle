@@ -1,0 +1,185 @@
+// Warsha Remote — Android shell for the bundled apps/remote PWA.
+//
+// Release signing material is NEVER stored in the repository. It is read from
+// (in order of precedence):
+//   1. Environment variables WARSHA_KEYSTORE_FILE / WARSHA_KEYSTORE_PASSWORD /
+//      WARSHA_KEY_ALIAS / WARSHA_KEY_PASSWORD  (CI path).
+//   2. ~/.warsha/signing/keystore.properties — generated outside any git
+//      working tree by scripts/generate-android-keystore.sh.
+
+plugins {
+    id "com.android.application"
+}
+
+// ---------------------------------------------------------------------------
+// Signing configuration resolution (properties file or environment).
+// ---------------------------------------------------------------------------
+def warshaSigningProps = new Properties()
+
+static def normalizeStorePath(String raw) {
+    if (raw == null || raw.isEmpty()) {
+        return raw
+    }
+    // Git Bash writes POSIX-style paths such as /c/Users/name/...; convert to
+    // a Windows drive path when running on Windows.
+    if (org.gradle.internal.os.OperatingSystem.current().isWindows()
+            && raw.matches('^/[a-zA-Z]/.*')) {
+        return raw.substring(1, 2).toUpperCase() + ":" + raw.substring(2)
+    }
+    return raw
+}
+
+def envStoreFile = System.getenv("WARSHA_KEYSTORE_FILE")
+if (envStoreFile != null && !envStoreFile.isEmpty()) {
+    warshaSigningProps.setProperty("storeFile", envStoreFile)
+    warshaSigningProps.setProperty("storePassword",
+            System.getenv("WARSHA_KEYSTORE_PASSWORD") ?: "")
+    warshaSigningProps.setProperty("keyAlias",
+            System.getenv("WARSHA_KEY_ALIAS") ?: "warsha-release")
+    warshaSigningProps.setProperty("keyPassword",
+            System.getenv("WARSHA_KEY_PASSWORD")
+                    ?: System.getenv("WARSHA_KEYSTORE_PASSWORD") ?: "")
+} else {
+    def propsFile = new File(
+            new File(System.getProperty("user.home"), ".warsha/signing"),
+            "keystore.properties")
+    if (propsFile.isFile()) {
+        propsFile.withInputStream { warshaSigningProps.load(it) }
+    }
+}
+
+def hasSigningConfig = !warshaSigningProps.isEmpty()
+
+android {
+    namespace "dev.warsha.remote"
+    compileSdk 36
+
+    defaultConfig {
+        applicationId "dev.warsha.remote"
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName "0.1.0"
+    }
+
+    signingConfigs {
+        if (hasSigningConfig) {
+            release {
+                storeFile file(normalizeStorePath(warshaSigningProps.getProperty("storeFile")))
+                storePassword warshaSigningProps.getProperty("storePassword")
+                keyAlias warshaSigningProps.getProperty("keyAlias")
+                keyPassword warshaSigningProps.getProperty("keyPassword")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+            if (hasSigningConfig) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig false
+    }
+
+    // Pure-framework app: no androidx/Capacitor AARs are required by the
+    // hardened WebView shell, so the release APK stays minimal.
+}
+
+// ---------------------------------------------------------------------------
+// Sync the built remote PWA (apps/remote/dist) into assets/public.
+// Builds apps/remote via pnpm first when dist/ is missing.
+// ---------------------------------------------------------------------------
+def remoteDistDir = rootDir.toPath()
+        .normalize().resolve("../../../apps/remote/dist").toFile()
+// rootDir = apps/mobile/android → ../../.. = repo root → apps/remote/dist
+assert remoteDistDir.parentFile.name == "remote"
+
+def webAssetsDir = file("src/main/assets/public")
+
+def syncRemoteWebAssets = tasks.register("syncRemoteWebAssets", Sync) {
+    description = "Copies apps/remote/dist into android assets/public " +
+            "(the WebView loads file:///android_asset/public/index.html)."
+    group = "warsha"
+
+    doFirst {
+        if (!remoteDistDir.isDirectory() || !new File(remoteDistDir, "index.html").isFile()) {
+            logger.lifecycle("apps/remote/dist is missing — building it with pnpm…")
+            def repoRoot = remoteDistDir.parentFile.parentFile.parentFile
+            def pnpm = org.gradle.internal.os.OperatingSystem.current().isWindows()
+                    ? ["cmd", "/c", "pnpm"] : ["pnpm"]
+            exec {
+                workingDir repoRoot
+                commandLine pnpm + ["--filter", "warsha-remote", "build"]
+            }
+            if (!new File(remoteDistDir, "index.html").isFile()) {
+                throw new GradleException(
+                        "apps/remote/dist/index.html still missing after build. " +
+                        "Run `pnpm --filter warsha-remote build` manually.")
+            }
+        }
+    }
+
+    from remoteDistDir
+    into webAssetsDir
+    // Everything the Vite build emits (index.html, assets/, sw.js, icons, i18n).
+    preserve { include ".gitkeep" }
+}
+
+// AGP 9 registers variant tasks lazily, so hook them through the live
+// filtered collection instead of tasks.named(...) at configuration time.
+tasks.matching { it.name == "preBuild" }.configureEach {
+    dependsOn syncRemoteWebAssets
+}
+
+// ---------------------------------------------------------------------------
+// Release output naming: warsha-remote-release.apk
+// ---------------------------------------------------------------------------
+// A plain doLast rename (not a Copy task) so Gradle task-output validation
+// does not clash with AGP's own writes into outputs/apk/release.
+def renameReleaseApk = tasks.register("renameReleaseApk") {
+    description = "Renames the signed release artifact to warsha-remote-release.apk."
+    group = "warsha"
+    doLast {
+        def dir = layout.buildDirectory.dir("outputs/apk/release").get().asFile
+        def signed = new File(dir, "app-release.apk")
+        def target = new File(dir, "warsha-remote-release.apk")
+        if (!signed.isFile()) {
+            throw new GradleException(
+                    "Expected signed artifact app-release.apk under " + dir +
+                    " — did assembleRelease run?")
+        }
+        if (!signed.renameTo(target)) {
+            java.nio.file.Files.copy(
+                    signed.toPath(), target.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        }
+        logger.lifecycle("Signed release APK: " + target)
+    }
+}
+
+tasks.matching { it.name == "assembleRelease" }.configureEach {
+    doFirst {
+        if (!hasSigningConfig) {
+            throw new GradleException(
+                    "No release signing material found. Run " +
+                    "`bash scripts/generate-android-keystore.sh` (creates " +
+                    "~/.warsha/signing/warsha-release.jks outside the repo) " +
+                    "or set WARSHA_KEYSTORE_FILE / WARSHA_KEYSTORE_PASSWORD / " +
+                    "WARSHA_KEY_ALIAS / WARSHA_KEY_PASSWORD. Committing a " +
+                    ".jks or keystore.properties into the repository is " +
+                    "forbidden by SECURITY.md.")
+        }
+    }
+    finalizedBy renameReleaseApk
+}
