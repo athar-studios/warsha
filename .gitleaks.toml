@@ -149,4 +149,15 @@ regexes = [
   # "minisign public key: 9731DDBF50264A8C". The private signing key
   # lives outside the repo (owner-held); this id cannot sign anything.
   '''^9731DDBF50264A8C$''',
+  # apps/desktop/e2e/harness.ts:1109 (introduced by commit ded9241) — the
+  # loopback pairing link fixture
+  # `.../?server=http%3A%2F%2F127.0.0.1%3A8766&token=dGVzdC10b2tlbg`.
+  # `dGVzdC10b2tlbg` is simply base64 of the literal string "test-token"
+  # (verify: `echo dGVzdC10b2tlbg== | base64 -d`; the repo ships the 14-char
+  # unpadded form), the E2E harness's fixed dummy pairing token for the local
+  # mock daemon — not a credential for any service,
+  # and it never leaves 127.0.0.1. It trips the shipped default `generic-api-key`
+  # rule (base64 shape, entropy 3.52, 14 chars), so it is exempted by its exact
+  # literal only: a real base64 token of any other value still fires.
+  '''^dGVzdC10b2tlbg$''',
 ]
