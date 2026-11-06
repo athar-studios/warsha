@@ -52,7 +52,10 @@ import { Budgets } from './screens/Budgets';
 import { CrashReports, type CrashReport } from './screens/CrashReports';
 import { Devices } from './screens/Devices';
 import { GatesInbox } from './screens/GatesInbox';
+import { HarnessesSettings } from './screens/HarnessesSettings';
+import { ModelsSettings } from './screens/ModelsSettings';
 import { Onboarding } from './screens/Onboarding';
+import { PluginsSettings } from './screens/PluginsSettings';
 import { ProjectsBoard } from './screens/ProjectsBoard';
 import { ProvidersSettings } from './screens/ProvidersSettings';
 import { RolesSettings } from './screens/RolesSettings';
@@ -65,6 +68,7 @@ import {
 } from './screens/SettingsProviders';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { SimpleMode } from './screens/SimpleMode';
+import { SkillsSettings } from './screens/SkillsSettings';
 import { StoreReviews, type StoreReview } from './screens/StoreReviews';
 import { ThemeProvider } from './theme';
 
@@ -84,6 +88,10 @@ export type Screen =
   | 'settings'
   | 'routines'
   | 'settings-providers'
+  | 'harnesses'
+  | 'skills'
+  | 'plugins'
+  | 'models'
   | 'crash-reports'
   | 'store-reviews'
   | 'backend-kit';
@@ -93,6 +101,10 @@ export type Screen =
 const SETTINGS_SCREENS: readonly Screen[] = [
   'settings',
   'settings-providers',
+  'harnesses',
+  'skills',
+  'plugins',
+  'models',
   'routines',
   'crash-reports',
   'store-reviews',
@@ -104,6 +116,14 @@ export function settingsTabLabel(screen: Screen, locale: Locale): string {
   switch (screen) {
     case 'settings-providers':
       return t('nav.providers', {}, locale);
+    case 'harnesses':
+      return t('settings.harnesses', {}, locale);
+    case 'skills':
+      return t('settings.skills', {}, locale);
+    case 'plugins':
+      return t('settings.plugins', {}, locale);
+    case 'models':
+      return t('settings.models', {}, locale);
     case 'routines':
       return t('settings.routines', {}, locale);
     case 'crash-reports':
@@ -140,6 +160,10 @@ const DEEP_LINK_SCREENS: readonly Screen[] = [
   'settings',
   'routines',
   'settings-providers',
+  'harnesses',
+  'skills',
+  'plugins',
+  'models',
   'crash-reports',
   'store-reviews',
   'backend-kit',
@@ -406,6 +430,28 @@ function AppContent() {
 
   useEffect(() => loadGates(), [loadGates]);
 
+  /** Hydrate providers from the daemon on mount / client connect (Wave 3). */
+  useEffect(() => {
+    if (client === null || typeof client.listProviders !== 'function') return;
+    let cancelled = false;
+    client
+      .listProviders()
+      .then((rows) => {
+        if (cancelled) return;
+        setProviders(
+          rows.map((p) => ({
+            name: p.name,
+            mode: 'auto',
+            enabled: p.enabled,
+          }))
+        );
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+
   /** The project's budget, for the strip's meter (§4: one reading, two surfaces). */
   useEffect(() => {
     if (client === null || selectedProject === null) {
@@ -644,6 +690,7 @@ function AppContent() {
             project={project}
             endpoint={endpoint}
             onBack={() => setScreen('projects')}
+            onModeChange={setMode}
           />
         );
       }
@@ -657,6 +704,7 @@ function AppContent() {
             project={project}
             endpoint={endpoint}
             onBack={() => setScreen('projects')}
+            onModeChange={setMode}
           />
         );
       }
@@ -674,7 +722,7 @@ function AppContent() {
       }
 
       case 'providers':
-        return <ProvidersSettings client={client} onBack={() => setScreen('projects')} />;
+        return <ProvidersSettings client={client} onBack={() => setScreen('projects')} project={selectedProject} />;
 
       case 'roles':
         return <RolesSettings client={client} onBack={() => setScreen('projects')} />;
@@ -686,7 +734,7 @@ function AppContent() {
         return <Devices client={client} onBack={() => setScreen('projects')} />;
 
       case 'settings':
-        return settingsScreen(<SettingsScreen client={client} onBack={() => setScreen('projects')} />);
+        return settingsScreen(<SettingsScreen client={client} onBack={() => setScreen('projects')} project={selectedProject} />);
 
       case 'routines':
         return settingsScreen(
@@ -706,6 +754,7 @@ function AppContent() {
               onModeChange={handleProviderMode}
               onToggle={handleProviderToggle}
               onPinVersion={handleProviderPin}
+              client={client}
             />
             {/* One-click setup (M14b): the six presets and the network-free "Test connection". `onSave`
                 has no settings RPC behind it yet. */}
@@ -714,6 +763,18 @@ function AppContent() {
             </Box>
           </>
         );
+
+      case 'harnesses':
+        return settingsScreen(<HarnessesSettings client={client} project={selectedProject} />);
+
+      case 'skills':
+        return settingsScreen(<SkillsSettings client={client} project={selectedProject} />);
+
+      case 'plugins':
+        return settingsScreen(<PluginsSettings client={client} project={selectedProject} />);
+
+      case 'models':
+        return settingsScreen(<ModelsSettings client={client} project={selectedProject} />);
 
       case 'crash-reports':
         return settingsScreen(

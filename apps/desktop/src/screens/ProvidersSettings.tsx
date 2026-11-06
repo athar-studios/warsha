@@ -18,7 +18,7 @@
 //   * endpoints, budgets and provider kinds are machine data: mono, `translate="no"`, isolated (§11);
 //   * every word comes from `@warsha/i18n`: the 34 `locale === 'ar' ? … : …` branches counted here are gone,
 //     and so is the `PROVIDER_KINDS` table with its hard-coded names.
-import { type ProviderConfig, type WarshaClient } from '@warsha/client';
+import { type ProviderConfig, type ProjectSummary, type WarshaClient } from '@warsha/client';
 import { t, useDirection, useLocale, type MessageValues } from '@warsha/i18n';
 import {
   Banner,
@@ -34,12 +34,14 @@ import {
   Stamp,
   Text,
   fieldControl,
+  SettingsScopeSentence,
 } from '@warsha/ui';
 import React, { useCallback, useEffect, useState } from 'react';
 
 interface ProvidersSettingsProps {
   client: WarshaClient;
   onBack: () => void;
+  project?: ProjectSummary | null;
 }
 
 /** The kinds the add-form offers, in the order the daemon's own presets list them. */
@@ -62,7 +64,7 @@ function looksUnauthorized(message: string): boolean {
   return lower.includes('401') || lower.includes('unauthorized') || lower.includes('invalid api key');
 }
 
-export function ProvidersSettings({ client, onBack }: ProvidersSettingsProps) {
+export function ProvidersSettings({ client, onBack, project }: ProvidersSettingsProps) {
   const dir = useDirection();
   const locale = useLocale();
 
@@ -271,6 +273,11 @@ export function ProvidersSettings({ client, onBack }: ProvidersSettingsProps) {
           {label('providers.add')}
         </Button>
       </header>
+
+      {/* Settings scope sentence (t3code pattern): shows whether these settings apply globally or to a specific project */}
+      <Box dir={dir} style={{ paddingInline: 'var(--warsha-space-6)', paddingBlock: 'var(--warsha-space-2)' }}>
+        <SettingsScopeSentence project={project} dir={dir} />
+      </Box>
 
       {failed && (
         <Banner

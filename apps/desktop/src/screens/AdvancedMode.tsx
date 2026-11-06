@@ -27,9 +27,15 @@ import {
   subscribeEvents,
   type AgentTodo,
   type BudgetStatus,
+  type FileContent,
+  type FileEntry,
+  type GateSummary,
+  type HarnessDefinition,
+  type PluginDefinition,
   type ProjectSummary,
   type Role,
   type RunSummary,
+  type SkillDefinition,
   type WarshaClient,
   type WarshaEvent,
 } from '@warsha/client';
@@ -41,9 +47,11 @@ import {
   Chip,
   DiffView,
   EmptyState,
+  FastModeToggle,
   Lamp,
   Ledger,
   Meter,
+  ModelPicker,
   Panel,
   RailHead,
   RailRow,
@@ -87,17 +95,90 @@ interface AdvancedModeProps {
    * different listener and cannot be guessed from it.
    */
   endpoint: DaemonEndpoint;
+  /**
+   * The shell's mode switch (Dual-Mode factory): pressing it drops the owner from the Complex
+   * workbench back to the Hard autonomous factory. Optional, because a screen rendered outside
+   * the shell — a story, a test — has no shell to switch.
+   */
+  onModeChange?: (mode: 'simple' | 'advanced') => void;
 }
 
 /** Which pane the side column shows. */
-type AdvancedPane = 'board' | 'files' | 'diff' | 'terminal' | 'costs' | 'ship';
+type AdvancedPane = 'board' | 'code' | 'plan' | 'stream' | 'files' | 'diff' | 'terminal' | 'costs' | 'ship';
 
-const ADVANCED_PANES: readonly AdvancedPane[] = ['board', 'files', 'diff', 'terminal', 'costs', 'ship'];
+const ADVANCED_PANES: readonly AdvancedPane[] = [
+  'board',
+  'code',
+  'plan',
+  'stream',
+  'files',
+  'diff',
+  'terminal',
+  'costs',
+  'ship',
+];
 
 /** Which subset of the event stream the owner asked for (§3's filter chips). */
 type StreamFilter = 'all' | 'tools' | 'errors' | 'costs' | 'gates';
 
 const STREAM_FILTERS: readonly StreamFilter[] = ['all', 'tools', 'errors', 'costs', 'gates'];
+
+/**
+ * The subagent swarm matrix (Complex Mode): every pipeline role gets a row whatever the stream says,
+ * so the owner reads the whole factory, not only the lanes that happened to emit an event.
+ */
+const SWARM_ROLES: readonly Role[] = [
+  'intake',
+  'researcher',
+  'pm',
+  'designer',
+  'architect',
+  'coder',
+  'reviewer',
+  'qa',
+  'security',
+  'release',
+  'marketer',
+  'feedback',
+];
+
+/**
+ * The model each role is routed to when the daemon reports no routing for it. `roles.list` overrides
+ * this row by row (the effect below reads the real table); the standing assignment is the factory's
+ * own default and never claims to be the daemon's answer (§7).
+ */
+const ROLE_MODEL_FIXTURE: Record<Role, string> = {
+  intake: 'DeepSeek V3',
+  researcher: 'Claude 3.5 Sonnet',
+  pm: 'GPT-4o',
+  designer: 'Claude 3.5 Sonnet',
+  architect: 'Claude 3.5 Sonnet',
+  coder: 'DeepSeek V3',
+  reviewer: 'GPT-4o',
+  qa: 'DeepSeek V3',
+  security: 'GPT-4o',
+  release: 'DeepSeek V3',
+  marketer: 'GPT-4o',
+  feedback: 'Ollama',
+};
+
+/** The pipeline's stage order — the plan the run walks, gate steps included. */
+const RUN_STAGE_ORDER: readonly string[] = [
+  'idea',
+  'gate_a',
+  'research',
+  'prd_spec',
+  'gate_b',
+  'design',
+  'plan_tasks',
+  'code',
+  'review_qa_security',
+  'gate_c',
+  'release',
+  'gate_d',
+  'launch_drafts',
+  'feedback',
+];
 
 /** A lane: one role's worth of events, folded out of the live stream (§3's first rung). */
 interface Lane {
@@ -222,7 +303,248 @@ function pendingChecks(): PreflightCheck[] {
   return preflightCheckNames.map((name) => ({ name, status: 'pending' as const }));
 }
 
-export function AdvancedMode({ client, project, onBack, endpoint }: AdvancedModeProps) {
+/** Folders first, then files, each by name — the tree the owner scans top-down. */
+function sortEntries(entries: FileEntry[]): FileEntry[] {
+  return [...entries].sort((a, b) => {
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+/** The last path segment, for a row whose name the daemon left empty. */
+function entryName(entry: FileEntry): string {
+  return entry.name.length > 0 ? entry.name : (entry.path.split('/').filter(Boolean).pop() ?? entry.path);
+}
+
+/** One directory's listing and whether it came back (§7: the three readings, in words). */
+interface FolderListing {
+  state: 'loading' | 'ready' | 'failed';
+  entries: FileEntry[];
+}
+
+interface TreeProps {
+  client: WarshaClient;
+  projectId: string;
+  onSelectFile: (path: string) => void;
+  selectedPath: string | null;
+  locale: Locale;
+  dir: 'rtl' | 'ltr';
+}
+
+/**
+ * One folder row in the workspace tree (Complex Mode's left rail).
+ *
+ * The listing is fetched lazily on the first expand — `files.tree` answers one directory at a time,
+ * and a tree that walked the whole repo on mount would page the daemon for a folder nobody opened.
+ */
+function FolderNode({
+  entry,
+  depth,
+  tree,
+}: { entry: FileEntry; depth: number; tree: TreeProps }) {
+  const [open, setOpen] = useState(false);
+  const [listing, setListing] = useState<FolderListing | null>(null);
+  // One read per folder, kept in a ref rather than in the effect's dependencies: a `listing` dep
+  // would cancel the very fetch that sets it, and the folder would freeze in "loading".
+  const fetchedRef = useRef(false);
+  const { client, projectId } = tree;
+
+  useEffect(() => {
+    if (!open || fetchedRef.current) return undefined;
+    fetchedRef.current = true;
+    if (typeof client.getFilesTree !== 'function') {
+      setListing({ state: 'failed', entries: [] });
+      return undefined;
+    }
+    let cancelled = false;
+    setListing({ state: 'loading', entries: [] });
+    client
+      .getFilesTree(projectId, entry.path)
+      .then((entries) => {
+        if (!cancelled) setListing({ state: 'ready', entries });
+      })
+      .catch(() => {
+        if (!cancelled) setListing({ state: 'failed', entries: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, client, projectId, entry.path]);
+
+  const label = entryName(entry);
+  const toggleWord = t(open ? 'advanced.tree_collapse' : 'advanced.tree_expand', {}, tree.locale);
+
+  return (
+    <div style={{ minInlineSize: 0 }} data-testid={`advanced-tree-dir-${entry.path}`}>
+      <button
+        type="button"
+        dir={tree.dir}
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 'var(--warsha-space-2)',
+          inlineSize: '100%',
+          paddingInlineStart: `calc(var(--warsha-space-2) + ${depth} * var(--warsha-space-3))`,
+          paddingInlineEnd: 'var(--warsha-space-2)',
+          paddingBlock: 'var(--warsha-space-1)',
+          background: 'none',
+          border: 'none',
+          color: 'var(--warsha-color-text)',
+          fontFamily: 'var(--warsha-font-mono)',
+          fontSize: 'var(--warsha-font-size-xs)',
+          cursor: 'pointer',
+          textAlign: 'start',
+          minInlineSize: 0,
+        }}
+      >
+        <span aria-hidden="true">{open ? '▾' : '▸'}</span>
+        <span>{label}</span>
+        <span className="warsha-visually-hidden" style={{ position: 'absolute', overflow: 'hidden', clipPath: 'inset(50%)' }}>
+          {toggleWord}
+        </span>
+      </button>
+      {open && (
+        <div>
+          {listing === null || listing.state === 'loading' ? (
+            <Skeleton label={t('advanced.tree_loading', {}, tree.locale)} lines={1} quiet />
+          ) : listing.state === 'failed' ? (
+            <p dir={tree.dir} style={{ margin: 0, paddingInlineStart: `calc(var(--warsha-space-2) + ${depth + 1} * var(--warsha-space-3))`, fontSize: 'var(--warsha-font-size-xs)' }}>
+              {t('advanced.tree_failed', {}, tree.locale)}
+            </p>
+          ) : listing.entries.length === 0 ? (
+            <p dir={tree.dir} style={{ margin: 0, paddingInlineStart: `calc(var(--warsha-space-2) + ${depth + 1} * var(--warsha-space-3))`, fontSize: 'var(--warsha-font-size-xs)' }}>
+              {t('advanced.tree_empty', {}, tree.locale)}
+            </p>
+          ) : (
+            <TreeRows entries={listing.entries} depth={depth + 1} tree={tree} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One file row: the press reads the file and opens it in the code tab. */
+function FileNode({
+  entry,
+  depth,
+  tree,
+}: { entry: FileEntry; depth: number; tree: TreeProps }) {
+  const selected = tree.selectedPath === entry.path;
+  return (
+    <button
+      type="button"
+      dir={tree.dir}
+      data-testid={`advanced-tree-file-${entry.path}`}
+      aria-pressed={selected}
+      onClick={() => tree.onSelectFile(entry.path)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 'var(--warsha-space-2)',
+        inlineSize: '100%',
+        paddingInlineStart: `calc(var(--warsha-space-2) + ${depth} * var(--warsha-space-3))`,
+        paddingInlineEnd: 'var(--warsha-space-2)',
+        paddingBlock: 'var(--warsha-space-1)',
+        background: selected ? 'var(--warsha-color-surface)' : 'none',
+        border: 'none',
+        borderInlineStart: selected
+          ? 'var(--warsha-size-edge) solid var(--warsha-signal-text)'
+          : 'var(--warsha-size-edge) solid transparent',
+        color: 'var(--warsha-color-text)',
+        fontFamily: 'var(--warsha-font-mono)',
+        fontSize: 'var(--warsha-font-size-xs)',
+        cursor: 'pointer',
+        textAlign: 'start',
+        minInlineSize: 0,
+      }}
+    >
+      <span aria-hidden="true">·</span>
+      <span>{entryName(entry)}</span>
+    </button>
+  );
+}
+
+/** The rows of one folder listing: folders first, then files, recursively. */
+function TreeRows({ entries, depth, tree }: { entries: FileEntry[]; depth: number; tree: TreeProps }) {
+  return (
+    <div style={{ minInlineSize: 0 }}>
+      {sortEntries(entries)
+        .filter((entry) => entry.path.length > 0)
+        .map((entry) =>
+          entry.isDir ? (
+            <FolderNode key={entry.path} entry={entry} depth={depth} tree={tree} />
+          ) : (
+            <FileNode key={entry.path} entry={entry} depth={depth} tree={tree} />
+          )
+        )}
+    </div>
+  );
+}
+
+interface WorkspaceTreeProps extends TreeProps {
+  /** The rail's own heading word, so the panel keeps the bench's voice. */
+  heading: string;
+  testId?: string;
+}
+
+/**
+ * The workspace file tree (Complex Mode's left rail): the daemon answers `files.tree` one directory
+ * at a time, so the root loads on mount and every folder loads its children on first expand.
+ */
+function WorkspaceTree({ heading, ...tree }: WorkspaceTreeProps) {
+  const [root, setRoot] = useState<FolderListing | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (typeof tree.client.getFilesTree !== 'function') {
+      setRoot({ state: 'failed', entries: [] });
+      return undefined;
+    }
+    setRoot({ state: 'loading', entries: [] });
+    tree.client
+      .getFilesTree(tree.projectId, '')
+      .then((entries) => {
+        if (!cancelled) setRoot({ state: 'ready', entries });
+      })
+      .catch(() => {
+        if (!cancelled) setRoot({ state: 'failed', entries: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // The root listing belongs to the client and the project only: the tree re-reads when the
+    // bench opens another project, not when the owner scrolls or picks a file.
+  }, [tree.client, tree.projectId]);
+
+  return (
+    <Panel
+      title={heading}
+      label={heading}
+      style={{ borderBlockEnd: 'none', minInlineSize: 0 }}
+    >
+      <div data-testid={tree.testId ?? 'advanced-files-tree'} dir={tree.dir} style={{ minInlineSize: 0 }}>
+        {root === null || root.state === 'loading' ? (
+          <Skeleton label={t('advanced.tree_loading', {}, tree.locale)} lines={3} variant="row" />
+        ) : root.state === 'failed' ? (
+          <p dir={tree.dir} style={{ margin: 0, fontSize: 'var(--warsha-font-size-sm)' }}>
+            {t('advanced.tree_failed', {}, tree.locale)}
+          </p>
+        ) : root.entries.length === 0 ? (
+          <p dir={tree.dir} style={{ margin: 0, fontSize: 'var(--warsha-font-size-sm)' }}>
+            {t('advanced.tree_empty', {}, tree.locale)}
+          </p>
+        ) : (
+          <TreeRows entries={root.entries} depth={0} tree={tree} />
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+export function AdvancedMode({ client, project, onBack, endpoint, onModeChange }: AdvancedModeProps) {
   const dir = useDirection();
   const locale = useLocale();
 
@@ -240,10 +562,35 @@ export function AdvancedMode({ client, project, onBack, endpoint }: AdvancedMode
   const [logs, setLogs] = useState<string[] | null>(null);
   const [logsState, setLogsState] = useState<'loading' | 'ready' | 'failed'>('loading');
   const [budget, setBudget] = useState<BudgetStatus | null>(null);
+  // ---------------------------------------------------------------- dual-mode factory state
+  // The active harness/skill/plugin context pills, the workspace tree's selected file and its
+  // content, the run-control bar's follow-up draft, and the swarm's collapse. None of these
+  // changes the pipeline (§3): they are the workbench's own reading and controls.
+  const [context, setContext] = useState<{
+    harnesses: HarnessDefinition[];
+    skills: SkillDefinition[];
+    plugins: PluginDefinition[];
+  } | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
+  const [fileReading, setFileReading] = useState<'idle' | 'loading' | 'ready' | 'failed'>('idle');
+  const [fileContent, setFileContent] = useState<FileContent | null>(null);
+  const [followupDraft, setFollowupDraft] = useState('');
+  const [controlFailed, setControlFailed] = useState(false);
+  const [runsNonce, setRunsNonce] = useState(0);
+  const [swarmOpen, setSwarmOpen] = useState(true);
+  // The model each role is actually routed to, read from `roles.list`. A daemon that does not answer
+  // (or a role nobody routed) keeps the standing assignment below, which is the factory's own default
+  // and not a claim about the daemon (§7).
+  const [roleModels, setRoleModels] = useState<Partial<Record<Role, string>>>({});
   // Work protection (M14a) and the agent workflow (M18): per-session choices the owner sets here.
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('ask_for_risky');
   const [agentMode, setAgentMode] = useState<AgentMode>('plan');
   const [runMode] = useState<RunMode>('local');
+  const [fastModeTier, setFastModeTier] = useState<'thorough' | 'balanced' | 'fast'>('balanced');
+  const [advancedModelId, setAdvancedModelId] = useState<string>('deepseek-v3');
+  // Queue indicator: pending gates for the selected run.
+  const [pendingGates, setPendingGates] = useState<GateSummary[]>([]);
   // Ship status (M5a): the checks and stages start pending because nothing has reported yet, and the
   // daemon has no preflight or deploy RPC on this branch, so a press records intent (§7).
   const [deliveryStages] = useState<DeliveryStage[]>(initialDeliveryStages);
@@ -260,7 +607,14 @@ export function AdvancedMode({ client, project, onBack, endpoint }: AdvancedMode
       .then((list) => {
         if (cancelled) return;
         setRuns(list);
-        setRun(list[0] ?? null);
+        // Keep the selected run across a refresh: the run-control buttons re-read the same run
+        // the owner was watching, not silently jump to the newest row.
+        setRun((current) => {
+          if (current !== null && list.some((candidate) => candidate.id === current.id)) {
+            return list.find((candidate) => candidate.id === current.id) ?? current;
+          }
+          return list[0] ?? null;
+        });
         setRunsState('ready');
       })
       .catch(() => {
@@ -270,7 +624,90 @@ export function AdvancedMode({ client, project, onBack, endpoint }: AdvancedMode
     return () => {
       cancelled = true;
     };
-  }, [client, project.id]);
+  }, [client, project.id, runsNonce]);
+
+  // Load pending gates for the selected run (queue indicator).
+  useEffect(() => {
+    let cancelled = false;
+    if (run === null) {
+      setPendingGates([]);
+      return undefined;
+    }
+    client
+      .getGates(run.id)
+      .then((gates) => {
+        if (cancelled) return;
+        setPendingGates(gates.filter((gate) => gate.state.state === 'pending'));
+      })
+      .catch(() => {
+        // Ignore errors; pendingGates stays empty
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, run]);
+
+  // The loaded factory context (Complex Mode rail): what harness is driving, which skills are on,
+  // which plugins are installed. `harness.list` / `skills.list` / `plugins.list` are Wave 2 reads —
+  // a client without them simply has nothing to report (§7: the plate then says so in words).
+  useEffect(() => {
+    let cancelled = false;
+    const hasReads =
+      typeof client.listHarnesses === 'function' ||
+      typeof client.listSkills === 'function' ||
+      typeof client.listPlugins === 'function';
+    if (!hasReads) {
+      setContext(null);
+      return undefined;
+    }
+    Promise.all([
+      typeof client.listHarnesses === 'function' ? client.listHarnesses() : Promise.resolve([]),
+      typeof client.listSkills === 'function' ? client.listSkills() : Promise.resolve([]),
+      typeof client.listPlugins === 'function' ? client.listPlugins() : Promise.resolve([]),
+    ])
+      .then(([harnesses, skills, plugins]) => {
+        if (cancelled) return;
+        const active = harnesses.find((h) => h.active);
+        if (active) {
+          setActiveId(active.id);
+        }
+        setContext({
+          harnesses,
+          skills: skills.filter((skill) => skill.enabled),
+          plugins: plugins.filter((plugin) => plugin.enabled),
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setContext(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+
+  // The role → model table the daemon is honouring (`roles.list`), so the swarm's model column is a
+  // reading, not a fixture. A refusal leaves the standing assignment in place and says nothing extra.
+  useEffect(() => {
+    if (typeof client.listRoleRoutings !== 'function') return undefined;
+    let cancelled = false;
+    client
+      .listRoleRoutings()
+      .then((rows) => {
+        if (cancelled) return;
+        const next: Partial<Record<Role, string>> = {};
+        for (const row of rows) {
+          const target = row.targets[0];
+          if (target !== undefined) next[row.role] = `${target.provider_id}/${target.model_id}`;
+        }
+        setRoleModels(next);
+      })
+      .catch(() => {
+        if (!cancelled) setRoleModels({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
 
   // The project's budget: the same reading the instrument strip shows (§4), from `budget.project`.
   useEffect(() => {
@@ -392,6 +829,35 @@ export function AdvancedMode({ client, project, onBack, endpoint }: AdvancedMode
     [laneFilter, lanes]
   );
 
+  /**
+   * The subagent swarm matrix: every role, its lamp, its model and what it spent.
+   *
+   * The lamp is folded from the role's lane (§9: state in words and glyph, never colour alone):
+   * waiting when a gate holds the lane, working while it streams, done when the run completed with
+   * the lane present, idle when the lane never spoke.
+   */
+  const swarm = useMemo(
+    () =>
+      SWARM_ROLES.map((role) => {
+        const lane = lanes.find((candidate) => candidate.role === role) ?? null;
+        let state: LampState = 'idle';
+        if (lane !== null) {
+          if (lane.waiting) state = 'waiting';
+          else if (lane.failed) state = 'fail';
+          else if (run?.status === 'completed') state = 'ok';
+          else state = 'working';
+        }
+        return {
+          role,
+          state,
+          model: roleModels[role] ?? ROLE_MODEL_FIXTURE[role],
+          events: lane?.events ?? 0,
+          costCents: lane?.costCents ?? 0,
+        };
+      }),
+    [lanes, roleModels, run]
+  );
+
   /** `14:22:07.318` — Arabic keeps 0–9 so two lines of a feed compare (§11). */
   const formatTime = useCallback(
     (iso: unknown) => {
@@ -417,6 +883,63 @@ export function AdvancedMode({ client, project, onBack, endpoint }: AdvancedMode
     const pad = (value: number) => String(value).padStart(2, '0');
     return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
   }, []);
+
+  // ------------------------------------------------------------- the workspace file reader
+  /** Press a tree row: read the file (`files.read`) and open it in the code tab. */
+  const openFile = useCallback(
+    (path: string) => {
+      setSelectedFilePath(path);
+      setPane('code');
+      if (typeof client.readFileContent !== 'function') {
+        setFileContent(null);
+        setFileReading('failed');
+        return;
+      }
+      setFileReading('loading');
+      setFileContent(null);
+      client
+        .readFileContent(project.id, path)
+        .then((content) => {
+          setFileContent(content);
+          setFileReading('ready');
+        })
+        .catch(() => {
+          setFileReading('failed');
+        });
+    },
+    [client, project.id]
+  );
+
+  // --------------------------------------------------------------------- the run-control bar
+  /**
+   * Send one run control to the daemon (`runs.advance`, `runs.cancel`, `runs.followup`).
+   *
+   * The control is the owner's supervisory hand on a live run, so a failed RPC says so inline and
+   * keeps the buttons (§7) — the run never swallows a press. A success re-reads the run list: the
+   * bench shows the state the daemon moved the run to.
+   */
+  const sendControl = useCallback(
+    async (kind: 'advance' | 'cancel' | 'followup') => {
+      if (run === null) return;
+      setControlFailed(false);
+      try {
+        if (kind === 'advance') {
+          await client.advanceRun(run.id);
+        } else if (kind === 'cancel') {
+          await client.cancelRun(run.id);
+        } else {
+          const text = followupDraft.trim();
+          if (text === '') return;
+          await client.followupRun(run.id, text);
+          setFollowupDraft('');
+        }
+        setRunsNonce((nonce) => nonce + 1);
+      } catch {
+        setControlFailed(true);
+      }
+    },
+    [client, run, followupDraft]
+  );
 
   // ------------------------------------------------------------------ the pane tab strip (§9 roving)
   const onTabsKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
@@ -447,6 +970,82 @@ export function AdvancedMode({ client, project, onBack, endpoint }: AdvancedMode
     return empty;
   }, [todos]);
 
+  /**
+   * The live event plate. It sits beside the panes on every tab except `stream` — the Stream tab
+   * moves this same plate into the tab panel, where it gets the column, so the feed is never
+   * duplicated and never hidden (§3: a filter, and a tab, may not swallow a gate event).
+   */
+  const streamPlate = (
+    <Panel
+      title={t('advanced.stream_label', {}, locale)}
+      label={t('advanced.stream_label', {}, locale)}
+      actions={
+        <span style={{ fontFamily: 'var(--warsha-font-mono)', fontVariantNumeric: 'tabular-nums', fontSize: 'var(--warsha-font-size-xs)' }}>
+          {`${visibleEvents.length} / ${events.length}`}
+        </span>
+      }
+      style={{ minInlineSize: 0 }}
+    >
+      <div dir={dir} className="bench-filters" role="group" aria-label={t('advanced.filter_label', {}, locale)}>
+        {STREAM_FILTERS.map((candidate) => (
+          <Chip key={candidate} selected={filter === candidate} onPress={() => setFilter(candidate)}>
+            {t(`advanced.filter_${candidate}`, {}, locale)}
+          </Chip>
+        ))}
+        {laneFilter !== null && laneFilterLane !== null && (
+          <Chip tone="lit" glyph="×" onPress={() => setLaneFilter(null)}>
+            {roleWord(laneFilterLane, locale)}
+          </Chip>
+        )}
+      </div>
+
+      <p dir={dir} style={{ margin: 0, marginBlockStart: 'var(--warsha-space-2)', fontSize: 'var(--warsha-font-size-xs)' }}>
+        {t('advanced.filter_note', {}, locale)}
+      </p>
+
+      {run === null ? (
+        <p dir={dir} style={{ margin: 0, marginBlockStart: 'var(--warsha-space-3)', fontSize: 'var(--warsha-font-size-sm)' }}>
+          {t('bench.no_run', {}, locale)}
+        </p>
+      ) : visibleEvents.length === 0 ? (
+        events.length === 0 ? (
+          <Box style={{ marginBlockStart: 'var(--warsha-space-3)' }}>
+            <Skeleton label={t('advanced.stream_label', {}, locale)} lines={3} />
+          </Box>
+        ) : (
+          <p dir={dir} style={{ margin: 0, marginBlockStart: 'var(--warsha-space-3)', fontSize: 'var(--warsha-font-size-sm)' }}>
+            {t('advanced.no_events', {}, locale)}
+          </p>
+        )
+      ) : (
+        <div className="bench-stream">
+          <Stream label={t('advanced.stream_label', {}, locale)}>
+            {visibleEvents.slice(-120).map((event) => (
+              <Stream.Line
+                key={event.id}
+                time={formatTime(event.createdAt)}
+                kind={eventStreamKind(event)}
+                lane={event.role === null ? undefined : t(`role.${event.role}`, {}, locale)}
+              >
+                {/*
+                  Only the daemon's own kind name is machine data, so only it is isolated LTR. The
+                  stage beside it is the catalog's word (`البحث`), and a `dir="ltr"` around the whole
+                  line re-ordered it for an Arabic reader and pinned the word to the wrong edge (§11:
+                  an embedded fragment sits in its own isolated span, never bare and never wider).
+                */}
+                <span dir="ltr" translate="no" style={{ unicodeBidi: 'isolate' }}>
+                  {event.kind}
+                </span>
+                {` · ${stageWord(event.stage, locale)}`}
+                {event.costCents !== null && ` · $${(event.costCents / 100).toFixed(4)}`}
+              </Stream.Line>
+            ))}
+          </Stream>
+        </div>
+      )}
+    </Panel>
+  );
+
   return (
     <div dir={dir} className="bench-screen-stack" data-testid="advanced-mode" style={{ gap: 'var(--warsha-space-3)' }}>
       <Box
@@ -475,6 +1074,19 @@ export function AdvancedMode({ client, project, onBack, endpoint }: AdvancedMode
           {project.name}
         </span>
         <RunModeBadge mode={runMode} />
+        {onModeChange && (
+          // One click back down the ladder: the Complex workbench hands the owner to the Hard
+          // autonomous factory without losing the project (§3 — the switch changes depth only).
+          <Button
+            variant="secondary"
+            size="sm"
+            dir={dir}
+            data-testid="advanced-mode-toggle"
+            onClick={() => onModeChange('simple')}
+          >
+            {t('advanced.switch_to_hard', {}, locale)}
+          </Button>
+        )}
       </Box>
 
       {streamOffline && (
@@ -500,6 +1112,79 @@ export function AdvancedMode({ client, project, onBack, endpoint }: AdvancedMode
       <div className="bench-advanced">
         {/* ------------------------------------------------------------------------------ the rail */}
         <div className="bench-rail" data-testid="advanced-rail">
+          {/* The loaded factory context (Complex Mode): what harness drives, which skills are on,
+              which plugins are installed — the pills the owner reads before trusting a run. */}
+          <Panel
+            title={t('advanced.context_label', {}, locale)}
+            label={t('advanced.context_label', {}, locale)}
+            style={{ borderBlockEnd: 'none', minInlineSize: 0 }}
+          >
+            <div
+              dir={dir}
+              data-testid="advanced-context"
+              style={{ display: 'flex', gap: 'var(--warsha-space-2)', flexWrap: 'wrap', minInlineSize: 0 }}
+            >
+              {context === null ? (
+                <p dir={dir} style={{ margin: 0, fontSize: 'var(--warsha-font-size-sm)' }}>
+                  {t('advanced.context_none', {}, locale)}
+                </p>
+              ) : (
+                <>
+                  {context.harnesses.map((harness) => (
+                    <Chip
+                      key={`harness-${harness.id}`}
+                      tone={harness.active || harness.id === activeId ? 'lit' : 'default'}
+                      glyph="⌗"
+                      label={`${t('advanced.context_harness', {}, locale)} — ${harness.name}`}
+                    >
+                      <span dir="ltr" translate="no" style={{ unicodeBidi: 'isolate', fontFamily: 'var(--warsha-font-mono)' }}>
+                        {harness.name}
+                      </span>
+                    </Chip>
+                  ))}
+                  {context.skills.map((skill) => (
+                    <Chip
+                      key={`skill-${skill.id}`}
+                      glyph="✦"
+                      label={`${t('advanced.context_skill', {}, locale)} — ${skill.name}`}
+                    >
+                      <span dir="ltr" translate="no" style={{ unicodeBidi: 'isolate', fontFamily: 'var(--warsha-font-mono)' }}>
+                        {skill.name}
+                      </span>
+                    </Chip>
+                  ))}
+                  {context.plugins.map((plugin) => (
+                    <Chip
+                      key={`plugin-${plugin.id}`}
+                      glyph="⛨"
+                      label={`${t('advanced.context_plugin', {}, locale)} — ${plugin.name}`}
+                    >
+                      <span dir="ltr" translate="no" style={{ unicodeBidi: 'isolate', fontFamily: 'var(--warsha-font-mono)' }}>
+                        {plugin.name}
+                      </span>
+                    </Chip>
+                  ))}
+                  {context.harnesses.length === 0 && context.skills.length === 0 && context.plugins.length === 0 && (
+                    <p dir={dir} style={{ margin: 0, fontSize: 'var(--warsha-font-size-sm)' }}>
+                      {t('advanced.context_none', {}, locale)}
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          </Panel>
+
+          {/* The workspace file tree: `files.tree` per folder, a file press reads `files.read`. */}
+          <WorkspaceTree
+            heading={t('advanced.tree_label', {}, locale)}
+            client={client}
+            projectId={project.id}
+            onSelectFile={openFile}
+            selectedPath={selectedFilePath}
+            locale={locale}
+            dir={dir}
+          />
+
           <Panel
             title={t('advanced.lanes_label', {}, locale)}
             label={t('advanced.lanes_label', {}, locale)}
@@ -586,74 +1271,7 @@ export function AdvancedMode({ client, project, onBack, endpoint }: AdvancedMode
 
         {/* ---------------------------------------------------------------------- stream and panes */}
         <div className="bench-panes">
-          <Panel
-            title={t('advanced.stream_label', {}, locale)}
-            label={t('advanced.stream_label', {}, locale)}
-            actions={
-              <span style={{ fontFamily: 'var(--warsha-font-mono)', fontVariantNumeric: 'tabular-nums', fontSize: 'var(--warsha-font-size-xs)' }}>
-                {`${visibleEvents.length} / ${events.length}`}
-              </span>
-            }
-            style={{ minInlineSize: 0 }}
-          >
-            <div dir={dir} className="bench-filters" role="group" aria-label={t('advanced.filter_label', {}, locale)}>
-              {STREAM_FILTERS.map((candidate) => (
-                <Chip key={candidate} selected={filter === candidate} onPress={() => setFilter(candidate)}>
-                  {t(`advanced.filter_${candidate}`, {}, locale)}
-                </Chip>
-              ))}
-              {laneFilter !== null && laneFilterLane !== null && (
-                <Chip tone="lit" glyph="×" onPress={() => setLaneFilter(null)}>
-                  {roleWord(laneFilterLane, locale)}
-                </Chip>
-              )}
-            </div>
-
-            <p dir={dir} style={{ margin: 0, marginBlockStart: 'var(--warsha-space-2)', fontSize: 'var(--warsha-font-size-xs)' }}>
-              {t('advanced.filter_note', {}, locale)}
-            </p>
-
-            {run === null ? (
-              <p dir={dir} style={{ margin: 0, marginBlockStart: 'var(--warsha-space-3)', fontSize: 'var(--warsha-font-size-sm)' }}>
-                {t('bench.no_run', {}, locale)}
-              </p>
-            ) : visibleEvents.length === 0 ? (
-              events.length === 0 ? (
-                <Box style={{ marginBlockStart: 'var(--warsha-space-3)' }}>
-                  <Skeleton label={t('advanced.stream_label', {}, locale)} lines={3} />
-                </Box>
-              ) : (
-                <p dir={dir} style={{ margin: 0, marginBlockStart: 'var(--warsha-space-3)', fontSize: 'var(--warsha-font-size-sm)' }}>
-                  {t('advanced.no_events', {}, locale)}
-                </p>
-              )
-            ) : (
-              <div className="bench-stream">
-                <Stream label={t('advanced.stream_label', {}, locale)}>
-                  {visibleEvents.slice(-120).map((event) => (
-                    <Stream.Line
-                      key={event.id}
-                      time={formatTime(event.createdAt)}
-                      kind={eventStreamKind(event)}
-                      lane={event.role === null ? undefined : t(`role.${event.role}`, {}, locale)}
-                    >
-                      {/*
-                        Only the daemon's own kind name is machine data, so only it is isolated LTR. The
-                        stage beside it is the catalog's word (`البحث`), and a `dir="ltr"` around the whole
-                        line re-ordered it for an Arabic reader and pinned the word to the wrong edge (§11:
-                        an embedded fragment sits in its own isolated span, never bare and never wider).
-                      */}
-                      <span dir="ltr" translate="no" style={{ unicodeBidi: 'isolate' }}>
-                        {event.kind}
-                      </span>
-                      {` · ${stageWord(event.stage, locale)}`}
-                      {event.costCents !== null && ` · $${(event.costCents / 100).toFixed(4)}`}
-                    </Stream.Line>
-                  ))}
-                </Stream>
-              </div>
-            )}
-          </Panel>
+          {pane !== 'stream' ? streamPlate : null}
 
           {/* --------------------------------------------------------------------------------- panes */}
           <Box dir={dir} className="bench-side">
@@ -710,6 +1328,121 @@ export function AdvancedMode({ client, project, onBack, endpoint }: AdvancedMode
               })}
             </div>
 
+            {/* ------------------------------------------------------------------ the code viewer */}
+            {pane === 'code' && (
+              <div {...tabPanelProps('advanced-panel-code')} dir={dir} data-testid="advanced-code-pane">
+                <Panel title={t('advanced.code_label', {}, locale)} label={t('advanced.code_label', {}, locale)} style={{ minInlineSize: 0 }}>
+                  {selectedFilePath === null ? (
+                    <p dir={dir} style={{ margin: 0, fontSize: 'var(--warsha-font-size-sm)' }}>
+                      {t('advanced.code_empty', {}, locale)}
+                    </p>
+                  ) : fileReading === 'loading' ? (
+                    <Skeleton label={t('advanced.code_loading', {}, locale)} lines={4} variant="row" />
+                  ) : fileReading === 'failed' || fileContent === null ? (
+                    <Lamp state="fail" size="sm">
+                      {t('advanced.code_failed', {}, locale)}
+                    </Lamp>
+                  ) : (
+                    <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-3)', flexWrap: 'wrap', minInlineSize: 0 }}>
+                      <span dir="ltr" translate="no" style={{ unicodeBidi: 'isolate', fontFamily: 'var(--warsha-font-mono)', fontSize: 'var(--warsha-font-size-xs)' }}>
+                        {fileContent.path}
+                      </span>
+                      <span dir={dir} style={{ fontSize: 'var(--warsha-font-size-xs)', fontFamily: 'var(--warsha-font-mono)', fontVariantNumeric: 'tabular-nums' }}>
+                        {t('advanced.code_lines', { count: fileContent.content.split('\n').length }, locale)}
+                      </span>
+                      <span dir={dir} style={{ fontSize: 'var(--warsha-font-size-xs)' }}>
+                        {`${t('advanced.code_language', {}, locale)}: `}
+                        <span dir="ltr" translate="no" style={{ unicodeBidi: 'isolate', fontFamily: 'var(--warsha-font-mono)' }}>
+                          {fileContent.mimeType}
+                        </span>
+                      </span>
+                    </Box>
+                  )}
+                  {selectedFilePath !== null && fileReading === 'ready' && fileContent !== null && (
+                    <div
+                      dir="ltr"
+                      translate="no"
+                      data-testid="advanced-code-lines"
+                      style={{
+                        marginBlockStart: 'var(--warsha-space-3)',
+                        fontFamily: 'var(--warsha-font-mono)',
+                        fontSize: 'var(--warsha-font-size-xs)',
+                        fontVariantNumeric: 'tabular-nums',
+                        backgroundColor: 'var(--warsha-color-bg)',
+                        border: 'var(--warsha-size-rule) solid var(--warsha-bench-rule)',
+                        borderRadius: 'var(--warsha-radius-sm)',
+                        padding: 'var(--warsha-space-3)',
+                        overflowX: 'auto',
+                        minInlineSize: 0,
+                        whiteSpace: 'pre',
+                      }}
+                    >
+                      {fileContent.content.split('\n').map((line, index) => (
+                        <div key={index} data-testid={`advanced-code-line-${index + 1}`}>
+                          <span style={{ display: 'inline-block', inlineSize: '4ch', color: 'var(--warsha-color-text)', textAlign: 'end', marginInlineEnd: 'var(--warsha-space-3)' }}>
+                            {index + 1}
+                          </span>
+                          {line}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Panel>
+              </div>
+            )}
+
+            {/* ------------------------------------------------------------------------ the plan */}
+            {pane === 'plan' && (
+              <div {...tabPanelProps('advanced-panel-plan')} dir={dir} data-testid="advanced-plan-pane">
+                <Panel title={t('advanced.plan_label', {}, locale)} label={t('advanced.plan_label', {}, locale)} style={{ minInlineSize: 0 }}>
+                  <p dir={dir} style={{ margin: 0, fontSize: 'var(--warsha-font-size-xs)' }}>
+                    {t('advanced.plan_hint', {}, locale)}
+                  </p>
+                  {run === null ? (
+                    <p dir={dir} style={{ margin: 0, marginBlockStart: 'var(--warsha-space-3)', fontSize: 'var(--warsha-font-size-sm)' }}>
+                      {t('bench.no_run', {}, locale)}
+                    </p>
+                  ) : (
+                    <div style={{ marginBlockStart: 'var(--warsha-space-2)' }}>
+                      {RUN_STAGE_ORDER.map((stage) => {
+                        const active = stage === run.stage;
+                        const passed = RUN_STAGE_ORDER.indexOf(stage) < RUN_STAGE_ORDER.indexOf(run.stage);
+                        return (
+                          <div
+                            key={stage}
+                            dir={dir}
+                            data-testid={`advanced-plan-stage-${stage}`}
+                            data-state={active ? 'active' : passed ? 'passed' : 'pending'}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 'var(--warsha-space-2)',
+                              paddingBlock: 'var(--warsha-space-1)',
+                              borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+                              fontWeight: active ? 'var(--warsha-font-weight-bold)' : 'var(--warsha-font-weight-normal)',
+                              minInlineSize: 0,
+                            }}
+                          >
+                            <Lamp state={active ? 'working' : passed ? 'ok' : 'idle'} size="xs" bare>
+                              {active ? '▶' : passed ? '✓' : '·'}
+                            </Lamp>
+                            <span style={{ fontSize: 'var(--warsha-font-size-sm)' }}>{stageWord(stage, locale)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </Panel>
+              </div>
+            )}
+
+            {/* ---------------------------------------------------------------------- the stream tab */}
+            {pane === 'stream' && (
+              <div {...tabPanelProps('advanced-panel-stream')} dir={dir} data-testid="advanced-stream-pane">
+                {streamPlate}
+              </div>
+            )}
+
             {/* ------------------------------------------------------------------ the task board */}
             {pane === 'board' && (
               <div {...tabPanelProps('advanced-panel-board')} dir={dir} data-testid="advanced-board">
@@ -751,18 +1484,15 @@ export function AdvancedMode({ client, project, onBack, endpoint }: AdvancedMode
             {pane === 'files' && (
               <div {...tabPanelProps('advanced-panel-files')} dir={dir} data-testid="advanced-files">
                 <Panel title={t('advanced.files_label', {}, locale)} label={t('advanced.files_label', {}, locale)} style={{ minInlineSize: 0 }}>
-                  {/* The daemon answers `artifacts` for a run, not a file tree, on this branch — so the plate
-                      says where the list actually lives rather than inventing an RPC (§5, and no new calls). */}
-                  <EmptyState
-                    title={t('advanced.files_empty', {}, locale)}
-                    description={t('artifacts.select_desc', {}, locale)}
-                    action={
-                      onBack ? (
-                        <Button variant="primary" size="sm" dir={dir} data-testid="advanced-files-parent" onClick={onBack}>
-                          {t('run.artifacts', {}, locale)}
-                        </Button>
-                      ) : undefined
-                    }
+                  <WorkspaceTree
+                    heading={t('advanced.tree_label', {}, locale)}
+                    client={client}
+                    projectId={project.id}
+                    onSelectFile={openFile}
+                    selectedPath={selectedFilePath}
+                    locale={locale}
+                    dir={dir}
+                    testId="advanced-files-pane-tree"
                   />
                 </Panel>
               </div>
@@ -828,6 +1558,129 @@ export function AdvancedMode({ client, project, onBack, endpoint }: AdvancedMode
                       )
                     }
                   />
+                  {/* The interactive run control bar (`runs.advance`, `runs.cancel`, `runs.followup`).
+                      It sits beside the dock, never inside it: the dock's transcript stays the run's
+                      own log, and these are the owner's supervisory presses on the run object —
+                      `runs.followup` is an instruction to the agent, not a shell command, so §6's
+                      "the interface does not execute commands" rule survives word for word. */}
+                  <div
+                    dir={dir}
+                    role="group"
+                    aria-label={t('advanced.controls_label', {}, locale)}
+                    data-testid="advanced-run-controls"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-end',
+                      gap: 'var(--warsha-space-2)',
+                      flexWrap: 'wrap',
+                      marginBlockStart: 'var(--warsha-space-2)',
+                      minInlineSize: 0,
+                    }}
+                  >
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      dir={dir}
+                      data-testid="run-advance"
+                      disabled={run === null}
+                      onClick={() => void sendControl('advance')}
+                    >
+                      {t('advanced.run_advance', {}, locale)}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      dir={dir}
+                      data-testid="run-cancel"
+                      disabled={run === null}
+                      onClick={() => void sendControl('cancel')}
+                    >
+                      {t('advanced.run_cancel', {}, locale)}
+                    </Button>
+                    <form
+                      dir={dir}
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void sendControl('followup');
+                      }}
+                      style={{ display: 'flex', alignItems: 'flex-end', gap: 'var(--warsha-space-2)', flex: '1', minWidth: 0 }}
+                    >
+                      <label
+                        htmlFor="advanced-followup-input"
+                        style={{
+                          position: 'absolute',
+                          inlineSize: 'var(--warsha-size-rule)',
+                          blockSize: 'var(--warsha-size-rule)',
+                          overflow: 'hidden',
+                          clipPath: 'inset(50%)',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {t('advanced.run_followup_label', {}, locale)}
+                      </label>
+                      <input
+                        id="advanced-followup-input"
+                        data-testid="run-followup-input"
+                        dir={dir}
+                        value={followupDraft}
+                        placeholder={t('advanced.run_followup_placeholder', {}, locale)}
+                        onChange={(event) => setFollowupDraft(event.target.value)}
+                        style={{
+                          flex: '1',
+                          minWidth: 0,
+                          fontFamily: 'inherit',
+                          fontSize: 'var(--warsha-font-size-sm)',
+                          color: 'var(--warsha-color-text)',
+                          backgroundColor: 'var(--warsha-bench-plate)',
+                          border: '1px solid var(--warsha-bench-edge)',
+                          borderRadius: 'var(--warsha-radius-sm)',
+                          paddingInline: 'var(--warsha-space-3)',
+                          paddingBlock: 'var(--warsha-space-2)',
+                          minBlockSize: 'var(--warsha-size-touch)',
+                        }}
+                      />
+                      <Button
+                        type="submit"
+                        size="sm"
+                        dir={dir}
+                        data-testid="run-followup-send"
+                        disabled={followupDraft.trim() === '' || run === null}
+                      >
+                        {t('advanced.run_followup_send', {}, locale)}
+                      </Button>
+                      <FastModeToggle
+                        tier={fastModeTier}
+                        onChange={setFastModeTier}
+                        label={t(`composer.fast_mode.tier.${fastModeTier}`, {}, locale)}
+                        hint={t(`composer.fast_mode.hint.${fastModeTier}`, {}, locale)}
+                        dir={dir}
+                      />
+                      <ModelPicker
+                        selectedId={advancedModelId}
+                        options={[
+                          { id: 'deepseek-v3', name: 'DeepSeek V3', provider: 'DeepSeek' },
+                          { id: 'claude-3-5-sonnet', name: 'Claude 3.5 Sonnet', provider: 'Anthropic' },
+                          { id: 'gpt-4o', name: 'GPT-4o', provider: 'OpenAI' },
+                          { id: 'ollama', name: 'Ollama', provider: 'Ollama' },
+                        ]}
+                        onChange={setAdvancedModelId}
+                        dir={dir}
+                        ariaLabel={t('composer.model_picker.label', { model: advancedModelId }, locale)}
+                      />
+                      {pendingGates.length > 0 && (
+                        <Chip tone="lit" glyph="!" label={t('simple.pending_gates', {}, locale)}>
+                          {pendingGates.length}
+                        </Chip>
+                      )}
+                      <PermissionModeChip mode={permissionMode} onChange={setPermissionMode} />
+                      <PlanModeBadge mode={agentMode} onToggle={setAgentMode} />
+                    </form>
+                    {controlFailed && (
+                      <span role="alert" dir={dir} style={{ fontSize: 'var(--warsha-font-size-xs)', color: 'var(--warsha-color-text)' }}>
+                        {t('advanced.run_control_failed', {}, locale)}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -931,6 +1784,84 @@ export function AdvancedMode({ client, project, onBack, endpoint }: AdvancedMode
               </div>
             )}
           </Box>
+        </div>
+
+        {/* ------------------------------------------------------------- the subagent swarm matrix
+            The right rail of the Complex workbench: every factory role at once, each with its lamp,
+            its model and what it spent. Collapsible, because the owner reads it to supervise the
+            swarm, not to operate it — the rows are records, not controls. */}
+        <div
+          dir={dir}
+          className="bench-swarm"
+          data-testid="advanced-swarm"
+          style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)', minInlineSize: 0 }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-2)', flexWrap: 'wrap' }}>
+            <RailHead>{t('advanced.swarm_label', {}, locale)}</RailHead>
+            <Button
+              variant="ghost"
+              size="sm"
+              dir={dir}
+              data-testid="advanced-swarm-toggle"
+              aria-expanded={swarmOpen}
+              onClick={() => setSwarmOpen((open) => !open)}
+            >
+              {t(swarmOpen ? 'advanced.swarm_collapse' : 'advanced.swarm_expand', {}, locale)}
+            </Button>
+          </div>
+          {swarmOpen && (
+            <div data-testid="advanced-swarm-matrix">
+              <p dir={dir} style={{ margin: 0, marginBlockEnd: 'var(--warsha-space-2)', fontSize: 'var(--warsha-font-size-xs)' }}>
+                {t('advanced.swarm_hint', {}, locale)}
+              </p>
+              {swarm.map((member) => (
+                <div
+                  key={member.role}
+                  dir={dir}
+                  data-testid={`advanced-swarm-row-${member.role}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 'var(--warsha-space-2)',
+                    flexWrap: 'wrap',
+                    paddingBlock: 'var(--warsha-space-1)',
+                    borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+                    minInlineSize: 0,
+                  }}
+                >
+                  <Lamp state={member.state} size="xs">
+                    {t(`role.${member.role}`, {}, locale)}
+                  </Lamp>
+                  <span
+                    dir="ltr"
+                    translate="no"
+                    data-testid={`advanced-swarm-model-${member.role}`}
+                    style={{
+                      unicodeBidi: 'isolate',
+                      fontFamily: 'var(--warsha-font-mono)',
+                      fontSize: 'var(--warsha-font-size-xs)',
+                    }}
+                  >
+                    {member.model}
+                  </span>
+                  <span
+                    dir="ltr"
+                    translate="no"
+                    data-testid={`advanced-swarm-cost-${member.role}`}
+                    style={{
+                      unicodeBidi: 'isolate',
+                      fontFamily: 'var(--warsha-font-mono)',
+                      fontVariantNumeric: 'tabular-nums',
+                      fontSize: 'var(--warsha-font-size-xs)',
+                      marginInlineStart: 'auto',
+                    }}
+                  >
+                    {`$${(member.costCents / 100).toFixed(4)}`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

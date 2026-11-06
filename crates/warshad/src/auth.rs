@@ -605,6 +605,125 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Session,
         tier: Standard,
     },
+    // Wave 2 — the six catalogs a browser manages.
+    //
+    // The rule is the one audit H-04 set and every row above follows: reading what is
+    // installed is a session's work (a paired phone that can see the Run screen should
+    // see which harness runs it), and changing what is installed is an owner's. A
+    // paired device is never an owner, so a phone cannot import a pipeline, install a
+    // plugin pack, register a model or connect a service — and the one method that
+    // could spend an owner's quota at a third party is put under the Spend ceiling as
+    // well as under Owner, so it stops at the budget even for the owner.
+    M {
+        method: "harness.list",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "harness.get",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "harness.import",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "harness.select",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "harness.delete",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "skills.import",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "skills.toggle",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "skills.delete",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "plugins.list",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "plugins.install",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "plugins.toggle",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "plugins.configure",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "plugins.remove",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "models.list",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "models.add",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "models.remove",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "integrations.list",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "integrations.connect",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "integrations.disconnect",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "integrations.test",
+        policy: Owner,
+        tier: Spend,
+    },
+    M {
+        method: "files.tree",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "files.read",
+        policy: Session,
+        tier: Standard,
+    },
 ];
 
 /// The policy of a method, or `None` for one the table does not name.

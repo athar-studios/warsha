@@ -14,8 +14,16 @@
 // Every word comes from `@warsha/i18n` (`settings_providers.*`): the `{ ar, en }` table and the
 // `translated === key ? fallback : translated` shim are gone, so an Arabic session cannot fall back into
 // English copy.
+//
+// Wave 2 adds the custom API providers: when the shell passes `client`, the section under the ledger
+// writes `providers.add` with an OpenAI-compatible / Anthropic / Ollama / DeepSeek / custom endpoint
+// kind and tests each added provider through `providers.test`. The section starts collapsed (the ledger
+// stays the screen's one promise), the key is a password field cleared the moment it is sent, and no
+// value typed into it is ever rendered back (AGENTS.md: secrets ride once, live in the keychain).
+import { type WarshaClient } from '@warsha/client';
 import { t, useDirection, useLocale } from '@warsha/i18n';
-import { Ledger } from '@warsha/ui';
+import { Banner, Box, Button, Chip, Field, Ledger, Panel, Stamp, Text, fieldControl } from '@warsha/ui';
+import React, { useCallback, useEffect, useState } from 'react';
 
 import { ProviderRow, type ProviderEntry, type ProviderMode } from '../components/ProviderRow';
 
@@ -26,20 +34,94 @@ export interface SettingsProvidersProps {
   onModeChange: (name: string, mode: ProviderMode) => void;
   onToggle: (name: string, enabled: boolean) => void;
   onPinVersion: (name: string, version: string) => void;
+  /** The daemon client; present, the custom-provider section can write to the server. */
+  client?: WarshaClient;
 }
+
+/** The API surfaces a custom provider can register on, in kind-select order. */
+const CUSTOM_KINDS = ['openai', 'anthropic', 'ollama', 'deep_seek', 'custom'] as const;
 
 export function SettingsProviders({
   providers,
   onModeChange,
   onToggle,
   onPinVersion,
+  client,
 }: SettingsProvidersProps) {
   const dir = useDirection();
   const locale = useLocale();
 
+  const [showCustom, setShowCustom] = useState(false);
+  const [customDraft, setCustomDraft] = useState({ name: '', kind: 'openai', key: '', apiBase: '' });
+  const [customProviders, setCustomProviders] = useState<{ name: string; kind: string }[]>([]);
+  const [customError, setCustomError] = useState<string | null>(null);
+  const [customAdded, setCustomAdded] = useState<string | null>(null);
+  const [customTest, setCustomTest] = useState<Record<string, 'ok' | 'failed'>>({});
+  const [addingCustom, setAddingCustom] = useState(false);
+
   const title = t('settings_providers.title', {}, locale);
   const note = t('settings_providers.note', {}, locale);
   const empty = t('settings_providers.empty', {}, locale);
+  const label = (key: string, values?: Record<string, string | number>) => t(key, values ?? {}, locale);
+
+  const refreshCustomProviders = useCallback(async () => {
+    if (client === undefined || typeof client.listProviders !== 'function') return;
+    try {
+      const rows = await client.listProviders();
+      setCustomProviders(rows.map((r) => ({ name: r.name, kind: r.kind })));
+    } catch {
+      // best-effort refresh; keep existing rows if daemon is unreachable
+    }
+  }, [client]);
+
+  useEffect(() => {
+    void refreshCustomProviders();
+  }, [refreshCustomProviders]);
+
+  const addCustomProvider = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (client === undefined || customDraft.name.trim() === '') return;
+    setAddingCustom(true);
+    setCustomError(null);
+    setCustomAdded(null);
+    try {
+      await client.addProvider({
+        name: customDraft.name.trim(),
+        kind: customDraft.kind,
+        key: customDraft.key,
+        ...(customDraft.apiBase.trim() === '' ? {} : { api_base: customDraft.apiBase.trim() }),
+      });
+      await refreshCustomProviders();
+      setCustomAdded(customDraft.name.trim());
+    } catch {
+      setCustomError(label('settings_providers.custom_failed'));
+    } finally {
+      // the key is written once and forgotten; the form never keeps a secret to re-render (AGENTS.md).
+      setCustomDraft({ name: '', kind: 'openai', key: '', apiBase: '' });
+      setAddingCustom(false);
+    }
+  };
+
+  const removeCustomProvider = async (name: string) => {
+    if (client === undefined) return;
+    setCustomError(null);
+    try {
+      await client.removeProvider(name);
+      await refreshCustomProviders();
+    } catch {
+      setCustomError(label('providers.remove_failed'));
+    }
+  };
+
+  const testCustomProvider = async (name: string) => {
+    if (client === undefined) return;
+    try {
+      await client.testProvider(name);
+      setCustomTest((previous) => ({ ...previous, [name]: 'ok' }));
+    } catch {
+      setCustomTest((previous) => ({ ...previous, [name]: 'failed' }));
+    }
+  };
 
   return (
     <section
@@ -115,6 +197,148 @@ export function SettingsProviders({
             />
           ))}
         </Ledger>
+      )}
+
+      {client !== undefined && (
+        <div
+          dir={dir}
+          data-testid="settings-providers-custom"
+          style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)', minInlineSize: 0 }}
+        >
+          <Text size="sm" weight="medium" dir={dir}>
+            {label('settings_providers.custom_title')}
+          </Text>
+          <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
+            {label('settings_providers.custom_note')}
+          </Text>
+
+          <Box dir={dir}>
+            <Button
+              variant={showCustom ? 'secondary' : 'primary'}
+              size="sm"
+              dir={dir}
+              aria-expanded={showCustom}
+              data-testid="settings-providers-custom-add"
+              onClick={() => {
+                setShowCustom((open) => !open);
+                setCustomError(null);
+              }}
+            >
+              {label('settings_providers.custom_add')}
+            </Button>
+          </Box>
+
+          {showCustom && (
+            <Panel title={label('settings_providers.custom_add')} label={label('settings_providers.custom_add')}>
+              <form onSubmit={addCustomProvider} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' }}>
+                <Field id="custom-provider-name" label={label('models.display_name')} required>
+                  <input
+                    {...fieldControl('custom-provider-name', { required: true })}
+                    dir="ltr"
+                    value={customDraft.name}
+                    onChange={(event) => setCustomDraft({ ...customDraft, name: event.target.value })}
+                    style={{ fontFamily: 'var(--warsha-font-mono)' }}
+                  />
+                </Field>
+
+                <Field id="custom-provider-kind" label={label('providers.type')}>
+                  <select
+                    {...fieldControl('custom-provider-kind')}
+                    dir={dir}
+                    value={customDraft.kind}
+                    onChange={(event) => setCustomDraft({ ...customDraft, kind: event.target.value })}
+                  >
+                    {CUSTOM_KINDS.map((kind) => (
+                      <option key={kind} value={kind}>
+                        {label(`settings_providers.kind.${kind}`)}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+
+                <Field id="custom-provider-key" label={label('providers.api_key')} hint={label('settings_providers.key_note')}>
+                  <input
+                    {...fieldControl('custom-provider-key', { hint: true })}
+                    dir="ltr"
+                    type="password"
+                    autoComplete="off"
+                    value={customDraft.key}
+                    onChange={(event) => setCustomDraft({ ...customDraft, key: event.target.value })}
+                  />
+                </Field>
+
+                <Field id="custom-provider-api-base" label={label('providers.api_base')}>
+                  <input
+                    {...fieldControl('custom-provider-api-base')}
+                    dir="ltr"
+                    placeholder="https://api.example.com/v1"
+                    value={customDraft.apiBase}
+                    onChange={(event) => setCustomDraft({ ...customDraft, apiBase: event.target.value })}
+                    style={{ fontFamily: 'var(--warsha-font-mono)' }}
+                  />
+                </Field>
+
+                {customError && <Banner tone="error">{customError}</Banner>}
+
+                <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-3)', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                  <Button type="button" variant="secondary" dir={dir} onClick={() => setShowCustom(false)}>
+                    {label('common.cancel')}
+                  </Button>
+                  <Button type="submit" variant="primary" dir={dir} disabled={addingCustom || customDraft.name.trim() === ''}>
+                    {label('providers.add')}
+                  </Button>
+                </Box>
+              </form>
+            </Panel>
+          )}
+
+          {customAdded && (
+            <Box dir={dir}>
+              <Stamp tone="ok">{label('settings_providers.custom_added', { name: customAdded })}</Stamp>
+            </Box>
+          )}
+
+          {customProviders.length > 0 && (
+            <Ledger label={label('settings_providers.custom_title')} recessed>
+              {customProviders.map((entry) => (
+                <Ledger.Row
+                  key={entry.name}
+                  meta={<Chip label={label(`settings_providers.kind.${entry.kind}`)}>{label(`settings_providers.kind.${entry.kind}`)}</Chip>}
+                  actions={
+                    <Box dir={dir} style={{ display: 'inline-flex', gap: 'var(--warsha-space-2)' }}>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        dir={dir}
+                        data-testid={`custom-provider-test-${entry.name}`}
+                        onClick={() => void testCustomProvider(entry.name)}
+                      >
+                        {label('providers.test_connection')}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        dir={dir}
+                        data-testid={`custom-provider-remove-${entry.name}`}
+                        onClick={() => void removeCustomProvider(entry.name)}
+                      >
+                        {label('providers.remove')}
+                      </Button>
+                    </Box>
+                  }
+                >
+                  <Box dir={dir} style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--warsha-space-2)', flexWrap: 'wrap' }}>
+                    <Text size="sm" weight="medium" dir="ltr" translate="no">
+                      {entry.name}
+                    </Text>
+                    {customTest[entry.name] === 'ok' && <Stamp tone="ok">{label('settings_providers.test_ok')}</Stamp>}
+                    {customTest[entry.name] === 'failed' && <Stamp tone="fail">{label('settings_providers.test_failed')}</Stamp>}
+                  </Box>
+                </Ledger.Row>
+              ))}
+            </Ledger>
+          )}
+        </div>
       )}
     </section>
   );

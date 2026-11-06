@@ -157,7 +157,7 @@ async fn a_refused_real_llm_call_fails_the_run_records_it_and_scrubs_the_key() {
     let result: Result<(), String> = async {
         let (dir, store) = fresh_store().await;
         let engine =
-            PipelineEngine::new(store.clone(), Arc::new(RwLock::new(ProviderRouter::new())));
+            PipelineEngine::new_test(store.clone(), Arc::new(RwLock::new(ProviderRouter::new())));
         let project_id = create_project(&store).await;
         let run = engine
             .start_run(project_id, "تطبيق حجز مواعيد يفشل عند النموذج")

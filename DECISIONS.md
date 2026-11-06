@@ -1120,3 +1120,112 @@ before it can believe any line number in the handoff.
   those are timestamped logs and the repo's convention is to supersede, not erase.
 - **How to reverse**: no reversal wanted; if the updater is ever configured again, update the same four
   docs pages from `tauri.conf.json` and re-run the §1.1 greps.
+
+## 2026-11-06 — Wave 2 client lane ships ahead of its daemon lane; the wire gate defers exactly the new names, visibly
+- **Decision**: `packages/client/src/index.ts` now carries the full Wave 2 surface —
+  `HarnessDefinition`/`HarnessStage`/`HarnessRules`, `SkillDefinition`,
+  `PluginDefinition`/`PluginToolDefinition`, `CustomModelRecord`,
+  `IntegrationStatus`/`IntegrationConfig`/`IntegrationTestResult`, `FileEntry`/`FileContent`, their
+  seven decoders, the `WarshaWave2Api` interface and 23 methods on `WarshaClient` (the class the task
+  sheet called `HttpWarshaClient`; it has always been `WarshaClient`) — dialing `harness.*`,
+  `skills.import|toggle|delete`, `plugins.*`, `models.*`, `integrations.*` and
+  `files.tree`/`files.read`. Those RPC names are not yet registered by `warshad` (tasks #6–#8, the
+  daemon lanes, land separately), so the check script's documented one-edit escape hatch is used:
+  `REQUIRE_NO_KNOWN_DRIFT = false` with exactly those 22 names in `KNOWN_UNREGISTERED_METHODS`.
+  Flipping the flag back to `true` with the set empty is the done-signal for the Wave 2 wire; every
+  non-deferred name and params object stays strictly checked, and the gate's `--self-test` still
+  proves a drift outside the deferred set fires in the shipped mode.
+- **Alternatives**: (a) writing the daemon RPC handlers in this lane — rejected, that is the scope of
+  tasks #6–#8 and collides with the agents owning them; (b) routing the calls through a helper the
+  gate's parser cannot see — rejected, that is exactly the silent-ghost shape the gate exists to
+  refuse; (c) shipping without the new client methods until the daemon lands — rejected, the client
+  lane is the contract the daemon lane codes against, and the deferred set names every wire
+  spelling it must match.
+- **Wire spellings fixed by this decision** (the daemon lane binds these or the strict gate fails on
+  re-flip): params are the daemon's snake_case (`harness_id`, `project_id`, `url_or_content`,
+  `manifest_json_or_url`, `model_id`, `display_name`, `context_window`), omitted `Option`s travel as
+  `null`, and `skills.list` sends no params because its registered signature binds none.
+  `listSkills()` decodes today's `SlashCommand` rows (its `name` doubles as the `id`), so it works
+  against the current daemon unchanged.
+- **Row shapes mirror the landed `warsha-core` structs, not guesses**: once tasks #6–#7 shipped
+  `crates/warsha-core/src/{harness,skill,plugin,config}.rs`, the client's Wave 2 interfaces and
+  decoders were realigned to them field for field — `HarnessStage.gate`/`promptTemplate` are
+  `Option<String>` (null, not boolean), `HarnessRules` is
+  `max_repair_iterations`/`budget_cap_cents: Option`/`allow_parallel_subagents`/
+  `require_verification_receipt`, `HarnessDefinition` carries `preset` + `created_at` (no
+  `updated_at`), `SkillDefinition` carries `content` (no `version`), `PluginDefinition` is
+  `transport`/`command: Option`/`args`/`env: HashMap` (secret *references*)/`tools` with
+  `parameters_json: Option`, `CustomModelRecord` keeps `Option` nulls (screens fall back, the decoder
+  does not invent), `IntegrationStatus` is `configured_at: Option` + opaque `details`,
+  `IntegrationTestResult` is `{status, message}`, `FileEntry` is a flat `is_dir`/`size_bytes` row and
+  `FileContent` is `mime_type` (default `text/plain`). `connectIntegration` sends the Rust
+  `IntegrationConfig` fields (`token`, `webhook_url`, `bot_token`, `channel`, `org`), each `null`
+  when absent — token material rides the write only and no read shape carries one.
+- **Evidence**: `pnpm --filter @warsha/client typecheck` exit 0; `pnpm --filter @warsha/client test`
+  112 passed (23 wire-contract + 89 index, Wave 2 rows included);
+  `node scripts/check-wire-contract.mjs` prints `wire: 8 checks, 0 violations` exit 0,
+  `--report-only-known` lists the 22 deferred names, and `--self-test` passes all 8 checks in both
+  modes. ESLint clean; the new lines are Prettier-clean (the three touched files carried pre-existing
+  whole-file deviations at HEAD and were not reformatted outside the lane).
+- **How to reverse**: when the daemon registers the names, delete the 22 entries, set
+  `REQUIRE_NO_KNOWN_DRIFT = true`, and run `node scripts/check-wire-contract.mjs` — a drift between a
+  dialled name and a registration then fails CI loudly.
+
+## 2026-11-06 — Dual-Mode Software Factory UI Architecture (Qoder Complex Mode + Grokbot/Openbot Hard Mode)
+- **Decision**: the factory is one data path shown at two depths, not two apps. **Complex Mode**
+  (`apps/desktop/src/screens/AdvancedMode.tsx`) gains the Qoder-workbench organs: a lazy workspace
+  tree in the rail built from `client.getFilesTree`/`client.readFileContent` (the task sheet's
+  `files.tree`/`files.read` lane, which the client surface actually names `getFilesTree`/
+  `readFileContent`; every folder fetches its children on first expand, nothing walks the repo on
+  mount), a file press that opens the new **Code tab** (path, `advanced.code_lines` plural, mime
+  type, numbered `dir="ltr" translate="no"` lines), **Plan** and **Stream** tabs — the Stream is one
+  relocated plate, never a second copy, so `getByRole('log')` stays unique — the active
+  Harness/Skill/Plugin context pills (`listHarnesses`/`listSkills`/`listPlugins`, disabled entries
+  filtered out), and a run-control bar that sits *beside* the read-only `TerminalDock` and speaks
+  `advanceRun`/`cancelRun`/`followupRun` (`runs.advance`/`runs.cancel`/`runs.followup`): a follow-up
+  is an instruction to the agent, not a shell command, so §6's "the interface does not execute
+  commands" survives word for word and the dock keeps no textbox. The right column is a collapsible
+  **Subagent Swarm matrix**: all twelve `Role` values as record rows (never buttons — they supervise,
+  they do not navigate), each with its lamp from the live lanes, a bench-local model fixture (the
+  daemon reports no per-agent model RPC yet, §7) and the cost summed from the stream.
+  **Hard Mode** (`apps/desktop/src/screens/SimpleMode.tsx`) gains the Grokbot/Openbot organs: the
+  one-click ladder (`onModeChange`, wired in `App.tsx` to the shell's own `setMode`, so the switch
+  keeps the project, the run and the gates per §3), a **Mission Briefing Composer** (brief textarea,
+  seven harness preset pills, four model pills, `$5/$10/$25/$50` + custom budget; launch runs
+  `selectHarness` best-effort then `startRun`), the live **nine-stage autonomous pipeline**
+  (Intake→Research→Architecture→Code→Review→QA→Security→Release→Feedback) with the daemon's 14-stage
+  walk folded onto it by the exported pure map `factoryStageIndex`, the press-metal **GateCards**
+  enriched with the decision rationale and the automatic safety line, an **artifact shelf** fed by
+  `getRunArtifacts` (names classified by `artifactKindOf` into file/test/diff/pr/build), and a
+  **verification receipt** (`data-testid="verification-receipt"`) attesting run id, project id,
+  active harness, pass/fail/pending, the token and USD totals folded from the *same* event socket,
+  the run duration, and `verificationSeal` — an FNV-1a double-32-bit hex over `runId:projectId`,
+  documented as a bench-local integrity mark because `warshad` exposes no signing RPC on this
+  branch (the screen invents none, §7).
+- **Why this shape holds**: supervisor control is untouched — the only new writes are the owner's own
+  presses (`runs.advance`/`cancel`/`followup`, `runs.start`, `harnesses.select`) and the gates remain
+  the only way anything ships; security isolation is untouched — no new daemon surface, the terminal
+  stays a transcript, and no secret material is rendered; and the full AI software factory reads at
+  both depths from the identical `listRuns`/`getGates`/`subscribeEvents` path, so a mission launched
+  on the Hard bench is the same run object the Complex workbench supervises.
+- **Alternatives**: (a) new daemon RPCs for a signed receipt and per-agent models — rejected as
+  out of scope for a UI task; the seal and the model column are derived bench-locally and both are
+  single-function swaps when the daemon grows the wire; (b) swarm rows and pipeline stages as
+  interactive lanes — rejected: `AdvancedMode.test.tsx` pins `getByRole('button', {name: 'Designer'})`
+  to the lane filter, and §3 says a supervisory matrix is read, not operated; (c) rendering the
+  Stream plate twice (rail + tab) — rejected, `getByRole('log')` would throw; the plate relocates by
+  conditional placement instead; (d) a third standalone Factory screen — rejected, the direction's
+  two-rung ladder (§3) is a depth change on one bench, not a route change.
+- **Evidence**: `npx vitest run apps/desktop/src/screens/SimpleMode.test.tsx
+  apps/desktop/src/screens/AdvancedMode.test.tsx apps/desktop/src/App.test.tsx` → 16 + 26 + 13
+  passed, including the new Complex-tree, run-control, swarm, mission-composer, pipeline, shelf and
+  receipt cases; `tsc --noEmit` exit 0 in `apps/desktop` and `packages/ui` (the `Text` component now
+  forwards `translate` and `data-*`, the machine-data rule §11 needs); every new string is a
+  `@warsha/i18n` catalog entry in both `ar` and `en`, layout uses logical properties only, and all
+  ids/paths/hex/amounts render `dir="ltr" translate="no"` with `unicode-bidi: isolate`.
+- **How to reverse**: drop the `onModeChange` props in `App.tsx`, delete the factory JSX blocks and
+  the exported helpers (`factoryStageIndex`, `artifactKindOf`, `verificationSeal`, `HARNESS_PRESETS`,
+  `FACTORY_MODELS`, `BUDGET_CAPS_USD`, `FACTORY_STAGES`) and the `WorkspaceTree`/run-control/swarm
+  sections in `AdvancedMode.tsx`; the `simple.factory_*`/`factory.stage.*`/`simple.receipt_*` and
+  `advanced.tree_*/code_*/plan_*/run_*/swarm_*` catalog keys become dead and can go with them. A
+  future daemon signature replaces `verificationSeal` in exactly one call site.

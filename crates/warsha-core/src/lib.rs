@@ -1,4 +1,22 @@
 //! Warsha Core — Domain types for projects, runs, stages, gates, artifacts, events
+//!
+//! Wave 2 adds the Harness, Skill, Plugin/MCP and settings-extension domains;
+//! they live in focused modules and are re-exported here.
+
+pub mod config;
+pub mod harness;
+pub mod plugin;
+pub mod redaction;
+pub mod skill;
+
+pub use config::{
+    CustomModelRecord, FileContent, FileEntry, IntegrationConfig, IntegrationStatus,
+    IntegrationTestResult,
+};
+pub use harness::{bundled_harnesses, HarnessDefinition, HarnessRules, HarnessStage};
+pub use plugin::{bundled_plugins, PluginDefinition, PluginToolDefinition};
+pub use redaction::{mask_query_secrets, mask_secrets, REDACTED};
+pub use skill::{bundled_skills, SkillDefinition};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -154,11 +172,13 @@ impl std::fmt::Display for DeviceId {
 pub enum Role {
     Intake,
     Researcher,
+    #[serde(alias = "pm")]
     PM,
     Designer,
     Architect,
     Coder,
     Reviewer,
+    #[serde(alias = "qa")]
     QA,
     Security,
     Release,

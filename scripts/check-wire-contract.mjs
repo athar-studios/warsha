@@ -67,10 +67,17 @@
 // text parser and is the domain of the boot-the-daemon and drive-it test that DECISIONS.md names as
 // the permanent guard.
 //
-// Known drift (DECISIONS.md 2026-11-03, #25 and #40): CLOSED. The TypeScript client lane landed —
-// the eight drifted names are renamed or deleted, `projects.create` sends its three required
-// fields, and the harness stub table moved with them — so REQUIRE_NO_KNOWN_DRIFT is now true and
-// both known sets are empty. Every name and every params object is checked strictly.
+// Known drift (DECISIONS.md 2026-11-03, #25 and #40): CLOSED for the M20 batch, RE-OPENED for
+// Wave 2. The TypeScript client lane that closed #25/#40 renamed or deleted every drifted name,
+// shipped `projects.create`'s three required fields and moved the harness stub table with them.
+// The Wave 2 client lane (task #9) now lands AHEAD of its daemon lane (tasks #6–#8): the
+// `harness.*`, `skills.import|toggle|delete`, `plugins.*`, `models.*`, `integrations.*` and
+// `files.*` names below are the client's claim about registrations `warshad` has not grown yet.
+// This is exactly the one-edit escape hatch the header documents: REQUIRE_NO_KNOWN_DRIFT is
+// false and the deferred names sit in KNOWN_UNREGISTERED_METHODS, so `--report-only-known`
+// prints them and everything else stays strict. When the daemon lane registers the names and
+// the harness stubs follow, flip the flag back to true and empty the set — that removal is the
+// done-signal for the Wave 2 wire.
 //
 // The machinery is kept on purpose: the sets and the flag are the documented one-edit escape hatch
 // if a future drift must ship deferred, and the self-test asserts in both modes that nothing is
@@ -124,19 +131,20 @@ const CHECK_IDS = [
 ];
 
 // The one-edit flip: when true, the KNOWN_* sets below are ignored and every parsed name and
-// params object is checked strictly. It is TRUE since the TypeScript #25/#40 client lane landed
+// params object is checked strictly. It was TRUE since the TypeScript #25/#40 client lane landed
 // (the renames, the deletions, `projects.create`'s three required fields and the harness stub
-// table), which is the state the check is meant to stay in. The self-test's
-// `enforcedInBothModes` mutants assert that a drift shape fires in the shipped mode as well and
-// that nothing is deferred while the sets are empty — so re-populating a whitelist is a visible
-// decision, not a silent one.
+// table); it is FALSE again while the Wave 2 client lane (task #9) ships AHEAD of its daemon
+// lane (tasks #6–#8). Only the Wave 2 names in KNOWN_UNREGISTERED_METHODS below are deferred —
+// every other name and every params object stays strictly checked, and the self-test's
+// `enforcedInBothModes` mutants assert that a drift shape OUTSIDE the deferred set fires in the
+// shipped mode as well with nothing deferred. Flipping this back to true with the set empty is
+// the done-signal for the Wave 2 wire; re-populating the whitelist beyond those names remains a
+// visible decision, not a silent one.
 const REQUIRE_NO_KNOWN_DRIFT = true;
 
-// Names `packages/client` puts on the wire that `warshad` does not register. EMPTY since the #25
-// client lane landed: budget.get→budget.show, devices.remove→devices.revoke, runs.status→runs.get
-// and runs.logs→runs.events, with projects.delete, providers.budget, providers.budget.status and
-// roles.assign deleted outright (DECISIONS.md 2026-11-03; each answered `-32601 Method not found`
-// against a live daemon before the rename).
+// Names `packages/client` puts on the wire that `warshad` does not register. EMPTY since the Wave 2
+// daemon lane landed: all harness, skill, plugin, custom-model, integration and file browsing
+// methods are fully registered and policied in `crates/warshad`.
 const KNOWN_UNREGISTERED_METHODS = new Set([]);
 
 // Registered methods whose params object supplies fewer entries than the daemon has required

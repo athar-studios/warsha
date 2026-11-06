@@ -52,6 +52,8 @@ pub enum ProviderError {
     QuotaExhausted(String),
     #[error("Timeout: {0}")]
     Timeout(String),
+    #[error("HTTP {0}: {1}")]
+    Http(u16, String),
     #[error("Provider error: {0}")]
     Other(String),
     #[error("Budget exceeded")]
@@ -66,15 +68,27 @@ impl ProviderError {
     ///
     /// Everything else is a decision, not a hiccup, and re-spending on it would
     /// only pay twice for the same rejection: a missing provider or model, an
-    /// authentication failure, or a budget we have already crossed.
+    /// authentication failure, a 4xx client rejection (400, 401, 403, 404, 422),
+    /// or a budget we have already crossed.
     pub fn is_retryable(&self) -> bool {
-        matches!(
-            self,
+        match self {
             ProviderError::RateLimited(_)
-                | ProviderError::QuotaExhausted(_)
-                | ProviderError::Timeout(_)
-                | ProviderError::Other(_)
-        )
+            | ProviderError::QuotaExhausted(_)
+            | ProviderError::Timeout(_) => true,
+            ProviderError::Http(status, _) => !matches!(status, 400 | 401 | 403 | 404 | 422),
+            ProviderError::Other(_) => true,
+            _ => false,
+        }
+    }
+}
+
+/// Scrub an API key from an error message or response body before recording or returning.
+pub fn scrub_key(text: &str, api_key: &str) -> String {
+    let key = api_key.trim();
+    if key.is_empty() {
+        text.to_string()
+    } else {
+        text.replace(key, "[REDACTED]")
     }
 }
 

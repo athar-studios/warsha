@@ -58,14 +58,20 @@ export interface BoxProps {
   dir?: 'rtl' | 'ltr' | 'auto';
   style?: React.CSSProperties;
   onClick?: () => void;
+  /**
+   * Hyphenated hooks (`data-testid`, any `data-*`) pass straight through to the underlying `<div>`,
+   * the way `Button` forwards its rest props — screens in `apps/desktop` pin their regions by id.
+   */
+  [key: `data-${string}`]: string | undefined;
 }
 
-export function Box({ children, className = '', p = 0, m = 0, dir = 'auto', style, onClick }: BoxProps) {
+export function Box({ children, className = '', p = 0, m = 0, dir = 'auto', style, onClick, ...rest }: BoxProps) {
   return (
     <div
       className={className}
       dir={dir}
       onClick={onClick}
+      {...rest}
       style={{
         paddingInline: p ? space(p) : 0,
         marginInline: m ? space(m) : 0,
@@ -96,6 +102,16 @@ export interface TextProps {
    * `<Text inline>{count}</Text> of 12`.
    */
   inline?: boolean;
+  /**
+   * Tell translation tools to leave the run alone — the machine-data rule (§11): `translate="no"`
+   * on ids, paths, model names and hex seals.
+   */
+  translate?: 'yes' | 'no';
+  /**
+   * Hyphenated hooks (`data-testid`, any `data-*`) pass straight through to the underlying
+   * `<span>`, the way Button forwards its rest props — the shell's suites query screen text by id.
+   */
+  [key: `data-${string}`]: string | undefined;
   style?: React.CSSProperties;
 }
 
@@ -106,7 +122,9 @@ export function Text({
   weight = 'normal',
   dir = 'auto',
   inline = false,
+  translate,
   style,
+  ...rest
 }: TextProps) {
   return (
     // The tag stays a `<span>` so no existing selector, test or consumer changes; the *box* is what
@@ -114,6 +132,8 @@ export function Text({
     <span
       className={className}
       dir={dir}
+      translate={translate}
+      {...rest}
       style={{
         display: inline ? 'inline' : 'block',
         fontSize: TEXT_SIZE[size],

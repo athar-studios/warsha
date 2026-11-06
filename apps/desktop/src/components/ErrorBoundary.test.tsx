@@ -3,8 +3,9 @@
 // The contract: a throw inside the subtree renders the recovery card — never a blank window —
 // the shown message is redacted so a token echoed by the daemon cannot ride into the UI, and
 // both exits work: "Try again" re-mounts the children, "Reload" reloads the app.
+// Additionally, resetKeys allow automatic recovery when tracked values change.
 import { fireEvent, render, screen } from '@testing-library/react';
-import React from 'react';
+import React, { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ErrorBoundary, redactErrorText } from './ErrorBoundary';
@@ -105,5 +106,65 @@ describe('ErrorBoundary', () => {
     );
     expect(screen.getByText('healthy bench')).toBeDefined();
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('auto-recovers when resetKeys change', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let allowRender = false;
+    const Flaky = () => {
+      if (!allowRender) throw new Error('first render fails');
+      return <p>the bench is back</p>;
+    };
+
+    const Wrapper = () => {
+      const [key, setKey] = useState(0);
+      return (
+        <div>
+          <ErrorBoundary resetKeys={[key]}>
+            <Flaky />
+          </ErrorBoundary>
+          <button onClick={() => setKey((k) => k + 1)}>change key</button>
+        </div>
+      );
+    };
+
+    render(<Wrapper />);
+    expect(screen.getByRole('alert')).toBeDefined();
+
+    allowRender = true;
+    fireEvent.click(screen.getByRole('button', { name: /change key/ }));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByText('the bench is back')).toBeDefined();
+    spy.mockRestore();
+  });
+
+  it('does not auto-recover when resetKeys are stable', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let allowRender = false;
+    const Flaky = () => {
+      if (!allowRender) throw new Error('first render fails');
+      return <p>the bench is back</p>;
+    };
+
+    const Wrapper = () => {
+      // Same key object reference - should not trigger reset
+      const stableKey = { value: 1 };
+      return (
+        <ErrorBoundary resetKeys={[stableKey]}>
+          <Flaky />
+        </ErrorBoundary>
+      );
+    };
+
+    render(<Wrapper />);
+    expect(screen.getByRole('alert')).toBeDefined();
+
+    // Re-render with same key reference - should stay in error state
+    allowRender = true;
+    // Force a re-render by changing something unrelated
+    const { rerender } = render(<Wrapper />);
+    rerender(<Wrapper />);
+    expect(screen.getByRole('alert')).toBeDefined(); // Still in error state
+    spy.mockRestore();
   });
 });

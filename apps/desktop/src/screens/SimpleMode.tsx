@@ -25,6 +25,7 @@ import {
   subscribeEvents,
   type GateSummary,
   type ProjectSummary,
+  type RunArtifact,
   type RunId,
   type RunSummary,
   type Stage,
@@ -38,20 +39,26 @@ import {
   Button,
   Chip,
   ChipMeta,
+  FastModeToggle,
   GateCard,
   Lamp,
   Ledger,
+  ModelPicker,
   RailHead,
   RailRow,
   Skeleton,
+  Stamp,
   Text,
   type GateCardLabels,
   type GateDecision,
   type LampState,
+  type WorkbenchMode,
 } from '@warsha/ui';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { MentionPicker, type MentionKind } from '../components/MentionPicker';
+import { PermissionModeChip, type PermissionMode } from '../components/PermissionModeChip';
+import { PlanModeBadge, type AgentMode } from '../components/PlanModeBadge';
 import { SlashCommandPicker, type SlashCommandItem } from '../components/SlashCommandPicker';
 import type { DaemonEndpoint } from '../daemon';
 
@@ -69,6 +76,13 @@ interface SimpleModeProps {
    */
   endpoint: DaemonEndpoint;
   onBack?: () => void;
+  /**
+   * The one-click ladder switch of the dual-mode factory (Hard Mode header): pressing it hands
+   * the owner from the autonomous factory up to the Complex workbench. Optional, because a screen
+   * rendered outside the shell — a story, a test — has no shell to switch (§3: the switch keeps
+   * the project, the run and the gates; only the depth changes).
+   */
+  onModeChange?: (mode: WorkbenchMode) => void;
 }
 
 interface Agent {
@@ -124,6 +138,159 @@ const TEAM: readonly Agent[] = [
   { id: 'release', roleKey: 'release', status: 'idle', unreadCount: 0 },
   { id: 'marketer', roleKey: 'marketer', status: 'idle', unreadCount: 0 },
 ];
+
+// --------------------------------------------------------------------------- Hard Mode: the factory
+//
+// The mission briefing composer, the autonomous stage matrix, the artifact shelf and the verification
+// receipt (Dual-Mode Software Factory, DECISIONS 2026-11-06). The presets below are the factory's own
+// vocabulary: harness ids and model names are machine data (mono, `translate="no"`), the stage words
+// come from the catalog (`factory.stage.*`), and every daemon read is optional — a client that cannot
+// answer says so in words rather than pretending (§7).
+
+/** The seven harness presets the mission composer offers; the ids are the daemon's own preset names. */
+export const HARNESS_PRESETS: readonly { id: string; descriptionKey: string }[] = [
+  { id: 'complex-workbench', descriptionKey: 'complex-workbench' },
+  { id: 'autonomous-factory', descriptionKey: 'autonomous-factory' },
+  { id: 'ticket-to-pr', descriptionKey: 'ticket-to-pr' },
+  { id: 'graph-gated', descriptionKey: 'graph-gated' },
+  { id: 'fleet-worktrees', descriptionKey: 'fleet-worktrees' },
+  { id: 'sealed-envelope', descriptionKey: 'sealed-envelope' },
+  { id: 'solo-bench', descriptionKey: 'solo-bench' },
+];
+
+/** The model pills the composer offers. Names are product names: never translated (§11). */
+export const FACTORY_MODELS: readonly { id: string; name: string }[] = [
+  { id: 'deepseek-v3', name: 'DeepSeek V3' },
+  { id: 'claude-3-5-sonnet', name: 'Claude 3.5 Sonnet' },
+  { id: 'gpt-4o', name: 'GPT-4o' },
+  { id: 'ollama', name: 'Ollama' },
+];
+
+/** The budget caps offered as pills; `$` amounts are machine data (§11). */
+export const BUDGET_CAPS_USD: readonly number[] = [5, 10, 25, 50];
+
+/** The autonomous factory's nine pipeline stages, in order. */
+export const FACTORY_STAGES: readonly string[] = [
+  'intake',
+  'research',
+  'architecture',
+  'code',
+  'review',
+  'qa',
+  'security',
+  'release',
+  'feedback',
+];
+
+/**
+ * Map the daemon's `run.stage` onto the factory pipeline index.
+ *
+ * The daemon walks 14 stages; the factory matrix shows the nine the harness names. A gate rides with
+ * the step it guards; a stage the map does not know reads as "before intake" (-1 → nothing lit).
+ */
+export function factoryStageIndex(stage: string | null | undefined): number {
+  if (!stage) return -1;
+  const s = stage.toLowerCase();
+  if (
+    s === 'security' ||
+    s === 'sec' ||
+    s === 'audit' ||
+    s === 'strix' ||
+    s.includes('security') ||
+    s.includes('audit') ||
+    s.includes('strix')
+  ) {
+    return 6;
+  }
+  if (
+    s === 'ship' ||
+    s === 'release' ||
+    s === 'deploy' ||
+    s === 'deliver' ||
+    s === 'feedback' ||
+    s.includes('ship') ||
+    s.includes('release') ||
+    s.includes('deploy') ||
+    s.includes('deliver')
+  ) {
+    return 8;
+  }
+  if (
+    s === 'review' ||
+    s === 'gate' ||
+    s === 'approval' ||
+    s.includes('approval') ||
+    s.includes('review')
+  ) {
+    return 7;
+  }
+  switch (stage) {
+    case 'idea':
+    case 'intake':
+    case 'gate_a':
+      return 0;
+    case 'research':
+      return 1;
+    case 'prd_spec':
+    case 'design':
+    case 'plan_tasks':
+    case 'architecture':
+    case 'gate_b':
+      return 2;
+    case 'code':
+      return 3;
+    case 'review_qa_security':
+      return 4;
+    case 'gate_c':
+    case 'qa':
+      return 5;
+    default:
+      if (s.includes('gate')) return 7;
+      return -1;
+  }
+}
+
+/** The shelf classifies an artifact by its name; the kinds are the factory's own outputs. */
+export type ArtifactKind = 'file' | 'test' | 'diff' | 'pr' | 'build';
+
+export function artifactKindOf(name: string): ArtifactKind {
+  const lower = name.toLowerCase();
+  if (/test|spec/.test(lower)) return 'test';
+  if (/\.(patch|diff)$|diff/.test(lower)) return 'diff';
+  if (/pr\b|pull/.test(lower)) return 'pr';
+  if (/build|dist|bundle/.test(lower)) return 'build';
+  return 'file';
+}
+
+/**
+ * The receipt's seal: an FNV-1a digest of `runId:projectId`, printed as 16 hex characters.
+ *
+ * This is the bench's own integrity mark over the fields it shows — deterministic and checkable on
+ * screen — not a daemon-signed certificate: `warshad` reports no signing RPC on this branch, and the
+ * screen invents none (§7). The mono hex is machine data and never translates (§11).
+ */
+export function verificationSeal(runId: string, projectId: string): string {
+  const input = `${runId}:${projectId}`;
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  for (let i = 0; i < input.length; i += 1) {
+    const code = input.charCodeAt(i);
+    h1 = Math.imul(h1 ^ code, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 + code, 0x811c9dc5) >>> 0;
+  }
+  return `${h1.toString(16).padStart(8, '0')}${h2.toString(16).padStart(8, '0')}`;
+}
+
+/** Sum the token counts a stream event reports, whatever field name its payload carries. */
+function eventTokens(event: WarshaEvent): number {
+  const payload = event.payload as Record<string, unknown> | null;
+  if (payload === null || typeof payload !== 'object') return 0;
+  for (const key of ['tokens', 'tokens_total', 'total_tokens', 'tokensUsed']) {
+    const value = payload[key];
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+  }
+  return 0;
+}
 
 /** Which autocomplete the composer offers, and what was typed after its marker. */
 export interface ComposerTrigger {
@@ -273,7 +440,7 @@ function MessageRow({
   );
 }
 
-export function SimpleMode({ client, project, endpoint, onBack }: SimpleModeProps) {
+export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: SimpleModeProps) {
   const dir = useDirection();
   const locale = useLocale();
   const [agents, setAgents] = useState<Agent[]>([...TEAM]);
@@ -294,6 +461,30 @@ export function SimpleMode({ client, project, endpoint, onBack }: SimpleModeProp
   const [streamOffline, setStreamOffline] = useState(false);
   const [recentActivity, setRecentActivity] = useState<WarshaEvent[]>([]);
   const [runId, setRunId] = useState<RunId | null>(null);
+  // Hard Mode factory state (DECISIONS 2026-11-06): the run object (the receipt reads its stage and
+  // status, not just its id), the mission briefing and its harness/model/budget picks, the launch
+  // outcome, and the artifacts the shelf shows. The live totals ride the same socket the activity
+  // feed uses — no second subscription, no invented RPC.
+  const [currentRun, setCurrentRun] = useState<RunSummary | null>(null);
+  const [mission, setMission] = useState('');
+  const [activeId, setActiveId] = useState<string>('autonomous-factory');
+  const [harnessId, setHarnessId] = useState<string>('autonomous-factory');
+  const [modelId, setModelId] = useState<string>(FACTORY_MODELS[0]?.id ?? 'deepseek-v3');
+  const [fastModeTier, setFastModeTier] = useState<'thorough' | 'balanced' | 'fast'>('balanced');
+  // Work protection (M14a) and agent workflow (M18): per-session choices the owner sets in the composer.
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>('ask_for_risky');
+  const [agentMode, setAgentMode] = useState<AgentMode>('plan');
+  // The owner's own catalogue (`models.list`): a model added in Settings appears on the bench without a
+  // rebuild. The four presets stay as the factory's standing offer; the daemon's rows are added beside.
+  const [catalogModels, setCatalogModels] = useState<readonly { id: string; name: string }[]>([]);
+  const [budgetUsd, setBudgetUsd] = useState<number | null>(10);
+  const [customBudget, setCustomBudget] = useState('');
+  const [launchState, setLaunchState] = useState<'idle' | 'launching' | 'failed'>('idle');
+  const [launchedRunId, setLaunchedRunId] = useState<RunId | null>(null);
+  const [artifacts, setArtifacts] = useState<RunArtifact[] | null>(null);
+  const [artifactsFailed, setArtifactsFailed] = useState(false);
+  const [liveTokens, setLiveTokens] = useState(0);
+  const [liveCostCents, setLiveCostCents] = useState(0);
   const replyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const label = useCallback(
@@ -304,6 +495,58 @@ export function SimpleMode({ client, project, endpoint, onBack }: SimpleModeProp
   const roleWord = useCallback(
     (agent: Pick<Agent, 'roleKey'>) => label(`role.${agent.roleKey}`),
     [label]
+  );
+
+  /**
+   * The model pills the mission composer offers: the four factory presets, then every custom model the
+   * daemon's catalogue reports (`models.list`). A catalogue read that fails leaves the presets alone —
+   * the composer still works, it just cannot offer what the daemon did not report (§7).
+   */
+  useEffect(() => {
+    if (typeof client.listCustomModels !== 'function') return undefined;
+    let cancelled = false;
+    client
+      .listCustomModels()
+      .then((rows) => {
+        if (cancelled) return;
+        setCatalogModels(
+          rows.map((row) => ({
+            id: `${row.provider}/${row.modelId}`,
+            name: row.displayName ?? `${row.provider}/${row.modelId}`,
+          }))
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setCatalogModels([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+
+  /** Hydrate active harness from daemon (Wave 3). */
+  useEffect(() => {
+    if (typeof client.listHarnesses !== 'function') return undefined;
+    let cancelled = false;
+    client
+      .listHarnesses()
+      .then((harnesses) => {
+        if (cancelled) return;
+        const active = harnesses.find((h) => h.active);
+        if (active) {
+          setActiveId(active.id);
+          setHarnessId(active.id);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+
+  const modelOptions = useMemo(
+    () => [...FACTORY_MODELS, ...catalogModels],
+    [catalogModels]
   );
 
   /**
@@ -322,6 +565,7 @@ export function SimpleMode({ client, project, endpoint, onBack }: SimpleModeProp
         if (cancelled) return;
         const currentRun = runs[0] as RunSummary | undefined;
         setRunId(currentRun ? currentRun.id : null);
+        setCurrentRun(currentRun ?? null);
 
         if (currentRun) {
           const gates = await client.getGates(currentRun.id);
@@ -368,6 +612,14 @@ export function SimpleMode({ client, project, endpoint, onBack }: SimpleModeProp
       onEvent: (event: WarshaEvent) => {
         setStreamOffline(false);
         setRecentActivity((previous) => [...previous, event].slice(-10));
+        // The receipt's live readings ride the same feed: a token or cost field on an event adds
+        // to the run's total, whatever else the bench shows. No second socket, no invented RPC.
+        const tokens = eventTokens(event);
+        if (tokens > 0) setLiveTokens((previous) => previous + tokens);
+        if (event.costCents !== null && Number.isFinite(event.costCents)) {
+          const cents = event.costCents;
+          setLiveCostCents((previous) => previous + cents);
+        }
       },
       onError: () => {
         // §7: the queue is not lost, the feed is. Say that, and offer the reconnect.
@@ -391,6 +643,56 @@ export function SimpleMode({ client, project, endpoint, onBack }: SimpleModeProp
     const gates = await client.getGates(runId);
     setPendingGates(gates.filter((gate: GateSummary) => gate.state.state === 'pending'));
   }, [client, runId]);
+
+  /**
+   * Launch the mission from the briefing composer (Hard Mode, DECISIONS 2026-11-06).
+   *
+   * The harness pick is best-effort: if `harnesses.select` is missing or refuses, the choice stays
+   * on screen and on the receipt rather than losing the owner's brief (§7). The run itself starts
+   * through `runs.start`; the artifact shelf then tries one read, and a failed read says so in
+   * words instead of showing an empty shelf.
+   */
+  const launchMission = useCallback(async () => {
+    const brief = mission.trim();
+    if (brief === '') return;
+    setLaunchState('launching');
+    setArtifactsFailed(false);
+    // The budget pill is a spend control, not decoration: write the project's ceiling first, and if
+    // the daemon refuses it, do not start a run that would spend without the cap the owner chose.
+    if (budgetUsd !== null && typeof client.setProjectBudget === 'function') {
+      try {
+        await client.setProjectBudget(project.id, Math.round(budgetUsd * 100));
+      } catch {
+        setLaunchState('failed');
+        return;
+      }
+    }
+    let started: RunSummary | null = null;
+    try {
+      if (typeof client.selectHarness === 'function') {
+        try {
+          await client.selectHarness(harnessId, project.id);
+        } catch {
+          // The pick stays visual; nothing here can refuse the receipt.
+        }
+      }
+      started = await client.startRun(project.id, brief);
+      setLaunchedRunId(started.id);
+      setCurrentRun(started);
+      setRunId(started.id);
+      setLaunchState('idle');
+    } catch {
+      setLaunchState('failed');
+      return;
+    }
+    if (started !== null && typeof client.getRunArtifacts === 'function') {
+      try {
+        setArtifacts(await client.getRunArtifacts(started.id));
+      } catch {
+        setArtifactsFailed(true);
+      }
+    }
+  }, [budgetUsd, client, harnessId, mission, project.id]);
 
   const closePickers = useCallback(() => {
     setMentionQuery(null);
@@ -510,6 +812,59 @@ export function SimpleMode({ client, project, endpoint, onBack }: SimpleModeProp
   const activeAgents = agents.filter((agent) => agent.status !== 'idle');
   const visibleAgents = showAllAgents ? agents : activeAgents.length > 0 ? activeAgents : agents;
   const idleCount = agents.filter((agent) => agent.status === 'idle').length;
+
+  // ------------------------------------------------------- Hard Mode derived readings
+  // The pipeline lamp and the receipt read the same run the gates do: the daemon's 14-stage walk
+  // folded onto the factory's nine named steps, a finished run sealing the receipt, and no receipt
+  // invented when there is no run at all (§7).
+  const activeStageIndex = currentRun === null ? -1 : factoryStageIndex(currentRun.stage);
+  const runFailed = currentRun !== null && currentRun.status === 'failed';
+  const runCompleted = currentRun !== null && currentRun.status === 'completed';
+  const receiptStatus: 'pass' | 'fail' | 'pending' = runFailed
+    ? 'fail'
+    : runCompleted
+      ? 'pass'
+      : 'pending';
+  const receiptVisible =
+    currentRun !== null &&
+    (runFailed || runCompleted || pendingGates.length > 0 || launchedRunId !== null);
+  const durationSeconds = (() => {
+    if (currentRun === null) return null;
+    const started = Date.parse(currentRun.startedAt);
+    const ended = Date.parse(currentRun.updatedAt);
+    if (!Number.isFinite(started) || !Number.isFinite(ended)) return null;
+    return Math.max(0, Math.round((ended - started) / 1000));
+  })();
+
+  /** The factory-stage lamp: passed, waiting on a gate, failed where it stopped, or not reached. */
+  const factoryStageLamp = (index: number): LampState => {
+    if (currentRun === null) return 'idle';
+    if (runCompleted) return 'ok';
+    if (index < activeStageIndex) return 'ok';
+    if (index === activeStageIndex) {
+      if (pendingGates.length > 0) return 'waiting';
+      if (runFailed) return 'fail';
+      return 'working';
+    }
+    return 'idle';
+  };
+
+  // The visually-hidden label pattern the chat composer already uses: never absent, only not shown.
+  const hiddenLabelStyle: React.CSSProperties = {
+    position: 'absolute',
+    inlineSize: 'var(--warsha-size-rule)',
+    blockSize: 'var(--warsha-size-rule)',
+    overflow: 'hidden',
+    clipPath: 'inset(50%)',
+    whiteSpace: 'nowrap',
+  };
+  // A machine-data value on the receipt: mono, tabular, ltr, isolated, never translated (§11).
+  const machineValueStyle: React.CSSProperties = {
+    fontFamily: 'var(--warsha-font-mono)',
+    fontVariantNumeric: 'tabular-nums',
+    unicodeBidi: 'isolate',
+    overflowWrap: 'anywhere',
+  };
 
   return (
     <Box
@@ -688,6 +1043,33 @@ export function SimpleMode({ client, project, endpoint, onBack }: SimpleModeProp
             <Lamp state={AGENT_LAMP[selectedAgent.status]} size="xs">
               {label(AGENT_STATE_KEY[selectedAgent.status])}
             </Lamp>
+            {/* The factory word and the one-click ladder up to Complex (DECISIONS 2026-11-06). The
+                switch keeps the project, the run and the gates — only the depth changes (§3). */}
+            <span
+              dir={dir}
+              style={{
+                marginInlineStart: 'auto',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 'var(--warsha-space-2)',
+                minInlineSize: 0,
+              }}
+            >
+              <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
+                {label('simple.factory_banner')}
+              </Text>
+              {onModeChange && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  dir={dir}
+                  data-testid="mode-toggle"
+                  onClick={() => onModeChange('advanced')}
+                >
+                  {label('simple.switch_to_complex')}
+                </Button>
+              )}
+            </span>
           </header>
         )}
 
@@ -724,6 +1106,246 @@ export function SimpleMode({ client, project, endpoint, onBack }: SimpleModeProp
             {label('gates.failed')}
           </Banner>
         )}
+
+        {/* ---------------------------------------------------- mission briefing composer
+            The autonomous factory's single input (DECISIONS 2026-11-06): one brief, one harness pill,
+            one model pill, one budget cap, one launch. The ids and names are machine data; every word
+            is catalog (§11, §13). */}
+        <section
+          dir={dir}
+          aria-label={label('simple.mission_title')}
+          data-testid="mission-composer"
+          style={{
+            flex: 'none',
+            paddingInline: 'var(--warsha-space-4)',
+            paddingBlock: 'var(--warsha-space-3)',
+            backgroundColor: 'var(--warsha-bench-plate)',
+            borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--warsha-space-2)',
+            minInlineSize: 0,
+          }}
+        >
+          <Text size="sm" weight="bold" dir={dir}>
+            {label('simple.mission_title')}
+          </Text>
+          <label htmlFor="mission-brief" style={hiddenLabelStyle}>
+            {label('simple.mission_label')}
+          </label>
+          <textarea
+            id="mission-brief"
+            data-testid="mission-brief"
+            dir={dir}
+            rows={2}
+            value={mission}
+            placeholder={label('simple.mission_placeholder')}
+            onChange={(event) => setMission(event.target.value)}
+            style={{
+              resize: 'none',
+              fontFamily: 'inherit',
+              fontSize: 'var(--warsha-font-size-sm)',
+              lineHeight: 'var(--warsha-line-height-relaxed)',
+              color: 'var(--warsha-color-text)',
+              backgroundColor: 'var(--warsha-color-surface)',
+              border: '1px solid var(--warsha-bench-edge)',
+              borderRadius: 'var(--warsha-radius-sm)',
+              paddingInline: 'var(--warsha-space-3)',
+              paddingBlock: 'var(--warsha-space-2)',
+              minInlineSize: 0,
+            }}
+          />
+
+          <div
+            dir={dir}
+            role="group"
+            aria-label={label('simple.harness_label')}
+            style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--warsha-space-2)', minInlineSize: 0 }}
+          >
+            {HARNESS_PRESETS.map((preset) => (
+              <Button
+                key={preset.id}
+                variant={harnessId === preset.id ? 'primary' : 'ghost'}
+                size="sm"
+                dir={dir}
+                aria-pressed={harnessId === preset.id}
+                data-testid={`mission-harness-${preset.id}`}
+                title={activeId === preset.id ? `${preset.id} (active)` : preset.id}
+                onClick={() => setHarnessId(preset.id)}
+              >
+                {/* The preset id is the daemon's own name: mono, isolated, never translated (§11). */}
+                <span dir="ltr" translate="no" style={{ unicodeBidi: 'isolate' }}>
+                  {preset.id}
+                </span>
+              </Button>
+            ))}
+          </div>
+
+          <div
+            dir={dir}
+            role="group"
+            aria-label={label('simple.model_label')}
+            style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--warsha-space-2)', minInlineSize: 0 }}
+          >
+            {modelOptions.map((model) => (
+              <Button
+                key={model.id}
+                variant={modelId === model.id ? 'primary' : 'ghost'}
+                size="sm"
+                dir={dir}
+                aria-pressed={modelId === model.id}
+                data-testid={`mission-model-${model.id}`}
+                onClick={() => setModelId(model.id)}
+              >
+                <span dir="ltr" translate="no" style={{ unicodeBidi: 'isolate' }}>
+                  {model.name}
+                </span>
+              </Button>
+            ))}
+          </div>
+
+          {/* Honesty over chrome (§7): the model pill is the briefing's plan; the routing the daemon
+              actually honours is the per-role table in Settings → Models. */}
+          <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
+            {label('simple.model_note')}
+          </Text>
+
+          <div
+            dir={dir}
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: 'var(--warsha-space-2)',
+              minInlineSize: 0,
+            }}
+          >
+            <Text size="xs" dir={dir}>
+              {label('simple.budget_label')}
+            </Text>
+            {BUDGET_CAPS_USD.map((cap) => (
+              <Button
+                key={cap}
+                variant={budgetUsd === cap ? 'primary' : 'ghost'}
+                size="sm"
+                dir="ltr"
+                aria-pressed={budgetUsd === cap}
+                data-testid={`mission-budget-${cap}`}
+                onClick={() => {
+                  setBudgetUsd(cap);
+                  setCustomBudget('');
+                }}
+              >
+                ${cap}
+              </Button>
+            ))}
+            <label htmlFor="mission-budget-custom" style={hiddenLabelStyle}>
+              {label('simple.budget_custom_label')}
+            </label>
+            <input
+              id="mission-budget-custom"
+              data-testid="mission-budget-custom"
+              type="number"
+              dir="ltr"
+              min={1}
+              value={customBudget}
+              placeholder={label('simple.budget_custom')}
+              onChange={(event) => {
+                const value = event.target.value;
+                setCustomBudget(value);
+                const parsed = Number.parseFloat(value);
+                setBudgetUsd(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
+              }}
+              style={{
+                inlineSize: 'var(--warsha-size-touch)',
+                fontFamily: 'var(--warsha-font-mono)',
+                fontSize: 'var(--warsha-font-size-sm)',
+                color: 'var(--warsha-color-text)',
+                backgroundColor: 'var(--warsha-color-surface)',
+                border: '1px solid var(--warsha-bench-edge)',
+                borderRadius: 'var(--warsha-radius-sm)',
+                paddingInline: 'var(--warsha-space-2)',
+                paddingBlock: 'var(--warsha-space-1)',
+              }}
+            />
+          </div>
+
+          <div dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-2)' }}>
+            <Button
+              dir={dir}
+              data-testid="mission-launch"
+              disabled={mission.trim() === '' || launchState === 'launching'}
+              onClick={() => void launchMission()}
+            >
+              {launchState === 'launching' ? label('simple.launching') : label('simple.launch')}
+            </Button>
+          </div>
+
+          {launchState === 'failed' && (
+            <Text size="xs" dir={dir} style={{ color: 'var(--warsha-lamp-fail, var(--warsha-color-text))' }}>
+              {label('simple.launch_failed')}
+            </Text>
+          )}
+        </section>
+
+        {/* ------------------------------------------------ autonomous pipeline matrix
+            Nine stages, one lamp each; the run's own stage says where the factory reached. Rows are
+            plain divs — the bench shows the pipeline, it does not navigate it from here. */}
+        <section
+          dir={dir}
+          aria-label={label('simple.pipeline_title')}
+          data-testid="factory-pipeline"
+          style={{
+            flex: 'none',
+            paddingInline: 'var(--warsha-space-4)',
+            paddingBlock: 'var(--warsha-space-3)',
+            borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--warsha-space-2)',
+            minInlineSize: 0,
+          }}
+        >
+          <Text size="sm" weight="bold" dir={dir}>
+            {label('simple.pipeline_title')}
+          </Text>
+          <Text size="xs" dir={dir}>
+            {label('simple.pipeline_hint')}
+          </Text>
+          <div
+            dir={dir}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(9rem, 1fr))',
+              gap: 'var(--warsha-space-2)',
+              minInlineSize: 0,
+            }}
+          >
+            {FACTORY_STAGES.map((stage, index) => (
+              <div
+                key={stage}
+                dir={dir}
+                data-testid={`factory-stage-${stage}`}
+                data-state={factoryStageLamp(index)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 'var(--warsha-space-2)',
+                  paddingInline: 'var(--warsha-space-2)',
+                  paddingBlock: 'var(--warsha-space-1)',
+                  backgroundColor: 'var(--warsha-bench-plate)',
+                  border: '1px solid var(--warsha-bench-rule)',
+                  borderRadius: 'var(--warsha-radius-sm)',
+                  minInlineSize: 0,
+                }}
+              >
+                <Lamp state={factoryStageLamp(index)} size="xs">
+                  {label(`factory.stage.${stage}`)}
+                </Lamp>
+              </div>
+            ))}
+          </div>
+        </section>
 
         {/* The gates interrupt the transcript — the one place the bench raises a shadow (§1.1). */}
         {(gatesLoading || pendingGates.length > 0) && (
@@ -768,7 +1390,19 @@ export function SimpleMode({ client, project, endpoint, onBack }: SimpleModeProp
                 onDecision={(decision, detail) => void decide(decision, detail)}
                 labels={gateLabels}
               >
-                {label('simple.gate_needs_you')}
+                {/* The press-metal card now says *why* it waits and what the automatic safety pass
+                    already covered, so one glance is enough before the owner decides (§6, §7). */}
+                <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-1)' }}>
+                  <Text size="sm" dir={dir}>
+                    {label('simple.gate_needs_you')}
+                  </Text>
+                  <Text size="xs" dir={dir}>
+                    {label('simple.gate_rationale')}
+                  </Text>
+                  <Text size="xs" dir={dir}>
+                    {label('simple.gate_safety')}
+                  </Text>
+                </Box>
               </GateCard>
             ))}
           </section>
@@ -895,6 +1529,31 @@ export function SimpleMode({ client, project, endpoint, onBack }: SimpleModeProp
           <Button type="submit" dir={dir} disabled={draft.trim() === '' || thinking}>
             {label('common.send')}
           </Button>
+          <FastModeToggle
+            tier={fastModeTier}
+            onChange={setFastModeTier}
+            label={label(`composer.fast_mode.tier.${fastModeTier}`)}
+            hint={label(`composer.fast_mode.hint.${fastModeTier}`)}
+            dir={dir}
+          />
+          <ModelPicker
+            selectedId={modelId}
+            options={modelOptions.map((m) => ({
+              id: m.id,
+              name: m.name,
+              provider: m.id.includes('/') ? m.id.split('/')[0] : 'Custom',
+            }))}
+            onChange={setModelId}
+            dir={dir}
+            ariaLabel={label('composer.model_picker.label', { model: modelOptions.find((m) => m.id === modelId)?.name ?? modelId })}
+          />
+          {pendingGates.length > 0 && (
+            <Chip tone="lit" glyph="!" label={label('simple.pending_gates')}>
+              {pendingGates.length}
+            </Chip>
+          )}
+          <PermissionModeChip mode={permissionMode} onChange={setPermissionMode} />
+          <PlanModeBadge mode={agentMode} onToggle={setAgentMode} />
         </form>
 
         {/* The two autocompletes open under the field, in the composer's own column, so a long list
@@ -980,6 +1639,197 @@ export function SimpleMode({ client, project, endpoint, onBack }: SimpleModeProp
                 </Ledger.Row>
               ))}
             </Ledger>
+          )}
+
+          {/* ------------------------------------------------------------- artifact shelf
+              What the factory produced on this bench since the owner launched it. Names are file
+              paths — mono, isolated, never translated (§11); kinds and stages are catalog words. */}
+          {launchedRunId !== null && (
+            <section
+              dir={dir}
+              aria-label={label('simple.artifacts_title')}
+              data-testid="artifact-shelf"
+              style={{
+                paddingInline: 'var(--warsha-space-4)',
+                paddingBlock: 'var(--warsha-space-3)',
+                borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--warsha-space-2)',
+                minInlineSize: 0,
+              }}
+            >
+              <Text size="sm" weight="bold" dir={dir}>
+                {label('simple.artifacts_title')}
+              </Text>
+              {artifactsFailed ? (
+                <Text size="xs" dir={dir}>
+                  {label('simple.artifacts_failed')}
+                </Text>
+              ) : artifacts === null ? (
+                <Skeleton label={label('simple.artifacts_title')} variant="row" lines={1} />
+              ) : artifacts.length === 0 ? (
+                <Text size="xs" dir={dir}>
+                  {label('simple.artifacts_empty')}
+                </Text>
+              ) : (
+                artifacts.map((artifact) => (
+                  <div
+                    key={`${artifact.name}-${artifact.version}`}
+                    dir={dir}
+                    data-testid={`artifact-item-${artifact.name}`}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: 'var(--warsha-space-2)',
+                      minInlineSize: 0,
+                    }}
+                  >
+                    <span
+                      dir="ltr"
+                      translate="no"
+                      style={{
+                        fontFamily: 'var(--warsha-font-mono)',
+                        fontSize: 'var(--warsha-font-size-xs)',
+                        unicodeBidi: 'isolate',
+                        overflowWrap: 'anywhere',
+                      }}
+                    >
+                      {artifact.name}
+                    </span>
+                    <Chip>{label(`simple.artifact.kind.${artifactKindOf(artifact.name)}`)}</Chip>
+                    <Chip>{label(`run.stage.${artifact.stage}`)}</Chip>
+                  </div>
+                ))
+              )}
+            </section>
+          )}
+
+          {/* ------------------------------------------------------ verification receipt
+              The run's own record: ids, the active harness, the verdict, the live totals, and the
+              bench's seal over the fields it shows. The seal is deterministic over run+project ids
+              because the daemon reports no signing RPC on this branch (§7, DECISIONS 2026-11-06). */}
+          {receiptVisible && currentRun !== null && (
+            <section
+              dir={dir}
+              aria-label={label('simple.receipt_title')}
+              data-testid="verification-receipt"
+              data-status={receiptStatus}
+              style={{
+                paddingInline: 'var(--warsha-space-4)',
+                paddingBlock: 'var(--warsha-space-3)',
+                borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--warsha-space-1)',
+                minInlineSize: 0,
+              }}
+            >
+              <div
+                dir={dir}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 'var(--warsha-space-2)',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <Text size="sm" weight="bold" dir={dir}>
+                  {label('simple.receipt_title')}
+                </Text>
+                <Stamp tone={receiptStatus === 'fail' ? 'fail' : 'ok'}>
+                  {label('simple.receipt_verified')}
+                </Stamp>
+              </div>
+
+              {(
+                [
+                  ['simple.receipt_run', currentRun.id],
+                  ['simple.receipt_project', project.id],
+                  ['simple.receipt_harness', harnessId],
+                ] as const
+              ).map(([key, value]) => (
+                <div
+                  key={key}
+                  dir={dir}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 'var(--warsha-space-2)',
+                    minInlineSize: 0,
+                  }}
+                >
+                  <Text size="xs" dir={dir}>
+                    {label(key)}
+                  </Text>
+                  <Text size="xs" dir="ltr" style={machineValueStyle}>
+                    {value}
+                  </Text>
+                </div>
+              ))}
+
+              <div
+                dir={dir}
+                style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--warsha-space-2)' }}
+              >
+                <Text size="xs" dir={dir}>
+                  {label('simple.receipt_status')}
+                </Text>
+                <Text size="xs" dir={dir} data-status={receiptStatus}>
+                  {label(`simple.receipt_${receiptStatus}`)}
+                </Text>
+              </div>
+
+              <div
+                dir={dir}
+                style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--warsha-space-2)' }}
+              >
+                <Text size="xs" dir={dir}>
+                  {label('simple.receipt_tokens')}
+                </Text>
+                <Text size="xs" dir="ltr" style={machineValueStyle}>
+                  {liveTokens > 0 ? liveTokens : '—'}
+                </Text>
+              </div>
+
+              <div
+                dir={dir}
+                style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--warsha-space-2)' }}
+              >
+                <Text size="xs" dir={dir}>
+                  {label('simple.receipt_cost')}
+                </Text>
+                <Text size="xs" dir="ltr" style={machineValueStyle}>
+                  {liveCostCents > 0 ? `$${(liveCostCents / 100).toFixed(4)}` : '—'}
+                </Text>
+              </div>
+
+              <div
+                dir={dir}
+                style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--warsha-space-2)' }}
+              >
+                <Text size="xs" dir={dir}>
+                  {label('simple.receipt_duration')}
+                </Text>
+                <Text size="xs" dir="ltr" style={machineValueStyle}>
+                  {durationSeconds === null ? '—' : `${durationSeconds}s`}
+                </Text>
+              </div>
+
+              <div
+                dir={dir}
+                style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--warsha-space-2)' }}
+              >
+                <Text size="xs" dir={dir}>
+                  {label('simple.receipt_seal')}
+                </Text>
+                <Text size="xs" dir="ltr" translate="no" data-testid="verification-seal" style={machineValueStyle}>
+                  {verificationSeal(currentRun.id, project.id)}
+                </Text>
+              </div>
+            </section>
           )}
         </div>
 

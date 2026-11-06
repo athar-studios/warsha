@@ -90,7 +90,8 @@ export interface DeviceSummary {
   id: DeviceId;
   name: string;
   pairedAt: string;
-  lastSeen: string;
+  lastSeen?: string;
+  revoked?: boolean;
 }
 
 const SUMMARY_ERROR = 'Malformed summary';
@@ -186,11 +187,13 @@ export function decodeDeviceSummary(source: unknown): DeviceSummary {
   const record = summaryObject(source, 'device');
   const pairedAt = summaryString(field(record, 'created_at', 'createdAt', 'pairedAt', 'paired_at')) ?? '';
   const lastSeen = summaryString(field(record, 'last_seen', 'lastSeen'));
+  const rawRevoked = field(record, 'revoked', 'revoked_at');
   return {
     id: summaryId(field(record, 'device_id', 'id'), 'device') as DeviceId,
     name: summaryString(field(record, 'name')) ?? '',
     pairedAt,
-    lastSeen: lastSeen ?? (pairedAt.length > 0 ? pairedAt : new Date().toISOString()),
+    ...(lastSeen !== undefined ? { lastSeen } : {}),
+    revoked: Boolean(rawRevoked),
   };
 }
 
@@ -844,7 +847,483 @@ export function pairingDataFromQrPayload(payload: string): PairingData {
   };
 }
 
-export class WarshaClient implements WarshaWiringApi {
+// ---------------------------------------------------------------------------
+// Wave 2: harnesses, skills, plugins, custom models, integrations, files.
+//
+// These are the camelCase shapes the screens will read, and the decoders that
+// put the daemon's snake_case rows (`harness.*`, `skills.*`, `plugins.*`,
+// `models.*`, `integrations.*`, `files.*` — serde's default field names on the
+// Rust side) into them. Every read accepts both spellings, the same way
+// `decodeProjectSummary` does: a live daemon (snake_case) and the e2e harness or
+// an older stub (camelCase) decode alike, and a missing field falls back to the
+// empty/zero form a screen can render rather than an `undefined` that throws.
+//
+// The client lane lands ahead of the daemon lane (PLAN.md tasks #6–#8): the wire
+// names these methods dial are deferred in `scripts/check-wire-contract.mjs`'s
+// `KNOWN_UNREGISTERED_METHODS` until `warshad` registers them — a visible,
+// one-set deferral with a documented removal, not a silent ghost.
+
+const WAVE2_ERROR = 'Malformed Wave 2 payload';
+
+/** The object half of a Wave 2 decode: anything but a JSON object is refused by name. */
+function wave2Object(value: unknown, name: string): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`${WAVE2_ERROR}: "${name}" is not a JSON object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+/** A Wave 2 string field in either spelling; non-strings read as the empty string. */
+function wave2String(source: Record<string, unknown>, ...names: string[]): string {
+  const value = field(source, ...names);
+  return typeof value === 'string' ? value : '';
+}
+
+/** A Wave 2 finite number field; anything else reads as the fallback. */
+function wave2Number(
+  source: Record<string, unknown>,
+  fallback: number,
+  ...names: string[]
+): number {
+  const value = field(source, ...names);
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+/** A Wave 2 boolean field; anything else reads as the fallback. */
+function wave2Boolean(
+  source: Record<string, unknown>,
+  fallback: boolean,
+  ...names: string[]
+): boolean {
+  const value = field(source, ...names);
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+/** A Wave 2 list of strings; a missing or malformed list decodes to the empty list. */
+function wave2StringList(source: Record<string, unknown>, ...names: string[]): string[] {
+  const value = field(source, ...names);
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string');
+}
+
+/** A Wave 2 list result, decoded row by row. */
+function wave2List<T>(value: unknown, name: string, decode: (row: unknown) => T): T[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${WAVE2_ERROR}: "${name}" is not a list`);
+  }
+  return value.map((row) => decode(row));
+}
+
+/** The one identifier a Wave 2 row must carry; the refusal names the field, never the value. */
+function wave2Id(source: Record<string, unknown>, name: string): string {
+  const value = field(source, 'id');
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`${WAVE2_ERROR}: "${name}" is missing "id"`);
+  }
+  return value;
+}
+
+/**
+ * A Rust `Option<String>`: absent and `null` both read as `null` — "not
+ * declared" stays distinguishable from `''`, the way `RoleRouting` keeps its
+ * `budget_cents_per_run: number | null`.
+ */
+function wave2NullableString(source: Record<string, unknown>, ...names: string[]): string | null {
+  const value = field(source, ...names);
+  if (value === null || value === undefined) return null;
+  return typeof value === 'string' ? value : null;
+}
+
+/** A Rust `Option` number: absent and `null` both read as `null` ("no ceiling"). */
+function wave2NullableNumber(source: Record<string, unknown>, ...names: string[]): number | null {
+  const value = field(source, ...names);
+  if (value === null || value === undefined) return null;
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/** A `HashMap<String, String>` field; anything but an object of strings reads as empty. */
+function wave2StringRecord(
+  source: Record<string, unknown>,
+  ...names: string[]
+): Record<string, string> {
+  const value = field(source, ...names);
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
+  const out: Record<string, string> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof item === 'string') out[key] = item;
+  }
+  return out;
+}
+
+/**
+ * One stage inside a harness (`warsha_core::HarnessStage`): the role that runs it,
+ * an optional prompt template, and the optional gate that must be approved to
+ * leave it. `gate` is a gate identifier string or null — not a boolean.
+ */
+export interface HarnessStage {
+  id: string;
+  role: Role;
+  name: string;
+  promptTemplate: string | null;
+  gate: string | null;
+  autoAdvance: boolean;
+}
+
+/** Run-wide rules a harness enforces (`warsha_core::HarnessRules`). */
+export interface HarnessRules {
+  maxRepairIterations: number;
+  /** Hard spending limit in cents; `null` means uncapped. */
+  budgetCapCents: number | null;
+  allowParallelSubagents: boolean;
+  requireVerificationReceipt: boolean;
+}
+
+/**
+ * One declarative pipeline harness (`warsha_core::HarnessDefinition`, snake_case
+ * on the wire). `preset` is true for the pre-bundled software-factory flows and
+ * false for user-authored harnesses; there is no `updated_at` on the Rust struct.
+ */
+export interface HarnessDefinition {
+  id: string;
+  version: string;
+  name: string;
+  description: string;
+  stages: HarnessStage[];
+  rules: HarnessRules;
+  preset: boolean;
+  active: boolean;
+  createdAt: string;
+}
+
+/**
+ * One installable markdown skill pack (`warsha_core::SkillDefinition`).
+ * `skills.list` answers the daemon's older `SlashCommand` catalog today —
+ * `{ name, description }` with no `id` — so the id falls back to the command
+ * name rather than refusing a shape the current daemon really sends.
+ */
+export interface SkillDefinition {
+  id: string;
+  name: string;
+  description: string;
+  source: string;
+  license: string;
+  /** The full markdown prompt body. */
+  content: string;
+  enabled: boolean;
+  tags: string[];
+}
+
+/** One tool an MCP plugin exposes (`warsha_core::PluginToolDefinition`). */
+export interface PluginToolDefinition {
+  name: string;
+  description: string;
+  /** JSON Schema for the parameters, as a string, when published. */
+  parametersJson: string | null;
+}
+
+/**
+ * One MCP plugin pack (`warsha_core::PluginDefinition`). `env` values are
+ * *references* to secrets (`${env:GITHUB_TOKEN}` style), never secret material
+ * itself — the Rust struct says so, and the keychain rule holds.
+ */
+export interface PluginDefinition {
+  id: string;
+  name: string;
+  description: string;
+  /** `stdio` or `http`. */
+  transport: string;
+  /** Executable for stdio transports; null for HTTP packs. */
+  command: string | null;
+  args: string[];
+  env: Record<string, string>;
+  enabled: boolean;
+  tools: PluginToolDefinition[];
+  source: string;
+}
+
+/** A user-registered model on a known provider (`warsha_core::CustomModelRecord`). */
+export interface CustomModelRecord {
+  provider: string;
+  modelId: string;
+  /** Display label; null when the owner declared none (screens fall back to `modelId`). */
+  displayName: string | null;
+  /** Context window in tokens; null when undeclared. */
+  contextWindow: number | null;
+  enabled: boolean;
+}
+
+/** The status of one external integration (`warsha_core::IntegrationStatus`). */
+export interface IntegrationStatus {
+  id: string;
+  name: string;
+  connected: boolean;
+  /** When it was last configured; null when never. */
+  configuredAt: string | null;
+  /**
+   * Whatever the integration wants to show — org name, bot identity, last sync
+   * — as opaque JSON (the Rust `details: Option<serde_json::Value>`); the UI
+   * renders it and nothing in between interprets it.
+   */
+  details: unknown;
+}
+
+/**
+ * What `connectIntegration` sends (`warsha_core::IntegrationConfig`). The token
+ * material rides the write once, the way `providers.add` sends its `key`, and a
+ * read that returns it has already redacted it to null — the Rust doc says so
+ * and the decoders here never carry a `token`/`bot_token` field at all.
+ */
+export interface IntegrationConfig {
+  token?: string;
+  webhookUrl?: string;
+  botToken?: string;
+  channel?: string;
+  org?: string;
+}
+
+/** The outcome of a live integration test (`warsha_core::IntegrationTestResult`). */
+export interface IntegrationTestResult {
+  /** Coarse status: `ok`, `error`, `unconfigured`. */
+  status: string;
+  message: string;
+}
+
+/** One entry in a directory listing for the file browser (`warsha_core::FileEntry`). */
+export interface FileEntry {
+  /** Base name of the entry. */
+  name: string;
+  /** Full path relative to the browsing root. */
+  path: string;
+  isDir: boolean;
+  /** Size in bytes for files; 0 for directories. */
+  sizeBytes: number;
+}
+
+/** The text content of one file, for the viewer pane (`warsha_core::FileContent`). */
+export interface FileContent {
+  path: string;
+  /** The file's text; the daemon rejects binary files before this is built. */
+  content: string;
+  /** Best-guess MIME type, e.g. `text/markdown`. */
+  mimeType: string;
+}
+
+/** A Wave 2 `Role`; a missing or unknown role reads as the pipeline's first role. */
+function wave2Role(source: Record<string, unknown>, ...names: string[]): Role {
+  const value = field(source, ...names);
+  return isRole(value) ? value : 'intake';
+}
+
+function decodeHarnessStage(source: unknown): HarnessStage {
+  const record = wave2Object(source, 'harness stage');
+  return {
+    id: wave2String(record, 'id'),
+    role: wave2Role(record, 'role'),
+    name: wave2String(record, 'name'),
+    promptTemplate: wave2NullableString(record, 'prompt_template', 'promptTemplate'),
+    gate: wave2NullableString(record, 'gate'),
+    autoAdvance: wave2Boolean(record, false, 'auto_advance', 'autoAdvance'),
+  };
+}
+
+const EMPTY_HARNESS_RULES: HarnessRules = {
+  maxRepairIterations: 0,
+  budgetCapCents: null,
+  allowParallelSubagents: false,
+  requireVerificationReceipt: false,
+};
+
+function decodeHarnessRules(source: unknown): HarnessRules {
+  const record = wave2Object(source, 'harness rules');
+  return {
+    maxRepairIterations: wave2Number(record, 0, 'max_repair_iterations', 'maxRepairIterations'),
+    budgetCapCents: wave2NullableNumber(record, 'budget_cap_cents', 'budgetCapCents'),
+    allowParallelSubagents: wave2Boolean(
+      record,
+      false,
+      'allow_parallel_subagents',
+      'allowParallelSubagents'
+    ),
+    requireVerificationReceipt: wave2Boolean(
+      record,
+      false,
+      'require_verification_receipt',
+      'requireVerificationReceipt'
+    ),
+  };
+}
+
+export function decodeHarnessDefinition(source: unknown): HarnessDefinition {
+  const record = wave2Object(source, 'harness');
+  const stagesValue = field(record, 'stages');
+  const rulesValue = field(record, 'rules');
+  return {
+    id: wave2Id(record, 'harness'),
+    version: wave2String(record, 'version'),
+    name: wave2String(record, 'name'),
+    description: wave2String(record, 'description'),
+    stages: Array.isArray(stagesValue) ? stagesValue.map(decodeHarnessStage) : [],
+    rules:
+      rulesValue === undefined || rulesValue === null
+        ? { ...EMPTY_HARNESS_RULES }
+        : decodeHarnessRules(rulesValue),
+    preset: wave2Boolean(record, false, 'preset'),
+    active: wave2Boolean(record, false, 'active'),
+    createdAt: wave2String(record, 'created_at', 'createdAt'),
+  };
+}
+
+export function decodeSkillDefinition(source: unknown): SkillDefinition {
+  const record = wave2Object(source, 'skill');
+  const name = wave2String(record, 'name');
+  const idValue = field(record, 'id');
+  // A `SlashCommand` row carries no `id`; its command name IS its identity.
+  const id = typeof idValue === 'string' && idValue.length > 0 ? idValue : name;
+  if (id.length === 0) {
+    throw new Error(`${WAVE2_ERROR}: "skill" is missing "id"`);
+  }
+  return {
+    id,
+    name,
+    description: wave2String(record, 'description'),
+    source: wave2String(record, 'source'),
+    license: wave2String(record, 'license'),
+    content: wave2String(record, 'content'),
+    enabled: wave2Boolean(record, true, 'enabled'),
+    tags: wave2StringList(record, 'tags'),
+  };
+}
+
+function decodePluginTool(source: unknown): PluginToolDefinition {
+  const record = wave2Object(source, 'plugin tool');
+  return {
+    name: wave2String(record, 'name'),
+    description: wave2String(record, 'description'),
+    parametersJson: wave2NullableString(record, 'parameters_json', 'parametersJson'),
+  };
+}
+
+export function decodePluginDefinition(source: unknown): PluginDefinition {
+  const record = wave2Object(source, 'plugin');
+  const toolsValue = field(record, 'tools');
+  return {
+    id: wave2Id(record, 'plugin'),
+    name: wave2String(record, 'name'),
+    description: wave2String(record, 'description'),
+    transport: wave2String(record, 'transport'),
+    command: wave2NullableString(record, 'command'),
+    args: wave2StringList(record, 'args'),
+    // `env` values are secret *references* (`${secrets:…}`), never material —
+    // carrying them as plain strings keeps the keychain rule intact on a read.
+    env: wave2StringRecord(record, 'env'),
+    enabled: wave2Boolean(record, false, 'enabled'),
+    tools: Array.isArray(toolsValue) ? toolsValue.map(decodePluginTool) : [],
+    source: wave2String(record, 'source'),
+  };
+}
+
+export function decodeCustomModelRecord(source: unknown): CustomModelRecord {
+  const record = wave2Object(source, 'custom model');
+  const provider = wave2String(record, 'provider');
+  const modelId = wave2String(record, 'model_id', 'modelId');
+  if (provider.length === 0 || modelId.length === 0) {
+    throw new Error(`${WAVE2_ERROR}: "custom model" is missing "provider" or "model_id"`);
+  }
+  return {
+    provider,
+    modelId,
+    // Undeclared display names stay null; the screen falls back to `modelId`.
+    displayName: wave2NullableString(record, 'display_name', 'displayName'),
+    contextWindow: wave2NullableNumber(record, 'context_window', 'contextWindow'),
+    enabled: wave2Boolean(record, true, 'enabled'),
+  };
+}
+
+export function decodeIntegrationStatus(source: unknown): IntegrationStatus {
+  const record = wave2Object(source, 'integration');
+  return {
+    id: wave2Id(record, 'integration'),
+    name: wave2String(record, 'name'),
+    connected: wave2Boolean(record, false, 'connected'),
+    configuredAt: wave2NullableString(record, 'configured_at', 'configuredAt'),
+    // `details` is opaque JSON the UI renders as-is; nothing here interprets it,
+    // and a Wave 2 row carries no token field to leak.
+    details: field(record, 'details') ?? null,
+  };
+}
+
+export function decodeIntegrationTestResult(source: unknown): IntegrationTestResult {
+  const record = wave2Object(source, 'integration test result');
+  return {
+    status: wave2String(record, 'status'),
+    message: wave2String(record, 'message'),
+  };
+}
+
+export function decodeFileEntry(source: unknown): FileEntry {
+  const record = wave2Object(source, 'file entry');
+  const entryPath = wave2String(record, 'path');
+  return {
+    // A tree row may name only its path: the last segment is then its display name.
+    name: wave2String(record, 'name') || (entryPath.split('/').filter(Boolean).pop() ?? ''),
+    path: entryPath,
+    isDir: wave2Boolean(record, false, 'is_dir', 'isDir'),
+    sizeBytes: wave2Number(record, 0, 'size_bytes', 'sizeBytes'),
+  };
+}
+
+export function decodeFileContent(source: unknown): FileContent {
+  const record = wave2Object(source, 'file content');
+  return {
+    path: wave2String(record, 'path'),
+    content: wave2String(record, 'content'),
+    mimeType: wave2String(record, 'mime_type', 'mimeType') || 'text/plain',
+  };
+}
+
+/**
+ * The Wave 2 surface: harnesses, skills, plugins, custom models, integrations and
+ * the project file browser. `WarshaClient` implements this interface so a screen
+ * written against these names calls the daemon's RPC without knowing the wire
+ * shape, exactly as `WarshaWiringApi` does for the M20 batch.
+ */
+export interface WarshaWave2Api {
+  listHarnesses(): Promise<HarnessDefinition[]>;
+  getHarness(id: string): Promise<HarnessDefinition>;
+  importHarness(content: string, format?: string): Promise<HarnessDefinition>;
+  selectHarness(harnessId: string, projectId?: string): Promise<void>;
+  deleteHarness(id: string): Promise<void>;
+
+  listSkills(): Promise<SkillDefinition[]>;
+  importSkill(urlOrContent: string, name?: string): Promise<SkillDefinition>;
+  toggleSkill(id: string, enabled: boolean): Promise<SkillDefinition>;
+  deleteSkill(id: string): Promise<void>;
+
+  listPlugins(): Promise<PluginDefinition[]>;
+  installPlugin(manifestJsonOrUrl: string): Promise<PluginDefinition>;
+  togglePlugin(id: string, enabled: boolean): Promise<PluginDefinition>;
+  configurePlugin(id: string, env: Record<string, string>): Promise<PluginDefinition>;
+  removePlugin(id: string): Promise<void>;
+
+  listCustomModels(provider?: string): Promise<CustomModelRecord[]>;
+  addCustomModel(
+    provider: string,
+    modelId: string,
+    displayName?: string,
+    contextWindow?: number
+  ): Promise<CustomModelRecord>;
+  removeCustomModel(provider: string, modelId: string): Promise<void>;
+
+  listIntegrations(): Promise<IntegrationStatus[]>;
+  connectIntegration(id: string, config: IntegrationConfig): Promise<IntegrationStatus>;
+  disconnectIntegration(id: string): Promise<IntegrationStatus>;
+  testIntegration(id: string): Promise<IntegrationTestResult>;
+
+  getFilesTree(projectId: string, path?: string): Promise<FileEntry[]>;
+  readFileContent(projectId: string, path: string): Promise<FileContent>;
+}
+
+export class WarshaClient implements WarshaWiringApi, WarshaWave2Api {
   private baseUrl: string;
   private token: string;
   private requestId = 0;
@@ -1112,8 +1591,8 @@ export class WarshaClient implements WarshaWiringApi {
   }
 
   ///
-  async testProvider(name: string): Promise<void> {
-    await this.rpc<unknown>('providers.test', { name });
+  async testProvider(name: string, model?: string): Promise<void> {
+    await this.rpc<unknown>('providers.test', { name, model: model ?? null });
   }
 
   async removeProvider(name: string): Promise<void> {
@@ -1319,6 +1798,163 @@ export class WarshaClient implements WarshaWiringApi {
     // A blank store is the daemon's "every store".
     const result = await this.rpc<unknown>(POSTLAUNCH_REVIEWS_METHOD, { store: store ?? '' });
     return wiringArray(result, POSTLAUNCH_REVIEWS_METHOD, 'reviews').map(parseStoreReview);
+  }
+
+  // Wave 2 — harnesses.
+  //
+  // The parameter names are the daemon's own snake_case spellings, per the rule the
+  // M20 batch follows: jsonrpsee binds arguments by name (and its generated camelCase
+  // alias), so anything else is a `-32602` on the wire. `null` is the honest spelling
+  // of "not named" for the daemon's `Option` parameters.
+  async listHarnesses(): Promise<HarnessDefinition[]> {
+    const rows = await this.rpc<unknown>('harness.list');
+    return wave2List(rows, 'harness.list', decodeHarnessDefinition);
+  }
+
+  async getHarness(id: string): Promise<HarnessDefinition> {
+    const row = await this.rpc<unknown>('harness.get', { id });
+    return decodeHarnessDefinition(row);
+  }
+
+  async importHarness(content: string, format?: string): Promise<HarnessDefinition> {
+    const row = await this.rpc<unknown>('harness.import', { content, format: format ?? null });
+    return decodeHarnessDefinition(row);
+  }
+
+  async selectHarness(harnessId: string, projectId?: string): Promise<void> {
+    await this.rpc<unknown>('harness.select', {
+      harness_id: harnessId,
+      project_id: projectId ?? null,
+    });
+  }
+
+  async deleteHarness(id: string): Promise<void> {
+    await this.rpc<unknown>('harness.delete', { id });
+  }
+
+  // Wave 2 — skills. `skills.list` is daemon-registered today and answers the
+  // `SlashCommand` catalog; `decodeSkillDefinition` reads that shape (its `name`
+  // doubles as the id), so this method works against the current daemon and the
+  // full Wave 2 row alike. The three writes join the deferred set.
+  async listSkills(): Promise<SkillDefinition[]> {
+    const rows = await this.rpc<unknown>('skills.list');
+    return wave2List(rows, 'skills.list', decodeSkillDefinition);
+  }
+
+  async importSkill(urlOrContent: string, name?: string): Promise<SkillDefinition> {
+    const row = await this.rpc<unknown>('skills.import', {
+      url_or_content: urlOrContent,
+      name: name ?? null,
+    });
+    return decodeSkillDefinition(row);
+  }
+
+  async toggleSkill(id: string, enabled: boolean): Promise<SkillDefinition> {
+    const row = await this.rpc<unknown>('skills.toggle', { id, enabled });
+    return decodeSkillDefinition(row);
+  }
+
+  async deleteSkill(id: string): Promise<void> {
+    await this.rpc<unknown>('skills.delete', { id });
+  }
+
+  // Wave 2 — plugins (MCP extensions).
+  async listPlugins(): Promise<PluginDefinition[]> {
+    const rows = await this.rpc<unknown>('plugins.list');
+    return wave2List(rows, 'plugins.list', decodePluginDefinition);
+  }
+
+  async installPlugin(manifestJsonOrUrl: string): Promise<PluginDefinition> {
+    const row = await this.rpc<unknown>('plugins.install', {
+      manifest_json_or_url: manifestJsonOrUrl,
+    });
+    return decodePluginDefinition(row);
+  }
+
+  async togglePlugin(id: string, enabled: boolean): Promise<PluginDefinition> {
+    const row = await this.rpc<unknown>('plugins.toggle', { id, enabled });
+    return decodePluginDefinition(row);
+  }
+
+  async configurePlugin(id: string, env: Record<string, string>): Promise<PluginDefinition> {
+    const row = await this.rpc<unknown>('plugins.configure', { id, env });
+    return decodePluginDefinition(row);
+  }
+
+  async removePlugin(id: string): Promise<void> {
+    await this.rpc<unknown>('plugins.remove', { id });
+  }
+
+  // Wave 2 — custom models (the rows the owner registers by hand under a provider).
+  async listCustomModels(provider?: string): Promise<CustomModelRecord[]> {
+    const rows = await this.rpc<unknown>('models.list', { provider: provider ?? null });
+    return wave2List(rows, 'models.list', decodeCustomModelRecord);
+  }
+
+  async addCustomModel(
+    provider: string,
+    modelId: string,
+    displayName?: string,
+    contextWindow?: number
+  ): Promise<CustomModelRecord> {
+    const row = await this.rpc<unknown>('models.add', {
+      provider,
+      model_id: modelId,
+      display_name: displayName ?? null,
+      context_window: contextWindow ?? null,
+    });
+    return decodeCustomModelRecord(row);
+  }
+
+  async removeCustomModel(provider: string, modelId: string): Promise<void> {
+    await this.rpc<unknown>('models.remove', { provider, model_id: modelId });
+  }
+
+  // Wave 2 — integrations. The token material rides the write once, like
+  // `providers.add`'s `key`, and no reply carries it back: the daemon keeps it in
+  // the OS keychain, `IntegrationStatus` has no token field, and `redactToken`
+  // already guards every message this client produces.
+  async listIntegrations(): Promise<IntegrationStatus[]> {
+    const rows = await this.rpc<unknown>('integrations.list');
+    return wave2List(rows, 'integrations.list', decodeIntegrationStatus);
+  }
+
+  async connectIntegration(id: string, config: IntegrationConfig): Promise<IntegrationStatus> {
+    const row = await this.rpc<unknown>('integrations.connect', {
+      id,
+      config: {
+        token: config.token ?? null,
+        webhook_url: config.webhookUrl ?? null,
+        bot_token: config.botToken ?? null,
+        channel: config.channel ?? null,
+        org: config.org ?? null,
+      },
+    });
+    return decodeIntegrationStatus(row);
+  }
+
+  async disconnectIntegration(id: string): Promise<IntegrationStatus> {
+    const row = await this.rpc<unknown>('integrations.disconnect', { id });
+    return decodeIntegrationStatus(row);
+  }
+
+  async testIntegration(id: string): Promise<IntegrationTestResult> {
+    const row = await this.rpc<unknown>('integrations.test', { id });
+    return decodeIntegrationTestResult(row);
+  }
+
+  // Wave 2 — the project file browser.
+  async getFilesTree(projectId: string, path?: string): Promise<FileEntry[]> {
+    const rows = await this.rpc<unknown>('files.tree', {
+      project_id: projectId,
+      path: path ?? null,
+    });
+    return wave2List(rows, 'files.tree', decodeFileEntry);
+  }
+
+  async readFileContent(projectId: string, path: string): Promise<FileContent> {
+    const row = await this.rpc<unknown>('files.read', { project_id: projectId, path });
+    return decodeFileContent(row);
   }
 }
 

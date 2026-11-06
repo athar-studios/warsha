@@ -21,6 +21,8 @@ interface ErrorBoundaryProps {
   children: ReactNode;
   /** Optional observer for telemetry/tests; the card itself never depends on it. */
   onError?: (error: Error, info: ErrorInfo) => void;
+  /** Optional array of values that, when changed, will automatically reset the error boundary. */
+  resetKeys?: readonly unknown[];
 }
 
 interface ErrorBoundaryState {
@@ -53,6 +55,18 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     // Keep the console copy for diagnosis; the card below is the owner-facing one.
     console.error('Warsha desktop render error:', error.message, info.componentStack);
     this.props.onError?.(error, info);
+  }
+
+  componentDidUpdate(prevProps: ErrorBoundaryProps): void {
+    // Auto-reset when resetKeys change
+    if (this.state.hasError && this.props.resetKeys) {
+      const prevKeys = prevProps.resetKeys ?? [];
+      const currKeys = this.props.resetKeys;
+      if (currKeys.length === prevKeys.length && currKeys.every((key, i) => key === prevKeys[i])) {
+        return; // no change
+      }
+      this.reset();
+    }
   }
 
   private readonly reset = (): void => {

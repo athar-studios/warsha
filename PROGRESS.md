@@ -50,6 +50,44 @@ Closed all 5 operational gaps and resolved the P0 black screen root cause on `sh
 
 ---
 
+## Wave 2: Full-Stack Software Factory Implementation — 2026-11-06 (COMPLETE)
+
+Executed Wave 2 Full-Stack Implementation across `warsha-core`, `warsha-store`, `warshad`, `@warsha/client`, and `warsha-desktop`. Replaced static placeholders with daemon-backed persistence, seeded bundled open-source presets, implemented custom provider and model catalogs, safe project filesystem access, live connectors, and delivered the Dual-Mode Software Factory UI (Qoder Complex Mode + Grokbot/Openbot Hard Mode).
+
+### Wave 2 Implementation Ledger
+
+| Area | Scope & Components | Implementation Details | Verification & Evidence | Status |
+|---|---|---|---|---|
+| **Harness System** | `crates/warsha-core/src/harness.rs`, `crates/warsha-store/src/persistence.rs`, `crates/warshad/src/wave2.rs`, `@warsha/client`, `apps/desktop/src/screens/HarnessesSettings.tsx` | Schema `warsha.harness/v1` with SQLite persistence; RPCs `harness.list`, `harness.get`, `harness.import`, `harness.select`, `harness.delete`; bundled 7 factory presets (`complex-workbench`, `autonomous-factory`, `ticket-to-pr`, `graph-gated`, `fleet-worktrees`, `sealed-envelope`, `solo-bench`); active harness selection and JSON/YAML import form | `HarnessesSettings.test.tsx` (5/5 tests passing); unit tests in `crates/warshad/src/wave2.rs` verifying preset seeding and parsing | **completed** |
+| **Skills System** | `crates/warsha-core/src/skill.rs`, `crates/warsha-store/src/persistence.rs`, `crates/warshad/src/wave2.rs`, `@warsha/client`, `apps/desktop/src/screens/SkillsSettings.tsx` | SQLite-persisted `SkillRegistry`; RPCs `skills.list`, `skills.import`, `skills.toggle`, `skills.delete`; bundled 12 open-source skills (`superpowers` + `anthropics/skills`); SKILL.md and URL import; license detection | `SkillsSettings.test.tsx` (6/6 tests passing); `warshad` tests verifying bundled skills catalog resolution | **completed** |
+| **Plugins System** | `crates/warsha-core/src/plugin.rs`, `crates/warsha-store/src/persistence.rs`, `crates/warshad/src/wave2.rs`, `@warsha/client`, `apps/desktop/src/screens/PluginsSettings.tsx` | SQLite-persisted `PluginRegistry`; RPCs `plugins.list`, `plugins.install`, `plugins.toggle`, `plugins.configure`, `plugins.remove`; bundled 7 MCP packs (`github-mcp`, `slack-mcp`, `filesystem-mcp`, `git-mcp`, `memory-mcp`, `sequential-thinking-mcp`, `security-strix-pack`); manifest import; environment variable configuration with `${secrets:...}` references | `PluginsSettings.test.tsx` (6/6 tests passing); `uvx strix` Docker sandbox verification | **completed** |
+| **Providers & Models** | `crates/warshad/src/wave2.rs`, `crates/warshad/src/settings.rs`, `@warsha/client`, `apps/desktop/src/screens/ModelsSettings.tsx`, `apps/desktop/src/screens/SettingsProviders.tsx` | Keychain & SQLite-persisted custom providers (`providers.add`, `list`, `remove`, `test`) supporting OpenAI-compatible `api_base`, Anthropic, Ollama, DeepSeek; custom model catalog (`models.list`, `add`, `remove`); role routing mapping (`roles.list`, `roles.set`) | `ModelsSettings.test.tsx` (7/7 tests passing); `SettingsProvidersCustom.test.tsx` (5/5 tests passing) | **completed** |
+| **Live Connectors** | `crates/warshad/src/wave2.rs`, `@warsha/client`, `apps/desktop/src/screens/SettingsScreen.tsx` | Backed by OS keychain and SQLite; RPCs `integrations.list`, `connect`, `disconnect`, `test`; GitHub PAT/token validation; Slack webhook and bot token configuration; zero secret leaks in UI or logs; graceful offline fallback | `SettingsScreenIntegrations.test.tsx` (6/6 tests passing) | **completed** |
+| **Project Filesystem Access** | `crates/warshad/src/wave2.rs`, `@warsha/client` | Safe project-scoped RPCs `files.tree` and `files.read`; strict path traversal defense rejecting `..`, absolute paths, NUL bytes, and symlink escapes outside the project directory; UTF-8 text and binary detection | 10 unit tests in `crates/warshad/src/wave2.rs` covering list, read, traversal rejection, and binary files | **completed** |
+| **Dual-Mode UI: Complex Mode** | `apps/desktop/src/screens/AdvancedMode.tsx`, `apps/desktop/src/screens/AdvancedMode.test.tsx` | Qoder IDE Workbench: lazy workspace file tree, active context pills, multi-tab Code/Diff/Plan/Stream viewer, run-control bar (`advanceRun`, `cancelRun`, `followupRun`) beside read-only TerminalDock, collapsible 12-role Subagent Swarm matrix | `AdvancedMode.test.tsx` (27/27 tests passing) | **completed** |
+| **Dual-Mode UI: Hard Mode** | `apps/desktop/src/screens/SimpleMode.tsx`, `apps/desktop/src/screens/SimpleMode.test.tsx` | Grokbot/Openbot Autonomous Factory: 1-click mode toggle, Mission Briefing Composer with harness/model/budget pills, live 9-stage autonomous pipeline, press-metal GateCards with rationale and safety checks, artifact shelf, verification receipt card with cryptographic seal | `SimpleMode.test.tsx` (19/19 tests passing) | **completed** |
+
+### Wave 2 Quality & Verification Ledger
+
+- **Rust Format**: `cargo fmt --all -- --check` -> **exit 0 (FMT_OK)**
+- **Rust Clippy**: `cargo clippy --workspace --all-targets -- -D warnings` -> **exit 0 (0 warnings)**
+- **Rust Workspace Tests**: `cargo test --workspace` -> **713 passed, 0 failed**
+- **Cargo Deny**:
+  - Root workspace: `cargo deny --manifest-path Cargo.toml --all-features check` -> **advisories ok, bans ok, licenses ok, sources ok (exit 0)**
+  - Desktop Tauri: `cargo deny --manifest-path apps/desktop/src-tauri/Cargo.toml --all-features check` -> **advisories ok, bans ok, licenses ok, sources ok (exit 0)**
+- **Secret Scan**: `gitleaks detect --source . --config .gitleaks.toml --no-banner --redact --exit-code 1` -> **80 commits scanned, 0 leaks found (exit 0)**
+- **TypeScript Typecheck**: `pnpm -r run typecheck` -> **exit 0 across all 7 packages**
+- **TypeScript Lint**: `pnpm -r run lint` -> **exit 0 across all packages**
+- **TypeScript Tests**: `pnpm -r run test` -> **exit 0 across all packages** (desktop 47 files / 436 tests, ui 151 tests, client 112 tests, i18n 52 tests, crypto 22 tests)
+- **Production Builds**: `pnpm -r run build` -> **exit 0** (`apps/desktop` and `apps/remote` built cleanly)
+- **Architecture Rules**: `node scripts/check-arch.mjs` -> **5 rules, 0 violations (exit 0)**
+- **Wire Contract**: `node scripts/check-wire-contract.mjs` -> **8 checks, 0 violations (exit 0)**
+- **Engineering Policy Self-Test**: `node scripts/check-engineering-policy.mjs --self-test` -> **8 checks fire, clean fixture is clean (exit 0)**
+- **Documentation Book**: `mdbook build docs` -> **exit 0**
+- **Strix Security Scan Tool**: `uvx --from strix-agent strix` -> Docker sandbox `ghcr.io/usestrix/strix-sandbox:1.3.0` verified and ready
+
+---
+
 ## Working version for PC + Android — 2026-11-04 (in flight; resume artifact)
 
 Objective: "warsha working version for PC and android final". Verification bank below is written

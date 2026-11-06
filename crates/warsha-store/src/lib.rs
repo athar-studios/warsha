@@ -30,7 +30,8 @@ use warsha_core::{
 mod persistence;
 
 pub use persistence::{
-    SqliteStore, StoredBackendKit, StoredPairing, StoredPreference, StoredProvider, StoredRunMode,
+    SqliteStore, StoredBackendKit, StoredCustomModel, StoredHarness, StoredIntegration,
+    StoredPairing, StoredPlugin, StoredPreference, StoredProvider, StoredRunMode, StoredSkill,
 };
 
 /// Errors raised by the persistence layer.

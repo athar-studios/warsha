@@ -96,7 +96,8 @@ function componentSources(): string[] {
     if (!entry.isFile()) continue;
     if (!entry.name.endsWith('.tsx') && !entry.name.endsWith('.ts')) continue;
     // The barrel only re-exports; `internal.ts` only names things the compounds share.
-    if (entry.name === 'index.ts' || entry.name === 'internal.ts') continue;
+    // Also exclude story files from compounds.
+    if (entry.name === 'index.ts' || entry.name === 'internal.ts' || entry.name.includes('.stories.')) continue;
     files.push(join(COMPOUND_DIRECTORY, entry.name));
   }
   return files.sort();
@@ -115,9 +116,18 @@ function componentFiles(): string[] {
 
 /** Every story file, so "a component without a story" is a failing build too. */
 function storyFiles(): string[] {
-  return readdirSync(join(UI_SRC, 'components'))
-    .filter((name) => name.endsWith('.stories.tsx'))
-    .sort();
+  const files: string[] = [];
+  for (const entry of readdirSync(join(UI_SRC, 'components'), { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith('.stories.tsx')) {
+      files.push(entry.name.replace('.stories.tsx', ''));
+    }
+  }
+  for (const entry of readdirSync(join(UI_SRC, 'compounds'), { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith('.stories.tsx')) {
+      files.push(entry.name.replace('.stories.tsx', ''));
+    }
+  }
+  return files.sort();
 }
 
 /**

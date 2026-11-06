@@ -233,6 +233,17 @@ describe('the desktop bench', () => {
       expect(screen.getByTestId('backend-kit-panel')).toBeInTheDocument();
       // The payments gate is shut until the owner approves it.
       expect(screen.getByTestId('payments-gate')).toHaveAttribute('data-enabled', 'false');
+
+      // Wave 2's factory screens ride the same strip: harnesses, skills, plugins and models are one
+      // press away from every other settings plate.
+      fireEvent.click(screen.getByTestId('settings-tab-harnesses'));
+      expect(screen.getByTestId('settings-harnesses')).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('settings-tab-skills'));
+      expect(screen.getByTestId('settings-skills')).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('settings-tab-plugins'));
+      expect(screen.getByTestId('settings-plugins')).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('settings-tab-models'));
+      expect(screen.getByTestId('settings-models')).toBeInTheDocument();
     } finally {
       vi.unstubAllGlobals();
     }

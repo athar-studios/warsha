@@ -42,7 +42,7 @@ use warsha_pipeline::{
     InMemoryCrashReportStore, InMemoryMcpManager, InMemoryPairingStore, InMemoryPreferenceStore,
     InMemoryProcessManager, InMemoryStoreReviewStore, LivePreview, LivePreviewManager,
     ManagedProcess, McpConnection, McpManager, MessageBus, ModeManager, ModeTransition,
-    PairingStore, PhonePairing, PipelineEngine, Preference, PreferenceSignal, PreferenceStore,
+    PairingStore, PhonePairing, Preference, PreferenceSignal, PreferenceStore,
     ProcessManager, ProcessStatus, ProcessSummary, ProviderRouterAdapter, Routine, RoutineRegistry,
     RoutineRunner, RoutineScheduler, RunMode, RunModeConfig, SlashCommand, SlashCommandRegistry,
     StoreReview, StoreReviewStore, TodoItem, TodoList, AGENT_ROLE,
@@ -53,11 +53,14 @@ use warsha_providers::{
 };
 use warsha_remote::rate_limit::rate_key;
 use warsha_remote::DeviceRegistry;
-use warsha_store::{Store, StoredProvider};
+use warsha_store::{
+    Store, StoredHarness, StoredIntegration, StoredPlugin, StoredProvider, StoredSkill,
+};
 
 mod auth;
 mod providers;
 mod settings;
+mod wave2;
 
 pub use auth::{
     Actor, ActorRole, MethodPolicy, Policy, ProcessPolicy, QuotaConfig, RateGovernor,
@@ -1023,7 +1026,7 @@ pub struct DaemonState {
     pub config: DaemonConfig,
     pub store: Arc<Store>,
     pub providers: Arc<RwLock<ProviderRouter>>,
-    pub pipeline: Arc<PipelineEngine>,
+    pub pipeline: Arc<warsha_pipeline::PipelineEngine<SettingsStore>>,
     pub backends: Vec<Box<dyn warsha_backends::CodingBackend>>,
     pub github: Option<GitHubClient>,
     pub devices: Arc<DeviceRegistry>,
@@ -1310,7 +1313,7 @@ pub trait WarshaApi {
     /// Test a stored provider's connection. A refusal is a JSON-RPC error whose
     /// message says why and whose `data` carries the [`HealthCheck`].
     #[method(name = "providers.test", with_extensions)]
-    async fn test_provider(&self, name: String) -> RpcResult<HealthCheck>;
+    async fn test_provider(&self, name: String, model: Option<String>) -> RpcResult<HealthCheck>;
 
     /// Check a registered provider for model catalog updates without overwriting existing settings.
     #[method(name = "providers.check_models", with_extensions)]
@@ -1388,8 +1391,13 @@ pub trait WarshaApi {
     // The three `agent.*` writes take the session because the M18 rule is that Agent
     // mode exists only on an owner's approval, and audit H-03 is that an approval
     // records who gave it: the approver is the authenticated device and never a param.
+    //
+    // `skills.list` is the owner-facing catalog — every installed skill, the same
+    // rows `skills.import`/`skills.toggle`/`skills.delete` manage. It is *not* the
+    // slash-command registry the agent loop executes: `skill_catalog()` builds that
+    // in-process from the enabled rows, and it is unchanged by this shape.
     #[method(name = "skills.list", with_extensions)]
-    async fn list_skills(&self) -> RpcResult<Vec<SlashCommand>>;
+    async fn list_skills(&self) -> RpcResult<Vec<SkillDefinition>>;
 
     #[method(name = "agent.turn", with_extensions)]
     async fn agent_turn(&self, input: String) -> RpcResult<AgentTurnResult>;
@@ -1545,6 +1553,162 @@ pub trait WarshaApi {
     /// The run's artifacts, sorted by name — the seam `ArtifactViewer.tsx` names.
     #[method(name = "runs.artifacts", with_extensions)]
     async fn list_run_artifacts(&self, run_id: RunId) -> RpcResult<Vec<Artifact>>;
+
+    // Wave 2 — harnesses (PLAN.md M20's declarative pipelines).
+    //
+    // The five methods are one read pair and three writes over the `harnesses`
+    // tables in [`SettingsStore`], seeded once from
+    // [`warsha_core::bundled_harnesses`]. The row *is* the record: a list, a get and
+    // an import all answer from what a restart would read back, so nothing an owner
+    // does here is visible only until the next boot. `harness.import` reads a JSON
+    // document and always stamps the result user-authored (`preset: false`), because
+    // a harness the owner typed is not one the daemon ships, and re-importing the
+    // same name replaces it rather than forking it. `harness.select` writes the
+    // project's active pipeline — with no project it writes the daemon-wide default
+    // under the key `global`, which is what an unprojected run reads. `harness.delete`
+    // refuses a bundled preset: the seed would put it back on the next start, and a
+    // delete that silently undoes itself is worse than one that says no.
+    #[method(name = "harness.list", with_extensions)]
+    async fn list_harnesses(&self) -> RpcResult<Vec<HarnessDefinition>>;
+
+    #[method(name = "harness.get", with_extensions)]
+    async fn get_harness(&self, id: String) -> RpcResult<HarnessDefinition>;
+
+    #[method(name = "harness.import", with_extensions)]
+    async fn import_harness(
+        &self,
+        content: String,
+        format: Option<String>,
+    ) -> RpcResult<HarnessDefinition>;
+
+    #[method(name = "harness.select", with_extensions)]
+    async fn select_harness(&self, harness_id: String, project_id: Option<String>)
+        -> RpcResult<()>;
+
+    #[method(name = "harness.delete", with_extensions)]
+    async fn delete_harness(&self, id: String) -> RpcResult<()>;
+
+    // Wave 2 — skills.
+    //
+    // `skills.list` is the catalog the owner manages: every installed
+    // [`SkillDefinition`], bundled and imported, enabled or not. (It answered the
+    // `/review`-style [`SlashCommand`] list before the table existed; the agent loop's
+    // own command registry is served in-process by `skill_catalog()` and is unchanged,
+    // so the browser catalog and the runnable commands are now different things on
+    // purpose — the owner manages the first, the agent executes the second.)
+    // `skills.import` reads either a JSON row or a markdown skill with `---` front
+    // matter; a URL is refused rather than fetched, because a daemon that pulls
+    // arbitrary code over the network at an owner's click is the thing this project
+    // promises not to be. `skills.toggle` *sets* the flag the caller names (the store's
+    // `toggle_skill` flips, which cannot honour an explicit `enabled`).
+    #[method(name = "skills.import", with_extensions)]
+    async fn import_skill(
+        &self,
+        url_or_content: String,
+        name: Option<String>,
+    ) -> RpcResult<SkillDefinition>;
+
+    #[method(name = "skills.toggle", with_extensions)]
+    async fn toggle_skill(&self, id: String, enabled: bool) -> RpcResult<SkillDefinition>;
+
+    #[method(name = "skills.delete", with_extensions)]
+    async fn delete_skill(&self, id: String) -> RpcResult<()>;
+
+    // Wave 2 — plugins (MCP extension packs).
+    //
+    // A plugin row carries its transport, its command line and its environment
+    // *references*; `plugins.configure` is where a value that looks like a secret is
+    // taken out of the row and filed in the OS keychain under
+    // `plugin:{id}:{KEY}`, leaving `${secrets:plugin:{id}:{KEY}}` in its place — the
+    // same shape `providers.add` already uses, so `plugins.list` can be read by a
+    // browser without ever carrying a token. `plugins.install` reads a JSON manifest
+    // only; a URL is refused for the reason `skills.import` gives.
+    #[method(name = "plugins.list", with_extensions)]
+    async fn list_plugins(&self) -> RpcResult<Vec<PluginDefinition>>;
+
+    #[method(name = "plugins.install", with_extensions)]
+    async fn install_plugin(&self, manifest_json_or_url: String) -> RpcResult<PluginDefinition>;
+
+    #[method(name = "plugins.toggle", with_extensions)]
+    async fn toggle_plugin(&self, id: String, enabled: bool) -> RpcResult<PluginDefinition>;
+
+    #[method(name = "plugins.configure", with_extensions)]
+    async fn configure_plugin(
+        &self,
+        id: String,
+        env: HashMap<String, String>,
+    ) -> RpcResult<PluginDefinition>;
+
+    #[method(name = "plugins.remove", with_extensions)]
+    async fn remove_plugin(&self, id: String) -> RpcResult<()>;
+
+    // Wave 2 — custom models.
+    //
+    // A custom model is one the owner names by hand under a provider the daemon
+    // already knows; the row is `(provider, model_id)`, so `models.add` is an upsert
+    // and `models.remove` needs both halves. `models.list` filters by provider when
+    // one is named, because the settings screen shows one provider's rows at a time.
+    #[method(name = "models.list", with_extensions)]
+    async fn list_custom_models(
+        &self,
+        provider: Option<String>,
+    ) -> RpcResult<Vec<CustomModelRecord>>;
+
+    #[method(name = "models.add", with_extensions)]
+    async fn add_custom_model(
+        &self,
+        provider: String,
+        model_id: String,
+        display_name: Option<String>,
+        context_window: Option<u32>,
+    ) -> RpcResult<CustomModelRecord>;
+
+    #[method(name = "models.remove", with_extensions)]
+    async fn remove_custom_model(&self, provider: String, model_id: String) -> RpcResult<()>;
+
+    // Wave 2 — integrations.
+    //
+    // An integration is one row per service, and its credentials are never in the
+    // row: `integrations.connect` takes `IntegrationConfig`, files `token` and
+    // `bot_token` in the keychain under `integration:{id}` / `integration:{id}:bot`,
+    // and stores the rest. Every answer is an [`IntegrationStatus`], which has no
+    // token field by construction. `integrations.test` is the one method under the
+    // Spend tier: a check that reached GitHub or Slack would be the daemon spending
+    // an owner's quota on their behalf, so today it reports what the daemon can know
+    // locally — whether the service is configured and filed — and says so plainly.
+    #[method(name = "integrations.list", with_extensions)]
+    async fn list_integrations(&self) -> RpcResult<Vec<IntegrationStatus>>;
+
+    #[method(name = "integrations.connect", with_extensions)]
+    async fn connect_integration(
+        &self,
+        id: String,
+        config: IntegrationConfig,
+    ) -> RpcResult<IntegrationStatus>;
+
+    #[method(name = "integrations.disconnect", with_extensions)]
+    async fn disconnect_integration(&self, id: String) -> RpcResult<IntegrationStatus>;
+
+    #[method(name = "integrations.test", with_extensions)]
+    async fn test_integration(&self, id: String) -> RpcResult<IntegrationTestResult>;
+
+    // Wave 2 — the project file browser.
+    //
+    // Both methods are confined to the project on purpose. The root is the project's
+    // `repo_path` when it has one and `<data_dir>/files/<project key>` when it does
+    // not; the requested path is joined component-by-component, so `..`, a root or a
+    // prefix is refused before the filesystem is touched, and the joined path is then
+    // canonicalised and required to still sit inside the root — which is what stops a
+    // symlink from naming a file outside it. Reads are capped and text-only.
+    #[method(name = "files.tree", with_extensions)]
+    async fn list_project_files(
+        &self,
+        project_id: String,
+        path: Option<String>,
+    ) -> RpcResult<Vec<FileEntry>>;
+
+    #[method(name = "files.read", with_extensions)]
+    async fn read_project_file(&self, project_id: String, path: String) -> RpcResult<FileContent>;
 }
 
 /// Health response
@@ -1607,6 +1771,7 @@ pub(crate) fn provider_endpoint(provider: &StoredProvider) -> Option<String> {
 
 /// The model `provider` is tested with: its kind's published default, or `""` when
 /// the kind has none — which the setup check reports as "Enter the model id."
+#[allow(dead_code)]
 fn provider_model(provider: &StoredProvider) -> &'static str {
     OneClickProvider::from_tag(&provider.kind)
         .and_then(OneClickProvider::default_model)
@@ -1831,6 +1996,159 @@ impl WarshaRpc {
             .map_err(|error| rpc_error(error.to_string()))
     }
 
+    /// One Wave 2 row or the refusal that it is not installed.
+    ///
+    /// The four readers below share one shape because the four catalogs are managed
+    /// the same way: a write names a row, and a row that is not in the store is the
+    /// caller's mistake (`-32602`), not the daemon's. The message names what *is*
+    /// installed only by count, because a catalog can be long and a browser that got
+    /// the id wrong already has the list call to make.
+    async fn stored_harness(&self, id: &str) -> RpcResult<StoredHarness> {
+        self.state
+            .settings
+            .get_harness(id)
+            .await
+            .map_err(rpc_error)?
+            .ok_or_else(|| rpc_invalid_params(format!("no harness `{id}` is installed")))
+    }
+
+    async fn stored_skill(&self, id: &str) -> RpcResult<StoredSkill> {
+        self.state
+            .settings
+            .get_skill(id)
+            .await
+            .map_err(rpc_error)?
+            .ok_or_else(|| rpc_invalid_params(format!("no skill `{id}` is installed")))
+    }
+
+    async fn stored_plugin(&self, id: &str) -> RpcResult<StoredPlugin> {
+        self.state
+            .settings
+            .get_plugin(id)
+            .await
+            .map_err(rpc_error)?
+            .ok_or_else(|| rpc_invalid_params(format!("no plugin `{id}` is installed")))
+    }
+
+    async fn stored_integration(&self, id: &str) -> RpcResult<StoredIntegration> {
+        self.state
+            .settings
+            .get_integration(id)
+            .await
+            .map_err(rpc_error)?
+            .ok_or_else(|| {
+                rpc_invalid_params(format!(
+                    "no integration `{id}` is connected; integrations.connect writes one"
+                ))
+            })
+    }
+
+    /// File a plugin pack's environment values, returning what the row keeps.
+    ///
+    /// Anything that is already a `${…}` reference is stored as written — the owner
+    /// may be pointing at the process environment or at an entry filed for another
+    /// pack, and the daemon has no business second-guessing that. Everything else is
+    /// treated as secret material and moved to the keychain under an account namespaced
+    /// by the pack, so two packs that both want `GITHUB_TOKEN` hold two secrets and the
+    /// row carries only the address. A keychain that refuses is a refusal of the whole
+    /// call: an environment half-filed would launch a pack with a token the owner
+    /// believes is set.
+    async fn file_plugin_env(
+        &self,
+        id: &str,
+        env: &HashMap<String, String>,
+    ) -> RpcResult<HashMap<String, String>> {
+        let (references, secrets) = wave2::split_plugin_env(id, env);
+        for (account, value) in secrets {
+            self.state
+                .secrets
+                .store(&account, &value)
+                .await
+                .map_err(|error| {
+                    rpc_error(format!(
+                        "the value for `{account}` could not be stored in the OS keychain: {error}"
+                    ))
+                })?;
+        }
+        Ok(references)
+    }
+
+    /// One integration's status, with the keychain consulted for what the row omits.
+    ///
+    /// `has_token` is "an entry exists", never "a token was read": the value is not
+    /// brought into memory to answer a listing, and a reply that carried it would put
+    /// a secret on the wire the browser reads.
+    async fn integration_status_of(&self, id: &str) -> RpcResult<IntegrationStatus> {
+        let row = self.stored_integration(id).await?;
+        Ok(wave2::integration_status(
+            &row,
+            self.state
+                .secrets
+                .load(&wave2::integration_secret_account(&row.id))
+                .await
+                .is_ok(),
+            self.state
+                .secrets
+                .load(&wave2::integration_bot_secret_account(&row.id))
+                .await
+                .is_ok(),
+        ))
+    }
+
+    /// Every integration the daemon has been connected, by name.
+    async fn integration_statuses(&self) -> RpcResult<Vec<IntegrationStatus>> {
+        let rows = self
+            .state
+            .settings
+            .list_integrations()
+            .await
+            .map_err(rpc_error)?;
+        let mut statuses = Vec::with_capacity(rows.len());
+        for row in &rows {
+            statuses.push(wave2::integration_status(
+                row,
+                self.state
+                    .secrets
+                    .load(&wave2::integration_secret_account(&row.id))
+                    .await
+                    .is_ok(),
+                self.state
+                    .secrets
+                    .load(&wave2::integration_bot_secret_account(&row.id))
+                    .await
+                    .is_ok(),
+            ));
+        }
+        Ok(statuses)
+    }
+
+    /// The directory a project's files are browsed from.
+    ///
+    /// A project with a working tree is browsed there, because that is the tree the
+    /// agent edits and the one an owner wants to read. A project without one — created
+    /// by name alone, or a caller that passed an id the store has never seen — is
+    /// browsed from `<data_dir>/files/<sanitised id>`, which is a directory the daemon
+    /// owns and the agent's own file tools can write into. The fallback is what makes
+    /// `files.*` answerable for every id a browser can hold, and the sanitising is what
+    /// stops an unknown id from choosing where it lives.
+    async fn project_files_root(&self, project_id: &str) -> PathBuf {
+        let repo_path = match uuid::Uuid::parse_str(project_id.trim()) {
+            Ok(id) => self
+                .state
+                .store
+                .get_project(ProjectId(id))
+                .await
+                .ok()
+                .and_then(|project| project.repo_path),
+            Err(_) => None,
+        };
+        wave2::project_files_root(
+            &self.state.config.data_dir,
+            project_id,
+            repo_path.as_deref(),
+        )
+    }
+
     /// The daemon's command policy, read from its configuration (security audit H-05).
     ///
     /// Built per call rather than stored, because the configuration it comes from is
@@ -1963,6 +2281,77 @@ impl WarshaRpc {
         info!("{method} recorded for the device the session authenticated");
         Ok(transition)
     }
+
+    async fn resolve_test_model(
+        &self,
+        provider: &StoredProvider,
+        explicit_model: Option<String>,
+    ) -> String {
+        if let Some(m) = explicit_model
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+        {
+            return m;
+        }
+
+        if let Ok(models) = self.state.settings.list_custom_models().await {
+            if let Some(m) = models.into_iter().find(|m| {
+                m.enabled
+                    && (m.provider.eq_ignore_ascii_case(&provider.name)
+                        || m.provider.eq_ignore_ascii_case(&provider.kind))
+            }) {
+                if !m.model_id.trim().is_empty() {
+                    return m.model_id;
+                }
+            }
+        }
+
+        let routings = self.state.role_routings.read().await;
+        for config in routings.values() {
+            for target in &config.targets {
+                if (target.provider_id.eq_ignore_ascii_case(&provider.name)
+                    || target.provider_id.eq_ignore_ascii_case(&provider.kind))
+                    && !target.model_id.trim().is_empty()
+                {
+                    return target.model_id.clone();
+                }
+            }
+        }
+
+        if let Some(default_m) =
+            OneClickProvider::from_tag(&provider.kind).and_then(OneClickProvider::default_model)
+        {
+            if !default_m.trim().is_empty() {
+                return default_m.to_string();
+            }
+        }
+
+        let kind = provider.kind.to_lowercase();
+        if kind.contains("anthropic") {
+            "claude-3-5-haiku-latest".to_string()
+        } else if kind.contains("ollama") {
+            "llama3.2".to_string()
+        } else if kind.contains("fake") || kind.contains("mock") {
+            "fake-model".to_string()
+        } else {
+            "gpt-4o-mini".to_string()
+        }
+    }
+
+    async fn active_skill_catalog(&self) -> Vec<SlashCommand> {
+        let mut registry = SlashCommandRegistry::new();
+        for (name, description) in SKILL_CATALOG {
+            let _ = registry.register(SlashCommand::new(*name, *description));
+        }
+        if let Ok(rows) = self.state.settings.list_skills().await {
+            for row in rows {
+                if row.enabled {
+                    let _ = registry.register(SlashCommand::new(&row.id, &row.description));
+                }
+            }
+        }
+        registry.skills()
+    }
 }
 
 /// Seconds since the Unix epoch, or `0` on a clock that cannot answer.
@@ -2039,11 +2428,54 @@ impl WarshaApiServer for WarshaRpc {
         idea: String,
     ) -> RpcResult<Run> {
         self.authorize(ext, "runs.start")?;
-        self.state
+        let run = self
+            .state
             .pipeline
             .start_run(project_id, &idea)
             .await
-            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+
+        // Wire active harness + enabled skills + enabled plugins into run start context (F2)
+        let active_harness = self
+            .state
+            .settings
+            .get_active_harness(&project_id.to_string())
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "autonomous-factory".to_string());
+        let enabled_skills: Vec<String> = self
+            .state
+            .settings
+            .list_skills()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|s| s.enabled)
+            .map(|s| s.id)
+            .collect();
+        let enabled_plugins: Vec<String> = self
+            .state
+            .settings
+            .list_plugins()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|p| p.enabled)
+            .map(|p| p.id)
+            .collect();
+
+        tracing::info!(
+            target: "audit",
+            run_id = %run.id.0,
+            stage = ?run.current_stage,
+            harness = %active_harness,
+            skills = ?enabled_skills,
+            plugins = ?enabled_plugins,
+            "run start audit context"
+        );
+
+        Ok(run)
     }
 
     async fn get_run(&self, ext: &RpcExtensions, run_id: RunId) -> RpcResult<Run> {
@@ -2290,7 +2722,12 @@ impl WarshaApiServer for WarshaRpc {
     /// wizard could not tell an unhealthy result from a healthy one. The reason
     /// therefore travels in the error's message (what the wizard shows) and in its
     /// `data` as the [`HealthCheck`] the RPC declares.
-    async fn test_provider(&self, ext: &RpcExtensions, name: String) -> RpcResult<HealthCheck> {
+    async fn test_provider(
+        &self,
+        ext: &RpcExtensions,
+        name: String,
+        model: Option<String>,
+    ) -> RpcResult<HealthCheck> {
         self.authorize(ext, "providers.test")?;
         let provider = self
             .state
@@ -2312,10 +2749,18 @@ impl WarshaApiServer for WarshaRpc {
             ))
         })?;
 
+        // Resolve test probe model per D1:
+        // 1. Explicit model param
+        // 2. Custom model registered for this provider that is enabled
+        // 3. Role routing targeting this provider
+        // 4. OneClickProvider default
+        // 5. Kind-specific fallback
+        let resolved_model = self.resolve_test_model(&provider, model).await;
+
         // No network yet: a malformed URL or a key the owner typed with a space in
         // it is refused here, from the wizard's own checks.
         if let Some(reason) =
-            ProviderSetupWizard::test_connection(&endpoint, &key, provider_model(&provider))
+            ProviderSetupWizard::test_connection(&endpoint, &key, &resolved_model)
                 .reason()
         {
             return Err(provider_refusal(reason));
@@ -2825,11 +3270,6 @@ impl WarshaApiServer for WarshaRpc {
     // value in the params. It is the device the transport authenticated, and a session
     // whose pairing names no device is refused instead of being recorded under a name
     // the daemon invented.
-    async fn list_skills(&self, ext: &RpcExtensions) -> RpcResult<Vec<SlashCommand>> {
-        self.authorize(ext, "skills.list")?;
-        Ok(skill_catalog())
-    }
-
     /// Run one turn of the owner's conversation, and store what it changed.
     ///
     /// The turn is the only way a todo, an answer or a mode note is recorded over the
@@ -2845,7 +3285,7 @@ impl WarshaApiServer for WarshaRpc {
         // tool or make one model call, so the write lock is held across that await.
         // Nothing else takes this lock mid-turn, so the ordering stays one turn at a
         // time — which is what keeps the todo list and the transcript coherent.
-        let skills = skill_catalog();
+        let skills = self.active_skill_catalog().await;
         let (result, snapshot) = {
             let mut agent_loop = self.state.agent_loop.write().await;
             let result = agent_loop.run_turn(&input, &skills).await;
@@ -3321,11 +3761,54 @@ impl WarshaApiServer for WarshaRpc {
         // a fresh daemon with no provider still advances a run offline with rich stage
         // artifacts. `advance_to_next_gate` walks the run to the next undecided gate
         // (passing approved ones) and marks a run that reaches `Feedback` completed.
-        self.state
+        let run = self
+            .state
             .pipeline
             .advance_to_next_gate(run_id)
             .await
-            .map_err(rpc_error)
+            .map_err(rpc_error)?;
+
+        // Record factory context on advance (F2)
+        if let Ok(active_harness) = self
+            .state
+            .settings
+            .get_active_harness(&run.project_id.to_string())
+            .await
+        {
+            let harness_id = active_harness.unwrap_or_else(|| "autonomous-factory".to_string());
+            let enabled_skills: Vec<String> = self
+                .state
+                .settings
+                .list_skills()
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|s| s.enabled)
+                .map(|s| s.id)
+                .collect();
+            let enabled_plugins: Vec<String> = self
+                .state
+                .settings
+                .list_plugins()
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|p| p.enabled)
+                .map(|p| p.id)
+                .collect();
+
+            tracing::info!(
+                target: "audit",
+                run_id = %run.id.0,
+                stage = ?run.current_stage,
+                harness = %harness_id,
+                skills = ?enabled_skills,
+                plugins = ?enabled_plugins,
+                "run advance audit context"
+            );
+        }
+
+        Ok(run)
     }
 
     async fn cancel_run(
@@ -3440,6 +3923,749 @@ impl WarshaApiServer for WarshaRpc {
         artifacts.sort_by(|left, right| left.name.cmp(&right.name));
         Ok(artifacts)
     }
+
+    // ============================================== Wave 2 (harnesses, skills,
+    // plugins, custom models, integrations, files)
+    //
+    // Six surfaces, one shape of method: `authorize` first, then read or write the
+    // [`SettingsStore`] row, then answer with the record the *stored* row decodes to.
+    // That last half is the rule the whole batch follows — a method never returns the
+    // value the caller handed it if the store would have kept something else, so a
+    // reply is a promise a restart can check. Secret material is the exception by
+    // design: it is filed in the OS keychain and the row keeps a reference, so a
+    // reply carries the reference and never the value.
+    //
+    // Refusals split the same way everywhere: `-32602` when the caller's document or
+    // path is what is wrong, `-32000` when the daemon's own store, keychain or
+    // filesystem failed.
+
+    async fn list_harnesses(&self, ext: &RpcExtensions) -> RpcResult<Vec<HarnessDefinition>> {
+        self.authorize(ext, "harness.list")?;
+        let active_id = self
+            .state
+            .settings
+            .get_active_harness(ACTIVE_HARNESS_GLOBAL_KEY)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "autonomous-factory".to_string());
+        let rows = self
+            .state
+            .settings
+            .list_harnesses()
+            .await
+            .map_err(rpc_error)?;
+        Ok(rows
+            .iter()
+            .map(|row| {
+                let mut def = wave2::harness_definition(row);
+                def.active = def.id == active_id;
+                def
+            })
+            .collect())
+    }
+
+    async fn get_harness(&self, ext: &RpcExtensions, id: String) -> RpcResult<HarnessDefinition> {
+        self.authorize(ext, "harness.get")?;
+        let active_id = self
+            .state
+            .settings
+            .get_active_harness(ACTIVE_HARNESS_GLOBAL_KEY)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "autonomous-factory".to_string());
+        let mut def = wave2::harness_definition(&self.stored_harness(&id).await?);
+        def.active = def.id == active_id;
+        Ok(def)
+    }
+
+    async fn import_harness(
+        &self,
+        ext: &RpcExtensions,
+        content: String,
+        format: Option<String>,
+    ) -> RpcResult<HarnessDefinition> {
+        self.authorize(ext, "harness.import")?;
+        let definition =
+            wave2::parse_harness_import(&content, format.as_deref()).map_err(rpc_invalid_params)?;
+        let row = wave2::harness_row(&definition).map_err(rpc_error)?;
+        self.state
+            .settings
+            .save_harness(&row)
+            .await
+            .map_err(rpc_error)?;
+        let active_id = self
+            .state
+            .settings
+            .get_active_harness(ACTIVE_HARNESS_GLOBAL_KEY)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "autonomous-factory".to_string());
+        let mut def = wave2::harness_definition(&self.stored_harness(&row.id).await?);
+        def.active = def.id == active_id;
+        Ok(def)
+    }
+
+    /// Point a project — or, with no project, the daemon as a whole — at a harness.
+    ///
+    /// The selection is stored under the project id, and `global` is the key an
+    /// unprojected run reads, so a browser that has not picked a project yet can
+    /// still set the default its first run will use. Selecting a name that is not
+    /// installed is refused here rather than at the first gate: a run that starts
+    /// against a harness nobody has would fail in the middle of spending, and the
+    /// owner would learn about it from a pipeline rather than from a settings screen.
+    async fn select_harness(
+        &self,
+        ext: &RpcExtensions,
+        harness_id: String,
+        project_id: Option<String>,
+    ) -> RpcResult<()> {
+        self.authorize(ext, "harness.select")?;
+        self.stored_harness(&harness_id).await?;
+        let key = project_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|project| !project.is_empty())
+            .unwrap_or(ACTIVE_HARNESS_GLOBAL_KEY);
+        self.state
+            .settings
+            .set_active_harness(key, &harness_id)
+            .await
+            .map_err(rpc_error)
+    }
+
+    /// Remove a user-authored harness.
+    ///
+    /// A bundled preset is refused: the seed at daemon start would write it back, and
+    /// a delete that quietly undoes itself at the next restart is a worse answer than
+    /// one that says which rows it cannot remove. The `global` selection is cleared
+    /// when it named the harness being removed, because that is the one key this
+    /// method can read; per-project selections are left alone (the store has no way to
+    /// enumerate them) and `harness.get` is what tells a run that its selection is
+    /// gone.
+    async fn delete_harness(&self, ext: &RpcExtensions, id: String) -> RpcResult<()> {
+        self.authorize(ext, "harness.delete")?;
+        let stored = self.stored_harness(&id).await?;
+        if stored.is_preset {
+            return Err(rpc_invalid_params(format!(
+                "`{id}` is a bundled harness; harness.delete removes the ones you imported, \
+                 and a preset returns at the next start because the daemon ships it"
+            )));
+        }
+        self.state
+            .settings
+            .delete_harness(&id)
+            .await
+            .map_err(rpc_error)?;
+        if self
+            .state
+            .settings
+            .get_active_harness(ACTIVE_HARNESS_GLOBAL_KEY)
+            .await
+            .ok()
+            .flatten()
+            .as_deref()
+            == Some(id.as_str())
+        {
+            self.state
+                .settings
+                .clear_active_harness(ACTIVE_HARNESS_GLOBAL_KEY)
+                .await
+                .map_err(rpc_error)?;
+        }
+        Ok(())
+    }
+
+    /// The installed skills, in the shape the owner manages them in.
+    ///
+    /// Every row, enabled or not: a screen that could only see the enabled ones could
+    /// not switch one back on. `skill_catalog()` remains the in-process registry the
+    /// agent loop runs, built from exactly these rows with the disabled ones dropped.
+    async fn list_skills(&self, ext: &RpcExtensions) -> RpcResult<Vec<SkillDefinition>> {
+        self.authorize(ext, "skills.list")?;
+        let rows = self.state.settings.list_skills().await.map_err(rpc_error)?;
+        Ok(rows.iter().map(wave2::skill_definition).collect())
+    }
+
+    async fn import_skill(
+        &self,
+        ext: &RpcExtensions,
+        url_or_content: String,
+        name: Option<String>,
+    ) -> RpcResult<SkillDefinition> {
+        self.authorize(ext, "skills.import")?;
+        let definition = wave2::parse_skill_import(&url_or_content, name.as_deref())
+            .map_err(rpc_invalid_params)?;
+        let row = wave2::skill_row(&definition).map_err(rpc_error)?;
+        self.state
+            .settings
+            .save_skill(&row)
+            .await
+            .map_err(rpc_error)?;
+        let stored = self
+            .state
+            .settings
+            .get_skill(&row.id)
+            .await
+            .map_err(rpc_error)?
+            .ok_or_else(|| {
+                rpc_error(format!(
+                    "the skill `{}` was not in the store after saving",
+                    row.id
+                ))
+            })?;
+        Ok(wave2::skill_definition(&stored))
+    }
+
+    /// Set one skill's flag to the value the caller named.
+    ///
+    /// The store's `toggle_skill` *flips*, which is what a keyboard shortcut wants and
+    /// is not what an `enabled: bool` parameter is: flipping a skill that is already
+    /// in the requested state would switch it off. So the row is read, and flipped only
+    /// when the flip is the change asked for.
+    async fn toggle_skill(
+        &self,
+        ext: &RpcExtensions,
+        id: String,
+        enabled: bool,
+    ) -> RpcResult<SkillDefinition> {
+        self.authorize(ext, "skills.toggle")?;
+        let row = self.stored_skill(&id).await?;
+        if row.enabled != enabled {
+            self.state
+                .settings
+                .toggle_skill(&id)
+                .await
+                .map_err(rpc_error)?;
+        }
+        let stored = self
+            .state
+            .settings
+            .get_skill(&id)
+            .await
+            .map_err(rpc_error)?
+            .ok_or_else(|| {
+                rpc_error(format!(
+                    "the skill `{id}` vanished while it was being enabled"
+                ))
+            })?;
+        Ok(wave2::skill_definition(&stored))
+    }
+
+    async fn delete_skill(&self, ext: &RpcExtensions, id: String) -> RpcResult<()> {
+        self.authorize(ext, "skills.delete")?;
+        self.stored_skill(&id).await?;
+        self.state
+            .settings
+            .delete_skill(&id)
+            .await
+            .map_err(rpc_error)?;
+        Ok(())
+    }
+
+    async fn list_plugins(&self, ext: &RpcExtensions) -> RpcResult<Vec<PluginDefinition>> {
+        self.authorize(ext, "plugins.list")?;
+        let rows = self
+            .state
+            .settings
+            .list_plugins()
+            .await
+            .map_err(rpc_error)?;
+        Ok(rows.iter().map(wave2::plugin_definition).collect())
+    }
+
+    async fn install_plugin(
+        &self,
+        ext: &RpcExtensions,
+        manifest_json_or_url: String,
+    ) -> RpcResult<PluginDefinition> {
+        self.authorize(ext, "plugins.install")?;
+        let mut definition =
+            wave2::parse_plugin_manifest(&manifest_json_or_url).map_err(rpc_invalid_params)?;
+        // A manifest may name a token outright, and this is the seam that decides
+        // where it lives: the keychain holds the value, the row holds the reference.
+        let env = self
+            .file_plugin_env(&definition.id, &definition.env)
+            .await?;
+        definition.env = env;
+        let row = wave2::plugin_row(&definition).map_err(rpc_error)?;
+        self.state
+            .settings
+            .save_plugin(&row)
+            .await
+            .map_err(rpc_error)?;
+        let stored = self
+            .state
+            .settings
+            .get_plugin(&row.id)
+            .await
+            .map_err(rpc_error)?
+            .ok_or_else(|| {
+                rpc_error(format!(
+                    "the plugin `{}` was not in the store after saving",
+                    row.id
+                ))
+            })?;
+        Ok(wave2::plugin_definition(&stored))
+    }
+
+    async fn toggle_plugin(
+        &self,
+        ext: &RpcExtensions,
+        id: String,
+        enabled: bool,
+    ) -> RpcResult<PluginDefinition> {
+        self.authorize(ext, "plugins.toggle")?;
+        let row = self.stored_plugin(&id).await?;
+        if row.enabled != enabled {
+            self.state
+                .settings
+                .toggle_plugin(&id)
+                .await
+                .map_err(rpc_error)?;
+        }
+        let updated = self.stored_plugin(&id).await?;
+        let def = wave2::plugin_definition(&updated);
+        // Sync with MCP manager (F2)
+        if enabled {
+            if let Some(cmd) = &def.command {
+                if !cmd.trim().is_empty() {
+                    let mcp_cfg = warsha_pipeline::mcp_transport::McpServerConfig::new_stdio(
+                        &def.id,
+                        cmd,
+                        def.args.clone(),
+                    );
+                    let _ = self.state.mcp.connect(mcp_cfg).await;
+                }
+            }
+        } else {
+            let _ = self.state.mcp.disconnect(&def.id).await;
+        }
+        Ok(def)
+    }
+
+    /// Replace a pack's environment map, filing anything secret in the keychain.
+    ///
+    /// The map the caller sends is the whole map, not a patch: a key that was there
+    /// and is not named now is gone from the row, and the keychain entry beside it is
+    /// left for the next `configure` of that key to overwrite — a remove of an entry
+    /// this method cannot see the owner asking for would be a delete nobody requested.
+    async fn configure_plugin(
+        &self,
+        ext: &RpcExtensions,
+        id: String,
+        env: HashMap<String, String>,
+    ) -> RpcResult<PluginDefinition> {
+        self.authorize(ext, "plugins.configure")?;
+        let mut row = self.stored_plugin(&id).await?;
+        let references = self.file_plugin_env(&id, &env).await?;
+        row.env_json = serde_json::to_string(&references).map_err(rpc_error)?;
+        self.state
+            .settings
+            .save_plugin(&row)
+            .await
+            .map_err(rpc_error)?;
+        let updated = self.stored_plugin(&id).await?;
+        let def = wave2::plugin_definition(&updated);
+        // Sync with MCP manager if enabled (F2)
+        if def.enabled {
+            if let Some(cmd) = &def.command {
+                if !cmd.trim().is_empty() {
+                    let mcp_cfg = warsha_pipeline::mcp_transport::McpServerConfig::new_stdio(
+                        &def.id,
+                        cmd,
+                        def.args.clone(),
+                    );
+                    let _ = self.state.mcp.connect(mcp_cfg).await;
+                }
+            }
+        }
+        Ok(def)
+    }
+
+    async fn remove_plugin(&self, ext: &RpcExtensions, id: String) -> RpcResult<()> {
+        self.authorize(ext, "plugins.remove")?;
+        let row = self.stored_plugin(&id).await?;
+        // Keychain first, exactly as `providers.remove` does it: a row deleted while
+        // its secrets stayed behind would be an address nothing could reach again.
+        for account in wave2::filed_secret_accounts(&wave2::plugin_definition(&row).env) {
+            self.state.secrets.delete(&account).await.map_err(|error| {
+                rpc_error(format!(
+                    "the secret `{account}` could not be removed from the OS keychain: {error}"
+                ))
+            })?;
+        }
+        self.state
+            .settings
+            .delete_plugin(&id)
+            .await
+            .map_err(rpc_error)?;
+        Ok(())
+    }
+
+    async fn list_custom_models(
+        &self,
+        ext: &RpcExtensions,
+        provider: Option<String>,
+    ) -> RpcResult<Vec<CustomModelRecord>> {
+        self.authorize(ext, "models.list")?;
+        let rows = self
+            .state
+            .settings
+            .list_custom_models()
+            .await
+            .map_err(rpc_error)?;
+        let wanted = provider
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_string);
+        Ok(rows
+            .iter()
+            .map(wave2::custom_model_record)
+            .filter(|record| match &wanted {
+                Some(name) => &record.provider == name,
+                None => true,
+            })
+            .collect())
+    }
+
+    /// Register one model by hand under one provider.
+    ///
+    /// The pair `(provider, model_id)` is the key, so this is an upsert: the second
+    /// call with the same pair is the owner correcting a label or a window, not a
+    /// second row. The provider does not have to be configured yet — an owner who
+    /// knows the model id they want can write it down before the key arrives, and
+    /// routing is what fails later, honestly, with its own refusal.
+    async fn add_custom_model(
+        &self,
+        ext: &RpcExtensions,
+        provider: String,
+        model_id: String,
+        display_name: Option<String>,
+        context_window: Option<u32>,
+    ) -> RpcResult<CustomModelRecord> {
+        self.authorize(ext, "models.add")?;
+        if provider.trim().is_empty() || model_id.trim().is_empty() {
+            return Err(rpc_invalid_params(
+                "models.add needs both a provider and a model id: the pair is the row's key",
+            ));
+        }
+        let record = CustomModelRecord {
+            provider: provider.trim().to_string(),
+            model_id: model_id.trim().to_string(),
+            display_name: display_name
+                .map(|name| name.trim().to_string())
+                .filter(|name| !name.is_empty()),
+            context_window,
+            enabled: true,
+        };
+        self.state
+            .settings
+            .save_custom_model(&wave2::custom_model_row(&record))
+            .await
+            .map_err(rpc_error)?;
+        let stored = self
+            .state
+            .settings
+            .get_custom_model(&record.provider, &record.model_id)
+            .await
+            .map_err(rpc_error)?
+            .ok_or_else(|| rpc_error("the custom model was not in the store after saving"))?;
+        Ok(wave2::custom_model_record(&stored))
+    }
+
+    async fn remove_custom_model(
+        &self,
+        ext: &RpcExtensions,
+        provider: String,
+        model_id: String,
+    ) -> RpcResult<()> {
+        self.authorize(ext, "models.remove")?;
+        self.state
+            .settings
+            .delete_custom_model(&provider, &model_id)
+            .await
+            .map_err(rpc_error)?;
+        Ok(())
+    }
+
+    async fn list_integrations(&self, ext: &RpcExtensions) -> RpcResult<Vec<IntegrationStatus>> {
+        self.authorize(ext, "integrations.list")?;
+        self.integration_statuses().await
+    }
+
+    /// Connect one external service.
+    ///
+    /// The token halves of the config ride the write once and are then gone from the
+    /// daemon's view of the row: they are filed under `integration:{id}` and
+    /// `integration:{id}:bot`, and what the settings database keeps is the non-secret
+    /// half. `connected` therefore means "this daemon holds a credential or a webhook
+    /// for it", which is the strongest claim a daemon that has not opened a socket can
+    /// honestly make.
+    async fn connect_integration(
+        &self,
+        ext: &RpcExtensions,
+        id: String,
+        config: IntegrationConfig,
+    ) -> RpcResult<IntegrationStatus> {
+        self.authorize(ext, "integrations.connect")?;
+        let id = id.trim().to_string();
+        if id.is_empty() {
+            return Err(rpc_invalid_params(
+                "integrations.connect needs an integration id to file the configuration under",
+            ));
+        }
+        let token_account = wave2::integration_secret_account(&id);
+        let bot_account = wave2::integration_bot_secret_account(&id);
+        match config
+            .token
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+        {
+            Some(token) => self
+                .state
+                .secrets
+                .store(&token_account, token)
+                .await
+                .map_err(|e| {
+                    rpc_error(format!(
+                        "the token could not be stored in the OS keychain: {e}"
+                    ))
+                })?,
+            None => self
+                .state
+                .secrets
+                .delete(&token_account)
+                .await
+                .map_err(|e| rpc_error(format!("the stale token could not be removed: {e}")))?,
+        }
+        match config
+            .bot_token
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+        {
+            Some(bot_token) => self
+                .state
+                .secrets
+                .store(&bot_account, bot_token)
+                .await
+                .map_err(|e| {
+                    rpc_error(format!(
+                        "the bot token could not be stored in the OS keychain: {e}"
+                    ))
+                })?,
+            None => {
+                self.state.secrets.delete(&bot_account).await.map_err(|e| {
+                    rpc_error(format!("the stale bot token could not be removed: {e}"))
+                })?
+            }
+        }
+
+        let stored_token = config
+            .token
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|t| !t.is_empty());
+        let stored_bot = config
+            .bot_token
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|t| !t.is_empty());
+        let webhook = config
+            .webhook_url
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|url| !url.is_empty());
+        let redacted = wave2::redact_config(&config);
+        let name = match self
+            .state
+            .settings
+            .get_integration(&id)
+            .await
+            .map_err(rpc_error)?
+        {
+            Some(row) if !row.name.trim().is_empty() => row.name,
+            _ => wave2::integration_name(&id),
+        };
+        let row = wave2::integration_row(
+            &id,
+            &name,
+            stored_token || stored_bot || webhook,
+            &redacted,
+            Some(now_epoch_secs()),
+        )
+        .map_err(rpc_error)?;
+        self.state
+            .settings
+            .save_integration(&row, Some(&row.config_json))
+            .await
+            .map_err(rpc_error)?;
+        self.integration_status_of(&id).await
+    }
+
+    /// Disconnect one service: the credentials go, the shape stays.
+    ///
+    /// The workspace, channel and webhook the owner typed are kept so a re-connect is
+    /// one token away rather than a form refilled, and `connected` is written false
+    /// because the daemon no longer holds anything to connect with.
+    async fn disconnect_integration(
+        &self,
+        ext: &RpcExtensions,
+        id: String,
+    ) -> RpcResult<IntegrationStatus> {
+        self.authorize(ext, "integrations.disconnect")?;
+        let row = self.stored_integration(&id).await?;
+        for account in [
+            wave2::integration_secret_account(&row.id),
+            wave2::integration_bot_secret_account(&row.id),
+        ] {
+            self.state.secrets.delete(&account).await.map_err(|e| {
+                rpc_error(format!(
+                    "the credential could not be removed from the OS keychain: {e}"
+                ))
+            })?;
+        }
+        let disconnected = wave2::integration_row(
+            &row.id,
+            &row.name,
+            false,
+            &wave2::integration_config(&row),
+            row.configured_at,
+        )
+        .map_err(rpc_error)?;
+        self.state
+            .settings
+            .save_integration(&disconnected, Some(&disconnected.config_json))
+            .await
+            .map_err(rpc_error)?;
+        self.integration_status_of(&row.id).await
+    }
+
+    /// Report what a daemon that opens no socket can know about an integration.
+    ///
+    /// This is the one method under the Spend tier, and the reason it does not spend:
+    /// a check that reached GitHub or Slack would be the daemon using an owner's quota
+    /// on their behalf, and this batch's rule is that no RPC quietly goes to a third
+    /// party. So `ok` means "the configuration is complete and filed" and `unconfigured`
+    /// names the half that is missing — and neither word claims a connection was made.
+    /// A future live probe is a separate decision with its own budget, not a detail of
+    /// this method.
+    async fn test_integration(
+        &self,
+        ext: &RpcExtensions,
+        id: String,
+    ) -> RpcResult<IntegrationTestResult> {
+        self.authorize(ext, "integrations.test")?;
+        let row = self.stored_integration(&id).await?;
+        let config = wave2::integration_config(&row);
+        let has_token = self
+            .state
+            .secrets
+            .load(&wave2::integration_secret_account(&row.id))
+            .await
+            .is_ok();
+        let has_bot_token = self
+            .state
+            .secrets
+            .load(&wave2::integration_bot_secret_account(&row.id))
+            .await
+            .is_ok();
+        let has_webhook = config
+            .webhook_url
+            .as_ref()
+            .map(|url| !url.trim().is_empty())
+            .unwrap_or(false);
+        let missing: Vec<&str> = match row.id.as_str() {
+            "github" => {
+                if !has_token {
+                    vec!["an access token"]
+                } else {
+                    Vec::new()
+                }
+            }
+            "slack" => {
+                if !has_webhook && !has_bot_token {
+                    vec!["a webhook URL or bot token"]
+                } else {
+                    Vec::new()
+                }
+            }
+            _ => {
+                if !has_token && !has_webhook && !has_bot_token {
+                    vec!["an access token, webhook URL, or bot token"]
+                } else {
+                    Vec::new()
+                }
+            }
+        };
+        Ok(IntegrationTestResult {
+            status: if missing.is_empty() {
+                "ok".to_string()
+            } else {
+                "unconfigured".to_string()
+            },
+            message: if missing.is_empty() {
+                format!(
+                    "`{}` is configured and its credential is filed in the OS keychain; \
+                     no live request was made, so this says nothing about the service",
+                    row.id
+                )
+            } else {
+                format!(
+                    "`{}` is missing {}: integrations.connect writes the configuration, \
+                     and no live request is made from here",
+                    row.id,
+                    missing.join(" or ")
+                )
+            },
+        })
+    }
+
+    async fn list_project_files(
+        &self,
+        ext: &RpcExtensions,
+        project_id: String,
+        path: Option<String>,
+    ) -> RpcResult<Vec<FileEntry>> {
+        self.authorize(ext, "files.tree")?;
+        let root = self.project_files_root(&project_id).await;
+        let dir = match path.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+            Some(relative) => {
+                let joined = wave2::safe_join(&root, relative).map_err(rpc_invalid_params)?;
+                wave2::resolve_inside(&root, &joined).map_err(rpc_invalid_params)?
+            }
+            None => root.clone(),
+        };
+        wave2::list_tree(&root, &dir).map_err(rpc_error)
+    }
+
+    async fn read_project_file(
+        &self,
+        ext: &RpcExtensions,
+        project_id: String,
+        path: String,
+    ) -> RpcResult<FileContent> {
+        self.authorize(ext, "files.read")?;
+        let root = self.project_files_root(&project_id).await;
+        let joined = wave2::safe_join(&root, &path).map_err(rpc_invalid_params)?;
+        let file = wave2::resolve_inside(&root, &joined).map_err(rpc_invalid_params)?;
+        wave2::read_text(&root, &file).map_err(rpc_error)
+    }
+}
+
+/// A caller's document, path or name is what is wrong: JSON-RPC's own
+/// "invalid params", the same code `runs.followup` uses for an empty prompt.
+///
+/// Wave 2 answers with it whenever the refusal is about what the caller sent — an
+/// unparseable manifest, a `..` in a path, a delete of a row that is not there — so a
+/// client can tell "you sent that wrong" from "my store failed" without reading prose.
+fn rpc_invalid_params(message: impl Into<String>) -> ErrorObjectOwned {
+    ErrorObject::owned(-32602, message.into(), None::<()>)
 }
 
 /// One JSON-RPC error object for every failure these methods can return.
@@ -3508,6 +4734,7 @@ const SKILL_CATALOG: &[(&str, &str)] = &[
 /// A refusal cannot happen with the constants above (no blank name, no whitespace,
 /// no duplicate), and an entry that somehow failed would simply not be listed
 /// rather than failing the RPC.
+#[allow(dead_code)]
 fn skill_catalog() -> Vec<SlashCommand> {
     let mut registry = SlashCommandRegistry::new();
     for (name, description) in SKILL_CATALOG {
@@ -3518,6 +4745,16 @@ fn skill_catalog() -> Vec<SlashCommand> {
 
 /// Directory under the daemon's data directory that holds handoff bundles.
 const HANDOFF_DIR: &str = "handoff";
+
+/// The selection key a harness carries when no project was named.
+///
+/// `harnesses_active` is keyed by a text id and every other caller in this module uses
+/// a project's UUID; `global` is the one key that cannot collide with a UUID, so the
+/// daemon-wide default and a project's override live in the same table without either
+/// pretending to be the other. A project id that a caller *does* pass is used verbatim
+/// as its key, which is what `harness.select` from a browser and a run's own project
+/// both read.
+const ACTIVE_HARNESS_GLOBAL_KEY: &str = "global";
 
 /// The local PocketBase address PLAN.md M19 documents for a generated project.
 const LOCAL_POCKETBASE_URL: &str = "http://127.0.0.1:8090";
@@ -4167,7 +5404,8 @@ pub async fn start_daemon_with_provider_factory(
     apply_role_routings(&providers, &role_routings).await;
 
     // Initialize pipeline
-    let pipeline = Arc::new(PipelineEngine::new(store.clone(), providers.clone()));
+    // The daemon's SettingsStore implements SettingsProvider, so we can use it directly
+    let pipeline: Arc<warsha_pipeline::PipelineEngine<SettingsStore>> = Arc::new(warsha_pipeline::PipelineEngine::new(store.clone(), providers.clone(), settings.clone()));
 
     // Initialize backends
     let backends = BackendFactory::all_available();
@@ -4224,6 +5462,13 @@ pub async fn start_daemon_with_provider_factory(
     let backend_kits = seed_backend_kits(&store, &settings).await?;
     let stored_preferences = seed_preferences(&store, &settings).await?;
     let pairings = seed_pairings(&settings).await?;
+    // The three Wave 2 catalogs, from `warsha-core` rather than from the file. They
+    // are seeded because they are *shipped*: a fresh daemon must answer
+    // `harness.list`, `skills.list` and `plugins.list` with the presets the product
+    // documents, and only the empty case is filled — an owner who deleted a preset
+    // deleted it on purpose, and a seed that rewrote their table every start would
+    // delete that decision instead.
+    wave2::seed_bundled_records(&settings).await?;
     let routines = Arc::new(RwLock::new(RoutineRegistry::new()));
     let routine_runner: Arc<dyn RoutineRunner + Send + Sync> =
         Arc::new(warsha_pipeline::MockRoutineRunner::new());
@@ -5011,7 +6256,7 @@ async fn static_asset_handler(
     // The bundle root as the operating system sees it, so the containment check
     // below compares resolved paths and a symlink into `/etc` cannot pass it. A root
     // that does not exist serves nothing; that is a 404, not a broken daemon.
-    let Ok(root) = assets_dir.canonicalize() else {
+    let Ok(root) = tokio::fs::canonicalize(&assets_dir).await else {
         return static_not_found();
     };
     let mut candidate = root.clone();
@@ -5022,36 +6267,48 @@ async fn static_asset_handler(
         return static_bad_request();
     }
 
-    match tokio::fs::metadata(&candidate).await {
-        Ok(meta) if meta.is_file() => serve_static_file(&candidate, path).await,
-        _ => {
-            // A directory gets its own index.html when it has one; a missing path
-            // falls through to the SPA rule.
-            let dir_index = candidate.join("index.html");
-            if tokio::fs::metadata(&dir_index)
-                .await
-                .map(|meta| meta.is_file())
-                .unwrap_or(false)
-            {
-                return serve_static_file(&dir_index, path).await;
+    if let Ok(canonical_candidate) = tokio::fs::canonicalize(&candidate).await {
+        if !canonical_candidate.starts_with(&root) {
+            return static_bad_request();
+        }
+        if let Ok(meta) = tokio::fs::metadata(&canonical_candidate).await {
+            if meta.is_file() {
+                return serve_static_file(&canonical_candidate, path).await;
             }
-            // History fallback: a client route's last segment carries no extension.
-            // A path that *looks* like a file (`/missing-hash.js`) is a plain 404, so
-            // a stale bundle reference never masquerades as the app shell.
-            if segments.last().is_some_and(|last| last.contains('.')) {
-                return static_not_found();
-            }
-            let spa_index = root.join("index.html");
-            if tokio::fs::metadata(&spa_index)
-                .await
-                .map(|meta| meta.is_file())
-                .unwrap_or(false)
-            {
-                return serve_static_file(&spa_index, path).await;
-            }
-            static_not_found()
         }
     }
+
+    // A directory gets its own index.html when it has one; a missing path
+    // falls through to the SPA rule.
+    let dir_index = candidate.join("index.html");
+    if let Ok(canonical_dir_index) = tokio::fs::canonicalize(&dir_index).await {
+        if !canonical_dir_index.starts_with(&root) {
+            return static_bad_request();
+        }
+        if let Ok(meta) = tokio::fs::metadata(&canonical_dir_index).await {
+            if meta.is_file() {
+                return serve_static_file(&canonical_dir_index, path).await;
+            }
+        }
+    }
+
+    // History fallback: a client route's last segment carries no extension.
+    // A path that *looks* like a file (`/missing-hash.js`) is a plain 404, so
+    // a stale bundle reference never masquerades as the app shell.
+    if segments.last().is_some_and(|last| last.contains('.')) {
+        return static_not_found();
+    }
+    let spa_index = root.join("index.html");
+    if let Ok(canonical_spa_index) = tokio::fs::canonicalize(&spa_index).await {
+        if canonical_spa_index.starts_with(&root) {
+            if let Ok(meta) = tokio::fs::metadata(&canonical_spa_index).await {
+                if meta.is_file() {
+                    return serve_static_file(&canonical_spa_index, path).await;
+                }
+            }
+        }
+    }
+    static_not_found()
 }
 
 /// One bundle file onto the wire, with the type and caching its name decides.
@@ -5581,20 +6838,20 @@ mod tests {
                 .expect("the store opens"),
         );
         let providers = Arc::new(RwLock::new(agent_router_with_mock()));
-        let pipeline = Arc::new(PipelineEngine::new(store.clone(), providers.clone()));
-        let identity = warsha_remote::DeviceIdentity::generate("test daemon".to_string())
-            .expect("a device identity");
-
-        let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared();
-        let mcp: Arc<dyn McpManager> = Arc::new(InMemoryMcpManager::new(processes.clone()));
-        let previews = Arc::new(LivePreviewManager::new(processes.clone()));
-        let default_kit = Arc::new(RwLock::new(default_backend_kit("default")));
-        let agent_loop = build_agent_loop(data_dir, providers.clone(), mcp.clone(), default_kit);
         let settings = Arc::new(
             SettingsStore::open(&data_dir.join("warsha.db"))
                 .await
                 .expect("the settings open"),
         );
+        let pipeline = Arc::new(warsha_pipeline::PipelineEngine::new(store.clone(), providers.clone(), settings.clone()));
+        let identity = warsha_remote::DeviceIdentity::generate("test daemon".to_string())
+            .expect("a device identity");
+        // The same seeding a real start performs, so a test's daemon answers
+        // `harness.list` with the presets it ships and a catalog write has the row
+        // under it that production would have.
+        wave2::seed_bundled_records(&settings)
+            .await
+            .expect("the bundled catalogs seed");
 
         let routines = Arc::new(RwLock::new(RoutineRegistry::new()));
         let routine_runner: Arc<dyn RoutineRunner + Send + Sync> =
@@ -6503,17 +7760,17 @@ mod tests {
             .await
             .expect("the catalog is served");
 
-        let names: Vec<&str> = skills.iter().map(|skill| skill.name.as_str()).collect();
-        assert_eq!(
-            names,
-            vec!["/review", "/refactor", "/test", "/fix", "/explain"]
-        );
+        let ids: Vec<&str> = skills.iter().map(|skill| skill.id.as_str()).collect();
+        assert!(skills.len() >= 12);
+        assert!(ids.contains(&"brainstorming"));
+        assert!(ids.contains(&"writing-plans"));
+        assert!(ids.contains(&"test-driven-development"));
         assert!(skills
             .iter()
             .all(|skill| !skill.description.trim().is_empty()));
-        // The same list resolves as a registry, which is what `agent.turn` does
-        // with it: `/FIX` and `fix` are one command.
-        let registry = SlashCommandRegistry::from_skills(&skills);
+        // The in-process slash command catalog resolves as a registry:
+        let catalog = skill_catalog();
+        let registry = SlashCommandRegistry::from_skills(&catalog);
         assert_eq!(
             registry.lookup("/FIX").map(|command| command.name.as_str()),
             Some("/fix")

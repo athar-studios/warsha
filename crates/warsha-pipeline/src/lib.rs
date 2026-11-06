@@ -13,6 +13,7 @@ use warsha_providers::{
     OpenAIProvider, ProviderRouter,
 };
 use warsha_store::Store;
+use crate::settings::{SettingsProvider, SettingsStore};
 
 mod agent_loop;
 mod agent_tools;
@@ -41,6 +42,7 @@ mod routines;
 mod run_modes;
 mod scale_standards;
 mod scout;
+pub mod settings;
 mod skills;
 /// Test-only helpers shared by this crate's test modules.
 #[cfg(test)]
@@ -215,20 +217,28 @@ fn verified_actor(device_id: DeviceId, action: &str) -> Result<DeviceId> {
 }
 
 /// Pipeline engine that drives the stage machine
-pub struct PipelineEngine {
+pub struct PipelineEngine<S: SettingsProvider> {
     store: Arc<Store>,
     #[allow(dead_code)]
     providers: Arc<RwLock<ProviderRouter>>,
     orchestrator: Orchestrator,
+    /// Settings store for accessing active harness, enabled skills, and plugins
+    settings: Arc<S>,
 }
 
-impl PipelineEngine {
-    pub fn new(store: Arc<Store>, providers: Arc<RwLock<ProviderRouter>>) -> Self {
+impl<S: SettingsProvider> PipelineEngine<S> {
+    pub fn new(store: Arc<Store>, providers: Arc<RwLock<ProviderRouter>>, settings: Arc<S>) -> Self {
         Self {
             store,
             providers,
             orchestrator: Orchestrator::new(OrchestratorConfig::default()),
+            settings,
         }
+    }
+
+    /// Create a PipelineEngine with default settings for testing
+    pub fn new_test(store: Arc<Store>, providers: Arc<RwLock<ProviderRouter>>) -> PipelineEngine<SettingsStore> {
+        PipelineEngine::new(store, providers, Arc::new(SettingsStore::new()))
     }
 
     /// Start a new run for a project
@@ -391,11 +401,89 @@ impl PipelineEngine {
         // Build context from previous artifacts
         let context = self.build_context(run);
 
-        // Get the prompt template
-        let prompt_template = crate::prompts::get_prompt(role);
+        // --- Zero "sandwich code" wiring: active harness + enabled skills ---
+        //
+        // The pipeline must not stop at SQLite CRUD; the active harness's stage
+        // prompt_template (if present) and every enabled skill's markdown content
+        // are injected into the prompt that the LLM actually receives.
+        let project_id_str = run.project_id.0.to_string();
+
+        // 1. Get active harness for this project (default: "autonomous-factory")
+        let harness_id = self
+            .settings
+            .get_active_harness(&project_id_str)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "autonomous-factory".to_string());
+
+        // 2. Get the harness definition
+        let harness = self
+            .settings
+            .get_harness(&harness_id)
+            .await
+            .ok()
+            .flatten();
+
+        // 3. Find the stage in the harness matching the current stage
+        let harness_stage = harness.as_ref().and_then(|h| {
+            // Parse the harness definition from data_json
+            let harness_def: HarnessDefinition = serde_json::from_str(&h.data_json).ok()?;
+            // Find and clone the matching stage by role
+            harness_def.stages.iter().find(|hs| hs.role == role).cloned()
+        });
+
+        // 4. Determine the base prompt: harness stage prompt_template overrides role base prompt
+        // The role marker is needed for the FakeProvider to detect the stage.
+        // Static prompts from prompts.rs already include it; harness templates need it added.
+        // FakeProvider expects lowercase role names (e.g., "pm" not "PM")
+        let role_str = format!("{:?}", role).to_lowercase();
+        let stage_str = stage_to_string(stage);
+        let role_marker = format!("---\nrole: {}\nstage: {}\n---\n\n", role_str, stage_str);
+        let base_prompt: String = harness_stage
+            .as_ref()
+            .and_then(|hs| hs.prompt_template.as_ref())
+            .map(|s| {
+                // If the harness template doesn't already have the role marker, prepend it
+                if s.trim_start().starts_with("---\nrole:") {
+                    s.clone()
+                } else {
+                    // This shouldn't happen with current templates, but handle it
+                    format!("{}{}", role_marker, s)
+                }
+            })
+            .unwrap_or_else(|| crate::prompts::get_prompt(role).to_string());
+
+        // 5. Get enabled skills and prepend their markdown content
+        let enabled_skills = self
+            .settings
+            .list_skills()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|s| s.enabled)
+            .collect::<Vec<_>>();
+
+        let skill_preamble = if enabled_skills.is_empty() {
+            String::new()
+        } else {
+            let mut preamble = String::new();
+            for skill in &enabled_skills {
+                preamble.push_str(&skill.content);
+                preamble.push_str("\n\n---\n\n");
+            }
+            preamble
+        };
+
+        // 6. Compose final prompt: skill content + harness/role prompt + context
+        let prompt_template = if skill_preamble.is_empty() {
+            base_prompt.to_string()
+        } else {
+            format!("{}{}", skill_preamble, base_prompt)
+        };
 
         // Render the prompt with context
-        let prompt = self.render_prompt(prompt_template, &context);
+        let prompt = self.render_prompt(&prompt_template, &context);
 
         // Call the provider.
         //
@@ -631,7 +719,7 @@ impl PipelineEngine {
             stage_to_string(stage),
             run.id.0
         );
-        error
+        PipelineError::Other(message)
     }
 
     /// Walk the run forward until it is waiting at a gate or has reached the final
@@ -1227,11 +1315,16 @@ mod tests {
         Arc::new(RwLock::new(router))
     }
 
+    fn setup_settings() -> Arc<SettingsStore> {
+        Arc::new(SettingsStore::new())
+    }
+
     #[tokio::test]
     async fn test_pipeline_start_run() {
         let store = temp_store().await;
         let providers = Arc::new(RwLock::new(ProviderRouter::new()));
-        let engine = PipelineEngine::new(store.clone(), providers);
+        let settings = setup_settings();
+        let engine = PipelineEngine::new(store.clone(), providers, settings);
 
         // Create a project first
         let project = Project {
@@ -1286,7 +1379,8 @@ mod tests {
         // on the gate state and on the event — and not one invented along the way.
         let store = temp_store().await;
         let providers = Arc::new(RwLock::new(ProviderRouter::new()));
-        let engine = PipelineEngine::new(store.clone(), providers);
+        let settings = setup_settings();
+        let engine = PipelineEngine::new(store.clone(), providers, settings);
         let run = pending_gate_run(&store, &engine).await;
 
         let approver = DeviceId::new();
@@ -1321,7 +1415,8 @@ mod tests {
     async fn a_gate_that_was_already_decided_is_not_decided_twice() {
         let store = temp_store().await;
         let providers = Arc::new(RwLock::new(ProviderRouter::new()));
-        let engine = PipelineEngine::new(store.clone(), providers);
+        let settings = setup_settings();
+        let engine = PipelineEngine::new(store.clone(), providers, settings);
         let run = pending_gate_run(&store, &engine).await;
 
         let approver = DeviceId::new();
@@ -1345,7 +1440,8 @@ mod tests {
     async fn test_gate_approval() {
         let store = temp_store().await;
         let providers = Arc::new(RwLock::new(ProviderRouter::new()));
-        let engine = PipelineEngine::new(store.clone(), providers);
+        let settings = setup_settings();
+        let engine = PipelineEngine::new(store.clone(), providers, settings);
 
         let project = Project {
             id: ProjectId::new(),
@@ -1385,7 +1481,8 @@ mod tests {
     async fn test_gate_rejection() {
         let store = temp_store().await;
         let providers = Arc::new(RwLock::new(ProviderRouter::new()));
-        let engine = PipelineEngine::new(store.clone(), providers);
+        let settings = setup_settings();
+        let engine = PipelineEngine::new(store.clone(), providers, settings);
 
         let project = Project {
             id: ProjectId::new(),
@@ -1427,7 +1524,8 @@ mod tests {
     async fn test_gate_b_blocks_advance_to_design() {
         let store = temp_store().await;
         let providers = setup_providers_with_mock();
-        let engine = PipelineEngine::new(store.clone(), providers);
+        let settings = setup_settings();
+        let engine = PipelineEngine::new(store.clone(), providers, settings);
 
         let project = Project {
             id: ProjectId::new(),

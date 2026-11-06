@@ -24,7 +24,7 @@ use warsha_core::{
     DeviceId, EventKind, GateState, Project, ProjectId, Role, RoleRouting, RoutingTarget,
     RunStatus, Stage,
 };
-use warsha_pipeline::PipelineEngine;
+use warsha_pipeline::{PipelineEngine, settings::SettingsStore};
 use warsha_providers::{
     ChatProvider, EnvLlmConfig, FakeProvider, MockProvider, ProviderRouter, FAKE_MODEL_ID,
     FAKE_PROVIDER_ID,
@@ -145,7 +145,7 @@ fn walk_router() -> Arc<RwLock<ProviderRouter>> {
 }
 
 /// Approve `stage` for `run` with a fresh verified device.
-async fn approve(engine: &PipelineEngine, run_id: warsha_core::RunId, stage: Stage) {
+async fn approve(engine: &PipelineEngine<crate::SettingsStore>, run_id: warsha_core::RunId, stage: Stage) {
     engine
         .approve_gate(run_id, stage, DeviceId::new())
         .await
@@ -156,7 +156,7 @@ async fn approve(engine: &PipelineEngine, run_id: warsha_core::RunId, stage: Sta
 async fn a_zero_config_run_walks_every_gate_to_feedback_completed() {
     let (_dir, store) = fresh_store().await;
     let providers = walk_router();
-    let engine = PipelineEngine::new(store.clone(), providers);
+    let engine = PipelineEngine::new_test(store.clone(), providers);
     let project_id = create_project(&store).await;
 
     let run = engine
@@ -277,7 +277,7 @@ async fn a_zero_config_run_walks_every_gate_to_feedback_completed() {
 #[tokio::test]
 async fn a_walk_without_an_approval_stops_at_the_pending_gate() {
     let (_dir, store) = fresh_store().await;
-    let engine = PipelineEngine::new(store.clone(), walk_router());
+    let engine = PipelineEngine::new_test(store.clone(), walk_router());
     let project_id = create_project(&store).await;
     let run = engine
         .start_run(project_id, "A walk that waits")
@@ -321,7 +321,7 @@ async fn a_routed_role_still_answers_from_its_routed_provider() {
             budget_cents_per_run: None,
         });
     }
-    let engine = PipelineEngine::new(store.clone(), Arc::new(RwLock::new(router)));
+    let engine = PipelineEngine::new_test(store.clone(), Arc::new(RwLock::new(router)));
     let project_id = create_project(&store).await;
     let run = engine
         .start_run(project_id, "Routed walk")
@@ -351,7 +351,7 @@ async fn a_routed_role_still_answers_from_its_routed_provider() {
 #[tokio::test]
 async fn followup_run_records_a_deterministic_answer_without_moving_the_stage() {
     let (_dir, store) = fresh_store().await;
-    let engine = PipelineEngine::new(store.clone(), walk_router());
+    let engine = PipelineEngine::new_test(store.clone(), walk_router());
     let project_id = create_project(&store).await;
     let run = engine
         .start_run(project_id, "Follow-up target")
@@ -414,7 +414,7 @@ async fn followup_run_records_a_deterministic_answer_without_moving_the_stage() 
 #[tokio::test]
 async fn cancel_run_marks_the_run_cancelled_with_its_reason_on_the_log() {
     let (_dir, store) = fresh_store().await;
-    let engine = PipelineEngine::new(store.clone(), walk_router());
+    let engine = PipelineEngine::new_test(store.clone(), walk_router());
     let project_id = create_project(&store).await;
     let run = engine
         .start_run(project_id, "A run that gets cancelled")

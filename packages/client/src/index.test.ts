@@ -1524,7 +1524,7 @@ describe('summary decoding — the snake_case wire into camelCase screens (P0 bl
     expect(run.updatedAt).toBe('');
   });
 
-  it('decodes a devices.list row: device_id/created_at become id/pairedAt, lastSeen falls back', () => {
+  it('decodes a devices.list row: device_id/created_at become id/pairedAt, preserves revoked and does not fabricate lastSeen', () => {
     const wire = {
       device_id: '9a12c0de-0000-4000-8000-000000000001',
       name: 'Pixel',
@@ -1534,11 +1534,20 @@ describe('summary decoding — the snake_case wire into camelCase screens (P0 bl
     const device = decodeDeviceSummary(wire);
     expect(device.id).toBe('9a12c0de-0000-4000-8000-000000000001');
     expect(device.pairedAt).toBe('2026-10-28T00:00:00Z');
-    // No `last_seen` on the wire: it falls back to `pairedAt`, never to undefined.
-    expect(device.lastSeen).toBe('2026-10-28T00:00:00Z');
+    // No `last_seen` on the wire: it is undefined, not fabricated from `pairedAt`.
+    expect(device.lastSeen).toBeUndefined();
+    expect(device.revoked).toBe(false);
+
+    // revoked_at is also preserved as revoked: true
+    const revokedWire = {
+      device_id: 'd-revoked',
+      name: 'Old Device',
+      revoked_at: '2026-10-29T00:00:00Z',
+    };
+    expect(decodeDeviceSummary(revokedWire).revoked).toBe(true);
   });
 
-  it('keeps a reported last_seen and falls back to now when nothing was recorded', () => {
+  it('keeps a reported last_seen and leaves undefined when not recorded', () => {
     const seen = decodeDeviceSummary({
       device_id: 'd',
       name: 'D',
@@ -1548,8 +1557,7 @@ describe('summary decoding — the snake_case wire into camelCase screens (P0 bl
     expect(seen.lastSeen).toBe('2026-10-28T00:10:00Z');
 
     const bare = decodeDeviceSummary({ device_id: 'd', name: 'D' });
-    expect(new Date(bare.lastSeen).getTime()).not.toBeNaN();
-    expect(new Date(bare.lastSeen).getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+    expect(bare.lastSeen).toBeUndefined();
   });
 
   it('refuses a run or device row without an id', () => {
@@ -1642,6 +1650,7 @@ describe('summary decoding — the snake_case wire into camelCase screens (P0 bl
         name: 'Phone',
         pairedAt: '2026-10-28T00:00:00Z',
         lastSeen: '2026-10-28T00:02:00Z',
+        revoked: false,
       },
     ]);
   });
@@ -1680,5 +1689,258 @@ describe('summary decoding — the snake_case wire into camelCase screens (P0 bl
     await expect(client.listProjects()).rejects.toThrow(
       'Malformed summary: "projects.list" is not a list'
     );
+  });
+});
+
+// Wave 2 — harnesses, skills, plugins, custom models, integrations, files.
+//
+// These tests pin the request side of the Wave 2 surface: every method dials the
+// daemon's RPC name with snake_case params (jsonrpsee binds by those names), and
+// `null` is what "not named" looks like for the daemon's `Option` arguments. The
+// response side — snake_case rows becoming the camelCase types — is pinned in
+// `wire-contract.test.ts`.
+
+const HARNESS_ROW = {
+  id: 'h-1',
+  name: 'Flow',
+  version: '1',
+  stages: [],
+  rules: {
+    max_repair_iterations: 3,
+    budget_cap_cents: null,
+    allow_parallel_subagents: false,
+    require_verification_receipt: false,
+  },
+  preset: false,
+  active: false,
+  created_at: '2026-11-05T00:00:00Z',
+};
+
+/** The JSON-RPC method name of the request `fetch` was called with at `index`. */
+function sentMethod(index: number): string {
+  const call = fetchMock.mock.calls[index];
+  if (call === undefined) throw new Error(`no request was made (call ${index})`);
+  const init = call[1] as { body: string };
+  return (JSON.parse(init.body) as { method: string }).method;
+}
+
+describe('wave 2 client methods', () => {
+  it('harness methods dial harness.* with the daemon param names', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse([HARNESS_ROW]));
+    await expect(client.listHarnesses()).resolves.toHaveLength(1);
+    expect(sentMethod(0)).toBe('harness.list');
+
+    fetchMock.mockResolvedValueOnce(okResponse(HARNESS_ROW));
+    await expect(client.getHarness('h-1')).resolves.toMatchObject({ id: 'h-1' });
+    expect(sentMethod(1)).toBe('harness.get');
+    expect(sentParams(1)).toEqual({ id: 'h-1' });
+
+    fetchMock.mockResolvedValueOnce(okResponse(HARNESS_ROW));
+    await client.importHarness('name: flow');
+    expect(sentParams(2)).toEqual({ content: 'name: flow', format: null });
+
+    fetchMock.mockResolvedValueOnce(okResponse(HARNESS_ROW));
+    await client.importHarness('{"name":"flow"}', 'json');
+    expect(sentParams(3)).toEqual({ content: '{"name":"flow"}', format: 'json' });
+
+    fetchMock.mockResolvedValueOnce(okResponse(null));
+    await client.selectHarness('h-1');
+    expect(sentParams(4)).toEqual({ harness_id: 'h-1', project_id: null });
+
+    fetchMock.mockResolvedValueOnce(okResponse(null));
+    await client.selectHarness('h-1', 'p-1');
+    expect(sentParams(5)).toEqual({ harness_id: 'h-1', project_id: 'p-1' });
+
+    fetchMock.mockResolvedValueOnce(okResponse(null));
+    await client.deleteHarness('h-1');
+    expect(sentMethod(6)).toBe('harness.delete');
+    expect(sentParams(6)).toEqual({ id: 'h-1' });
+  });
+
+  it('skill methods dial skills.* with the daemon param names', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse([{ name: 'review', description: 'Review' }]));
+    await expect(client.listSkills()).resolves.toMatchObject([{ id: 'review' }]);
+    expect(sentMethod(0)).toBe('skills.list');
+
+    fetchMock.mockResolvedValueOnce(okResponse({ id: 'mine', name: 'mine' }));
+    await client.importSkill('https://example.test/skill.zip');
+    expect(sentParams(1)).toEqual({
+      url_or_content: 'https://example.test/skill.zip',
+      name: null,
+    });
+
+    fetchMock.mockResolvedValueOnce(okResponse({ id: 'mine', name: 'mine', enabled: false }));
+    await expect(client.toggleSkill('mine', false)).resolves.toMatchObject({ enabled: false });
+    expect(sentParams(2)).toEqual({ id: 'mine', enabled: false });
+
+    fetchMock.mockResolvedValueOnce(okResponse(null));
+    await client.deleteSkill('mine');
+    expect(sentMethod(3)).toBe('skills.delete');
+    expect(sentParams(3)).toEqual({ id: 'mine' });
+  });
+
+  it('plugin methods dial plugins.* and pass the env map through', async () => {
+    const pluginRow = {
+      id: 'gh',
+      name: 'GitHub',
+      description: 'Issues, PRs and CI',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['@modelcontextprotocol/server-github'],
+      env: { GITHUB_PERSONAL_ACCESS_TOKEN: '${secrets:github-token}' },
+      enabled: true,
+      tools: [],
+      source: 'github.com/modelcontextprotocol/servers',
+    };
+
+    fetchMock.mockResolvedValueOnce(okResponse([pluginRow]));
+    await expect(client.listPlugins()).resolves.toMatchObject([
+      { transport: 'stdio', env: { GITHUB_PERSONAL_ACCESS_TOKEN: '${secrets:github-token}' } },
+    ]);
+
+    fetchMock.mockResolvedValueOnce(okResponse(pluginRow));
+    await client.installPlugin('{"name":"GitHub"}');
+    expect(sentMethod(1)).toBe('plugins.install');
+    expect(sentParams(1)).toEqual({ manifest_json_or_url: '{"name":"GitHub"}' });
+
+    fetchMock.mockResolvedValueOnce(okResponse(pluginRow));
+    await client.togglePlugin('gh', true);
+    expect(sentParams(2)).toEqual({ id: 'gh', enabled: true });
+
+    fetchMock.mockResolvedValueOnce(okResponse(pluginRow));
+    await client.configurePlugin('gh', { GITHUB_TOKEN: 'stored-in-keychain' });
+    expect(sentParams(3)).toEqual({ id: 'gh', env: { GITHUB_TOKEN: 'stored-in-keychain' } });
+
+    fetchMock.mockResolvedValueOnce(okResponse(null));
+    await client.removePlugin('gh');
+    expect(sentMethod(4)).toBe('plugins.remove');
+    expect(sentParams(4)).toEqual({ id: 'gh' });
+  });
+
+  it('custom model methods dial models.* with snake_case keys', async () => {
+    const modelRow = {
+      provider: 'open_router',
+      model_id: 'm-1',
+      context_window: 8191,
+      enabled: true,
+    };
+
+    fetchMock.mockResolvedValueOnce(okResponse([modelRow]));
+    await client.listCustomModels();
+    expect(sentMethod(0)).toBe('models.list');
+    expect(sentParams(0)).toEqual({ provider: null });
+
+    fetchMock.mockResolvedValueOnce(okResponse([]));
+    await client.listCustomModels('open_router');
+    expect(sentParams(1)).toEqual({ provider: 'open_router' });
+
+    fetchMock.mockResolvedValueOnce(okResponse(modelRow));
+    await expect(client.addCustomModel('open_router', 'm-1')).resolves.toEqual({
+      provider: 'open_router',
+      modelId: 'm-1',
+      displayName: null,
+      contextWindow: 8191,
+      enabled: true,
+    });
+    expect(sentParams(2)).toEqual({
+      provider: 'open_router',
+      model_id: 'm-1',
+      display_name: null,
+      context_window: null,
+    });
+
+    fetchMock.mockResolvedValueOnce(okResponse(null));
+    await client.removeCustomModel('open_router', 'm-1');
+    expect(sentMethod(3)).toBe('models.remove');
+    expect(sentParams(3)).toEqual({ provider: 'open_router', model_id: 'm-1' });
+  });
+
+  it('integration methods dial integrations.* and send the token once, on the write', async () => {
+    const statusRow = {
+      id: 'gh',
+      name: 'GitHub',
+      connected: true,
+      configured_at: '2026-11-04T10:00:00Z',
+      details: { org: 'acme' },
+    };
+
+    fetchMock.mockResolvedValueOnce(okResponse([statusRow]));
+    await expect(client.listIntegrations()).resolves.toMatchObject([
+      { connected: true, configuredAt: '2026-11-04T10:00:00Z' },
+    ]);
+    expect(sentMethod(0)).toBe('integrations.list');
+
+    fetchMock.mockResolvedValueOnce(okResponse(statusRow));
+    await expect(
+      client.connectIntegration('gh', {
+        token: 'sekret-key-1',
+        webhookUrl: 'https://hooks.example.test/ci',
+        org: 'acme',
+      })
+    ).resolves.toMatchObject({ id: 'gh' });
+    expect(sentParams(1)).toEqual({
+      id: 'gh',
+      config: {
+        token: 'sekret-key-1',
+        webhook_url: 'https://hooks.example.test/ci',
+        bot_token: null,
+        channel: null,
+        org: 'acme',
+      },
+    });
+
+    fetchMock.mockResolvedValueOnce(okResponse({ ...statusRow, connected: false }));
+    await expect(client.disconnectIntegration('gh')).resolves.toMatchObject({ connected: false });
+    expect(sentParams(2)).toEqual({ id: 'gh' });
+
+    fetchMock.mockResolvedValueOnce(okResponse({ status: 'error', message: 'timeout' }));
+    await expect(client.testIntegration('gh')).resolves.toEqual({
+      status: 'error',
+      message: 'timeout',
+    });
+    expect(sentMethod(3)).toBe('integrations.test');
+  });
+
+  it('file methods dial files.* with project_id/path', async () => {
+    const treeRow = { name: 'src', path: 'src', is_dir: true, size_bytes: 0 };
+
+    fetchMock.mockResolvedValueOnce(okResponse([treeRow]));
+    await expect(client.getFilesTree('p-1')).resolves.toMatchObject([{ name: 'src', isDir: true }]);
+    expect(sentMethod(0)).toBe('files.tree');
+    expect(sentParams(0)).toEqual({ project_id: 'p-1', path: null });
+
+    fetchMock.mockResolvedValueOnce(okResponse([]));
+    await client.getFilesTree('p-1', 'src');
+    expect(sentParams(1)).toEqual({ project_id: 'p-1', path: 'src' });
+
+    fetchMock.mockResolvedValueOnce(
+      okResponse({ path: 'src/main.rs', content: 'fn main() {}', mime_type: 'text/rust' })
+    );
+    await expect(client.readFileContent('p-1', 'src/main.rs')).resolves.toMatchObject({
+      path: 'src/main.rs',
+      mimeType: 'text/rust',
+    });
+    expect(sentMethod(2)).toBe('files.read');
+    expect(sentParams(2)).toEqual({ project_id: 'p-1', path: 'src/main.rs' });
+  });
+
+  it('refuses Wave 2 list methods answered with a bare object, naming the method', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ id: 'h-1' }));
+    await expect(client.listHarnesses()).rejects.toThrow(
+      'Malformed Wave 2 payload: "harness.list" is not a list'
+    );
+
+    fetchMock.mockResolvedValueOnce(okResponse({ id: 'gh' }));
+    await expect(client.listPlugins()).rejects.toThrow(
+      'Malformed Wave 2 payload: "plugins.list" is not a list'
+    );
+  });
+
+  it('never lets the daemon token ride in a Wave 2 refusal', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ name: 'no id' }));
+    const error = await client.connectIntegration('gh', {}).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('"integration" is missing "id"');
+    expect((error as Error).message).not.toContain('test-token');
   });
 });

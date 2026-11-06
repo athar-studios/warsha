@@ -83,6 +83,7 @@ function event(overrides: Partial<WarshaEvent> & { id: string }): WarshaEvent {
 function fakeClient(overrides: Partial<Record<string, () => Promise<unknown>>> = {}): WarshaClient {
   return {
     listRuns: () => Promise.resolve([run]),
+    getGates: () => Promise.resolve([]),
     getProjectBudget: () => Promise.resolve({ totalBudgetUsd: 10, spentUsd: 3.25, remainingUsd: 6.75 }),
     agentState: () =>
       Promise.resolve({
@@ -407,5 +408,229 @@ describe('AdvancedMode bench', () => {
     expect(line.closest('[role="status"]')).toBeInstanceOf(HTMLElement);
     fireEvent.click(screen.getByTestId('advanced-reconnect'));
     expect(screen.queryByText(/The event stream stopped/)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------- Complex Mode factory additions
+// The workspace tree (`files.tree`/`files.read` → code tab), the run-control bar beside the read-only
+// dock (`runs.advance`/`runs.cancel`/`runs.followup`), the active harness/skill/plugin pills and the
+// collapsible subagent swarm matrix (DECISIONS 2026-11-06).
+
+describe('AdvancedMode workspace tree', () => {
+  const rootEntries = [
+    { name: 'src', path: 'src', isDir: true, sizeBytes: null },
+    { name: 'README.md', path: 'README.md', isDir: false, sizeBytes: 12 },
+  ];
+  const srcEntries = [{ name: 'main.rs', path: 'src/main.rs', isDir: false, sizeBytes: 30 }];
+
+  function treeClient() {
+    const getFilesTree = vi.fn(async (_projectId: string, path?: string) =>
+      path === 'src' ? srcEntries : rootEntries
+    );
+    const readFileContent = vi.fn(async (_projectId: string, _path: string) => ({
+      path: 'src/main.rs',
+      content: 'fn main() {\n    println!("hi");\n}',
+      mimeType: 'text/rust',
+    }));
+    const client = { ...fakeClient(), getFilesTree, readFileContent } as unknown as WarshaClient;
+    return { client, getFilesTree, readFileContent };
+  }
+
+  it('loads the root on mount, expands a folder lazily and reads the file into the code tab', async () => {
+    const { client, getFilesTree, readFileContent } = treeClient();
+    renderBench(client);
+
+    const dirRow = await screen.findByTestId('advanced-tree-dir-src');
+    // The root is read once on mount; nothing was fetched for `src` before the owner opened it.
+    expect(getFilesTree).toHaveBeenCalledWith(project.id, '');
+    expect(getFilesTree).not.toHaveBeenCalledWith(project.id, 'src');
+
+    fireEvent.click(within(dirRow).getByRole('button'));
+    await waitFor(() => expect(getFilesTree).toHaveBeenCalledWith(project.id, 'src'));
+    const fileRow = await screen.findByTestId('advanced-tree-file-src/main.rs');
+
+    fireEvent.click(fileRow);
+    const pane = await screen.findByTestId('advanced-code-pane');
+    expect(readFileContent).toHaveBeenCalledWith(project.id, 'src/main.rs');
+    // The header names the path, the line count and the mime type; the body is numbered, ltr, untagged.
+    expect(pane).toHaveTextContent('src/main.rs');
+    expect(pane).toHaveTextContent('text/rust');
+    const lines = await screen.findByTestId('advanced-code-lines');
+    expect(within(lines).getByTestId('advanced-code-line-2')).toHaveTextContent('println!');
+    expect(lines).toHaveAttribute('dir', 'ltr');
+    expect(lines).toHaveAttribute('translate', 'no');
+  });
+
+  it('says in words when the daemon cannot answer the file reads (§7)', async () => {
+    // The stock fakeClient has no `getFilesTree` at all: the plate names the failure, not a spinner.
+    renderBench();
+    const tree = await screen.findByTestId('advanced-files-tree');
+    expect(tree).toHaveTextContent('The file list did not come back from the daemon.');
+  });
+});
+
+describe('AdvancedMode run controls', () => {
+  function controlClient() {
+    const advanceRun = vi.fn(async () => run);
+    const cancelRun = vi.fn(async () => run);
+    const followupRun = vi.fn(async () => run);
+    const client = { ...fakeClient(), advanceRun, cancelRun, followupRun } as unknown as WarshaClient;
+    return { client, advanceRun, cancelRun, followupRun };
+  }
+
+  it('sends advance, cancel and follow-up to the run the bench is showing', async () => {
+    const { client, advanceRun, cancelRun, followupRun } = controlClient();
+    renderBench(client);
+
+    fireEvent.click(screen.getByTestId('advanced-tab-terminal'));
+    const controls = await screen.findByTestId('advanced-run-controls');
+
+    fireEvent.click(within(controls).getByTestId('run-advance'));
+    await waitFor(() => expect(advanceRun).toHaveBeenCalledWith(run.id));
+
+    fireEvent.click(within(controls).getByTestId('run-cancel'));
+    await waitFor(() => expect(cancelRun).toHaveBeenCalledWith(run.id));
+
+    fireEvent.change(within(controls).getByTestId('run-followup-input'), {
+      target: { value: 'add the missing tests' },
+    });
+    fireEvent.click(within(controls).getByTestId('run-followup-send'));
+    await waitFor(() => expect(followupRun).toHaveBeenCalledWith(run.id, 'add the missing tests'));
+    // The draft is emptied by the send, so the next instruction starts clean.
+    await waitFor(() =>
+      expect(within(controls).getByTestId('run-followup-input')).toHaveValue('')
+    );
+  });
+
+  it('keeps the dock a pure transcript while the control field lives beside it', async () => {
+    const { client } = controlClient();
+    renderBench(client);
+
+    fireEvent.click(screen.getByTestId('advanced-tab-terminal'));
+    const dock = await screen.findByRole('region', { name: 'Terminal dock' });
+    await screen.findByTestId('advanced-run-controls');
+    // §6 survives word for word: the dock itself still has no prompt.
+    expect(within(dock).queryByRole('textbox')).toBeNull();
+    // And the follow-up is labelled as the run instruction it is, not a shell command.
+    expect(
+      screen.getByRole('textbox', { name: t('advanced.run_followup_label', {}, 'en') })
+    ).toBeInTheDocument();
+  });
+
+  it('keeps the buttons and says inline when a control RPC fails (§7)', async () => {
+    const advanceRun = vi.fn(async () => {
+      throw new Error('refused');
+    });
+    const client = { ...fakeClient(), advanceRun } as unknown as WarshaClient;
+    renderBench(client);
+
+    fireEvent.click(screen.getByTestId('advanced-tab-terminal'));
+    const controls = await screen.findByTestId('advanced-run-controls');
+    fireEvent.click(within(controls).getByTestId('run-advance'));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(t('advanced.run_control_failed', {}, 'en'));
+    expect(within(controls).getByTestId('run-advance')).toBeEnabled();
+  });
+});
+
+describe('AdvancedMode factory context and swarm', () => {
+  it('shows the active harness, enabled skills and enabled plugins as pills', async () => {
+    const client = {
+      ...fakeClient(),
+      listHarnesses: async () => [
+        {
+          id: 'autonomous-factory',
+          version: '1',
+          name: 'autonomous-factory',
+          description: '',
+          stages: [],
+          rules: {},
+          preset: true,
+          createdAt: '',
+        },
+      ],
+      listSkills: async () => [
+        { id: 's1', name: 'code-review', description: '', source: '', license: '', content: '', enabled: true, tags: [] },
+        { id: 's2', name: 'retired-skill', description: '', source: '', license: '', content: '', enabled: false, tags: [] },
+      ],
+      listPlugins: async () => [
+        { id: 'p1', name: 'fs-mcp', description: '', transport: 'stdio', command: null, args: [], env: {}, enabled: false, tools: [], source: '' },
+      ],
+    } as unknown as WarshaClient;
+    renderBench(client);
+
+    const context = await screen.findByTestId('advanced-context');
+    expect(within(context).getByText('autonomous-factory')).toBeInTheDocument();
+    expect(within(context).getByText('code-review')).toBeInTheDocument();
+    // A disabled skill or plugin is not part of the active context.
+    expect(within(context).queryByText('retired-skill')).toBeNull();
+    expect(within(context).queryByText('fs-mcp')).toBeNull();
+  });
+
+  it('renders the swarm matrix over all twelve roles with model and cost per role', async () => {
+    renderBench();
+    await streamOpen();
+
+    await act(async () => {
+      emitEvent?.(event({ id: 'sw1', role: 'coder', kind: 'tool_call', costCents: 480 }));
+    });
+
+    const matrix = await screen.findByTestId('advanced-swarm-matrix');
+    // All twelve roles of the factory are accounted for, every one a record row, never a button.
+    expect(within(matrix).getAllByTestId(/advanced-swarm-row-/)).toHaveLength(12);
+    const coderRow = within(matrix).getByTestId('advanced-swarm-row-coder');
+    expect(within(coderRow).getByText('Coder')).toBeInTheDocument();
+    expect(within(coderRow).getByTestId('advanced-swarm-model-coder')).toHaveTextContent('DeepSeek V3');
+    expect(within(coderRow).getByTestId('advanced-swarm-cost-coder')).toHaveTextContent('$4.8000');
+    // The rows are records: pressing the matrix supervises nothing by accident (§3).
+    expect(within(matrix).queryAllByRole('button')).toHaveLength(0);
+
+    // The column collapses to its head and opens again on the owner's press.
+    fireEvent.click(screen.getByTestId('advanced-swarm-toggle'));
+    expect(screen.queryByTestId('advanced-swarm-matrix')).toBeNull();
+    fireEvent.click(screen.getByTestId('advanced-swarm-toggle'));
+    expect(screen.getByTestId('advanced-swarm-matrix')).toBeInTheDocument();
+  });
+
+  it('reads the routed model per role from roles.list instead of the standing fixture', async () => {
+    const client = {
+      ...fakeClient(),
+      listRoleRoutings: async () => [
+        {
+          role: 'coder',
+          targets: [{ provider_id: 'deep_seek', model_id: 'deepseek-v4-flash' }],
+          fallback_enabled: true,
+          budget_cents_per_run: null,
+        },
+      ],
+    } as unknown as WarshaClient;
+    renderBench(client);
+
+    const coderRow = await screen.findByTestId('advanced-swarm-row-coder');
+    await waitFor(() =>
+      expect(within(coderRow).getByTestId('advanced-swarm-model-coder')).toHaveTextContent(
+        'deep_seek/deepseek-v4-flash'
+      )
+    );
+  });
+
+  it('offers the one-click ladder down to the Hard Mode bench', async () => {
+    const onModeChange = vi.fn();
+    render(
+      <LocaleProvider initialLocale="en" storage={null}>
+        <AdvancedMode
+          client={fakeClient()}
+          project={project}
+          endpoint={RESOLVED_ENDPOINT}
+          onBack={() => undefined}
+          onModeChange={onModeChange}
+        />
+      </LocaleProvider>
+    );
+
+    const toggle = await screen.findByTestId('advanced-mode-toggle');
+    fireEvent.click(toggle);
+    expect(onModeChange).toHaveBeenCalledWith('simple');
   });
 });

@@ -200,7 +200,7 @@ impl ChatProvider for AnthropicProvider {
         let status = resp.status();
         if !status.is_success() {
             let err_text = resp.text().await.unwrap_or_default();
-            return Err(map_anthropic_error(status, err_text));
+            return Err(map_anthropic_error(status, err_text, Some(&self._api_key)));
         }
 
         let data: serde_json::Value = resp
@@ -284,7 +284,7 @@ impl ChatProvider for AnthropicProvider {
         let status = resp.status();
         if !status.is_success() {
             let err_text = resp.text().await.unwrap_or_default();
-            return Err(map_anthropic_error(status, err_text));
+            return Err(map_anthropic_error(status, err_text, Some(&self._api_key)));
         }
 
         let stream = resp.bytes_stream().map(move |chunk| {
@@ -314,16 +314,26 @@ impl ChatProvider for AnthropicProvider {
     }
 }
 
-fn map_anthropic_error(status: reqwest::StatusCode, body: String) -> ProviderError {
+fn map_anthropic_error(
+    status: reqwest::StatusCode,
+    body: String,
+    api_key: Option<&str>,
+) -> ProviderError {
+    let scrubbed = if let Some(key) = api_key {
+        crate::scrub_key(&body, key)
+    } else {
+        body
+    };
     let code = status.as_u16();
     match code {
+        400 | 422 => ProviderError::Http(code, scrubbed),
         401 | 403 => ProviderError::Auth(format!("Authentication failed: {code}")),
-        404 => ProviderError::ModelNotFound(body),
-        429 => ProviderError::RateLimited(body),
-        402 => ProviderError::QuotaExhausted(body),
-        500..=599 => ProviderError::Other(format!("Server error: {}", code)),
+        404 => ProviderError::ModelNotFound(scrubbed),
+        429 => ProviderError::RateLimited(scrubbed),
+        402 => ProviderError::QuotaExhausted(scrubbed),
+        500..=599 => ProviderError::Other(format!("Server error: {code}")),
         408 => ProviderError::Timeout("Request timeout".to_string()),
-        _ => ProviderError::Other(format!("HTTP {}: {}", code, body)),
+        _ => ProviderError::Http(code, scrubbed),
     }
 }
 

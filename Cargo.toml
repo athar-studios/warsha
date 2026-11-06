@@ -65,7 +65,7 @@ keyring = "1.2"
 gix = "0.70"
 octocrab = "0.30"
 
-# Utilities
+async-trait = "0.1"
 uuid = { version = "1.8", features = ["v4", "v7", "serde", "fast-rng"] }
 chrono = { version = "0.4", features = ["serde"] }
 ulid = { version = "1.0", features = ["serde"] }

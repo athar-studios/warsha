@@ -39,8 +39,12 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 use warsha_pipeline::{
     BackendKit, InMemoryPairingStore, InMemoryPreferenceStore, Preference, RunMode, RunModeConfig,
+    settings::{SettingsProvider, StoredHarness as PipelineStoredHarness, StoredSkill as PipelineStoredSkill, StoredPlugin as PipelineStoredPlugin, SettingsError as PipelineSettingsError},
 };
-use warsha_store::{SqliteStore, StoreError, StoredProvider};
+use warsha_store::{
+    SqliteStore, StoreError, StoredCustomModel, StoredHarness, StoredIntegration, StoredPlugin,
+    StoredProvider, StoredSkill,
+};
 
 /// Everything that can go wrong reading or writing the daemon's settings.
 #[derive(Debug, Error)]
@@ -323,6 +327,263 @@ impl SettingsStore {
     pub async fn delete_provider(&self, name: &str) -> SettingsResult<bool> {
         let name = name.to_string();
         self.run(move |store| store.delete_provider(&name).map_err(SettingsError::from))
+            .await
+    }
+
+    // -------------------------------------------------------------- harnesses
+
+    /// Insert or replace one harness definition, keyed by its id.
+    pub async fn save_harness(&self, harness: &StoredHarness) -> SettingsResult<()> {
+        let harness = harness.clone();
+        self.run(move |store| {
+            store.save_harness(&harness)?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// One harness by id, or `None` when no such row exists.
+    pub async fn get_harness(&self, id: &str) -> SettingsResult<Option<StoredHarness>> {
+        let id = id.to_string();
+        self.run(move |store| store.load_harness(&id).map_err(SettingsError::from))
+            .await
+    }
+
+    /// Every harness, presets and user-authored alike, oldest first.
+    pub async fn list_harnesses(&self) -> SettingsResult<Vec<StoredHarness>> {
+        self.run(|store| store.load_harnesses().map_err(SettingsError::from))
+            .await
+    }
+
+    /// Delete one harness by id, returning true if it existed.
+    pub async fn delete_harness(&self, id: &str) -> SettingsResult<bool> {
+        let id = id.to_string();
+        self.run(move |store| store.delete_harness(&id).map_err(SettingsError::from))
+            .await
+    }
+
+    /// Point a project at a harness, replacing any previous selection.
+    pub async fn set_active_harness(
+        &self,
+        project_id: &str,
+        harness_id: &str,
+    ) -> SettingsResult<()> {
+        let project_id = project_id.to_string();
+        let harness_id = harness_id.to_string();
+        self.run(move |store| {
+            store.set_active_harness(&project_id, &harness_id)?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// The harness id a project currently runs with, if one was selected.
+    pub async fn get_active_harness(&self, project_id: &str) -> SettingsResult<Option<String>> {
+        let project_id = project_id.to_string();
+        self.run(move |store| {
+            store
+                .get_active_harness(&project_id)
+                .map_err(SettingsError::from)
+        })
+        .await
+    }
+
+    /// Clear a project's harness selection, returning true if there was one.
+    pub async fn clear_active_harness(&self, project_id: &str) -> SettingsResult<bool> {
+        let project_id = project_id.to_string();
+        self.run(move |store| {
+            store
+                .clear_active_harness(&project_id)
+                .map_err(SettingsError::from)
+        })
+        .await
+    }
+
+    // ---------------------------------------------------------------- skills
+
+    /// Insert or replace one skill, keyed by its id.
+    pub async fn save_skill(&self, skill: &StoredSkill) -> SettingsResult<()> {
+        let skill = skill.clone();
+        self.run(move |store| {
+            store.save_skill(&skill)?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// One skill by id.
+    pub async fn get_skill(&self, id: &str) -> SettingsResult<Option<StoredSkill>> {
+        let id = id.to_string();
+        self.run(move |store| store.load_skill(&id).map_err(SettingsError::from))
+            .await
+    }
+
+    /// Every skill, by name, whether enabled or not.
+    pub async fn list_skills(&self) -> SettingsResult<Vec<StoredSkill>> {
+        self.run(|store| store.load_skills().map_err(SettingsError::from))
+            .await
+    }
+
+    /// Delete one skill by id, returning true if it existed.
+    pub async fn delete_skill(&self, id: &str) -> SettingsResult<bool> {
+        let id = id.to_string();
+        self.run(move |store| store.delete_skill(&id).map_err(SettingsError::from))
+            .await
+    }
+
+    /// Flip a skill's enabled flag, answering with the new state or `None`
+    /// when the skill does not exist.
+    pub async fn toggle_skill(&self, id: &str) -> SettingsResult<Option<bool>> {
+        let id = id.to_string();
+        self.run(move |store| store.toggle_skill(&id).map_err(SettingsError::from))
+            .await
+    }
+
+    // --------------------------------------------------------------- plugins
+
+    /// Insert or replace one MCP plugin pack, keyed by its id.
+    pub async fn save_plugin(&self, plugin: &StoredPlugin) -> SettingsResult<()> {
+        let plugin = plugin.clone();
+        self.run(move |store| {
+            store.save_plugin(&plugin)?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// One plugin pack by id.
+    pub async fn get_plugin(&self, id: &str) -> SettingsResult<Option<StoredPlugin>> {
+        let id = id.to_string();
+        self.run(move |store| store.load_plugin(&id).map_err(SettingsError::from))
+            .await
+    }
+
+    /// Every plugin pack, by name, whether enabled or not.
+    pub async fn list_plugins(&self) -> SettingsResult<Vec<StoredPlugin>> {
+        self.run(|store| store.load_plugins().map_err(SettingsError::from))
+            .await
+    }
+
+    /// Delete one plugin pack by id, returning true if it existed.
+    pub async fn delete_plugin(&self, id: &str) -> SettingsResult<bool> {
+        let id = id.to_string();
+        self.run(move |store| store.delete_plugin(&id).map_err(SettingsError::from))
+            .await
+    }
+
+    /// Flip a plugin's enabled flag, answering with the new state or `None`
+    /// when the pack does not exist.
+    pub async fn toggle_plugin(&self, id: &str) -> SettingsResult<Option<bool>> {
+        let id = id.to_string();
+        self.run(move |store| store.toggle_plugin(&id).map_err(SettingsError::from))
+            .await
+    }
+
+    // --------------------------------------------------------- custom models
+
+    /// Insert or replace one custom model, keyed by `(provider, model_id)`.
+    pub async fn save_custom_model(&self, model: &StoredCustomModel) -> SettingsResult<()> {
+        let model = model.clone();
+        self.run(move |store| {
+            store.save_custom_model(&model)?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// One custom model by provider and model id.
+    pub async fn get_custom_model(
+        &self,
+        provider: &str,
+        model_id: &str,
+    ) -> SettingsResult<Option<StoredCustomModel>> {
+        let provider = provider.to_string();
+        let model_id = model_id.to_string();
+        self.run(move |store| {
+            store
+                .load_custom_model(&provider, &model_id)
+                .map_err(SettingsError::from)
+        })
+        .await
+    }
+
+    /// Every custom model, by provider then model id.
+    pub async fn list_custom_models(&self) -> SettingsResult<Vec<StoredCustomModel>> {
+        self.run(|store| store.load_custom_models().map_err(SettingsError::from))
+            .await
+    }
+
+    /// Delete one custom model, returning true if it existed.
+    pub async fn delete_custom_model(
+        &self,
+        provider: &str,
+        model_id: &str,
+    ) -> SettingsResult<bool> {
+        let provider = provider.to_string();
+        let model_id = model_id.to_string();
+        self.run(move |store| {
+            store
+                .delete_custom_model(&provider, &model_id)
+                .map_err(SettingsError::from)
+        })
+        .await
+    }
+
+    /// Flip a custom model's enabled flag, answering with the new state or
+    /// `None` when the model does not exist.
+    pub async fn toggle_custom_model(
+        &self,
+        provider: &str,
+        model_id: &str,
+    ) -> SettingsResult<Option<bool>> {
+        let provider = provider.to_string();
+        let model_id = model_id.to_string();
+        self.run(move |store| {
+            store
+                .toggle_custom_model(&provider, &model_id)
+                .map_err(SettingsError::from)
+        })
+        .await
+    }
+
+    // ------------------------------------------------------------ integrations
+
+    /// Insert or replace one integration row.
+    ///
+    /// `config_json` is the serialised `IntegrationConfig`; `None` keeps the
+    /// config the row already had, so a connection check can update status
+    /// without rewriting credentials.
+    pub async fn save_integration(
+        &self,
+        integration: &StoredIntegration,
+        config_json: Option<&str>,
+    ) -> SettingsResult<()> {
+        let integration = integration.clone();
+        let config_json = config_json.map(str::to_string);
+        self.run(move |store| {
+            store.save_integration(&integration, config_json.as_deref())?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// One integration by id.
+    pub async fn get_integration(&self, id: &str) -> SettingsResult<Option<StoredIntegration>> {
+        let id = id.to_string();
+        self.run(move |store| store.load_integration(&id).map_err(SettingsError::from))
+            .await
+    }
+
+    /// Every integration, by name.
+    pub async fn list_integrations(&self) -> SettingsResult<Vec<StoredIntegration>> {
+        self.run(|store| store.load_integrations().map_err(SettingsError::from))
+            .await
+    }
+
+    /// Delete one integration by id, returning true if it existed.
+    pub async fn delete_integration(&self, id: &str) -> SettingsResult<bool> {
+        let id = id.to_string();
+        self.run(move |store| store.delete_integration(&id).map_err(SettingsError::from))
             .await
     }
 
@@ -642,5 +903,195 @@ mod tests {
             matches!(error, SettingsError::DocumentFormat(ref name) if name == "role-routings"),
             "{error}"
         );
+    }
+
+    #[tokio::test]
+    async fn wave_two_rows_round_trip_through_the_settings_store() {
+        let (_dir, settings) = settings().await;
+
+        // Harness: save, list, active selection, delete.
+        let harness = StoredHarness {
+            id: "solo-bench".to_string(),
+            version: "1.0.0".to_string(),
+            name: "Solo Bench".to_string(),
+            description: "Minimalist single-agent supervisor flow".to_string(),
+            data_json: r#"{"id":"solo-bench","stages":[]}"#.to_string(),
+            is_preset: true,
+            created_at: 1_700_000_000,
+        };
+        settings
+            .save_harness(&harness)
+            .await
+            .expect("harness stored");
+        settings
+            .set_active_harness("project-1", "solo-bench")
+            .await
+            .expect("active set");
+        let reopened = SettingsStore::open(Path::new(settings.path()))
+            .await
+            .expect("the settings reopen");
+        assert_eq!(
+            reopened
+                .get_harness("solo-bench")
+                .await
+                .expect("get")
+                .as_ref(),
+            Some(&harness)
+        );
+        assert_eq!(reopened.list_harnesses().await.expect("list").len(), 1);
+        assert_eq!(
+            reopened
+                .get_active_harness("project-1")
+                .await
+                .expect("active")
+                .as_deref(),
+            Some("solo-bench")
+        );
+        assert!(reopened.delete_harness("solo-bench").await.expect("delete"));
+
+        // Skill: save, toggle, delete.
+        let skill = StoredSkill {
+            id: "test-driven-development".to_string(),
+            name: "Test-Driven Development".to_string(),
+            description: "Red, green, refactor.".to_string(),
+            source: "github.com/obra/superpowers".to_string(),
+            license: "MIT".to_string(),
+            content: "# TDD".to_string(),
+            enabled: true,
+            tags_json: r#"["testing"]"#.to_string(),
+        };
+        settings.save_skill(&skill).await.expect("skill stored");
+        assert_eq!(
+            reopened
+                .toggle_skill("test-driven-development")
+                .await
+                .expect("toggle"),
+            Some(false)
+        );
+        assert_eq!(
+            reopened
+                .get_skill("test-driven-development")
+                .await
+                .expect("get")
+                .map(|row| row.enabled),
+            Some(false)
+        );
+        assert!(reopened
+            .delete_skill("test-driven-development")
+            .await
+            .expect("delete"));
+
+        // Plugin, custom model and integration each have their CRUD path.
+        let plugin = StoredPlugin {
+            id: "git-mcp".to_string(),
+            name: "Git".to_string(),
+            description: "Structured git operations.".to_string(),
+            transport: "stdio".to_string(),
+            command: Some("npx".to_string()),
+            args_json: r#"["@modelcontextprotocol/server-git"]"#.to_string(),
+            env_json: "{}".to_string(),
+            enabled: true,
+            tools_json: "[]".to_string(),
+            source: "github.com/modelcontextprotocol/servers".to_string(),
+        };
+        settings.save_plugin(&plugin).await.expect("plugin stored");
+        assert_eq!(reopened.list_plugins().await.expect("list").len(), 1);
+
+        let model = StoredCustomModel {
+            provider: "open_router".to_string(),
+            model_id: "qwen/qwen3-coder".to_string(),
+            display_name: Some("Qwen Coder".to_string()),
+            context_window: Some(262_144),
+            enabled: true,
+        };
+        settings
+            .save_custom_model(&model)
+            .await
+            .expect("model stored");
+        assert_eq!(
+            reopened
+                .get_custom_model("open_router", "qwen/qwen3-coder")
+                .await
+                .expect("get")
+                .as_ref(),
+            Some(&model)
+        );
+
+        let integration = StoredIntegration {
+            id: "github".to_string(),
+            name: "GitHub".to_string(),
+            connected: false,
+            config_json: r#"{"org":"warsha"}"#.to_string(),
+            configured_at: Some(1_700_000_000),
+        };
+        settings
+            .save_integration(&integration, None)
+            .await
+            .expect("integration stored");
+        assert_eq!(reopened.list_integrations().await.expect("list").len(), 1);
+        assert!(reopened.delete_integration("github").await.expect("delete"));
+    }
+}
+
+// Implementation of SettingsProvider trait for the daemon's SettingsStore
+#[async_trait::async_trait]
+impl SettingsProvider for SettingsStore {
+    async fn get_active_harness(&self, project_id: &str) -> Result<Option<String>, PipelineSettingsError> {
+        self.get_active_harness(project_id)
+            .await
+            .map_err(|e| PipelineSettingsError::Store(e.to_string()))
+    }
+    
+    async fn get_harness(&self, id: &str) -> Result<Option<PipelineStoredHarness>, PipelineSettingsError> {
+        self.get_harness(id)
+            .await
+            .map_err(|e| PipelineSettingsError::Store(e.to_string()))
+            .map(|opt| opt.map(|h| PipelineStoredHarness {
+                id: h.id,
+                version: h.version,
+                name: h.name,
+                description: h.description,
+                data_json: h.data_json,
+                is_preset: h.is_preset,
+                created_at: h.created_at,
+            }))
+    }
+    
+    async fn list_skills(&self) -> Result<Vec<PipelineStoredSkill>, PipelineSettingsError> {
+        self.list_skills()
+            .await
+            .map_err(|e| PipelineSettingsError::Store(e.to_string()))
+            .map(|skills| skills.into_iter().map(|s| PipelineStoredSkill {
+                id: s.id,
+                name: s.name,
+                description: s.description,
+                source: s.source,
+                license: s.license,
+                content: s.content,
+                enabled: s.enabled,
+                tags_json: s.tags_json,
+            }).collect())
+    }
+    
+    async fn list_plugins(&self) -> Result<Vec<PipelineStoredPlugin>, PipelineSettingsError> {
+        self.list_plugins()
+            .await
+            .map_err(|e| PipelineSettingsError::Store(e.to_string()))
+            .map(|plugins| plugins.into_iter().map(|p| PipelineStoredPlugin {
+                id: p.id,
+                name: p.name,
+                description: p.description,
+                source: p.source,
+                license: "Apache-2.0".to_string(), // Default license
+                data_json: serde_json::json!({
+                    "transport": p.transport,
+                    "command": p.command,
+                    "args_json": p.args_json,
+                    "env_json": p.env_json,
+                    "enabled": p.enabled,
+                    "tools_json": p.tools_json,
+                }).to_string(),
+                enabled: p.enabled,
+            }).collect())
     }
 }

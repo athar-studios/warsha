@@ -1,8 +1,10 @@
 //! Durable store for the M20 layers: taste preferences, backend kits, run modes
-//! and phone pairings (PLAN.md M20).
+//! and phone pairings (PLAN.md M20), plus the Wave 2 settings-shaped records:
+//! harnesses, skills, plugins, custom models, integrations and the per-project
+//! active harness.
 //!
 //! `warsha-store` already persists projects, runs, events, gates, artifacts and
-//! costs through `sqlx`. The five records in this module are different: they are
+//! costs through `sqlx`. The records in this module are different: they are
 //! *small settings-shaped rows* that the desktop, the daemon and the pipeline
 //! touch synchronously, one at a time, so they get a plain [`rusqlite`]
 //! connection instead of the async pool:
@@ -11,14 +13,16 @@
 //!   database to `journal_mode = WAL` and refuses to return a store that did not
 //!   end up there, because a reader is not supposed to block the daemon's writer.
 //! - **One migration step, idempotent.** [`SqliteStore::migrate`] creates the
-//!   five tables inside a transaction and is a no-op afterwards, so calling it on
-//!   every start is safe.
+//!   settings tables inside a transaction and is a no-op afterwards, so calling it
+//!   on every start is safe.
 //! - **Rows, not pipeline types.** The store cannot depend on `warsha-pipeline`
 //!   (the dependency direction is core ← store ← providers ← pipeline), so the
-//!   columns live in [`StoredPreference`], [`StoredBackendKit`],
-//!   [`StoredRunMode`], [`StoredPairing`] and [`StoredProvider`]. The pipeline
-//!   converts its own types to these and back; nothing here knows what a taste
-//!   signal or a table definition is.
+//!   columns live in row structs like [`StoredPreference`], [`StoredBackendKit`],
+//!   [`StoredRunMode`], [`StoredPairing`], [`StoredProvider`], [`StoredHarness`],
+//!   [`StoredSkill`], [`StoredPlugin`], [`StoredCustomModel`] and
+//!   [`StoredIntegration`]. The pipeline and the daemon convert their own types
+//!   to these and back; nothing here knows what a taste signal or a harness
+//!   stage is.
 //! - **A pairing secret is never printed.** [`StoredPairing`] keeps the one-time
 //!   secret so the pairing channel can hand it back, but its `Debug` impl prints
 //!   `<redacted>`, the same rule `PhonePairing` follows in `warsha-pipeline`.
@@ -74,6 +78,56 @@ CREATE TABLE IF NOT EXISTS configured_providers (
     api_base   TEXT,
     enabled    INTEGER NOT NULL,
     created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS harnesses (
+    id         TEXT PRIMARY KEY,
+    version    TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    description TEXT NOT NULL,
+    data_json  TEXT NOT NULL,
+    is_preset  INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS skills (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    description TEXT NOT NULL,
+    source      TEXT NOT NULL,
+    license     TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    enabled     INTEGER NOT NULL,
+    tags_json   TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS plugins (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    description TEXT NOT NULL,
+    transport   TEXT NOT NULL,
+    command     TEXT,
+    args_json   TEXT NOT NULL,
+    env_json    TEXT NOT NULL,
+    enabled     INTEGER NOT NULL,
+    tools_json  TEXT NOT NULL,
+    source      TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS custom_models (
+    provider       TEXT NOT NULL,
+    model_id       TEXT NOT NULL,
+    display_name   TEXT,
+    context_window INTEGER,
+    enabled        INTEGER NOT NULL,
+    PRIMARY KEY (provider, model_id)
+);
+CREATE TABLE IF NOT EXISTS integrations (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    connected     INTEGER NOT NULL,
+    config_json   TEXT NOT NULL,
+    configured_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS active_harness (
+    project_id TEXT PRIMARY KEY,
+    harness_id TEXT NOT NULL
 );
 ";
 
@@ -174,7 +228,113 @@ pub struct StoredProvider {
     pub created_at: u64,
 }
 
-/// A SQLite database holding the five M20 tables, in WAL mode.
+/// One harness row: the queryable header columns plus the whole
+/// `warsha_core::HarnessDefinition` serialised into `data_json`.
+///
+/// The store keeps JSON for the nested stages and rules because they are read
+/// and written whole; `name`, `version` and `is_preset` are duplicated as
+/// columns only so a picker can render without decoding every row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredHarness {
+    /// Stable harness identifier.
+    pub id: String,
+    /// Definition schema version.
+    pub version: String,
+    /// Human-readable name.
+    pub name: String,
+    /// One-paragraph description.
+    pub description: String,
+    /// The serialised `HarnessDefinition`.
+    pub data_json: String,
+    /// True for the bundled presets, false for user-authored harnesses.
+    pub is_preset: bool,
+    /// When the row was created, in Unix seconds.
+    pub created_at: u64,
+}
+
+/// One skill row: the markdown pack, source and license as the store keeps them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredSkill {
+    /// Stable skill identifier.
+    pub id: String,
+    /// Human-readable name.
+    pub name: String,
+    /// One-line description.
+    pub description: String,
+    /// Upstream source, e.g. `github.com/obra/superpowers`.
+    pub source: String,
+    /// SPDX license tag of the upstream.
+    pub license: String,
+    /// The full markdown prompt body.
+    pub content: String,
+    /// Whether the skill is active for new runs.
+    pub enabled: bool,
+    /// Serialised `Vec<String>` of tags.
+    pub tags_json: String,
+}
+
+/// One MCP plugin pack row.
+///
+/// `args_json`, `env_json` and `tools_json` hold the serialised lists/maps so
+/// the row survives without a per-tool table; env values are keychain or
+/// config *references*, never secret material.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredPlugin {
+    /// Stable plugin identifier.
+    pub id: String,
+    /// Human-readable name.
+    pub name: String,
+    /// One-paragraph description.
+    pub description: String,
+    /// Transport kind, `stdio` or `http`.
+    pub transport: String,
+    /// Launch command for stdio transports; `None` for externally managed servers.
+    pub command: Option<String>,
+    /// Serialised argument list.
+    pub args_json: String,
+    /// Serialised environment reference map.
+    pub env_json: String,
+    /// Whether the pack is active for new runs.
+    pub enabled: bool,
+    /// Serialised tool list.
+    pub tools_json: String,
+    /// Upstream source of the pack.
+    pub source: String,
+}
+
+/// One user-registered custom model, keyed by `(provider, model_id)`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredCustomModel {
+    /// Provider the model belongs to.
+    pub provider: String,
+    /// Model id as the provider names it.
+    pub model_id: String,
+    /// Display label; `None` falls back to `model_id` in the UI.
+    pub display_name: Option<String>,
+    /// Declared context window in tokens.
+    pub context_window: Option<u32>,
+    /// Whether the model may be routed to.
+    pub enabled: bool,
+}
+
+/// One external integration row. `config_json` is the serialised
+/// `IntegrationConfig` as last written; secret-bearing fields inside it are
+/// the keychain's, so this column normally holds them as `null`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredIntegration {
+    /// Stable integration identifier, e.g. `github`.
+    pub id: String,
+    /// Human-readable name.
+    pub name: String,
+    /// Whether the integration currently connects.
+    pub connected: bool,
+    /// The serialised `IntegrationConfig`.
+    pub config_json: String,
+    /// When it was last configured, in Unix seconds; `None` until then.
+    pub configured_at: Option<u64>,
+}
+
+/// A SQLite database holding the M20 and Wave 2 tables, in WAL mode.
 ///
 /// [`SqliteStore::open`] creates the file (and the directory is the caller's to
 /// create) and switches it to WAL; [`SqliteStore::migrate`] creates the tables.
@@ -213,7 +373,7 @@ impl SqliteStore {
         Ok(store)
     }
 
-    /// Create the five tables if they do not exist yet.
+    /// Create the M20 and Wave 2 tables if they do not exist yet.
     ///
     /// One transaction, so a failure half way through leaves no partial schema.
     pub fn migrate(&self) -> Result<()> {
@@ -478,6 +638,392 @@ impl SqliteStore {
         Ok(deleted > 0)
     }
 
+    // -------------------------------------------------------------- harnesses
+
+    /// Insert or replace one harness, keyed by its id.
+    ///
+    /// Like providers, a re-save keeps the original `created_at`: re-importing
+    /// a preset does not make it new again.
+    pub fn save_harness(&self, harness: &StoredHarness) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO harnesses (id, version, name, description, data_json, is_preset, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
+             ON CONFLICT(id) DO UPDATE SET \
+             version = excluded.version, name = excluded.name, description = excluded.description, \
+             data_json = excluded.data_json, is_preset = excluded.is_preset",
+            params![
+                harness.id,
+                harness.version,
+                harness.name,
+                harness.description,
+                harness.data_json,
+                i64::from(harness.is_preset),
+                sql_int(harness.created_at, "harnesses.created_at")?,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// One harness by id, or `None` when no such row exists.
+    pub fn load_harness(&self, id: &str) -> Result<Option<StoredHarness>> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT id, version, name, description, data_json, is_preset, created_at \
+                 FROM harnesses WHERE id = ?1",
+                params![id],
+                stored_harness_from_row,
+            )
+            .optional()?;
+        Ok(row)
+    }
+
+    /// Every harness, presets and user-authored alike, oldest first.
+    pub fn load_harnesses(&self) -> Result<Vec<StoredHarness>> {
+        let mut statement = self.conn.prepare(
+            "SELECT id, version, name, description, data_json, is_preset, created_at \
+             FROM harnesses ORDER BY created_at ASC, id ASC",
+        )?;
+        let rows = statement
+            .query_map([], stored_harness_from_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Delete one harness row, answering whether there was one.
+    ///
+    /// The per-project `active_harness` pointer is not touched: a caller that
+    /// deletes a selected harness should clear or repoint it first.
+    pub fn delete_harness(&self, id: &str) -> Result<bool> {
+        let deleted = self
+            .conn
+            .execute("DELETE FROM harnesses WHERE id = ?1", params![id])?;
+        Ok(deleted > 0)
+    }
+
+    /// Point a project at a harness, replacing any previous selection.
+    pub fn set_active_harness(&self, project_id: &str, harness_id: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO active_harness (project_id, harness_id) VALUES (?1, ?2) \
+             ON CONFLICT(project_id) DO UPDATE SET harness_id = excluded.harness_id",
+            params![project_id, harness_id],
+        )?;
+        Ok(())
+    }
+
+    /// The harness a project is currently running with, if one was selected.
+    pub fn get_active_harness(&self, project_id: &str) -> Result<Option<String>> {
+        let harness_id = self
+            .conn
+            .query_row(
+                "SELECT harness_id FROM active_harness WHERE project_id = ?1",
+                params![project_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        Ok(harness_id)
+    }
+
+    /// Clear a project's harness selection, answering whether there was one.
+    pub fn clear_active_harness(&self, project_id: &str) -> Result<bool> {
+        let deleted = self.conn.execute(
+            "DELETE FROM active_harness WHERE project_id = ?1",
+            params![project_id],
+        )?;
+        Ok(deleted > 0)
+    }
+
+    // ---------------------------------------------------------------- skills
+
+    /// Insert or replace one skill, keyed by its id.
+    pub fn save_skill(&self, skill: &StoredSkill) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO skills (id, name, description, source, license, content, enabled, tags_json) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
+             ON CONFLICT(id) DO UPDATE SET \
+             name = excluded.name, description = excluded.description, source = excluded.source, \
+             license = excluded.license, content = excluded.content, enabled = excluded.enabled, \
+             tags_json = excluded.tags_json",
+            params![
+                skill.id,
+                skill.name,
+                skill.description,
+                skill.source,
+                skill.license,
+                skill.content,
+                i64::from(skill.enabled),
+                skill.tags_json,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// One skill by id.
+    pub fn load_skill(&self, id: &str) -> Result<Option<StoredSkill>> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT id, name, description, source, license, content, enabled, tags_json \
+                 FROM skills WHERE id = ?1",
+                params![id],
+                stored_skill_from_row,
+            )
+            .optional()?;
+        Ok(row)
+    }
+
+    /// Every skill, by name, whether enabled or not.
+    pub fn load_skills(&self) -> Result<Vec<StoredSkill>> {
+        let mut statement = self.conn.prepare(
+            "SELECT id, name, description, source, license, content, enabled, tags_json \
+             FROM skills ORDER BY name ASC, id ASC",
+        )?;
+        let rows = statement
+            .query_map([], stored_skill_from_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Delete one skill row, answering whether there was one.
+    pub fn delete_skill(&self, id: &str) -> Result<bool> {
+        let deleted = self
+            .conn
+            .execute("DELETE FROM skills WHERE id = ?1", params![id])?;
+        Ok(deleted > 0)
+    }
+
+    /// Flip a skill's enabled flag, answering with the new state, or `None`
+    /// when no such skill exists.
+    pub fn toggle_skill(&self, id: &str) -> Result<Option<bool>> {
+        let changed = self.conn.execute(
+            "UPDATE skills SET enabled = 1 - enabled WHERE id = ?1",
+            params![id],
+        )?;
+        if changed == 0 {
+            return Ok(None);
+        }
+        let enabled = self.load_skill(id)?.map(|skill| skill.enabled);
+        Ok(enabled)
+    }
+
+    // --------------------------------------------------------------- plugins
+
+    /// Insert or replace one plugin pack, keyed by its id.
+    pub fn save_plugin(&self, plugin: &StoredPlugin) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO plugins (id, name, description, transport, command, args_json, \
+             env_json, enabled, tools_json, source) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) \
+             ON CONFLICT(id) DO UPDATE SET \
+             name = excluded.name, description = excluded.description, transport = excluded.transport, \
+             command = excluded.command, args_json = excluded.args_json, env_json = excluded.env_json, \
+             enabled = excluded.enabled, tools_json = excluded.tools_json, source = excluded.source",
+            params![
+                plugin.id,
+                plugin.name,
+                plugin.description,
+                plugin.transport,
+                plugin.command,
+                plugin.args_json,
+                plugin.env_json,
+                i64::from(plugin.enabled),
+                plugin.tools_json,
+                plugin.source,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// One plugin by id.
+    pub fn load_plugin(&self, id: &str) -> Result<Option<StoredPlugin>> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT id, name, description, transport, command, args_json, env_json, \
+                 enabled, tools_json, source FROM plugins WHERE id = ?1",
+                params![id],
+                stored_plugin_from_row,
+            )
+            .optional()?;
+        Ok(row)
+    }
+
+    /// Every plugin pack, by name, whether enabled or not.
+    pub fn load_plugins(&self) -> Result<Vec<StoredPlugin>> {
+        let mut statement = self.conn.prepare(
+            "SELECT id, name, description, transport, command, args_json, env_json, enabled, \
+             tools_json, source FROM plugins ORDER BY name ASC, id ASC",
+        )?;
+        let rows = statement
+            .query_map([], stored_plugin_from_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Delete one plugin row, answering whether there was one.
+    pub fn delete_plugin(&self, id: &str) -> Result<bool> {
+        let deleted = self
+            .conn
+            .execute("DELETE FROM plugins WHERE id = ?1", params![id])?;
+        Ok(deleted > 0)
+    }
+
+    /// Flip a plugin's enabled flag, answering with the new state, or `None`
+    /// when no such plugin exists.
+    pub fn toggle_plugin(&self, id: &str) -> Result<Option<bool>> {
+        let changed = self.conn.execute(
+            "UPDATE plugins SET enabled = 1 - enabled WHERE id = ?1",
+            params![id],
+        )?;
+        if changed == 0 {
+            return Ok(None);
+        }
+        let enabled = self.load_plugin(id)?.map(|plugin| plugin.enabled);
+        Ok(enabled)
+    }
+
+    // --------------------------------------------------------- custom models
+
+    /// Insert or replace one custom model, keyed by `(provider, model_id)`.
+    pub fn save_custom_model(&self, model: &StoredCustomModel) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO custom_models (provider, model_id, display_name, context_window, enabled) \
+             VALUES (?1, ?2, ?3, ?4, ?5) \
+             ON CONFLICT(provider, model_id) DO UPDATE SET \
+             display_name = excluded.display_name, context_window = excluded.context_window, \
+             enabled = excluded.enabled",
+            params![
+                model.provider,
+                model.model_id,
+                model.display_name,
+                model.context_window.map(i64::from),
+                i64::from(model.enabled),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// One custom model by provider and model id.
+    pub fn load_custom_model(
+        &self,
+        provider: &str,
+        model_id: &str,
+    ) -> Result<Option<StoredCustomModel>> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT provider, model_id, display_name, context_window, enabled \
+                 FROM custom_models WHERE provider = ?1 AND model_id = ?2",
+                params![provider, model_id],
+                stored_custom_model_from_row,
+            )
+            .optional()?;
+        Ok(row)
+    }
+
+    /// Every custom model, by provider then model id.
+    pub fn load_custom_models(&self) -> Result<Vec<StoredCustomModel>> {
+        let mut statement = self.conn.prepare(
+            "SELECT provider, model_id, display_name, context_window, enabled FROM custom_models \
+             ORDER BY provider ASC, model_id ASC",
+        )?;
+        let rows = statement
+            .query_map([], stored_custom_model_from_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Delete one custom model, answering whether there was one.
+    pub fn delete_custom_model(&self, provider: &str, model_id: &str) -> Result<bool> {
+        let deleted = self.conn.execute(
+            "DELETE FROM custom_models WHERE provider = ?1 AND model_id = ?2",
+            params![provider, model_id],
+        )?;
+        Ok(deleted > 0)
+    }
+
+    /// Flip a custom model's enabled flag, answering with the new state, or
+    /// `None` when no such model exists.
+    pub fn toggle_custom_model(&self, provider: &str, model_id: &str) -> Result<Option<bool>> {
+        let changed = self.conn.execute(
+            "UPDATE custom_models SET enabled = 1 - enabled WHERE provider = ?1 AND model_id = ?2",
+            params![provider, model_id],
+        )?;
+        if changed == 0 {
+            return Ok(None);
+        }
+        let enabled = self
+            .load_custom_model(provider, model_id)?
+            .map(|model| model.enabled);
+        Ok(enabled)
+    }
+
+    // ------------------------------------------------------------ integrations
+
+    /// Insert or replace one integration row.
+    ///
+    /// A save with `config_json: None` keeps the config the row already had —
+    /// a connection check updates status without rewriting credentials.
+    pub fn save_integration(
+        &self,
+        integration: &StoredIntegration,
+        config_json: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO integrations (id, name, connected, config_json, configured_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5) \
+             ON CONFLICT(id) DO UPDATE SET \
+             name = excluded.name, connected = excluded.connected, \
+             config_json = COALESCE(?6, integrations.config_json), \
+             configured_at = COALESCE(?5, integrations.configured_at)",
+            params![
+                integration.id,
+                integration.name,
+                i64::from(integration.connected),
+                integration.config_json,
+                integration
+                    .configured_at
+                    .map(|value| sql_int(value, "integrations.configured_at"))
+                    .transpose()?,
+                config_json,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// One integration by id.
+    pub fn load_integration(&self, id: &str) -> Result<Option<StoredIntegration>> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT id, name, connected, config_json, configured_at FROM integrations \
+                 WHERE id = ?1",
+                params![id],
+                stored_integration_from_row,
+            )
+            .optional()?;
+        Ok(row)
+    }
+
+    /// Every integration, by name.
+    pub fn load_integrations(&self) -> Result<Vec<StoredIntegration>> {
+        let mut statement = self.conn.prepare(
+            "SELECT id, name, connected, config_json, configured_at FROM integrations \
+             ORDER BY name ASC, id ASC",
+        )?;
+        let rows = statement
+            .query_map([], stored_integration_from_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Delete one integration row, answering whether there was one.
+    pub fn delete_integration(&self, id: &str) -> Result<bool> {
+        let deleted = self
+            .conn
+            .execute("DELETE FROM integrations WHERE id = ?1", params![id])?;
+        Ok(deleted > 0)
+    }
+
     /// Read the journal mode back and refuse anything that is not WAL.
     fn ensure_wal(&self) -> Result<()> {
         let mode: String = self
@@ -528,6 +1074,81 @@ fn stored_provider_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredP
         api_base: row.get(2)?,
         enabled: row.get(3)?,
         created_at: row.get(4)?,
+    })
+}
+
+/// One `harnesses` row, in the column order both harness queries select.
+fn stored_harness_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredHarness> {
+    Ok(StoredHarness {
+        id: row.get(0)?,
+        version: row.get(1)?,
+        name: row.get(2)?,
+        description: row.get(3)?,
+        data_json: row.get(4)?,
+        is_preset: row.get(5)?,
+        created_at: row.get(6)?,
+    })
+}
+
+/// One `skills` row, in the column order both skill queries select.
+fn stored_skill_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredSkill> {
+    Ok(StoredSkill {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        description: row.get(2)?,
+        source: row.get(3)?,
+        license: row.get(4)?,
+        content: row.get(5)?,
+        enabled: row.get(6)?,
+        tags_json: row.get(7)?,
+    })
+}
+
+/// One `plugins` row, in the column order both plugin queries select.
+fn stored_plugin_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredPlugin> {
+    Ok(StoredPlugin {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        description: row.get(2)?,
+        transport: row.get(3)?,
+        command: row.get(4)?,
+        args_json: row.get(5)?,
+        env_json: row.get(6)?,
+        enabled: row.get(7)?,
+        tools_json: row.get(8)?,
+        source: row.get(9)?,
+    })
+}
+
+/// One `custom_models` row, in the column order both model queries select.
+///
+/// `context_window` is read back through an `i64` so a negative or oversized
+/// stored value is reported as corrupt data rather than clamped.
+fn stored_custom_model_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredCustomModel> {
+    let context_window: Option<i64> = row.get(3)?;
+    let context_window = match context_window {
+        Some(value) => Some(
+            u32::try_from(value).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(3, value))?,
+        ),
+        None => None,
+    };
+    Ok(StoredCustomModel {
+        provider: row.get(0)?,
+        model_id: row.get(1)?,
+        display_name: row.get(2)?,
+        context_window,
+        enabled: row.get(4)?,
+    })
+}
+
+/// One `integrations` row, in the column order both integration queries select.
+fn stored_integration_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredIntegration> {
+    Ok(StoredIntegration {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        connected: row.get(2)?,
+        config_json: row.get(3)?,
+        configured_at: row.get(4)?,
     })
 }
 
@@ -622,7 +1243,7 @@ mod tests {
     }
 
     #[test]
-    fn migrate_creates_the_five_tables_and_is_idempotent() {
+    fn migrate_creates_the_settings_tables_and_is_idempotent() {
         let dir = fresh_tempdir();
         let path = dir.path().join("warsha.db");
         let store = SqliteStore::open(&path.to_string_lossy()).expect("the store opens");
@@ -631,17 +1252,23 @@ mod tests {
         assert_eq!(
             store.tables().expect("the schema is readable"),
             vec![
+                "active_harness".to_string(),
                 "backend_kits".to_string(),
                 "configured_providers".to_string(),
+                "custom_models".to_string(),
+                "harnesses".to_string(),
+                "integrations".to_string(),
                 "pairing_devices".to_string(),
+                "plugins".to_string(),
                 "preferences".to_string(),
                 "run_modes".to_string(),
+                "skills".to_string(),
             ]
         );
 
         // A second run is a no-op, not an error: every CREATE is IF NOT EXISTS.
         store.migrate().expect("the second migration is a no-op");
-        assert_eq!(store.tables().expect("the schema is readable").len(), 5);
+        assert_eq!(store.tables().expect("the schema is readable").len(), 11);
     }
 
     #[test]
@@ -913,5 +1540,279 @@ mod tests {
             None
         );
         assert_eq!(store.load_providers().expect("remaining").len(), 1);
+    }
+
+    fn harness(id: &str, preset: bool, created_at: u64) -> StoredHarness {
+        StoredHarness {
+            id: id.to_string(),
+            version: "1.0.0".to_string(),
+            name: format!("Harness {id}"),
+            description: "a test harness".to_string(),
+            data_json: format!(r#"{{"id":"{id}","stages":[]}}"#),
+            is_preset: preset,
+            created_at,
+        }
+    }
+
+    #[test]
+    fn harness_crud_and_active_selection_round_trip() {
+        let (store, _dir) = temp_store();
+        assert!(store.load_harnesses().expect("list").is_empty());
+        assert_eq!(store.load_harness("solo").expect("get"), None);
+
+        store
+            .save_harness(&harness("solo", true, 1_700_000_000))
+            .expect("save");
+        store
+            .save_harness(&harness("factory", false, 1_700_000_100))
+            .expect("save");
+
+        let list = store.load_harnesses().expect("list");
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].id, "solo", "oldest first");
+        assert!(list[0].is_preset);
+        assert!(!list[1].is_preset);
+
+        // Re-save keeps created_at and replaces the payload.
+        let updated = StoredHarness {
+            data_json: r#"{"id":"solo","stages":[1,2]}"#.to_string(),
+            created_at: 1_800_000_000,
+            ..harness("solo", true, 1_700_000_000)
+        };
+        store.save_harness(&updated).expect("re-save");
+        let loaded = store
+            .load_harness("solo")
+            .expect("get")
+            .expect("row exists");
+        assert_eq!(loaded.created_at, 1_700_000_000);
+        assert_eq!(loaded.data_json, updated.data_json);
+
+        // Active selection is per project and replaceable.
+        store
+            .set_active_harness("project-1", "solo")
+            .expect("set active");
+        assert_eq!(
+            store
+                .get_active_harness("project-1")
+                .expect("get active")
+                .as_deref(),
+            Some("solo")
+        );
+        store
+            .set_active_harness("project-1", "factory")
+            .expect("repoint");
+        assert_eq!(
+            store
+                .get_active_harness("project-1")
+                .expect("get active")
+                .as_deref(),
+            Some("factory")
+        );
+        assert_eq!(store.get_active_harness("project-2").expect("unset"), None);
+        assert!(store.clear_active_harness("project-1").expect("clear"));
+        assert!(!store
+            .clear_active_harness("project-1")
+            .expect("clear again"));
+
+        assert!(store.delete_harness("solo").expect("delete"));
+        assert!(!store.delete_harness("solo").expect("delete again"));
+        assert_eq!(store.load_harnesses().expect("remaining").len(), 1);
+    }
+
+    #[test]
+    fn skill_crud_and_toggle_round_trip() {
+        let (store, _dir) = temp_store();
+        assert!(store.load_skills().expect("list").is_empty());
+
+        let skill = StoredSkill {
+            id: "test-driven-development".to_string(),
+            name: "Test-Driven Development".to_string(),
+            description: "Red, green, refactor.".to_string(),
+            source: "github.com/obra/superpowers".to_string(),
+            license: "MIT".to_string(),
+            content: "# TDD\nWrite the failing test first.".to_string(),
+            enabled: true,
+            tags_json: r#"["testing","quality"]"#.to_string(),
+        };
+        store.save_skill(&skill).expect("save");
+        assert_eq!(
+            store.load_skill(skill.id.as_str()).expect("get"),
+            Some(skill.clone())
+        );
+
+        let other = StoredSkill {
+            id: "mcp-builder".to_string(),
+            name: "MCP Builder".to_string(),
+            source: "github.com/anthropics/skills".to_string(),
+            license: "Apache-2.0".to_string(),
+            ..skill
+        };
+        store.save_skill(&other).expect("save other");
+
+        // Ordered by name: "MCP Builder" sorts before "Test-Driven Development".
+        let list = store.load_skills().expect("list");
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].id, "mcp-builder");
+
+        assert_eq!(
+            store.toggle_skill("mcp-builder").expect("toggle"),
+            Some(false)
+        );
+        assert_eq!(
+            store.toggle_skill("mcp-builder").expect("toggle back"),
+            Some(true)
+        );
+        assert_eq!(store.toggle_skill("missing").expect("toggle miss"), None);
+
+        assert!(store.delete_skill("mcp-builder").expect("delete"));
+        assert!(!store.delete_skill("mcp-builder").expect("delete again"));
+    }
+
+    #[test]
+    fn plugin_crud_and_toggle_round_trip() {
+        let (store, _dir) = temp_store();
+        let plugin = StoredPlugin {
+            id: "github-mcp".to_string(),
+            name: "GitHub".to_string(),
+            description: "Issues, PRs and CI.".to_string(),
+            transport: "stdio".to_string(),
+            command: Some("npx".to_string()),
+            args_json: r#"["@modelcontextprotocol/server-github"]"#.to_string(),
+            env_json: r#"{"GITHUB_PERSONAL_ACCESS_TOKEN":"${secrets:github-token}"}"#.to_string(),
+            enabled: true,
+            tools_json: r#"[{"name":"create_issue"}]"#.to_string(),
+            source: "github.com/modelcontextprotocol/servers".to_string(),
+        };
+        store.save_plugin(&plugin).expect("save");
+        assert_eq!(store.load_plugin("github-mcp").expect("get"), Some(plugin));
+
+        let http_pack = StoredPlugin {
+            id: "remote-pack".to_string(),
+            command: None,
+            transport: "http".to_string(),
+            enabled: false,
+            ..plugin_styled_base()
+        };
+        store.save_plugin(&http_pack).expect("save http");
+        assert_eq!(store.load_plugins().expect("list").len(), 2);
+
+        assert_eq!(
+            store.toggle_plugin("remote-pack").expect("toggle"),
+            Some(true)
+        );
+        assert!(store.delete_plugin("remote-pack").expect("delete"));
+        assert!(!store.delete_plugin("remote-pack").expect("delete again"));
+    }
+
+    /// A base plugin row for struct-update literals in the plugin test.
+    fn plugin_styled_base() -> StoredPlugin {
+        StoredPlugin {
+            id: "unused".to_string(),
+            name: "Unused".to_string(),
+            description: String::new(),
+            transport: "stdio".to_string(),
+            command: Some("npx".to_string()),
+            args_json: "[]".to_string(),
+            env_json: "{}".to_string(),
+            enabled: true,
+            tools_json: "[]".to_string(),
+            source: "example".to_string(),
+        }
+    }
+
+    #[test]
+    fn custom_model_crud_and_toggle_round_trip() {
+        let (store, _dir) = temp_store();
+        let model = StoredCustomModel {
+            provider: "open_router".to_string(),
+            model_id: "qwen/qwen3-coder".to_string(),
+            display_name: Some("Qwen Coder".to_string()),
+            context_window: Some(262_144),
+            enabled: true,
+        };
+        store.save_custom_model(&model).expect("save");
+        assert_eq!(
+            store
+                .load_custom_model("open_router", "qwen/qwen3-coder")
+                .expect("get"),
+            Some(model.clone())
+        );
+        assert_eq!(
+            store
+                .load_custom_model("open_router", "absent")
+                .expect("miss"),
+            None
+        );
+
+        let bare = StoredCustomModel {
+            model_id: "raw/model".to_string(),
+            display_name: None,
+            context_window: None,
+            enabled: false,
+            ..model
+        };
+        store.save_custom_model(&bare).expect("save bare");
+        assert_eq!(store.load_custom_models().expect("list").len(), 2);
+
+        assert_eq!(
+            store
+                .toggle_custom_model("open_router", "raw/model")
+                .expect("toggle"),
+            Some(true)
+        );
+        assert_eq!(
+            store
+                .toggle_custom_model("open_router", "missing")
+                .expect("miss"),
+            None
+        );
+        assert!(store
+            .delete_custom_model("open_router", "raw/model")
+            .expect("delete"));
+        assert!(!store
+            .delete_custom_model("open_router", "raw/model")
+            .expect("delete again"));
+    }
+
+    #[test]
+    fn integration_crud_round_trip() {
+        let (store, _dir) = temp_store();
+        let integration = StoredIntegration {
+            id: "github".to_string(),
+            name: "GitHub".to_string(),
+            connected: false,
+            config_json: r#"{"org":"warsha"}"#.to_string(),
+            configured_at: Some(1_700_000_000),
+        };
+        store.save_integration(&integration, None).expect("save");
+        assert_eq!(
+            store.load_integration("github").expect("get"),
+            Some(integration.clone())
+        );
+
+        // A status-only save keeps the stored config; an explicit config replaces it.
+        let connected = StoredIntegration {
+            connected: true,
+            config_json: String::new(),
+            configured_at: None,
+            ..integration.clone()
+        };
+        store
+            .save_integration(&connected, None)
+            .expect("status save");
+        let reloaded = store.load_integration("github").expect("get").expect("row");
+        assert!(reloaded.connected);
+        assert_eq!(reloaded.config_json, integration.config_json);
+        assert_eq!(reloaded.configured_at, integration.configured_at);
+
+        store
+            .save_integration(&connected, Some(r#"{"org":"warsha","channel":"dev"}"#))
+            .expect("config save");
+        let reloaded = store.load_integration("github").expect("get").expect("row");
+        assert_eq!(reloaded.config_json, r#"{"org":"warsha","channel":"dev"}"#);
+
+        assert_eq!(store.load_integrations().expect("list").len(), 1);
+        assert!(store.delete_integration("github").expect("delete"));
+        assert!(!store.delete_integration("github").expect("delete again"));
     }
 }

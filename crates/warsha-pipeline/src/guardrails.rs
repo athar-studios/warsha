@@ -247,15 +247,16 @@ pub fn classify_action(action: SensitiveAction, target: &str) -> ApprovalRequest
     }
 }
 
-/// Redact API keys, bearer tokens, long opaque tokens, e-mail addresses and
-/// phone numbers from `input`.
+/// Redact API keys, bearer tokens, long opaque tokens, e-mail addresses,
+/// phone numbers and URL query-string secrets from `input`.
 ///
 /// The function is total: empty input, non-ASCII text and stray punctuation are
 /// all handled without panicking.
 pub fn mask_secrets(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
+    let sanitized = warsha_core::mask_query_secrets(input);
+    let mut out = String::with_capacity(sanitized.len());
     let mut redact_next = false;
-    for chunk in input.split_inclusive(char::is_whitespace) {
+    for chunk in sanitized.split_inclusive(char::is_whitespace) {
         let token = chunk.trim_end();
         if token.is_empty() {
             out.push_str(chunk);

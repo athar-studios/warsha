@@ -368,6 +368,15 @@ html {
   min-inline-size: 0;
 }
 
+/* The subagent swarm column (Dual-Mode factory, Complex Mode): the owner reads the whole factory
+   at the inline-end edge. It collapses to a strip under the panes below 1024, like the rail does,
+   so a phone never grows a third column (§10). */
+.bench-swarm {
+  min-inline-size: 0;
+  border-inline-start: var(--warsha-size-rule) solid var(--warsha-bench-rule);
+  padding-inline-start: var(--warsha-space-3);
+}
+
 .bench-tasks {
   display: grid;
   gap: var(--warsha-space-3);
@@ -572,7 +581,7 @@ html {
 /* 1024 — the full bench: the rail widens to 264px and the panes split stream from side panes. */
 @media (min-width: 1024px) {
   .bench-advanced {
-    grid-template-columns: var(--warsha-size-rail) minmax(0, 1fr);
+    grid-template-columns: var(--warsha-size-rail) minmax(0, 1fr) var(--warsha-size-rail-compact);
   }
 
   .bench-panes {
