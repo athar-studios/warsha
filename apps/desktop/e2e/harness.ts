@@ -1219,6 +1219,14 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
     // the empty catalogue, and a case that needs rows overrides via fixtures.
     case 'harness.list':
     case 'models.list':
+    // The Wave 2 catalogue and tree reads the advanced composer and the settings family make on
+    // mount: `skills.list`, `plugins.list`, `integrations.list` and `files.tree`. All four decode
+    // through `wave2List` (`packages/client/src/index.ts`), which accepts any array, so the stub
+    // answers the empty catalogue and a case that needs rows overrides via fixtures.
+    case 'skills.list':
+    case 'plugins.list':
+    case 'integrations.list':
+    case 'files.tree':
       return { ok: true, result: [] };
     case 'agent.state':
       return {
