@@ -192,6 +192,12 @@ impl SettingsStore {
     }
 }
 
+impl Default for SettingsStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait::async_trait]
 impl SettingsProvider for SettingsStore {
     async fn get_active_harness(&self, project_id: &str) -> Result<Option<String>, SettingsError> {
