@@ -109,6 +109,7 @@ export const RPC_METHODS = [
   'devices.pair',
   'devices.pair-start',
   'devices.revoke',
+  'files.tree',
   'gates.approve',
   'gates.changes',
   'gates.list',
@@ -117,7 +118,9 @@ export const RPC_METHODS = [
   'handoff.create',
   'harness.list',
   'health',
+  'integrations.list',
   'models.list',
+  'plugins.list',
   'postlaunch.crashes',
   'postlaunch.reviews',
   'projects.create',
@@ -138,6 +141,7 @@ export const RPC_METHODS = [
   'runs.list',
   'runs.start',
   'runs.subscribe',
+  'skills.list',
 ] as const;
 export type RpcMethod = (typeof RPC_METHODS)[number];
 
