@@ -12,7 +12,7 @@ or drift check (`/egm-drift-report`) on the Warsha repo.
 
 - Rust workspace (`crates/`: `warshad`, `warsha-store`, `warsha-pipeline`, `warsha-core`, …)
 - TypeScript desktop app (`apps/desktop/src/screens/`, 21+ screens, RTL ar/en, light/dark)
-- E2E: Playwright (`apps/desktop/e2e/` — `screens.a11y.spec.ts` 188، `states.spec.ts` 252، `screens.visual.spec.ts` 308)
+- E2E: Playwright (`apps/desktop/e2e/` — `screens.a11y.spec.ts` 180، `states.spec.ts` 252، `screens.visual.spec.ts` 308)
 - Visual contract: `playwright.config.ts` (`maxDiffPixelRatio: 0`، `threshold: 0.05`) + Linux fontconfig pin (`scripts/ci/capture-fontconfig.conf`)
 
 ## Canonical docs (read first)

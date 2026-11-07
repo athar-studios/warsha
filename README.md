@@ -12,7 +12,12 @@
 </p>
 
 > [!WARNING]
-> **Status: early development, not ready to use yet.** There is no release to download. Everything below describes how Warsha is *planned* to work. See the [Roadmap](#roadmap).
+> **Status: built and verified locally; no published release.** The daemon, the desktop app and the phone
+> app build and run from source, and the automated suites pass: 725 Rust tests, 1001 TypeScript tests and
+> 785 Playwright end-to-end cases. `warsha-desktop.exe --self-check` passes 11 of 11 checks, including a
+> full project → run → Gate A → advance cycle on a zero-key provider. There is still **no release to
+> download**: nothing is tagged or published. See [Verified today](#verified-today) and the
+> [Roadmap](#roadmap).
 
 ## What is Warsha?
 
@@ -65,15 +70,17 @@ flowchart TB
 ## What it will look like
 
 <p align="center"><img src="docs/assets/concept-team-panel.svg" alt="Concept mockup of the Warsha window with the agent team panel" width="760"></p>
-<p align="center"><i>Concept mockup only. The real app is not built yet.</i></p>
+<p align="center"><i>Concept mockup of the shipped layout — not a screenshot of the running app.</i></p>
 
-## How to use it (planned)
+## How to use it
 
-There is nothing to download yet: no release has been published for this repository, so the first step
-below is a plan, not an instruction you can follow today. Building from source is described in
-[docs/DEVELOPERS.md](docs/DEVELOPERS.md).
+Nothing is published for download yet, so the first step is a build you make yourself. Building from
+source is documented in [docs/DEVELOPERS.md](docs/DEVELOPERS.md), and the same release build produces an
+installer bundle.
 
-1. **Install.** Get the installer for Windows, macOS or Linux. *(Not produced yet — see the [Roadmap](#roadmap).)*
+1. **Install from your own build.** Build the release bundle on your platform and run its installer.
+   *(Verified on Windows; macOS and Linux bundles come from the same command but were not built in this
+   round. No download is published — see the [Roadmap](#roadmap).)*
 2. **Pick your language** (Arabic or English) when the app opens for the first time.
 3. **Connect your AI.** Add the AI you already have: an API key (OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, Azure), a model running on your own computer (Ollama, LM Studio), or an official coding tool you already use (Claude Code, Codex CLI, Gemini CLI, Cursor CLI). Keys are kept in your system's secure keychain.
 4. **Connect GitHub.** Give Warsha a GitHub token so it can prepare a repository for your project. The GitHub
@@ -86,12 +93,31 @@ below is a plan, not an instruction you can follow today. Building from source i
    chat with the current agent, and approve gates. There are no phone notifications: the mobile app registers
    no service worker and requests no push permission, so nothing reaches your phone by itself — you have to
    open it.
-9. **Get your release.** At the end you have a GitHub repository with the code, passing checks, a draft release and draft store texts. Warsha never publishes anything by itself.
+9. **Get your release.** The end state the pipeline is built for: a GitHub repository with the code, passing checks, a draft release and draft store texts. GitHub automation is not wired yet (see step 4), so today that last hop is done by hand; Warsha never publishes anything by itself.
 
 Prefer the terminal? The `warsha` command exists today (`warsha new "your idea"`, `warsha status`,
 `warsha approve <run> <gate>`, `warsha pair <qr-code>`). It talks to the `warshad` daemon, so start that first —
 without it every command answers `Not connected to daemon`. The exact verbs and flags are in the
 [quickstart](docs/src/quickstart.md).
+
+## Verified today
+
+Measured on 2026-11-05–08 on a Windows host plus a Linux x86_64 capture host with pinned fonts:
+
+| Gate | Command | Result |
+|---|---|---|
+| Rust tests | `cargo test --workspace --no-fail-fast` | 725 passed, 0 failed |
+| TypeScript tests | `pnpm -r test` | 1001 passed |
+| Lint, types and build | `pnpm -r lint` · `pnpm -r typecheck` · `pnpm -r build` | exit 0 for each |
+| Accessibility | Playwright `screens.a11y` | 180 passed |
+| UI states | Playwright `states` | 252 passed |
+| Visual regression | Playwright `screens.visual` | 308 passed |
+| Behavioral flows | Playwright `flows`, `layout`, `onboarding` | 45 passed |
+| Desktop shell | `warsha-desktop.exe --self-check` | 11/11 PASS |
+
+This does **not** cover: visual baselines were captured on Linux x86_64 only, so Windows and macOS rendering
+is unverified; the end-to-end encrypted relay is not implemented; routine authoring and Backend Kit export
+are not wired to their screens; and no Android APK is built in this tree.
 
 ## Roadmap
 
@@ -100,16 +126,16 @@ The desktop app is versioned **0.2.0** (`apps/desktop/src-tauri/tauri.conf.json`
 
 | Milestone | What it delivers | Status |
 |---|---|---|
-| M0 | Project foundation and automated checks | 🟡 In progress |
-| M1 | Background engine and saved state | ⚪ Planned |
-| M2 | Connecting AI providers, budgets and cost tracking | ⚪ Planned |
-| M3 | The agent pipeline and approval gates | ⚪ Planned |
-| M4 | Command-line tool (`warsha`) | ⚪ Planned |
-| M5 | Desktop app | ⚪ Planned |
-| M6 | Phone app with secure pairing | ⚪ Planned |
-| M7 | Coding agents and GitHub integration | ⚪ Planned |
-| M8 | Full Arabic and English, right-to-left layout | ⚪ Planned |
-| M9 | Installers, releases and documentation | ⚪ Planned |
+| M0 | Project foundation and automated checks | ✅ Delivered |
+| M1 | Background engine and saved state | ✅ Delivered |
+| M2 | Connecting AI providers, budgets and cost tracking | ✅ Delivered |
+| M3 | The agent pipeline and approval gates | ✅ Delivered |
+| M4 | Command-line tool (`warsha`) | ✅ Delivered |
+| M5 | Desktop app | ✅ Delivered on Windows |
+| M6 | Phone app with secure pairing | 🟡 Pairing delivered; the end-to-end relay is not implemented |
+| M7 | Coding agents and GitHub integration | 🟡 Backends delivered; the GitHub client exists but no screen or command drives it |
+| M8 | Full Arabic and English, right-to-left layout | ✅ Delivered |
+| M9 | Installers, releases and documentation | 🟡 A local installer is built; no published release |
 
 ## FAQ
 
@@ -133,7 +159,8 @@ Yes, for personal and other noncommercial use.
 Warsha uses the PolyForm Noncommercial 1.0.0 license. You can read the code, use it, change it and share it, as long as it is not for commercial purposes. For commercial use, contact Athar Studio at contact@atharapp.download. *This address is a placeholder the owner has not confirmed — the published contact address is an owner decision, and Warsha currently publishes no verified one.* This makes Warsha "source-available", not open source in the official sense.
 
 **Can I use it now?**
-Not yet. Star or watch this repository to know when the first release is out.
+Not as a download. There is no published release, but you can build it from source today — see
+[docs/DEVELOPERS.md](docs/DEVELOPERS.md). Watch this repository for the first release.
 
 ---
 

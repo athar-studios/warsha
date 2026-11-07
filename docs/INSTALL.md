@@ -65,12 +65,12 @@ rustup default stable-x86_64-pc-windows-msvc
 ويبقى تحذير قديم مقيس على أجهزة معينة: لا تحاول نمط `debug` إن تعطلت فيه حزمة `ring` برسالة
 `cl : Command line error D8050`؛ نمط `release` هو ما ينتجه أمر التغليف أصلًا وهو الذي نجح.
 
-### أين تظهر الملفات — الأوزان وقيم SHA-256 المقيسة (٢٠٢٦-١١-٠٥)
+### أين تظهر الملفات — الأوزان وقيم SHA-256 المقيسة (٢٠٢٦-١١-٠٨)
 
 | الملف | المسار | ما قيس فعلًا |
 |---|---|---|
-| التطبيق التنفيذي | `apps/desktop/src-tauri/target/release/warsha-desktop.exe` | ٢٣٬٦٧٣٬٨٥٦ بايت؛ SHA-256 `087f31a6298e26539c04b9d147b2849073bee5b38f40163c1c343de14ac3a47e` |
-| مُثبِّت NSIS | `apps/desktop/src-tauri/target/release/bundle/nsis/Warsha_0.2.0_x64-setup.exe` | ٦٬٤٨٧٬٨٧٩ بايت (٦٫١٩ MiB)؛ SHA-256 `7e9c35d9433c86570fa399daf6bbfabe2c5984d0985a170e948e61d32c88369e` |
+| التطبيق التنفيذي | `apps/desktop/src-tauri/target/release/warsha-desktop.exe` | ٢٥٬٢١٥٬٤٨٨ بايت؛ SHA-256 `f3549485798919c9d81627d52e34c4a897483a3b4483fadfb0590ed45be0e7a9` |
+| مُثبِّت NSIS | `apps/desktop/src-tauri/target/release/bundle/nsis/Warsha_0.2.0_x64-setup.exe` | ٦٬٨٦٤٬٧٦٦ بايت (٦٫٥٥ MiB)؛ SHA-256 `294b8e259e88c804275154e8f3bd4ba4e957b15eb912cff3e7f2b9cbb4aabd99` |
 
 البناء بأمر يحمل `--target x86_64-pc-windows-msvc` يضع الملفين تحت
 `target/x86_64-pc-windows-msvc/release/...` بدلًا من `target/release/...`؛ المخرجات هي هي.
@@ -320,12 +320,12 @@ An older measured warning still applies to some hosts: do not try a `debug` buil
 machine where it fails with `cl : Command line error D8050`; `release` is what the bundler uses
 anyway, and it is the profile that works.
 
-### Where the files land — measured sizes and hashes (2026-11-05)
+### Where the files land — measured sizes and hashes (2026-11-08)
 
 | File | Path | Measured |
 |---|---|---|
-| The executable | `apps/desktop/src-tauri/target/release/warsha-desktop.exe` | 23,673,856 bytes; SHA-256 `087f31a6298e26539c04b9d147b2849073bee5b38f40163c1c343de14ac3a47e` |
-| NSIS installer | `apps/desktop/src-tauri/target/release/bundle/nsis/Warsha_0.2.0_x64-setup.exe` | 6,487,879 bytes (6.19 MiB); SHA-256 `7e9c35d9433c86570fa399daf6bbfabe2c5984d0985a170e948e61d32c88369e` |
+| The executable | `apps/desktop/src-tauri/target/release/warsha-desktop.exe` | 25,215,488 bytes; SHA-256 `f3549485798919c9d81627d52e34c4a897483a3b4483fadfb0590ed45be0e7a9` |
+| NSIS installer | `apps/desktop/src-tauri/target/release/bundle/nsis/Warsha_0.2.0_x64-setup.exe` | 6,864,766 bytes (6.55 MiB); SHA-256 `294b8e259e88c804275154e8f3bd4ba4e957b15eb912cff3e7f2b9cbb4aabd99` |
 
 A build that passes `--target x86_64-pc-windows-msvc` puts both files under
 `target/x86_64-pc-windows-msvc/release/...` instead; the content is the same. These sizes belong to
