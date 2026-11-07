@@ -1,5 +1,17 @@
 # PROGRESS.md — Warsha Build Log
 
+## EGM Bootstrap Repository Audit — 2026-11-07 (READ-ONLY AUDIT)
+
+Executed an EGM Bootstrap audit across the entire Warsha repository (`crates/`, `apps/`, `packages/`, `docs/`, `docker/`, `deploy/`, `templates/`, and `scripts/`) via `egm-bootstrap-orchestrator` to inventory what needs to be changed across documentation and codebase seams:
+
+- **Directory `README.md` Contracts (19 of 20 missing)**: Only `apps/mobile/README.md` exists; all 10 crates (`warsha-core`, `warsha-store`, `warsha-providers`, `warsha-pipeline`, `warsha-backends`, `warsha-git`, `warsha-remote`, `warshad`, `warsha-cli`, `warsha-relay`), 2 apps (`apps/desktop`, `apps/remote`), 4 packages (`packages/ui`, `packages/i18n`, `packages/client`, `packages/crypto`), and 3 infra/template roots (`docker/`, `deploy/`, `templates/`) need `README.md` files.
+- **Stale Documentation (`docs/ARCHITECTURE.md`, `README.md`, `README.ar.md`, `docs/DEPLOY.md`, `docs/src/architecture.md`, `SECURITY.md`, `docs/DEVELOPERS.md`, `docs/ARCH_RULES.md`, `docs/designs/SITEMAP.md`)**: Module counts, `apps/mobile`/`docker/`/`deploy/` workspace entries, static remote asset serving (`WARSHA_REMOTE_ASSETS_DIR`), `bind_host`/`advertised_host`, `deny.toml`, service-worker registration, and installer/milestone tables need updating to match W1–W7 and Wave 2 reality.
+- **Wire Contract & E2E Harness Drift (`scripts/check-wire-contract.mjs`, `packages/client/src/index.ts`, `apps/desktop/e2e/harness.ts`)**: Stale comments claiming `REQUIRE_NO_KNOWN_DRIFT = false`; 19 Wave 2 RPCs and 4 Wave 2 settings screens (`harnesses`, `skills`, `plugins`, `models`) missing from `apps/desktop/e2e/harness.ts`; 25 daemon-registered RPCs (`process.*`, `mcp.*`, `preview.*`, `runmode.*`, `backend.get/set`, `preferences.*`, `pairing.*`, `routines.*`, `providers.check_models`) without `@warsha/client` wrappers.
+- **Unwired Desktop UI Seams (`apps/desktop/src/App.tsx`)**: `Routines` (`routines.*`) and `BackendKitPanel` (`backend.export` / `backend.get` / `backend.set`) still have `TODO(M20 wiring)` no-op handlers in `App.tsx` even though the daemon RPCs exist.
+- **Milestone & Verification Open Items**: Installer SHA-256 discrepancy between `PROGRESS.md` and `docs/INSTALL.md`, timing-fragile `sh -c sleep 30` test in `crates/warsha-pipeline/src/process_spawn.rs`, and deferred M14a/M17/M18/M20 items.
+
+---
+
 ## Ship Run: Finished, Installed, Working Product (W1–W7) — 2026-11-05 (COMPLETE)
 
 Orchestrator-managed execution across seven strict file-isolated workstreams (`W1`–`W7`). Each worker ran in its own git worktree under `.qoder/worktrees/<id>` on its own branch `ws/<id>` with a dedicated `CARGO_TARGET_DIR`, was audited for file-scope and policy compliance, and merged with `--no-ff` into `ship/integration` (`dev`).
