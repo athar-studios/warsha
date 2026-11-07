@@ -1098,17 +1098,16 @@ async fn daemon_state(data_dir: &Path, provider_mode: RealOrMockProvider) -> Arc
     }
 
     let providers = Arc::new(RwLock::new(router));
-    let pipeline = Arc::new(PipelineEngine::new(store.clone(), providers.clone()));
-
-    let identity = DeviceIdentity::generate("arabic e2e daemon".to_string()).expect("device id");
-    let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared();
-    let mcp: Arc<dyn McpManager> = Arc::new(InMemoryMcpManager::new(processes.clone()));
-    let previews = Arc::new(LivePreviewManager::new(processes.clone()));
     let settings = Arc::new(
         SettingsStore::open(&data_dir.join("warsha.db"))
             .await
             .expect("settings open"),
     );
+    let pipeline = Arc::new(PipelineEngine::new(
+        store.clone(),
+        providers.clone(),
+        settings.clone(),
+    ));
 
     // Agent loop with tools and router
     let agent_tools = FilesystemToolExecutor::new(data_dir.join("workspace"));
@@ -1120,6 +1119,11 @@ async fn daemon_state(data_dir: &Path, provider_mode: RealOrMockProvider) -> Arc
     let routines = Arc::new(RwLock::new(RoutineRegistry::new()));
     let routine_runner: Arc<dyn RoutineRunner + Send + Sync> = Arc::new(MockRoutineRunner::new());
     let routine_scheduler = Arc::new(RoutineScheduler::new(routines.clone(), routine_runner));
+
+    let identity = DeviceIdentity::generate("arabic e2e daemon".to_string()).expect("device id");
+    let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared();
+    let mcp: Arc<dyn McpManager> = Arc::new(InMemoryMcpManager::new(processes.clone()));
+    let previews = Arc::new(LivePreviewManager::new(processes.clone()));
 
     let local_device = identity.device_id;
 

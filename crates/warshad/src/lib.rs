@@ -42,10 +42,10 @@ use warsha_pipeline::{
     InMemoryCrashReportStore, InMemoryMcpManager, InMemoryPairingStore, InMemoryPreferenceStore,
     InMemoryProcessManager, InMemoryStoreReviewStore, LivePreview, LivePreviewManager,
     ManagedProcess, McpConnection, McpManager, MessageBus, ModeManager, ModeTransition,
-    PairingStore, PhonePairing, Preference, PreferenceSignal, PreferenceStore,
-    ProcessManager, ProcessStatus, ProcessSummary, ProviderRouterAdapter, Routine, RoutineRegistry,
-    RoutineRunner, RoutineScheduler, RunMode, RunModeConfig, SlashCommand, SlashCommandRegistry,
-    StoreReview, StoreReviewStore, TodoItem, TodoList, AGENT_ROLE,
+    PairingStore, PhonePairing, Preference, PreferenceSignal, PreferenceStore, ProcessManager,
+    ProcessStatus, ProcessSummary, ProviderRouterAdapter, Routine, RoutineRegistry, RoutineRunner,
+    RoutineScheduler, RunMode, RunModeConfig, SlashCommand, SlashCommandRegistry, StoreReview,
+    StoreReviewStore, TodoItem, TodoList, AGENT_ROLE,
 };
 use warsha_providers::{
     probe_endpoint, HealthCheck, KeychainSecretStore, OneClickProvider, ProviderRouter,
@@ -2760,8 +2760,7 @@ impl WarshaApiServer for WarshaRpc {
         // No network yet: a malformed URL or a key the owner typed with a space in
         // it is refused here, from the wizard's own checks.
         if let Some(reason) =
-            ProviderSetupWizard::test_connection(&endpoint, &key, &resolved_model)
-                .reason()
+            ProviderSetupWizard::test_connection(&endpoint, &key, &resolved_model).reason()
         {
             return Err(provider_refusal(reason));
         }
@@ -5405,7 +5404,9 @@ pub async fn start_daemon_with_provider_factory(
 
     // Initialize pipeline
     // The daemon's SettingsStore implements SettingsProvider, so we can use it directly
-    let pipeline: Arc<warsha_pipeline::PipelineEngine<SettingsStore>> = Arc::new(warsha_pipeline::PipelineEngine::new(store.clone(), providers.clone(), settings.clone()));
+    let pipeline: Arc<warsha_pipeline::PipelineEngine<SettingsStore>> = Arc::new(
+        warsha_pipeline::PipelineEngine::new(store.clone(), providers.clone(), settings.clone()),
+    );
 
     // Initialize backends
     let backends = BackendFactory::all_available();
@@ -6843,7 +6844,11 @@ mod tests {
                 .await
                 .expect("the settings open"),
         );
-        let pipeline = Arc::new(warsha_pipeline::PipelineEngine::new(store.clone(), providers.clone(), settings.clone()));
+        let pipeline = Arc::new(warsha_pipeline::PipelineEngine::new(
+            store.clone(),
+            providers.clone(),
+            settings.clone(),
+        ));
         let identity = warsha_remote::DeviceIdentity::generate("test daemon".to_string())
             .expect("a device identity");
         // The same seeding a real start performs, so a test's daemon answers
@@ -6863,6 +6868,26 @@ mod tests {
         // device, which is exactly the desktop's situation.
         let sessions = Arc::new(Sessions::new(config.auth_token.clone(), identity.device_id));
         let rates = Arc::new(RateGovernor::new(&config.rate_limits));
+
+        // One spawner for the daemon: the MCP stdio transport starts its server
+        // through it and the live preview runs its dev server on it, so `process.list`
+        // is the one place that names every child.
+        let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared();
+        let mcp: Arc<dyn McpManager> = Arc::new(InMemoryMcpManager::new(processes.clone()));
+        let previews = Arc::new(LivePreviewManager::new(processes.clone()));
+
+        // The agent loop's two seams, wired to the real thing: its file tools run
+        // inside `<data_dir>/workspace`, and its model calls go out through the same
+        // router the pipeline stages use — a router that now holds the configured
+        // providers and the owner's routing, so an Agent-mode turn reaches a model
+        // rather than reporting that nothing is wired.
+        let default_kit = Arc::new(RwLock::new(default_backend_kit("default")));
+        let agent_loop = build_agent_loop(
+            &config.data_dir,
+            providers.clone(),
+            mcp.clone(),
+            default_kit,
+        );
 
         let state = Arc::new(DaemonState {
             config,

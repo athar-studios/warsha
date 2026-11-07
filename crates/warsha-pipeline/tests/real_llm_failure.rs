@@ -26,7 +26,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use warsha_core::{DeviceId, Event, EventKind, Project, ProjectId, RunStatus, Stage};
-use warsha_pipeline::PipelineEngine;
+use warsha_pipeline::{settings::SettingsStore, PipelineEngine};
 use warsha_providers::ProviderRouter;
 use warsha_store::Store;
 
@@ -156,8 +156,10 @@ async fn a_refused_real_llm_call_fails_the_run_records_it_and_scrubs_the_key() {
 
     let result: Result<(), String> = async {
         let (dir, store) = fresh_store().await;
-        let engine =
-            PipelineEngine::new_test(store.clone(), Arc::new(RwLock::new(ProviderRouter::new())));
+        let engine = PipelineEngine::<SettingsStore>::new_test(
+            store.clone(),
+            Arc::new(RwLock::new(ProviderRouter::new())),
+        );
         let project_id = create_project(&store).await;
         let run = engine
             .start_run(project_id, "تطبيق حجز مواعيد يفشل عند النموذج")

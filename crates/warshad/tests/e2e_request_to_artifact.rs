@@ -519,24 +519,25 @@ async fn daemon_state(data_dir: &Path) -> Arc<DaemonState> {
         });
     }
     let providers = Arc::new(RwLock::new(router));
-    let pipeline = Arc::new(PipelineEngine::new(store.clone(), providers.clone()));
-
-    let identity = DeviceIdentity::generate("e2e daemon".to_string()).expect("a device identity");
-    let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared();
-    let mcp: Arc<dyn McpManager> = Arc::new(InMemoryMcpManager::new(processes.clone()));
-    let previews = Arc::new(LivePreviewManager::new(processes.clone()));
-    // The settings file the daemon would seed from: this test builds its state by
-    // hand, so it opens the same database and starts from empty settings rather
-    // than pretending a restart happened.
     let settings = Arc::new(
         SettingsStore::open(&data_dir.join("warsha.db"))
             .await
             .expect("the settings open"),
     );
+    let pipeline = Arc::new(PipelineEngine::new(
+        store.clone(),
+        providers.clone(),
+        settings.clone(),
+    ));
 
     let routines = Arc::new(RwLock::new(RoutineRegistry::new()));
     let routine_runner: Arc<dyn RoutineRunner + Send + Sync> = Arc::new(MockRoutineRunner::new());
     let routine_scheduler = Arc::new(RoutineScheduler::new(routines.clone(), routine_runner));
+
+    let identity = DeviceIdentity::generate("e2e daemon".to_string()).expect("device id");
+    let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared();
+    let mcp: Arc<dyn McpManager> = Arc::new(InMemoryMcpManager::new(processes.clone()));
+    let previews = Arc::new(LivePreviewManager::new(processes.clone()));
 
     let local_device = identity.device_id;
 

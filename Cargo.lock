@@ -4310,6 +4310,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "futures",
  "mockall",
  "pretty_assertions",
  "serde",

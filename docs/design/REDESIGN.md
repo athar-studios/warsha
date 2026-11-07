@@ -131,7 +131,7 @@ hidden in Advanced mode** (the summary paragraph survives as the stream's header
 
 ## 5. Screen list mapped to the AUDIT-1 inventory
 
-All 16 screens from `bridge-io/audit/inventory.md` §1 keep their route keys and map onto bench regions:
+All 21 screens from `bridge-io/audit/inventory.md` §1 keep their route keys and map onto bench regions:
 
 | Screen (`App.tsx` key) | Redesign surface | Bench regions used | Mock |
 | --- | --- | --- | --- |
@@ -151,6 +151,10 @@ All 16 screens from `bridge-io/audit/inventory.md` §1 keep their route keys and
 | `crash-reports` | Crash ledger: mono ids, copy stack, share | Ledger inside settings tabs | — (pattern) |
 | `store-reviews` | Reviews ledger with accessible star graphics (`role="img"` + text score) | Ledger inside settings tabs | — (pattern) |
 | `backend-kit` | Backend radiogroup plate + feature checkboxes | Form plate inside settings tabs | — (pattern) |
+| `harnesses` | Harnesses ledger: preset picker, details, import plate | Ledger inside settings tabs | — (pattern from 06) |
+| `skills` | Skills ledger: bundled packs, switches, SKILL.md import plate | Ledger inside settings tabs | — (pattern from 06) |
+| `plugins` | Plugins ledger: MCP packs, switches, environment, install plate | Ledger inside settings tabs | — (pattern from 06) |
+| `models` | Models ledger: custom catalog, add/remove forms, role assignment | Ledger inside settings tabs | — (pattern from 06) |
 
 Screens without a dedicated mock inherit the **ledger/plate/lamp** patterns verbatim; that is the
 point of locking one direction.
@@ -182,6 +186,13 @@ context**, not boolean prop accumulation (per DESIGN_BRIEF §React composition):
 | `Segmented` | `Button` | Language/theme/eco choices; `aria-pressed` |
 | `EmptyState` | `Box`, `Text`, `Button` | Ghost nut mark + one next action |
 | `Skeleton` | `Box` | Shimmer under no-preference only; paired `role="status"` text |
+| `Banner` | `Box` | §7 offline/error line above the bench (`role="status"`/`role="alert"`); caller owns the next-action control |
+| `Field` | `Box` | Labelled input with hint + error ids (`aria-describedby`, derived `aria-invalid`); control arrives as children |
+| `Panel` | `Box` | Bench plate with ruled header (title + actions); `recessed`/`prose` variants |
+| `Tabs` | `Button` | Settings strip + run panes; roving tabindex with manual activation |
+| `FastModeToggle` | `Button` | Composer fast-mode chip; translated strings arrive as props (catalog-free) |
+| `ModelPicker` | `Button` | Unified composer model picker; translated strings arrive as props (catalog-free) |
+| `SettingsScopeSentence` | `Text` | Global/project scope sentence (t3code pattern); translated strings arrive as props (catalog-free) |
 
 Composition rules: `GateCard` owns its gate id and exposes `onDecision`; callers own content via
 children; no component reads locale strings itself — labels arrive as children or i18n-resolved props

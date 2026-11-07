@@ -115,7 +115,9 @@ export const RPC_METHODS = [
   'gates.reject',
   'handoff.apply',
   'handoff.create',
+  'harness.list',
   'health',
+  'models.list',
   'postlaunch.crashes',
   'postlaunch.reviews',
   'projects.create',
@@ -1211,6 +1213,13 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
     }
     case 'health':
       return { ok: true, result: { status: 'ok', version: '0.2.0' } };
+    // Wave 2 lists SimpleMode reads on mount (`models.list` for the composer catalogue,
+    // `harness.list` for the active harness). Both decode through `wave2List`
+    // (`packages/client/src/index.ts`), which accepts any array — so the stub answers
+    // the empty catalogue, and a case that needs rows overrides via fixtures.
+    case 'harness.list':
+    case 'models.list':
+      return { ok: true, result: [] };
     case 'agent.state':
       return {
         ok: true,

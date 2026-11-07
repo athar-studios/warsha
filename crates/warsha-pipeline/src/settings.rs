@@ -3,12 +3,12 @@
 //! This provides a thin async wrapper around the daemon's SettingsStore
 //! so the pipeline can access active harness, skills, and plugins.
 
+use chrono::DateTime;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use chrono::DateTime;
-use serde::{Deserialize, Serialize};
-use warsha_core::{HarnessDefinition, HarnessStage, HarnessRules, Role};
+use warsha_core::{HarnessDefinition, HarnessRules, HarnessStage, Role};
 
 /// Trait for providing settings to the pipeline - implemented by both
 /// the in-memory test store and the daemon's SQLite-backed store.
@@ -16,13 +16,13 @@ use warsha_core::{HarnessDefinition, HarnessStage, HarnessRules, Role};
 pub trait SettingsProvider: Send + Sync + 'static {
     /// Get the active harness for a project
     async fn get_active_harness(&self, project_id: &str) -> Result<Option<String>, SettingsError>;
-    
+
     /// Get a harness by id
     async fn get_harness(&self, id: &str) -> Result<Option<StoredHarness>, SettingsError>;
-    
+
     /// List all skills
     async fn list_skills(&self) -> Result<Vec<StoredSkill>, SettingsError>;
-    
+
     /// List all plugins (optional, for future use)
     async fn list_plugins(&self) -> Result<Vec<StoredPlugin>, SettingsError> {
         Ok(Vec::new())
@@ -114,8 +114,11 @@ impl SettingsStore {
     /// Create a new settings store with defaults
     pub fn new() -> Self {
         let mut harnesses = HashMap::new();
-        harnesses.insert("autonomous-factory".to_string(), autonomous_factory_harness());
-        
+        harnesses.insert(
+            "autonomous-factory".to_string(),
+            autonomous_factory_harness(),
+        );
+
         let mut skills = HashMap::new();
         skills.insert("test-driven-development".to_string(), StoredSkill {
             id: "test-driven-development".to_string(),
@@ -127,7 +130,7 @@ impl SettingsStore {
             enabled: true,
             tags_json: serde_json::to_string(&["testing", "coding", "quality"]).unwrap(),
         });
-        
+
         Self {
             harnesses: Arc::new(RwLock::new(harnesses)),
             skills: Arc::new(RwLock::new(skills)),
@@ -135,29 +138,57 @@ impl SettingsStore {
             active_harness: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-    
+
     /// Get the active harness for a project
-    pub async fn get_active_harness(&self, project_id: &str) -> Result<Option<String>, SettingsError> {
+    pub async fn get_active_harness(
+        &self,
+        project_id: &str,
+    ) -> Result<Option<String>, SettingsError> {
         let map = self.active_harness.read().await;
         Ok(map.get(project_id).cloned())
     }
-    
+
     /// Get a harness by id
     pub async fn get_harness(&self, id: &str) -> Result<Option<StoredHarness>, SettingsError> {
         let map = self.harnesses.read().await;
         Ok(map.get(id).cloned())
     }
-    
+
     /// List all skills
     pub async fn list_skills(&self) -> Result<Vec<StoredSkill>, SettingsError> {
         let map = self.skills.read().await;
         Ok(map.values().cloned().collect())
     }
-    
+
     /// List all plugins
     pub async fn list_plugins(&self) -> Result<Vec<StoredPlugin>, SettingsError> {
         let map = self.plugins.read().await;
         Ok(map.values().cloned().collect())
+    }
+
+    /// Save a harness (for testing)
+    pub async fn save_harness(&self, harness: &StoredHarness) -> Result<(), SettingsError> {
+        let mut map = self.harnesses.write().await;
+        map.insert(harness.id.clone(), harness.clone());
+        Ok(())
+    }
+
+    /// Save a skill (for testing)
+    pub async fn save_skill(&self, skill: &StoredSkill) -> Result<(), SettingsError> {
+        let mut map = self.skills.write().await;
+        map.insert(skill.id.clone(), skill.clone());
+        Ok(())
+    }
+
+    /// Set active harness for a project (for testing)
+    pub async fn set_active_harness(
+        &self,
+        project_id: &str,
+        harness_id: &str,
+    ) -> Result<(), SettingsError> {
+        let mut map = self.active_harness.write().await;
+        map.insert(project_id.to_string(), harness_id.to_string());
+        Ok(())
     }
 }
 
@@ -166,15 +197,15 @@ impl SettingsProvider for SettingsStore {
     async fn get_active_harness(&self, project_id: &str) -> Result<Option<String>, SettingsError> {
         self.get_active_harness(project_id).await
     }
-    
+
     async fn get_harness(&self, id: &str) -> Result<Option<StoredHarness>, SettingsError> {
         self.get_harness(id).await
     }
-    
+
     async fn list_skills(&self) -> Result<Vec<StoredSkill>, SettingsError> {
         self.list_skills().await
     }
-    
+
     async fn list_plugins(&self) -> Result<Vec<StoredPlugin>, SettingsError> {
         self.list_plugins().await
     }
@@ -270,7 +301,7 @@ fn autonomous_factory_harness() -> StoredHarness {
         active: false,
         created_at: DateTime::from_timestamp(1_735_689_600, 0).unwrap_or_default(),
     };
-    
+
     StoredHarness {
         id: "autonomous-factory".to_string(),
         version: "1.0.0".to_string(),

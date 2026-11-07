@@ -128,10 +128,7 @@ fn config(data_dir: &Path) -> DaemonConfig {
     }
 }
 
-async fn daemon_over(
-    dir: &Path,
-    secrets: Arc<InMemorySecretStore>,
-) -> (DaemonHandle, Rpc) {
+async fn daemon_over(dir: &Path, secrets: Arc<InMemorySecretStore>) -> (DaemonHandle, Rpc) {
     std::fs::create_dir_all(dir).expect("data dir created");
     let handle = start_daemon_with_secrets(config(dir), secrets)
         .await
@@ -165,10 +162,7 @@ impl StubEndpoint {
                     }
                     line.clear();
                 }
-                captured
-                    .lock()
-                    .expect("capture lock")
-                    .push(authorization);
+                captured.lock().expect("capture lock").push(authorization);
 
                 let body = if status == 200 {
                     r#"{"data":[],"object":"list"}"#
@@ -206,7 +200,10 @@ async fn test_wave2_harness_rpc_lifecycle() {
         .iter()
         .find(|h| h.id == "autonomous-factory")
         .expect("autonomous-factory present");
-    assert!(factory.active, "autonomous-factory is active by default (F1)");
+    assert!(
+        factory.active,
+        "autonomous-factory is active by default (F1)"
+    );
 
     // 2. harness.get returns harness with active populated
     let get_res = rpc
@@ -234,7 +231,10 @@ async fn test_wave2_harness_rpc_lifecycle() {
         .iter()
         .find(|h| h.id == "autonomous-factory")
         .expect("autonomous-factory present");
-    assert!(!factory_after.active, "autonomous-factory is no longer active");
+    assert!(
+        !factory_after.active,
+        "autonomous-factory is no longer active"
+    );
 
     // 4. harness.import imports a valid custom harness
     let custom_harness_json = json!({
@@ -446,20 +446,14 @@ async fn test_wave2_models_and_providers_test_rpc() {
 
     // 2. models.list filters by provider
     let list_for_provider = rpc
-        .call(
-            "models.list",
-            json!({ "provider": "custom-openai" }),
-        )
+        .call("models.list", json!({ "provider": "custom-openai" }))
         .await;
     let model_rows = list_for_provider.as_array().expect("array of models");
     assert_eq!(model_rows.len(), 1);
     assert_eq!(model_rows[0]["model_id"], "custom-gpt-5");
 
     let list_for_other = rpc
-        .call(
-            "models.list",
-            json!({ "provider": "non-existent" }),
-        )
+        .call("models.list", json!({ "provider": "non-existent" }))
         .await;
     assert!(list_for_other.as_array().expect("empty array").is_empty());
 
@@ -473,12 +467,12 @@ async fn test_wave2_models_and_providers_test_rpc() {
     )
     .await;
     let list_after_remove = rpc
-        .call(
-            "models.list",
-            json!({ "provider": "custom-openai" }),
-        )
+        .call("models.list", json!({ "provider": "custom-openai" }))
         .await;
-    assert!(list_after_remove.as_array().expect("empty array").is_empty());
+    assert!(list_after_remove
+        .as_array()
+        .expect("empty array")
+        .is_empty());
 
     // --- PROVIDERS.TEST (D1 Probe Model Resolution) ---
     // Add custom provider
@@ -499,10 +493,7 @@ async fn test_wave2_models_and_providers_test_rpc() {
     // Should resolve probe model automatically via D1 fallbacks (e.g. gpt-4o-mini for custom)
     // and succeed against StubEndpoint(200)
     let test_res_default = rpc
-        .call(
-            "providers.test",
-            json!({ "name": "my-custom-endpoint" }),
-        )
+        .call("providers.test", json!({ "name": "my-custom-endpoint" }))
         .await;
     assert_eq!(test_res_default["healthy"], true);
 

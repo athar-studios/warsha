@@ -38,8 +38,12 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 use warsha_pipeline::{
+    settings::{
+        SettingsError as PipelineSettingsError, SettingsProvider,
+        StoredHarness as PipelineStoredHarness, StoredPlugin as PipelineStoredPlugin,
+        StoredSkill as PipelineStoredSkill,
+    },
     BackendKit, InMemoryPairingStore, InMemoryPreferenceStore, Preference, RunMode, RunModeConfig,
-    settings::{SettingsProvider, StoredHarness as PipelineStoredHarness, StoredSkill as PipelineStoredSkill, StoredPlugin as PipelineStoredPlugin, SettingsError as PipelineSettingsError},
 };
 use warsha_store::{
     SqliteStore, StoreError, StoredCustomModel, StoredHarness, StoredIntegration, StoredPlugin,
@@ -1036,62 +1040,81 @@ mod tests {
 // Implementation of SettingsProvider trait for the daemon's SettingsStore
 #[async_trait::async_trait]
 impl SettingsProvider for SettingsStore {
-    async fn get_active_harness(&self, project_id: &str) -> Result<Option<String>, PipelineSettingsError> {
+    async fn get_active_harness(
+        &self,
+        project_id: &str,
+    ) -> Result<Option<String>, PipelineSettingsError> {
         self.get_active_harness(project_id)
             .await
             .map_err(|e| PipelineSettingsError::Store(e.to_string()))
     }
-    
-    async fn get_harness(&self, id: &str) -> Result<Option<PipelineStoredHarness>, PipelineSettingsError> {
+
+    async fn get_harness(
+        &self,
+        id: &str,
+    ) -> Result<Option<PipelineStoredHarness>, PipelineSettingsError> {
         self.get_harness(id)
             .await
             .map_err(|e| PipelineSettingsError::Store(e.to_string()))
-            .map(|opt| opt.map(|h| PipelineStoredHarness {
-                id: h.id,
-                version: h.version,
-                name: h.name,
-                description: h.description,
-                data_json: h.data_json,
-                is_preset: h.is_preset,
-                created_at: h.created_at,
-            }))
+            .map(|opt| {
+                opt.map(|h| PipelineStoredHarness {
+                    id: h.id,
+                    version: h.version,
+                    name: h.name,
+                    description: h.description,
+                    data_json: h.data_json,
+                    is_preset: h.is_preset,
+                    created_at: h.created_at,
+                })
+            })
     }
-    
+
     async fn list_skills(&self) -> Result<Vec<PipelineStoredSkill>, PipelineSettingsError> {
         self.list_skills()
             .await
             .map_err(|e| PipelineSettingsError::Store(e.to_string()))
-            .map(|skills| skills.into_iter().map(|s| PipelineStoredSkill {
-                id: s.id,
-                name: s.name,
-                description: s.description,
-                source: s.source,
-                license: s.license,
-                content: s.content,
-                enabled: s.enabled,
-                tags_json: s.tags_json,
-            }).collect())
+            .map(|skills| {
+                skills
+                    .into_iter()
+                    .map(|s| PipelineStoredSkill {
+                        id: s.id,
+                        name: s.name,
+                        description: s.description,
+                        source: s.source,
+                        license: s.license,
+                        content: s.content,
+                        enabled: s.enabled,
+                        tags_json: s.tags_json,
+                    })
+                    .collect()
+            })
     }
-    
+
     async fn list_plugins(&self) -> Result<Vec<PipelineStoredPlugin>, PipelineSettingsError> {
         self.list_plugins()
             .await
             .map_err(|e| PipelineSettingsError::Store(e.to_string()))
-            .map(|plugins| plugins.into_iter().map(|p| PipelineStoredPlugin {
-                id: p.id,
-                name: p.name,
-                description: p.description,
-                source: p.source,
-                license: "Apache-2.0".to_string(), // Default license
-                data_json: serde_json::json!({
-                    "transport": p.transport,
-                    "command": p.command,
-                    "args_json": p.args_json,
-                    "env_json": p.env_json,
-                    "enabled": p.enabled,
-                    "tools_json": p.tools_json,
-                }).to_string(),
-                enabled: p.enabled,
-            }).collect())
+            .map(|plugins| {
+                plugins
+                    .into_iter()
+                    .map(|p| PipelineStoredPlugin {
+                        id: p.id,
+                        name: p.name,
+                        description: p.description,
+                        source: p.source,
+                        license: "Apache-2.0".to_string(), // Default license
+                        data_json: serde_json::json!({
+                            "transport": p.transport,
+                            "command": p.command,
+                            "args_json": p.args_json,
+                            "env_json": p.env_json,
+                            "enabled": p.enabled,
+                            "tools_json": p.tools_json,
+                        })
+                        .to_string(),
+                        enabled: p.enabled,
+                    })
+                    .collect()
+            })
     }
 }

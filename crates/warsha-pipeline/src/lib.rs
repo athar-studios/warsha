@@ -1,5 +1,6 @@
 //! Warsha Pipeline — Stage engine, agent roles, prompts, gate state machine
 
+use crate::settings::{SettingsProvider, SettingsStore};
 use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,7 +14,6 @@ use warsha_providers::{
     OpenAIProvider, ProviderRouter,
 };
 use warsha_store::Store;
-use crate::settings::{SettingsProvider, SettingsStore};
 
 mod agent_loop;
 mod agent_tools;
@@ -227,7 +227,11 @@ pub struct PipelineEngine<S: SettingsProvider> {
 }
 
 impl<S: SettingsProvider> PipelineEngine<S> {
-    pub fn new(store: Arc<Store>, providers: Arc<RwLock<ProviderRouter>>, settings: Arc<S>) -> Self {
+    pub fn new(
+        store: Arc<Store>,
+        providers: Arc<RwLock<ProviderRouter>>,
+        settings: Arc<S>,
+    ) -> Self {
         Self {
             store,
             providers,
@@ -237,7 +241,10 @@ impl<S: SettingsProvider> PipelineEngine<S> {
     }
 
     /// Create a PipelineEngine with default settings for testing
-    pub fn new_test(store: Arc<Store>, providers: Arc<RwLock<ProviderRouter>>) -> PipelineEngine<SettingsStore> {
+    pub fn new_test(
+        store: Arc<Store>,
+        providers: Arc<RwLock<ProviderRouter>>,
+    ) -> PipelineEngine<SettingsStore> {
         PipelineEngine::new(store, providers, Arc::new(SettingsStore::new()))
     }
 
@@ -418,19 +425,18 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             .unwrap_or_else(|| "autonomous-factory".to_string());
 
         // 2. Get the harness definition
-        let harness = self
-            .settings
-            .get_harness(&harness_id)
-            .await
-            .ok()
-            .flatten();
+        let harness = self.settings.get_harness(&harness_id).await.ok().flatten();
 
         // 3. Find the stage in the harness matching the current stage
         let harness_stage = harness.as_ref().and_then(|h| {
             // Parse the harness definition from data_json
             let harness_def: HarnessDefinition = serde_json::from_str(&h.data_json).ok()?;
             // Find and clone the matching stage by role
-            harness_def.stages.iter().find(|hs| hs.role == role).cloned()
+            harness_def
+                .stages
+                .iter()
+                .find(|hs| hs.role == role)
+                .cloned()
         });
 
         // 4. Determine the base prompt: harness stage prompt_template overrides role base prompt
@@ -1348,7 +1354,10 @@ mod tests {
     }
 
     /// A run at a pending Gate C, with the store and engine that serve it.
-    async fn pending_gate_run(store: &Arc<Store>, engine: &PipelineEngine) -> Run {
+    async fn pending_gate_run<S: SettingsProvider>(
+        store: &Arc<Store>,
+        engine: &PipelineEngine<S>,
+    ) -> Run {
         let project = Project {
             id: ProjectId::new(),
             name: "Gate Project".to_string(),

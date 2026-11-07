@@ -191,6 +191,10 @@ export const FACTORY_STAGES: readonly string[] = [
 export function factoryStageIndex(stage: string | null | undefined): number {
   if (!stage) return -1;
   const s = stage.toLowerCase();
+  // Combined review stage reads as review (4), not security — must precede substring checks.
+  if (s === 'review_qa_security') {
+    return 4;
+  }
   if (
     s === 'security' ||
     s === 'sec' ||
@@ -207,24 +211,28 @@ export function factoryStageIndex(stage: string | null | undefined): number {
     s === 'release' ||
     s === 'deploy' ||
     s === 'deliver' ||
-    s === 'feedback' ||
     s.includes('ship') ||
     s.includes('release') ||
     s.includes('deploy') ||
     s.includes('deliver')
   ) {
+    return 7;
+  }
+  if (s === 'feedback' || s.includes('feedback')) {
     return 8;
   }
   if (
     s === 'review' ||
-    s === 'gate' ||
     s === 'approval' ||
     s.includes('approval') ||
     s.includes('review')
   ) {
+    return 4;
+  }
+  if (s === 'gate') {
     return 7;
   }
-  switch (stage) {
+  switch (s) {
     case 'idea':
     case 'intake':
     case 'gate_a':
@@ -244,8 +252,13 @@ export function factoryStageIndex(stage: string | null | undefined): number {
     case 'gate_c':
     case 'qa':
       return 5;
+    case 'gate_d':
+    case 'launch_drafts':
+    case 'launchdrafts':
+      return 7;
     default:
       if (s.includes('gate')) return 7;
+      if (s.includes('launch')) return 7;
       return -1;
   }
 }
