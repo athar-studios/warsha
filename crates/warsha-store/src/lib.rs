@@ -902,6 +902,45 @@ mod tests {
         assert!(store.db_path().exists());
     }
 
+    /// Regression guard: migration SQL must stay LF-only. A CRLF checkout
+    /// (Windows `core.autocrlf`) changes the bytes sqlx hashes, breaking
+    /// checksum validation against databases migrated from LF files.
+    #[test]
+    fn migration_sql_files_contain_no_cr_bytes() {
+        for (name, bytes) in [
+            (
+                "001_initial.sql",
+                &include_bytes!("../migrations/001_initial.sql")[..],
+            ),
+            (
+                "002_m1_gates_artifacts_costs.sql",
+                &include_bytes!("../migrations/002_m1_gates_artifacts_costs.sql")[..],
+            ),
+        ] {
+            assert!(
+                !bytes.contains(&b'\r'),
+                "{name} contains CR (0x0D) bytes; migrations must be LF-only \
+                 (see root .gitattributes: *.sql text eol=lf)"
+            );
+        }
+    }
+
+    /// Checksum-stability proxy: the compile-time embedded migrator must
+    /// expose exactly versions 1 and 2, with no CR in any embedded SQL.
+    #[test]
+    fn embedded_migrator_versions_are_lf_only() {
+        let migrator = sqlx::migrate!("./migrations");
+        let versions: Vec<i64> = migrator.iter().map(|m| m.version).collect();
+        assert_eq!(versions, vec![1, 2]);
+        for migration in migrator.iter() {
+            assert!(
+                !migration.sql.contains('\r'),
+                "embedded migration {} contains CR bytes",
+                migration.version
+            );
+        }
+    }
+
     #[tokio::test]
     async fn round_trips_a_project() {
         let store = temp_store().await;

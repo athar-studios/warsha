@@ -1138,6 +1138,9 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
             flexDirection: 'column',
             gap: 'var(--warsha-space-2)',
             minInlineSize: 0,
+            // §10's 390px phone: the plate and everything on it stay inside the viewport — a cap, not
+            // a width, so the desktop column is untouched.
+            maxInlineSize: '100%',
           }}
         >
           <Text size="sm" weight="bold" dir={dir}>
@@ -1166,6 +1169,8 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
               paddingInline: 'var(--warsha-space-3)',
               paddingBlock: 'var(--warsha-space-2)',
               minInlineSize: 0,
+              inlineSize: '100%',
+              maxInlineSize: '100%',
             }}
           />
 
@@ -1173,7 +1178,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
             dir={dir}
             role="group"
             aria-label={label('simple.harness_label')}
-            style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--warsha-space-2)', minInlineSize: 0 }}
+            style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--warsha-space-2)', minInlineSize: 0, maxInlineSize: '100%' }}
           >
             {HARNESS_PRESETS.map((preset) => (
               <Button
@@ -1185,9 +1190,10 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
                 data-testid={`mission-harness-${preset.id}`}
                 title={activeId === preset.id ? `${preset.id} (active)` : preset.id}
                 onClick={() => setHarnessId(preset.id)}
+                style={{ maxInlineSize: '100%' }}
               >
                 {/* The preset id is the daemon's own name: mono, isolated, never translated (§11). */}
-                <span dir="ltr" translate="no" style={{ unicodeBidi: 'isolate' }}>
+                <span dir="ltr" translate="no" style={{ unicodeBidi: 'isolate', overflowWrap: 'anywhere' }}>
                   {preset.id}
                 </span>
               </Button>
@@ -1198,7 +1204,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
             dir={dir}
             role="group"
             aria-label={label('simple.model_label')}
-            style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--warsha-space-2)', minInlineSize: 0 }}
+            style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--warsha-space-2)', minInlineSize: 0, maxInlineSize: '100%' }}
           >
             {modelOptions.map((model) => (
               <Button
@@ -1209,8 +1215,9 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
                 aria-pressed={modelId === model.id}
                 data-testid={`mission-model-${model.id}`}
                 onClick={() => setModelId(model.id)}
+                style={{ maxInlineSize: '100%' }}
               >
-                <span dir="ltr" translate="no" style={{ unicodeBidi: 'isolate' }}>
+                <span dir="ltr" translate="no" style={{ unicodeBidi: 'isolate', overflowWrap: 'anywhere' }}>
                   {model.name}
                 </span>
               </Button>
@@ -1231,6 +1238,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
               alignItems: 'center',
               gap: 'var(--warsha-space-2)',
               minInlineSize: 0,
+              maxInlineSize: '100%',
             }}
           >
             <Text size="xs" dir={dir}>
@@ -1271,6 +1279,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
               }}
               style={{
                 inlineSize: 'var(--warsha-size-touch)',
+                maxInlineSize: '100%',
                 fontFamily: 'var(--warsha-font-mono)',
                 fontSize: 'var(--warsha-font-size-sm)',
                 color: 'var(--warsha-color-text)',
@@ -1283,7 +1292,10 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
             />
           </div>
 
-          <div dir={dir} style={{ display: 'flex', alignItems: 'center', gap: 'var(--warsha-space-2)' }}>
+          <div
+            dir={dir}
+            style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 'var(--warsha-space-2)', minInlineSize: 0, maxInlineSize: '100%' }}
+          >
             <Button
               dir={dir}
               data-testid="mission-launch"
@@ -1421,11 +1433,15 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
           </section>
         )}
 
+        {/* The transcript scrolls, so it takes keyboard focus itself (axe scrollable-region-focusable):
+            tabIndex 0 makes the region a Tab stop and the global :focus-visible rule draws its ring.
+            The live-region semantics — role log, polite announcements, the agent's name — unchanged. */}
         <div
           dir={dir}
           role="log"
           aria-live="polite"
           aria-label={roleWord(selectedAgent)}
+          tabIndex={0}
           style={{
             flex: '1',
             overflowY: 'auto',
@@ -1470,6 +1486,9 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
           aria-busy={thinking}
           style={{
             display: 'flex',
+            // On a phone the pickers wrap to a second row rather than push the field past the edge;
+            // the form's min-content width is one control, not the sum of seven.
+            flexWrap: 'wrap',
             alignItems: 'flex-end',
             gap: 'var(--warsha-space-2)',
             paddingInline: 'var(--warsha-space-4)',
@@ -1484,6 +1503,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
             // background across a focused Approve button. Same affordance, nothing ever obscured.
             flex: 'none',
             minInlineSize: 0,
+            maxInlineSize: '100%',
           }}
         >
           <label
@@ -1524,6 +1544,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
             style={{
               flex: '1',
               minWidth: 0,
+              maxInlineSize: '100%',
               resize: 'none',
               maxHeight: 'var(--warsha-size-composer-max)',
               overflowY: 'auto',
@@ -1618,7 +1639,9 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
           </Text>
         </div>
 
-        <div style={{ flex: '1', overflowY: 'auto', minInlineSize: 0 }}>
+        {/* The activity list scrolls, so it takes keyboard focus itself (axe scrollable-region-focusable):
+            tabIndex 0 makes the region a Tab stop and the global :focus-visible rule draws its ring. */}
+        <div style={{ flex: '1', overflowY: 'auto', minInlineSize: 0 }} tabIndex={0}>
           {recentActivity.length === 0 ? (
             <Text size="sm" dir={dir} style={{ paddingInline: 'var(--warsha-space-4)' }}>
               {label('simple.no_activity')}
