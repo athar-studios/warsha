@@ -8,7 +8,7 @@ End-user docs: [README](../README.md) · [العربية](../README.ar.md). Mile
 - **Multi-agent pipeline**: intake, researcher, PM, designer, architect, coder, reviewer, QA, security, release, marketer, feedback
 - **Mandatory human gates**: Idea (A), Spec (B), Merge (C), Publish (D)
 - **Bring your own models**: API keys (OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, Azure), local (Ollama, LM Studio), or official CLIs (Claude Code, Codex CLI, Gemini CLI, Cursor CLI, OpenHands)
-- **Secure by default**: secrets in OS keychain only, E2E encrypted remote access via Noise XX, sandboxed code execution
+- **Secure by default**: secrets in the OS keychain only, a loopback-bound daemon with a bearer token, and code execution limited to a configured program allow-list (not a sandbox). Exposing the daemon beyond the machine is an owner decision behind your own TLS/VPN boundary — the end-to-end encrypted channel is not built yet (`crates/warsha-remote/src/lib.rs:656-659`)
 - **Desktop + CLI + Remote PWA**: Tauri 2 desktop app, `warsha` CLI, mobile PWA with QR pairing
 - **GitHub integration**: repo creation from templates, branch + PR per task, Gate C merges via API
 - **Event-sourced runs**: every step, tool call, cost and gate decision is an append-only event
@@ -23,20 +23,31 @@ warsha/ (cargo workspace + pnpm workspace)
     warsha-providers  provider layer: adapters, router, fallback, cost & quota meter
     warsha-pipeline   stage engine, agent roles, prompts, gate state machine
     warsha-backends   coding backends: builtin, OpenHands, Claude Code, Codex CLI, Gemini CLI, Cursor CLI
-    warsha-git        git + GitHub (octocrab) integration
-    warsha-remote     pairing, E2E crypto, relay client
+    warsha-git        git + GitHub REST client (reqwest); embeds ProjectTemplate
+    warsha-remote     pairing, device identity, relay client; encrypted-channel scaffold only
     warshad           daemon: local API (JSON-RPC + WS) with token auth
     warsha-cli        `warsha` binary (clap)
     warsha-relay      optional relay server (axum), opaque frame forwarding
   apps/
     desktop           Tauri 2 + React + TypeScript + Vite
-    remote            PWA (React + Vite + Workbox)
+    remote            PWA (React + Vite + Workbox; dist/sw.js generated at build)
+    mobile            Capacitor-style Android shell around apps/remote/dist (Gradle; not a pnpm member)
   packages/
     ui                shared React components + design tokens (RTL-aware)
     i18n              ar + en message catalogs (ICU MessageFormat)
-    client            generated TS client for warshad API
-  templates/          project templates (web, cli, android, desktop) with CI
+    client            typed TS client for the warshad API — the only fetch/WebSocket caller
+    crypto            E2E primitives (@noble/*); no consumers yet
+  docker/             Dockerfile + compose topology for the daemon behind Caddy
+  deploy/             production compose, Caddyfile and .env.example (see DEPLOY.md)
+  templates/          README only — the four templates are ProjectTemplate constants in warsha-git
 ```
+
+`apps/mobile` is the Android half: a Capacitor-style shell whose `android/` directory is a
+self-contained Gradle project hosting `apps/remote/dist`. It is not in `pnpm-workspace.yaml`, so
+`pnpm install` does not touch it; build the web bundle first, then assemble with the Gradle wrapper
+(`VERIFY.md` §3.2). `docker/` and `deploy/` are deployment assets, not packages; `DEPLOY.md` is
+their manual. `packages/crypto` is a private workspace package, but **no app or package imports it
+yet** — it is E2E scaffolding, not a working encryption path (`DECISIONS.md` 2026-11-08 D10).
 
 ## Build from source
 
