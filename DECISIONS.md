@@ -1289,3 +1289,9 @@ cryptographic; no app loads IBM Plex; the `daemon_ws_url` 8766 → 8765 fix is c
 - **How to reverse**: delete `docs/designs/DESIGN_SYSTEM_V2.md` and its SITEMAP row, drop the
   "Run 2026-11-08" section from `PLAN.md`, delete the integration branch, and remove the evidence dir.
   Nothing in `crates/`, `apps/`, `packages/` or `scripts/` was changed by the planner.
+
+## 2026-11-08 — Windows Host Low Mandatory Level Remediation
+- **Decision**: Restore NTFS Mandatory Integrity Control label on `C:\Users\Dragonfly\Downloads\Warsha` and `target/` to Medium (`S-1-16-8192`) via `SetNamedSecurityInfoW` without modifying Warsha codebase.
+- **Context**: Tests run on Windows PC were failing with exit code `0xC0000142` (`STATUS_DLL_INIT_FAILED`) whenever binaries attempted to initialize `user32.dll` or spawn child tools (`git`, `powershell`, `whoami`).
+- **Root Cause**: Directory was tagged with `Mandatory Label\Low Mandatory Level:(OI)(CI)(NW)` left by previous sandbox tooling. Low-integrity processes are blocked by Windows kernel from accessing interactive Win32k/desktop objects.
+- **Resolution**: Reset integrity SACL to Medium. Verified `cargo test --workspace` and `pnpm -r test` completely green.

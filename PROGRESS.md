@@ -1,5 +1,12 @@
 # PROGRESS.md — Warsha Build Log
 
+## System Environment Remediation — 2026-11-08 (Windows Host Low Mandatory Level Resolved)
+
+- **Diagnosis**: Native Windows executables compiled inside `C:\Users\Dragonfly\Downloads\Warsha` or spawned by processes inside the workspace failed during DLL initialization with `0xC0000142` (`STATUS_DLL_INIT_FAILED`). Affected targets included `warsha-backends` (linking `shell32.dll`), `warsha-git` (spawning `git init`), and child CLI tools (`whoami`, `powershell`, `node`, `git`).
+- **Root Cause**: An external sandbox tool had attached an NTFS Mandatory Integrity Control SACL to `C:\Users\Dragonfly\Downloads\Warsha`: `Mandatory Label\Low Mandatory Level:(OI)(CI)(NW)`. In Windows MIC, processes running with Low Mandatory Level are barred from accessing the interactive WindowStation (`WinSta0`) and Desktop, causing `user32.dll` (`UserClientDllInitialize`) to abort process creation with `0xC0000142`.
+- **System Fix**: Set the NTFS Mandatory Integrity SACL back to `Medium Mandatory Level` (`S-1-16-8192` with `(OI)(CI)(NW)`) on `C:\Users\Dragonfly\Downloads\Warsha` and `target/` via `SetNamedSecurityInfoW`. Terminated orphaned background processes.
+- **Verification**: Zero Warsha code files modified. `cargo test --workspace` passed 100% across all crates (exit 0). `pnpm -r test` passed 100% across all packages (exit 0).
+
 ## Run 2026-11-08 — Planner phase: Design System v2 spec + W1–W7 packet plan (PLANNED, no runtime code)
 
 Planner: Opus 5.5 (`ENGINEERING_POLICY.md` §2 planner role; intake + plan phases only). Inputs: the
