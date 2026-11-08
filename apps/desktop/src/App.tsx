@@ -20,22 +20,24 @@
 import { invoke } from '@tauri-apps/api/core';
 import {
   createClient,
+  type BackendKit as WireBackendKit,
   type CrashReport as WireCrashReport,
   type GateSummary,
   type ProjectSummary,
+  type Routine as WireRoutine,
   type RunSummary,
   type StoreReview as WireStoreReview,
   type WarshaClient,
 } from '@warsha/client';
 import { t, useDirection, useLocale, type Locale } from '@warsha/i18n';
-import { Box, Button, Skeleton, tabPanelProps, type WorkbenchMode } from '@warsha/ui';
+import { Banner, Box, Button, Skeleton, tabPanelProps, type WorkbenchMode } from '@warsha/ui';
 import React, { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
+import { deriveBackendOutputDir } from './backendKit';
 import {
   BackendKitPanel,
   type BackendFeature,
   type BackendKind,
-  type BackendTable,
   type PaymentsGateStatus,
 } from './components/BackendKitPanel';
 import { BenchTopbar } from './components/BenchTopbar';
@@ -46,6 +48,7 @@ import {
   UNRESOLVED_ENDPOINT,
   type DaemonEndpoint,
 } from './daemon';
+import { toRoutineRow } from './routines';
 import { AdvancedMode } from './screens/AdvancedMode';
 import { ArtifactViewer } from './screens/ArtifactViewer';
 import { Budgets } from './screens/Budgets';
@@ -59,7 +62,7 @@ import { PluginsSettings } from './screens/PluginsSettings';
 import { ProjectsBoard } from './screens/ProjectsBoard';
 import { ProvidersSettings } from './screens/ProvidersSettings';
 import { RolesSettings } from './screens/RolesSettings';
-import { Routines, type Routine } from './screens/Routines';
+import { Routines } from './screens/Routines';
 import { RunView } from './screens/RunView';
 import {
   SettingsProviders,
@@ -315,6 +318,9 @@ function toStoreReview(review: WireStoreReview): StoreReview {
 /** What a list the shell reads can be doing. §7: each of these has its own words on screen. */
 type LoadState = 'idle' | 'loading' | 'ready' | 'failed';
 
+/** The payments gate is shut until an owner approval names who approved it and when (M19). */
+const SHUT_PAYMENTS_GATE: PaymentsGateStatus = { enabled: false };
+
 function AppContent() {
   const dir = useDirection();
   const locale = useLocale();
@@ -338,16 +344,16 @@ function AppContent() {
   const [crashState, setCrashState] = useState<LoadState>('idle');
   const [storeReviews, setStoreReviews] = useState<StoreReview[]>([]);
   const [reviewsState, setReviewsState] = useState<LoadState>('idle');
-  // Settings → Routines / Providers (M8b): `warshad` has no routines.* or provider listing RPC on this
-  // branch, so both lists start empty and the handlers are the seams a later RPC plugs into.
-  const [routines] = useState<Routine[]>([]);
+  // Settings → Routines / Providers (M8b): the routines are the daemon's live registry
+  // (`routines.list`), read when the screen mounts; the provider list is still the local seam M16
+  // left it as.
+  const [routineRecords, setRoutineRecords] = useState<WireRoutine[]>([]);
+  const [routinesError, setRoutinesError] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProviderEntry[]>([]);
-  // Backend kit (M19): the backend kind, the enabled services, the tables the agent created and the
-  // payments gate (shut until the owner approves it).
-  const [backendKind, setBackendKind] = useState<BackendKind>('pocket_base');
-  const [backendFeatures, setBackendFeatures] = useState<BackendFeature[]>([]);
-  const [backendTables] = useState<BackendTable[]>([]);
-  const [paymentsGate] = useState<PaymentsGateStatus>({ enabled: false });
+  // Backend kit (M19): the kit the daemon holds for the selected run, or `null` for the local
+  // defaults. The payments gate stays shut until the owner approves it.
+  const [backendKit, setBackendKit] = useState<WireBackendKit | null>(null);
+  const [backendError, setBackendError] = useState<string | null>(null);
   const tablistRef = useRef<HTMLDivElement>(null);
 
   // ------------------------------------------------------------------ start-up: client, mode, screen
@@ -505,6 +511,49 @@ function AppContent() {
     if (screen === 'store-reviews' && reviewsState === 'idle') loadStoreReviews();
   }, [crashState, loadCrashReports, loadStoreReviews, reviewsState, screen]);
 
+  // Routines are read when their screen mounts, so a session that never opens Settings → Routines
+  // asks the daemon for nothing it did not need. A failed read keeps the last list and says why.
+  useEffect(() => {
+    if (screen !== 'routines' || client === null) return;
+    let cancelled = false;
+    client
+      .listRoutines()
+      .then((rows) => {
+        if (cancelled) return;
+        setRoutineRecords(rows);
+        setRoutinesError(null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setRoutinesError('routines.error.load');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, screen]);
+
+  // The backend kit belongs to the selected run. No run (or a daemon answering `null`) keeps the
+  // local defaults, so the no-run render is the one the bench always drew.
+  useEffect(() => {
+    setBackendKit(null);
+    setBackendError(null);
+    if (client === null || selectedRun === null) return;
+    let cancelled = false;
+    client
+      .getBackendKit(selectedRun.id)
+      .then((kit) => {
+        if (cancelled) return;
+        setBackendKit(kit);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setBackendError('backend.error.load');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, selectedRun]);
+
   /**
    * Leave the first-run wizard.
    *
@@ -529,17 +578,28 @@ function AppContent() {
 
   const openScreen = (target: Screen) => () => setScreen(target);
 
-  // Routines: the registry and its runner live in `warsha-pipeline`, but the daemon exposes no
-  // routines.* method yet, so these three only record the seam. Nothing is scheduled or executed here.
-  const handleRoutineRun = (_id: string) => {
-    // TODO(M20 wiring): call the daemon's routines.run-now RPC once it exists.
+  // Routines: every action calls the daemon and replaces that row with the record it returns, so the
+  // lamp on screen is the state the daemon now holds. A failed action says so and keeps the list.
+  const routineAction = (action: 'run' | 'pause' | 'resume', id: string): void => {
+    if (client === null) return;
+    const call =
+      action === 'run'
+        ? client.runRoutineNow(id)
+        : action === 'pause'
+          ? client.pauseRoutine(id)
+          : client.resumeRoutine(id);
+    call
+      .then((next) => {
+        setRoutineRecords((current) =>
+          current.map((entry) => (entry.id === next.id ? next : entry))
+        );
+        setRoutinesError(null);
+      })
+      .catch(() => setRoutinesError(`routines.error.${action}`));
   };
-  const handleRoutinePause = (_id: string) => {
-    // TODO(M20 wiring): call the daemon's routines.pause RPC once it exists.
-  };
-  const handleRoutineResume = (_id: string) => {
-    // TODO(M20 wiring): call the daemon's routines.resume RPC once it exists.
-  };
+  const handleRoutineRun = (id: string) => routineAction('run', id);
+  const handleRoutinePause = (id: string) => routineAction('pause', id);
+  const handleRoutineResume = (id: string) => routineAction('resume', id);
 
   // Settings → Providers (M16): every provider is off by default, so the row edits only touch the list
   // this shell holds; persisting them needs the settings RPC.
@@ -559,21 +619,57 @@ function AppContent() {
     );
   };
 
-  // Backend kit (M19): the panel's edits are local; the MCP client that creates the tables, policies and
-  // buckets, and the export that writes the SQL dump, are not wired.
+  // Backend kit (M19): the panel's edits update the kit the panel shows and are written back to the
+  // daemon when a run is selected. A failed write keeps the local edit and says why.
+  const defaultBackendKit = (): WireBackendKit => ({
+    config: {
+      kind: 'pocket_base',
+      url: '',
+      projectName: selectedProject?.name ?? '',
+      enabledFeatures: [],
+    },
+    tables: [],
+    rlsPolicies: [],
+    storageBuckets: [],
+    functions: [],
+  });
+  const persistBackendKit = (next: WireBackendKit) => {
+    setBackendKit(next);
+    if (client === null || selectedRun === null) return;
+    client.setBackendKit(selectedRun.id, next).catch(() => setBackendError('backend.error.save'));
+  };
   const handleBackendKind = (kind: BackendKind) => {
-    setBackendKind(kind);
+    const current = backendKit ?? defaultBackendKit();
+    persistBackendKit({ ...current, config: { ...current.config, kind } });
   };
   const handleBackendFeature = (feature: BackendFeature, enabled: boolean) => {
-    setBackendFeatures((current) =>
-      enabled
-        ? [...current.filter((entry) => entry !== feature), feature]
-        : current.filter((entry) => entry !== feature)
-    );
+    const current = backendKit ?? defaultBackendKit();
+    const enabledFeatures = enabled
+      ? [...current.config.enabledFeatures.filter((entry) => entry !== feature), feature]
+      : current.config.enabledFeatures.filter((entry) => entry !== feature);
+    persistBackendKit({ ...current, config: { ...current.config, enabledFeatures } });
   };
+  // The export needs a run and a directory the app already holds. Neither decoded record carries one
+  // (see `deriveBackendOutputDir`), so the control is disabled with the catalog's reason instead of
+  // guessing a path or adding a file-dialog plugin.
+  const backendOutputDir = deriveBackendOutputDir(selectedProject, selectedRun);
+  const backendExportReason =
+    selectedRun === null
+      ? t('backend.export.no_run', {}, locale)
+      : backendOutputDir === null
+        ? t('backend.export.unavailable', {}, locale)
+        : null;
   const handleBackendExport = () => {
-    // TODO(M20 wiring): call the daemon's backend-kit export RPC once it exists.
+    if (client === null || selectedRun === null || backendOutputDir === null) return;
+    client
+      .exportBackend(selectedRun.id, backendOutputDir)
+      .then(() => setBackendError(null))
+      .catch(() => setBackendError('backend.error.export'));
   };
+
+  const backendKind = backendKit?.config.kind ?? 'pocket_base';
+  const backendFeatures = backendKit?.config.enabledFeatures ?? [];
+  const backendTables = backendKit?.tables ?? [];
 
   // ------------------------------------------------------------------- the settings tab strip (§9)
   const onTabsKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
@@ -739,7 +835,8 @@ function AppContent() {
       case 'routines':
         return settingsScreen(
           <Routines
-            routines={routines}
+            routines={routineRecords.map((routine) => toRoutineRow(routine, locale))}
+            error={routinesError ? t(routinesError, {}, locale) : null}
             onRun={handleRoutineRun}
             onPause={handleRoutinePause}
             onResume={handleRoutineResume}
@@ -800,11 +897,13 @@ function AppContent() {
         return settingsScreen(
           // The measure is `.bench-main--document`'s (§10), so the plate only needs its own padding.
           <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', inlineSize: '100%', minInlineSize: 0 }}>
+            {backendError ? <Banner tone="error">{t(backendError, {}, locale)}</Banner> : null}
             <BackendKitPanel
               kind={backendKind}
               features={backendFeatures}
               tables={backendTables}
-              payments={paymentsGate}
+              payments={SHUT_PAYMENTS_GATE}
+              exportBlockedReason={backendExportReason}
               onKindChange={handleBackendKind}
               onToggleFeature={handleBackendFeature}
               onExport={handleBackendExport}

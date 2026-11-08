@@ -119,6 +119,8 @@ export interface BackendKitPanelProps {
   onKindChange: (kind: BackendKind) => void;
   /** Called with the service and its next state. */
   onToggleFeature: (feature: BackendFeature, enabled: boolean) => void;
+  /** Why the export cannot run even with tables, e.g. no run or no output directory. */
+  exportBlockedReason?: string | null;
   /** Called when the owner asks for the standard export. */
   onExport: () => void;
 }
@@ -173,13 +175,14 @@ export function BackendKitPanel({
   payments,
   onKindChange,
   onToggleFeature,
+  exportBlockedReason,
   onExport,
 }: BackendKitPanelProps) {
   const dir = useDirection();
   const locale = useLocale();
 
   const title = t('backend_kit.title', {}, locale);
-  const exportable = canExport(tables);
+  const exportable = canExport(tables) && !exportBlockedReason;
   const gateOpen = paymentsGateEnabled(payments);
   const shownUrl = typeof url === 'string' && url.trim().length > 0 ? url : null;
 
@@ -376,7 +379,12 @@ export function BackendKitPanel({
           dir={dir}
           onClick={onExport}
           disabled={!exportable}
-          title={exportable ? t('backend_kit.export', {}, locale) : t('backend_kit.export.blocked', {}, locale)}
+          title={
+            exportBlockedReason ??
+            (exportable
+              ? t('backend_kit.export', {}, locale)
+              : t('backend_kit.export.blocked', {}, locale))
+          }
         >
           {t('backend_kit.export', {}, locale)}
         </Button>
