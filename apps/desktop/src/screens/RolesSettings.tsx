@@ -185,8 +185,8 @@ export function RolesSettings({ client, onBack }: RolesSettingsProps) {
       style={{
         paddingInline: 'var(--warsha-space-6)',
         paddingBlock: 'var(--warsha-space-6)',
-        minHeight: 'calc(100vh - 80px)',
-        maxInlineSize: '1000px',
+        minHeight: 'calc(100vh - var(--warsha-size-bench-offset))',
+        maxInlineSize: 'var(--warsha-size-ledger-max)',
         display: 'flex',
         flexDirection: 'column',
         gap: 'var(--warsha-space-4)',
@@ -255,14 +255,14 @@ export function RolesSettings({ client, onBack }: RolesSettingsProps) {
                       alignItems: 'flex-end',
                       flexWrap: 'wrap',
                       paddingBlockStart: 'var(--warsha-space-2)',
-                      borderBlockStart: '1px solid var(--warsha-bench-rule)',
+                      borderBlockStart: 'var(--warsha-line-rule)',
                       minInlineSize: 0,
                     }}
                   >
                     <Field
                       id={`role-target-provider-${index}`}
                       label={label('roles.provider')}
-                      style={{ flex: '1 1 12rem', marginBlockEnd: 0 }}
+                      style={{ flex: '1 1 var(--warsha-size-field-min)', marginBlockEnd: 0 }}
                     >
                       <select
                         {...fieldControl(`role-target-provider-${index}`)}
@@ -288,7 +288,7 @@ export function RolesSettings({ client, onBack }: RolesSettingsProps) {
                     <Field
                       id={`role-target-model-${index}`}
                       label={label('roles.model')}
-                      style={{ flex: '1 1 12rem', marginBlockEnd: 0 }}
+                      style={{ flex: '1 1 var(--warsha-size-field-min)', marginBlockEnd: 0 }}
                     >
                       <input
                         {...fieldControl(`role-target-model-${index}`)}
@@ -312,7 +312,7 @@ export function RolesSettings({ client, onBack }: RolesSettingsProps) {
                       id={`role-target-weight-${index}`}
                       label={label('roles.weight')}
                       hint={label('roles.weight_hint')}
-                      style={{ flex: '0 0 7rem', marginBlockEnd: 0 }}
+                      style={{ flex: '0 0 var(--warsha-size-label-col)', marginBlockEnd: 0 }}
                     >
                       <input
                         {...fieldControl(`role-target-weight-${index}`, { hint: true })}
@@ -409,10 +409,10 @@ export function RolesSettings({ client, onBack }: RolesSettingsProps) {
                               unicodeBidi: 'isolate',
                               fontSize: 'var(--warsha-font-size-xs)',
                               color: 'var(--warsha-color-text)',
-                              border: '1px solid var(--warsha-bench-edge)',
+                              border: 'var(--warsha-line-edge)',
                               borderRadius: 'var(--warsha-radius-sm)',
                               paddingInline: 'var(--warsha-space-2)',
-                              paddingBlock: '2px',
+                              paddingBlock: 'var(--warsha-space-0-5)',
                             }}
                           >
                             {`${target.provider_id}/${target.model_id} · ${target.weight}`}

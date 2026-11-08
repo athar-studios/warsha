@@ -68,7 +68,7 @@ const PLATE: React.CSSProperties = {
   gap: 'var(--warsha-space-4)',
   paddingBlock: 'var(--warsha-space-4)',
   paddingInline: 'var(--warsha-space-4)',
-  border: '1px solid var(--warsha-bench-rule)',
+  border: 'var(--warsha-line-rule)',
   borderRadius: 'var(--warsha-radius-md)',
   backgroundColor: 'var(--warsha-color-surface)',
   minInlineSize: 0,
@@ -98,7 +98,7 @@ const FEATURE_ROW: React.CSSProperties = {
   gap: 'var(--warsha-space-2)',
   minBlockSize: 'var(--warsha-size-touch)',
   paddingInline: 'var(--warsha-space-2)',
-  borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+  borderBlockEnd: 'var(--warsha-line-rule)',
   cursor: 'pointer',
   fontSize: 'var(--warsha-font-size-sm)',
   color: 'var(--warsha-color-text)',
@@ -119,6 +119,8 @@ export interface BackendKitPanelProps {
   onKindChange: (kind: BackendKind) => void;
   /** Called with the service and its next state. */
   onToggleFeature: (feature: BackendFeature, enabled: boolean) => void;
+  /** Why the export cannot run even with tables, e.g. no run or no output directory. */
+  exportBlockedReason?: string | null;
   /** Called when the owner asks for the standard export. */
   onExport: () => void;
 }
@@ -173,13 +175,14 @@ export function BackendKitPanel({
   payments,
   onKindChange,
   onToggleFeature,
+  exportBlockedReason,
   onExport,
 }: BackendKitPanelProps) {
   const dir = useDirection();
   const locale = useLocale();
 
   const title = t('backend_kit.title', {}, locale);
-  const exportable = canExport(tables);
+  const exportable = canExport(tables) && !exportBlockedReason;
   const gateOpen = paymentsGateEnabled(payments);
   const shownUrl = typeof url === 'string' && url.trim().length > 0 ? url : null;
 
@@ -268,8 +271,8 @@ export function BackendKitPanel({
                 style={{
                   minBlockSize: 'var(--warsha-size-touch)',
                   borderBlockEnd: selected
-                    ? '3px solid var(--warsha-signal-text)'
-                    : '3px solid transparent',
+                    ? 'var(--warsha-line-signal)'
+                    : 'var(--warsha-line-quiet)',
                 }}
                 onClick={() => onKindChange(candidate)}
               >
@@ -333,7 +336,7 @@ export function BackendKitPanel({
                   gap: 'var(--warsha-space-2)',
                   flexWrap: 'wrap',
                   paddingBlock: 'var(--warsha-space-2)',
-                  borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+                  borderBlockEnd: 'var(--warsha-line-rule)',
                   minInlineSize: 0,
                 }}
               >
@@ -376,7 +379,12 @@ export function BackendKitPanel({
           dir={dir}
           onClick={onExport}
           disabled={!exportable}
-          title={exportable ? t('backend_kit.export', {}, locale) : t('backend_kit.export.blocked', {}, locale)}
+          title={
+            exportBlockedReason ??
+            (exportable
+              ? t('backend_kit.export', {}, locale)
+              : t('backend_kit.export.blocked', {}, locale))
+          }
         >
           {t('backend_kit.export', {}, locale)}
         </Button>

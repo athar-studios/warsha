@@ -165,7 +165,7 @@ export function SkillsSettings({ client, project }: SkillsSettingsProps) {
       style={{
         paddingInline: 'var(--warsha-space-4)',
         paddingBlock: 'var(--warsha-space-4)',
-        maxInlineSize: '900px',
+        maxInlineSize: 'var(--warsha-size-plate-max)',
         margin: '0 auto',
         display: 'flex',
         flexDirection: 'column',

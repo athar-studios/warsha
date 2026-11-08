@@ -283,12 +283,12 @@ export function Onboarding({ client, onComplete }: OnboardingProps) {
       className="onboarding-steps"
       style={{
         backgroundColor: 'var(--warsha-bench-plate)',
-        borderInlineEnd: '1px solid var(--warsha-bench-rule)',
-        borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+        borderInlineEnd: 'var(--warsha-line-rule)',
+        borderBlockEnd: 'var(--warsha-line-rule)',
       }}
     >
       <RailHead>{label('onboarding.steps_title')}</RailHead>
-      <Box p={4} style={{ borderBlockEnd: '1px solid var(--warsha-bench-rule)' }}>
+      <Box p={4} style={{ borderBlockEnd: 'var(--warsha-line-rule)' }}>
         <Meter
           value={stepIndex + 1}
           max={STEPS.length}
@@ -313,7 +313,7 @@ export function Onboarding({ client, onComplete }: OnboardingProps) {
   );
 
   const renderLanguageStep = () => (
-    <div data-testid="onboarding-language" style={{ inlineSize: '100%', maxInlineSize: '32rem' }}>
+    <div data-testid="onboarding-language" style={{ inlineSize: '100%', maxInlineSize: 'var(--warsha-size-dialog)' }}>
       <Panel title={label('app.name')}>
         <Text size="md" dir={dir} style={{ marginBlockEnd: 'var(--warsha-space-4)' }}>
           {label('app.tagline')}
@@ -409,7 +409,7 @@ export function Onboarding({ client, onComplete }: OnboardingProps) {
     const shown = listed.length > 0 ? listed : builtInProviderChoices;
 
     return (
-      <div data-testid="onboarding-provider" style={{ inlineSize: '100%', maxInlineSize: '34rem' }}>
+      <div data-testid="onboarding-provider" style={{ inlineSize: '100%', maxInlineSize: 'var(--warsha-size-dialog-wide)' }}>
         <Panel title={label('onboarding.provider_title')}>
           <Text size="sm" dir={dir} style={{ marginBlockEnd: 'var(--warsha-space-4)' }}>
             {label('onboarding.provider_desc')}
@@ -480,7 +480,7 @@ export function Onboarding({ client, onComplete }: OnboardingProps) {
   };
 
   const renderKeyStep = () => (
-    <div data-testid="onboarding-key" style={{ inlineSize: '100%', maxInlineSize: '34rem' }}>
+    <div data-testid="onboarding-key" style={{ inlineSize: '100%', maxInlineSize: 'var(--warsha-size-dialog-wide)' }}>
       <Panel title={label('onboarding.key_title')}>
         <Text size="sm" dir={dir} style={{ marginBlockEnd: 'var(--warsha-space-4)' }}>
           {label('onboarding.key_desc')}
@@ -551,7 +551,7 @@ export function Onboarding({ client, onComplete }: OnboardingProps) {
     const settled = status === 'passed' || status === 'refused';
 
     return (
-      <div data-testid="onboarding-test" data-status={settled ? status : 'running'} style={{ inlineSize: '100%', maxInlineSize: '34rem' }}>
+      <div data-testid="onboarding-test" data-status={settled ? status : 'running'} style={{ inlineSize: '100%', maxInlineSize: 'var(--warsha-size-dialog-wide)' }}>
         <Panel title={label('onboarding.test_title')}>
           <Box style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' }}>
             {status === 'running' && (
@@ -606,7 +606,7 @@ export function Onboarding({ client, onComplete }: OnboardingProps) {
                   paddingBlock: 'var(--warsha-space-2)',
                   borderRadius: 'var(--warsha-radius-sm)',
                   backgroundColor: 'var(--warsha-bench-plate)',
-                  border: '1px solid var(--warsha-bench-rule)',
+                  border: 'var(--warsha-line-rule)',
                   color: 'var(--warsha-color-text)',
                   fontFamily: 'var(--warsha-font-mono)',
                   fontVariantNumeric: 'tabular-nums',
@@ -669,7 +669,7 @@ export function Onboarding({ client, onComplete }: OnboardingProps) {
   };
 
   const renderProjectStep = () => (
-    <div data-testid="onboarding-project" style={{ inlineSize: '100%', maxInlineSize: '34rem' }}>
+    <div data-testid="onboarding-project" style={{ inlineSize: '100%', maxInlineSize: 'var(--warsha-size-dialog-wide)' }}>
       <Panel title={label('onboarding.project_title')}>
         <Text size="sm" dir={dir} style={{ marginBlockEnd: 'var(--warsha-space-4)' }}>
           {label('onboarding.project_desc')}

@@ -179,8 +179,9 @@ describe('a decided gate', () => {
 
     const decided = await screen.findByText(t('gates.approved', {}, 'en'), { selector: '.warsha-stamp span' });
     expect(decided.closest('[data-tone="ok"]')).not.toBeNull();
-    expect(card().style.borderInlineStart).toContain('--warsha-bench-edge');
-    expect(card().style.borderInlineStart).not.toContain('--warsha-signal-text');
+    expect(card().style.borderInlineStart).toContain('var(--warsha-bench-edge)');
+    expect(card().style.borderInlineStart).toMatch(/^3px solid /);
+    expect(card().style.borderInlineStart).not.toContain('--warsha-line-signal');
     expect(card().querySelector('[data-state="waiting"]')).toBeNull();
   });
 

@@ -106,13 +106,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             flexDirection: 'column',
             gap: 'var(--warsha-space-4)',
             inlineSize: '100%',
-            maxInlineSize: '480px',
+            maxInlineSize: 'var(--warsha-size-notice)',
             paddingInline: 'var(--warsha-space-6)',
             paddingBlock: 'var(--warsha-space-6)',
             backgroundColor: 'var(--warsha-color-surface)',
-            border: 'var(--warsha-size-rule, 1px) solid var(--warsha-color-border)',
+            border: 'var(--warsha-size-rule) solid var(--warsha-color-border)',
             // The error edge leads on the start side — inline-start, so it lands right in RTL.
-            borderInlineStartWidth: 'var(--warsha-size-inscribe, 4px)',
+            borderInlineStartWidth: 'var(--warsha-size-inscribe)',
             borderInlineStartColor: 'var(--warsha-color-error)',
             borderRadius: 'var(--warsha-radius-lg)',
           }}
@@ -164,7 +164,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
                 fontWeight: 'var(--warsha-font-weight-medium)',
                 color: 'var(--warsha-color-text)',
                 backgroundColor: 'var(--warsha-color-surface-muted)',
-                border: 'var(--warsha-size-rule, 1px) solid var(--warsha-color-border-strong)',
+                border: 'var(--warsha-size-rule) solid var(--warsha-color-border-strong)',
                 borderRadius: 'var(--warsha-radius-md)',
                 cursor: 'pointer',
               }}

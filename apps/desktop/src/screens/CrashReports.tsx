@@ -141,7 +141,7 @@ function CrashRow({ report, locale }: { report: CrashReport; locale: Locale }) {
               tabIndex={0}
               style={{
                 margin: 0,
-                maxBlockSize: '9rem',
+                maxBlockSize: 'var(--warsha-size-measure-compact)',
                 overflow: 'auto',
                 paddingInline: 'var(--warsha-space-3)',
                 paddingBlock: 'var(--warsha-space-2)',

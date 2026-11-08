@@ -127,10 +127,10 @@ export function SlashCommandPicker({
       style={{
         display: 'flex',
         flexDirection: 'column',
-        minInlineSize: '15rem',
+        minInlineSize: 'var(--warsha-size-picker-wide)',
         maxInlineSize: '100%',
         backgroundColor: 'var(--warsha-color-surface)',
-        border: '1px solid var(--warsha-bench-rule)',
+        border: 'var(--warsha-line-rule)',
         borderRadius: 'var(--warsha-radius-md)',
       }}
     >
@@ -187,7 +187,7 @@ export function SlashCommandPicker({
           ...LINE_STYLE,
           paddingBlock: 'var(--warsha-space-2)',
           fontSize: 'var(--warsha-font-size-xs)',
-          borderBlockStart: '1px solid var(--warsha-bench-rule)',
+          borderBlockStart: 'var(--warsha-line-rule)',
         }}
       >
         {t('agent_workflow.picker_hint', {}, locale)}

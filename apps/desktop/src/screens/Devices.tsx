@@ -258,8 +258,8 @@ export function Devices({ client, onBack }: DevicesProps) {
       style={{
         paddingInline: 'var(--warsha-space-6)',
         paddingBlock: 'var(--warsha-space-6)',
-        minHeight: 'calc(100vh - 80px)',
-        maxInlineSize: '900px',
+        minHeight: 'calc(100vh - var(--warsha-size-bench-offset))',
+        maxInlineSize: 'var(--warsha-size-plate-max)',
         display: 'flex',
         flexDirection: 'column',
         gap: 'var(--warsha-space-4)',
@@ -423,13 +423,13 @@ export function Devices({ client, onBack }: DevicesProps) {
             aria-busy={pairingLoading}
             style={{
               inlineSize: '100%',
-              maxInlineSize: '420px',
+              maxInlineSize: 'var(--warsha-size-form-narrow)',
               display: 'flex',
               flexDirection: 'column',
               gap: 'var(--warsha-space-3)',
               padding: 'var(--warsha-space-6)',
               backgroundColor: 'var(--warsha-color-surface)',
-              border: '1px solid var(--warsha-bench-edge)',
+              border: 'var(--warsha-line-edge)',
               borderRadius: 'var(--warsha-radius-xl)',
               minInlineSize: 0,
             }}
@@ -464,7 +464,7 @@ export function Devices({ client, onBack }: DevicesProps) {
                 gap: 'var(--warsha-space-2)',
                 paddingBlock: 'var(--warsha-space-6)',
                 backgroundColor: 'var(--warsha-bench-plate)',
-                border: '1px solid var(--warsha-bench-edge)',
+                border: 'var(--warsha-line-edge)',
                 borderRadius: 'var(--warsha-radius-md)',
               }}
             >
@@ -477,8 +477,8 @@ export function Devices({ client, onBack }: DevicesProps) {
                   }
                   alt={label('devices.qr_code')}
                   style={{
-                    inlineSize: '160px',
-                    blockSize: '160px',
+                    inlineSize: 'var(--warsha-size-qr)',
+                    blockSize: 'var(--warsha-size-qr)',
                     objectFit: 'contain',
                     borderRadius: 'var(--warsha-radius-sm)',
                   }}
@@ -492,7 +492,7 @@ export function Devices({ client, onBack }: DevicesProps) {
                   fontFamily: 'var(--warsha-font-mono)',
                   fontVariantNumeric: 'tabular-nums',
                   fontSize: 'var(--warsha-font-size-2xl)',
-                  letterSpacing: '0.2em',
+                  letterSpacing: 'var(--warsha-tracking-code)',
                   color: 'var(--warsha-color-text)',
                 }}
               >

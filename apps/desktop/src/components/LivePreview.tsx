@@ -108,7 +108,7 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
         display: 'flex',
         flexDirection: 'column',
         gap: 'var(--warsha-space-2)',
-        border: '1px solid var(--warsha-bench-rule)',
+        border: 'var(--warsha-line-rule)',
         borderRadius: 'var(--warsha-radius-md)',
         backgroundColor: 'var(--warsha-color-surface)',
         minInlineSize: 0,
@@ -123,7 +123,7 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
           flexWrap: 'wrap',
           paddingInline: 'var(--warsha-space-3)',
           paddingBlock: 'var(--warsha-space-2)',
-          borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+          borderBlockEnd: 'var(--warsha-line-rule)',
           minInlineSize: 0,
         }}
       >
@@ -169,9 +169,9 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
         style={{
           position: 'relative',
           margin: 'var(--warsha-space-2)',
-          minHeight: '320px',
+          minHeight: 'var(--warsha-size-preview-min)',
           borderRadius: 'var(--warsha-radius-sm)',
-          border: '1px solid var(--warsha-bench-edge)',
+          border: 'var(--warsha-line-edge)',
           overflow: 'hidden',
           backgroundColor: 'var(--warsha-bench-plate)',
         }}
@@ -186,7 +186,7 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
             style={{
               display: 'block',
               inlineSize: '100%',
-              blockSize: '320px',
+              blockSize: 'var(--warsha-size-preview-min)',
               border: 'none',
               backgroundColor: 'var(--warsha-color-surface)',
             }}
@@ -202,7 +202,7 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
               alignItems: 'center',
               justifyContent: 'center',
               gap: 'var(--warsha-space-1)',
-              minHeight: '320px',
+              minHeight: 'var(--warsha-size-preview-min)',
               paddingInline: 'var(--warsha-space-4)',
               textAlign: 'center',
               color: 'var(--warsha-color-text)',
@@ -244,7 +244,7 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
               paddingInline: 'var(--warsha-space-3)',
               paddingBlock: 'var(--warsha-space-2)',
               backgroundColor: 'var(--warsha-bench-plate)',
-              borderBlockEnd: '1px solid var(--warsha-bench-edge)',
+              borderBlockEnd: 'var(--warsha-line-edge)',
               minInlineSize: 0,
             }}
           >
@@ -280,7 +280,7 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 'var(--warsha-space-1)',
-                  flex: '1 1 12rem',
+                  flex: '1 1 var(--warsha-size-field-min)',
                   minInlineSize: 0,
                 }}
               >
@@ -312,7 +312,7 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
                     minBlockSize: 'var(--warsha-size-touch)',
                     paddingInline: 'var(--warsha-space-2)',
                     borderRadius: 'var(--warsha-radius-sm)',
-                    border: '1px solid var(--warsha-bench-edge)',
+                    border: 'var(--warsha-line-edge)',
                     backgroundColor: 'var(--warsha-color-surface)',
                     color: 'var(--warsha-color-text)',
                     fontFamily: 'var(--warsha-font-mono)',
@@ -349,8 +349,8 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
             fontSize: 'var(--warsha-font-size-sm)',
             color: 'var(--warsha-color-error)',
             backgroundColor: 'var(--warsha-color-surface)',
-            border: '1px solid var(--warsha-bench-rule)',
-            borderInlineStart: '3px solid var(--warsha-color-error)',
+            border: 'var(--warsha-line-rule)',
+            borderInlineStart: 'var(--warsha-line-band-fail)',
             borderRadius: 'var(--warsha-radius-sm)',
             fontWeight: 'var(--warsha-font-weight-semibold)',
             lineHeight: 'var(--warsha-line-height-relaxed)',

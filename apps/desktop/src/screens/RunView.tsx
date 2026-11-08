@@ -311,7 +311,7 @@ export function RunView({ client, run, onBack }: RunViewProps) {
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: 'calc(100vh - 80px)',
+        height: 'calc(100vh - var(--warsha-size-bench-offset))',
         backgroundColor: 'var(--warsha-color-bg)',
         color: 'var(--warsha-color-text)',
         minInlineSize: 0,
@@ -327,7 +327,7 @@ export function RunView({ client, run, onBack }: RunViewProps) {
           flexWrap: 'wrap',
           paddingInline: 'var(--warsha-space-6)',
           paddingBlock: 'var(--warsha-space-3)',
-          borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+          borderBlockEnd: 'var(--warsha-line-rule)',
           backgroundColor: 'var(--warsha-color-surface)',
           minInlineSize: 0,
         }}
@@ -419,7 +419,7 @@ export function RunView({ client, run, onBack }: RunViewProps) {
           gap: 'var(--warsha-space-1)',
           paddingInline: 'var(--warsha-space-6)',
           backgroundColor: 'var(--warsha-color-surface)',
-          borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+          borderBlockEnd: 'var(--warsha-line-rule)',
           overflowX: 'auto',
           minInlineSize: 0,
         }}
@@ -448,8 +448,8 @@ export function RunView({ client, run, onBack }: RunViewProps) {
                 flex: 'none',
                 borderRadius: 0,
                 borderBlockEnd: selected
-                  ? '3px solid var(--warsha-signal-text)'
-                  : '3px solid transparent',
+                  ? 'var(--warsha-line-signal)'
+                  : 'var(--warsha-line-quiet)',
                 backgroundColor: 'transparent',
                 color: 'var(--warsha-color-text)',
                 fontWeight: selected ? 700 : 500,
@@ -475,16 +475,16 @@ export function RunView({ client, run, onBack }: RunViewProps) {
             style={{
               /* §10: 400px is the stream's preferred column, not a promise — at 320/390 it takes the whole
                   line and the artifact plate follows underneath, instead of being squeezed to zero. */
-              flex: '1 1 400px',
-              maxWidth: '400px',
-              borderInlineEnd: '1px solid var(--warsha-bench-rule)',
+              flex: '1 1 var(--warsha-size-pane)',
+              maxWidth: 'var(--warsha-size-pane)',
+              borderInlineEnd: 'var(--warsha-line-rule)',
               backgroundColor: 'var(--warsha-color-surface)',
               display: 'flex',
               flexDirection: 'column',
               minInlineSize: 0,
             }}
           >
-            <Box dir={dir} p={4} style={{ borderBlockEnd: '1px solid var(--warsha-bench-rule)' }}>
+            <Box dir={dir} p={4} style={{ borderBlockEnd: 'var(--warsha-line-rule)' }}>
               <Text weight="bold" size="sm" dir={dir}>
                 {label('run.event_stream')}
               </Text>
@@ -574,12 +574,12 @@ export function RunView({ client, run, onBack }: RunViewProps) {
                           padding: 'var(--warsha-space-4)',
                           borderRadius: 'var(--warsha-radius-sm)',
                           backgroundColor: 'var(--warsha-bench-plate)',
-                          border: '1px solid var(--warsha-bench-rule)',
+                          border: 'var(--warsha-line-rule)',
                           color: 'var(--warsha-color-text)',
                           fontFamily: 'var(--warsha-font-mono)',
                           fontSize: 'var(--warsha-font-size-sm)',
                           lineHeight: 'var(--warsha-line-height-base)',
-                          maxHeight: '400px',
+                          maxHeight: 'var(--warsha-size-pane)',
                           overflowX: 'auto',
                           overflowY: 'auto',
                           unicodeBidi: 'isolate',

@@ -33,7 +33,7 @@ const { chromium } = require('@playwright/test');
       window.localStorage.setItem('warsha.locale', 'en');
       const config = {
         daemon_url: 'http://127.0.0.1:8766',
-        daemon_ws_url: 'ws://127.0.0.1:8766',
+        daemon_ws_url: 'ws://127.0.0.1:8765',
         daemon_token: token,
         onboarding_complete: 'true',
         app_mode: 'simple',

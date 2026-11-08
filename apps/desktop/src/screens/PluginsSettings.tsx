@@ -190,7 +190,7 @@ export function PluginsSettings({ client, project }: PluginsSettingsProps) {
       style={{
         paddingInline: 'var(--warsha-space-4)',
         paddingBlock: 'var(--warsha-space-4)',
-        maxInlineSize: '900px',
+        maxInlineSize: 'var(--warsha-size-plate-max)',
         margin: '0 auto',
         display: 'flex',
         flexDirection: 'column',
@@ -399,7 +399,7 @@ export function PluginsSettings({ client, project }: PluginsSettingsProps) {
                             dir={dir}
                             style={{ display: 'flex', gap: 'var(--warsha-space-2)', alignItems: 'flex-end', flexWrap: 'wrap' }}
                           >
-                            <Box dir={dir} style={{ flex: '1', minInlineSize: '140px' }}>
+                            <Box dir={dir} style={{ flex: '1', minInlineSize: 'var(--warsha-size-input-min)' }}>
                               <Field id={`plugins-env-key-${index}`} label={label('plugins.env_key')}>
                                 <input
                                   {...fieldControl(`plugins-env-key-${index}`)}
@@ -416,7 +416,7 @@ export function PluginsSettings({ client, project }: PluginsSettingsProps) {
                                 />
                               </Field>
                             </Box>
-                            <Box dir={dir} style={{ flex: '1', minInlineSize: '140px' }}>
+                            <Box dir={dir} style={{ flex: '1', minInlineSize: 'var(--warsha-size-input-min)' }}>
                               <Field id={`plugins-env-value-${index}`} label={label('plugins.env_value')}>
                                 <input
                                   {...fieldControl(`plugins-env-value-${index}`)}

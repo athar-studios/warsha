@@ -210,7 +210,7 @@ export function ProviderSetupWizard({
         display: 'flex',
         flexDirection: 'column',
         gap: 'var(--warsha-space-1)',
-        maxInlineSize: '26rem',
+        maxInlineSize: 'var(--warsha-size-wizard)',
         minInlineSize: 0,
       }}
     >

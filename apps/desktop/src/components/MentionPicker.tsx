@@ -122,10 +122,10 @@ export function MentionPicker({ onSelect, query = '', onClose }: MentionPickerPr
       style={{
         display: 'flex',
         flexDirection: 'column',
-        minInlineSize: '13rem',
+        minInlineSize: 'var(--warsha-size-picker)',
         maxInlineSize: '100%',
         backgroundColor: 'var(--warsha-color-surface)',
-        border: '1px solid var(--warsha-bench-rule)',
+        border: 'var(--warsha-line-rule)',
         borderRadius: 'var(--warsha-radius-md)',
       }}
     >
@@ -172,7 +172,7 @@ export function MentionPicker({ onSelect, query = '', onClose }: MentionPickerPr
           ...LINE_STYLE,
           paddingBlock: 'var(--warsha-space-2)',
           fontSize: 'var(--warsha-font-size-xs)',
-          borderBlockStart: '1px solid var(--warsha-bench-rule)',
+          borderBlockStart: 'var(--warsha-line-rule)',
         }}
       >
         {t('agent_workflow.picker_hint', {}, locale)}

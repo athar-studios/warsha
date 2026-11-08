@@ -71,8 +71,8 @@ describe('the breakpoints (§10)', () => {
     expect(CSS).toMatch(/@media \(min-width: 1440px\)/);
   });
 
-  it('gives the wide bench the 1100px document measure and the rails the token widths', () => {
-    expect(CSS).toMatch(/max-inline-size:\s*1100px/);
+  it('gives the wide bench the content-max document measure and the rails the token widths', () => {
+    expect(CSS).toMatch(/max-inline-size:\s*var\(--warsha-size-content-max\)/);
     expect(CSS).toMatch(/inline-size:\s*var\(--warsha-size-rail\)/);
     expect(CSS).toMatch(/inline-size:\s*var\(--warsha-size-rail-compact\)/);
   });

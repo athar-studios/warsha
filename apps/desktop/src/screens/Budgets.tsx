@@ -180,8 +180,8 @@ export function Budgets({ client, onBack }: BudgetsProps) {
       style={{
         paddingInline: 'var(--warsha-space-6)',
         paddingBlock: 'var(--warsha-space-6)',
-        minHeight: 'calc(100vh - 80px)',
-        maxInlineSize: '1000px',
+        minHeight: 'calc(100vh - var(--warsha-size-bench-offset))',
+        maxInlineSize: 'var(--warsha-size-ledger-max)',
         display: 'flex',
         flexDirection: 'column',
         gap: 'var(--warsha-space-4)',

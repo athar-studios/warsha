@@ -29,6 +29,8 @@ export interface Routine {
   /** Plain-language "what it does", never code. */
   description: string;
   state: RoutineState;
+  /** Why the last attempt failed, when the daemon reported it; shown as the row's tooltip. */
+  reason?: string;
 }
 
 export type RoutineAction = 'run' | 'pause' | 'resume';
@@ -98,13 +100,14 @@ export function RoutineRow({ routine, onRun, onPause, onResume }: RoutineRowProp
       dir={dir}
       data-testid={`routine-row-${routine.id}`}
       data-state={routine.state}
+      title={routine.reason}
       style={{
         display: 'flex',
         flexDirection: 'column',
         gap: 'var(--warsha-space-1)',
         paddingInline: 'var(--warsha-space-4)',
         paddingBlock: 'var(--warsha-space-3)',
-        borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+        borderBlockEnd: 'var(--warsha-line-rule)',
         listStyle: 'none',
         minInlineSize: 0,
       }}

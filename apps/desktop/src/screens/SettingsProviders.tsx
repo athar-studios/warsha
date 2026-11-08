@@ -179,7 +179,7 @@ export function SettingsProviders({
             fontSize: 'var(--warsha-font-size-sm)',
             color: 'var(--warsha-color-text)',
             backgroundColor: 'var(--warsha-bench-plate)',
-            border: '1px solid var(--warsha-bench-rule)',
+            border: 'var(--warsha-line-rule)',
             borderRadius: 'var(--warsha-radius-md)',
           }}
         >

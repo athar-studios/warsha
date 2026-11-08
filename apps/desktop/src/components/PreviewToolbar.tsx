@@ -148,7 +148,7 @@ export function PreviewToolbar({
         flexWrap: 'wrap',
         padding: 'var(--warsha-space-1)',
         backgroundColor: 'var(--warsha-bench-plate)',
-        border: '1px solid var(--warsha-bench-rule)',
+        border: 'var(--warsha-line-rule)',
         borderRadius: 'var(--warsha-radius-md)',
         minInlineSize: 0,
       }}

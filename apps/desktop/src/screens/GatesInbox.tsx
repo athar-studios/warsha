@@ -38,6 +38,7 @@ import {
   RailRow,
   Skeleton,
   Text,
+  sizeTokens,
   type GateCardLabels,
   type GateDecision,
 } from '@warsha/ui';
@@ -62,7 +63,9 @@ const GATE_STAGES: readonly Stage[] = ['gate_a', 'gate_b', 'gate_c', 'gate_d'];
  * (`apps/remote/src/GatePlate.tsx`, `QUIET_BAND`), and 3px/`bench-edge` is the width and colour this file
  * already uses for a recorded note beside it.
  */
-const QUIET_BAND: React.CSSProperties = { borderInlineStart: '3px solid var(--warsha-bench-edge)' };
+const QUIET_BAND: React.CSSProperties = {
+  borderInlineStart: `${sizeTokens.edge} solid var(--warsha-bench-edge)`,
+};
 
 /**
  * Is this gate the one the run is stopped at, waiting on the owner's hand?
@@ -318,7 +321,7 @@ export function GatesInbox({ client, run, onBack }: GatesInboxProps) {
         display: 'flex',
         alignItems: 'stretch',
         gap: 0,
-        minHeight: 'calc(100vh - 80px)',
+        minHeight: 'calc(100vh - var(--warsha-size-bench-offset))',
         backgroundColor: 'var(--warsha-color-bg)',
         color: 'var(--warsha-color-text)',
         flexWrap: 'wrap',
@@ -337,7 +340,7 @@ export function GatesInbox({ client, run, onBack }: GatesInboxProps) {
           display: 'flex',
           flexDirection: 'column',
           backgroundColor: 'var(--warsha-bench-plate)',
-          borderInlineEnd: '1px solid var(--warsha-bench-rule)',
+          borderInlineEnd: 'var(--warsha-line-rule)',
         }}
       >
         <div
@@ -345,7 +348,7 @@ export function GatesInbox({ client, run, onBack }: GatesInboxProps) {
           style={{
             paddingInline: 'var(--warsha-space-4)',
             paddingBlock: 'var(--warsha-space-2)',
-            borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+            borderBlockEnd: 'var(--warsha-line-rule)',
             minInlineSize: 0,
           }}
         >
@@ -522,7 +525,7 @@ export function GatesInbox({ client, run, onBack }: GatesInboxProps) {
                     dir={dir}
                     style={{
                       paddingInlineStart: 'var(--warsha-space-3)',
-                      borderInlineStart: '3px solid var(--warsha-bench-edge)',
+                      borderInlineStart: `${sizeTokens.edge} solid var(--warsha-bench-edge)`,
                     }}
                   >
                     <Text size="xs" dir={dir}>

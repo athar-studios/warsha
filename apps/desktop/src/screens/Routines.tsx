@@ -11,6 +11,7 @@
 // Every word comes from `@warsha/i18n` (`routines.*`): the `{ ar, en }` table, the per-locale count
 // branch and the `translated === key ? fallback` shim are gone.
 import { t, useDirection, useLocale } from '@warsha/i18n';
+import { Banner } from '@warsha/ui';
 
 import { RoutineRow, type Routine } from '../components/RoutineRow';
 
@@ -18,12 +19,14 @@ export type { Routine, RoutineState } from '../components/RoutineRow';
 
 export interface RoutinesProps {
   routines: Routine[];
+  /** Why the last daemon read or action failed; the list itself is kept. */
+  error?: string | null;
   onRun: (id: string) => void;
   onPause: (id: string) => void;
   onResume: (id: string) => void;
 }
 
-export function Routines({ routines, onRun, onPause, onResume }: RoutinesProps) {
+export function Routines({ routines, error, onRun, onPause, onResume }: RoutinesProps) {
   const dir = useDirection();
   const locale = useLocale();
 
@@ -78,13 +81,15 @@ export function Routines({ routines, onRun, onPause, onResume }: RoutinesProps) 
             fontSize: 'var(--warsha-font-size-xs)',
             color: 'var(--warsha-color-text)',
             paddingInline: 'var(--warsha-space-2)',
-            borderInlineStart: '1px solid var(--warsha-bench-edge)',
+            borderInlineStart: 'var(--warsha-line-edge)',
             paddingInlineStart: 'var(--warsha-space-3)',
           }}
         >
           {t('routines.count', { count: routines.length }, locale)}
         </span>
       </header>
+
+      {error ? <Banner tone="error">{error}</Banner> : null}
 
       {routines.length === 0 ? (
         // The next step is said in words on the plate the ledger would occupy (§7). The `data-testid` is
@@ -98,7 +103,7 @@ export function Routines({ routines, onRun, onPause, onResume }: RoutinesProps) 
             fontSize: 'var(--warsha-font-size-sm)',
             color: 'var(--warsha-color-text)',
             backgroundColor: 'var(--warsha-bench-plate)',
-            border: '1px solid var(--warsha-bench-rule)',
+            border: 'var(--warsha-line-rule)',
             borderRadius: 'var(--warsha-radius-md)',
             lineHeight: 'var(--warsha-line-height-relaxed)',
           }}
@@ -118,7 +123,7 @@ export function Routines({ routines, onRun, onPause, onResume }: RoutinesProps) 
             padding: 0,
             listStyle: 'none',
             backgroundColor: 'var(--warsha-bench-plate)',
-            border: '1px solid var(--warsha-bench-rule)',
+            border: 'var(--warsha-line-rule)',
             borderRadius: 'var(--warsha-radius-md)',
             borderBlockStart: 'none',
             minInlineSize: 0,

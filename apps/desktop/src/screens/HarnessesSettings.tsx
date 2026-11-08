@@ -175,7 +175,7 @@ export function HarnessesSettings({ client, project = null }: HarnessesSettingsP
       style={{
         paddingInline: 'var(--warsha-space-4)',
         paddingBlock: 'var(--warsha-space-4)',
-        maxInlineSize: '900px',
+        maxInlineSize: 'var(--warsha-size-plate-max)',
         margin: '0 auto',
         display: 'flex',
         flexDirection: 'column',

@@ -161,7 +161,7 @@ export function SettingsScreen({ client, onBack, project }: SettingsScreenProps)
       style={{
         paddingInline: 'var(--warsha-space-4)',
         paddingBlock: 'var(--warsha-space-6)',
-        maxInlineSize: '900px',
+        maxInlineSize: 'var(--warsha-size-plate-max)',
         margin: '0 auto',
         display: 'flex',
         flexDirection: 'column',
@@ -201,7 +201,7 @@ export function SettingsScreen({ client, onBack, project }: SettingsScreenProps)
           aria-label={label('settings.preferences')}
           style={{
             backgroundColor: 'var(--warsha-color-surface)',
-            border: '1px solid var(--warsha-bench-rule)',
+            border: 'var(--warsha-line-rule)',
             borderRadius: 'var(--warsha-radius-md)',
             minInlineSize: 0,
           }}
@@ -212,7 +212,7 @@ export function SettingsScreen({ client, onBack, project }: SettingsScreenProps)
               margin: 0,
               paddingInline: 'var(--warsha-space-4)',
               paddingBlock: 'var(--warsha-space-3)',
-              borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+              borderBlockEnd: 'var(--warsha-line-rule)',
               fontSize: 'var(--warsha-font-size-sm)',
               fontWeight: 'var(--warsha-font-weight-semibold)',
               color: 'var(--warsha-color-text)',
@@ -269,7 +269,7 @@ export function SettingsScreen({ client, onBack, project }: SettingsScreenProps)
           title={integrations === null ? label('settings.subscriptions') : label('connectors.title')}
           label={integrations === null ? label('settings.subscriptions') : label('connectors.title')}
           recessed
-          style={{ border: '1px solid var(--warsha-bench-rule)', borderRadius: 'var(--warsha-radius-md)' }}
+          style={{ border: 'var(--warsha-line-rule)', borderRadius: 'var(--warsha-radius-md)' }}
         >
           {integrations === null ? (
           <Ledger
@@ -506,7 +506,7 @@ function PreferenceRow({
         flexWrap: 'wrap',
         paddingInline: 'var(--warsha-space-4)',
         paddingBlock: 'var(--warsha-space-3)',
-        borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+        borderBlockEnd: 'var(--warsha-line-rule)',
         minInlineSize: 0,
       }}
     >
@@ -516,7 +516,7 @@ function PreferenceRow({
           fontSize: 'var(--warsha-font-size-sm)',
           fontWeight: 'var(--warsha-font-weight-medium)',
           color: 'var(--warsha-color-text)',
-          flex: '1 1 12rem',
+          flex: '1 1 var(--warsha-size-field-min)',
           minInlineSize: 0,
         }}
       >

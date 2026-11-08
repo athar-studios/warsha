@@ -232,8 +232,8 @@ export function ProvidersSettings({ client, onBack, project }: ProvidersSettings
       style={{
         paddingInline: 'var(--warsha-space-6)',
         paddingBlock: 'var(--warsha-space-6)',
-        minHeight: 'calc(100vh - 80px)',
-        maxInlineSize: '900px',
+        minHeight: 'calc(100vh - var(--warsha-size-bench-offset))',
+        maxInlineSize: 'var(--warsha-size-plate-max)',
         display: 'flex',
         flexDirection: 'column',
         gap: 'var(--warsha-space-4)',
@@ -509,7 +509,7 @@ export function ProvidersSettings({ client, onBack, project }: ProvidersSettings
                       style={{
                         marginBlockStart: 'var(--warsha-space-1)',
                         paddingInlineStart: 'var(--warsha-space-3)',
-                        borderInlineStart: '3px solid var(--warsha-color-error)',
+                        borderInlineStart: 'var(--warsha-line-band-fail)',
                         minInlineSize: 0,
                       }}
                     >

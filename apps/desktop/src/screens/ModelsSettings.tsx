@@ -234,7 +234,7 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
       style={{
         paddingInline: 'var(--warsha-space-4)',
         paddingBlock: 'var(--warsha-space-4)',
-        maxInlineSize: '900px',
+        maxInlineSize: 'var(--warsha-size-plate-max)',
         margin: '0 auto',
         display: 'flex',
         flexDirection: 'column',
@@ -467,7 +467,7 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
                     }
                     actions={
                       <Box dir={dir} style={{ display: 'inline-flex', gap: 'var(--warsha-space-2)', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <label htmlFor={`models-role-select-${role}`} className="sr-only" style={{ position: 'absolute', inlineSize: '1px', blockSize: '1px', overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
+                        <label htmlFor={`models-role-select-${role}`} className="sr-only">
                           {label('models.choose_model')} — {label(`role.${role}`)}
                         </label>
                         <select

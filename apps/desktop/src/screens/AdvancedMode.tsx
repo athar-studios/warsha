@@ -1418,7 +1418,7 @@ export function AdvancedMode({ client, project, onBack, endpoint, onModeChange }
                               alignItems: 'center',
                               gap: 'var(--warsha-space-2)',
                               paddingBlock: 'var(--warsha-space-1)',
-                              borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+                              borderBlockEnd: 'var(--warsha-line-rule)',
                               fontWeight: active ? 'var(--warsha-font-weight-bold)' : 'var(--warsha-font-weight-normal)',
                               minInlineSize: 0,
                             }}
@@ -1632,7 +1632,7 @@ export function AdvancedMode({ client, project, onBack, endpoint, onModeChange }
                           fontSize: 'var(--warsha-font-size-sm)',
                           color: 'var(--warsha-color-text)',
                           backgroundColor: 'var(--warsha-bench-plate)',
-                          border: '1px solid var(--warsha-bench-edge)',
+                          border: 'var(--warsha-line-edge)',
                           borderRadius: 'var(--warsha-radius-sm)',
                           paddingInline: 'var(--warsha-space-3)',
                           paddingBlock: 'var(--warsha-space-2)',
@@ -1825,7 +1825,7 @@ export function AdvancedMode({ client, project, onBack, endpoint, onModeChange }
                     gap: 'var(--warsha-space-2)',
                     flexWrap: 'wrap',
                     paddingBlock: 'var(--warsha-space-1)',
-                    borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+                    borderBlockEnd: 'var(--warsha-line-rule)',
                     minInlineSize: 0,
                   }}
                 >
