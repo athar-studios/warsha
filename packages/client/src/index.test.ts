@@ -4,25 +4,31 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createClient,
+  decodeBackendKit,
   decodeDeviceSummary,
   decodeProjectSummary,
+  decodeRoutine,
   decodeRunSummary,
+  encodeBackendKit,
   parseWarshaEvent,
   pairingDataFromQrPayload,
   redactToken,
   subscribeEvents,
   WarshaClient,
+  type BackendKit,
   type BudgetStatus,
   type DeviceId,
   type GateState,
   type GateSummary,
   type PairingData,
+  type PreferenceSignal,
   type ProjectId,
   type ProjectSummary,
   type ProviderConfig,
   type Role,
   type RunArtifact,
   type RunId,
+  type RunModeConfig,
   type RunStreamSync,
   type RunSummary,
   type Stage,
@@ -1942,5 +1948,361 @@ describe('wave 2 client methods', () => {
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toContain('"integration" is missing "id"');
     expect((error as Error).message).not.toContain('test-token');
+  });
+});
+
+// The daemon's snake_case rows the wiring methods decode (crates/warsha-pipeline).
+const ROUTINE_ROW = {
+  id: 'rt-1',
+  name: 'Nightly build',
+  description: 'Build every night',
+  schedule: { cron: '0 0 * * *' },
+  state: 'idle',
+  last_run_unix: null,
+};
+const ROUTINE_DECODED = {
+  id: 'rt-1',
+  name: 'Nightly build',
+  description: 'Build every night',
+  schedule: { cron: '0 0 * * *' },
+  state: 'idle',
+  lastRunUnix: null,
+};
+const BACKEND_KIT_ROW = {
+  config: {
+    kind: 'pocket_base',
+    url: 'http://127.0.0.1:8090',
+    project_name: 'shop',
+    enabled_features: ['auth', 'storage'],
+  },
+  tables: [{ name: 'users', columns: [{ name: 'id', col_type: 'TEXT', nullable: false }] }],
+  rls_policies: [
+    {
+      table: 'users',
+      policy_name: 'owner_read',
+      expression: 'auth.uid() = owner_id',
+      operation: 'select',
+    },
+  ],
+  storage_buckets: ['avatars'],
+  functions: ['hello'],
+};
+const BACKEND_KIT_DECODED: BackendKit = {
+  config: {
+    kind: 'pocket_base',
+    url: 'http://127.0.0.1:8090',
+    projectName: 'shop',
+    enabledFeatures: ['auth', 'storage'],
+  },
+  tables: [{ name: 'users', columns: [{ name: 'id', colType: 'TEXT', nullable: false }] }],
+  rlsPolicies: [
+    {
+      table: 'users',
+      policyName: 'owner_read',
+      expression: 'auth.uid() = owner_id',
+      operation: 'select',
+    },
+  ],
+  storageBuckets: ['avatars'],
+  functions: ['hello'],
+};
+const PREVIEW_ROW = {
+  project_id: 'p-1',
+  process_id: 'proc-1',
+  command: 'pnpm',
+  args: ['dev'],
+  status: 'running',
+  url: 'http://localhost:5173',
+};
+const PREVIEW_DECODED = {
+  projectId: 'p-1',
+  processId: 'proc-1',
+  command: 'pnpm',
+  args: ['dev'],
+  status: 'running',
+  url: 'http://localhost:5173',
+};
+const RUN_MODE_ROW = { mode: 'local', bind_host: '127.0.0.1', allowed_hosts: [], relay_url: null };
+const RUN_MODE_DECODED: RunModeConfig = {
+  mode: 'local',
+  bindHost: '127.0.0.1',
+  allowedHosts: [],
+  relayUrl: null,
+};
+const PREFERENCE_ROW = { key: 'dark mode', score: 2.5, evidence_count: 3, last_updated: 1764939300 };
+const PREFERENCE_DECODED = { key: 'dark mode', score: 2.5, evidenceCount: 3, lastUpdated: 1764939300 };
+const SIGNAL: PreferenceSignal = {
+  id: 'sig-1',
+  projectId: 'p-1',
+  ownerId: 'owner-1',
+  kind: 'approve',
+  target: 'dark mode',
+  weight: 1,
+  recordedAt: 1764939300,
+};
+const SIGNAL_WIRE = {
+  id: 'sig-1',
+  project_id: 'p-1',
+  owner_id: 'owner-1',
+  kind: 'approve',
+  target: 'dark mode',
+  weight: 1,
+  recorded_at: 1764939300,
+};
+
+describe('wiring client methods (M16/M19/M20)', () => {
+  it('listRoutines dials routines.list and decodes every row', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse([ROUTINE_ROW]));
+    await expect(client.listRoutines()).resolves.toEqual([ROUTINE_DECODED]);
+    expect(sentMethod(0)).toBe('routines.list');
+    expect(sentParams(0)).toEqual({});
+  });
+
+  it('getRoutine dials routines.get with {id} and decodes the row', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(ROUTINE_ROW));
+    await expect(client.getRoutine('rt-1')).resolves.toEqual(ROUTINE_DECODED);
+    expect(sentMethod(0)).toBe('routines.get');
+    expect(sentParams(0)).toEqual({ id: 'rt-1' });
+  });
+
+  it('runRoutineNow dials routines.run_now with {id}', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ ...ROUTINE_ROW, state: 'running' }));
+    await expect(client.runRoutineNow('rt-1')).resolves.toMatchObject({ state: 'running' });
+    expect(sentMethod(0)).toBe('routines.run_now');
+    expect(sentParams(0)).toEqual({ id: 'rt-1' });
+  });
+
+  it('pauseRoutine dials routines.pause with {id}', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ ...ROUTINE_ROW, state: 'paused' }));
+    await expect(client.pauseRoutine('rt-1')).resolves.toMatchObject({ state: 'paused' });
+    expect(sentMethod(0)).toBe('routines.pause');
+    expect(sentParams(0)).toEqual({ id: 'rt-1' });
+  });
+
+  it('resumeRoutine dials routines.resume with {id}', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ ...ROUTINE_ROW, state: 'idle' }));
+    await expect(client.resumeRoutine('rt-1')).resolves.toMatchObject({ state: 'idle' });
+    expect(sentMethod(0)).toBe('routines.resume');
+    expect(sentParams(0)).toEqual({ id: 'rt-1' });
+  });
+
+  it('getBackendKit dials backend.get with {run_id} and decodes the kit', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(BACKEND_KIT_ROW));
+    await expect(client.getBackendKit('run-1' as RunId)).resolves.toEqual(BACKEND_KIT_DECODED);
+    expect(sentMethod(0)).toBe('backend.get');
+    expect(sentParams(0)).toEqual({ run_id: 'run-1' });
+  });
+
+  it('setBackendKit dials backend.set and encodes the kit back to snake_case', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(null));
+    await client.setBackendKit('run-1' as RunId, BACKEND_KIT_DECODED);
+    expect(sentMethod(0)).toBe('backend.set');
+    expect(sentParams(0)).toEqual({ run_id: 'run-1', kit: BACKEND_KIT_ROW });
+  });
+
+  it('startPreview dials preview.start with {project_id, command}', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(PREVIEW_ROW));
+    await expect(client.startPreview('p-1', 'pnpm')).resolves.toEqual(PREVIEW_DECODED);
+    expect(sentMethod(0)).toBe('preview.start');
+    expect(sentParams(0)).toEqual({ project_id: 'p-1', command: 'pnpm' });
+  });
+
+  it('stopPreview dials preview.stop with {project_id}', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(null));
+    await client.stopPreview('p-1');
+    expect(sentMethod(0)).toBe('preview.stop');
+    expect(sentParams(0)).toEqual({ project_id: 'p-1' });
+  });
+
+  it('previewStatus dials preview.status with {project_id}', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(PREVIEW_ROW));
+    await expect(client.previewStatus('p-1')).resolves.toEqual(PREVIEW_DECODED);
+    expect(sentMethod(0)).toBe('preview.status');
+    expect(sentParams(0)).toEqual({ project_id: 'p-1' });
+  });
+
+  it('listRunModes dials runmode.list and decodes every row', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse([RUN_MODE_ROW]));
+    await expect(client.listRunModes()).resolves.toEqual([RUN_MODE_DECODED]);
+    expect(sentMethod(0)).toBe('runmode.list');
+    expect(sentParams(0)).toEqual({});
+  });
+
+  it('setRunMode dials runmode.set and encodes the config to snake_case', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(RUN_MODE_ROW));
+    await expect(client.setRunMode(RUN_MODE_DECODED)).resolves.toEqual(RUN_MODE_DECODED);
+    expect(sentMethod(0)).toBe('runmode.set');
+    expect(sentParams(0)).toEqual({ config: RUN_MODE_ROW });
+  });
+
+  it('listPreferences dials preferences.list with {project_id}', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse([PREFERENCE_ROW]));
+    await expect(client.listPreferences('p-1')).resolves.toEqual([PREFERENCE_DECODED]);
+    expect(sentMethod(0)).toBe('preferences.list');
+    expect(sentParams(0)).toEqual({ project_id: 'p-1' });
+  });
+
+  it('recordPreference dials preferences.record and encodes the signal to snake_case', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse([PREFERENCE_ROW]));
+    await expect(client.recordPreference(SIGNAL)).resolves.toEqual([PREFERENCE_DECODED]);
+    expect(sentMethod(0)).toBe('preferences.record');
+    expect(sentParams(0)).toEqual({ signal: SIGNAL_WIRE });
+  });
+
+  it('getRoutine resolves to null when the daemon answers null', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(null));
+    await expect(client.getRoutine('missing')).resolves.toBeNull();
+    expect(sentParams(0)).toEqual({ id: 'missing' });
+  });
+
+  it('getBackendKit resolves to null when the daemon answers null', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(null));
+    await expect(client.getBackendKit('run-1' as RunId)).resolves.toBeNull();
+    expect(sentParams(0)).toEqual({ run_id: 'run-1' });
+  });
+
+  it('refuses a routines.list answer that is not a list, naming the method', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ id: 'rt-1' }));
+    await expect(client.listRoutines()).rejects.toThrow(
+      'Malformed RPC result from routines.list: expected a list'
+    );
+  });
+
+  it('refuses a getRoutine row missing its id', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ name: 'no id' }));
+    await expect(client.getRoutine('rt-1')).rejects.toThrow('Malformed RPC result');
+  });
+
+  it('refuses a runRoutineNow answer that is not an object', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(null));
+    await expect(client.runRoutineNow('rt-1')).rejects.toThrow('Malformed RPC result');
+  });
+
+  it('refuses a pauseRoutine row missing its name', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ id: 'rt-1' }));
+    await expect(client.pauseRoutine('rt-1')).rejects.toThrow('Malformed RPC result');
+  });
+
+  it('refuses a resumeRoutine answer that is not an object', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse('not an object'));
+    await expect(client.resumeRoutine('rt-1')).rejects.toThrow('Malformed RPC result');
+  });
+
+  it('refuses a getBackendKit row whose config kind is unknown', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ config: { kind: 'mysql' } }));
+    await expect(client.getBackendKit('run-1' as RunId)).rejects.toThrow('Malformed RPC result');
+  });
+
+  it('propagates a backend.set daemon refusal (a void write has no result to decode)', async () => {
+    fetchMock.mockResolvedValueOnce(errorResponse(-32001, 'backend kit refused'));
+    await expect(client.setBackendKit('run-1' as RunId, BACKEND_KIT_DECODED)).rejects.toThrow(
+      'RPC error -32001: backend kit refused'
+    );
+  });
+
+  it('refuses a startPreview row missing its process_id', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ project_id: 'p-1' }));
+    await expect(client.startPreview('p-1', 'pnpm')).rejects.toThrow('Malformed RPC result');
+  });
+
+  it('propagates a preview.stop daemon refusal (a void write has no result to decode)', async () => {
+    fetchMock.mockResolvedValueOnce(errorResponse(-32001, 'no preview to stop'));
+    await expect(client.stopPreview('p-1')).rejects.toThrow('RPC error -32001: no preview to stop');
+  });
+
+  it('refuses a previewStatus row whose status is unknown', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ ...PREVIEW_ROW, status: 'bogus' }));
+    await expect(client.previewStatus('p-1')).rejects.toThrow('Malformed RPC result');
+  });
+
+  it('refuses a runmode.list answer that is not a list, naming the method', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ mode: 'local' }));
+    await expect(client.listRunModes()).rejects.toThrow(
+      'Malformed RPC result from runmode.list: expected a list'
+    );
+  });
+
+  it('refuses a setRunMode answer whose mode is unknown', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ mode: 'bogus' }));
+    await expect(client.setRunMode(RUN_MODE_DECODED)).rejects.toThrow('Malformed RPC result');
+  });
+
+  it('refuses a preferences.list answer that is not a list, naming the method', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ key: 'x' }));
+    await expect(client.listPreferences('p-1')).rejects.toThrow(
+      'Malformed RPC result from preferences.list: expected a list'
+    );
+  });
+
+  it('refuses a preferences.record row missing its score', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse([{ key: 'dark mode' }]));
+    await expect(client.recordPreference(SIGNAL)).rejects.toThrow('Malformed RPC result');
+  });
+
+  it('decodes every routine schedule variant (cron, interval_seconds, manual)', () => {
+    expect(
+      decodeRoutine({ ...ROUTINE_ROW, schedule: { cron: '0 0 * * *' } }, 'routines.get').schedule
+    ).toEqual({
+      cron: '0 0 * * *',
+    });
+    expect(
+      decodeRoutine({ ...ROUTINE_ROW, schedule: { interval_seconds: 60 } }, 'routines.get').schedule
+    ).toEqual({ intervalSeconds: 60 });
+    expect(decodeRoutine({ ...ROUTINE_ROW, schedule: 'manual' }, 'routines.get').schedule).toBe(
+      'manual'
+    );
+  });
+
+  it('decodes every routine state variant (idle, running, paused, failed)', () => {
+    expect(decodeRoutine({ ...ROUTINE_ROW, state: 'idle' }, 'routines.get').state).toBe('idle');
+    expect(decodeRoutine({ ...ROUTINE_ROW, state: 'running' }, 'routines.get').state).toBe('running');
+    expect(decodeRoutine({ ...ROUTINE_ROW, state: 'paused' }, 'routines.get').state).toBe('paused');
+    expect(decodeRoutine({ ...ROUTINE_ROW, state: { failed: 'boom' } }, 'routines.get').state).toEqual({
+      failed: 'boom',
+    });
+  });
+
+  it('decodes a routine last_run_unix number and refuses unknown schedule/state', () => {
+    expect(
+      decodeRoutine({ ...ROUTINE_ROW, last_run_unix: 1764939300 }, 'routines.get').lastRunUnix
+    ).toBe(1764939300);
+    expect(() => decodeRoutine({ ...ROUTINE_ROW, schedule: { bogus: 1 } }, 'routines.get')).toThrow(
+      'Malformed RPC result'
+    );
+    expect(() => decodeRoutine({ ...ROUTINE_ROW, state: 'bogus' }, 'routines.get')).toThrow(
+      'Malformed RPC result'
+    );
+  });
+
+  it('round-trips a BackendKit between the snake_case wire and the camelCase screen', () => {
+    const decoded = decodeBackendKit(BACKEND_KIT_ROW, 'backend.get');
+    expect(decoded).toEqual(BACKEND_KIT_DECODED);
+    expect(encodeBackendKit(decoded)).toEqual(BACKEND_KIT_ROW);
+    expect(decodeBackendKit(encodeBackendKit(decoded), 'backend.get')).toEqual(decoded);
+  });
+
+  it('defaults absent BackendKit list fields to empty', () => {
+    const minimal = { config: { kind: 'supabase', url: 'https://x.test', project_name: 'p' } };
+    expect(decodeBackendKit(minimal, 'backend.get')).toEqual({
+      config: { kind: 'supabase', url: 'https://x.test', projectName: 'p', enabledFeatures: [] },
+      tables: [],
+      rlsPolicies: [],
+      storageBuckets: [],
+      functions: [],
+    });
+  });
+
+  it('refuses an explicit null BackendKit list field (a serde default covers absence, not null)', () => {
+    const withNull = { ...BACKEND_KIT_ROW, tables: null };
+    expect(() => decodeBackendKit(withNull, 'backend.get')).toThrow(
+      'Malformed RPC result from backend.get: "tables" is not a list'
+    );
+    const configNull = {
+      ...BACKEND_KIT_ROW,
+      config: { ...BACKEND_KIT_ROW.config, enabled_features: null },
+    };
+    expect(() => decodeBackendKit(configNull, 'backend.get')).toThrow(
+      '"enabled_features" is not a list'
+    );
   });
 });

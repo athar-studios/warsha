@@ -23,14 +23,14 @@
 //                                                         reported clean in both modes
 //   node scripts/check-wire-contract.mjs --report-only-known
 //                                                         run the strict checks and additionally
-//                                                         print the known #25/#40 drift items
-//                                                         (client-side names and the required-field
-//                                                         break the TypeScript lane is landing)
-//                                                         without letting them change the exit code
+//                                                         print any deferred drift items (both
+//                                                         KNOWN_* sets are empty today, so this
+//                                                         prints nothing) without letting them
+//                                                         change the exit code
 //
 // Output contract (see docs/ARCH_RULES.md):
 //   `<CHECK-ID>: <file>:<line> <offence>` on stdout, one line per violation, exit 1;
-//   `wire: 8 checks, 0 violations` on stdout and exit 0 otherwise.
+//   `wire: 9 checks, 0 violations` on stdout and exit 0 otherwise.
 //
 // Four sources, compared until they agree:
 //   daemon   — every `#[method(name = "…")]` in crates/warshad/src/lib.rs (whitespace-tolerant,
@@ -43,7 +43,11 @@
 //              indirection (five call sites do exactly that — a naive `'…'` regex silently drops
 //              them), with each call's params object counted AND its top-level key names read (a
 //              quoted key counts as an entry and is still a key);
-//   harness  — the `RPC_METHODS` array in apps/desktop/e2e/harness.ts, entries in either quote style;
+//   harness  — the `RPC_METHODS` array in apps/desktop/e2e/harness.ts, entries in either quote
+//              style; compared BOTH ways: every stub must be a daemon method (W2), and every
+//              method the client can send must have a stub (W9, DECISIONS.md 2026-11-08 D8) — a
+//              client method that reaches the e2e lane unstubbed renders §7's error state, which
+//              is how the 2026-11-07 "32 visual failures" class shipped;
 //
 // The param rules, and the measurements that settled them (DECISIONS.md 2026-11-03, #40 WITHDRAWN +
 // restated; #54 for the renames): the earlier plan to require client keys to equal the daemon's
@@ -67,17 +71,15 @@
 // text parser and is the domain of the boot-the-daemon and drive-it test that DECISIONS.md names as
 // the permanent guard.
 //
-// Known drift (DECISIONS.md 2026-11-03, #25 and #40): CLOSED for the M20 batch, RE-OPENED for
-// Wave 2. The TypeScript client lane that closed #25/#40 renamed or deleted every drifted name,
-// shipped `projects.create`'s three required fields and moved the harness stub table with them.
-// The Wave 2 client lane (task #9) now lands AHEAD of its daemon lane (tasks #6–#8): the
-// `harness.*`, `skills.import|toggle|delete`, `plugins.*`, `models.*`, `integrations.*` and
-// `files.*` names below are the client's claim about registrations `warshad` has not grown yet.
-// This is exactly the one-edit escape hatch the header documents: REQUIRE_NO_KNOWN_DRIFT is
-// false and the deferred names sit in KNOWN_UNREGISTERED_METHODS, so `--report-only-known`
-// prints them and everything else stays strict. When the daemon lane registers the names and
-// the harness stubs follow, flip the flag back to true and empty the set — that removal is the
-// done-signal for the Wave 2 wire.
+// Known drift (DECISIONS.md 2026-11-03, #25 and #40; 2026-11-06 Wave 2): CLOSED. The TypeScript
+// client lane that closed #25/#40 renamed or deleted every drifted name, shipped
+// `projects.create`'s three required fields and moved the harness stub table with them. The
+// Wave 2 client lane (task #9) then landed AHEAD of its daemon lane (tasks #6–#8) and deferred
+// the `harness.*`, `skills.import|toggle|delete`, `plugins.*`, `models.*`, `integrations.*` and
+// `files.*` names in KNOWN_UNREGISTERED_METHODS. Those daemon lanes have since registered every
+// name, so the deferral was removed: REQUIRE_NO_KNOWN_DRIFT is true and both KNOWN_* sets are
+// empty. That removal was the done-signal for the Wave 2 wire — every name and every params
+// object is now checked strictly, with nothing deferred.
 //
 // The machinery is kept on purpose: the sets and the flag are the documented one-edit escape hatch
 // if a future drift must ship deferred, and the self-test asserts in both modes that nothing is
@@ -128,18 +130,18 @@ const CHECK_IDS = [
   ['W6', 'view-integrity'],
   ['W7', 'required-field-drift'],
   ['W8', 'param-name-drift'],
+  ['W9', 'client-method-without-harness-stub'],
 ];
 
 // The one-edit flip: when true, the KNOWN_* sets below are ignored and every parsed name and
-// params object is checked strictly. It was TRUE since the TypeScript #25/#40 client lane landed
-// (the renames, the deletions, `projects.create`'s three required fields and the harness stub
-// table); it is FALSE again while the Wave 2 client lane (task #9) ships AHEAD of its daemon
-// lane (tasks #6–#8). Only the Wave 2 names in KNOWN_UNREGISTERED_METHODS below are deferred —
-// every other name and every params object stays strictly checked, and the self-test's
-// `enforcedInBothModes` mutants assert that a drift shape OUTSIDE the deferred set fires in the
-// shipped mode as well with nothing deferred. Flipping this back to true with the set empty is
-// the done-signal for the Wave 2 wire; re-populating the whitelist beyond those names remains a
-// visible decision, not a silent one.
+// params object is checked strictly. It has been TRUE since the TypeScript #25/#40 client lane
+// landed (the renames, the deletions, `projects.create`'s three required fields and the harness
+// stub table), was flipped to false while the Wave 2 client lane (task #9) shipped AHEAD of its
+// daemon lane (tasks #6–#8), and is TRUE again now that those daemon lanes registered every
+// Wave 2 name and both KNOWN_* sets are empty. Nothing is deferred: every name and every params
+// object is strictly checked, and the self-test's `enforcedInBothModes` mutants assert that a
+// drift shape fires in the shipped mode as well with nothing deferred. Re-populating the
+// whitelist remains a visible decision, not a silent one.
 const REQUIRE_NO_KNOWN_DRIFT = true;
 
 // Names `packages/client` puts on the wire that `warshad` does not register. EMPTY since the Wave 2
@@ -610,6 +612,25 @@ function run(root, opts = {}) {
     const offence = `stub "${entry.name}" (the harness answers a name the daemon does not register)`;
     if (!strictKnown && KNOWN_UNREGISTERED_METHODS.has(entry.name)) defer('W2', HARNESS_FILE, entry.line, offence);
     else raise('W2', HARNESS_FILE, entry.line, offence);
+  }
+
+  // W9: every method the client can put on the wire has an e2e harness stub (DECISIONS.md
+  // 2026-11-08 D8). The other direction from W2: a stub the daemon cannot serve is fiction, and a
+  // client call with no stub renders §7's error state in every case that reaches it — the
+  // 2026-11-07 "32 visual failures" class. Unresolvable call sites are W1's finding and skipped
+  // here, so each broken call site is reported once, against the check that can name it. Nothing
+  // is deferrable: this check has no known-drift set, because a stub for a registered method is
+  // always the fix, and a name the daemon does not serve is W1's to delete, not W9's to stub.
+  const harnessSet = new Set(harness.names.map((entry) => entry.name));
+  for (const call of client) {
+    if (call.unresolved !== null) continue; // W1 already refuses this call site
+    if (harnessSet.has(call.name)) continue;
+    raise(
+      'W9',
+      CLIENT_FILE,
+      call.line,
+      `client method "${call.name}" has no e2e harness stub (${HARNESS_FILE} RPC_METHODS)`
+    );
   }
 
   // W3 and W5: every daemon method has a policy row and is declared `with_extensions`.
@@ -1173,6 +1194,20 @@ const MUTATIONS = [
       );
     },
   },
+  {
+    name: 'client-call-without-harness-stub',
+    ids: ['W9'],
+    expect: /client method "gates.list" has no e2e harness stub \(apps\/desktop\/e2e\/harness\.ts RPC_METHODS\)/,
+    mutate: (f) => {
+      // The 2026-11-07 class in one mutation: `gates.list` is a REGISTERED daemon method and the
+      // client calls it (through its same-file const, so the parser must resolve the name exactly
+      // as W1 does), but the harness has no stub. W1 stays silent — the daemon serves the name —
+      // so only W9 can see the case: every screenshot that reaches `gates.list` would photograph
+      // §7's error state instead of the gates it claims to measure. Deleting the stub, not adding a
+      // ghost name, keeps this mutant specific to W9 (the daemon and policy views are untouched).
+      f[HARNESS_FILE] = f[HARNESS_FILE].replace("  'gates.list',\n", '');
+    },
+  },
 ];
 
 function selfTest() {
@@ -1390,7 +1425,7 @@ function selfTest() {
     writeTree(dir, MUTATIONS.reduce((files, m) => ((m.mutate(files), files)), cleanFixture()));
     for (const v of run(dir, { requireNoKnownDrift: true }).violations) {
       const rendered = `${v.id}: ${v.file}:${v.line} ${v.offence}`;
-      if (!/^W[1-8]: [^:\n]+:\d+ \S/.test(rendered) || path.isAbsolute(v.file)) {
+      if (!/^W[1-9]: [^:\n]+:\d+ \S/.test(rendered) || path.isAbsolute(v.file)) {
         failed = true;
         console.log(`self-test message format: FAILED — ${rendered}`);
       }
@@ -1461,7 +1496,7 @@ function main(argv) {
   process.stdout.write(`wire: ${CHECK_IDS.length} checks, 0 violations\n`);
   if (reportKnown && knowns.length > 0) {
     process.stdout.write(
-      `wire: ${knowns.length} known drift item(s) listed above; flip REQUIRE_NO_KNOWN_DRIFT when the client lane lands\n`
+      `wire: ${knowns.length} known drift item(s) listed above; remove the deferral when the daemon registers the name\n`
     );
   }
   return 0;

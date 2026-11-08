@@ -103,12 +103,15 @@ export const RPC_METHODS = [
   'agent.state',
   'agent.turn',
   'backend.export',
+  'backend.get',
+  'backend.set',
   'budget.set',
   'budget.show',
   'devices.list',
   'devices.pair',
   'devices.pair-start',
   'devices.revoke',
+  'files.read',
   'files.tree',
   'gates.approve',
   'gates.changes',
@@ -116,13 +119,31 @@ export const RPC_METHODS = [
   'gates.reject',
   'handoff.apply',
   'handoff.create',
+  'harness.delete',
+  'harness.get',
+  'harness.import',
   'harness.list',
+  'harness.select',
   'health',
+  'integrations.connect',
+  'integrations.disconnect',
   'integrations.list',
+  'integrations.test',
+  'models.add',
   'models.list',
+  'models.remove',
+  'plugins.configure',
+  'plugins.install',
   'plugins.list',
+  'plugins.remove',
+  'plugins.toggle',
   'postlaunch.crashes',
   'postlaunch.reviews',
+  'preferences.list',
+  'preferences.record',
+  'preview.start',
+  'preview.status',
+  'preview.stop',
   'projects.create',
   'projects.get',
   'projects.list',
@@ -132,6 +153,13 @@ export const RPC_METHODS = [
   'providers.test',
   'roles.list',
   'roles.set',
+  'routines.get',
+  'routines.list',
+  'routines.pause',
+  'routines.resume',
+  'routines.run_now',
+  'runmode.list',
+  'runmode.set',
   'runs.advance',
   'runs.artifacts',
   'runs.cancel',
@@ -141,7 +169,10 @@ export const RPC_METHODS = [
   'runs.list',
   'runs.start',
   'runs.subscribe',
+  'skills.delete',
+  'skills.import',
   'skills.list',
+  'skills.toggle',
 ] as const;
 export type RpcMethod = (typeof RPC_METHODS)[number];
 
@@ -844,26 +875,39 @@ const NO_MOTION_CSS = `
   }
 `;
 
+/** One dev-server entry the stub remembers, so `preview.status`/`preview.stop` can answer for it. */
+export interface StubPreview {
+  readonly processId: string;
+  readonly command: string;
+  readonly args: readonly string[];
+  status: 'starting' | 'stopped';
+  readonly url: string | null;
+}
+
 /**
  * The daemon the stub models for one case.
  *
  * `providers.test` answers from `addedKeys`, which is what makes the wizard's refusal state
  * reachable without inventing it in the app: the key the case types is the whole difference between
- * the two test cases. `fixtures` is what a §7 state is written in.
+ * the two test cases. `previews` is the other piece of state the daemon really keeps — a project
+ * with no entry is refused by `preview.status`/`preview.stop` exactly as the live manager refuses
+ * it (`LivePreviewManager::preview_entry`). `fixtures` is what a §7 state is written in.
  */
 export interface StubDaemon {
   readonly providers: readonly ProviderFixture[];
   readonly addedKeys: Map<string, string>;
+  readonly previews: Map<string, StubPreview>;
   readonly fixtures: Partial<Record<RpcMethod, RpcBehaviour>>;
 }
 
-/** The daemon a case runs against: its providers, the keys it holds, and the scenario's overrides. */
+/** The daemon a case runs against: its providers, the keys and previews it holds, its overrides. */
 export function createDaemon(
   options: { providers?: readonly ProviderFixture[]; fixtures?: Partial<Record<RpcMethod, RpcBehaviour>> } = {}
 ): StubDaemon {
   return {
     providers: options.providers ?? DAEMON_PROVIDERS,
     addedKeys: new Map<string, string>(),
+    previews: new Map<string, StubPreview>(),
     fixtures: options.fixtures ?? {},
   };
 }
@@ -1005,6 +1049,230 @@ function bindPairingData(source: Record<string, unknown>): StubOutcome {
 
 /** What the stub answers for one call: a result, or an error the screen is meant to show. */
 type StubOutcome = { ok: true; result: unknown } | { ok: false; code: number; message: string };
+
+/** The wire shape `warsha_core::HarnessDefinition` serialises (`harness.get`/`harness.import`). */
+function harnessRow(id: string): Record<string, unknown> {
+  return {
+    id,
+    version: '1.0.0',
+    name: id,
+    description: '',
+    stages: [
+      {
+        id: 'code',
+        role: 'coder',
+        name: 'Code',
+        prompt_template: null,
+        gate: null,
+        auto_advance: false,
+      },
+    ],
+    rules: {
+      max_repair_iterations: 0,
+      budget_cap_cents: null,
+      allow_parallel_subagents: false,
+      require_verification_receipt: false,
+    },
+    preset: false,
+    active: false,
+    created_at: CREATED_AT,
+  };
+}
+
+/** The wire shape `warsha_core::SkillDefinition` serialises (`skills.import`/`skills.toggle`). */
+function skillRow(id: string, enabled: boolean): Record<string, unknown> {
+  return {
+    id,
+    name: id,
+    description: '',
+    source: 'imported',
+    license: '',
+    content: '',
+    enabled,
+    tags: [],
+  };
+}
+
+/** The wire shape `warsha_core::PluginDefinition` serialises (`plugins.install`/`configure`/`toggle`). */
+function pluginRow(id: string, enabled: boolean): Record<string, unknown> {
+  return {
+    id,
+    name: id,
+    description: '',
+    transport: 'stdio',
+    command: null,
+    args: [],
+    env: {},
+    enabled,
+    tools: [],
+    source: 'installed',
+  };
+}
+
+/** The wire shape `warsha_core::IntegrationStatus` serialises (`integrations.connect`/`disconnect`). */
+function integrationRow(id: string, connected: boolean): Record<string, unknown> {
+  return {
+    id,
+    name: id,
+    connected,
+    configured_at: connected ? CREATED_AT : null,
+    details: null,
+  };
+}
+
+/** The wire shape `warsha_pipeline::Routine` serialises (`routines.run_now`/`pause`/`resume`). */
+function routineRow(id: string, state: 'running' | 'paused' | 'idle'): Record<string, unknown> {
+  return {
+    id,
+    name: id,
+    description: '',
+    schedule: 'manual',
+    state,
+    last_run_unix: null,
+  };
+}
+
+/** The wire shape `warsha_pipeline::LivePreview` serialises (`preview.start`/`preview.status`). */
+function livePreviewRow(projectId: string, entry: StubPreview): Record<string, unknown> {
+  return {
+    project_id: projectId,
+    process_id: entry.processId,
+    command: entry.command,
+    args: [...entry.args],
+    status: entry.status,
+    url: entry.url,
+  };
+}
+
+/** The daemon's refusal for a project with no preview (`ProcessError::PreviewNotFound`). */
+function previewNotFound(projectId: string): StubOutcome {
+  return { ok: false, code: -32000, message: `no preview for project \`${projectId}\`` };
+}
+
+/** Rust's `Debug` rendering of `RunMode`, which every `RunModeError` message uses (`{mode:?}`). */
+const RUN_MODE_LABELS = {
+  local: 'Local',
+  self_hosted: 'SelfHosted',
+  hosted: 'Hosted',
+} as const;
+
+/** `is_loopback_host` (`crates/warsha-pipeline/src/run_modes.rs:281-284`). */
+function isLoopbackHost(host: string): boolean {
+  const trimmed = host.trim().toLowerCase();
+  return trimmed === '127.0.0.1' || trimmed === 'localhost';
+}
+
+/** `is_host_name` (`crates/warsha-pipeline/src/run_modes.rs:290-293`): one non-blank token. */
+function isHostName(candidate: string): boolean {
+  const entry = candidate.trim();
+  return entry.length > 0 && !/[\s/]/.test(entry);
+}
+
+/**
+ * Decode and validate a `runmode.set` config the way the daemon does, or return its refusal.
+ *
+ * The first half is serde's: `mode`, `bind_host` and `allowed_hosts` are required (`relay_url` is
+ * an `Option`), a wrong variant or type is `-32602` in serde's own wording. The second half is
+ * `RunModeConfig::validate()` (`crates/warsha-pipeline/src/run_modes.rs:185-244`), the one gate a
+ * config passes before the daemon stores it, answered with the handler's `-32000` and the
+ * `RunModeError` display text. A stub that answered defaults for a malformed config would let a
+ * screen keep a setting a live daemon refuses.
+ */
+function bindRunModeConfig(value: unknown): { config: Record<string, unknown> } | { refusal: StubOutcome } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return {
+      refusal: {
+        ok: false,
+        code: -32602,
+        message: `invalid type: ${serdeUnexpected(value)}, expected struct RunModeConfig`,
+      },
+    };
+  }
+  const source = value as Record<string, unknown>;
+  for (const field of ['mode', 'bind_host', 'allowed_hosts'] as const) {
+    if (!(field in source)) return { refusal: missingField(field) };
+  }
+  const mode = source['mode'];
+  if (mode !== 'local' && mode !== 'self_hosted' && mode !== 'hosted') {
+    return {
+      refusal: {
+        ok: false,
+        code: -32602,
+        message: `unknown variant \`${String(mode)}\`, expected one of \`local\`, \`self_hosted\`, \`hosted\``,
+      },
+    };
+  }
+  const bindHost = source['bind_host'];
+  if (typeof bindHost !== 'string') {
+    return {
+      refusal: {
+        ok: false,
+        code: -32602,
+        message: `invalid type: ${serdeUnexpected(bindHost)}, expected a string`,
+      },
+    };
+  }
+  const allowedHosts = source['allowed_hosts'];
+  if (!Array.isArray(allowedHosts)) {
+    return {
+      refusal: {
+        ok: false,
+        code: -32602,
+        message: `invalid type: ${serdeUnexpected(allowedHosts)}, expected a sequence`,
+      },
+    };
+  }
+  const hosts: string[] = [];
+  for (const host of allowedHosts) {
+    if (typeof host !== 'string') {
+      return {
+        refusal: {
+          ok: false,
+          code: -32602,
+          message: `invalid type: ${serdeUnexpected(host)}, expected a string`,
+        },
+      };
+    }
+    hosts.push(host);
+  }
+  const relayRaw = source['relay_url'];
+  if (relayRaw !== undefined && relayRaw !== null && typeof relayRaw !== 'string') {
+    return {
+      refusal: {
+        ok: false,
+        code: -32602,
+        message: `invalid type: ${serdeUnexpected(relayRaw)}, expected a string`,
+      },
+    };
+  }
+  const relayUrl = typeof relayRaw === 'string' ? relayRaw : null;
+
+  const label = RUN_MODE_LABELS[mode];
+  const host = bindHost.trim();
+  const refuse = (message: string): { refusal: StubOutcome } => ({
+    refusal: { ok: false, code: -32000, message },
+  });
+  if (host.length === 0) return refuse(`${label} mode needs a bind host`);
+  if (mode === 'local') {
+    if (!isLoopbackHost(host)) return refuse(`${label} mode cannot bind ${host}`);
+    if (hosts.length > 0) {
+      return refuse(`${label} mode cannot carry an allowed-host list (${hosts.length} entries)`);
+    }
+    if (relayUrl !== null) return refuse(`${label} mode cannot carry a relay URL`);
+  } else if (mode === 'self_hosted') {
+    if (isLoopbackHost(host)) return refuse(`${label} mode cannot bind ${host}`);
+    if (hosts.length === 0) return refuse(`${label} mode requires an allowed-host list`);
+    for (const allowed of hosts) {
+      if (!isHostName(allowed)) return refuse(`${JSON.stringify(allowed)} is not a host name`);
+    }
+  } else {
+    if (!isLoopbackHost(host)) return refuse(`${label} mode cannot bind ${host}`);
+    if (relayUrl === null || relayUrl.trim().length === 0) {
+      return refuse(`${label} mode requires a relay URL`);
+    }
+  }
+  return { config: { mode, bind_host: bindHost, allowed_hosts: hosts, relay_url: relayUrl } };
+}
 
 /**
  * What the stub answers per JSON-RPC method.
@@ -1320,6 +1588,227 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
       return { ok: true, result: { path: '/tmp/warsha/handoff.zip' } };
     case 'handoff.apply':
       return { ok: true, result: { summary: '{"files":3,"conflicts":0}' } };
+    // Wave 2 reads and writes plus the wiring batch (PLAN.md M16/M19/M20). These stubs exist to keep
+    // W9 honest (every client method has a stub) and to model the daemon's own answers: reads list
+    // `[]` or answer `null`, and the mutations echo a minimal valid row built from the request.
+    //
+    // The screens that dial them DO exist and reach them through user interaction — SettingsScreen
+    // (integrations connect/disconnect/test), HarnessesSettings (select/import), SkillsSettings
+    // (toggle/import), PluginsSettings (toggle/configure/install), ModelsSettings (add/remove),
+    // AdvancedMode (`files.read`) and SimpleMode (`selectHarness`) — but every call site is an event
+    // handler and no e2e case presses those controls, so the captures do not reach these cases.
+    // Wave B must cover those interactions explicitly; their answers are here already.
+    //
+    // Every required bound argument is checked like the daemon checks it, so a call that would fail
+    // live (`-32602 missing field`) fails here instead of passing, and the two calls whose failure
+    // the daemon models — a preview that does not exist and an invalid run-mode config — answer its
+    // own refusal rather than a convenient default.
+    //
+    // `harness.*` (`warsha_core::HarnessDefinition`; `crates/warshad/src/lib.rs` get_harness/import_harness).
+    case 'harness.get': {
+      if (!paramEntry(params, 'id').found) return missingField('id');
+      return { ok: true, result: harnessRow(paramValue(params, 'id') ?? '') };
+    }
+    case 'harness.import': {
+      if (!paramEntry(params, 'content').found) return missingField('content');
+      return { ok: true, result: harnessRow('harness-imported') };
+    }
+    case 'harness.select':
+      if (!paramEntry(params, 'harness_id').found) return missingField('harness_id');
+      return { ok: true, result: null };
+    case 'harness.delete':
+      if (!paramEntry(params, 'id').found) return missingField('id');
+      return { ok: true, result: null };
+    // `skills.*` (`warsha_core::SkillDefinition`; lib.rs import_skill/toggle_skill/delete_skill).
+    case 'skills.import':
+      if (!paramEntry(params, 'url_or_content').found) return missingField('url_or_content');
+      return { ok: true, result: skillRow('skill-imported', true) };
+    case 'skills.toggle': {
+      if (!paramEntry(params, 'id').found) return missingField('id');
+      // `enabled: bool` is a required bound argument (`lib.rs` toggle_skill), so serde refuses an
+      // omitted or non-boolean value before the handler runs.
+      const enabled = paramEntry(params, 'enabled');
+      if (!enabled.found) return missingField('enabled');
+      if (typeof enabled.value !== 'boolean') {
+        return {
+          ok: false,
+          code: -32602,
+          message: `invalid type: ${serdeUnexpected(enabled.value)}, expected a boolean`,
+        };
+      }
+      return { ok: true, result: skillRow(paramValue(params, 'id') ?? '', enabled.value) };
+    }
+    case 'skills.delete':
+      if (!paramEntry(params, 'id').found) return missingField('id');
+      return { ok: true, result: null };
+    // `plugins.*` (`warsha_core::PluginDefinition`; lib.rs install_plugin/configure_plugin/...).
+    case 'plugins.install':
+      if (!paramEntry(params, 'manifest_json_or_url').found) return missingField('manifest_json_or_url');
+      return { ok: true, result: pluginRow('plugin-installed', true) };
+    case 'plugins.toggle': {
+      if (!paramEntry(params, 'id').found) return missingField('id');
+      // Same required `enabled: bool` as `skills.toggle` (`lib.rs` toggle_plugin).
+      const enabled = paramEntry(params, 'enabled');
+      if (!enabled.found) return missingField('enabled');
+      if (typeof enabled.value !== 'boolean') {
+        return {
+          ok: false,
+          code: -32602,
+          message: `invalid type: ${serdeUnexpected(enabled.value)}, expected a boolean`,
+        };
+      }
+      return { ok: true, result: pluginRow(paramValue(params, 'id') ?? '', enabled.value) };
+    }
+    case 'plugins.configure':
+      if (!paramEntry(params, 'id').found) return missingField('id');
+      if (!paramEntry(params, 'env').found) return missingField('env');
+      return { ok: true, result: pluginRow(paramValue(params, 'id') ?? '', true) };
+    case 'plugins.remove':
+      if (!paramEntry(params, 'id').found) return missingField('id');
+      return { ok: true, result: null };
+    // `models.*` (`warsha_core::CustomModelRecord`; lib.rs add_custom_model/remove_custom_model).
+    case 'models.add': {
+      const missing = ['provider', 'model_id'].find((field) => !paramEntry(params, field).found);
+      if (missing !== undefined) return missingField(missing);
+      const windowEntry = paramEntry(params, 'context_window');
+      return {
+        ok: true,
+        result: {
+          provider: paramValue(params, 'provider') ?? '',
+          model_id: paramValue(params, 'model_id') ?? '',
+          display_name: paramValue(params, 'display_name'),
+          context_window: typeof windowEntry.value === 'number' ? windowEntry.value : null,
+          enabled: true,
+        },
+      };
+    }
+    case 'models.remove':
+      if (!paramEntry(params, 'provider').found) return missingField('provider');
+      if (!paramEntry(params, 'model_id').found) return missingField('model_id');
+      return { ok: true, result: null };
+    // `integrations.*` (`warsha_core::IntegrationStatus`; lib.rs connect/disconnect/test).
+    case 'integrations.connect': {
+      if (!paramEntry(params, 'id').found) return missingField('id');
+      if (!paramEntry(params, 'config').found) return missingField('config');
+      return { ok: true, result: integrationRow(paramValue(params, 'id') ?? '', true) };
+    }
+    case 'integrations.disconnect':
+      if (!paramEntry(params, 'id').found) return missingField('id');
+      return { ok: true, result: integrationRow(paramValue(params, 'id') ?? '', false) };
+    case 'integrations.test': {
+      if (!paramEntry(params, 'id').found) return missingField('id');
+      const id = paramValue(params, 'id') ?? '';
+      return {
+        ok: true,
+        result: {
+          status: 'unconfigured',
+          message: `\`${id}\` is missing an access token: integrations.connect writes the configuration, and no live request is made from here`,
+        },
+      };
+    }
+    // `files.read` (`warsha_core::FileContent`; lib.rs read_project_file).
+    case 'files.read':
+      if (!paramEntry(params, 'project_id').found) return missingField('project_id');
+      if (!paramEntry(params, 'path').found) return missingField('path');
+      return { ok: true, result: { path: paramValue(params, 'path') ?? '', content: '', mime_type: 'text/plain' } };
+    // `routines.*` (`warsha_pipeline::Routine`; lib.rs list/get/run_now/pause/resume). The registry
+    // starts empty, so the two reads answer `[]`/`null`; each mutation echoes the row it acted on —
+    // the state the daemon's runner would have moved it to (`run_now` → `running`, `pause` →
+    // `paused`, `resume` → `idle`) — rather than inventing a routine the case never registered.
+    case 'routines.list':
+      return { ok: true, result: [] };
+    case 'routines.get':
+      if (!paramEntry(params, 'id').found) return missingField('id');
+      return { ok: true, result: null };
+    case 'routines.run_now':
+    case 'routines.pause':
+    case 'routines.resume': {
+      if (!paramEntry(params, 'id').found) return missingField('id');
+      const state = method === 'routines.run_now' ? 'running' : method === 'routines.pause' ? 'paused' : 'idle';
+      return { ok: true, result: routineRow(paramValue(params, 'id') ?? '', state) };
+    }
+    // `backend.get`/`backend.set` (`warsha_pipeline::BackendKit`; lib.rs get_backend/set_backend).
+    case 'backend.get':
+      if (!paramEntry(params, 'run_id').found) return missingField('run_id');
+      return { ok: true, result: null };
+    case 'backend.set':
+      if (!paramEntry(params, 'run_id').found) return missingField('run_id');
+      if (!paramEntry(params, 'kit').found) return missingField('kit');
+      return { ok: true, result: null };
+    // `preview.*` (`warsha_pipeline::LivePreview`; lib.rs start/stop/status). The manager keeps one
+    // entry per project (`LivePreviewManager::preview_entry`, `process_spawn.rs:834-843`): `status`
+    // and `stop` REFUSE a project with none (`-32000 no preview for project \`p\``), and a stopped
+    // preview keeps its entry so `status` still reports it as stopped. The stub keeps the same
+    // per-daemon map; it never observes a live process, so a started preview stays `starting`
+    // until `preview.stop` moves it to `stopped`.
+    case 'preview.start': {
+      if (!paramEntry(params, 'project_id').found) return missingField('project_id');
+      if (!paramEntry(params, 'command').found) return missingField('command');
+      const project = (paramValue(params, 'project_id') ?? '').trim();
+      if (project.length === 0) {
+        return { ok: false, code: -32000, message: 'empty project id: a preview needs a project' };
+      }
+      const existing = daemon.previews.get(project);
+      if (existing !== undefined && existing.status !== 'stopped') {
+        return {
+          ok: false,
+          code: -32000,
+          message: `project \`${project}\` already has a running preview`,
+        };
+      }
+      // The daemon splits with `split_whitespace` (`LivePreviewManager::split_command`), not a shell.
+      const [program = '', ...args] = (paramValue(params, 'command') ?? '')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+      if (program.length === 0) {
+        return { ok: false, code: -32000, message: 'empty command: a process needs a program to run' };
+      }
+      const entry: StubPreview = {
+        processId: `proc-${project}`,
+        command: program,
+        args,
+        status: 'starting',
+        url: null,
+      };
+      daemon.previews.set(project, entry);
+      return { ok: true, result: livePreviewRow(project, entry) };
+    }
+    case 'preview.status': {
+      if (!paramEntry(params, 'project_id').found) return missingField('project_id');
+      const project = (paramValue(params, 'project_id') ?? '').trim();
+      const entry = daemon.previews.get(project);
+      if (entry === undefined) return previewNotFound(project);
+      return { ok: true, result: livePreviewRow(project, entry) };
+    }
+    case 'preview.stop': {
+      if (!paramEntry(params, 'project_id').found) return missingField('project_id');
+      const project = (paramValue(params, 'project_id') ?? '').trim();
+      const entry = daemon.previews.get(project);
+      if (entry === undefined) return previewNotFound(project);
+      entry.status = 'stopped';
+      return { ok: true, result: null };
+    }
+    // `runmode.*` (`warsha_pipeline::RunModeConfig`; lib.rs list/set). A fresh daemon stores no
+    // mode, so the list is empty; `set` refuses what serde or `validate()` refuses and echoes the
+    // config only when the daemon would have stored it.
+    case 'runmode.list':
+      return { ok: true, result: [] };
+    case 'runmode.set': {
+      const config = paramEntry(params, 'config');
+      if (!config.found) return missingField('config');
+      const bound = bindRunModeConfig(config.value);
+      if ('refusal' in bound) return bound.refusal;
+      return { ok: true, result: bound.config };
+    }
+    // `preferences.*` (`warsha_pipeline::Preference`; lib.rs list/record). No preference is derived
+    // until a signal is recorded, and the stub keeps no store, so both reads answer `[]`.
+    case 'preferences.list':
+      if (!paramEntry(params, 'project_id').found) return missingField('project_id');
+      return { ok: true, result: [] };
+    case 'preferences.record':
+      if (!paramEntry(params, 'signal').found) return missingField('signal');
+      return { ok: true, result: [] };
     default:
       return null;
   }
@@ -1516,6 +2005,7 @@ export async function openScreen(page: Page, options: OpenScreenOptions): Promis
   const daemon: StubDaemon = {
     providers: options.providers ?? screen.providers ?? DAEMON_PROVIDERS,
     addedKeys: new Map<string, string>(),
+    previews: new Map<string, StubPreview>(),
     fixtures: { ...scenario.fixtures, ...options.fixtures },
   };
 
