@@ -125,3 +125,50 @@ describe('SettingsScreen live connectors', () => {
     expect(screen.queryByRole('list', { name: ar('connectors.title') })).toBeNull();
   });
 });
+
+/**
+ * The list semantics axe measures as `aria-required-children` in the G0 a11y gate: a `ul` may only
+ * own `li` children, and an empty `ul` is still an announced empty list. The description is prose,
+ * so it is asserted to live beside the ledger, never inside it.
+ */
+function expectEveryChildIsAListItem(ledger: HTMLElement) {
+  const children = Array.from(ledger.children);
+  expect(children.length).toBeGreaterThan(0);
+  const items = within(ledger).getAllByRole('listitem');
+  expect(items).toHaveLength(children.length);
+  for (const child of children) {
+    expect(child.tagName).toBe('LI');
+  }
+  for (const item of items) {
+    expect(children).toContain(item);
+  }
+}
+
+describe('SettingsScreen ledger list semantics', () => {
+  it('renders no list at all when the daemon reports zero integrations', async () => {
+    renderScreen(liveClient({ listIntegrations: vi.fn(async (): Promise<IntegrationStatus[]> => []) }));
+
+    // The panel keeps its description, and the empty catalogue draws no announced empty list.
+    const description = await screen.findByText(ar('connectors.desc'));
+    expect(screen.queryAllByRole('list')).toHaveLength(0);
+    expect(document.querySelector('ul')).toBeNull();
+    expect(description.closest('ul')).toBeNull();
+  });
+
+  it('gives the populated ledger only list-item children, with the description outside it', async () => {
+    renderScreen(liveClient());
+
+    const ledger = await screen.findByRole('list', { name: ar('connectors.title') });
+    expectEveryChildIsAListItem(ledger);
+    const description = screen.getByText(ar('connectors.desc'));
+    expect(ledger).not.toContainElement(description);
+    expect(description.closest('ul')).toBeNull();
+  });
+
+  it('gives the fallback subscriptions ledger only list-item children', async () => {
+    renderScreen(liveClient({ listIntegrations: vi.fn(async () => { throw new Error('offline'); }) }));
+
+    const ledger = await screen.findByRole('list', { name: ar('settings.subscriptions') });
+    expectEveryChildIsAListItem(ledger);
+  });
+});
