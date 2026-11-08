@@ -875,26 +875,39 @@ const NO_MOTION_CSS = `
   }
 `;
 
+/** One dev-server entry the stub remembers, so `preview.status`/`preview.stop` can answer for it. */
+export interface StubPreview {
+  readonly processId: string;
+  readonly command: string;
+  readonly args: readonly string[];
+  status: 'starting' | 'stopped';
+  readonly url: string | null;
+}
+
 /**
  * The daemon the stub models for one case.
  *
  * `providers.test` answers from `addedKeys`, which is what makes the wizard's refusal state
  * reachable without inventing it in the app: the key the case types is the whole difference between
- * the two test cases. `fixtures` is what a §7 state is written in.
+ * the two test cases. `previews` is the other piece of state the daemon really keeps — a project
+ * with no entry is refused by `preview.status`/`preview.stop` exactly as the live manager refuses
+ * it (`LivePreviewManager::preview_entry`). `fixtures` is what a §7 state is written in.
  */
 export interface StubDaemon {
   readonly providers: readonly ProviderFixture[];
   readonly addedKeys: Map<string, string>;
+  readonly previews: Map<string, StubPreview>;
   readonly fixtures: Partial<Record<RpcMethod, RpcBehaviour>>;
 }
 
-/** The daemon a case runs against: its providers, the keys it holds, and the scenario's overrides. */
+/** The daemon a case runs against: its providers, the keys and previews it holds, its overrides. */
 export function createDaemon(
   options: { providers?: readonly ProviderFixture[]; fixtures?: Partial<Record<RpcMethod, RpcBehaviour>> } = {}
 ): StubDaemon {
   return {
     providers: options.providers ?? DAEMON_PROVIDERS,
     addedKeys: new Map<string, string>(),
+    previews: new Map<string, StubPreview>(),
     fixtures: options.fixtures ?? {},
   };
 }
@@ -1120,45 +1133,145 @@ function routineRow(id: string, state: 'running' | 'paused' | 'idle'): Record<st
 }
 
 /** The wire shape `warsha_pipeline::LivePreview` serialises (`preview.start`/`preview.status`). */
-function previewRow(projectId: string, line: string): Record<string, unknown> {
-  // The daemon splits with `split_whitespace` (`LivePreviewManager::split_command`), not a shell.
-  const [program = '', ...args] = line.trim().split(/\s+/).filter(Boolean);
+function livePreviewRow(projectId: string, entry: StubPreview): Record<string, unknown> {
   return {
     project_id: projectId,
-    process_id: `proc-${projectId}`,
-    command: program,
-    args,
-    status: 'starting',
-    url: null,
+    process_id: entry.processId,
+    command: entry.command,
+    args: [...entry.args],
+    status: entry.status,
+    url: entry.url,
   };
 }
 
-/** A stored local-mode config (`RunModeConfig::for_mode(Local)`), the answer to a malformed `set`. */
-const RUN_MODE_LOCAL = {
-  mode: 'local',
-  bind_host: '127.0.0.1',
-  allowed_hosts: [],
-  relay_url: null,
+/** The daemon's refusal for a project with no preview (`ProcessError::PreviewNotFound`). */
+function previewNotFound(projectId: string): StubOutcome {
+  return { ok: false, code: -32000, message: `no preview for project \`${projectId}\`` };
+}
+
+/** Rust's `Debug` rendering of `RunMode`, which every `RunModeError` message uses (`{mode:?}`). */
+const RUN_MODE_LABELS = {
+  local: 'Local',
+  self_hosted: 'SelfHosted',
+  hosted: 'Hosted',
 } as const;
 
+/** `is_loopback_host` (`crates/warsha-pipeline/src/run_modes.rs:281-284`). */
+function isLoopbackHost(host: string): boolean {
+  const trimmed = host.trim().toLowerCase();
+  return trimmed === '127.0.0.1' || trimmed === 'localhost';
+}
+
+/** `is_host_name` (`crates/warsha-pipeline/src/run_modes.rs:290-293`): one non-blank token. */
+function isHostName(candidate: string): boolean {
+  const entry = candidate.trim();
+  return entry.length > 0 && !/[\s/]/.test(entry);
+}
+
 /**
- * The `RunModeConfig` a `runmode.set` request carries, echoed as the daemon would store it; `null`
- * when the config is missing a field the Rust struct requires.
+ * Decode and validate a `runmode.set` config the way the daemon does, or return its refusal.
+ *
+ * The first half is serde's: `mode`, `bind_host` and `allowed_hosts` are required (`relay_url` is
+ * an `Option`), a wrong variant or type is `-32602` in serde's own wording. The second half is
+ * `RunModeConfig::validate()` (`crates/warsha-pipeline/src/run_modes.rs:185-244`), the one gate a
+ * config passes before the daemon stores it, answered with the handler's `-32000` and the
+ * `RunModeError` display text. A stub that answered defaults for a malformed config would let a
+ * screen keep a setting a live daemon refuses.
  */
-function runModeOf(config: unknown): Record<string, unknown> | null {
-  if (typeof config !== 'object' || config === null || Array.isArray(config)) return null;
-  const source = config as Record<string, unknown>;
+function bindRunModeConfig(value: unknown): { config: Record<string, unknown> } | { refusal: StubOutcome } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return {
+      refusal: {
+        ok: false,
+        code: -32602,
+        message: `invalid type: ${serdeUnexpected(value)}, expected struct RunModeConfig`,
+      },
+    };
+  }
+  const source = value as Record<string, unknown>;
+  for (const field of ['mode', 'bind_host', 'allowed_hosts'] as const) {
+    if (!(field in source)) return { refusal: missingField(field) };
+  }
   const mode = source['mode'];
+  if (mode !== 'local' && mode !== 'self_hosted' && mode !== 'hosted') {
+    return {
+      refusal: {
+        ok: false,
+        code: -32602,
+        message: `unknown variant \`${String(mode)}\`, expected one of \`local\`, \`self_hosted\`, \`hosted\``,
+      },
+    };
+  }
   const bindHost = source['bind_host'];
+  if (typeof bindHost !== 'string') {
+    return {
+      refusal: {
+        ok: false,
+        code: -32602,
+        message: `invalid type: ${serdeUnexpected(bindHost)}, expected a string`,
+      },
+    };
+  }
   const allowedHosts = source['allowed_hosts'];
-  if (mode !== 'local' && mode !== 'self_hosted' && mode !== 'hosted') return null;
-  if (typeof bindHost !== 'string' || !Array.isArray(allowedHosts)) return null;
-  return {
-    mode,
-    bind_host: bindHost,
-    allowed_hosts: allowedHosts,
-    relay_url: source['relay_url'] ?? null,
-  };
+  if (!Array.isArray(allowedHosts)) {
+    return {
+      refusal: {
+        ok: false,
+        code: -32602,
+        message: `invalid type: ${serdeUnexpected(allowedHosts)}, expected a sequence`,
+      },
+    };
+  }
+  const hosts: string[] = [];
+  for (const host of allowedHosts) {
+    if (typeof host !== 'string') {
+      return {
+        refusal: {
+          ok: false,
+          code: -32602,
+          message: `invalid type: ${serdeUnexpected(host)}, expected a string`,
+        },
+      };
+    }
+    hosts.push(host);
+  }
+  const relayRaw = source['relay_url'];
+  if (relayRaw !== undefined && relayRaw !== null && typeof relayRaw !== 'string') {
+    return {
+      refusal: {
+        ok: false,
+        code: -32602,
+        message: `invalid type: ${serdeUnexpected(relayRaw)}, expected a string`,
+      },
+    };
+  }
+  const relayUrl = typeof relayRaw === 'string' ? relayRaw : null;
+
+  const label = RUN_MODE_LABELS[mode];
+  const host = bindHost.trim();
+  const refuse = (message: string): { refusal: StubOutcome } => ({
+    refusal: { ok: false, code: -32000, message },
+  });
+  if (host.length === 0) return refuse(`${label} mode needs a bind host`);
+  if (mode === 'local') {
+    if (!isLoopbackHost(host)) return refuse(`${label} mode cannot bind ${host}`);
+    if (hosts.length > 0) {
+      return refuse(`${label} mode cannot carry an allowed-host list (${hosts.length} entries)`);
+    }
+    if (relayUrl !== null) return refuse(`${label} mode cannot carry a relay URL`);
+  } else if (mode === 'self_hosted') {
+    if (isLoopbackHost(host)) return refuse(`${label} mode cannot bind ${host}`);
+    if (hosts.length === 0) return refuse(`${label} mode requires an allowed-host list`);
+    for (const allowed of hosts) {
+      if (!isHostName(allowed)) return refuse(`${JSON.stringify(allowed)} is not a host name`);
+    }
+  } else {
+    if (!isLoopbackHost(host)) return refuse(`${label} mode cannot bind ${host}`);
+    if (relayUrl === null || relayUrl.trim().length === 0) {
+      return refuse(`${label} mode requires a relay URL`);
+    }
+  }
+  return { config: { mode, bind_host: bindHost, allowed_hosts: hosts, relay_url: relayUrl } };
 }
 
 /**
@@ -1475,12 +1588,21 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
       return { ok: true, result: { path: '/tmp/warsha/handoff.zip' } };
     case 'handoff.apply':
       return { ok: true, result: { summary: '{"files":3,"conflicts":0}' } };
-    // Wave 2 reads and writes the wiring batch (PLAN.md M16/M19/M20). No screen calls these yet —
-    // the Wave 2 screens land in Wave B — so the stub exists to keep W9 honest (every client method
-    // has a stub) and to model the daemon's own answers: reads list `[]` or answer `null`, and the
-    // mutations echo a minimal valid row built from the request. The decoders accept every shape
-    // here, and every required bound argument is checked like the daemon does, so a call that would
-    // fail live (`-32602 missing field`) fails here instead of passing.
+    // Wave 2 reads and writes plus the wiring batch (PLAN.md M16/M19/M20). These stubs exist to keep
+    // W9 honest (every client method has a stub) and to model the daemon's own answers: reads list
+    // `[]` or answer `null`, and the mutations echo a minimal valid row built from the request.
+    //
+    // The screens that dial them DO exist and reach them through user interaction — SettingsScreen
+    // (integrations connect/disconnect/test), HarnessesSettings (select/import), SkillsSettings
+    // (toggle/import), PluginsSettings (toggle/configure/install), ModelsSettings (add/remove),
+    // AdvancedMode (`files.read`) and SimpleMode (`selectHarness`) — but every call site is an event
+    // handler and no e2e case presses those controls, so the captures do not reach these cases.
+    // Wave B must cover those interactions explicitly; their answers are here already.
+    //
+    // Every required bound argument is checked like the daemon checks it, so a call that would fail
+    // live (`-32602 missing field`) fails here instead of passing, and the two calls whose failure
+    // the daemon models — a preview that does not exist and an invalid run-mode config — answer its
+    // own refusal rather than a convenient default.
     //
     // `harness.*` (`warsha_core::HarnessDefinition`; `crates/warshad/src/lib.rs` get_harness/import_harness).
     case 'harness.get': {
@@ -1503,8 +1625,18 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
       return { ok: true, result: skillRow('skill-imported', true) };
     case 'skills.toggle': {
       if (!paramEntry(params, 'id').found) return missingField('id');
-      const enabled = paramValue(params, 'enabled');
-      return { ok: true, result: skillRow(paramValue(params, 'id') ?? '', enabled !== 'false') };
+      // `enabled: bool` is a required bound argument (`lib.rs` toggle_skill), so serde refuses an
+      // omitted or non-boolean value before the handler runs.
+      const enabled = paramEntry(params, 'enabled');
+      if (!enabled.found) return missingField('enabled');
+      if (typeof enabled.value !== 'boolean') {
+        return {
+          ok: false,
+          code: -32602,
+          message: `invalid type: ${serdeUnexpected(enabled.value)}, expected a boolean`,
+        };
+      }
+      return { ok: true, result: skillRow(paramValue(params, 'id') ?? '', enabled.value) };
     }
     case 'skills.delete':
       if (!paramEntry(params, 'id').found) return missingField('id');
@@ -1515,8 +1647,17 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
       return { ok: true, result: pluginRow('plugin-installed', true) };
     case 'plugins.toggle': {
       if (!paramEntry(params, 'id').found) return missingField('id');
-      const enabled = paramValue(params, 'enabled');
-      return { ok: true, result: pluginRow(paramValue(params, 'id') ?? '', enabled !== 'false') };
+      // Same required `enabled: bool` as `skills.toggle` (`lib.rs` toggle_plugin).
+      const enabled = paramEntry(params, 'enabled');
+      if (!enabled.found) return missingField('enabled');
+      if (typeof enabled.value !== 'boolean') {
+        return {
+          ok: false,
+          code: -32602,
+          message: `invalid type: ${serdeUnexpected(enabled.value)}, expected a boolean`,
+        };
+      }
+      return { ok: true, result: pluginRow(paramValue(params, 'id') ?? '', enabled.value) };
     }
     case 'plugins.configure':
       if (!paramEntry(params, 'id').found) return missingField('id');
@@ -1594,28 +1735,71 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
       if (!paramEntry(params, 'run_id').found) return missingField('run_id');
       if (!paramEntry(params, 'kit').found) return missingField('kit');
       return { ok: true, result: null };
-    // `preview.*` (`warsha_pipeline::LivePreview`; lib.rs start/stop/status). A stopped process
-    // still reports its own row on the daemon; the stub answers the one the start call asked for.
+    // `preview.*` (`warsha_pipeline::LivePreview`; lib.rs start/stop/status). The manager keeps one
+    // entry per project (`LivePreviewManager::preview_entry`, `process_spawn.rs:834-843`): `status`
+    // and `stop` REFUSE a project with none (`-32000 no preview for project \`p\``), and a stopped
+    // preview keeps its entry so `status` still reports it as stopped. The stub keeps the same
+    // per-daemon map; it never observes a live process, so a started preview stays `starting`
+    // until `preview.stop` moves it to `stopped`.
     case 'preview.start': {
       if (!paramEntry(params, 'project_id').found) return missingField('project_id');
       if (!paramEntry(params, 'command').found) return missingField('command');
-      return { ok: true, result: previewRow(paramValue(params, 'project_id') ?? '', paramValue(params, 'command') ?? '') };
+      const project = (paramValue(params, 'project_id') ?? '').trim();
+      if (project.length === 0) {
+        return { ok: false, code: -32000, message: 'empty project id: a preview needs a project' };
+      }
+      const existing = daemon.previews.get(project);
+      if (existing !== undefined && existing.status !== 'stopped') {
+        return {
+          ok: false,
+          code: -32000,
+          message: `project \`${project}\` already has a running preview`,
+        };
+      }
+      // The daemon splits with `split_whitespace` (`LivePreviewManager::split_command`), not a shell.
+      const [program = '', ...args] = (paramValue(params, 'command') ?? '')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+      if (program.length === 0) {
+        return { ok: false, code: -32000, message: 'empty command: a process needs a program to run' };
+      }
+      const entry: StubPreview = {
+        processId: `proc-${project}`,
+        command: program,
+        args,
+        status: 'starting',
+        url: null,
+      };
+      daemon.previews.set(project, entry);
+      return { ok: true, result: livePreviewRow(project, entry) };
     }
-    case 'preview.status':
+    case 'preview.status': {
       if (!paramEntry(params, 'project_id').found) return missingField('project_id');
-      return { ok: true, result: previewRow(paramValue(params, 'project_id') ?? '', 'pnpm dev') };
-    case 'preview.stop':
+      const project = (paramValue(params, 'project_id') ?? '').trim();
+      const entry = daemon.previews.get(project);
+      if (entry === undefined) return previewNotFound(project);
+      return { ok: true, result: livePreviewRow(project, entry) };
+    }
+    case 'preview.stop': {
       if (!paramEntry(params, 'project_id').found) return missingField('project_id');
+      const project = (paramValue(params, 'project_id') ?? '').trim();
+      const entry = daemon.previews.get(project);
+      if (entry === undefined) return previewNotFound(project);
+      entry.status = 'stopped';
       return { ok: true, result: null };
+    }
     // `runmode.*` (`warsha_pipeline::RunModeConfig`; lib.rs list/set). A fresh daemon stores no
-    // mode, so the list is empty and the set echoes the config it was asked to store.
+    // mode, so the list is empty; `set` refuses what serde or `validate()` refuses and echoes the
+    // config only when the daemon would have stored it.
     case 'runmode.list':
       return { ok: true, result: [] };
     case 'runmode.set': {
       const config = paramEntry(params, 'config');
       if (!config.found) return missingField('config');
-      const mode = runModeOf(config.value);
-      return { ok: true, result: mode === null ? RUN_MODE_LOCAL : mode };
+      const bound = bindRunModeConfig(config.value);
+      if ('refusal' in bound) return bound.refusal;
+      return { ok: true, result: bound.config };
     }
     // `preferences.*` (`warsha_pipeline::Preference`; lib.rs list/record). No preference is derived
     // until a signal is recorded, and the stub keeps no store, so both reads answer `[]`.
@@ -1821,6 +2005,7 @@ export async function openScreen(page: Page, options: OpenScreenOptions): Promis
   const daemon: StubDaemon = {
     providers: options.providers ?? screen.providers ?? DAEMON_PROVIDERS,
     addedKeys: new Map<string, string>(),
+    previews: new Map<string, StubPreview>(),
     fixtures: { ...scenario.fixtures, ...options.fixtures },
   };
 
