@@ -19,7 +19,7 @@ or drift check (`/egm-drift-report`) on the Warsha repo.
 
 ## Canonical docs (read first)
 
-- `docs/ARCHITECTURE.md` — system architecture (verified against the tree at `99a7c03`)
+- `docs/ARCHITECTURE.md` — system architecture (verified against the tree at `406240a`)
 - `docs/designs/DESIGN_SYSTEM_V2.md` — Design System v2 (tokens, R6 v2, compound contracts, adoption ladder)
 - `docs/design/REDESIGN.md` — redesign spec (S5/S6/§7/§10/§11)
 - `docs/UI.md` — desktop UI reference (screens, states, directions)

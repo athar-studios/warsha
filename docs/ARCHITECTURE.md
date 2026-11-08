@@ -72,7 +72,7 @@ edges.
 ### 2.3 Module map (what each crate actually contains)
 
 The `mod` declarations in `crates/<name>/src/lib.rs` are the real module inventory. The map below
-was read at `99a7c03`; a module listed as private is only reachable through that crate's `pub use`
+was read at `406240a`; a module listed as private is only reachable through that crate's `pub use`
 block (rule `R4`).
 
 | Crate | Modules declared in `src/lib.rs` | Public surface |
@@ -198,7 +198,7 @@ milestone; the enforcement in `ARCH_RULES.md` is deliberately written so the cur
 | `warsha-cli` → `warshad` | the CLI links the daemon crate | the CLI is an RPC client only | **No.** Not expressible as a ring rule; noted here so the CLI keeps its `Debug`/`DaemonConfig` use of the daemon crate in one place. |
 | `warsha-relay` imports `warsha-remote` | correct today | unchanged | Yes — `R3` allows it (both are layer ≥ 2, relay is not above the pipeline). |
 | `warsha-pipeline` declares `mod provider_setup;` | a second `provider_setup` also exists in `warsha-providers` | one home for provider setup | **No.** Duplication is a code smell, not a dependency violation. |
-| `warsha-store` keeps its code in two files | `lib.rs` is 1,414 lines and `persistence.rs` is 1,818 lines (`wc -l`, measured at `99a7c03`) | split by aggregate | **No.** Not a boundary question. |
+| `warsha-store` keeps its code in two files | `lib.rs` is 1,414 lines and `persistence.rs` is 1,818 lines (`wc -l`, measured at `406240a`) | split by aggregate | **No.** Not a boundary question. |
 | `@warsha/crypto` is unused by the apps | declared as a library | used for pairing on the remote UI | **No.** `R5` only forbids the *wrong* direction. |
 
 ---
