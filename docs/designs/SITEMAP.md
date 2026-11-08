@@ -25,5 +25,8 @@ Elephant-Goldfish Model flow (`/egm-brainstorm` → `/egm-draft` →
 - One file per feature under `docs/designs/`, named `FEATURE.md`.
 - Sections: Overview, Problem, Goals, Non-Goals, Open Questions, CUJs, Technical Plan, Alternatives, Verification.
 - Verification must name real commands and E2E spec totals (a11y 188, states 252, visual 308,
-  behaviour 45 across `flows`/`layout`/`onboarding`, remote 91).
+  behaviour 45 across `flows`/`layout`/`onboarding`, remote 91). Those are **listed** totals, not a
+  green baseline: G0 recorded desktop 793 listed / 785 passed / 8 failed (the 8 settings a11y cases,
+  fixed by W8) and remote 91 / 51 / **40 failed** (stale remote baselines, open under owner decision
+  OD1). See `../VERIFY.md` §1.3 before quoting any suite as green.
 - Drift check weekly: `/egm-drift-report docs/designs/` — reconcile doc or code, human picks which.

@@ -68,6 +68,40 @@ updater artifacts (`latest.json`, `.sig`) are produced, `tauri build` requires n
 `TAURI_SIGNING_PRIVATE_KEY`, and nothing updates itself.** Re-enabling is human-only work
 (minisign key + published `latest.json`); see `DECISIONS.md` (W1, 2026-11-05) for how to reverse it.
 
+### 1.3 E2E baseline truth — G0 is not all-green, and the remote half is an open owner decision (OD1)
+
+The recorded **G0** baseline at the planner commit `0772d50` on the authoritative Linux x86_64
+capture host is **not an all-green run**, and no document may present it as one:
+
+| Suite | Listed | Passed | Failed | Detail |
+|---|---|---|---|---|
+| Desktop | 793 | 785 | **8** | `screens.a11y.spec.ts` 188 listed / 180 passed / 8 failed; `states` 252/252, `screens.visual` 308/308, `flows` 30/30, `layout` 12/12, `onboarding` 3/3 |
+| Remote | 91 | 51 | **40** | `bench.visual.spec.ts` 84 listed / 44 passed / 40 failed; `flows.spec.ts` 7/7 |
+
+All 8 desktop failures were the **`settings` screen** failing axe
+`aria-required-children [critical]` — `Required ARIA child role not present: listitem`. G0's verdict
+is recorded as **`fail`** (`acceptance.json`, exit 1, log `gates/G0.log`, SHA-256 `3c3ff820…`): G0
+is a **baseline truth record**, not a green gate, and nothing was fixed, refreshed or re-run to
+improve it.
+
+Those 8 desktop failures were **fixed by packet W8** (now merged). Three independent capture-host
+re-measurements prove it with zero snapshot writes: **G8.4** (`0b8a7e8`, 793 passed / 0 failed),
+**G3.8** (`0f82973`, 793/0) and **G4.9** (`73b1331`, 793/0); each recorded `snapshot_writes 0`, and
+G4.9/G8.4 also `dirty_after 0`. The desktop suite is green at those commits.
+
+The **40 remote failures remain OPEN** and are blocked on **OWNER DECISION OD1**:
+
+- the 40 baselines are **stale product images**, last refreshed at `ddb8074` on an aarch64 host;
+- six later commits changed `apps/remote/src`, including `b3dc490`, which added visible
+  create-project / start-run panels and run controls;
+- the failures are **selective, which disproves host raster noise**: gates 20/20, settings 8/8 and
+  flows 7/7 pass, while run 12/12, projects 8/8 and needs-you 20/36 fail (12 + 8 + 20 = 40);
+- refreshing them is **Phase B**, requiring an **owner-named baseline set** (decision D1). No agent
+  may refresh them, and no document may imply the remote suite is green.
+
+Until OD1 is decided and a named refresh lands, the truthful statement is: desktop is 793 passed /
+0 failed on the capture host after W8; **remote is 91 listed / 51 passed / 40 failed**.
+
 ---
 
 ## 2. Acceptable verification evidence — the bar every claim here meets
