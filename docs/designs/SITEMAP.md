@@ -12,6 +12,7 @@ Elephant-Goldfish Model flow (`/egm-brainstorm` → `/egm-draft` →
 | Design | Status | Path |
 |---|---|---|
 | Redesign baseline (S5/S6/§7/§10/§11) | Canonical reference | `../design/REDESIGN.md` |
+| Design System v2 — tokens, R6 v2, compound contracts, screen architecture, adoption ladder | Draft for implementation (run 2026-11-08, packets W3/W5) | [`./DESIGN_SYSTEM_V2.md`](./DESIGN_SYSTEM_V2.md) |
 | _(next design)_ | Draft | `./FEATURE.md` (create per feature) |
 
 ## Conventions

@@ -519,7 +519,7 @@
 - [x] `ARCH_AUDIT.md`: per-file audit against R1–R5 plus the refactors made — delivered 2026-10-30; nothing was refactored by the audit itself (0 violations to fix), the M20 first-batch refactors are re-verified in it
 - [ ] Type-aware ESLint: re-enable `plugin:@typescript-eslint/recommended-type-checked` (deferred in the flat config — see DECISIONS.md 2026-10-31; ~280 existing app-screen violations, all needing component-logic rewrites)
 - [ ] Wire `App.tsx`'s `handleCreateProject` (currently an unused handler kept behind one narrow lint opt-out)
-- [ ] Tokens the twelfth batch could not reach: the two app stylesheets (`.css` is outside the R6 scan), app radii/widths/heights, and off-scale values (`10px`, `13px`, `18px`, `40px`, `0.8125rem`, `0.8rem`). Also missing tokens the apps had to work around: a scrim/overlay colour (modal backdrops use `--warsha-color-muted`) and pale status tints (pill backgrounds use `--warsha-color-surface-muted`, with the text colour carrying the state)
+- [ ] *(2026-11-08: partly stale — the listed off-scale literals `10px/13px/18px/40px/0.8125rem/0.8rem` have 0 hits since `68dc78d`; what remains, plus the scrim/tint gap, is planned in **Run 2026-11-08** below and `docs/designs/DESIGN_SYSTEM_V2.md` §4.)* Tokens the twelfth batch could not reach: the two app stylesheets (`.css` is outside the R6 scan), app radii/widths/heights, and off-scale values (`10px`, `13px`, `18px`, `40px`, `0.8125rem`, `0.8rem`). Also missing tokens the apps had to work around: a scrim/overlay colour (modal backdrops use `--warsha-color-muted`) and pale status tints (pill backgrounds use `--warsha-color-surface-muted`, with the text colour carrying the state)
 - [x] Migrate `apps/desktop/src/**` and `apps/remote/src/**` inline literals to the token vocabulary, then extend R6 to scan them — ✅ DONE (M20 twelfth batch, 2026-10-31)
   - `apps/desktop/src/theme.tsx` (new): `ThemePreference` (`light`/`dark`/`system`), `ResolvedTheme`, `THEME_STORAGE_KEY = 'warsha.theme'`, `resolveTheme`, `readThemePreference`, `systemPrefersDark`, `applyTheme`, `applyStoredTheme`, `ThemeProvider` + `useTheme`. The provider reads `localStorage` and `prefers-color-scheme`, writes `document.documentElement.dataset.theme` (`light`/`dark` only — never `system`), persists the owner's choice and re-evaluates on the media query's `change` event, so `system` keeps following the OS. `main.tsx` calls `applyStoredTheme()` before the first render, so a dark app does not flash light
   - `apps/desktop/src/components/ThemeToggle.tsx` (new): the top-bar switch — `role="group"` of three buttons with `aria-pressed`, labelled through `t()` with the `localized` fallback (ar + en), token-styled, logical properties only
@@ -544,7 +544,36 @@
 - [x] Installers produced: `apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/Warsha_0.1.0_x64_en-US.msi` (8,085,504 bytes) and `...\bundle\nsis\Warsha_0.1.0_x64-setup.exe` (5,721,668 bytes)
 - [ ] Still open after this batch: the installers are unsigned (SmartScreen warns), the updater plugin is configured but not a dependency, the webview has no live event stream (`/events` authenticates from a header a browser cannot set), the ports are fixed rather than discovered, and the bundle identifier `dev.warsha.app` still ends in `.app` (Tauri warns about the macOS bundle-extension clash)
 
+## Run 2026-11-08 — Design System v2 + post-Qoder remediation (W1–W7) ⏳ PLANNED (planner: Opus 5.5; gates frozen)
 
+Run id `2026-11-08-design-and-remediation`, evidence `bridge-io/policy/2026-11-08-design-and-remediation/`
+(`state.json` = `warsha-run/v1`, resumable without chat). Spec: `docs/designs/DESIGN_SYSTEM_V2.md`.
+Integration branch `run/2026-11-08/integration`; packet branches `run/2026-11-08/wN-<slug>`;
+worktrees `C:/Users/Dragonfly/Downloads/warsha-wt/wN`. Workers never edit `PLAN.md`/`PROGRESS.md`/
+`DECISIONS.md` — each writes `packets/WN/report.md` in the evidence dir and the integrator folds it in.
+W3 and W5 are **pixel-neutral**: 793 desktop + 91 remote Playwright cases green with zero snapshot writes.
+
+Measured baselines at `f7b8583`: vitest ui 151 · client 112 · i18n 52 · desktop 443 · remote 221;
+`warsha-pipeline` 341 tests (workspace 725); Playwright `--list` desktop 793 (a11y 188, states 252,
+visual 308, flows 30, layout 12, onboarding 3), remote 91 (bench.visual 84, flows 7).
+
+- [ ] **G0** — verifier runs `pnpm exec playwright test --project=desktop` and `--project=remote` on the Linux capture host at the planner commit; records passed/failed per spec (settles a11y 180-vs-188)
+- [ ] **W1** (Wave A) README truth — `crates/warsha-{remote,git,pipeline}/README.md`, `packages/crypto/README.md`, `apps/{remote,desktop}/README.md`, `templates/README.md`, `README.md`, `README.ar.md`
+- [ ] **W3** (Wave A) Design System v2 in `packages/ui` — §4 tokens (scrim, 4 tints, lines, elevation/layers, half-steps, layout sizes, tracking, breakpoints), R6.7–R6.10 + app-length ratchet, pixel-neutral compound fixes, 3 new compound tests, `packages/ui/README.md`; `@warsha/ui` ≥ 170 tests
+- [ ] **W4** (Wave A) wire + client + harness — stale `REQUIRE_NO_KNOWN_DRIFT` comments, 14 `WarshaClient` wrappers (routines ×5, backend get/set, preview ×3, runmode ×2, preferences ×2), harness `RPC_METHODS` 44 → 75, wire check W9 (client ⊆ harness); client ≥ 140 tests
+- [ ] **W6** (Wave A) pipeline hardening — quote-aware `split_command`, quoted `probe_line_for`, `ReadBeforeWriteGuard` in `FilesystemToolExecutor`, `@file` mentions attached in `AgentLoop`; pipeline ≥ 350 tests
+- [ ] **W7** (Wave A) Android — build remote, `assembleRelease` (preBuild syncs `assets/public`), `apksigner verify`, SHA-256 + size in `apps/mobile/README.md`
+- [ ] **C1** — owner merges accepted W3 + W4 (and W1/W6/W7 when ready) into the integration branch (`--no-ff`)
+- [ ] **W2** (Wave B) canonical docs — `docs/{ARCHITECTURE,ARCH_RULES,DEPLOY,DEVELOPERS,VERIFY}.md`, `docs/src/{architecture,SUMMARY}.md` + 5 shims, `docs/designs/SITEMAP.md`, `_agents/skills/warsha_elephant/SKILL.md`, `SECURITY.md`
+- [ ] **W5** (Wave B) apps adoption + wiring — Routines + BackendKitPanel live, `real-acceptance.cjs:36` → 8765, DS v2 §4 migration table, scrim in HandoffDialog/GateBell; desktop ≥ 451 tests; ratchet passes at `WARSHA_R6_APP_LENGTH_BUDGET=0`
+- [ ] **C2 / INT-2** — merge W2 + W5; set `APP_LENGTH_BUDGET = 0` in `packages/ui/src/tokens/tokenDrift.test.ts` (planner-specified one-line tightening)
+- [ ] **C3** — full gate sweep on the integration branch (Windows + Linux capture host; W7 gates re-run on the integrated tree) → owner acceptance → merge to `dev`
+
+Phase B (visual wave, owner names the baseline set) and Phase C (IBM Plex vendoring, OFL-1.1 notice)
+are listed in `DESIGN_SYSTEM_V2.md` §9. Logged follow-ups outside this run: `warshad` `start_preview`
+should reuse `split_command`; remaining `TODO(M20 wiring)` sites (`RunView`, `AdvancedMode`,
+`SettingsScreen`, stale `ArtifactViewer`); the timing-fragile `sleep 30` process tests; harness stub
+shape drift (`postlaunch.*`, `backend.export`, `handoff.*`).
 
 ## Definition of Done (v0.1.0 — M0–M9, per BUILD_PROMPT.md §8)
 - [ ] M0–M9 acceptance criteria all pass, CI is green on all three OSes, and there are no `TODO(security)` items left

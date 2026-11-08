@@ -1,5 +1,59 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-08 — Planner phase: Design System v2 spec + W1–W7 packet plan (PLANNED, no runtime code)
+
+Planner: Opus 5.5 (`ENGINEERING_POLICY.md` §2 planner role; intake + plan phases only). Inputs: the
+Post-Qoder Delta Audit below, `AGENTS.md`, `ENGINEERING_POLICY.md`, `REDESIGN.md`, the token modules,
+the 23 compounds, both apps, and three read-only fact-check sweeps of every claim in the brief.
+
+- **Written**: `docs/designs/DESIGN_SYSTEM_V2.md` (direction, BiDi rules, parity matrix, token v2 with
+  values and contrast, R6 v2 + ratchet, primitive and compound contracts, README spec, screen
+  architecture, adoption ladder A/B/C, verification); SITEMAP row; `PLAN.md` "Run 2026-11-08"
+  checklist; `DECISIONS.md` D1–D10; evidence dir `bridge-io/policy/2026-11-08-design-and-remediation/`
+  (`state.json` seq 2 phase `plan`, `checkpoints/001-intake.json` + `002-plan.json`,
+  `acceptance.json` all gates `not-run`, `packets/W1..W7/prompt.md`, `HANDOVER.md`).
+- **Measured baselines at `f7b8583`** (this Windows host): vitest `@warsha/ui` 151, `@warsha/client`
+  112, `@warsha/i18n` 52, `warsha-desktop` 443, `warsha-remote` 221 (all exit 0);
+  `cargo test -p warsha-pipeline --all-targets -- --list` 341 (agent_loop 27, agent_tools 12,
+  process_spawn 25, work_protection 10); `playwright test --list` desktop 793 (a11y 188, states 252,
+  visual 308, flows 30, layout 12, onboarding 3), remote 91 (bench.visual 84, flows 7).
+- **Brief corrected against code**: 17 Wave-2 RPCs missing from the harness (not 15); 88 daemon
+  methods / 88 policy rows (not 68); 26 non-test pipeline modules (not 25); `pairing_link` is
+  `warsha-remote/src/lib.rs:267-279` and `process_handshake` `:656-659`; the a11y spec lists **188**
+  cases while the 2026-11-07 run reports 180 passed (unexplained — G0 settles it); the off-scale
+  literals named in `PLAN.md` L522 have 0 hits (what remains is ~75 border shorthands, ~20 layout
+  widths, `calc(100vh - 80px)` ×8 and both app stylesheets); the receipt seal is FNV-1a, not
+  cryptographic; no app loads IBM Plex (Noto Sans Arabic + Inter from Google Fonts); the
+  `real-acceptance.cjs` 8766 → 8765 fix is correct; `@warsha/crypto` has no consumers; `octocrab` is
+  declared but unused.
+- **DAG**: G0 → Wave A (W1, W3, W4, W6, W7 in parallel) → C1 → Wave B (W2, W5) → C2/INT-2 → C3.
+- **Not done here**: no packet has started; no gate has run (all `not-run`); the Linux capture-host
+  baseline G0 is the verifier's first step.
+
+---
+
+## EGM Bootstrap Post-Qoder Delta Audit — 2026-11-08 (READ-ONLY AUDIT AFTER `08d61af`..`f7b8583`)
+
+Re-audited the repository via `egm-bootstrap-orchestrator` after Qoder landed commits `08d61af`..`f7b8583`:
+
+- **Verified Fixed by Qoder (`08d61af`..`f7b8583`)**:
+  - Created all 19 missing directory `README.md` contracts (all 20/20 directories now have a `README.md`).
+  - Updated `README.md` and `README.ar.md` status banner (`Verified today` ledger) and M0–M9 roadmap rows, and updated `docs/INSTALL.md` binary byte sizes and SHA-256 hashes.
+  - Fixed the two `cargo clippy` warnings (`SettingsStore::default()` in `warsha-pipeline` and `items_after_test_module` in `warshad/src/settings.rs`).
+  - Stubbed 4 Wave 2 mount-time read RPCs (`files.tree`, `integrations.list`, `plugins.list`, `skills.list`) in `apps/desktop/e2e/harness.ts` (`RPC_METHODS`: 40 → 44) and added `apps/desktop/real-acceptance.cjs`.
+- **Remaining Documentation & Contract Gaps**:
+  - **5 of the 19 new `README.md` files carry factual drift**: `crates/warsha-remote/README.md` (claims paired phone speaks without daemon token and encrypts payload via `EncryptedChannel`, whereas `process_handshake` at `lib.rs:653` is a stub returning `Ok(false)`), `crates/warsha-git/README.md` (claims pipeline calls it during runs), `templates/README.md` (omits the 4 templates embedded in `crates/warsha-git/src/lib.rs:950-1049`), `apps/desktop/README.md` (omits the 45 behavioral E2E tests and `real-acceptance.cjs`), and `crates/warsha-pipeline/README.md` (lists 11 of 25 submodules).
+  - **`README.md:93-95` & `README.ar.md:93-94`**: Still falsely state *"the mobile app registers no service worker"* (contradicting `registerShellWorker` in `apps/remote/src/main.tsx:44` and `dist/sw.js`) and keep *"Planned:"* at line 153; Roadmap table omits M10–M20 and Wave 2.
+  - **Untouched Stale Docs**: `docs/ARCHITECTURE.md` (§1 omits `apps/mobile`, `docker/`, `deploy/`; §2.3 still claims only 2 crates have submodules and lists 16 instead of 25 for `warsha-pipeline`), `docs/DEPLOY.md:79-91` (still claims `warshad` does not serve static remote assets), `docs/VERIFY.md:268-277` (old `INSTALL.md` hash), `docs/src/architecture.md:202-280` (claims no service worker, no Docker/compose, `127.0.0.1` only), `SECURITY.md:69-71, 165-166` (claims no `bind_host` and no `deny.toml`), `docs/DEVELOPERS.md:18-39` (claims `octocrab`), `docs/ARCH_RULES.md:132, 351-355` (16 modules / 60 RPCs instead of 25 / 68), `docs/designs/SITEMAP.md`, `docs/src/SUMMARY.md`, and `_agents/skills/warsha_elephant/SKILL.md`.
+- **Remaining Codebase, Wire Contract, UI, Mobile & Pipeline Gaps**:
+  - **Wire & Harness**: Stale `REQUIRE_NO_KNOWN_DRIFT = false` comments in `scripts/check-wire-contract.mjs` and `packages/client/src/index.ts`; 15 remaining Wave 2 mutation/detail RPCs (`harness.get|import|select|delete`, `skills.import|toggle|delete`, `plugins.install|toggle|configure|remove`, `models.add|remove`, `integrations.connect|disconnect|test`, `files.read`) and 4 Wave 2 screens (`harnesses`, `skills`, `plugins`, `models`) still missing from `apps/desktop/e2e/harness.ts`; 27 daemon-registered RPCs (`routines.*`, `backend.get|set`, `runmode.*`, `preferences.*`, `pairing.*`, `preview.*`, `process.*`, `mcp.*`, `providers.check_models`) still lack `WarshaClient` wrappers.
+  - **Desktop UI & Acceptance Script**: `Routines` (`routines.*`) and `BackendKitPanel` (`backend.export`, `backend.get|set`) still have `TODO(M20 wiring)` no-op handlers in `apps/desktop/src/App.tsx`; `apps/desktop/real-acceptance.cjs:36` points `daemon_ws_url` at port `8766` (JSON-RPC) instead of `8765` (HTTP/WS `/events`).
+  - **Android Packaging (`apps/mobile`)**: `apps/mobile/android/app/src/main/assets/public` is empty on disk; needs `pnpm --filter warsha-remote build` + Gradle `syncRemoteWebAssets` / `assembleRelease` to package the web bundle into the signed APK.
+  - **Rust Pipeline**: `ReadBeforeWriteGuard` not wired into `FilesystemToolExecutor` (`agent_tools.rs:255`), `@file` mentions not attached from disk in `AgentLoop` (`agent_loop.rs:354, 623`), `split_command` / `probe_line_for` in `process_spawn.rs:702, 924` fragile on paths with spaces, and `warsha-git` not wired into `warshad` or `warsha-pipeline`.
+- **Opus 5.5 Planning & Design-System Prompt Prepared (2026-11-08)**: Authored an entry prompt instructing Opus 5.5 to invoke `agent-skills:planning-and-task-breakdown` and `frontend-design:frontend-design` to rewrite the master execution plan and re-architect the Warsha Design System (`@warsha/ui` tokens, primitives, 23 compounds, and Dual-Mode Desktop/Remote screens) into isolated, machine-gated worker packets for downstream worker models, formatted as clean plain text without slash-command or `@`-mention parser collisions for the Claude Code desktop composer.
+
+---
+
 ## EGM Bootstrap Repository Audit — 2026-11-07 (READ-ONLY AUDIT)
 
 Executed an EGM Bootstrap audit across the entire Warsha repository (`crates/`, `apps/`, `packages/`, `docs/`, `docker/`, `deploy/`, `templates/`, and `scripts/`) via `egm-bootstrap-orchestrator` to inventory what needs to be changed across documentation and codebase seams:

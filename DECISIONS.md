@@ -1229,3 +1229,63 @@ before it can believe any line number in the handoff.
   sections in `AdvancedMode.tsx`; the `simple.factory_*`/`factory.stage.*`/`simple.receipt_*` and
   `advanced.tree_*/code_*/plan_*/run_*/swarm_*` catalog keys become dead and can go with them. A
   future daemon signature replaces `verificationSeal` in exactly one call site.
+
+## 2026-11-08 — Run `2026-11-08-design-and-remediation`: Design System v2 and the W1–W7 packet split (planner decisions)
+
+Planner: Opus 5.5 (planner role only, `ENGINEERING_POLICY.md` §2 — no runtime code). Spec:
+`docs/designs/DESIGN_SYSTEM_V2.md`; plan: `PLAN.md` "Run 2026-11-08"; state:
+`bridge-io/policy/2026-11-08-design-and-remediation/state.json`. Intake verified the owner's brief
+against `f7b8583` and corrected it where the code disagreed (17 missing harness RPCs, not 15; 88 daemon
+methods, not 68; 26 pipeline modules, not 25; `pairing_link` at `warsha-remote/src/lib.rs:267-279`;
+a11y lists 188 cases; the named off-scale literals are already gone; the receipt seal is FNV-1a, not
+cryptographic; no app loads IBM Plex; the `daemon_ws_url` 8766 → 8765 fix is correct).
+
+- **D1 — Pixel-neutral wave.** Visual baselines are `maxDiffPixelRatio: 0` and authoritative only on
+  the Linux capture host, so W3/W5 must keep 793 desktop + 91 remote cases green with zero snapshot
+  writes. Everything a screenshot can see (tint adoption, Arabic strings for ModelPicker /
+  SettingsScopeSentence, the accent-misuse fix, `Tabs`/`Composer`/`SettingsLayout` adoption, the four
+  Wave-2 screens in `SCREENS`, daemon-true harness stub shapes) is **Phase B**, run with an
+  owner-named baseline set. *Alternative*: one big visual batch now — rejected, it would bulk-update
+  baselines without the owner naming them (`_agents/skills/warsha_elephant/SKILL.md`).
+- **D2 — Token names and values.** The owner's names stay in `colors.ts`: `--warsha-color-scrim`
+  (`bg` at 55% alpha: `#fafafa8c` / `#0e0e0e8c`, today's `GateBell` value) and
+  `--warsha-color-{success,warning,error,accent}-tint` as opaque hex — status over `surface` at 6%
+  light / 10% dark (`#f1f7f3 #fbf5f0 #fbf2f1 #fffdf0` / `#1b271d #2a2418 #2e1d1c #2e2a16`), the
+  largest mixes that keep status ink ≥ 4.64:1 on its tint in both themes (8% light measured 4.50 on
+  warning — rejected as no margin). New modules `lines.ts` (8 border shorthands) and `elevation.ts`
+  (plate/lift + 8 layers at today's z-index values), spacing half-steps 0.5/1.5/2.5, a 23-token layout
+  size family, one tracking token (`code`, mono only), `breakpoints.ts` (TS only). Composite tokens
+  are declared in both theme blocks because a custom property is substituted where it is declared.
+  *Alternative*: `color-mix()` aliases for tints — rejected, not measurable by `contrast.test.ts`.
+- **D3 — R6 v2 is a ratchet.** New rules R6.7 (unitless `fontWeight`/`zIndex` in the package), R6.8
+  (scan `internal.ts`, close the `:root :focus-visible` raw-colour loophole), R6.9 (every px/rem/em
+  length in app `.ts/.tsx/.css` except `@media` preludes in the breakpoint set) and R6.10 (literal
+  `var()` fallbacks). R6.9 holds the live count to `APP_LENGTH_BUDGET` (measured at W3's base);
+  `WARSHA_R6_APP_LENGTH_BUDGET` can only tighten it (`Math.min`). W5 must pass at `=0`; INT-2 sets the
+  constant to 0. *Alternative*: give W5 ownership of the test — rejected, the implementer would author
+  the gate it is judged by (§1 Phase 2).
+- **D4 — Ownership moves.** `packages/ui/README.md` moves from W1 to W3 so the doc lands with the
+  code; W2 moves to Wave B so the R6/R7 and client counts it documents are the merged ones.
+- **D5 — No worker edits `PLAN.md`/`PROGRESS.md`/`DECISIONS.md`.** Each packet writes `report.md`
+  (including its decisions) to the gitignored evidence dir; the integrator folds reports in at C1–C3.
+  This keeps `AGENTS.md`'s "update PROGRESS" rule without seven-way merge conflicts.
+- **D6 — Isolation.** Integration branch `run/2026-11-08/integration` cut from the planner commit;
+  packet branches `run/2026-11-08/wN-<slug>`; worktrees outside the repo at
+  `C:/Users/Dragonfly/Downloads/warsha-wt/wN`; W6 gets its own `CARGO_TARGET_DIR`; every TS worktree
+  runs `pnpm install --frozen-lockfile`.
+- **D7 — W7 is build-and-prove.** The owner's brief scopes the existing signing material
+  (`~/.warsha/signing/` or `WARSHA_KEY*` env) to W7 only; if it is missing the packet is an
+  out-of-scope blocker, never faked. `assets/public` stays gitignored; the APK hash and size go to
+  `apps/mobile/README.md`; the verifier re-runs W7 at C3 on the integrated tree.
+- **D8 — Wire check W9** (client ⊆ harness `RPC_METHODS`) is added by W4 with a self-test fixture, so
+  a client method can no longer reach the e2e harness unstubbed (the 2026-11-07 "32 visual failures"
+  class).
+- **D9 — `@warsha/ui` stays catalog-free.** W3 adds optional label props to ModelPicker and
+  SettingsScopeSentence that default to today's English (no pixel change); Phase B passes catalog
+  strings and removes the defaults.
+- **D10 — Honesty constraints.** The receipt is an "integrity mark" until `warshad` can sign; the
+  remote path claims no end-to-end encryption until `EncryptedChannel::process_handshake` is real;
+  `@warsha/crypto` is documented as unconsumed.
+- **How to reverse**: delete `docs/designs/DESIGN_SYSTEM_V2.md` and its SITEMAP row, drop the
+  "Run 2026-11-08" section from `PLAN.md`, delete the integration branch, and remove the evidence dir.
+  Nothing in `crates/`, `apps/`, `packages/` or `scripts/` was changed by the planner.
