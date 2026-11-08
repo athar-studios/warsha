@@ -15,7 +15,7 @@ End-user docs: [README](../README.md) · [العربية](../README.ar.md). Mile
 
 ## Architecture
 
-```
+```text
 warsha/ (cargo workspace + pnpm workspace)
   crates/
     warsha-core       domain: projects, runs, stages, gates, artifacts, events
