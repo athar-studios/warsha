@@ -10,6 +10,5 @@
 
 {{#include ../designs/DESIGN_SYSTEM_V2.md:1:75}}
 ```text
-{{#include ../designs/DESIGN_SYSTEM_V2.md:77:102}}
-```
+{{#include ../designs/DESIGN_SYSTEM_V2.md:77:103}}
 {{#include ../designs/DESIGN_SYSTEM_V2.md:104:}}
