@@ -20,26 +20,30 @@ export interface SettingsScopeSentenceProps {
   className?: string;
   /** Optional dir prop for RTL support. */
   dir?: TextProps['dir'];
+  /**
+   * The global scope's label, when the consumer passes catalog strings (DS v2 §6, D9). Defaults to
+   * today's English so the rendered pixels do not move; Phase B passes the catalog value.
+   */
+  globalLabel?: string;
+  /** The project scope's label, as a function of the project name; same contract as `globalLabel`. */
+  projectLabel?: (projectName: string) => string;
+  /** The global scope's hint; same contract as `globalLabel`. */
+  globalHint?: string;
+  /** The project scope's hint; same contract as `globalLabel`. */
+  projectHint?: string;
 }
 
 export function SettingsScopeSentence({
   project,
   className = '',
   dir = 'auto',
+  globalLabel = 'All projects',
+  projectLabel = (projectName: string) => `Current project: ${projectName}`,
+  globalHint = 'This setting applies to all projects.',
+  projectHint = 'This setting applies to the selected project only.',
 }: SettingsScopeSentenceProps) {
   const isGlobal = !project;
   const projectName = project?.name ?? '';
-
-  // We use a local i18n call through the consumer; the component receives the
-  // already-translated strings as children would, but here we keep it simple
-  // and let the consumer pass the label and hint. However, the t3code pattern
-  // shows a self-contained component, so we use a small trick: the consumer
-  // can pass a `t` function via context, but for now we'll expect the label
-  // and hint to be passed as props when i18n is not directly available.
-  //
-  // Actually, looking at other compounds like Lamp, they don't use i18n directly
-  // either - the label comes from the consumer. So we'll follow that pattern
-  // and make this a purely presentational component that receives the strings.
 
   return (
     <span
@@ -61,13 +65,14 @@ export function SettingsScopeSentence({
     >
       {isGlobal ? (
         <>
-          <span style={{ fontSize: fontSize('sm') }}>🌐</span>
-          <span data-testid="settings-scope-label">{'All projects'}</span>
+          {/* Decorative: the label already says "global", so the glyph must not be read twice. */}
+          <span aria-hidden="true" style={{ fontSize: fontSize('sm') }}>🌐</span>
+          <span data-testid="settings-scope-label">{globalLabel}</span>
         </>
       ) : (
         <>
-          <span style={{ fontSize: fontSize('sm') }}>📁</span>
-          <span data-testid="settings-scope-label">{`Current project: ${projectName}`}</span>
+          <span aria-hidden="true" style={{ fontSize: fontSize('sm') }}>📁</span>
+          <span data-testid="settings-scope-label">{projectLabel(projectName)}</span>
         </>
       )}
       <span
@@ -78,7 +83,7 @@ export function SettingsScopeSentence({
           fontSize: fontSize('xs'),
         }}
       >
-        {isGlobal ? 'This setting applies to all projects.' : 'This setting applies to the selected project only.'}
+        {isGlobal ? globalHint : projectHint}
       </span>
     </span>
   );

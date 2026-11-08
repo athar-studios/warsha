@@ -5,7 +5,7 @@ import type { Meta, StoryObj } from '@storybook/react';
 import { FastModeToggle } from './FastModeToggle';
 
 const meta: Meta<typeof FastModeToggle> = {
-  title: 'Compounds/FastModeToggle',
+  title: 'Bench/FastModeToggle',
   component: FastModeToggle,
   parameters: {
     layout: 'centered',
