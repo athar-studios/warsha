@@ -12,13 +12,20 @@ or drift check (`/egm-drift-report`) on the Warsha repo.
 
 - Rust workspace (`crates/`: `warshad`, `warsha-store`, `warsha-pipeline`, `warsha-core`, …)
 - TypeScript desktop app (`apps/desktop/src/screens/`, 21+ screens, RTL ar/en, light/dark)
-- E2E: Playwright (`apps/desktop/e2e/` — `screens.a11y.spec.ts` 180، `states.spec.ts` 252، `screens.visual.spec.ts` 308)
+- E2E: Playwright (`apps/desktop/e2e/` — `screens.a11y.spec.ts` 188, `states.spec.ts` 252,
+  `screens.visual.spec.ts` 308, behaviour 45 across `flows.spec.ts` 30 / `layout.spec.ts` 12 /
+  `onboarding.spec.ts` 3; remote `apps/remote/e2e/` 91 — `bench.visual.spec.ts` 84, `flows.spec.ts` 7)
 - Visual contract: `playwright.config.ts` (`maxDiffPixelRatio: 0`، `threshold: 0.05`) + Linux fontconfig pin (`scripts/ci/capture-fontconfig.conf`)
 
 ## Canonical docs (read first)
 
-- `docs/ARCHITECTURE.md` — system architecture (note: some sections stale, verify against code)
+- `docs/ARCHITECTURE.md` — system architecture (verified against the tree at `406240a`)
+- `docs/designs/DESIGN_SYSTEM_V2.md` — Design System v2 (tokens, R6 v2, compound contracts, adoption ladder)
 - `docs/design/REDESIGN.md` — redesign spec (S5/S6/§7/§10/§11)
+- `docs/UI.md` — desktop UI reference (screens, states, directions)
+- `docs/INSTALL.md` — build, install and uninstall transcript with measured hashes
+- `docs/DEPLOY.md` — Docker/Caddy deployment, TLS boundary and domainless paths
+- `docs/VERIFY.md` — artifact verification, evidence bar and deferred device items
 - `docs/SKILLS_AND_HARNESSES.md` — skill bundling rule (Apache-2.0/MIT/BSD can bundle with notices; GPL/AGPL link-only)
 - `THIRD_PARTY_NOTICES.md` — declared third-party components
 - `docs/designs/SITEMAP.md` — EGM design index for this repo

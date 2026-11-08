@@ -60,10 +60,11 @@ The deliberate shape of this topology:
 
 - **`warshad` is attached only to `warsha_internal`**, a bridge network
   declared `internal: true`. Docker gives such networks no route to the
-  host or the Internet. The daemon binds `0.0.0.0` inside the container —
-  necessary because a container's loopback is unreachable from any client —
-  but that wildcard bind is safe precisely because nothing outside the
-  internal network can reach it.
+  host or the Internet. The image sets `WARSHA_BIND_HOST=0.0.0.0` — the
+  explicit opt-in `DaemonConfig::bind_host` documents — because a
+  container's loopback is unreachable from any client; that wildcard bind
+  is safe precisely because nothing outside the internal network can reach
+  it.
 - **The compose file has no `ports:` mapping for `warshad`.** Only `expose`
   (a documentation-level hint for other containers on the shared network).
   A `docker ps` on the host shows the daemon listening on nothing.
@@ -75,20 +76,28 @@ The deliberate shape of this topology:
   `advertised_host` accepts a bare host with no scheme for exactly this
   reason (see `DaemonConfig::advertised_host` in the daemon source).
 
-Routing inside Caddy (`deploy/Caddyfile`): `/events*` and `/health` go to
-`warshad:8765` (the axum HTTP surface: liveness and the live WebSocket/SSE
-event stream); `/rpc*` and everything else go to `warshad:8766` (the
-JSON-RPC surface, WebSocket upgrade or JSON POST). `flush_interval -1` on
-the events route keeps streamed event frames unbuffered.
+Routing inside Caddy (`deploy/Caddyfile:39-66`): `/health`, `/health/*`,
+`/events` and `/events*` go to `warshad:8765` (the axum HTTP surface:
+liveness and the live WebSocket/SSE event stream); `/rpc` and `/rpc/*` go to
+`warshad:8766` (the JSON-RPC surface, WebSocket upgrade or JSON POST); every
+other path goes to `warshad:8765`, where the daemon serves the remote bundle
+when one is configured. `flush_interval -1` on the events route keeps
+streamed event frames unbuffered.
 
 Remote UI serving: the image bakes the built `apps/remote` bundle at
-`usr/share/warsha/remote` (and sets `WARSHA_REMOTE_ASSETS_DIR`). As of this
-writing the daemon's HTTP router registers `/health` and `/events` and does
-not yet mount that directory as a static file service, so the `/*` → 8766
-route currently serves the RPC surface rather than the PWA shell. Serving
-the bundle is a daemon-side change (a `ServeDir` on the HTTP port); until
-it lands, mount or copy `/usr/share/warsha/remote` out of the image and
-serve it from any static host on the same domain.
+`/usr/share/warsha/remote` and sets `WARSHA_REMOTE_ASSETS_DIR` to it
+(`docker/Dockerfile:102`, `:115`). The daemon applies the environment
+variable to `DaemonConfig::remote_assets_dir`
+(`crates/warshad/src/lib.rs:5348-5349`), mounts the static fallback only
+when that field is set (`:5654-5655`), and serves with the handler at
+`:6220`: a real file under the bundle directory; a directory's
+`index.html`; the SPA history fallback to the bundle's `index.html` for an
+extension-less client route such as `/runs/<id>`; otherwise 404. A path that
+tries to leave the bundle (`..` in any spelling including percent-encoded,
+a backslash, a drive colon, a control character) is a 400, and `/rpc`,
+`/rpc/*`, `/events*` and `/health*` are refused by name so a misroute cannot
+render the SPA shell. Without the variable, the HTTP listener is exactly
+`/health` + `/events` + 404.
 
 Hardening already expressed in the compose files: `user: "10001:10001"`,
 `read_only: true` with a `/tmp` tmpfs, no privileged mode, no socket
@@ -110,6 +119,7 @@ parentheses):
 | `WARSHA_LLM_API_KEY` | provider key — **environment-only, never written to `config.toml`** and never logged; the log line reports `present`/`ABSENT`, nothing more |
 | `WARSHA_LLM_MODEL` | model id (`bzl/deepseek-v4-flash-0731free`) |
 | `WARSHA_ALLOWED_ORIGINS` | comma-separated CORS origins added to the built-in loopback/dev origins |
+| `WARSHA_REMOTE_ASSETS_DIR` | directory of the built remote bundle the HTTP listener serves (`/usr/share/warsha/remote`, baked into the image) |
 
 Inside the container, the ports (`WARSHA_HTTP_PORT` 8765, `WARSHA_WS_PORT`
 8766) and data directory (`WARSHA_DATA_DIR` `/var/lib/warsha`) keep their
