@@ -1005,7 +1005,7 @@ describe('R6 app length ratchet (R6.9/R6.10)', () => {
    * against `WARSHA_R6_APP_LENGTH_BUDGET=0`; INT-2 then pins this constant to 0. The env var can
    * only tighten the budget, never raise it (D3).
    */
-  const APP_LENGTH_BUDGET = 145;
+  const APP_LENGTH_BUDGET = 0;
 
   it('holds the live app length count to the ratchet budget', () => {
     const offences: string[] = [];
