@@ -169,8 +169,8 @@ commit; the ids are what a failing build prints, so they are part of the interfa
   compare them, which only the package that owns both can do. The 35 is measured from the merged
   file at `406240a` (`grep -cE '^\s*it\('`), not copied from the design document.
 - **Forbids**, in every file that renders UI in `packages/ui` — `src/components.tsx`,
-  `src/components/*.tsx`, `src/compounds/*.{ts,tsx}` (excluding the barrel, `internal.ts`, stories
-  and tests) and `src/storySupport.tsx`:
+  `src/components/*.tsx` (stories and tests excluded), `src/compounds/*.{ts,tsx}` (the barrel
+  `index.ts` and story files excluded; `internal.ts` **is** scanned) and `src/storySupport.tsx`:
   1. `R6.1` a **colour literal** — `#rgb`, `#rrggbb`, `rgb(`, `rgba(`, `hsl(`, `hsla(`;
   2. `R6.2` a **length literal** — any `px`, `rem`, `em`, `pt`, `vh`, `vw`, `ms`, `s` value;
   3. `R6.3` a **physical direction property** — `marginLeft`, `paddingRight`, `borderLeft*`,
@@ -384,11 +384,12 @@ commit; the ids are what a failing build prints, so they are part of the interfa
   `node scripts/check-arch.mjs --self-test`.
 - **Passes today** (measured at `406240a`): the daemon registers 88 methods and the policy table
   names 88, the two daemon views agree, and every method is declared `with_extensions`. The client
-  has 75 call sites over 75 distinct methods — 60 with an object-literal params argument and 15 with
-  no params argument, zero unresolvable and zero positional — and every one is stubbed by the
-  harness's 75-entry `RPC_METHODS` table, so `W9` (client ⊆ harness) is clean. Every literal params
-  object supplies each required bound argument **and names only spellings the generated decoder
-  binds**. Both known sets are empty: `wire: 9 checks, 0 violations` with zero deferred items.
+  has 75 call sites over 75 distinct methods — 70 written with a literal method name and 5 resolving
+  through a same-file `const`, of which 60 pass an object-literal params argument and 15 pass none,
+  with zero unresolvable and zero positional — and every one is stubbed by the harness's 75-entry
+  `RPC_METHODS` table, so `W9` (client ⊆ harness) is clean. Every literal params object supplies
+  each required bound argument **and names only spellings the generated decoder binds**. Both known
+  sets are empty: `wire: 9 checks, 0 violations` with zero deferred items.
 - **Failure messages** (one per line, in the `ARCH_RULES` shape; none of these fire on today's tree —
   each is the offence the check prints when that drift is present, and the first two are the shapes
   the client used to ship):
