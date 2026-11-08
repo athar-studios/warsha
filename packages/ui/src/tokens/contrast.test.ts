@@ -26,8 +26,31 @@ import { aliasResolvesTo, aliasTokenNames, aliasTokens } from './aliases';
 import { colorTokens } from './colors';
 import { kebabCase } from './vars';
 
-/** A hex string, as the token layer carries it. */
+/** A hex string, as the token layer carries it: `#rrggbb`, or `#rrggbbaa` for the scrim (DS v2 §4.2). */
 type Hex = string;
+
+/** The alpha channel of a hex colour; 1 for the opaque `#rrggbb` form. */
+function alphaOf(hex: Hex): number {
+  const value = hex.replace('#', '');
+  return value.length === 8 ? parseInt(value.slice(6, 8), 16) / 255 : 1;
+}
+
+/**
+ * Composite an `#rrggbbaa` colour over an opaque background, channel-wise (CSS source-over), and
+ * return the opaque `#rrggbb` result. This is how the parser accepts the scrim: a translucent colour
+ * has no luminance of its own, only the one it makes over the plate it covers.
+ */
+export function compositeOver(hex: Hex, background: Hex): Hex {
+  const value = hex.replace('#', '');
+  const base = background.replace('#', '');
+  const alpha = alphaOf(hex);
+  const channels = [0, 2, 4].map((offset) => {
+    const foreground = parseInt(value.slice(offset, offset + 2), 16);
+    const backdrop = parseInt(base.slice(offset, offset + 2), 16);
+    return Math.round(foreground * alpha + backdrop * (1 - alpha));
+  });
+  return `#${channels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
+}
 
 /** WCAG 2.1 §relative luminance, on sRGB 8-bit channels. */
 function luminance(hex: Hex): number {
@@ -56,15 +79,22 @@ function camelCase(name: string): string {
 
 /** One token's value for one theme, after following every alias to the colour it names. */
 function paint(name: string, theme: 'light' | 'dark'): Hex {
+  let value: Hex;
   if (name in aliasTokens) {
     const resolved = aliasResolvesTo(name as keyof typeof aliasTokens, theme);
     const colour = camelCase(resolved);
-    if (colour in colorTokens) return colorTokens[colour as keyof typeof colorTokens][theme];
     // A derived alias (the signal wash) is a mix, not a second colour: measured against its own base.
-    return colorTokens.accent[theme];
+    value =
+      colour in colorTokens
+        ? colorTokens[colour as keyof typeof colorTokens][theme]
+        : colorTokens.accent[theme];
+  } else if (name in colorTokens) {
+    value = colorTokens[name as keyof typeof colorTokens][theme];
+  } else {
+    throw new Error(`contrast: '${name}' is not a colour token or an alias`);
   }
-  if (name in colorTokens) return colorTokens[name as keyof typeof colorTokens][theme];
-  throw new Error(`contrast: '${name}' is not a colour token or an alias`);
+  // The scrim is the one translucent token: composite it over the page background it covers (§4.2).
+  return alphaOf(value) < 1 ? compositeOver(value, colorTokens.bg[theme]) : value;
 }
 
 /** The kind of threshold a pair has to clear. */
@@ -113,6 +143,16 @@ const PAIRS: Pair[] = [
   { why: 'a lit meter fill against its track', foreground: 'signalText', background: 'benchPlate', use: 'non-text' },
   { why: 'the selected row’s signal edge on a raised plate', foreground: 'signalText', background: 'surface', use: 'non-text' },
   { why: 'the gate card’s lit band against the page', foreground: 'signalText', background: 'bg', use: 'non-text' },
+  // DS v2 §4.2: status ink on its own tint, and body text on every tint, in both themes. The tints are
+  // the largest mixes that keep these pairs ≥ 4.5:1 (8% light measured 4.50 on warning — no margin).
+  { why: 'a success pill’s ink on its tint', foreground: 'success', background: 'successTint', use: 'text' },
+  { why: 'a warning pill’s ink on its tint', foreground: 'warning', background: 'warningTint', use: 'text' },
+  { why: 'an error pill’s ink on its tint', foreground: 'error', background: 'errorTint', use: 'text' },
+  { why: 'the lamp-as-text on an opaque lamp surface', foreground: 'signalText', background: 'accentTint', use: 'text' },
+  { why: 'body text on a success tint', foreground: 'text', background: 'successTint', use: 'text' },
+  { why: 'body text on a warning tint', foreground: 'text', background: 'warningTint', use: 'text' },
+  { why: 'body text on an error tint', foreground: 'text', background: 'errorTint', use: 'text' },
+  { why: 'body text on an accent tint', foreground: 'text', background: 'accentTint', use: 'text' },
   // The stream's gate wash is not in this table on purpose: it is emphasis beside a `☑` glyph and bold text,
   // not the channel that identifies the line, so it is not a 1.4.11 boundary. Same for the diff's added-line
   // wash, whose gutter `+` is the identifying mark.
@@ -196,5 +236,30 @@ describe('WCAG AA contrast of the token layer', () => {
     expect(aliasTokens.signalWash.light).toContain('12%');
     // The signal itself is a token, not a mix: a filled lamp, not a wash.
     expect(aliasResolvesTo('signal', 'light')).toBe('accent');
+  });
+
+  it('parses #rrggbbaa by compositing over the background (DS v2 §4.2)', () => {
+    // Alpha 0x80 is 128/255: black at that alpha over white rounds to #7f7f7f, channel-wise.
+    expect(compositeOver('#00000080', '#ffffff')).toBe('#7f7f7f');
+    expect(compositeOver('#ffffffff', '#0e0e0e')).toBe('#ffffff');
+    expect(compositeOver('#00000000', '#123456')).toBe('#123456');
+    // The scrim is `bg` at 55% alpha, so over the page it reads as the page itself — frosts by day,
+    // dims by night — and `paint` resolves it through the same composite.
+    for (const theme of THEMES) {
+      expect(paint('scrim', theme)).toBe(colorTokens.bg[theme]);
+    }
+  });
+
+  it('keeps the scrim translucent and the tints opaque (DS v2 §4.2)', () => {
+    for (const theme of THEMES) {
+      const alpha = alphaOf(colorTokens.scrim[theme]);
+      expect(alpha).toBeGreaterThan(0);
+      expect(alpha).toBeLessThan(1);
+      // Tints are stored opaque so this file can measure them; a translucent tint would make every
+      // pair above depend on whatever sits behind it.
+      for (const tint of ['successTint', 'warningTint', 'errorTint', 'accentTint'] as const) {
+        expect(alphaOf(colorTokens[tint][theme]), `${tint}/${theme}`).toBe(1);
+      }
+    }
   });
 });

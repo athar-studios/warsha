@@ -14,7 +14,7 @@ import { cssVar } from './vars';
 export const SPACING_BASE_PX = 4;
 
 /** The steps the scale is built from. A value outside this set is not a spacing token. */
-export const SPACING_STEPS = [0, 1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64] as const;
+export const SPACING_STEPS = [0, 0.5, 1, 1.5, 2, 2.5, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64] as const;
 
 /** A legal spacing step. */
 export type SpacingStep = (typeof SPACING_STEPS)[number];
@@ -22,8 +22,11 @@ export type SpacingStep = (typeof SPACING_STEPS)[number];
 /** Step → pixel value (`4` → `16px`). The values `tokens.css` declares. */
 export const spacingTokens: Record<SpacingStep, string> = {
   0: '0px',
+  0.5: '2px',
   1: '4px',
+  1.5: '6px',
   2: '8px',
+  2.5: '10px',
   3: '12px',
   4: '16px',
   6: '24px',
@@ -41,14 +44,19 @@ export function isSpacingStep(value: number): value is SpacingStep {
   return (SPACING_STEPS as readonly number[]).includes(value);
 }
 
+/** The CSS segment for a step: a half-step's `.` becomes `-` (`1.5` → `1-5`, DS v2 §4.5). */
+function stepSegment(step: SpacingStep): string {
+  return String(step).replace('.', '-');
+}
+
 /** `--warsha-space-<step>`, without the `var()` wrapper. */
 export function spacingVarName(step: SpacingStep): string {
-  return `--warsha-space-${step}`;
+  return `--warsha-space-${stepSegment(step)}`;
 }
 
 /** The step as a CSS value: `var(--warsha-space-4)`. */
 export function spaceVar(step: SpacingStep): string {
-  return cssVar(`space-${step}`);
+  return cssVar(`space-${stepSegment(step)}`);
 }
 
 /**
@@ -56,7 +64,7 @@ export function spaceVar(step: SpacingStep): string {
  *
  * A component may only pass a scale step. The off-scale branch exists so the pre-token component
  * API (`Box`'s `p`/`m`, which take any number of 4px units) keeps its exact computed value instead
- * of silently snapping to the nearest token: `space(1.5)` is 6px today and 6px after the migration.
+ * of silently snapping to the nearest token: `space(3.5)` is 14px today and 14px after the migration.
  * It is the only place in the design system that is allowed to compute a length, which is why the
  * R6 drift scan (see `tokenDrift.test.ts`) never sees a literal in a component.
  */

@@ -9,12 +9,14 @@
 // so this component is purely presentational and handles selection UI only.
 //
 // The component receives translated strings as props for accessibility labels. The picker is
-// keyboard-accessible (arrows to navigate, Enter to select, Esc to close).
+// keyboard-accessible (arrows to navigate, Enter to select, Esc to close). The keydown listener lives
+// on the component itself — trigger and listbox — never on `document`, so a key press elsewhere on the
+// screen cannot drive the picker; Escape, selection and outside-close all return focus to the trigger.
 
 import React, { useId, useRef, useEffect, useState, useMemo } from 'react';
 
 import { Button, type TextProps } from '../components';
-import { aliasVar, colorVar, fontSize, lineHeight, radius, shadow, size, space } from '../tokens';
+import { aliasVar, colorVar, fontSize, fontWeight, layer, lineHeight, radius, shadow, size, space } from '../tokens';
 
 import { cx, CONTROL_CLASS, CONTROL_COMPACT_CLASS, HOVER_RECESS_CLASS } from './internal';
 
@@ -46,6 +48,13 @@ export interface ModelPickerProps {
   defaultOptionLabel?: string;
   /** Default option value */
   defaultOptionValue?: string;
+  /**
+   * The default option's name, when the consumer passes catalog strings (DS v2 §6, D9). Defaults to
+   * today's English so the rendered pixels do not move; Phase B passes the catalog value.
+   */
+  autoLabel?: string;
+  /** The default option's description. Defaults to today's English; same contract as `autoLabel`. */
+  autoDescription?: string;
   /** Accessibility label for the picker (translated) */
   ariaLabel: string;
 }
@@ -59,11 +68,13 @@ export function ModelPicker({
   showDefaultOption = true,
   defaultOptionLabel,
   defaultOptionValue = 'auto',
+  autoLabel = 'Auto',
+  autoDescription = 'Uses the role routing configured in settings',
   ariaLabel,
 }: ModelPickerProps) {
   const triggerId = useId();
   const panelId = useId();
-  const panelRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
 
@@ -73,70 +84,70 @@ export function ModelPicker({
     if (showDefaultOption) {
       opts.push({
         id: defaultOptionValue,
-        name: defaultOptionLabel ?? 'Auto',
+        name: defaultOptionLabel ?? autoLabel,
         provider: '',
-        description: 'Uses the role routing configured in settings',
+        description: autoDescription,
       });
     }
     opts.push(...options);
     return opts;
-  }, [options, showDefaultOption, defaultOptionValue, defaultOptionLabel]);
+  }, [options, showDefaultOption, defaultOptionValue, defaultOptionLabel, autoLabel, autoDescription]);
 
   const selectedOption = allOptions.find((opt) => opt.id === selectedId) ?? allOptions[0];
 
-  // Close on outside click
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (panelRef.current && !panelRef.current.contains(event.target as Node)) {
-        setOpen(false);
-        setHighlightedIndex(-1);
-      }
-    }
-    if (open) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [open]);
+  // The picker is an activedescendant widget: focus stays on the trigger, so every close path hands
+  // focus back to it explicitly rather than letting it fall to <body>.
+  const closePicker = (restoreFocus: boolean) => {
+    setOpen(false);
+    setHighlightedIndex(-1);
+    if (restoreFocus) document.getElementById(triggerId)?.focus();
+  };
 
-  // Keyboard navigation inside the picker
+  // Close on outside click. The trigger is inside the component, so clicking it toggles normally;
+  // a click anywhere else closes and returns focus to the trigger.
   useEffect(() => {
     if (!open) return;
-    function handleKeyDown(event: KeyboardEvent) {
-      switch (event.key) {
-        case 'ArrowDown':
-          event.preventDefault();
-          setHighlightedIndex((prev) =>
-            prev < allOptions.length - 1 ? prev + 1 : 0
-          );
-          break;
-        case 'ArrowUp':
-          event.preventDefault();
-          setHighlightedIndex((prev) =>
-            prev > 0 ? prev - 1 : allOptions.length - 1
-          );
-          break;
-        case 'Enter':
-          event.preventDefault();
-          if (highlightedIndex >= 0) {
-            onChange(allOptions[highlightedIndex].id);
-            setOpen(false);
-            setHighlightedIndex(-1);
-          }
-          break;
-        case 'Escape':
-          event.preventDefault();
-          setOpen(false);
-          setHighlightedIndex(-1);
-          break;
-        case 'Tab':
-          setOpen(false);
-          setHighlightedIndex(-1);
-          break;
+    function handleClickOutside(event: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+        setOpen(false);
+        setHighlightedIndex(-1);
+        document.getElementById(triggerId)?.focus();
       }
     }
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [open, allOptions, highlightedIndex, onChange]);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [open, triggerId]);
+
+  // Keyboard navigation, scoped to the component: the handler hangs on the root element, so only
+  // keys that land on the trigger or inside the listbox drive it — never a key pressed elsewhere.
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!open) return;
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        setHighlightedIndex((prev) => (prev < allOptions.length - 1 ? prev + 1 : 0));
+        break;
+      case 'ArrowUp':
+        event.preventDefault();
+        setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : allOptions.length - 1));
+        break;
+      case 'Enter':
+        event.preventDefault();
+        if (highlightedIndex >= 0) {
+          onChange(allOptions[highlightedIndex].id);
+          closePicker(true);
+        }
+        break;
+      case 'Escape':
+        event.preventDefault();
+        closePicker(true);
+        break;
+      case 'Tab':
+        // Tab keeps its native meaning: close without trapping the focus that is leaving.
+        closePicker(false);
+        break;
+    }
+  };
 
   const triggerLabel = label ?? (
     <>
@@ -148,7 +159,7 @@ export function ModelPicker({
   );
 
   return (
-    <div style={{ position: 'relative', display: 'inline-flex' }}>
+    <div ref={rootRef} onKeyDown={onKeyDown} style={{ position: 'relative', display: 'inline-flex' }}>
       <Button
         id={triggerId}
         type="button"
@@ -181,7 +192,6 @@ export function ModelPicker({
 
       {open && (
         <div
-          ref={panelRef}
           id={panelId}
           role="listbox"
           aria-label={ariaLabel}
@@ -192,7 +202,7 @@ export function ModelPicker({
           position: 'absolute',
           insetBlockStart: `calc(100% + ${space(1)})`,
           insetInlineEnd: 0,
-          zIndex: 50,
+          zIndex: layer('popover'),
           backgroundColor: colorVar('surface'),
           border: `${size('rule')} solid ${aliasVar('benchEdge')}`,
           borderRadius: radius('md'),
@@ -215,8 +225,7 @@ export function ModelPicker({
               data-testid={`model-picker-option-${option.id}`}
               onClick={() => {
                 onChange(option.id);
-                setOpen(false);
-                setHighlightedIndex(-1);
+                closePicker(true);
               }}
               onMouseEnter={() => setHighlightedIndex(index)}
               style={{
@@ -239,7 +248,7 @@ export function ModelPicker({
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: space(2), flexWrap: 'wrap' }}>
-                <span dir="ltr" translate="no" style={{ unicodeBidi: 'isolate', fontWeight: 600 }}>
+                <span dir="ltr" translate="no" style={{ unicodeBidi: 'isolate', fontWeight: fontWeight('semibold') }}>
                   {option.name}
                 </span>
                 {option.provider && (

@@ -19,7 +19,7 @@
 import React, { useCallback, useId, useState } from 'react';
 
 import { Button } from '../components';
-import { aliasVar, colorVar, fontSize, lineHeight, size, space } from '../tokens';
+import { aliasVar, colorVar, fontSize, layer, lineHeight, size, space } from '../tokens';
 
 import { cx, FIELD, isComposing, RULE_BORDER, VISUALLY_HIDDEN } from './internal';
 
@@ -120,7 +120,7 @@ export function Composer({
         position: 'sticky',
         insetBlockEnd: space(0),
         // Above the transcript, below a dialog. A number the direction can explain, not a magic one.
-        zIndex: 2,
+        zIndex: layer('raised'),
         minInlineSize: 0,
         ...style,
       }}

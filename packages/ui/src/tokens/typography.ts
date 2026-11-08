@@ -6,7 +6,8 @@
 // Mono is reserved for code, diffs, logs and step output — never for UI copy (docs/UI.md).
 //
 // RTL-safe by construction: no token here carries a direction. Arabic must not be letter-spaced
-// (it is a connected script), so no tracking token exists to apply by accident; alignment belongs
+// (it is a connected script), so the scale carries exactly one tracking token — `code`, for mono
+// pairing/verification codes only (DS v2 §2.3), never on sans and never on Arabic. Alignment belongs
 // to `textAlign: 'start'`/`'end'` at the call site, not to the type scale.
 
 import { cssVar } from './vars';
@@ -74,6 +75,21 @@ export type FontWeightName = keyof typeof fontWeights;
 /** Every weight token name, in declaration order. */
 export const fontWeightNames = Object.keys(fontWeights) as FontWeightName[];
 
+/**
+ * The one tracking token (DS v2 §2.3): mono pairing/verification codes only. A second entry here
+ * would be an invitation to track prose, and tracking breaks a joined script — `tokens.test.ts`
+ * pins this record to exactly `code`.
+ */
+export const trackingTokens = {
+  code: '0.2em',
+} as const;
+
+/** The name of a tracking token. */
+export type TrackingTokenName = keyof typeof trackingTokens;
+
+/** Every tracking token name, in declaration order. */
+export const trackingTokenNames = Object.keys(trackingTokens) as TrackingTokenName[];
+
 /** `--warsha-font-sans` / `--warsha-font-mono`, without the `var()` wrapper. */
 export function fontFamilyVarName(name: FontFamilyName): string {
   return `--warsha-font-${name}`;
@@ -112,4 +128,14 @@ export function lineHeight(name: LineHeightName): string {
 /** `var(--warsha-font-weight-bold)`. */
 export function fontWeight(name: FontWeightName): string {
   return cssVar(`font-weight-${name}`);
+}
+
+/** `--warsha-tracking-code`, without the `var()` wrapper. */
+export function trackingVarName(name: TrackingTokenName): string {
+  return `--warsha-tracking-${name}`;
+}
+
+/** `var(--warsha-tracking-code)` — mono pairing codes only, never sans, never Arabic (§2.3). */
+export function tracking(name: TrackingTokenName): string {
+  return cssVar(`tracking-${name}`);
 }
