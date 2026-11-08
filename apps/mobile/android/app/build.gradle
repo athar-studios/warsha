@@ -92,6 +92,14 @@ android {
         buildConfig false
     }
 
+    // AGP otherwise injects an encrypted dependency-metadata block (id 0x504b4453)
+    // into the APK Signing Block, keyed with a fresh random session key every build,
+    // which makes otherwise identical signed APKs differ byte-for-byte.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
+
     // Pure-framework app: no androidx/Capacitor AARs are required by the
     // hardened WebView shell, so the release APK stays minimal.
 }
@@ -134,6 +142,11 @@ def syncRemoteWebAssets = tasks.register("syncRemoteWebAssets", Sync) {
     into webAssetsDir
     // Everything the Vite build emits (index.html, assets/, sw.js, icons, i18n).
     preserve { include ".gitkeep" }
+    // Source maps are a dev-only artifact: workbox writes sw.js into a fresh temp
+    // dir per build, so sw.js.map embeds a random temp path (and absolute worktree
+    // paths in its sourcesContent), making the APK unreproducible — and it leaks
+    // local filesystem paths. The precache manifest (sw.js) lists no .map entry.
+    exclude '**/*.map'
 }
 
 // AGP 9 registers variant tasks lazily, so hook them through the live
