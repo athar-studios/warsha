@@ -12,7 +12,7 @@ Elephant-Goldfish Model flow (`/egm-brainstorm` → `/egm-draft` →
 | Design | Status | Path |
 |---|---|---|
 | Redesign baseline (S5/S6/§7/§10/§11) | Canonical reference | `../design/REDESIGN.md` |
-| Design System v2 — tokens, R6 v2, compound contracts, screen architecture, adoption ladder | Implemented in part: W3 merged at `406240a`; W5 (app adoption) pending | [`./DESIGN_SYSTEM_V2.md`](./DESIGN_SYSTEM_V2.md) |
+| Design System v2 — `lines.ts`/`elevation.ts`/`breakpoints.ts`, R6.1–R6.10 with the `APP_LENGTH_BUDGET = 145` ratchet, compound contracts, screen architecture, adoption ladder | Implemented in part: W3 merged at `406240a`; W5 (app adoption) pending | [`./DESIGN_SYSTEM_V2.md`](./DESIGN_SYSTEM_V2.md) |
 | Skills and harnesses policy | Canonical policy | [`../SKILLS_AND_HARNESSES.md`](../SKILLS_AND_HARNESSES.md) |
 | Desktop UI reference | Canonical reference | [`../UI.md`](../UI.md) |
 | Install manual (build, install, uninstall) | Canonical reference | [`../INSTALL.md`](../INSTALL.md) |
