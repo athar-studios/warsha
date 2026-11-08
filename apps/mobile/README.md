@@ -68,3 +68,59 @@ Verify a built APK:
   build-tools 36.0.0, `local.properties` with `sdk.dir=...` (gitignored).
 - `minSdk 24` — Android Keystore AES-256-GCM requires API ≥ 23; we target 24+
   for WebView security-patch coverage.
+
+## Release artifact
+
+Built and signed locally for run `2026-11-08-design-and-remediation` (packet W7).
+The APK is **not** committed (it is gitignored build output); only its facts are
+recorded here. Signing used the owner-scoped release material in `~/.warsha/signing/`
+(RSA-4096, APK Signature Scheme v2). No signing secret is stored in the repository
+or in this file.
+
+- Artifact (gate path): `apps/mobile/android/app/build/outputs/apk/release/app-release.apk`
+- Friendly-named identical copy: `apps/mobile/android/app/build/outputs/apk/release/warsha-remote-release.apk`
+  — `renameReleaseApk` now **copies** rather than moves, so both names exist; the
+  copy is the artifact `docs/VERIFY.md` and `docs/INSTALL.md` reference, while
+  `app-release.apk` is the path the W7 release gates verify.
+- File size: **840,513 bytes**
+- Build date (UTC): **2026-11-08T07:56:11Z**
+- Base commit: `0772d502002562505c6438ae712abca7a7328d84` (`run/2026-11-08/integration`)
+
+SHA-256 (`app-release.apk`; identical for `warsha-remote-release.apk`):
+
+```text
+ce60f2bd5183779de7fd6a3c7593e0a612e878c8a1c05960f308e06ea3ad01ff
+```
+
+> Reproducibility: the signed APK **is** byte-reproducible. Two consecutive clean
+> rebuilds (`pnpm --filter warsha-remote build` + `gradlew clean assembleRelease`)
+> produced this exact hash and size. The APK Signature Scheme v2 block is
+> deterministic (RSASSA-PKCS1-v1_5 + SHA2-512, algorithm id `0x0104` — no PSS salt),
+> and `build.gradle` removes the two inputs that used to drift: AGP's encrypted
+> dependency-metadata block (`dependenciesInfo { includeInApk = false }`) and the
+> Vite/workbox `*.map` source maps, which embed a random temp directory and absolute
+> worktree paths (`syncRemoteWebAssets` excludes `**/*.map`; the precache manifest
+> in `sw.js` lists no map).
+
+Toolchain: node v26.8.1, pnpm 9.0.0, Android Studio JBR OpenJDK 25.0.3,
+Gradle 9.3.1, AGP 9.1.0, Android SDK platform 36 + build-tools 36.0.0.
+
+`apksigner verify --verbose --print-certs` verdict: **Verifies** (exit 0) — v2
+scheme `true`; Signer #1 `CN=Warsha Remote, OU=Engineering, O=Warsha, L=Riyadh, C=SA`;
+certificate SHA-256 `ad2708e486a68590db9b1ee54e7dfad547759b20f399c16cc6eaad059ce7f3c3`.
+The bundled web assets `assets/public/index.html` and `assets/public/sw.js` are
+present inside the APK (synced from `apps/remote/dist` by `syncRemoteWebAssets`).
+
+Reproduce (repo root, Git Bash, owner signing material present):
+
+```bash
+pnpm install --frozen-lockfile
+pnpm --filter warsha-remote build
+JAVA_HOME="<Android Studio JBR>" ANDROID_HOME="<SDK>" \
+  apps/mobile/android/gradlew -p apps/mobile/android clean assembleRelease --no-daemon
+APK=apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+"$ANDROID_HOME/build-tools/36.0.0/apksigner.bat" verify --verbose --print-certs "$APK"
+unzip -l "$APK" | grep -E 'assets/public/(index\.html|sw\.js)$'   # → 2 entries
+stat -c %s "$APK"                                                 # → 840513
+sha256sum "$APK"                                                  # → hash above
+```
