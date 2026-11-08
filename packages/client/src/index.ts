@@ -2514,7 +2514,9 @@ function decodeRlsOperation(value: unknown, method: string): RlsOperation {
   ) {
     return value;
   }
-  throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "operation" is not a known RLS operation`);
+  throw new Error(
+    `${WIRING_RESULT_ERROR} from ${method}: "operation" is not a known RLS operation`
+  );
 }
 
 function decodeRlsPolicy(value: unknown, method: string): RlsPolicy {
@@ -2541,9 +2543,11 @@ export function decodeBackendKit(value: unknown, method: string): BackendKit {
       kind: decodeBackendKind(config['kind'], method),
       url: wiringString(config['url'], method, 'url'),
       projectName: wiringString(config['project_name'], method, 'project_name'),
-      enabledFeatures: wiringDefaultArray(config['enabled_features'], method, 'enabled_features').map(
-        (feature) => decodeBackendFeature(feature, method)
-      ),
+      enabledFeatures: wiringDefaultArray(
+        config['enabled_features'],
+        method,
+        'enabled_features'
+      ).map((feature) => decodeBackendFeature(feature, method)),
     },
     tables: wiringDefaultArray(source['tables'], method, 'tables').map((table) =>
       decodeTableDef(table, method)
