@@ -83,14 +83,21 @@ or in this file.
   copy is the artifact `docs/VERIFY.md` and `docs/INSTALL.md` reference, while
   `app-release.apk` is the path the W7 release gates verify.
 - File size: **1,312,517 bytes**
-- Build date (UTC): **2026-11-08T01:32:48Z**
+- Build date (UTC): **2026-11-08T02:01:43Z**
 - Base commit: `0772d502002562505c6438ae712abca7a7328d84` (`run/2026-11-08/integration`)
 
 SHA-256 (`app-release.apk`; identical for `warsha-remote-release.apk`):
 
 ```text
-aaf23678febfeb53e619715597e4b725e2ba8b3cbe37e7952a1cc2c4e6c1fe3d
+8d83fcb05a745e59d0de9d402fbd73f6e6514c5a6238164dbe207d279e7db02d
 ```
+
+> Reproducibility caveat: the signed APK is **not** byte-reproducible. The v2
+> signature uses a randomized RSA-PSS salt and the workbox-generated `sw.js.map`
+> varies between builds, so a clean rebuild yields a different SHA-256 while the
+> APK size (1,312,517 B) and bundled web content stay stable. The hash above records
+> this specific built artifact; gate G7.5 checks the preserved artifact, not a fresh
+> rebuild.
 
 Toolchain: node v26.8.1, pnpm 9.0.0, Android Studio JBR OpenJDK 25.0.3,
 Gradle 9.3.1, AGP 9.1.0, Android SDK platform 36 + build-tools 36.0.0.
