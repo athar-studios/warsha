@@ -858,10 +858,10 @@ export function pairingDataFromQrPayload(payload: string): PairingData {
 // an older stub (camelCase) decode alike, and a missing field falls back to the
 // empty/zero form a screen can render rather than an `undefined` that throws.
 //
-// The client lane lands ahead of the daemon lane (PLAN.md tasks #6–#8): the wire
-// names these methods dial are deferred in `scripts/check-wire-contract.mjs`'s
-// `KNOWN_UNREGISTERED_METHODS` until `warshad` registers them — a visible,
-// one-set deferral with a documented removal, not a silent ghost.
+// The Wave 2 client lane (PLAN.md task #9) landed ahead of its daemon lane (tasks #6–#8);
+// those daemon lanes have since registered every wire name these methods dial, so
+// `scripts/check-wire-contract.mjs` checks them strictly against an empty
+// `KNOWN_UNREGISTERED_METHODS` — no deferral — and W9 holds every name to an e2e harness stub.
 
 const WAVE2_ERROR = 'Malformed Wave 2 payload';
 
@@ -997,9 +997,10 @@ export interface HarnessDefinition {
 
 /**
  * One installable markdown skill pack (`warsha_core::SkillDefinition`).
- * `skills.list` answers the daemon's older `SlashCommand` catalog today —
- * `{ name, description }` with no `id` — so the id falls back to the command
- * name rather than refusing a shape the current daemon really sends.
+ * `skills.list` answers the installed `SkillDefinition` catalog today; the decoder
+ * still tolerates the daemon's older `SlashCommand` row — `{ name, description }`
+ * with no `id` — so the id falls back to the command name rather than refusing a
+ * shape an older daemon really sent.
  */
 export interface SkillDefinition {
   id: string;
@@ -1832,10 +1833,11 @@ export class WarshaClient implements WarshaWiringApi, WarshaWave2Api {
     await this.rpc<unknown>('harness.delete', { id });
   }
 
-  // Wave 2 — skills. `skills.list` is daemon-registered today and answers the
-  // `SlashCommand` catalog; `decodeSkillDefinition` reads that shape (its `name`
-  // doubles as the id), so this method works against the current daemon and the
-  // full Wave 2 row alike. The three writes join the deferred set.
+  // Wave 2 — skills. `skills.list` is daemon-registered and answers the installed
+  // `SkillDefinition` catalog (`crates/warshad/src/lib.rs:1399-1400`, `list_skills`
+  // returns `Vec<SkillDefinition>`); `decodeSkillDefinition` reads that row and still
+  // tolerates the older `SlashCommand` shape (its `name` doubles as the id). The three
+  // writes (`skills.import|toggle|delete`) are registered too — nothing is deferred.
   async listSkills(): Promise<SkillDefinition[]> {
     const rows = await this.rpc<unknown>('skills.list');
     return wave2List(rows, 'skills.list', decodeSkillDefinition);
