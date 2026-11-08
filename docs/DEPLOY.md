@@ -50,7 +50,7 @@ docker compose up -d --build
 
 ## 2. Network & port architecture
 
-```
+```text
  Internet ──▶ host :80/:443(+udp) ──▶ caddy ──▶ warsha_internal ──▶ warshad :8765/:8766
               (TLS terminates here)            (internal bridge,   NO host ports,
                                                  no Internet route)  NO direct exposure
@@ -163,7 +163,7 @@ docker compose -f deploy/docker-compose.yml logs warshad \
 
 The printed block looks like:
 
-```
+```text
  Warsha bootstrap admin token — shown ONCE, now, ever:
    source:  generated with openssl rand -hex 32
    token:   <the-64-hex-token-from-this-first-boot-log>
@@ -325,7 +325,7 @@ upgrade is not) or a proxy buffering events.
 
 All mutable state is the `warsha-data` volume:
 
-```
+```text
 /var/lib/warsha/
 ├── config.toml                  # 0600 — contains the admin bearer token
 ├── .bootstrap_token_printed     # suppresses repeat token printing
