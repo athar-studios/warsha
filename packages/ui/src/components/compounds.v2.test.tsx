@@ -140,6 +140,16 @@ describe('ModelPicker', () => {
     expect(trigger).toHaveFocus();
   });
 
+  it('closes on an outside click and hands focus back to the trigger', () => {
+    render(<ModelPicker selectedId="deepseek-v3" options={OPTIONS} onChange={() => {}} ariaLabel="Select model" />);
+    fireEvent.click(screen.getByTestId('model-picker-trigger'));
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.getByTestId('model-picker-trigger')).toHaveFocus();
+  });
+
   it('ignores a keydown outside the picker, so the page cannot drive it', () => {
     render(<ModelPicker selectedId="deepseek-v3" options={OPTIONS} onChange={() => {}} ariaLabel="Select model" />);
     fireEvent.click(screen.getByTestId('model-picker-trigger'));
