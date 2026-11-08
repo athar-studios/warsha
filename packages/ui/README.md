@@ -122,9 +122,10 @@ Apps consume `var(--warsha-*)` directly (they have no typed helpers) and import
   - R6.9 the **app length ratchet**: every `px`/`rem`/`em` length in `apps/{desktop,remote}/src/**`
     `.ts/.tsx/.css` (tests and comments excluded) is an offence, except inside an `@media` prelude
     whose value is one of `359, 767, 768, 1023, 1024, 1440`px. The live count may not exceed
-    `APP_LENGTH_BUDGET`, measured at this packet's base (`0772d50`): **145** offences — 142 lengths
-    plus 3 literal `var()` fallbacks. W5 drives the apps to zero; the integration step INT-2 sets
-    the constant to `0`;
+    `APP_LENGTH_BUDGET`, measured at this packet's base (`5abe5ef`, the integration tip after W8
+    merged; identical at the original `0772d50` base): **145** offences — 142 lengths plus 3 literal
+    `var()` fallbacks. W5 drives the apps to zero; the integration step INT-2 sets the constant to
+    `0`;
   - R6.10 a literal `var()` fallback (`var(--warsha-x, 4px)`) is an offence — the token is always
     defined;
   - R6.P parity: every TS token module and `tokens.css` declare exactly the same names with the same

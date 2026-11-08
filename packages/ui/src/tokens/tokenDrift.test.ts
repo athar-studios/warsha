@@ -999,10 +999,11 @@ export function scanAppLengths(source: string): Offence[] {
 
 describe('R6 app length ratchet (R6.9/R6.10)', () => {
   /**
-   * The live offence count measured at W3's base (0772d502002562505c6438ae712abca7a7328d84):
-   * 142 R6.9 lengths + 3 R6.10 literal fallbacks. The full list is in the packet report. W5 drives
-   * the apps to zero against `WARSHA_R6_APP_LENGTH_BUDGET=0`; INT-2 then pins this constant to 0.
-   * The env var can only tighten the budget, never raise it (D3).
+   * The live offence count measured at W3's base (5abe5ef9cb4b107467155f8fb8bf61f086394ba4, the
+   * integration tip after W8 merged; identical at the original 0772d50 base): 142 R6.9 lengths +
+   * 3 R6.10 literal fallbacks. The full list is in the packet report. W5 drives the apps to zero
+   * against `WARSHA_R6_APP_LENGTH_BUDGET=0`; INT-2 then pins this constant to 0. The env var can
+   * only tighten the budget, never raise it (D3).
    */
   const APP_LENGTH_BUDGET = 145;
 
