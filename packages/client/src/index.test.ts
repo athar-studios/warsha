@@ -2291,4 +2291,18 @@ describe('wiring client methods (M16/M19/M20)', () => {
       functions: [],
     });
   });
+
+  it('refuses an explicit null BackendKit list field (a serde default covers absence, not null)', () => {
+    const withNull = { ...BACKEND_KIT_ROW, tables: null };
+    expect(() => decodeBackendKit(withNull, 'backend.get')).toThrow(
+      'Malformed RPC result from backend.get: "tables" is not a list'
+    );
+    const configNull = {
+      ...BACKEND_KIT_ROW,
+      config: { ...BACKEND_KIT_ROW.config, enabled_features: null },
+    };
+    expect(() => decodeBackendKit(configNull, 'backend.get')).toThrow(
+      '"enabled_features" is not a list'
+    );
+  });
 });

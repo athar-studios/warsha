@@ -2137,7 +2137,8 @@ export interface RlsPolicy {
 /**
  * The backend kit (`warsha_pipeline::BackendKit`, snake_case on the wire). The four
  * list fields and `config.enabledFeatures` carry serde defaults, so they decode to
- * `[]` when absent; `encodeBackendKit` writes the whole kit back to snake_case for
+ * `[]` when absent (an explicit `null` is refused — a default covers absence, not
+ * `null`); `encodeBackendKit` writes the whole kit back to snake_case for
  * `backend.set`.
  */
 export interface BackendKit {
@@ -2416,9 +2417,14 @@ function wiringNullableNumber(value: unknown, method: string, name: string): num
   return wiringNumber(value, method, name);
 }
 
-/** A list field carrying a serde default: absent and `null` both read as `[]`. */
+/**
+ * A list field carrying a serde default: an ABSENT field reads as `[]`, an explicit `null` is
+ * refused. `#[serde(default)]` fills a missing field only; serde refuses `null` for a `Vec<T>`
+ * (`invalid type: null, expected a sequence`), and a daemon that serialises the struct never sends
+ * one, so accepting it here would be a tolerance the wire does not have.
+ */
 function wiringDefaultArray(value: unknown, method: string, name: string): unknown[] {
-  if (value === null || value === undefined) return [];
+  if (value === undefined) return [];
   return wiringArray(value, method, name);
 }
 
