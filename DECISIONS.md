@@ -1326,3 +1326,23 @@ workers decided; the owner decisions at the end are still **open**.
 **Open owner decisions from this run** (nothing was decided unilaterally): `OD1` the 40 stale remote
 baselines; `OD2` `G7.6`'s self-reference; `OD4` `G5.7` versus `states.spec.ts:132`; `OD5` the APK
 rebuild/re-record after W5; plus acceptance and the `dev` merge.
+## 2026-11-08 — Run `2026-11-08-design-and-remediation`: the G5.7/G5.10 conflict was resolved without redefining either gate
+
+- **Problem.** W5 migrated the decided-card quiet band from the literal `3px solid var(--warsha-bench-edge)`
+  to `var(--warsha-line-band)`. The computed border was identical, but the frozen e2e assertion at
+  `apps/desktop/e2e/states.spec.ts:132` regex-matches the inline-style **text**, so it failed; and the
+  R6.9 ratchet at budget 0 forbids a `px` literal in app sources, so reverting failed too. I escalated
+  this as owner decision OD4 because no honest *spelling* satisfied both.
+- **Resolution (no gate edited, no owner decision needed).** The R6 rule text itself says "the helper
+  import is allowed, the literal is not". `packages/ui/src/tokens/sizes.ts` exports `sizeTokens` (raw
+  values, `edge: 3px`) and `packages/ui/src/index.ts` re-exports the token layer, so the app can emit
+  `${sizeTokens.edge} solid var(--warsha-bench-edge)`: at runtime the inline style is exactly
+  `3px solid var(--warsha-bench-edge)` (the assertion matches) while the source holds no px literal (the
+  ratchet counts nothing). Measured at `77a02c1` with `states.spec.ts` **byte-identical**: G5.10 on the
+  Linux capture host **793 passed / 0 failed / 0 snapshot writes**; `@warsha/ui` 181 at budget 0.
+- **Why this is not a workaround.** The width still comes from the design-token layer rather than a magic
+  number, the computed and emitted border is unchanged, and pixels are provably unmoved. Nothing was
+  loosened: the e2e assertion and the ratchet are both exactly as frozen. *Alternative rejected*:
+  hardcode `3px` (reintroduces the ratchet offence) or amend the assertion (edits a frozen gate).
+- **OD4 is therefore withdrawn.** OD1 (the 40 stale remote baselines) and OD2 (`G7.6` self-reference)
+  remain open owner decisions.

@@ -1,10 +1,10 @@
 # PROGRESS.md — Warsha Build Log
 
-## Run 2026-11-08 — Design System v2 + post-Qoder remediation (PARTIAL: 7 of 8 packets merged)
+## Run 2026-11-08 — Design System v2 + post-Qoder remediation (ALL 8 PACKETS MERGED at `a643a53`; C3 swept; awaiting owner acceptance)
 
 Integrator fold of the worker reports. Evidence: `bridge-io/policy/2026-11-08-design-and-remediation/`
-(`state.json` seq 41, `verdict.json` = **NOT ACCEPTED**, `COMPLETION_AUDIT.md`, 41 checkpoints,
-102 gate logs). Integration branch `run/2026-11-08/integration` at `5c4041f`; `dev` untouched by this
+(`state.json` seq 47, `verdict.json` = **READY FOR ACCEPTANCE except OD1/OD2**, `COMPLETION_AUDIT.md`, 47 checkpoints,
+112 gate logs). Integration branch `run/2026-11-08/integration` at `a643a53`; `dev` untouched by this
 run's merges. **No gate was edited, narrowed or re-worded; zero snapshot files were touched.**
 
 **G0 baseline (verifier, Linux capture host, at `0772d50`) — recorded as truth, NOT all-green:**
@@ -22,7 +22,7 @@ failures were all `settings` failing axe `aria-required-children [critical]`.
 | **W4** wire/client/harness | C1 | REQUEST-CHANGES -> repair -> APPROVE | **13/13** — `RPC_METHODS` 75 (bijection), `wire: 9 checks, 0 violations` |
 | **W3** DS v2 in `packages/ui` | C1.5 `406240a` | APPROVE | **12/12** + G3.8 **793/0**; ui 181, desktop 446, remote 221 |
 | **W2** canonical docs | C2a `c2709169` + C2b/C2c | RC -> repair -> APPROVE (twice) | **10/10**; `mdbook test` 0 |
-| **W5** apps adoption + wiring | **NOT MERGED** | APPROVE | **14/14** worktree gates (desktop 464, budget-0 ratchet 181) — **held on owner decision OD4** |
+| **W5** apps adoption + wiring | C2d `77a02c1` | APPROVE (after repair 2) | **14/14** worktree gates (desktop 464, budget-0 ratchet 181) + **G5.10 = 793/0, 0 snapshot writes** |
 
 Notable corrections made during the run, kept visible rather than tidied away:
 - W7's original G7.5 verdict ("not reproducible") was **wrong**: the APK v2 signature is deterministic
@@ -39,6 +39,16 @@ Notable corrections made during the run, kept visible rather than tidied away:
 needs an owner-named set) · `OD2` `G7.6` is self-referential · `OD4` `G5.7` vs the e2e assertion at
 `states.spec.ts:132` (rehearsed: option 1 gives desktop **793/0**) · `OD5` rebuild the APK and
 re-record its hash after W5 merges · owner acceptance and the merge to `dev`.
+**Outcome at `a643a53`.** Every packet is merged and every integration gate that does not depend on an
+owner decision is green. The desktop visual contract is intact end to end: after all eight packets and
+INT-2, `pnpm exec playwright test --project=desktop` reports **793 passed / 0 failed** with **zero
+snapshot writes** on the authoritative capture host. The Android APK was rebuilt on the integrated
+tree and re-measured (842,981 B, `apksigner` Verifies, v2, RSA-4096, no source maps inside, G7.5 grep
+exit 0). `acceptance.json` now carries a verdict for all 108 gates: 102 pass, 1 fail (G0, the recorded
+baseline truth), 3 blocked on owner decisions and 2 partial. What remains is not engineering: **OD1**
+(name the 40 stale remote baselines so Phase B can run) and **OD2** (`G7.6` greps a directory
+containing its own prompt, so it can never pass as written), then the owner's acceptance and the
+merge to `dev`.
 
 ## System Environment Remediation — 2026-11-08 (Windows Host Low Mandatory Level Resolved)
 

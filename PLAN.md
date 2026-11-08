@@ -544,7 +544,7 @@
 - [x] Installers produced: `apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/Warsha_0.1.0_x64_en-US.msi` (8,085,504 bytes) and `...\bundle\nsis\Warsha_0.1.0_x64-setup.exe` (5,721,668 bytes)
 - [ ] Still open after this batch: the installers are unsigned (SmartScreen warns), the updater plugin is configured but not a dependency, the webview has no live event stream (`/events` authenticates from a header a browser cannot set), the ports are fixed rather than discovered, and the bundle identifier `dev.warsha.app` still ends in `.app` (Tauri warns about the macOS bundle-extension clash)
 
-## Run 2026-11-08 — Design System v2 + post-Qoder remediation (W1–W7) ⚠️ PARTIAL — 7 of 8 packets merged; W5 + C2/C3 blocked on owner decisions OD1–OD5 (see `verdict.json` and `COMPLETION_AUDIT.md`)
+## Run 2026-11-08 — Design System v2 + post-Qoder remediation (W1–W7) ✅ MERGED at `a643a53` — C3 swept; awaiting OWNER ACCEPTANCE (two open decisions: OD1 remote baselines, OD2 `G7.6`). See `verdict.json` and `COMPLETION_AUDIT.md`
 
 Run id `2026-11-08-design-and-remediation`, evidence `bridge-io/policy/2026-11-08-design-and-remediation/`
 (`state.json` = `warsha-run/v1`, resumable without chat). Spec: `docs/designs/DESIGN_SYSTEM_V2.md`.
@@ -565,9 +565,9 @@ visual 308, flows 30, layout 12, onboarding 3), remote 91 (bench.visual 84, flow
 - [x] **W7** (Wave A) Android — build remote, `assembleRelease` (preBuild syncs `assets/public`), `apksigner verify`, SHA-256 + size in `apps/mobile/README.md`
 - [x] **C1** — owner merges accepted W3 + W4 (and W1/W6/W7 when ready) into the integration branch (`--no-ff`)
 - [x] **W2** (Wave B) canonical docs — `docs/{ARCHITECTURE,ARCH_RULES,DEPLOY,DEVELOPERS,VERIFY}.md`, `docs/src/{architecture,SUMMARY}.md` + 5 shims, `docs/designs/SITEMAP.md`, `_agents/skills/warsha_elephant/SKILL.md`, `SECURITY.md`
-- [ ] **W5** (Wave B) **[implemented, review APPROVE, 14/14 verified — NOT MERGED: blocked on OD4]** apps adoption + wiring — Routines + BackendKitPanel live, `real-acceptance.cjs:36` → 8765, DS v2 §4 migration table, scrim in HandoffDialog/GateBell; desktop ≥ 451 tests; ratchet passes at `WARSHA_R6_APP_LENGTH_BUDGET=0`
-- [ ] **C2 / INT-2** **[W2 merged at C2a/C2b/C2c; INT-2 measured green on the OD4 rehearsal branch but not applied]** — merge W2 + W5; set `APP_LENGTH_BUDGET = 0` in `packages/ui/src/tokens/tokenDrift.test.ts` (planner-specified one-line tightening)
-- [ ] **C3** **[partial sweep done at interim tips: 9 provisional pass, GC.4 partial (desktop 446 < 451 without W5), GC.12 fails until OD5, GC.10 blocked on OD1]** — full gate sweep on the integration branch (Windows + Linux capture host; W7 gates re-run on the integrated tree) → owner acceptance → merge to `dev`
+- [x] **W5** (Wave B) — merged at C2d (`77a02c1`). OD4 was resolved without an owner decision: the quiet band reads its width from `sizeTokens`, so the frozen e2e assertion and the R6.9 ratchet both hold with `states.spec.ts` byte-identical. G5.10 = 793/0 on the capture host; desktop 464. apps adoption + wiring — Routines + BackendKitPanel live, `real-acceptance.cjs:36` → 8765, DS v2 §4 migration table, scrim in HandoffDialog/GateBell; desktop ≥ 451 tests; ratchet passes at `WARSHA_R6_APP_LENGTH_BUDGET=0`
+- [x] **C2 / INT-2** — W2 merged at C2a/C2b/C2c; W5 at C2d; `APP_LENGTH_BUDGET` set to 0 at `e914ad3` (`@warsha/ui` 181 passed at the constant 0). — merge W2 + W5; set `APP_LENGTH_BUDGET = 0` in `packages/ui/src/tokens/tokenDrift.test.ts` (planner-specified one-line tightening)
+- [x] **C3** — swept at the final tip `a643a53`: GC.1–GC.9 and GC.11 pass; GC.10 passes on desktop (**793/0, 0 snapshot writes**) and its remote half is blocked on OD1; GC.12 passes every W7 gate except `G7.6` (OD2) after the APK was rebuilt on the integrated tree (842,981 B, `apksigner` Verifies, v2, RSA-4096, G7.5 grep exit 0). `acceptance.json` carries a verdict for all 108 gates. **Owner acceptance and the `dev` merge remain.** — full gate sweep on the integration branch (Windows + Linux capture host; W7 gates re-run on the integrated tree) → owner acceptance → merge to `dev`
 
 Phase B (visual wave, owner names the baseline set) and Phase C (IBM Plex vendoring, OFL-1.1 notice)
 are listed in `DESIGN_SYSTEM_V2.md` §9. Logged follow-ups outside this run: `warshad` `start_preview`
