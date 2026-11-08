@@ -82,14 +82,14 @@ or in this file.
   — `renameReleaseApk` now **copies** rather than moves, so both names exist; the
   copy is the artifact `docs/VERIFY.md` and `docs/INSTALL.md` reference, while
   `app-release.apk` is the path the W7 release gates verify.
-- File size: **840,513 bytes**
+- File size: **842,981 bytes**
 - Build date (UTC): **2026-11-08T07:56:11Z**
 - Base commit: `0772d502002562505c6438ae712abca7a7328d84` (`run/2026-11-08/integration`)
 
 SHA-256 (`app-release.apk`; identical for `warsha-remote-release.apk`):
 
 ```text
-ce60f2bd5183779de7fd6a3c7593e0a612e878c8a1c05960f308e06ea3ad01ff
+6a4681852c53f01294159b1d6a905ddb8b32ab968d68fbefcd50a93eae2700ef
 ```
 
 > Reproducibility: the signed APK **is** byte-reproducible. Two consecutive clean
