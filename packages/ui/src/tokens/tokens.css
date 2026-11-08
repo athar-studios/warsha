@@ -11,10 +11,12 @@
  * `prefers-color-scheme` query: Warsha's theme is an owner choice stored with the app, and a media
  * query would silently override it.
  *
- * This file is the CSS half of the token layer. The TypeScript half (`./colors.ts`, `./spacing.ts`,
- * `./radius.ts`, `./typography.ts`, `./shadow.ts`, `./motion.ts`) declares the same names and values;
- * `tokenDrift.test.ts` fails if the two ever disagree, and fails if a component references a token
- * this file does not declare (docs/ARCH_RULES.md R6).
+ * This file is the CSS half of the token layer. The TypeScript half (`./colors.ts`, `./aliases.ts`,
+ * `./lines.ts`, `./elevation.ts`, `./spacing.ts`, `./sizes.ts`, `./radius.ts`, `./typography.ts`,
+ * `./shadow.ts`, `./motion.ts`) declares the same names and values; `tokenDrift.test.ts` fails if the
+ * two ever disagree, and fails if a component references a token this file does not declare
+ * (docs/ARCH_RULES.md R6). `./breakpoints.ts` is TS-only and explicitly exempt: a media query cannot
+ * read a custom property.
  *
  * Colours are role names, not colour names. Never write a hex value in a component.
  */
@@ -44,6 +46,13 @@
   --warsha-color-warning: #b45309;
   --warsha-color-error: #b42318;
   --warsha-color-muted: #9ca3af;
+  /* DS v2 §4.2: the scrim is bg at 55% alpha (frosts on the day shift); tints are status over
+     surface at 6%, stored opaque so contrast.test.ts can measure them. */
+  --warsha-color-scrim: #fafafa8c;
+  --warsha-color-success-tint: #f1f7f3;
+  --warsha-color-warning-tint: #fbf5f0;
+  --warsha-color-error-tint: #fbf2f1;
+  --warsha-color-accent-tint: #fffdf0;
 
   /*
    * ------------------------------------------------------ semantic aliases
@@ -76,6 +85,33 @@
   --warsha-diff-add-bg: var(--warsha-color-surface-muted); /* the `+` gutter glyph carries the rest */
   --warsha-focus-ring: var(--warsha-color-accent-strong); /* 5.03:1 on bg — AUDIT-1 §1.3 */
 
+  /*
+   * Lines and elevation (DS v2 §4.3/§4.4). Composite tokens reference themed custom properties, so
+   * the cascade rule (§4.1) declares them in *both* theme blocks with identical text: a custom
+   * property is substituted where it is declared, and a token declared only on :root would freeze
+   * the light colours into a dark subtree themed on an inner element.
+   */
+  --warsha-line-rule: var(--warsha-size-rule) solid var(--warsha-bench-rule);
+  --warsha-line-edge: var(--warsha-size-rule) solid var(--warsha-bench-edge);
+  --warsha-line-fail: var(--warsha-size-rule) solid var(--warsha-color-error);
+  --warsha-line-signal: var(--warsha-size-edge) solid var(--warsha-signal-text);
+  --warsha-line-quiet: var(--warsha-size-edge) solid transparent;
+  --warsha-line-band: var(--warsha-size-edge) solid var(--warsha-bench-edge);
+  --warsha-line-band-fail: var(--warsha-size-edge) solid var(--warsha-color-error);
+  --warsha-line-inscribe: var(--warsha-size-inscribe) solid currentColor;
+  --warsha-elevation-plate: var(--warsha-shadow-none);
+  --warsha-elevation-lift: var(--warsha-shadow-md);
+
+  /* Layers are unitless and theme-independent: the light block only (DS v2 §4.4). */
+  --warsha-layer-raised: 2;
+  --warsha-layer-popover: 50;
+  --warsha-layer-sticky: 90;
+  --warsha-layer-chrome: 100;
+  --warsha-layer-scrim: 140;
+  --warsha-layer-sheet: 150;
+  --warsha-layer-banner: 200;
+  --warsha-layer-modal: 1000;
+
   /* ------------------------------------------------------------------ sizes */
   --warsha-size-rule: 1px;
   --warsha-size-edge: 3px;
@@ -98,11 +134,38 @@
   --warsha-size-stream-time: 76px;
   --warsha-size-composer-max: 132px;
   --warsha-size-measure: 68ch;
+  /* The layout family (DS v2 §4.5): pixel-identical to the app literals W5 migrates. */
+  --warsha-size-bench-offset: 80px;
+  --warsha-size-plate-max: 900px;
+  --warsha-size-ledger-max: 1000px;
+  --warsha-size-content-max: 1100px;
+  --warsha-size-content-wide: 1400px;
+  --warsha-size-dialog: 32rem;
+  --warsha-size-dialog-wide: 34rem;
+  --warsha-size-notice: 480px;
+  --warsha-size-form-narrow: 420px;
+  --warsha-size-wizard: 26rem;
+  --warsha-size-qr: 160px;
+  --warsha-size-preview-min: 320px;
+  --warsha-size-pane: 400px;
+  --warsha-size-field-min: 12rem;
+  --warsha-size-label-col: 7rem;
+  --warsha-size-measure-compact: 9rem;
+  --warsha-size-picker: 13rem;
+  --warsha-size-picker-wide: 15rem;
+  --warsha-size-input-min: 140px;
+  --warsha-size-popover: 360px;
+  --warsha-size-popover-block: 520px;
+  --warsha-size-sheet-block: 420px;
+  --warsha-size-strip-item: 240px;
 
   /* --------------------------------------------------------------- spacing */
   --warsha-space-0: 0px;
+  --warsha-space-0-5: 2px;
   --warsha-space-1: 4px;
+  --warsha-space-1-5: 6px;
   --warsha-space-2: 8px;
+  --warsha-space-2-5: 10px;
   --warsha-space-3: 12px;
   --warsha-space-4: 16px;
   --warsha-space-6: 24px;
@@ -143,6 +206,8 @@
   --warsha-font-weight-medium: 500;
   --warsha-font-weight-semibold: 600;
   --warsha-font-weight-bold: 700;
+  /* The one tracking token (DS v2 §2.3): mono pairing/verification codes only, never sans/Arabic. */
+  --warsha-tracking-code: 0.2em;
 
   /* ---------------------------------------------------------------- shadow */
   --warsha-shadow-none: none;
@@ -179,6 +244,12 @@
   --warsha-color-warning: #d29922;
   --warsha-color-error: #f85149;
   --warsha-color-muted: #737373;
+  /* DS v2 §4.2: the scrim dims on the night shift; tints are status over surface at 10%. */
+  --warsha-color-scrim: #0e0e0e8c;
+  --warsha-color-success-tint: #1b271d;
+  --warsha-color-warning-tint: #2a2418;
+  --warsha-color-error-tint: #2e1d1c;
+  --warsha-color-accent-tint: #2e2a16;
 
   /*
    * The night shift, not an inversion (REDESIGN §1.6). Every alias is re-declared here even when it
@@ -200,6 +271,18 @@
   --warsha-lamp-fail: var(--warsha-color-error);
   --warsha-diff-add-bg: var(--warsha-color-surface-muted);
   --warsha-focus-ring: var(--warsha-color-accent);
+
+  /* Lines and elevation: identical text to the light block, re-declared per the cascade rule (§4.1). */
+  --warsha-line-rule: var(--warsha-size-rule) solid var(--warsha-bench-rule);
+  --warsha-line-edge: var(--warsha-size-rule) solid var(--warsha-bench-edge);
+  --warsha-line-fail: var(--warsha-size-rule) solid var(--warsha-color-error);
+  --warsha-line-signal: var(--warsha-size-edge) solid var(--warsha-signal-text);
+  --warsha-line-quiet: var(--warsha-size-edge) solid transparent;
+  --warsha-line-band: var(--warsha-size-edge) solid var(--warsha-bench-edge);
+  --warsha-line-band-fail: var(--warsha-size-edge) solid var(--warsha-color-error);
+  --warsha-line-inscribe: var(--warsha-size-inscribe) solid currentColor;
+  --warsha-elevation-plate: var(--warsha-shadow-none);
+  --warsha-elevation-lift: var(--warsha-shadow-md);
 }
 
 /*

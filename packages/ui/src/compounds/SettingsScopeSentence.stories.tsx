@@ -5,7 +5,7 @@ import type { Meta, StoryObj } from '@storybook/react';
 import { SettingsScopeSentence as SettingsScopeSentenceComponent } from './SettingsScopeSentence';
 
 const meta: Meta<typeof SettingsScopeSentenceComponent> = {
-  title: 'Compounds/SettingsScopeSentence',
+  title: 'Bench/SettingsScopeSentence',
   component: SettingsScopeSentenceComponent,
   parameters: {
     layout: 'centered',

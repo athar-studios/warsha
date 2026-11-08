@@ -249,7 +249,8 @@ describe('Stamp', () => {
     expect(stamp).toHaveClass('warsha-stamp');
     expect(stamp).toHaveAttribute('data-tone', 'ok');
     expect(within(stamp).getByText('✓')).toHaveAttribute('aria-hidden', 'true');
-    expect(stamp.style.border).toContain('var(--warsha-size-inscribe) solid');
+    // DS v2 §4.3: the stamp's border is the line token; tokenDrift pins its composition.
+    expect(stamp.style.border).toBe('var(--warsha-line-inscribe)');
     expect(stamp.style.color).toBe('var(--warsha-lamp-ok)');
   });
 
@@ -387,9 +388,10 @@ describe('Ledger and RailRow', () => {
 
     const selected = screen.getByRole('button', { name: /atlas/ });
     expect(selected).toHaveAttribute('aria-current', 'true');
-    expect(selected.style.borderInlineStart).toContain('var(--warsha-signal-text)');
+    // DS v2 §4.3: the selected edge is the line token; tokenDrift pins its composition.
+    expect(selected.style.borderInlineStart).toBe('var(--warsha-line-signal)');
     // The quiet edge keeps the same width, so a row being selected cannot move its name.
-    expect(screen.getByText('calculator').closest('div')?.style.borderInlineStart).toContain('transparent');
+    expect(screen.getByText('calculator').closest('div')?.style.borderInlineStart).toBe('var(--warsha-line-quiet)');
   });
 
   it('keeps a row’s actions outside its button so both are reachable and neither double-fires', () => {
@@ -988,7 +990,7 @@ describe('the inventory as a system', () => {
     expect(logicalLonghands(selected)).toEqual(
       expect.arrayContaining(['border-inline-start', 'padding-inline', 'min-inline-size'])
     );
-    expect(selected.style.borderInlineStart).toContain('var(--warsha-signal-text)');
+    expect(selected.style.borderInlineStart).toBe('var(--warsha-line-signal)');
 
     const composer = screen.getByRole('textbox', { name: 'message' }).closest('form') as HTMLElement;
     expect(logicalLonghands(composer)).toEqual(expect.arrayContaining(['inset-block-end', 'padding-inline']));

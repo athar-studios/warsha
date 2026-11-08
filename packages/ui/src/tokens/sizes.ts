@@ -59,6 +59,57 @@ export const sizeTokens = {
   composerMax: '132px',
   /** The prose measure: REDESIGN §11 caps reading text at 68 characters. */
   measure: '68ch',
+  /*
+   * The layout family (DS v2 §4.5): the physical numbers the apps drew as literals, each token
+   * pixel-identical to the literal it replaces so the migration moves nothing. W5 points the apps
+   * at these names; R6.9's ratchet holds the apps to the measured count until then.
+   */
+  /** The bench offset under the topbar and strip: `calc(100vh - var(--warsha-size-bench-offset))`. */
+  benchOffset: '80px',
+  /** A settings plate's cap. */
+  plateMax: '900px',
+  /** A wide ledger's cap (budgets, roles). */
+  ledgerMax: '1000px',
+  /** The work column's cap (REDESIGN §10). */
+  contentMax: '1100px',
+  /** The wide workbench's cap. */
+  contentWide: '1400px',
+  /** A dialog's inline size. */
+  dialog: '32rem',
+  /** The onboarding dialog's wider plate. */
+  dialogWide: '34rem',
+  /** An error or empty notice. */
+  notice: '480px',
+  /** A narrow form (device pairing). */
+  formNarrow: '420px',
+  /** The provider setup wizard. */
+  wizard: '26rem',
+  /** A pairing QR code. */
+  qr: '160px',
+  /** A live preview's minimum inline size. */
+  previewMin: '320px',
+  /** A workbench pane's flex basis. */
+  pane: '400px',
+  /** A flex field's minimum: `flex: 1 1 var(--warsha-size-field-min)`. */
+  fieldMin: '12rem',
+  /** A settings row's label column. */
+  labelCol: '7rem',
+  /** A compact grid minimum (provider rows, crash reports). */
+  measureCompact: '9rem',
+  /** The mention picker's inline size. */
+  picker: '13rem',
+  /** The slash-command picker's inline size. */
+  pickerWide: '15rem',
+  /** A plugin config input's minimum. */
+  inputMin: '140px',
+  /** A popover's inline size. */
+  popover: '360px',
+  /** A popover's block cap. */
+  popoverBlock: '520px',
+  /** A bottom sheet's block cap. */
+  sheetBlock: '420px',
+  /** A horizontal agent-strip item. */
+  stripItem: '240px',
 } as const;
 
 /** The name of a size token. */
@@ -66,6 +117,37 @@ export type SizeTokenName = keyof typeof sizeTokens;
 
 /** Every size token name, in declaration order. */
 export const sizeTokenNames = Object.keys(sizeTokens) as SizeTokenName[];
+
+/**
+ * The layout family (DS v2 §4.5), in declaration order: the caps, dialogs, panes and picker widths
+ * W5 migrates the apps onto. Exported as its own list so a story or a doc can show the family
+ * without meaning "every bench fact" — `touch` is a target, these are containers.
+ */
+export const layoutSizeNames = [
+  'benchOffset',
+  'plateMax',
+  'ledgerMax',
+  'contentMax',
+  'contentWide',
+  'dialog',
+  'dialogWide',
+  'notice',
+  'formNarrow',
+  'wizard',
+  'qr',
+  'previewMin',
+  'pane',
+  'fieldMin',
+  'labelCol',
+  'measureCompact',
+  'picker',
+  'pickerWide',
+  'inputMin',
+  'popover',
+  'popoverBlock',
+  'sheetBlock',
+  'stripItem',
+] as const satisfies readonly SizeTokenName[];
 
 /** `--warsha-size-touch`, without the `var()` wrapper. */
 export function sizeVarName(name: SizeTokenName): string {

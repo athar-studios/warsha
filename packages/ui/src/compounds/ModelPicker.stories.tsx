@@ -12,7 +12,7 @@ const mockOptions: readonly ModelOption[] = [
 ];
 
 const meta: Meta<typeof ModelPicker> = {
-  title: 'Compounds/ModelPicker',
+  title: 'Bench/ModelPicker',
   component: ModelPicker,
   parameters: {
     layout: 'centered',

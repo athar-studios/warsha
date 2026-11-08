@@ -61,6 +61,20 @@ export const colorTokens = {
   error: { light: '#b42318', dark: '#f85149' },
   /** Disabled text, empty-state glyphs, the quietest readable foreground. */
   muted: { light: '#9ca3af', dark: '#737373' },
+  /**
+   * The overlay behind a dialog or the gate bell: `bg` at 55% alpha (DS v2 §4.2), so the bench frosts
+   * on the day shift and dims on the night shift. Non-text; `contrast.test.ts` composites it over `bg`.
+   */
+  scrim: { light: '#fafafa8c', dark: '#0e0e0e8c' },
+  /**
+   * Status tints: the status colour over `surface` at 6% light / 10% dark (DS v2 §4.2), stored as
+   * opaque hex so the contrast gate can measure them. Ink on its own tint clears 4.5:1 in both themes.
+   */
+  successTint: { light: '#f1f7f3', dark: '#1b271d' },
+  warningTint: { light: '#fbf5f0', dark: '#2a2418' },
+  errorTint: { light: '#fbf2f1', dark: '#2e1d1c' },
+  /** A lamp surface: only where `signal-wash` would go, when an opaque fill is required (§4.2). */
+  accentTint: { light: '#fffdf0', dark: '#2e2a16' },
 } as const;
 
 /** The name of a colour token. */

@@ -1,26 +1,34 @@
-// @warsha/ui — R6: token drift prevention (docs/ARCH_RULES.md R6).
+// @warsha/ui — R6: token drift prevention (docs/ARCH_RULES.md R6, DS v2 §4.6).
 //
 // Three things are checked, and all of them fail the build:
 //
 //   1. No component in this package writes a design value. Colours, lengths, radii, shadows and
 //      durations may only reach a component through a typed token helper (`colorVar`, `aliasVar`,
-//      `size`, `space`, `radius`, `shadow`, `fontSize`, `fontWeight`, `duration`, `easing`), so a
-//      literal cannot slip into the product and forget to follow the dark theme.
+//      `lineVar`, `elevationVar`, `layer`, `size`, `space`, `radius`, `shadow`, `fontSize`,
+//      `fontWeight`, `duration`, `easing`), so a literal cannot slip into the product and forget to
+//      follow the dark theme. R6.7 extends this to the unitless literals: `fontWeight: 600` and
+//      `zIndex: 50` are design values too, and name `fontWeight('semibold')` / `layer('popover')`.
 //   2. The TypeScript token layer and `tokens.css` declare exactly the same names with exactly the
 //      same values — including which values the dark theme overrides. A token added to one half and
 //      forgotten in the other fails here instead of rendering as `var()`-less nothing at runtime.
-//      That now covers the Bench & Signal families too: the semantic aliases (`aliases.ts`) and the
-//      bench sizes (`sizes.ts`), because a `--warsha-focus-ring` the CSS does not define is an
-//      invisible focus ring, and a `--warsha-size-touch` the CSS does not define is a 0px target.
+//      That covers the Bench & Signal families (aliases, sizes) and the DS v2 families (`lines.ts`,
+//      `elevation.ts`); `breakpoints.ts` is explicitly exempt because a media query cannot read a
+//      custom property.
 //   3. The two app sources (`apps/desktop/src/**`, `apps/remote/src/**`) carry no colour, spacing or
 //      type literal either. Apps are not this package, so they consume tokens as CSS custom
 //      properties (`var(--warsha-color-accent)`) rather than through the typed helpers — the helper
 //      import is allowed, the literal is not.
 //
+// R6 v2 adds the app ratchet (D3): R6.9 counts every `px`/`rem`/`em` length in the apps' `.ts/.tsx/.css`
+// (tests and comments excluded) except inside an `@media` prelude whose value is in the breakpoint set,
+// and R6.10 counts every literal `var()` fallback. The live count may not grow past `APP_LENGTH_BUDGET`,
+// measured at this packet's base; `WARSHA_R6_APP_LENGTH_BUDGET` can only tighten it (`Math.min`). W5
+// drives the apps to zero; INT-2 then pins the constant to zero.
+//
 // Two more things the redesign made worth policing: a raw colour may appear in `tokens.css` only
-// inside the two theme blocks (REDESIGN §12), and every exported component — compound or part — has a
-// story, since an unstories component is an unviewed one in a package whose review surface is
-// Storybook.
+// inside the two theme blocks — R6.8 checks the selector list *exactly*, so `:root :focus-visible`
+// cannot smuggle one — and every exported component — compound or part — has a story, since an
+// unstories component is an unviewed one in a package whose review surface is Storybook.
 //
 // The scanners are themselves tested against a planted violation, the same way
 // `scripts/check-arch.mjs --self-test` plants one per architecture rule: a rule that silently
@@ -33,7 +41,17 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { aliasTokenNames, aliasTokens, aliasVarName } from './aliases';
+import { MEDIA_PRELUDE_PX } from './breakpoints';
 import { colorTokenNames, colorTokens, colorVarName } from './colors';
+import {
+  elevationTokenNames,
+  elevationTokens,
+  elevationVarName,
+  layerTokenNames,
+  layerTokens,
+  layerVarName,
+} from './elevation';
+import { lineTokenNames, lineTokens, lineVarName } from './lines';
 import {
   durationNames,
   durationVarName,
@@ -59,6 +77,9 @@ import {
   lineHeightNames,
   lineHeightVarName,
   lineHeights,
+  trackingTokenNames,
+  trackingTokens,
+  trackingVarName,
 } from './typography';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -95,9 +116,10 @@ function componentSources(): string[] {
   for (const entry of readdirSync(COMPOUND_DIRECTORY, { withFileTypes: true })) {
     if (!entry.isFile()) continue;
     if (!entry.name.endsWith('.tsx') && !entry.name.endsWith('.ts')) continue;
-    // The barrel only re-exports; `internal.ts` only names things the compounds share.
-    // Also exclude story files from compounds.
-    if (entry.name === 'index.ts' || entry.name === 'internal.ts' || entry.name.includes('.stories.')) continue;
+    // The barrel only re-exports. `internal.ts` IS scanned (R6.8): it composes the tokens every
+    // compound shares, so a literal there would reach twenty components at once. It owes no story —
+    // nothing in it renders on its own, and it exports no PascalCase component.
+    if (entry.name === 'index.ts' || entry.name.includes('.stories.')) continue;
     files.push(join(COMPOUND_DIRECTORY, entry.name));
   }
   return files.sort();
@@ -143,6 +165,9 @@ function exportedComponents(): string[] {
   for (const file of componentSources()) {
     const source = stripComments(readFileSync(file, 'utf8'));
     for (const match of source.matchAll(/export (?:function|const|class) ([A-Z][A-Za-z0-9]*)\b/g)) {
+      // A component is PascalCase — it carries lowercase letters. An all-caps name is a shared
+      // constant (`MACHINE`, `PLATE`, `FIELD` in internal.ts), not a renderable thing that owes a story.
+      if (!/[a-z]/.test(match[1])) continue;
       names.add(match[1]);
     }
   }
@@ -205,6 +230,9 @@ const RAW_TOKEN_NAME = /--warsha-/;
 /** The untyped escape hatch: correct only inside this token directory. */
 const UNTYPED_HELPER = /\bcssVar\s*\(/;
 
+/** R6.7: a unitless weight or layer is still a design value — name the token instead. */
+const UNITLESS_WEIGHT_OR_LAYER = /\b(?:fontWeight|zIndex)\s*:\s*\d+\b/;
+
 /**
  * Blank out comments, keeping every line in place.
  *
@@ -265,6 +293,13 @@ export function scanForLiterals(source: string): Offence[] {
 
       if (UNTYPED_HELPER.test(line)) {
         add('untyped `cssVar(` call (use the typed helper: colorVar, space, radius, shadow, …)');
+      }
+
+      const unitless = line.match(UNITLESS_WEIGHT_OR_LAYER);
+      if (unitless) {
+        add(
+          `unitless design literal \`${unitless[0]}\` (use fontWeight('semibold') or layer('popover'), R6.7)`
+        );
       }
     });
 
@@ -449,11 +484,38 @@ function normalise(value: string): string {
   return value.replace(/["']/g, '"').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
-/** Every token name the TypeScript layer declares. */
+/**
+ * R6.8: the only selector lists that may carry a raw colour. Compared exactly (whitespace
+ * normalised), so `:root :focus-visible` — which merely *contains* `:root` — is scanned like any
+ * other rule instead of inheriting the theme blocks' exemption.
+ */
+const RAW_COLOUR_SELECTORS = new Set([":root, [data-theme='light']", "[data-theme='dark']"]);
+
+/** Every raw colour declared outside the two exact theme blocks, as report lines. */
+export function scanCssRawColours(css: string): Offence[] {
+  const offences: Offence[] = [];
+  for (const block of parseCssBlocks(stripComments(css))) {
+    const selector = block.selector.replace(/\s+/g, ' ').trim();
+    if (RAW_COLOUR_SELECTORS.has(selector)) continue;
+    const found = block.body.match(COLOUR_LITERAL);
+    if (found) {
+      offences.push({
+        line: block.startLine,
+        offence: `raw colour \`${found[0]}\` in \`${block.selector}\` (only the two theme blocks may declare one, R6.8)`,
+      });
+    }
+  }
+  return offences;
+}
+
+/** Every token name the TypeScript layer declares. `breakpoints.ts` is exempt (TS only, §4.5). */
 function declaredByTypeScript(): Set<string> {
   const names = new Set<string>();
   for (const name of colorTokenNames) names.add(colorVarName(name));
   for (const name of aliasTokenNames) names.add(aliasVarName(name));
+  for (const name of lineTokenNames) names.add(lineVarName(name));
+  for (const name of elevationTokenNames) names.add(elevationVarName(name));
+  for (const name of layerTokenNames) names.add(layerVarName(name));
   for (const step of SPACING_STEPS) names.add(spacingVarName(step));
   for (const name of sizeTokenNames) names.add(sizeVarName(name));
   for (const name of radiusTokenNames) names.add(radiusVarName(name));
@@ -462,6 +524,7 @@ function declaredByTypeScript(): Set<string> {
   for (const name of fontSizeNames) names.add(fontSizeVarName(name));
   for (const name of lineHeightNames) names.add(lineHeightVarName(name));
   for (const name of fontWeightNames) names.add(fontWeightVarName(name));
+  for (const name of trackingTokenNames) names.add(trackingVarName(name));
   for (const name of durationNames) names.add(durationVarName(name));
   for (const name of easingNames) names.add(easingVarName(name));
   return names;
@@ -515,18 +578,28 @@ describe('R6 token drift', () => {
     expect(stories).toContain('Tokens');
   });
 
-  it('keeps every raw colour inside the two theme blocks (REDESIGN §12)', () => {
-    const offenders: string[] = [];
-    for (const block of blocks) {
-      if (block.selector.includes(':root') || block.selector.includes('[data-theme')) continue;
-      const found = stripComments(block.body).match(COLOUR_LITERAL);
-      if (found) {
-        offenders.push(
-          `R6: packages/ui/src/tokens/tokens.css:${block.startLine} raw colour \`${found[0]}\` in \`${block.selector}\``
-        );
-      }
-    }
+  it('keeps every raw colour inside the two exact theme blocks (REDESIGN §12, R6.8)', () => {
+    const offenders = scanCssRawColours(css).map(
+      ({ line, offence }) => `R6: packages/ui/src/tokens/tokens.css:${line} ${offence}`
+    );
     expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+
+  it('R6.8 fires on a raw colour under :root :focus-visible and stays clean on the theme blocks', () => {
+    // The loophole this closes: a selector that merely *contains* `:root` used to inherit the
+    // theme blocks' exemption, so a focus rule could hard-code the ring colour.
+    const planted = ":root :focus-visible { outline: 2px solid #ff0000; }";
+    const fired = scanCssRawColours(planted);
+    expect(fired).toHaveLength(1);
+    expect(fired[0].offence).toContain('#ff0000');
+    expect(fired[0].offence).toContain(':root :focus-visible');
+
+    const clean = [
+      ":root, [data-theme='light'] { --warsha-color-accent: #ffd60a; }",
+      "[data-theme='dark'] { --warsha-color-bg: #0e0e0e; }",
+      ':root :focus-visible { outline: var(--warsha-size-inscribe) solid var(--warsha-focus-ring); }',
+    ].join('\n');
+    expect(scanCssRawColours(clean)).toEqual([]);
   });
 
   it('gives every semantic alias the light and dark value the TypeScript layer carries', () => {
@@ -576,6 +649,39 @@ describe('R6 token drift', () => {
     expect(sizeTokens.rule).toBe('1px');
   });
 
+  it('declares every line in both theme blocks with identical text (cascade rule, §4.1)', () => {
+    // A line references themed custom properties; declared only on :root it would freeze the light
+    // colours into a dark subtree themed on an inner element (Storybook's decorator does exactly that).
+    for (const name of lineTokenNames) {
+      const varName = lineVarName(name);
+      expect(declared(lightBlock, varName), varName).toBe(normalise(lineTokens[name]));
+      expect(declared(darkBlock, varName), varName).toBe(normalise(lineTokens[name]));
+    }
+  });
+
+  it('declares both elevations in both theme blocks, and the layers once, unitless (§4.4)', () => {
+    for (const name of elevationTokenNames) {
+      const varName = elevationVarName(name);
+      expect(declared(lightBlock, varName), varName).toBe(normalise(elevationTokens[name]));
+      expect(declared(darkBlock, varName), varName).toBe(normalise(elevationTokens[name]));
+    }
+    for (const name of layerTokenNames) {
+      const varName = layerVarName(name);
+      expect(declared(lightBlock, varName), varName).toBe(layerTokens[name]);
+      expect(layerTokens[name]).toMatch(/^\d+$/);
+      // A layer is not a theme decision: the dark block must not re-declare it.
+      expect(declared(darkBlock, varName), varName).toBeUndefined();
+    }
+  });
+
+  it('keeps breakpoints out of the stylesheet (TS only, §4.5)', () => {
+    // A media query cannot read a custom property, so a `--warsha-breakpoint-*` declaration would be
+    // a token nothing can consume. The name-set parity test above already excludes the module; this
+    // pins the exemption from the CSS side.
+    const declaredNames = blocks.flatMap((block) => [...block.declarations.keys()]);
+    expect(declaredNames.filter((name) => name.includes('breakpoint'))).toEqual([]);
+  });
+
   it('gives the loop durations the values the TypeScript layer carries', () => {
     // A lamp breathes and a skeleton shimmers with these, and `tokens.css` zeroes them with the rest.
     expect(declared(lightBlock, durationVarName('breathe')), 'breathe').toBe(durations.breathe);
@@ -614,6 +720,8 @@ describe('R6 token drift', () => {
       "fontFamily: 'Inter, sans-serif',",
       "border: '1px solid var(--warsha-color-border)',",
       "color: cssVar('color-accent'),",
+      'fontWeight: 600,',
+      'zIndex: 50,',
     ].join('\n');
 
     const offences = scanForLiterals(planted).map((entry) => entry.offence);
@@ -624,11 +732,16 @@ describe('R6 token drift', () => {
     expect(offences.some((entry) => entry.startsWith('hardcoded font family'))).toBe(true);
     expect(offences.some((entry) => entry.startsWith('raw token name'))).toBe(true);
     expect(offences.some((entry) => entry.startsWith('untyped `cssVar('))).toBe(true);
+    // R6.7: the unitless pair is a design value too.
+    expect(offences.some((entry) => entry.startsWith('unitless design literal `fontWeight: 600`'))).toBe(true);
+    expect(offences.some((entry) => entry.startsWith('unitless design literal `zIndex: 50`'))).toBe(true);
   });
 
   it('accepts a component that only uses helpers', () => {
     expect(
-      scanForLiterals("backgroundColor: colorVar('accent'), paddingInline: space(4),")
+      scanForLiterals(
+        "backgroundColor: colorVar('accent'), paddingInline: space(4), fontWeight: fontWeight('semibold'), zIndex: layer('popover'),"
+      )
     ).toEqual([]);
   });
 
@@ -716,6 +829,11 @@ describe('R6 token drift', () => {
         fontWeights[name]
       );
     }
+    for (const name of trackingTokenNames) {
+      expect(declared(lightBlock, trackingVarName(name)), trackingVarName(name)).toBe(
+        trackingTokens[name]
+      );
+    }
   });
 });
 
@@ -792,6 +910,171 @@ describe('R6 app drift', () => {
         '// the accent is #FFD60A on #0E0E0E',
         '/* padding: 16px used to live here */',
       ].join('\n'))
+    ).toEqual([]);
+  });
+});
+
+/**
+ * Every `.ts`/`.tsx`/`.css` file the two apps render from, for the R6.9/R6.10 ratchet.
+ *
+ * Wider than `appSourceFiles()` in one axis: the ratchet reads stylesheets too, because R6's original
+ * app scan never read `.css` and that is where the unpolicied lengths accumulated (DS v2 §0). Test
+ * files stay excluded — an assertion names a rendered value, it is not a design decision.
+ */
+export function appRatchetFiles(): string[] {
+  const files: string[] = [];
+
+  const walk = (directory: string) => {
+    for (const entry of readdirSync(join(REPO_ROOT, directory), { withFileTypes: true })) {
+      const relative = `${directory}/${entry.name}`;
+      if (entry.isDirectory()) {
+        walk(relative);
+        continue;
+      }
+      if (!/\.(ts|tsx|css)$/.test(entry.name)) continue;
+      if (/\.test\.tsx?$/.test(entry.name)) continue;
+      files.push(relative);
+    }
+  };
+
+  for (const directory of APP_DIRECTORIES) walk(directory);
+  return files.sort();
+}
+
+/** R6.9: every absolute length the ratchet counts. Percentages and unitless numbers are layout. */
+const APP_LENGTH = /\b\d*\.?\d+(?:px|rem|em)\b/g;
+
+/** An `@media` prelude: the one place a px literal is allowed, and only at a breakpoint value. */
+const MEDIA_PRELUDE = /@media[^{]*/g;
+
+/** R6.10: a `var()` reference with a fallback. A fallback that is itself a `var()` is not a literal. */
+const VAR_FALLBACK = /var\(\s*--warsha-[\w-]+\s*,\s*([^)]*)\)/g;
+
+/** True when a prelude length is one of the breakpoint px values (`breakpoints.ts` derives the set). */
+function isMediaPreludeExempt(literal: string): boolean {
+  if (!literal.endsWith('px')) return false;
+  return MEDIA_PRELUDE_PX.includes(Number(literal.slice(0, -2)));
+}
+
+/**
+ * Scan one app source for the ratchet offences (R6.9 lengths + R6.10 literal `var()` fallbacks).
+ *
+ * Counting is one offence per literal occurrence, with one deliberate deduplication: a length inside
+ * a literal fallback (`var(--warsha-size-inscribe, 4px)`) is counted once, as the R6.10 offence — the
+ * fallback is the defect, and the `4px` is part of it, not a second decision. Comments never render;
+ * an `@media` prelude may keep the breakpoint literals because a media query cannot read a custom
+ * property (§4.5). A non-breakpoint value in a prelude is an offence like any other.
+ */
+export function scanAppLengths(source: string): Offence[] {
+  const offences: Offence[] = [];
+  let text = stripComments(source);
+
+  const lineAt = (index: number): number => text.slice(0, index).split('\n').length;
+
+  text = text.replace(VAR_FALLBACK, (match, fallback: string, offset: number) => {
+    if (fallback.trim().startsWith('var(')) return match;
+    offences.push({
+      line: lineAt(offset),
+      offence: `literal var() fallback \`${match}\` (the token is always defined; drop the fallback, R6.10)`,
+    });
+    // Blank the whole reference so the fallback's own length is not counted a second time.
+    return match.replace(/[^\n]/g, ' ');
+  });
+
+  text = text.replace(MEDIA_PRELUDE, (prelude) =>
+    prelude.replace(APP_LENGTH, (literal) =>
+      isMediaPreludeExempt(literal) ? ' '.repeat(literal.length) : literal
+    )
+  );
+
+  for (const match of text.matchAll(APP_LENGTH)) {
+    offences.push({
+      line: lineAt(match.index ?? 0),
+      offence: `hardcoded length \`${match[0]}\` (use a --warsha-size-* / --warsha-space-* token, R6.9)`,
+    });
+  }
+
+  return offences.sort((a, b) => a.line - b.line);
+}
+
+describe('R6 app length ratchet (R6.9/R6.10)', () => {
+  /**
+   * The live offence count measured at W3's base (5abe5ef9cb4b107467155f8fb8bf61f086394ba4, the
+   * integration tip after W8 merged; identical at the original 0772d50 base): 142 R6.9 lengths +
+   * 3 R6.10 literal fallbacks. The full list is in the packet report. W5 drives the apps to zero
+   * against `WARSHA_R6_APP_LENGTH_BUDGET=0`; INT-2 then pins this constant to 0. The env var can
+   * only tighten the budget, never raise it (D3).
+   */
+  const APP_LENGTH_BUDGET = 145;
+
+  it('holds the live app length count to the ratchet budget', () => {
+    const offences: string[] = [];
+    for (const file of appRatchetFiles()) {
+      for (const { line, offence } of scanAppLengths(readFileSync(join(REPO_ROOT, file), 'utf8'))) {
+        offences.push(`R6: ${file}:${line} ${offence}`);
+      }
+    }
+    const envBudget = Number(process.env.WARSHA_R6_APP_LENGTH_BUDGET);
+    const budget = Number.isFinite(envBudget) ? Math.min(APP_LENGTH_BUDGET, envBudget) : APP_LENGTH_BUDGET;
+    expect(offences.length, offences.join('\n')).toBeLessThanOrEqual(budget);
+  });
+
+  it('reads both app sources including stylesheets, so the rule cannot pass by scanning nothing', () => {
+    const files = appRatchetFiles();
+    expect(files).toContain('apps/desktop/src/index.css');
+    expect(files).toContain('apps/remote/src/index.css');
+    expect(files.some((file) => /\.test\.tsx?$/.test(file))).toBe(false);
+    expect(files.filter((file) => file.endsWith('.css')).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('R6.9 fires on a planted length and stays clean on tokens', () => {
+    const planted = ["padding: '16px',", "fontSize: '0.875rem',", "letterSpacing: '0.2em',"].join('\n');
+    const offences = scanAppLengths(planted);
+    expect(offences).toHaveLength(3);
+    expect(offences[0].offence).toContain('hardcoded length `16px`');
+    expect(offences[1].offence).toContain('hardcoded length `0.875rem`');
+    expect(offences[2].offence).toContain('hardcoded length `0.2em`');
+
+    expect(
+      scanAppLengths("padding: 'var(--warsha-space-4)', maxWidth: 'var(--warsha-size-plate-max)',")
+    ).toEqual([]);
+  });
+
+  it('R6.9 exempts breakpoint @media preludes and fires on any other prelude value', () => {
+    // The exemption set is exactly {359, 767, 768, 1023, 1024, 1440}px (§4.5).
+    for (const px of [359, 767, 768, 1023, 1024, 1440]) {
+      expect(scanAppLengths(`@media (max-width: ${px}px) { .x { display: none; } }`), `${px}`).toEqual([]);
+    }
+    // A non-breakpoint prelude value must fire…
+    const planted = scanAppLengths('@media (max-width: 800px) { .x { display: none; } }');
+    expect(planted).toHaveLength(1);
+    expect(planted[0].offence).toContain('hardcoded length `800px`');
+    // …and a length in a declaration inside an exempt prelude is still an offence.
+    const inside = scanAppLengths('@media (max-width: 767px) { .x { padding: 4px; } }');
+    expect(inside).toHaveLength(1);
+    expect(inside[0].offence).toContain('hardcoded length `4px`');
+    // A rem/em value in a prelude is not a breakpoint literal either.
+    expect(scanAppLengths('@media (max-width: 48rem) { .x { display: none; } }')).toHaveLength(1);
+  });
+
+  it('R6.10 fires on a literal fallback, once, and accepts a token reference', () => {
+    const planted = scanAppLengths("padding: 'var(--warsha-space-4, 16px)',");
+    expect(planted).toHaveLength(1);
+    expect(planted[0].offence).toContain('literal var() fallback');
+    expect(planted[0].offence).toContain('var(--warsha-space-4, 16px)');
+
+    const colour = scanAppLengths("color: 'var(--warsha-color-text, #111827)',");
+    expect(colour).toHaveLength(1);
+    expect(colour[0].offence).toContain('R6.10');
+
+    expect(
+      scanAppLengths("color: 'var(--warsha-color-text)', padding: 'var(--warsha-x, var(--warsha-y))',")
+    ).toEqual([]);
+  });
+
+  it('does not scan comments as if they rendered', () => {
+    expect(
+      scanAppLengths(['// padding: 16px used to live here', '/* @media (max-width: 800px) */'].join('\n'))
     ).toEqual([]);
   });
 });

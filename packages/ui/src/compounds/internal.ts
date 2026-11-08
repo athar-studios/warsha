@@ -30,6 +30,7 @@ import {
   fontSize,
   fontWeight,
   lineHeight,
+  lineVar,
   radius,
   size,
   space,
@@ -55,27 +56,27 @@ export function cx(...parts: Array<string | false | undefined>): string {
   return parts.filter((part): part is string => Boolean(part)).join(' ');
 }
 
-/** `1px solid var(--warsha-bench-rule)` — the hairline fastener between two plates. */
-export const RULE_BORDER = `${size('rule')} solid ${aliasVar('benchRule')}`;
+/** `var(--warsha-line-rule)` — the hairline fastener between two plates (DS v2 §4.3). */
+export const RULE_BORDER = lineVar('rule');
 
-/** `1px solid var(--warsha-bench-edge)` — a structural edge: a control's border, a meter's track. */
-export const EDGE_BORDER = `${size('rule')} solid ${aliasVar('benchEdge')}`;
+/** `var(--warsha-line-edge)` — a structural edge: a control's border, a meter's track. */
+export const EDGE_BORDER = lineVar('edge');
 
 /**
- * `3px solid var(--warsha-signal-text)` — the mark a selected row or the active tab draws on its start side.
+ * `var(--warsha-line-signal)` — the mark a selected row or the active tab draws on its start side.
  *
  * A hairline of pure `signal` on a light plate measures 1.41:1: as a *fill carrying ink* the yellow is the
  * direction's lamp (13.67:1 between its ink and itself), but as a *mark on a surface* it is invisible, and
  * WCAG 1.4.11 wants 3:1. `signal-text` is §12's AA-safe yellow — dark gold on light, brand yellow on dark —
  * so the bench's rule is: the lamp as a fill is `signal`, the lamp as a mark is `signalText`.
  */
-export const SIGNAL_EDGE = `${size('edge')} solid ${aliasVar('signalText')}`;
+export const SIGNAL_EDGE = lineVar('signal');
 
 /** The same edge, absent: the width stays, so selecting a row never moves its content. */
-export const QUIET_EDGE = `${size('edge')} solid transparent`;
+export const QUIET_EDGE = lineVar('quiet');
 
-/** `2px solid currentColor` — the stamp's pressed-metal border. */
-export const INSCRIBE = `${size('inscribe')} solid currentColor`;
+/** `var(--warsha-line-inscribe)` — the stamp's pressed-metal border. */
+export const INSCRIBE = lineVar('inscribe');
 
 /** Machine data — ids, costs, counts, timestamps, diffs, terminal output (§11). */
 export const MACHINE: CSSProperties = {
