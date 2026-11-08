@@ -22,9 +22,12 @@
 
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+use crate::work_protection::ReadBeforeWriteGuard;
 
 /// One tool call.
 ///
@@ -191,10 +194,27 @@ impl ToolExecutor for NoToolExecutor {
 }
 
 /// The real tool layer: files and commands, all inside one directory.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// By default a write needs no prior read. [`FilesystemToolExecutor::with_read_before_write`]
+/// installs a shared [`ReadBeforeWriteGuard`] so an unread file cannot be
+/// overwritten; clones of the executor share the same guard.
+#[derive(Debug, Clone)]
 pub struct FilesystemToolExecutor {
     working_dir: PathBuf,
+    /// `None` leaves writes unrestricted; `Some` enforces read-before-write.
+    read_guard: Option<Arc<Mutex<ReadBeforeWriteGuard>>>,
 }
+
+impl PartialEq for FilesystemToolExecutor {
+    /// Two executors are equal when they root at the same directory and agree on
+    /// whether read-before-write is enforced — not on the identity of the guard.
+    fn eq(&self, other: &Self) -> bool {
+        self.working_dir == other.working_dir
+            && self.read_guard.is_some() == other.read_guard.is_some()
+    }
+}
+
+impl Eq for FilesystemToolExecutor {}
 
 impl FilesystemToolExecutor {
     /// An executor rooted at `working_dir`.
@@ -205,7 +225,22 @@ impl FilesystemToolExecutor {
     pub fn new(working_dir: impl Into<PathBuf>) -> Self {
         Self {
             working_dir: working_dir.into(),
+            read_guard: None,
         }
+    }
+
+    /// Turn read-before-write enforcement on (`true`) or off (`false`).
+    ///
+    /// On installs a fresh enforcing [`ReadBeforeWriteGuard`]; off removes it, so
+    /// writes need no prior read again. The guard is shared by every clone of this
+    /// executor, so a read through one clone unlocks a write through another.
+    pub fn with_read_before_write(mut self, enforce: bool) -> Self {
+        self.read_guard = if enforce {
+            Some(Arc::new(Mutex::new(ReadBeforeWriteGuard::new(true))))
+        } else {
+            None
+        };
+        self
     }
 
     /// The directory every path is resolved against.
@@ -234,6 +269,46 @@ impl FilesystemToolExecutor {
             return Err(ToolError::PathEscapesWorkingDir(trimmed.to_string()));
         }
         Ok(self.working_dir.join(candidate))
+    }
+
+    /// The shared key both guard calls use for `path`: the resolved absolute path
+    /// with `.` components normalised away, so `notes.md` and `./notes.md` name the
+    /// same file. An invalid path carries the same refusal the read/write itself
+    /// would report.
+    fn guard_key(&self, path: &str) -> Result<String, String> {
+        self.resolve(path)
+            .map(|resolved| {
+                let normalized: PathBuf = resolved.components().collect();
+                normalized.display().to_string()
+            })
+            .map_err(|error| error.to_string())
+    }
+
+    /// Whether a write to `path` is allowed. No guard means always allowed; a
+    /// poisoned mutex is a refusal, never a panic.
+    fn write_allowed(&self, path: &str) -> Result<bool, String> {
+        let Some(guard) = &self.read_guard else {
+            return Ok(true);
+        };
+        let key = self.guard_key(path)?;
+        let guard = guard
+            .lock()
+            .map_err(|_| "the read-before-write guard is poisoned".to_string())?;
+        Ok(guard.may_write(&key))
+    }
+
+    /// Record a successful read of `path` with the guard, if one is installed. A
+    /// poisoned mutex is reported as an error rather than panicking.
+    fn note_read(&self, path: &str) -> Result<(), String> {
+        let Some(guard) = &self.read_guard else {
+            return Ok(());
+        };
+        let key = self.guard_key(path)?;
+        let mut guard = guard
+            .lock()
+            .map_err(|_| "the read-before-write guard is poisoned".to_string())?;
+        guard.record_read(&key);
+        Ok(())
     }
 
     /// Read a text file. A missing file is a failed result, not a refusal.
@@ -318,6 +393,21 @@ impl FilesystemToolExecutor {
 
 impl ToolExecutor for FilesystemToolExecutor {
     fn execute(&self, tool: &AgentTool) -> ToolResult {
+        // Read-before-write: refuse a write to an unread path before any file is
+        // touched. With no guard installed this is always allowed.
+        if let AgentTool::WriteFile { path, .. } = tool {
+            match self.write_allowed(path) {
+                Ok(true) => {}
+                Ok(false) => {
+                    return ToolResult::failed(
+                        tool.clone(),
+                        format!("read-before-write: {path} must be read before it is written"),
+                    );
+                }
+                Err(message) => return ToolResult::failed(tool.clone(), message),
+            }
+        }
+
         let outcome = match tool {
             AgentTool::ReadFile { path } => self.read_file(path),
             AgentTool::WriteFile { path, content } => self.write_file(path, content),
@@ -329,10 +419,20 @@ impl ToolExecutor for FilesystemToolExecutor {
                 );
             }
         };
-        match outcome {
+        let result = match outcome {
             Ok(result) => result,
-            Err(error) => ToolResult::failed(tool.clone(), error.to_string()),
+            Err(error) => return ToolResult::failed(tool.clone(), error.to_string()),
+        };
+
+        // A successful read unlocks a later write to the same path.
+        if let AgentTool::ReadFile { path } = tool {
+            if result.success {
+                if let Err(message) = self.note_read(path) {
+                    return ToolResult::failed(tool.clone(), message);
+                }
+            }
         }
+        result
     }
 }
 
@@ -614,5 +714,160 @@ mod tests {
         let parsed: ToolResult = serde_json::from_value(wire).expect("a result parses");
         assert!(parsed.success);
         assert_eq!(parsed.status(), "ok");
+    }
+
+    #[test]
+    fn the_default_executor_writes_without_a_prior_read() {
+        let temp = fresh_tempdir();
+        let executor = executor(temp.path());
+
+        let result = executor.execute(&AgentTool::WriteFile {
+            path: "notes.md".to_string(),
+            content: "no read needed".to_string(),
+        });
+
+        assert!(result.success, "unexpected result: {result:?}");
+        assert!(temp.path().join("notes.md").is_file());
+    }
+
+    #[test]
+    fn an_enforced_executor_refuses_an_unread_write_and_writes_nothing() {
+        let temp = fresh_tempdir();
+        let executor = executor(temp.path()).with_read_before_write(true);
+
+        let result = executor.execute(&AgentTool::WriteFile {
+            path: "notes.md".to_string(),
+            content: "should not land".to_string(),
+        });
+
+        assert!(!result.success);
+        assert!(
+            result.output.contains("read-before-write"),
+            "unexpected output: {}",
+            result.output
+        );
+        assert!(
+            !temp.path().join("notes.md").exists(),
+            "the unread write created the file"
+        );
+    }
+
+    #[test]
+    fn an_enforced_executor_allows_a_read_then_write() {
+        let temp = fresh_tempdir();
+        std::fs::write(temp.path().join("notes.md"), "original").expect("the file is written");
+        let executor = executor(temp.path()).with_read_before_write(true);
+
+        let read = executor.execute(&AgentTool::ReadFile {
+            path: "notes.md".to_string(),
+        });
+        assert!(read.success, "unexpected read: {read:?}");
+
+        let write = executor.execute(&AgentTool::WriteFile {
+            path: "notes.md".to_string(),
+            content: "updated".to_string(),
+        });
+        assert!(write.success, "the read-then-write was refused: {write:?}");
+        assert_eq!(
+            std::fs::read_to_string(temp.path().join("notes.md")).expect("the file is readable"),
+            "updated"
+        );
+    }
+
+    #[test]
+    fn clones_share_the_read_before_write_guard() {
+        let temp = fresh_tempdir();
+        std::fs::write(temp.path().join("notes.md"), "original").expect("the file is written");
+        let executor = executor(temp.path()).with_read_before_write(true);
+        let clone = executor.clone();
+
+        // Read through the original; the clone must see that read.
+        let read = executor.execute(&AgentTool::ReadFile {
+            path: "notes.md".to_string(),
+        });
+        assert!(read.success);
+
+        let write = clone.execute(&AgentTool::WriteFile {
+            path: "notes.md".to_string(),
+            content: "updated".to_string(),
+        });
+        assert!(
+            write.success,
+            "the clone did not share the guard: {write:?}"
+        );
+    }
+
+    #[test]
+    fn the_guard_normalises_paths_relative_to_the_working_dir() {
+        let temp = fresh_tempdir();
+        std::fs::write(temp.path().join("notes.md"), "original").expect("the file is written");
+        let executor = executor(temp.path()).with_read_before_write(true);
+
+        // Read via the dotted form, write via the plain form: the same file.
+        let read = executor.execute(&AgentTool::ReadFile {
+            path: "./notes.md".to_string(),
+        });
+        assert!(read.success);
+
+        let write = executor.execute(&AgentTool::WriteFile {
+            path: "notes.md".to_string(),
+            content: "updated".to_string(),
+        });
+        assert!(write.success, "normalisation mismatch: {write:?}");
+    }
+
+    #[test]
+    fn turning_enforcement_off_restores_unrestricted_writes() {
+        let temp = fresh_tempdir();
+        let executor = executor(temp.path())
+            .with_read_before_write(true)
+            .with_read_before_write(false);
+
+        let result = executor.execute(&AgentTool::WriteFile {
+            path: "notes.md".to_string(),
+            content: "no read needed".to_string(),
+        });
+
+        assert!(result.success, "unexpected result: {result:?}");
+    }
+
+    #[test]
+    fn executor_equality_compares_the_working_dir_and_enforcement() {
+        let temp = fresh_tempdir();
+        let plain = executor(temp.path());
+        let enforced = executor(temp.path()).with_read_before_write(true);
+
+        assert_eq!(plain, executor(temp.path()));
+        // Two separately-built enforcing executors are equal: enforcement state,
+        // not guard identity, is what compares.
+        assert_eq!(enforced, executor(temp.path()).with_read_before_write(true));
+        assert_ne!(plain, enforced);
+    }
+
+    #[test]
+    fn a_poisoned_guard_fails_the_call_instead_of_panicking() {
+        let temp = fresh_tempdir();
+        let executor = executor(temp.path()).with_read_before_write(true);
+        let guard = executor.read_guard.as_ref().expect("a guard is installed");
+        let shared = Arc::clone(guard);
+
+        // Poison the mutex by panicking while holding its lock.
+        let handle = std::thread::spawn(move || {
+            let _lock = shared.lock().expect("the lock is taken before the panic");
+            panic!("poison the guard");
+        });
+        assert!(handle.join().is_err(), "the thread did not panic");
+
+        let result = executor.execute(&AgentTool::WriteFile {
+            path: "notes.md".to_string(),
+            content: "should not land".to_string(),
+        });
+        assert!(!result.success);
+        assert!(
+            result.output.contains("poisoned"),
+            "unexpected output: {}",
+            result.output
+        );
+        assert!(!temp.path().join("notes.md").exists());
     }
 }
