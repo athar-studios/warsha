@@ -77,9 +77,9 @@ updater artifacts (`latest.json`, `.sig`) are produced, `tauri build` requires n
    completed through ReleasePrep)` is).
 2. **Exact exit codes.** Every recorded run states its exit code (`exit 0`, or the failing code).
 3. **SHA-256 hashes and byte sizes** of each artifact, computed on the artifact itself
-   (`Get-FileHash -Algorithm SHA256` / `sha256sum`), with the byte length alongside — two 64-hex
-   strings that differ mid-string are two different files, and this guide flags disagreements instead
-   of picking one (§4.3).
+   (`Get-FileHash -Algorithm SHA256` / `sha256sum`), with the byte length alongside and the date of
+   the measurement — two 64-hex strings that differ mid-string are two different builds, and the
+   newest dated record is the one §4.3 claims (§4.3).
 4. **No stubbing.** A verification counts only against the real artifact: the release-signed APK,
    the NSIS-installed binary, the built `dist/`, a real daemon process. Playwright's `harness.ts`
    stub daemon is fine for *UI* tests and is labelled as a stub; it is **not** evidence that the
@@ -260,21 +260,23 @@ Uninstall (also measured exit 0, `INSTALL.md` §5):
 Start-Process -FilePath "...\install\uninstall.exe" -ArgumentList '/S' -Wait     # full removal
 ```
 
-### 4.3 Recorded hashes — and one open disagreement to re-measure
+### 4.3 Recorded hashes — current measurement (2026-11-08)
 
 | Artifact | Size | SHA-256 as recorded | Source of the record |
 |---|---|---|---|
-| `warsha-desktop.exe` | 23,673,856 B | `087f31a6298e26539c04b9d147b2849073bee5b38f40163c1c343de14ac3a47e` | `INSTALL.md` §2 (English table) |
-| `Warsha_0.2.0_x64-setup.exe` | 6,487,879 B | `7e9c35d9433c86570fa399daf6bbfabe2c5984d0985a170e948e61d32c88369e` | `INSTALL.md` §2 |
-| `Warsha_0.2.0_x64-setup.exe` | 6,487,879 B | `7e9c35d99fe9f346b9228bf25e7a480a710a6ab426a4708a3dbcb3d06262369e` | `PROGRESS.md` Ship Run ledger (W1, 2026-11-05) |
+| `warsha-desktop.exe` | 25,215,488 B | `f3549485798919c9d81627d52e34c4a897483a3b4483fadfb0590ed45be0e7a9` | `INSTALL.md` §2 (English table), measured 2026-11-08 |
+| `Warsha_0.2.0_x64-setup.exe` | 6,864,766 B (6.55 MiB) | `294b8e259e88c804275154e8f3bd4ba4e957b15eb912cff3e7f2b9cbb4aabd99` | `INSTALL.md` §2, measured 2026-11-08 |
 | `warsha-remote-release.apk` | 1,280,713 B | (file hash not recorded; cert SHA-256 `ad2708e4…f3c3`) | `PROGRESS.md` ledger W2 |
 
-The two NSIS rows disagree in the middle of the hash while quoting the same byte size, and the
-`target/` tree has since been cleaned, so neither can be adjudicated from disk on this host.
-Per §2 this is an **open item, not a resolved fact**: the next build must recompute
-`Get-FileHash -Algorithm SHA256` on both the executable and the installer, record the commit hash
-next to it, and only then may a single value be kept. Until then no doc should claim one of the two
-as *the* hash.
+The 2026-11-08 build supersedes the earlier measurements; the values below are kept as history so a
+reader who finds an older number in a commit can identify which build it belonged to.
+
+**History — 2026-11-05 build (superseded):** `warsha-desktop.exe` 23,673,856 B
+(`087f31a6298e26539c04b9d147b2849073bee5b38f40163c1c343de14ac3a47e`), NSIS installer 6,487,879 B
+(recorded twice in the ledgers as `7e9c35d9433c86570fa399daf6bbfabe2c5984d0985a170e948e61d32c88369e`
+and `7e9c35d99fe9f346b9228bf25e7a480a710a6ab426a4708a3dbcb3d06262369e`). Those artifacts are no
+longer on disk and the 2026-11-08 rebuild produced different sizes and hashes, so the current table
+above is the only set this guide claims as the shipped build.
 
 ---
 
