@@ -41,9 +41,9 @@ use warsha_providers::{ChatMessage, ChatRequest, MessageRole, ProviderError, Pro
 
 use crate::agent_tools::{AgentTool, NoToolExecutor, ToolExecutor, ToolResult};
 use crate::agent_workflow::{
-    AgentMode, AgentWorkflowError, AskUserQueue, ContextCompactor, Mention, MentionParser,
-    MessageBus, ModeManager, ModeTransition, OutputCompressor, SlashCommand, SlashCommandRegistry,
-    TodoItem, TodoList, TodoStatus,
+    AgentMode, AgentWorkflowError, AskUserQueue, CompressedOutput, ContextCompactor, Mention,
+    MentionKind, MentionParser, MessageBus, ModeManager, ModeTransition, OutputCompressor,
+    SlashCommand, SlashCommandRegistry, TodoItem, TodoList, TodoStatus,
 };
 use crate::backend_kit::BackendKit;
 use crate::mcp_transport::{McpManager, McpTransportError};
@@ -620,7 +620,8 @@ impl AgentLoop {
                 let router = self.router.clone();
                 let (source, model_line) = match router {
                     Some(router) => {
-                        let prompt = model_prompt(input, mentions, command);
+                        let attachments = self.attach_file_mentions(mentions);
+                        let prompt = model_prompt(input, mentions, command, &attachments);
                         match router.complete(&prompt).await {
                             Ok(answer) => {
                                 let answer = OutputCompressor::compress(
@@ -660,6 +661,37 @@ impl AgentLoop {
         let id = format!("turn-{}", self.todo_list.len() + 1);
         let item = TodoItem::new(id.clone(), description).with_status(status);
         self.todo_list.add(item).ok().map(|()| id)
+    }
+
+    /// Read every `@file` mention through the tool layer for the model prompt.
+    ///
+    /// A successful read is compressed to [`MAX_TOOL_OUTPUT_LINES`] and attached as
+    /// a block; a failed read becomes a one-line note. Either way the turn
+    /// continues. Reading through the executor lets an enforced read-before-write
+    /// guard record the mention as read. Non-file mentions are left to the prompt's
+    /// `attached:` line.
+    fn attach_file_mentions(&self, mentions: &[Mention]) -> Vec<FileAttachment> {
+        let mut attachments = Vec::new();
+        for mention in mentions {
+            if mention.kind != MentionKind::File {
+                continue;
+            }
+            let result = self.tool_executor.execute(&AgentTool::ReadFile {
+                path: mention.target.clone(),
+            });
+            if result.success {
+                attachments.push(FileAttachment::Read {
+                    path: mention.target.clone(),
+                    content: OutputCompressor::compress(&result.output, MAX_TOOL_OUTPUT_LINES),
+                });
+            } else {
+                attachments.push(FileAttachment::Failed {
+                    path: mention.target.clone(),
+                    reason: result.output,
+                });
+            }
+        }
+        attachments
     }
 }
 
@@ -715,14 +747,15 @@ const CALL_MCP_PREFIX: &str = "call mcp ";
 ///   so multi-line content needs no quoting; a `write file` with no `:` writes an
 ///   empty file;
 /// - a `run command` turn splits its line on whitespace, with no shell and no
-///   quoting, exactly like the daemon's `process.spawn`;
+///   quoting;
 /// - a `call tool` / `call mcp` turn splits the target (which may be `server/tool`
 ///   or `tool`) and parses trailing JSON arguments, defaulting to `{}`;
 /// - a blank target is not a tool request at all, so `read file ` falls through to
 ///   the model rather than running a tool that cannot work;
 /// - an `@file src/main.rs` mention is *not* a tool request: a mention is context
-///   the loop attaches to the model's prompt ([`Mention`]), and reading it is the
-///   caller's job (PLAN.md M18 records the same limit).
+///   the loop attaches to the model's prompt ([`Mention`]). The loop reads each
+///   file mention through its [`ToolExecutor`] and attaches the compressed
+///   content, so an enforced read-before-write guard records the mention as read.
 fn parse_tool_request(input: &str) -> Option<AgentTool> {
     let trimmed = input.trim();
     let (head, rest_of_input) = match trimmed.split_once('\n') {
@@ -848,9 +881,40 @@ fn trim_quotes(text: &str) -> &str {
     trimmed
 }
 
+/// One `@file` mention the loop read (or tried to read) for the model's prompt.
+///
+/// Reading goes through the loop's [`ToolExecutor`], so a read-before-write guard
+/// records the mention as read; a failed read becomes a note rather than aborting
+/// the turn.
+enum FileAttachment {
+    /// The file was read and compressed to the tool-output line budget.
+    Read {
+        /// The mention's target path.
+        path: String,
+        /// The head/tail-compressed content.
+        content: CompressedOutput,
+    },
+    /// The read failed; the turn continues with a one-line note.
+    Failed {
+        /// The mention's target path.
+        path: String,
+        /// Why the read failed, as the executor reported it.
+        reason: String,
+    },
+}
+
 /// The prompt the router is handed: the instruction, the owner's turn, and what
 /// the loop attached to it.
-fn model_prompt(input: &str, mentions: &[Mention], command: Option<&SlashCommand>) -> String {
+///
+/// Every mention keeps its place on the `attached:` line; a file mention that was
+/// read additionally gets a content block (path, compressed text, and an "N of M
+/// lines shown" note), and one that could not be read gets a one-line note.
+fn model_prompt(
+    input: &str,
+    mentions: &[Mention],
+    command: Option<&SlashCommand>,
+    attachments: &[FileAttachment],
+) -> String {
     let mut lines = vec![
         AGENT_INSTRUCTION.to_string(),
         String::new(),
@@ -859,6 +923,24 @@ fn model_prompt(input: &str, mentions: &[Mention], command: Option<&SlashCommand
     if !mentions.is_empty() {
         let rendered: Vec<String> = mentions.iter().map(Mention::rendered).collect();
         lines.push(format!("attached: {}", rendered.join(", ")));
+    }
+    for attachment in attachments {
+        match attachment {
+            FileAttachment::Read { path, content } => {
+                lines.push(format!("@file {path}:"));
+                lines.extend(content.text.lines().map(str::to_string));
+                lines.push(format!(
+                    "({} of {} lines shown)",
+                    content.compressed_lines, content.original_lines
+                ));
+            }
+            FileAttachment::Failed { path, reason } => {
+                lines.push(format!(
+                    "could not attach @file {path}: {}",
+                    reason.replace('\n', " ")
+                ));
+            }
+        }
     }
     if let Some(command) = command {
         lines.push(format!("skill: {} — {}", command.name, command.description));
@@ -1738,5 +1820,116 @@ mod tests {
         let kit = backend_kit.read().await;
         assert_eq!(kit.tables.len(), 1);
         assert_eq!(kit.tables[0].name, "users");
+    }
+
+    #[tokio::test]
+    async fn a_file_mentions_content_reaches_the_model_prompt() {
+        let temp = fresh_tempdir();
+        std::fs::write(temp.path().join("notes.md"), "alpha\nbeta\n").expect("the file is written");
+        let router = Arc::new(FixedRouter::answering("Read it."));
+        let mut agent_loop = tool_loop(temp.path()).with_router(router.clone());
+
+        let turn = agent_loop
+            .run_turn("summarize @file notes.md", &catalog())
+            .await;
+
+        assert!(turn.response.starts_with("Summary (model completion):"));
+        let prompts = router.prompts();
+        assert_eq!(prompts.len(), 1);
+        assert!(prompts[0].contains("@file notes.md"));
+        assert!(prompts[0].contains("alpha"));
+        assert!(prompts[0].contains("beta"));
+        assert!(prompts[0].contains("(2 of 2 lines shown)"));
+        // Reading a mention is prompt context, not a tool the turn ran.
+        assert!(turn.tools.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_long_file_mention_is_compressed_in_the_prompt() {
+        let temp = fresh_tempdir();
+        let long: String = (1..=200).map(|index| format!("line {index}\n")).collect();
+        std::fs::write(temp.path().join("big.log"), &long).expect("the file is written");
+        let router = Arc::new(FixedRouter::answering("Compressed."));
+        let mut agent_loop = tool_loop(temp.path()).with_router(router.clone());
+
+        agent_loop
+            .run_turn("summarize @file big.log", &catalog())
+            .await;
+
+        let prompts = router.prompts();
+        assert_eq!(prompts.len(), 1);
+        assert!(prompts[0].contains("(12 of 200 lines shown)"));
+        assert!(prompts[0].contains("lines omitted"));
+        // Head and tail survive; the middle was dropped.
+        assert!(prompts[0].contains("line 1\n"));
+        assert!(prompts[0].contains("line 200\n"));
+        assert!(!prompts[0].contains("line 100\n"));
+    }
+
+    #[tokio::test]
+    async fn a_missing_file_mention_notes_the_failure_and_completes_the_turn() {
+        let temp = fresh_tempdir();
+        let router = Arc::new(FixedRouter::answering("Still answered."));
+        let mut agent_loop = tool_loop(temp.path()).with_router(router.clone());
+
+        let turn = agent_loop
+            .run_turn("summarize @file missing.md", &catalog())
+            .await;
+
+        assert!(turn.response.starts_with("Summary (model completion):"));
+        let prompts = router.prompts();
+        assert_eq!(prompts.len(), 1);
+        assert!(prompts[0].contains("could not attach @file missing.md"));
+        assert!(turn.tools.is_empty());
+    }
+
+    #[tokio::test]
+    async fn non_file_mentions_keep_the_attached_line_without_a_read() {
+        let temp = fresh_tempdir();
+        let router = Arc::new(FixedRouter::answering("Overview."));
+        let mut agent_loop = tool_loop(temp.path()).with_router(router.clone());
+
+        agent_loop
+            .run_turn("overview @folder src and @codebase", &catalog())
+            .await;
+
+        let prompts = router.prompts();
+        assert_eq!(prompts.len(), 1);
+        assert!(prompts[0].contains("attached: @folder src, @codebase"));
+        // No file mention means no content block and no failure note.
+        assert!(!prompts[0].contains("could not attach"));
+        assert!(!prompts[0].contains("lines shown"));
+    }
+
+    #[tokio::test]
+    async fn a_file_mention_is_recorded_as_read_for_the_guard() {
+        let temp = fresh_tempdir();
+        std::fs::write(temp.path().join("notes.md"), "original").expect("the file is written");
+        let executor = FilesystemToolExecutor::new(temp.path()).with_read_before_write(true);
+        let router = Arc::new(FixedRouter::answering("Now edit it."));
+        let mut agent_loop = AgentLoop::with_tool_executor(Box::new(executor)).with_router(router);
+        agent_loop
+            .approve_agent_mode("owner")
+            .expect("an approval is accepted");
+
+        // The mention reads the file through the guarded executor...
+        agent_loop
+            .run_turn("look at @file notes.md", &catalog())
+            .await;
+        // ...so a later write turn to the same path is allowed.
+        let turn = agent_loop
+            .run_turn("write file notes.md: updated", &catalog())
+            .await;
+
+        assert_eq!(turn.tools.len(), 1);
+        assert!(
+            turn.tools[0].success,
+            "the guarded write was refused: {:?}",
+            turn.tools[0]
+        );
+        assert_eq!(
+            std::fs::read_to_string(temp.path().join("notes.md")).expect("the file is readable"),
+            "updated"
+        );
     }
 }
