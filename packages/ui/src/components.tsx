@@ -40,9 +40,10 @@ const BUTTON_VARIANT: Record<'primary' | 'secondary' | 'ghost', React.CSSPropert
 /**
  * Button metrics per size.
  *
- * The block paddings are half-steps of the 4px base (6px, 10px, 14px) and are therefore off the
- * published scale; `space()` resolves an off-scale step to the same pixel value it always had, so
- * migrating to tokens did not move a single button by a single pixel.
+ * The block paddings are half-steps of the 4px base (6px, 10px, 14px). DS v2 §4.5 published 0.5/1.5/
+ * 2.5, so `sm` and `md` now resolve to `--warsha-space-1-5` / `--warsha-space-2-5` tokens with the same
+ * pixels; 14px stays an off-scale step that `space()` computes to the value it always had. Not one
+ * button moved by a single pixel.
  */
 const BUTTON_SIZE: Record<'sm' | 'md' | 'lg', React.CSSProperties> = {
   sm: { paddingInline: space(3), paddingBlock: space(1.5), fontSize: fontSize('sm') },

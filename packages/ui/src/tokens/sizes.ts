@@ -118,6 +118,37 @@ export type SizeTokenName = keyof typeof sizeTokens;
 /** Every size token name, in declaration order. */
 export const sizeTokenNames = Object.keys(sizeTokens) as SizeTokenName[];
 
+/**
+ * The layout family (DS v2 §4.5), in declaration order: the caps, dialogs, panes and picker widths
+ * W5 migrates the apps onto. Exported as its own list so a story or a doc can show the family
+ * without meaning "every bench fact" — `touch` is a target, these are containers.
+ */
+export const layoutSizeNames = [
+  'benchOffset',
+  'plateMax',
+  'ledgerMax',
+  'contentMax',
+  'contentWide',
+  'dialog',
+  'dialogWide',
+  'notice',
+  'formNarrow',
+  'wizard',
+  'qr',
+  'previewMin',
+  'pane',
+  'fieldMin',
+  'labelCol',
+  'measureCompact',
+  'picker',
+  'pickerWide',
+  'inputMin',
+  'popover',
+  'popoverBlock',
+  'sheetBlock',
+  'stripItem',
+] as const satisfies readonly SizeTokenName[];
+
 /** `--warsha-size-touch`, without the `var()` wrapper. */
 export function sizeVarName(name: SizeTokenName): string {
   return `--warsha-size-${kebabCase(name)}`;
