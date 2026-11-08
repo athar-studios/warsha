@@ -1295,3 +1295,34 @@ cryptographic; no app loads IBM Plex; the `daemon_ws_url` 8766 → 8765 fix is c
 - **Context**: Tests run on Windows PC were failing with exit code `0xC0000142` (`STATUS_DLL_INIT_FAILED`) whenever binaries attempted to initialize `user32.dll` or spawn child tools (`git`, `powershell`, `whoami`).
 - **Root Cause**: Directory was tagged with `Mandatory Label\Low Mandatory Level:(OI)(CI)(NW)` left by previous sandbox tooling. Low-integrity processes are blocked by Windows kernel from accessing interactive Win32k/desktop objects.
 - **Resolution**: Reset integrity SACL to Medium. Verified `cargo test --workspace` and `pnpm -r test` completely green.
+
+## 2026-11-08 — Run `2026-11-08-design-and-remediation`: integrator fold of the worker decisions
+
+Folded by the integrator (orchestrator) from `packets/WN/report.md`. This entry records what the
+workers decided; the owner decisions at the end are still **open**.
+
+- **D-W8-1 — the settings description stays unconditional.** W8 moved the connectors `<Text>` out of
+  `<Ledger>` and renders the `Ledger` only when `integrations.length > 0`. Gating the description too
+  would have deleted visible text and moved pixels, so only the `<ul>` disappears.
+- **D-W8-2 — the guard test already existed.** `SettingsScreenIntegrations.test.tsx` was tracked at
+  BASE (added by `9b2a57e`); it was extended append-only, and the six original tests are unchanged.
+- **D-W6-1/2 — quoting grammar and guard path normalisation.** `'…'` is literal, `"…"` honours only
+  `\"` and `\\`, so Windows paths survive; `guard_key` resolves and normalises components so
+  `./notes.md` and `notes.md` are the same key.
+- **D-W7 — the release copy, not a move.** `renameReleaseApk` copies instead of moving, so
+  `app-release.apk` (named by the frozen gates) and `warsha-remote-release.apk` (named by
+  `docs/VERIFY.md`, `docs/INSTALL.md`, `PROGRESS.md`) both survive. Signing was tightened, never
+  loosened; `dependenciesInfo` off and `**/*.map` excluded from the packaged assets.
+- **D-W3 — the ratchet holds an honest, non-zero budget.** `APP_LENGTH_BUDGET` stays at the measured
+  base count so it can only tighten; INT-2 is what sets it to 0.
+- **D-W2 — the design-system shim splits its include** (1:75, a ```text``` wrap of 77:103, then 104:)
+  rather than editing the planner-owned `docs/designs/DESIGN_SYSTEM_V2.md`. Closing the wrapper on the
+  source's own fence makes a shifted range fail loudly in `mdbook test` (verified: shifting the diagram
+  one line yields exit 101). Limitation: loud in `mdbook test`, silent in `mdbook build`.
+- **D-W5 — pixel-neutral adoption.** All 145 literal→token migrations resolve to the same computed
+  value in both themes; the ratchet was proven non-vacuous with a planted violation. `HandoffDialog`'s
+  scrim changes its mix from muted-55% to bg-55% (spec-sanctioned; no spec captures it open).
+
+**Open owner decisions from this run** (nothing was decided unilaterally): `OD1` the 40 stale remote
+baselines; `OD2` `G7.6`'s self-reference; `OD4` `G5.7` versus `states.spec.ts:132`; `OD5` the APK
+rebuild/re-record after W5; plus acceptance and the `dev` merge.

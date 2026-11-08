@@ -544,7 +544,7 @@
 - [x] Installers produced: `apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/Warsha_0.1.0_x64_en-US.msi` (8,085,504 bytes) and `...\bundle\nsis\Warsha_0.1.0_x64-setup.exe` (5,721,668 bytes)
 - [ ] Still open after this batch: the installers are unsigned (SmartScreen warns), the updater plugin is configured but not a dependency, the webview has no live event stream (`/events` authenticates from a header a browser cannot set), the ports are fixed rather than discovered, and the bundle identifier `dev.warsha.app` still ends in `.app` (Tauri warns about the macOS bundle-extension clash)
 
-## Run 2026-11-08 — Design System v2 + post-Qoder remediation (W1–W7) ⏳ PLANNED (planner: Opus 5.5; gates frozen)
+## Run 2026-11-08 — Design System v2 + post-Qoder remediation (W1–W7) ⚠️ PARTIAL — 7 of 8 packets merged; W5 + C2/C3 blocked on owner decisions OD1–OD5 (see `verdict.json` and `COMPLETION_AUDIT.md`)
 
 Run id `2026-11-08-design-and-remediation`, evidence `bridge-io/policy/2026-11-08-design-and-remediation/`
 (`state.json` = `warsha-run/v1`, resumable without chat). Spec: `docs/designs/DESIGN_SYSTEM_V2.md`.
@@ -557,17 +557,17 @@ Measured baselines at `f7b8583`: vitest ui 151 · client 112 · i18n 52 · deskt
 `warsha-pipeline` 341 tests (workspace 725); Playwright `--list` desktop 793 (a11y 188, states 252,
 visual 308, flows 30, layout 12, onboarding 3), remote 91 (bench.visual 84, flows 7).
 
-- [ ] **G0** — verifier runs `pnpm exec playwright test --project=desktop` and `--project=remote` on the Linux capture host at the planner commit; records passed/failed per spec (settles a11y 180-vs-188)
-- [ ] **W1** (Wave A) README truth — `crates/warsha-{remote,git,pipeline}/README.md`, `packages/crypto/README.md`, `apps/{remote,desktop}/README.md`, `templates/README.md`, `README.md`, `README.ar.md`
-- [ ] **W3** (Wave A) Design System v2 in `packages/ui` — §4 tokens (scrim, 4 tints, lines, elevation/layers, half-steps, layout sizes, tracking, breakpoints), R6.7–R6.10 + app-length ratchet, pixel-neutral compound fixes, 3 new compound tests, `packages/ui/README.md`; `@warsha/ui` ≥ 170 tests
-- [ ] **W4** (Wave A) wire + client + harness — stale `REQUIRE_NO_KNOWN_DRIFT` comments, 14 `WarshaClient` wrappers (routines ×5, backend get/set, preview ×3, runmode ×2, preferences ×2), harness `RPC_METHODS` 44 → 75, wire check W9 (client ⊆ harness); client ≥ 140 tests
-- [ ] **W6** (Wave A) pipeline hardening — quote-aware `split_command`, quoted `probe_line_for`, `ReadBeforeWriteGuard` in `FilesystemToolExecutor`, `@file` mentions attached in `AgentLoop`; pipeline ≥ 350 tests
-- [ ] **W7** (Wave A) Android — build remote, `assembleRelease` (preBuild syncs `assets/public`), `apksigner verify`, SHA-256 + size in `apps/mobile/README.md`
-- [ ] **C1** — owner merges accepted W3 + W4 (and W1/W6/W7 when ready) into the integration branch (`--no-ff`)
-- [ ] **W2** (Wave B) canonical docs — `docs/{ARCHITECTURE,ARCH_RULES,DEPLOY,DEVELOPERS,VERIFY}.md`, `docs/src/{architecture,SUMMARY}.md` + 5 shims, `docs/designs/SITEMAP.md`, `_agents/skills/warsha_elephant/SKILL.md`, `SECURITY.md`
-- [ ] **W5** (Wave B) apps adoption + wiring — Routines + BackendKitPanel live, `real-acceptance.cjs:36` → 8765, DS v2 §4 migration table, scrim in HandoffDialog/GateBell; desktop ≥ 451 tests; ratchet passes at `WARSHA_R6_APP_LENGTH_BUDGET=0`
-- [ ] **C2 / INT-2** — merge W2 + W5; set `APP_LENGTH_BUDGET = 0` in `packages/ui/src/tokens/tokenDrift.test.ts` (planner-specified one-line tightening)
-- [ ] **C3** — full gate sweep on the integration branch (Windows + Linux capture host; W7 gates re-run on the integrated tree) → owner acceptance → merge to `dev`
+- [x] **G0** — verifier runs `pnpm exec playwright test --project=desktop` and `--project=remote` on the Linux capture host at the planner commit; records passed/failed per spec (settles a11y 180-vs-188)
+- [x] **W1** (Wave A) README truth — `crates/warsha-{remote,git,pipeline}/README.md`, `packages/crypto/README.md`, `apps/{remote,desktop}/README.md`, `templates/README.md`, `README.md`, `README.ar.md`
+- [x] **W3** (Wave A) Design System v2 in `packages/ui` — §4 tokens (scrim, 4 tints, lines, elevation/layers, half-steps, layout sizes, tracking, breakpoints), R6.7–R6.10 + app-length ratchet, pixel-neutral compound fixes, 3 new compound tests, `packages/ui/README.md`; `@warsha/ui` ≥ 170 tests
+- [x] **W4** (Wave A) wire + client + harness — stale `REQUIRE_NO_KNOWN_DRIFT` comments, 14 `WarshaClient` wrappers (routines ×5, backend get/set, preview ×3, runmode ×2, preferences ×2), harness `RPC_METHODS` 44 → 75, wire check W9 (client ⊆ harness); client ≥ 140 tests
+- [x] **W6** (Wave A) pipeline hardening — quote-aware `split_command`, quoted `probe_line_for`, `ReadBeforeWriteGuard` in `FilesystemToolExecutor`, `@file` mentions attached in `AgentLoop`; pipeline ≥ 350 tests
+- [x] **W7** (Wave A) Android — build remote, `assembleRelease` (preBuild syncs `assets/public`), `apksigner verify`, SHA-256 + size in `apps/mobile/README.md`
+- [x] **C1** — owner merges accepted W3 + W4 (and W1/W6/W7 when ready) into the integration branch (`--no-ff`)
+- [x] **W2** (Wave B) canonical docs — `docs/{ARCHITECTURE,ARCH_RULES,DEPLOY,DEVELOPERS,VERIFY}.md`, `docs/src/{architecture,SUMMARY}.md` + 5 shims, `docs/designs/SITEMAP.md`, `_agents/skills/warsha_elephant/SKILL.md`, `SECURITY.md`
+- [ ] **W5** (Wave B) **[implemented, review APPROVE, 14/14 verified — NOT MERGED: blocked on OD4]** apps adoption + wiring — Routines + BackendKitPanel live, `real-acceptance.cjs:36` → 8765, DS v2 §4 migration table, scrim in HandoffDialog/GateBell; desktop ≥ 451 tests; ratchet passes at `WARSHA_R6_APP_LENGTH_BUDGET=0`
+- [ ] **C2 / INT-2** **[W2 merged at C2a/C2b/C2c; INT-2 measured green on the OD4 rehearsal branch but not applied]** — merge W2 + W5; set `APP_LENGTH_BUDGET = 0` in `packages/ui/src/tokens/tokenDrift.test.ts` (planner-specified one-line tightening)
+- [ ] **C3** **[partial sweep done at interim tips: 9 provisional pass, GC.4 partial (desktop 446 < 451 without W5), GC.12 fails until OD5, GC.10 blocked on OD1]** — full gate sweep on the integration branch (Windows + Linux capture host; W7 gates re-run on the integrated tree) → owner acceptance → merge to `dev`
 
 Phase B (visual wave, owner names the baseline set) and Phase C (IBM Plex vendoring, OFL-1.1 notice)
 are listed in `DESIGN_SYSTEM_V2.md` §9. Logged follow-ups outside this run: `warshad` `start_preview`

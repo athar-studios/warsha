@@ -1,5 +1,45 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-08 — Design System v2 + post-Qoder remediation (PARTIAL: 7 of 8 packets merged)
+
+Integrator fold of the worker reports. Evidence: `bridge-io/policy/2026-11-08-design-and-remediation/`
+(`state.json` seq 41, `verdict.json` = **NOT ACCEPTED**, `COMPLETION_AUDIT.md`, 41 checkpoints,
+102 gate logs). Integration branch `run/2026-11-08/integration` at `5c4041f`; `dev` untouched by this
+run's merges. **No gate was edited, narrowed or re-worded; zero snapshot files were touched.**
+
+**G0 baseline (verifier, Linux capture host, at `0772d50`) — recorded as truth, NOT all-green:**
+desktop 793 listed / **785 passed / 8 failed** (a11y 188 listed / 180 passed; states 252/252,
+visual 308/308, flows 30/30, layout 12/12, onboarding 3/3), remote 91 listed / **51 passed / 40 failed**.
+G0's verdict is `fail` by design: it records the baseline rather than claiming green. The 8 desktop
+failures were all `settings` failing axe `aria-required-children [critical]`.
+
+| Packet | Merged | Review | Verification |
+| --- | --- | --- | --- |
+| **W8** G0 truth repair (a11y) | C0 `5abe5ef` | APPROVE | 8/8 worktree gates (446 >= 444) + **G8.4 = 793/0, 0 snapshot writes** |
+| **W1** README truth (docs) | C1 `99a7c03` | APPROVE | **13/13** (re-derived by the integrator) |
+| **W6** pipeline hardening (Rust) | C1 | APPROVE | **9/9** — 352 >= 350 and 743 >= 734, recomputed from raw `test result: ok.` lines |
+| **W7** Android signed APK | C1 | APPROVE | gates green incl. a **byte-reproducible** APK: two clean rebuilds, identical SHA-256 `ce60f2bd…01ff`, 840,513 B |
+| **W4** wire/client/harness | C1 | REQUEST-CHANGES -> repair -> APPROVE | **13/13** — `RPC_METHODS` 75 (bijection), `wire: 9 checks, 0 violations` |
+| **W3** DS v2 in `packages/ui` | C1.5 `406240a` | APPROVE | **12/12** + G3.8 **793/0**; ui 181, desktop 446, remote 221 |
+| **W2** canonical docs | C2a `c2709169` + C2b/C2c | RC -> repair -> APPROVE (twice) | **10/10**; `mdbook test` 0 |
+| **W5** apps adoption + wiring | **NOT MERGED** | APPROVE | **14/14** worktree gates (desktop 464, budget-0 ratchet 181) — **held on owner decision OD4** |
+
+Notable corrections made during the run, kept visible rather than tidied away:
+- W7's original G7.5 verdict ("not reproducible") was **wrong**: the APK v2 signature is deterministic
+  (`0x0104` PKCS#1 v1.5); the real drift was AGP's encrypted dependency-metadata block
+  (`0x504b4453`) plus non-reproducible source maps. Both were fixed inside `apps/mobile/**`.
+- An evidence audit found **13 `G1.*` verdicts with no log file**; all 13 were re-run at `6d9728f` and
+  reproduce their frozen expectation.
+- W2's first version passed all ten of its gates while **omitting the G0/OD1 honesty statement** — the
+  exact failure mode that packet exists to prevent. It now lives in `docs/VERIFY.md:71-103`.
+- `GC.4` (`pnpm -r test`) failed at the C2a tip because `mdbook test` compiles unannotated code fences;
+  repaired in W2 iteration 2. Control: `mdbook test` exits 0 at `406240a` (pre-W2).
+
+**Open, blocked on owner decisions (not on code):** `OD1` 40 stale remote visual baselines (Phase B,
+needs an owner-named set) · `OD2` `G7.6` is self-referential · `OD4` `G5.7` vs the e2e assertion at
+`states.spec.ts:132` (rehearsed: option 1 gives desktop **793/0**) · `OD5` rebuild the APK and
+re-record its hash after W5 merges · owner acceptance and the merge to `dev`.
+
 ## System Environment Remediation — 2026-11-08 (Windows Host Low Mandatory Level Resolved)
 
 - **Diagnosis**: Native Windows executables compiled inside `C:\Users\Dragonfly\Downloads\Warsha` or spawned by processes inside the workspace failed during DLL initialization with `0xC0000142` (`STATUS_DLL_INIT_FAILED`). Affected targets included `warsha-backends` (linking `shell32.dll`), `warsha-git` (spawning `git init`), and child CLI tools (`whoami`, `powershell`, `node`, `git`).
