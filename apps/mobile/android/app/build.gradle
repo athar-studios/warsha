@@ -143,12 +143,14 @@ tasks.matching { it.name == "preBuild" }.configureEach {
 }
 
 // ---------------------------------------------------------------------------
-// Release output naming: warsha-remote-release.apk
+// Release output naming: warsha-remote-release.apk (a copy of app-release.apk)
 // ---------------------------------------------------------------------------
-// A plain doLast rename (not a Copy task) so Gradle task-output validation
-// does not clash with AGP's own writes into outputs/apk/release.
+// A plain doLast copy (not a Copy task) so Gradle task-output validation does
+// not clash with AGP's own writes into outputs/apk/release. app-release.apk is
+// preserved (never moved) because the W7 release gates verify that exact path,
+// while the friendly-named copy is what docs/VERIFY.md and docs/INSTALL.md use.
 def renameReleaseApk = tasks.register("renameReleaseApk") {
-    description = "Renames the signed release artifact to warsha-remote-release.apk."
+    description = "Publishes warsha-remote-release.apk as a copy of app-release.apk."
     group = "warsha"
     doLast {
         def dir = layout.buildDirectory.dir("outputs/apk/release").get().asFile
@@ -159,12 +161,10 @@ def renameReleaseApk = tasks.register("renameReleaseApk") {
                     "Expected signed artifact app-release.apk under " + dir +
                     " — did assembleRelease run?")
         }
-        if (!signed.renameTo(target)) {
-            java.nio.file.Files.copy(
-                    signed.toPath(), target.toPath(),
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-        }
-        logger.lifecycle("Signed release APK: " + target)
+        java.nio.file.Files.copy(
+                signed.toPath(), target.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        logger.lifecycle("Signed release APK: " + target + " (kept " + signed.name + ")")
     }
 }
 
