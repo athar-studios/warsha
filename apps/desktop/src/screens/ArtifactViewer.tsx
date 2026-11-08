@@ -182,7 +182,7 @@ export function ArtifactViewer({ client, run, onBack }: ArtifactViewerProps) {
     <Box
       dir={dir}
       className="artifact-viewer"
-      style={{ display: 'flex', minHeight: 'calc(100vh - 80px)', flexWrap: 'wrap', minInlineSize: 0 }}
+      style={{ display: 'flex', minHeight: 'calc(100vh - var(--warsha-size-bench-offset))', flexWrap: 'wrap', minInlineSize: 0 }}
     >
       {/* ------------------------------------------------------------------- the rail's ledger
           Same §10 fact as the gates inbox: the 264px ledger is a ≥1024 rail, and fixed inline it left
@@ -195,7 +195,7 @@ export function ArtifactViewer({ client, run, onBack }: ArtifactViewerProps) {
           display: 'flex',
           flexDirection: 'column',
           backgroundColor: 'var(--warsha-bench-plate)',
-          borderInlineEnd: '1px solid var(--warsha-bench-rule)',
+          borderInlineEnd: 'var(--warsha-line-rule)',
         }}
       >
         <Box
@@ -203,7 +203,7 @@ export function ArtifactViewer({ client, run, onBack }: ArtifactViewerProps) {
           style={{
             paddingInline: 'var(--warsha-space-4)',
             paddingBlock: 'var(--warsha-space-2)',
-            borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+            borderBlockEnd: 'var(--warsha-line-rule)',
             display: 'flex',
             flexDirection: 'column',
             gap: 'var(--warsha-space-1)',
@@ -379,10 +379,10 @@ export function ArtifactViewer({ client, run, onBack }: ArtifactViewerProps) {
                   onChange={(event) => setDraft(event.target.value)}
                   style={{
                     inlineSize: '100%',
-                    minBlockSize: '320px',
+                    minBlockSize: 'var(--warsha-size-preview-min)',
                     padding: 'var(--warsha-space-4)',
                     borderRadius: 'var(--warsha-radius-sm)',
-                    border: '1px solid var(--warsha-bench-edge)',
+                    border: 'var(--warsha-line-edge)',
                     backgroundColor: 'var(--warsha-color-surface)',
                     color: 'var(--warsha-color-text)',
                     fontFamily: 'var(--warsha-font-mono)',
@@ -423,7 +423,7 @@ export function ArtifactViewer({ client, run, onBack }: ArtifactViewerProps) {
                   padding: 'var(--warsha-space-4)',
                   borderRadius: 'var(--warsha-radius-sm)',
                   backgroundColor: 'var(--warsha-bench-plate)',
-                  border: '1px solid var(--warsha-bench-rule)',
+                  border: 'var(--warsha-line-rule)',
                   color: 'var(--warsha-color-text)',
                   fontFamily: 'var(--warsha-font-mono)',
                   fontSize: 'var(--warsha-font-size-sm)',

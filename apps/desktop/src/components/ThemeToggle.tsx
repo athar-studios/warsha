@@ -53,7 +53,7 @@ const GROUP_STYLE: React.CSSProperties = {
   gap: 'var(--warsha-space-1)',
   padding: 'var(--warsha-space-1)',
   backgroundColor: 'var(--warsha-bench-plate)',
-  border: '1px solid var(--warsha-bench-edge)',
+  border: 'var(--warsha-line-edge)',
   borderRadius: 'var(--warsha-radius-md)',
 };
 

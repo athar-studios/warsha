@@ -386,7 +386,7 @@ html {
 
 /* The event feed scrolls inside its own plate: a phone's page must not become a transcript (§10). */
 .remote-stream {
-  max-block-size: min(48vh, 420px);
+  max-block-size: min(48vh, var(--warsha-size-sheet-block));
   overflow-y: auto;
   overflow-x: hidden;
   min-inline-size: 0;
@@ -495,7 +495,7 @@ html {
 /* 1440: the reference width — ledgers and forms take the 1100px prose measure, the bench stays centred. */
 @media (min-width: 1440px) {
   .app-main {
-    max-inline-size: 1100px;
+    max-inline-size: var(--warsha-size-content-max);
     margin-inline: auto;
     inline-size: 100%;
   }

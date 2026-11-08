@@ -68,7 +68,7 @@ const PLATE: React.CSSProperties = {
   gap: 'var(--warsha-space-4)',
   paddingBlock: 'var(--warsha-space-4)',
   paddingInline: 'var(--warsha-space-4)',
-  border: '1px solid var(--warsha-bench-rule)',
+  border: 'var(--warsha-line-rule)',
   borderRadius: 'var(--warsha-radius-md)',
   backgroundColor: 'var(--warsha-color-surface)',
   minInlineSize: 0,
@@ -98,7 +98,7 @@ const FEATURE_ROW: React.CSSProperties = {
   gap: 'var(--warsha-space-2)',
   minBlockSize: 'var(--warsha-size-touch)',
   paddingInline: 'var(--warsha-space-2)',
-  borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+  borderBlockEnd: 'var(--warsha-line-rule)',
   cursor: 'pointer',
   fontSize: 'var(--warsha-font-size-sm)',
   color: 'var(--warsha-color-text)',
@@ -271,8 +271,8 @@ export function BackendKitPanel({
                 style={{
                   minBlockSize: 'var(--warsha-size-touch)',
                   borderBlockEnd: selected
-                    ? '3px solid var(--warsha-signal-text)'
-                    : '3px solid transparent',
+                    ? 'var(--warsha-line-signal)'
+                    : 'var(--warsha-line-quiet)',
                 }}
                 onClick={() => onKindChange(candidate)}
               >
@@ -336,7 +336,7 @@ export function BackendKitPanel({
                   gap: 'var(--warsha-space-2)',
                   flexWrap: 'wrap',
                   paddingBlock: 'var(--warsha-space-2)',
-                  borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+                  borderBlockEnd: 'var(--warsha-line-rule)',
                   minInlineSize: 0,
                 }}
               >

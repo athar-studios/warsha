@@ -184,7 +184,7 @@ export function HandoffDialog({
         justifyContent: 'center',
         paddingInline: 'var(--warsha-space-4)',
         paddingBlock: 'var(--warsha-space-4)',
-        backgroundColor: 'color-mix(in srgb, var(--warsha-color-muted) 55%, transparent)',
+        backgroundColor: 'var(--warsha-color-scrim)',
         zIndex: 50,
       }}
     >
@@ -201,12 +201,12 @@ export function HandoffDialog({
         data-phase={phase}
         onKeyDown={onKeyDown}
         style={{
-          inlineSize: 'min(32rem, 100%)',
+          inlineSize: 'min(var(--warsha-size-dialog), 100%)',
           display: 'flex',
           flexDirection: 'column',
           gap: 'var(--warsha-space-3)',
           backgroundColor: 'var(--warsha-color-surface)',
-          border: '1px solid var(--warsha-bench-edge)',
+          border: 'var(--warsha-line-edge)',
           borderRadius: 'var(--warsha-radius-xl)',
           boxShadow: 'var(--warsha-shadow-md)',
           paddingInline: 'var(--warsha-space-6)',
@@ -272,8 +272,8 @@ export function HandoffDialog({
             style={{
               backgroundColor: 'var(--warsha-color-surface)',
               border: showInvalid
-                ? '1px solid var(--warsha-color-error)'
-                : '1px solid var(--warsha-bench-edge)',
+                ? 'var(--warsha-line-fail)'
+                : 'var(--warsha-line-edge)',
               borderRadius: 'var(--warsha-radius-sm)',
               color: 'var(--warsha-color-text)',
               fontFamily: 'var(--warsha-font-mono)',
@@ -340,7 +340,7 @@ export function HandoffDialog({
             style={{
               margin: 0,
               paddingInlineStart: 'var(--warsha-space-3)',
-              borderInlineStart: '3px solid var(--warsha-color-error)',
+              borderInlineStart: 'var(--warsha-line-band-fail)',
               fontSize: 'var(--warsha-font-size-sm)',
               fontWeight: 600,
               color: 'var(--warsha-color-text)',

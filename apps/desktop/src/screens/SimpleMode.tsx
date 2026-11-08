@@ -386,7 +386,7 @@ function MessageRow({
         gap: 'var(--warsha-space-3)',
         paddingInline: 'var(--warsha-space-4)',
         paddingBlock: 'var(--warsha-space-3)',
-        borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+        borderBlockEnd: 'var(--warsha-line-rule)',
         minInlineSize: 0,
       }}
     >
@@ -403,7 +403,7 @@ function MessageRow({
           borderRadius: 'var(--warsha-radius-sm)',
           backgroundColor: owner ? 'var(--warsha-signal)' : 'var(--warsha-bench-plate)',
           color: owner ? 'var(--warsha-signal-ink)' : 'var(--warsha-color-text)',
-          border: '1px solid var(--warsha-bench-rule)',
+          border: 'var(--warsha-line-rule)',
           fontSize: 'var(--warsha-font-size-sm)',
           fontWeight: 700,
         }}
@@ -909,7 +909,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
           display: 'flex',
           flexDirection: 'column',
           backgroundColor: 'var(--warsha-bench-plate)',
-          borderInlineEnd: '1px solid var(--warsha-bench-rule)',
+          borderInlineEnd: 'var(--warsha-line-rule)',
         }}
       >
         <div
@@ -917,7 +917,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
           style={{
             paddingInline: 'var(--warsha-space-4)',
             paddingBlock: 'var(--warsha-space-3)',
-            borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+            borderBlockEnd: 'var(--warsha-line-rule)',
             minInlineSize: 0,
           }}
         >
@@ -949,7 +949,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
               paddingInline: 'var(--warsha-space-4)',
               paddingBlock: 'var(--warsha-space-2)',
               backgroundColor: 'var(--warsha-color-surface)',
-              borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+              borderBlockEnd: 'var(--warsha-line-rule)',
               fontSize: 'var(--warsha-font-size-xs)',
               minInlineSize: 0,
             }}
@@ -1033,7 +1033,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
               paddingInline: 'var(--warsha-space-4)',
               minHeight: 'var(--warsha-size-topbar)',
               backgroundColor: 'var(--warsha-color-surface)',
-              borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+              borderBlockEnd: 'var(--warsha-line-rule)',
               minInlineSize: 0,
             }}
           >
@@ -1133,7 +1133,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
             paddingInline: 'var(--warsha-space-4)',
             paddingBlock: 'var(--warsha-space-3)',
             backgroundColor: 'var(--warsha-bench-plate)',
-            borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+            borderBlockEnd: 'var(--warsha-line-rule)',
             display: 'flex',
             flexDirection: 'column',
             gap: 'var(--warsha-space-2)',
@@ -1164,7 +1164,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
               lineHeight: 'var(--warsha-line-height-relaxed)',
               color: 'var(--warsha-color-text)',
               backgroundColor: 'var(--warsha-color-surface)',
-              border: '1px solid var(--warsha-bench-edge)',
+              border: 'var(--warsha-line-edge)',
               borderRadius: 'var(--warsha-radius-sm)',
               paddingInline: 'var(--warsha-space-3)',
               paddingBlock: 'var(--warsha-space-2)',
@@ -1284,7 +1284,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
                 fontSize: 'var(--warsha-font-size-sm)',
                 color: 'var(--warsha-color-text)',
                 backgroundColor: 'var(--warsha-color-surface)',
-                border: '1px solid var(--warsha-bench-edge)',
+                border: 'var(--warsha-line-edge)',
                 borderRadius: 'var(--warsha-radius-sm)',
                 paddingInline: 'var(--warsha-space-2)',
                 paddingBlock: 'var(--warsha-space-1)',
@@ -1324,7 +1324,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
             flex: 'none',
             paddingInline: 'var(--warsha-space-4)',
             paddingBlock: 'var(--warsha-space-3)',
-            borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+            borderBlockEnd: 'var(--warsha-line-rule)',
             display: 'flex',
             flexDirection: 'column',
             gap: 'var(--warsha-space-2)',
@@ -1341,7 +1341,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
             dir={dir}
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(9rem, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(var(--warsha-size-measure-compact), 1fr))',
               gap: 'var(--warsha-space-2)',
               minInlineSize: 0,
             }}
@@ -1359,7 +1359,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
                   paddingInline: 'var(--warsha-space-2)',
                   paddingBlock: 'var(--warsha-space-1)',
                   backgroundColor: 'var(--warsha-bench-plate)',
-                  border: '1px solid var(--warsha-bench-rule)',
+                  border: 'var(--warsha-line-rule)',
                   borderRadius: 'var(--warsha-radius-sm)',
                   minInlineSize: 0,
                 }}
@@ -1385,7 +1385,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
               paddingInline: 'var(--warsha-space-4)',
               paddingBlock: 'var(--warsha-space-3)',
               backgroundColor: 'var(--warsha-bench-plate)',
-              borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+              borderBlockEnd: 'var(--warsha-line-rule)',
               display: 'flex',
               flexDirection: 'column',
               gap: 'var(--warsha-space-3)',
@@ -1495,7 +1495,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
             paddingBlock: 'var(--warsha-space-3)',
             paddingBlockEnd: 'var(--warsha-space-4)',
             backgroundColor: 'var(--warsha-color-surface)',
-            borderBlockStart: '1px solid var(--warsha-bench-rule)',
+            borderBlockStart: 'var(--warsha-line-rule)',
             // B4 §4 + §9, settled in the browser: the composer stays at the inline-end edge of the column
             // and stays visible, but it gets there by being the column's fixed footer under an internally
             // scrolling transcript — not by `position: sticky`. Sticky resolves against the *screen's*
@@ -1553,7 +1553,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
               lineHeight: 'var(--warsha-line-height-relaxed)',
               color: 'var(--warsha-color-text)',
               backgroundColor: 'var(--warsha-bench-plate)',
-              border: '1px solid var(--warsha-bench-edge)',
+              border: 'var(--warsha-line-edge)',
               borderRadius: 'var(--warsha-radius-sm)',
               paddingInline: 'var(--warsha-space-3)',
               paddingBlock: 'var(--warsha-space-2)',
@@ -1619,7 +1619,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
           display: 'flex',
           flexDirection: 'column',
           backgroundColor: 'var(--warsha-color-surface)',
-          borderInlineStart: '1px solid var(--warsha-bench-rule)',
+          borderInlineStart: 'var(--warsha-line-rule)',
         }}
       >
         <div
@@ -1627,7 +1627,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
           style={{
             paddingInline: 'var(--warsha-space-4)',
             paddingBlock: 'var(--warsha-space-3)',
-            borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+            borderBlockEnd: 'var(--warsha-line-rule)',
             minInlineSize: 0,
           }}
         >
@@ -1688,7 +1688,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
               style={{
                 paddingInline: 'var(--warsha-space-4)',
                 paddingBlock: 'var(--warsha-space-3)',
-                borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+                borderBlockEnd: 'var(--warsha-line-rule)',
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 'var(--warsha-space-2)',
@@ -1755,7 +1755,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
               style={{
                 paddingInline: 'var(--warsha-space-4)',
                 paddingBlock: 'var(--warsha-space-3)',
-                borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+                borderBlockEnd: 'var(--warsha-line-rule)',
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 'var(--warsha-space-1)',
@@ -1875,7 +1875,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
           p={4}
           style={{
             marginTop: 'auto',
-            borderBlockStart: '1px solid var(--warsha-bench-rule)',
+            borderBlockStart: 'var(--warsha-line-rule)',
             backgroundColor: 'var(--warsha-bench-plate)',
           }}
         >

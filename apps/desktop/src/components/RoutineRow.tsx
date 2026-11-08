@@ -107,7 +107,7 @@ export function RoutineRow({ routine, onRun, onPause, onResume }: RoutineRowProp
         gap: 'var(--warsha-space-1)',
         paddingInline: 'var(--warsha-space-4)',
         paddingBlock: 'var(--warsha-space-3)',
-        borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+        borderBlockEnd: 'var(--warsha-line-rule)',
         listStyle: 'none',
         minInlineSize: 0,
       }}

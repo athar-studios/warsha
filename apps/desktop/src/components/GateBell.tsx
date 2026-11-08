@@ -163,7 +163,7 @@ export function GateBell({ gates, loading, failed, hasRun, onOpenGates, onRetry 
             position: 'fixed',
             inset: 0,
             zIndex: 140,
-            backgroundColor: 'color-mix(in srgb, var(--warsha-color-bg) 55%, transparent)',
+            backgroundColor: 'var(--warsha-color-scrim)',
           }}
         >
           <div

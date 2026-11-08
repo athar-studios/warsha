@@ -38,7 +38,7 @@ const CONTROL_STYLE: React.CSSProperties = {
   paddingInline: 'var(--warsha-space-2)',
   paddingBlock: 'var(--warsha-space-2)',
   borderRadius: 'var(--warsha-radius-sm)',
-  border: '1px solid var(--warsha-bench-edge)',
+  border: 'var(--warsha-line-edge)',
   backgroundColor: 'var(--warsha-color-surface)',
   color: 'var(--warsha-color-text)',
   fontFamily: 'inherit',
@@ -89,7 +89,7 @@ export function ProviderRow({
         paddingInline: 'var(--warsha-space-4)',
         paddingBlock: 'var(--warsha-space-3)',
         listStyle: 'none',
-        borderBlockEnd: '1px solid var(--warsha-bench-rule)',
+        borderBlockEnd: 'var(--warsha-line-rule)',
         backgroundColor: 'var(--warsha-color-surface)',
         color: 'var(--warsha-color-text)',
         minInlineSize: 0,
@@ -184,7 +184,7 @@ export function ProviderRow({
             fontFamily: 'var(--warsha-font-mono)',
             fontVariantNumeric: 'tabular-nums',
             unicodeBidi: 'isolate',
-            maxInlineSize: '9rem',
+            maxInlineSize: 'var(--warsha-size-measure-compact)',
           }}
         />
 

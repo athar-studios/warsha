@@ -211,7 +211,7 @@ describe('LivePreview', () => {
 
     const panel = screen.getByTestId('live-preview');
     expect(panel).toHaveStyle({
-      border: '1px solid var(--warsha-bench-rule)',
+      border: 'var(--warsha-line-rule)',
       borderRadius: 'var(--warsha-radius-md)',
     });
     expect(view.container.querySelector('[data-testid="live-preview"]')).not.toHaveStyle(

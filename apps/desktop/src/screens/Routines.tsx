@@ -81,7 +81,7 @@ export function Routines({ routines, error, onRun, onPause, onResume }: Routines
             fontSize: 'var(--warsha-font-size-xs)',
             color: 'var(--warsha-color-text)',
             paddingInline: 'var(--warsha-space-2)',
-            borderInlineStart: '1px solid var(--warsha-bench-edge)',
+            borderInlineStart: 'var(--warsha-line-edge)',
             paddingInlineStart: 'var(--warsha-space-3)',
           }}
         >
@@ -103,7 +103,7 @@ export function Routines({ routines, error, onRun, onPause, onResume }: Routines
             fontSize: 'var(--warsha-font-size-sm)',
             color: 'var(--warsha-color-text)',
             backgroundColor: 'var(--warsha-bench-plate)',
-            border: '1px solid var(--warsha-bench-rule)',
+            border: 'var(--warsha-line-rule)',
             borderRadius: 'var(--warsha-radius-md)',
             lineHeight: 'var(--warsha-line-height-relaxed)',
           }}
@@ -123,7 +123,7 @@ export function Routines({ routines, error, onRun, onPause, onResume }: Routines
             padding: 0,
             listStyle: 'none',
             backgroundColor: 'var(--warsha-bench-plate)',
-            border: '1px solid var(--warsha-bench-rule)',
+            border: 'var(--warsha-line-rule)',
             borderRadius: 'var(--warsha-radius-md)',
             borderBlockStart: 'none',
             minInlineSize: 0,

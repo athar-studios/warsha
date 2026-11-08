@@ -381,7 +381,7 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
       style={{
         paddingInline: 'var(--warsha-space-6)',
         paddingBlock: 'var(--warsha-space-6)',
-        minHeight: 'calc(100vh - 80px)',
+        minHeight: 'calc(100vh - var(--warsha-size-bench-offset))',
         display: 'flex',
         flexDirection: 'column',
         gap: 'var(--warsha-space-4)',
@@ -457,7 +457,7 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
                 fontSize: 'var(--warsha-font-size-sm)',
                 color: 'var(--warsha-color-text)',
                 backgroundColor: 'var(--warsha-bench-plate)',
-                border: '1px solid var(--warsha-bench-rule)',
+                border: 'var(--warsha-line-rule)',
                 borderRadius: 'var(--warsha-radius-md)',
               }}
             >
@@ -496,7 +496,7 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
                   fontSize: 'var(--warsha-font-size-sm)',
                   color: 'var(--warsha-color-text)',
                   backgroundColor: 'var(--warsha-bench-plate)',
-                  border: '1px solid var(--warsha-bench-rule)',
+                  border: 'var(--warsha-line-rule)',
                   borderRadius: 'var(--warsha-radius-md)',
                   lineHeight: 'var(--warsha-line-height-relaxed)',
                 }}
@@ -556,13 +556,13 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
             data-testid="projects-new-project-dialog"
             style={{
               inlineSize: '100%',
-              maxInlineSize: '480px',
+              maxInlineSize: 'var(--warsha-size-notice)',
               display: 'flex',
               flexDirection: 'column',
               gap: 'var(--warsha-space-2)',
               padding: 'var(--warsha-space-6)',
               backgroundColor: 'var(--warsha-color-surface)',
-              border: '1px solid var(--warsha-bench-edge)',
+              border: 'var(--warsha-line-edge)',
               borderRadius: 'var(--warsha-radius-xl)',
               maxBlockSize: '100%',
               overflowY: 'auto',
