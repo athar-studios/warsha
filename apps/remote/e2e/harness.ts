@@ -203,11 +203,13 @@ export const RUN_STREAM_SYNC_FIXTURE: RunStreamSync = {
   dropped_count: 0,
   run: {
     id: 'run-review',
-    projectId: 'proj-store',
+    project_id: 'proj-store',
     stage: 'review_qa_security',
+    current_stage: 'review_qa_security',
     status: 'running',
-    startedAt: '2026-10-05T07:15:00.000Z',
-    updatedAt: '2026-10-05T09:20:00.000Z',
+    created_at: '2026-10-05T07:15:00.000Z',
+    started_at: '2026-10-05T07:15:00.000Z',
+    updated_at: '2026-10-05T09:20:00.000Z',
   },
   events: REMOTE_EVENT_FIXTURES as unknown as WarshaEvent[],
 };
