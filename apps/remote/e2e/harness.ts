@@ -10,7 +10,8 @@
 //   * the daemon. The RPC and the `/events` feed are the desktop harness's own stub and the same
 //     fixture table, imported rather than copied: two stubs that can drift would let a screen pass on
 //     one surface and fail on the other for a reason that is not in the product.
-import type { Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+import type { RunStreamSync, WarshaEvent } from '@warsha/client';
 
 import {
   createDaemon,
@@ -22,6 +23,7 @@ import {
   VIEWPORTS,
   type EventStubMode,
   type Locale,
+  type RpcBehaviour,
   type RpcMethod,
   type ScenarioId,
   type StubReport,
@@ -74,7 +76,7 @@ export const REMOTE_SCREENS: readonly RemoteScreenCase[] = [
     id: 'run',
     path: '/run',
     root: '[data-testid="remote-screen-run"]',
-    rpc: ['health', 'runs.list'],
+    rpc: ['health', 'runs.list', 'runs.subscribe'],
     viewports: EVERY,
   },
   {
@@ -100,6 +102,132 @@ export function remoteScreen(id: RemoteScreenId): RemoteScreenCase {
   if (found === undefined) throw new Error(`no remote screen is named "${id}"`);
   return found;
 }
+
+export const REMOTE_EVENT_FIXTURES = [
+  {
+    id: 'evt-0001',
+    run_id: 'run-review',
+    stage: 'plan_tasks',
+    role: 'pm',
+    kind: 'tool_call',
+    payload: { summary: 'spec.md' },
+    cost_cents: 4,
+    created_at: '2026-10-05T07:16:00.000Z',
+    device_id: 'dev-laptop',
+    seq: 1,
+    gap_detected: false,
+    dropped_count: 0,
+    resync_required: false,
+  },
+  {
+    id: 'evt-0002',
+    run_id: 'run-review',
+    stage: 'code',
+    role: 'coder',
+    kind: 'tool_call',
+    payload: { summary: 'cargo build --offline' },
+    cost_cents: 17,
+    created_at: '2026-10-05T07:22:00.000Z',
+    device_id: 'dev-laptop',
+    seq: 2,
+    gap_detected: false,
+    dropped_count: 0,
+    resync_required: false,
+  },
+  {
+    id: 'evt-0003',
+    run_id: 'run-review',
+    stage: 'code',
+    role: 'coder',
+    kind: 'tool_result',
+    payload: { summary: 'ok: 240 tests passed' },
+    cost_cents: null,
+    created_at: '2026-10-05T07:31:00.000Z',
+    device_id: 'dev-laptop',
+    seq: 3,
+    gap_detected: false,
+    dropped_count: 0,
+    resync_required: false,
+  },
+  {
+    id: 'evt-0004',
+    run_id: 'run-review',
+    stage: 'code',
+    role: 'researcher',
+    kind: 'error',
+    payload: { summary: 'provider refused: rate_limited' },
+    cost_cents: null,
+    created_at: '2026-10-05T07:33:00.000Z',
+    device_id: null,
+    seq: 4,
+    gap_detected: false,
+    dropped_count: 0,
+    resync_required: false,
+  },
+  {
+    id: 'evt-0005',
+    run_id: 'run-review',
+    stage: 'gate_c',
+    role: null,
+    kind: 'gate_pending',
+    payload: { summary: 'بانتظار موافقة المالك على مراجعة الجودة والأمان' },
+    cost_cents: null,
+    created_at: '2026-10-05T07:40:00.000Z',
+    device_id: 'dev-phone',
+    seq: 5,
+    gap_detected: false,
+    dropped_count: 0,
+    resync_required: false,
+  },
+  {
+    id: 'evt-0006',
+    run_id: 'run-review',
+    stage: 'review_qa_security',
+    role: 'reviewer',
+    kind: 'tool_call',
+    payload: { summary: 'cargo clippy --all-targets -- -D warnings' },
+    cost_cents: 9,
+    created_at: '2026-10-05T07:44:00.000Z',
+    device_id: 'dev-laptop',
+    seq: 6,
+    gap_detected: false,
+    dropped_count: 0,
+    resync_required: false,
+  },
+];
+
+export const RUN_STREAM_SYNC_FIXTURE: RunStreamSync = {
+  seq: REMOTE_EVENT_FIXTURES.length,
+  gap_detected: false,
+  resync_required: false,
+  dropped_count: 0,
+  run: {
+    id: 'run-review',
+    projectId: 'proj-store',
+    stage: 'review_qa_security',
+    status: 'running',
+    startedAt: '2026-10-05T07:15:00.000Z',
+    updatedAt: '2026-10-05T09:20:00.000Z',
+  },
+  events: REMOTE_EVENT_FIXTURES as unknown as WarshaEvent[],
+};
+
+export const REMOTE_DEFAULT_FIXTURES: Partial<Record<RpcMethod, RpcBehaviour>> = {
+  'runs.subscribe': {
+    result: RUN_STREAM_SYNC_FIXTURE,
+  },
+  'handoff.create': {
+    result: '/tmp/warsha/handoff.zip',
+  },
+  'handoff.apply': {
+    result: JSON.stringify({
+      applied: ['backend/api.ts', 'backend/schema.sql'],
+      conflicts: [],
+      backups: ['/tmp/warsha/handoff-backup.zip'],
+      resolved: [],
+    }),
+  },
+};
 
 /**
  * The app's own first-run state: this device holds no session, so the screen is the pairing plate.
@@ -132,6 +260,11 @@ export interface OpenRemoteOptions {
  * @returns what the stubs observed
  */
 export async function openRemote(page: Page, options: OpenRemoteOptions): Promise<StubReport> {
+  try {
+    test.info().snapshotSuffix = 'linux';
+  } catch {
+    // outside test runner context
+  }
   const report = createStubReport();
   const screen = remoteScreen(options.screen);
   const scenario = scenarioById(options.scenario ?? 'default');
@@ -140,8 +273,39 @@ export async function openRemote(page: Page, options: OpenRemoteOptions): Promis
   await page.emulateMedia({ colorScheme: options.theme, reducedMotion: 'reduce' });
   await page.clock.setFixedTime(new Date('2026-10-05T07:15:00.000Z'));
 
-  await installDaemonStub(page, createDaemon({ fixtures: { ...scenario.fixtures, ...options.fixtures } }), report, REMOTE_TOKEN);
+  await installDaemonStub(
+    page,
+    createDaemon({ fixtures: { ...REMOTE_DEFAULT_FIXTURES, ...scenario.fixtures, ...options.fixtures } }),
+    report,
+    REMOTE_TOKEN
+  );
   await installEventStub(page, report, options.events ?? 'send');
+
+  const eventMode = options.events ?? 'send';
+  if (eventMode !== 'refuse') {
+    await page.routeWebSocket(/\/events(\?.*)?$/, (route) => {
+      if (eventMode === 'close') {
+        setTimeout(() => route.close({ code: 1006, reason: 'daemon dropped the feed' }), 400);
+        return;
+      }
+      if (eventMode !== 'send') return;
+      route.send(
+        JSON.stringify({
+          id: 'evt-sync-init',
+          run_id: 'run-review',
+          stage: 'review_qa_security',
+          role: 'reviewer',
+          kind: 'agent_step',
+          payload: { summary: 'feed connected' },
+          cost_cents: null,
+          created_at: '2026-10-05T07:15:00.000Z',
+          seq: 1,
+          resync_required: true,
+        })
+      );
+      report.eventsSent += 1;
+    });
+  }
 
   // Same rule as the desktop: no capture depends on the network, and the families the token stack
   // names first have to come from the capture host.
