@@ -45,7 +45,7 @@ use warsha_pipeline::{
     PairingStore, PhonePairing, Preference, PreferenceSignal, PreferenceStore, ProcessManager,
     ProcessStatus, ProcessSummary, ProviderRouterAdapter, Routine, RoutineRegistry, RoutineRunner,
     RoutineScheduler, RunMode, RunModeConfig, SlashCommand, SlashCommandRegistry, StoreReview,
-    StoreReviewStore, TodoItem, TodoList, AGENT_ROLE,
+    StoreReviewStore, TodoItem, TodoList, WorkProtectionPolicy, AGENT_ROLE,
 };
 use warsha_providers::{
     probe_endpoint, HealthCheck, KeychainSecretStore, OneClickProvider, ProviderRouter,
@@ -4862,7 +4862,12 @@ fn build_agent_loop(
     mcp: Arc<dyn McpManager>,
     backend_kit: Arc<RwLock<BackendKit>>,
 ) -> Arc<RwLock<AgentLoop>> {
-    let tools = FilesystemToolExecutor::new(data_dir.join(AGENT_WORKSPACE_DIR));
+    // The shipped work-protection policy enforces read-before-write, so the
+    // agent's file tools do too: an existing file must be read before it is
+    // overwritten. A genuine create needs no prior read.
+    let policy = WorkProtectionPolicy::default();
+    let tools = FilesystemToolExecutor::new(data_dir.join(AGENT_WORKSPACE_DIR))
+        .with_read_before_write(policy.read_before_write);
     let router = ProviderRouterAdapter::new(providers, AGENT_ROLE, AGENT_METER_KEY);
     Arc::new(RwLock::new(
         AgentLoop::with_tool_executor(Box::new(tools))
