@@ -40,7 +40,11 @@ Built on the release commit `13a3b60` (working tree clean before and after; `dis
 - **Windows installers** — `Warsha_0.2.0_x64-setup.exe` (6,881,725 B,
   `5a6e5034…6d1f1a9`) and `Warsha_0.2.0_x64_en-US.msi` (9,609,216 B, `0f56ed84…2fde0c5`) from
   `tauri build`. **Authenticode: NotSigned** — no code-signing certificate is configured, so SmartScreen
-  will warn.
+  will warn. The built `warsha-desktop.exe --self-check --data-dir <fresh dir>` exits **0** with **11 PASS**
+  (daemon start/stop, auth, CORS, `/health`, `projects.create`, `runs.start`/`advance` to Gate B on the
+  zero-key FakeProvider, single-writer lock) — `release/desktop-selfcheck.log`. A pre-existing old
+  `%APPDATA%\warsha` directory failed the migration check, so an upgrade over a very old dev data directory
+  needs a backup or a fresh directory.
 - **Android** — `app-release.apk` 842,981 B (`6a468185…e2700ef`); `apksigner` **Verifies**, APK Signature
   Scheme v2 only, RSA-4096, certificate SHA-256 `ad2708e4…f3c3`; package `dev.warsha.remote`,
   versionName 0.1.0, versionCode 1 (confirmed with `aapt2 dump badging` on the bundled copy).
