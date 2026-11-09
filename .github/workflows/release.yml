@@ -314,7 +314,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
@@ -518,28 +518,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download CLI binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: warsha-*
           path: release
           merge-multiple: true
 
       - name: Download daemon binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: warshad-*
           path: release
           merge-multiple: true
 
       - name: Download desktop artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: desktop-installers-*
           path: release/desktop
           merge-multiple: true
 
       - name: Download checksums and SBOMs
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: release-artifacts
           path: release
