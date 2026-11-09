@@ -3,9 +3,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  ALL_ROLES,
   createClient,
   decodeBackendKit,
   decodeDeviceSummary,
+  decodeModelCatalogDiff,
+  decodeModelInfo,
   decodeProjectSummary,
   decodeRoutine,
   decodeRunSummary,
@@ -20,6 +23,8 @@ import {
   type DeviceId,
   type GateState,
   type GateSummary,
+  type ModelCatalogDiff,
+  type ModelInfo,
   type PairingData,
   type PreferenceSignal,
   type ProjectId,
@@ -698,6 +703,47 @@ describe('configured provider and agent wiring (C2)', () => {
       // argument the wire shape still has to parse.
       api_base: null,
     });
+  });
+
+  it('checks provider models and decodes the model catalog diff', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse({
+        provider: 'custom-router',
+        new_models: [
+          {
+            id: 'meta-llama/llama-3-70b',
+            name: 'Llama 3 70B',
+            provider: 'custom-router',
+            context_window: 8192,
+            max_output: 4096,
+            pricing: { input_per_million_cents: 90, output_per_million_cents: 90 },
+          },
+        ],
+        retained_count: 0,
+        total_count: 1,
+        updated_catalog: [
+          {
+            id: 'meta-llama/llama-3-70b',
+            name: 'Llama 3 70B',
+            provider: 'custom-router',
+            context_window: 8192,
+            max_output: 4096,
+            pricing: { input_per_million_cents: 90, output_per_million_cents: 90 },
+          },
+        ],
+      })
+    );
+
+    const diff = await client.checkProviderModels('custom-router');
+
+    expect(lastBody().method).toBe('providers.check_models');
+    expect(lastBody().params).toEqual({ name: 'custom-router' });
+    expect(diff.provider).toBe('custom-router');
+    expect(diff.total_count).toBe(1);
+    expect(diff.updated_catalog).toHaveLength(1);
+    expect(diff.updated_catalog[0].id).toBe('meta-llama/llama-3-70b');
+    expect(diff.updated_catalog[0].name).toBe('Llama 3 70B');
+    expect(diff.updated_catalog[0].context_window).toBe(8192);
   });
 
   it('routes a role inside one config argument, as roles.set declares it', async () => {

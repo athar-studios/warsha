@@ -1,5 +1,30 @@
 # PROGRESS.md — Warsha Build Log
 
+## v0.2.1 — custom OpenAI-compatible endpoints, model discovery, Arabic provider names
+
+Built from `main` on 2026-11-09 (the owner asked for a way to add a custom endpoint such as 9router,
+attach custom models, fetch model names from the provider, and keep the Arabic interface free of Latin
+provider names).
+
+- **Onboarding** always offers a sixth choice, «نقطة نهاية مخصّصة». It collects a provider name, an
+  http(s) base URL, an API key and a model id, can fetch the provider's live model list
+  (`providers.check_models`) and pick one, then registers the provider, its model (`models.add`) and the
+  twelve role routings (`roles.set`) before the connection test.
+- **Settings → Providers** gains a per-provider «جلب النماذج» action that lists the endpoint's live models
+  and adds the chosen one with `models.add`; the add form accepts a model id and, for a custom endpoint,
+  requires one and routes the twelve roles to it; a new «إدارة المزوّدين والنماذج» button opens the full
+  providers screen from the settings tab.
+- **Settings → Models** gains a provider picker and «جلب النماذج من المزوّد», which fills provider, model
+  id and display name from one of the provider's own rows.
+- **Arabic** — every new word is in both catalogs; the Arabic provider-kind labels are now Arabic
+  (أوبن راوتر، ديب سيك، كيمي، مونشوت، جي إل إم، كوين، أوبن إيه آي، أنثروبيك، أولاما) instead of Latin
+  brand names. Model ids, base URLs and the owner's own provider names remain technical LTR data.
+- **Client/wire** — `checkProviderModels` wraps `providers.check_models`; the desktop e2e harness knows
+  the method (`wire: 9 checks, 0 violations`; `arch: 5 rules, 0 violations`).
+- **Evidence** — desktop typecheck exit 0; desktop suite 50 files exit 0 (onboarding 14, models 8,
+  providers 13); client 149, i18n 52, ui 181; installers `Warsha_0.2.1_x64-setup.exe` and
+  `Warsha_0.2.1_x64_en-US.msi`.
+
 ## Run 2026-11-08 — ACCEPTED (owner sign-off) and the post-acceptance resolutions
 
 The owner (Mohamed Ashry) reviewed the completion audit, the 108 gate verdicts and `OWNER_DECISIONS.md`,

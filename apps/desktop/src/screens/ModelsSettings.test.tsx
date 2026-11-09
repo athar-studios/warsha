@@ -57,6 +57,25 @@ function clientStub(overrides: Partial<WarshaClient> = {}): WarshaClient {
   }));
   client.removeCustomModel = vi.fn(async () => undefined);
   client.setRoleConfig = vi.fn(async () => undefined);
+  client.listProviders = vi.fn(async () => [
+    { name: 'openai-main', kind: 'openai', enabled: true },
+  ]);
+  client.checkProviderModels = vi.fn(async () => ({
+    provider: 'openai-main',
+    new_models: [],
+    retained_count: 0,
+    total_count: 1,
+    updated_catalog: [
+      {
+        id: 'gpt-4o-mini',
+        name: 'Mini 4o',
+        provider: 'openai-main',
+        context_window: 128000,
+        max_output: 16384,
+        pricing: { input_per_million_cents: 15, output_per_million_cents: 60 },
+      },
+    ],
+  }));
   return Object.assign(client, overrides);
 }
 
@@ -132,6 +151,32 @@ describe('ModelsSettings', () => {
     expect(await screen.findByText(t('models.add_done', { name: 'Mini' }, 'ar'))).toBeInTheDocument();
     const catalog = screen.getByRole('region', { name: ar('models.catalog') });
     expect(within(catalog).getAllByRole('listitem')).toHaveLength(3);
+  });
+
+  it('fetches the provider’s live models and fills the form from one', async () => {
+    const client = clientStub();
+    renderScreen(client);
+
+    fireEvent.click(await screen.findByTestId('models-add-open'));
+    const panel = screen.getByRole('region', { name: ar('models.add_title') });
+
+    fireEvent.change(within(panel).getByTestId('models-provider-picker'), {
+      target: { value: 'openai-main' },
+    });
+    fireEvent.click(within(panel).getByTestId('models-fetch-button'));
+
+    await waitFor(() => expect(client.checkProviderModels).toHaveBeenCalledWith('openai-main'));
+    fireEvent.click(await within(panel).findByTestId('models-fetch-choice-gpt-4o-mini'));
+
+    expect(within(panel).getByRole('textbox', { name: ar('models.provider') })).toHaveValue(
+      'openai-main'
+    );
+    expect(within(panel).getByRole('textbox', { name: ar('models.model_id') })).toHaveValue(
+      'gpt-4o-mini'
+    );
+    expect(within(panel).getByRole('textbox', { name: ar('models.display_name') })).toHaveValue(
+      'Mini 4o'
+    );
   });
 
   it('removes a row through the daemon and forgets it from the ledger', async () => {

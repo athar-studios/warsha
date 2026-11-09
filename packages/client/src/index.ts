@@ -471,6 +471,16 @@ const ROLE_VALUES: readonly Role[] = [
   'feedback',
 ];
 
+/**
+ * Every role the pipeline can staff, in the order `roles.list`/`roles.set` name them.
+ *
+ * Exported because three screens need the same twelve rows: Settings → Models draws one
+ * routing row per role, and both custom-endpoint flows (onboarding and Settings → Providers)
+ * route the whole team to the model the owner just registered. A second copy of this list in
+ * a screen is a role the screen silently stops routing.
+ */
+export const ALL_ROLES: readonly Role[] = ROLE_VALUES;
+
 const REDACTED = '[redacted]';
 const EVENT_FRAME_ERROR = 'Malformed event frame';
 
@@ -1053,6 +1063,46 @@ export interface CustomModelRecord {
   enabled: boolean;
 }
 
+/** What one model costs, in cents per million tokens (`warsha_core::ModelPricing`). */
+export interface ModelPricing {
+  input_per_million_cents: number;
+  output_per_million_cents: number;
+}
+
+/**
+ * One model a provider reports (`warsha_providers::ModelInfo`, snake_case on the wire).
+ *
+ * `name` is the provider's own label for the model and is often the id again; the screens
+ * show it only when it says something the id does not. `context_window` and `max_output`
+ * are tokens, and `pricing` is cents per million — a provider that does not report one
+ * leaves it at zero rather than inventing a number.
+ */
+export interface ModelInfo {
+  id: string;
+  name: string;
+  provider: string;
+  context_window: number;
+  max_output: number;
+  pricing: ModelPricing;
+}
+
+/**
+ * What `providers.check_models` answers (`warsha_providers::ModelCatalogDiff`): the
+ * provider's live catalog diffed against the daemon's local one.
+ *
+ * `new_models` are the ids the local catalog did not have, `retained_count`/`total_count`
+ * the size before and after, and `updated_catalog` the merged list. With an empty local
+ * catalog — every provider the owner just added — `updated_catalog` is the provider's whole
+ * live list, which is exactly what a model picker wants to show.
+ */
+export interface ModelCatalogDiff {
+  provider: string;
+  new_models: ModelInfo[];
+  retained_count: number;
+  total_count: number;
+  updated_catalog: ModelInfo[];
+}
+
 /** The status of one external integration (`warsha_core::IntegrationStatus`). */
 export interface IntegrationStatus {
   id: string;
@@ -1237,6 +1287,60 @@ export function decodeCustomModelRecord(source: unknown): CustomModelRecord {
     displayName: wave2NullableString(record, 'display_name', 'displayName'),
     contextWindow: wave2NullableNumber(record, 'context_window', 'contextWindow'),
     enabled: wave2Boolean(record, true, 'enabled'),
+  };
+}
+
+function decodeModelPricing(source: unknown): ModelPricing {
+  const record = wave2Object(source, 'model pricing');
+  return {
+    input_per_million_cents: wave2Number(
+      record,
+      0,
+      'input_per_million_cents',
+      'inputPerMillionCents'
+    ),
+    output_per_million_cents: wave2Number(
+      record,
+      0,
+      'output_per_million_cents',
+      'outputPerMillionCents'
+    ),
+  };
+}
+
+/**
+ * One provider-reported model. The `id` is the one field a picker cannot work without, so a
+ * row that has none is refused by name; every other field falls back to the empty/zero form
+ * a screen can render (`name` falls back to the id, the way `CustomModelRecord` does).
+ */
+export function decodeModelInfo(source: unknown): ModelInfo {
+  const record = wave2Object(source, 'model');
+  const id = wave2String(record, 'id');
+  if (id.length === 0) {
+    throw new Error(`${WAVE2_ERROR}: "model" is missing "id"`);
+  }
+  const name = wave2String(record, 'name');
+  return {
+    id,
+    name: name.length > 0 ? name : id,
+    provider: wave2String(record, 'provider'),
+    context_window: wave2Number(record, 0, 'context_window', 'contextWindow'),
+    max_output: wave2Number(record, 0, 'max_output', 'maxOutput'),
+    pricing: decodeModelPricing(field(record, 'pricing') ?? {}),
+  };
+}
+
+/** `providers.check_models`'s answer, decoded field by field (both spellings accepted). */
+export function decodeModelCatalogDiff(source: unknown): ModelCatalogDiff {
+  const record = wave2Object(source, 'model catalog diff');
+  const newModels = field(record, 'new_models', 'newModels');
+  const catalog = field(record, 'updated_catalog', 'updatedCatalog');
+  return {
+    provider: wave2String(record, 'provider'),
+    new_models: Array.isArray(newModels) ? newModels.map(decodeModelInfo) : [],
+    retained_count: wave2Number(record, 0, 'retained_count', 'retainedCount'),
+    total_count: wave2Number(record, 0, 'total_count', 'totalCount'),
+    updated_catalog: Array.isArray(catalog) ? catalog.map(decodeModelInfo) : [],
   };
 }
 
@@ -1594,6 +1698,20 @@ export class WarshaClient implements WarshaWiringApi, WarshaWave2Api {
   ///
   async testProvider(name: string, model?: string): Promise<void> {
     await this.rpc<unknown>('providers.test', { name, model: model ?? null });
+  }
+
+  /**
+   * `providers.check_models` — the provider's own live model list, diffed against the
+   * daemon's local catalog.
+   *
+   * The daemon binds one argument, `name` (`crates/warshad/src/lib.rs:1319-1323`), and
+   * reaches the provider over the network to answer. A provider the daemon has no record
+   * of, or one whose endpoint refuses the key, is the daemon's error and arrives here as
+   * one — the screens show it on the row it belongs to.
+   */
+  async checkProviderModels(name: string): Promise<ModelCatalogDiff> {
+    const row = await this.rpc<unknown>('providers.check_models', { name });
+    return decodeModelCatalogDiff(row);
   }
 
   async removeProvider(name: string): Promise<void> {

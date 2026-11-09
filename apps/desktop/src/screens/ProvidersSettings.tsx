@@ -18,7 +18,13 @@
 //   * endpoints, budgets and provider kinds are machine data: mono, `translate="no"`, isolated (§11);
 //   * every word comes from `@warsha/i18n`: the 34 `locale === 'ar' ? … : …` branches counted here are gone,
 //     and so is the `PROVIDER_KINDS` table with its hard-coded names.
-import { type ProviderConfig, type ProjectSummary, type WarshaClient } from '@warsha/client';
+import {
+  ALL_ROLES,
+  type ModelInfo,
+  type ProviderConfig,
+  type ProjectSummary,
+  type WarshaClient,
+} from '@warsha/client';
 import { t, useDirection, useLocale, type MessageValues } from '@warsha/i18n';
 import {
   Banner,
@@ -77,11 +83,24 @@ export function ProvidersSettings({ client, onBack, project }: ProvidersSettings
   const [removed, setRemoved] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
-  const [draft, setDraft] = useState({ name: '', kind: '', key: '', apiBase: '' });
-  const [touched, setTouched] = useState({ name: false, kind: false, key: false, apiBase: false });
+  const [draft, setDraft] = useState({ name: '', kind: '', key: '', apiBase: '', modelId: '' });
+  const [touched, setTouched] = useState({
+    name: false,
+    kind: false,
+    key: false,
+    apiBase: false,
+    modelId: false,
+  });
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [added, setAdded] = useState<string | null>(null);
+
+  // Model discovery (`providers.check_models`) and row-level model addition.
+  const [fetchingModels, setFetchingModels] = useState<Record<string, boolean>>({});
+  const [fetchErrors, setFetchErrors] = useState<Record<string, string | null>>({});
+  const [discoveredModels, setDiscoveredModels] = useState<Record<string, ModelInfo[]>>({});
+  const [modelAddSuccess, setModelAddSuccess] = useState<Record<string, string | null>>({});
+  const [modelAddError, setModelAddError] = useState<Record<string, string | null>>({});
 
   const label = useCallback((key: string, values?: MessageValues) => t(key, values ?? {}, locale), [locale]);
 
@@ -130,9 +149,14 @@ export function ProvidersSettings({ client, onBack, project }: ProvidersSettings
     };
   }, [client, reload]);
 
+  const isCustom = draft.kind === 'custom';
   const nameError = touched.name && draft.name.trim() === '' ? label('providers.name_needed') : undefined;
   const kindError = touched.kind && draft.kind === '' ? label('providers.select_type') : undefined;
   const keyError = touched.key && draft.key.trim() === '' ? label('router.setup.reason.key_empty') : undefined;
+  const modelError =
+    isCustom && touched.modelId && draft.modelId.trim() === ''
+      ? label('providers.model_needed')
+      : undefined;
   const baseError =
     touched.apiBase &&
     draft.apiBase.trim() !== '' &&
@@ -154,6 +178,38 @@ export function ProvidersSettings({ client, onBack, project }: ProvidersSettings
     }
   };
 
+  const fetchModels = async (name: string) => {
+    setFetchingModels((previous) => ({ ...previous, [name]: true }));
+    setFetchErrors((previous) => ({ ...previous, [name]: null }));
+    try {
+      const diff = await client.checkProviderModels(name);
+      setDiscoveredModels((previous) => ({ ...previous, [name]: diff.updated_catalog }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : label('providers.models_failed');
+      setFetchErrors((previous) => ({ ...previous, [name]: message }));
+    } finally {
+      setFetchingModels((previous) => ({ ...previous, [name]: false }));
+    }
+  };
+
+  const addDiscoveredModel = async (providerName: string, model: ModelInfo) => {
+    setModelAddError((previous) => ({ ...previous, [providerName]: null }));
+    setModelAddSuccess((previous) => ({ ...previous, [providerName]: null }));
+    try {
+      await client.addCustomModel(
+        providerName,
+        model.id,
+        model.name !== model.id ? model.name : undefined
+      );
+      setModelAddSuccess((previous) => ({ ...previous, [providerName]: model.id }));
+    } catch {
+      setModelAddError((previous) => ({
+        ...previous,
+        [providerName]: label('providers.models_add_failed'),
+      }));
+    }
+  };
+
   const confirmRemove = async (name: string) => {
     try {
       await client.removeProvider(name);
@@ -169,8 +225,9 @@ export function ProvidersSettings({ client, onBack, project }: ProvidersSettings
 
   const addProvider = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setTouched({ name: true, kind: true, key: true, apiBase: true });
+    setTouched({ name: true, kind: true, key: true, apiBase: true, modelId: true });
     if (draft.name.trim() === '' || draft.kind === '' || draft.key.trim() === '') return;
+    if (draft.kind === 'custom' && draft.modelId.trim() === '') return;
     if (baseError) return;
 
     setAdding(true);
@@ -182,10 +239,24 @@ export function ProvidersSettings({ client, onBack, project }: ProvidersSettings
         key: draft.key,
         ...(draft.apiBase.trim() === '' ? {} : { api_base: draft.apiBase.trim() }),
       });
+      const modelId = draft.modelId.trim();
+      if (modelId !== '') {
+        await client.addCustomModel(created.name, modelId);
+        if (draft.kind === 'custom') {
+          for (const role of ALL_ROLES) {
+            await client.setRoleConfig({
+              role,
+              targets: [{ provider_id: created.name, model_id: modelId, weight: 100 }],
+              fallback_enabled: true,
+              budget_cents_per_run: 0,
+            });
+          }
+        }
+      }
       setProviders((previous) => [...previous, created]);
       setAdded(created.name);
-      setDraft({ name: '', kind: '', key: '', apiBase: '' });
-      setTouched({ name: false, kind: false, key: false, apiBase: false });
+      setDraft({ name: '', kind: '', key: '', apiBase: '', modelId: '' });
+      setTouched({ name: false, kind: false, key: false, apiBase: false, modelId: false });
       setShowAdd(false);
     } catch (error) {
       setAddError(error instanceof Error ? error.message : label('providers.failed'));
@@ -390,6 +461,40 @@ export function ProvidersSettings({ client, onBack, project }: ProvidersSettings
               />
             </Field>
 
+            <Field
+              id="providers-add-model"
+              label={label('providers.model_label')}
+              hint={label('providers.model_hint')}
+              error={modelError}
+              required={isCustom}
+            >
+              <input
+                {...fieldControl('providers-add-model', {
+                  hint: !modelError,
+                  error: Boolean(modelError),
+                  required: isCustom,
+                })}
+                dir="ltr"
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                value={draft.modelId}
+                placeholder="gpt-4o-mini"
+                data-testid="providers-add-model"
+                onChange={(event) => setDraft({ ...draft, modelId: event.target.value })}
+                onBlur={() => setTouched({ ...touched, modelId: true })}
+                style={{
+                  ...fieldControl('providers-add-model', {
+                    hint: !modelError,
+                    error: Boolean(modelError),
+                    required: isCustom,
+                  }).style,
+                  fontFamily: 'var(--warsha-font-mono)',
+                  unicodeBidi: 'isolate',
+                }}
+              />
+            </Field>
+
             {addError && <Banner tone="error">{addError}</Banner>}
 
             <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-3)', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
@@ -454,6 +559,18 @@ export function ProvidersSettings({ client, onBack, project }: ProvidersSettings
                     </>
                   ) : (
                     <>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        dir={dir}
+                        disabled={fetchingModels[provider.name]}
+                        data-testid={`provider-fetch-models-${provider.name}`}
+                        onClick={() => void fetchModels(provider.name)}
+                      >
+                        {fetchingModels[provider.name]
+                          ? label('providers.models_fetching')
+                          : label('providers.models_fetch')}
+                      </Button>
                       <Button
                         variant="secondary"
                         size="sm"
@@ -523,6 +640,118 @@ export function ProvidersSettings({ client, onBack, project }: ProvidersSettings
                         <Text size="xs" dir={dir}>
                           {label('errors.provider_unauthorized_hint')}
                         </Text>
+                      )}
+                    </Box>
+                  )}
+
+                  {fetchErrors[provider.name] && (
+                    <Box
+                      dir={dir}
+                      style={{
+                        marginBlockStart: 'var(--warsha-space-1)',
+                        paddingInlineStart: 'var(--warsha-space-3)',
+                        borderInlineStart: 'var(--warsha-line-band-fail)',
+                        minInlineSize: 0,
+                      }}
+                    >
+                      <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-error)' }}>
+                        {fetchErrors[provider.name]}
+                      </Text>
+                    </Box>
+                  )}
+
+                  {modelAddSuccess[provider.name] && (
+                    <Box dir={dir} style={{ marginBlockStart: 'var(--warsha-space-1)' }}>
+                      <Stamp tone="ok">
+                        {label('providers.models_added', { name: modelAddSuccess[provider.name]! })}
+                      </Stamp>
+                    </Box>
+                  )}
+
+                  {modelAddError[provider.name] && (
+                    <Box dir={dir} style={{ marginBlockStart: 'var(--warsha-space-1)' }}>
+                      <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-error)' }}>
+                        {modelAddError[provider.name]}
+                      </Text>
+                    </Box>
+                  )}
+
+                  {discoveredModels[provider.name] !== undefined && (
+                    <Box
+                      dir={dir}
+                      data-testid={`provider-models-${provider.name}`}
+                      style={{
+                        marginBlockStart: 'var(--warsha-space-2)',
+                        paddingInline: 'var(--warsha-space-3)',
+                        paddingBlock: 'var(--warsha-space-2)',
+                        borderRadius: 'var(--warsha-radius-sm)',
+                        backgroundColor: 'var(--warsha-bench-plate)',
+                        border: 'var(--warsha-line-rule)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 'var(--warsha-space-2)',
+                      }}
+                    >
+                      <Text size="xs" weight="medium" dir={dir}>
+                        {label('providers.models_found')}
+                      </Text>
+                      {discoveredModels[provider.name].length === 0 ? (
+                        <Text size="xs" dir={dir}>
+                          {label('providers.models_none')}
+                        </Text>
+                      ) : (
+                        discoveredModels[provider.name].map((model) => (
+                          <Box
+                            key={model.id}
+                            dir={dir}
+                            data-testid={`provider-model-row-${provider.name}-${model.id}`}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: 'var(--warsha-space-2)',
+                              flexWrap: 'wrap',
+                            }}
+                          >
+                            <Box
+                              dir={dir}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'baseline',
+                                gap: 'var(--warsha-space-2)',
+                              }}
+                            >
+                              <span
+                                dir="ltr"
+                                translate="no"
+                                style={{
+                                  fontFamily: 'var(--warsha-font-mono)',
+                                  fontSize: 'var(--warsha-font-size-xs)',
+                                }}
+                              >
+                                {model.id}
+                              </span>
+                              {model.name && model.name !== model.id ? (
+                                <Text
+                                  size="xs"
+                                  dir={dir}
+                                  style={{ color: 'var(--warsha-color-text-muted)' }}
+                                >
+                                  {model.name}
+                                </Text>
+                              ) : null}
+                            </Box>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              dir={dir}
+                              data-testid={`provider-add-model-${provider.name}-${model.id}`}
+                              onClick={() => void addDiscoveredModel(provider.name, model)}
+                            >
+                              {label('providers.models_add')}
+                            </Button>
+                          </Box>
+                        ))
                       )}
                     </Box>
                   )}

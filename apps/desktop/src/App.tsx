@@ -852,6 +852,7 @@ function AppContent() {
               onToggle={handleProviderToggle}
               onPinVersion={handleProviderPin}
               client={client}
+              onOpenFull={() => setScreen('providers')}
             />
             {/* One-click setup (M14b): the six presets and the network-free "Test connection". `onSave`
                 has no settings RPC behind it yet. */}

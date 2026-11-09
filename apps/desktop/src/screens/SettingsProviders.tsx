@@ -36,6 +36,8 @@ export interface SettingsProvidersProps {
   onPinVersion: (name: string, version: string) => void;
   /** The daemon client; present, the custom-provider section can write to the server. */
   client?: WarshaClient;
+  /** Opens the full providers screen: endpoint, model discovery and routing in one place. */
+  onOpenFull?: () => void;
 }
 
 /** The API surfaces a custom provider can register on, in kind-select order. */
@@ -47,6 +49,7 @@ export function SettingsProviders({
   onToggle,
   onPinVersion,
   client,
+  onOpenFull,
 }: SettingsProvidersProps) {
   const dir = useDirection();
   const locale = useLocale();
@@ -212,7 +215,7 @@ export function SettingsProviders({
             {label('settings_providers.custom_note')}
           </Text>
 
-          <Box dir={dir}>
+          <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)', flexWrap: 'wrap' }}>
             <Button
               variant={showCustom ? 'secondary' : 'primary'}
               size="sm"
@@ -226,6 +229,17 @@ export function SettingsProviders({
             >
               {label('settings_providers.custom_add')}
             </Button>
+            {onOpenFull && (
+              <Button
+                variant="secondary"
+                size="sm"
+                dir={dir}
+                data-testid="settings-providers-open-full"
+                onClick={onOpenFull}
+              >
+                {label('settings_providers.open_full')}
+              </Button>
+            )}
           </Box>
 
           {showCustom && (

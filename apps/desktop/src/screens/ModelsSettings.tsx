@@ -17,7 +17,9 @@
 //     current model line only appears when the daemon reported a routing for that role.
 import {
   type CustomModelRecord,
+  type ModelInfo,
   type ProjectSummary,
+  type ProviderConfig,
   type Role,
   type RoleRouting,
   type WarshaClient,
@@ -88,6 +90,7 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
 
   const [models, setModels] = useState<CustomModelRecord[]>([]);
   const [routings, setRoutings] = useState<RoleRouting[]>([]);
+  const [providers, setProviders] = useState<ProviderConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [reload, setReload] = useState(0);
@@ -101,6 +104,12 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
   const [roleChoice, setRoleChoice] = useState<Record<string, string>>({});
   const [assigned, setAssigned] = useState<string | null>(null);
   const [assigning, setAssigning] = useState<Role | null>(null);
+
+  // Model discovery from a configured provider (`providers.check_models`).
+  const [fetchProvider, setFetchProvider] = useState<string>('');
+  const [fetching, setFetching] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [fetchedModels, setFetchedModels] = useState<ModelInfo[] | null>(null);
 
   const label = useCallback((key: string, values?: MessageValues) => t(key, values ?? {}, locale), [locale]);
 
@@ -116,6 +125,7 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
     const load = async () => {
       let catalog: CustomModelRecord[] | null = null;
       let routingRows: RoleRouting[] = [];
+      let providerList: ProviderConfig[] = [];
       try {
         catalog = await client.listCustomModels();
       } catch {
@@ -128,6 +138,11 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
         // current-model line rather than inventing one (§7).
         routingRows = [];
       }
+      try {
+        providerList = await client.listProviders();
+      } catch {
+        providerList = [];
+      }
       if (cancelled) return;
       if (catalog === null) {
         setFailed(true);
@@ -137,6 +152,7 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
         setModels(catalog);
       }
       setRoutings(routingRows);
+      setProviders(providerList);
       setLoading(false);
     };
 
@@ -145,6 +161,25 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
       cancelled = true;
     };
   }, [client, reload]);
+
+  const fetchFromProvider = async () => {
+    const targetProvider = fetchProvider.trim() || draft.provider.trim();
+    if (targetProvider === '') return;
+    setFetching(true);
+    setFetchError(null);
+    try {
+      const diff = await client.checkProviderModels(targetProvider);
+      setFetchedModels(diff.updated_catalog);
+      if (draft.provider.trim() === '') {
+        setDraft((prev) => ({ ...prev, provider: targetProvider }));
+      }
+    } catch (error) {
+      setFetchError(error instanceof Error ? error.message : label('models.fetch_failed'));
+      setFetchedModels(null);
+    } finally {
+      setFetching(false);
+    }
+  };
 
   const addModel = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -316,6 +351,142 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
       {showAdd && (
         <Panel title={label('models.add_title')} label={label('models.add_title')}>
           <form onSubmit={addModel} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' }}>
+            {/* Provider discovery: pick from listProviders, fetch models, click to fill fields */}
+            <Box
+              dir={dir}
+              data-testid="models-fetch-box"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--warsha-space-2)',
+                padding: 'var(--warsha-space-3)',
+                backgroundColor: 'var(--warsha-bench-plate)',
+                border: 'var(--warsha-line-rule)',
+                borderRadius: 'var(--warsha-radius-sm)',
+                marginBlockEnd: 'var(--warsha-space-2)',
+              }}
+            >
+              <Text size="xs" weight="medium" dir={dir}>
+                {label('models.fetch_title')}
+              </Text>
+
+              <Box
+                dir={dir}
+                style={{
+                  display: 'flex',
+                  gap: 'var(--warsha-space-2)',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <select
+                  id="models-provider-picker"
+                  aria-label={label('models.provider')}
+                  data-testid="models-provider-picker"
+                  dir="ltr"
+                  value={fetchProvider}
+                  onChange={(event) => {
+                    const picked = event.target.value;
+                    setFetchProvider(picked);
+                    if (picked) {
+                      setDraft((prev) => ({ ...prev, provider: picked }));
+                    }
+                  }}
+                  style={{
+                    fontFamily: 'var(--warsha-font-mono)',
+                    flex: '1',
+                    minInlineSize: 'var(--warsha-size-field-min)',
+                  }}
+                >
+                  <option value="">{label('models.select_provider')}</option>
+                  {providers.map((p) => (
+                    <option key={p.name} value={p.name}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  dir={dir}
+                  disabled={fetching || (fetchProvider.trim() === '' && draft.provider.trim() === '')}
+                  data-testid="models-fetch-button"
+                  onClick={() => void fetchFromProvider()}
+                >
+                  {fetching ? label('models.fetching') : label('models.fetch')}
+                </Button>
+              </Box>
+
+              {fetchError && (
+                <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-error)' }}>
+                  {fetchError}
+                </Text>
+              )}
+
+              {fetchedModels !== null && (
+                <Box
+                  dir={dir}
+                  data-testid="models-fetched-list"
+                  style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-1)' }}
+                >
+                  {fetchedModels.length === 0 ? (
+                    <Text size="xs" dir={dir}>
+                      {label('models.fetch_none')}
+                    </Text>
+                  ) : (
+                    <>
+                      <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
+                        {label('models.fetch_pick')}
+                      </Text>
+                      <Box dir={dir} style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--warsha-space-1)' }}>
+                        {fetchedModels.map((model) => (
+                          <Button
+                            key={model.id}
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            dir={dir}
+                            data-testid={`models-fetch-choice-${model.id}`}
+                            onClick={() => {
+                              const activeProvider = fetchProvider.trim() || draft.provider.trim();
+                              setDraft({
+                                ...draft,
+                                provider: activeProvider,
+                                modelId: model.id,
+                                displayName:
+                                  model.name && model.name !== model.id
+                                    ? model.name
+                                    : draft.displayName || model.name,
+                                contextWindow:
+                                  model.context_window > 0
+                                    ? String(model.context_window)
+                                    : draft.contextWindow,
+                              });
+                            }}
+                          >
+                            <span
+                              dir="ltr"
+                              translate="no"
+                              style={{ fontFamily: 'var(--warsha-font-mono)' }}
+                            >
+                              {model.id}
+                            </span>
+                            {model.name && model.name !== model.id ? (
+                              <span style={{ marginInlineStart: 'var(--warsha-space-1)', opacity: 0.8 }}>
+                                {`(${model.name})`}
+                              </span>
+                            ) : null}
+                          </Button>
+                        ))}
+                      </Box>
+                    </>
+                  )}
+                </Box>
+              )}
+            </Box>
+
             <Field id="models-add-provider" label={label('models.provider')} required>
               <input
                 {...fieldControl('models-add-provider')}

@@ -27,6 +27,30 @@ function clientStub(overrides: Partial<WarshaClient> = {}): WarshaClient {
   }));
   client.testProvider = vi.fn(async () => undefined);
   client.removeProvider = vi.fn(async () => undefined);
+  client.addCustomModel = vi.fn(async (provider: string, modelId: string, displayName?: string) => ({
+    provider,
+    modelId,
+    displayName: displayName ?? null,
+    contextWindow: null,
+    enabled: true,
+  }));
+  client.setRoleConfig = vi.fn(async () => undefined);
+  client.checkProviderModels = vi.fn(async () => ({
+    provider: 'openai-main',
+    new_models: [],
+    retained_count: 0,
+    total_count: 1,
+    updated_catalog: [
+      {
+        id: 'gpt-4o-mini',
+        name: 'Mini 4o',
+        provider: 'openai-main',
+        context_window: 128000,
+        max_output: 16384,
+        pricing: { input_per_million_cents: 15, output_per_million_cents: 60 },
+      },
+    ],
+  }));
   return Object.assign(client, overrides);
 }
 
@@ -76,6 +100,22 @@ describe('ProvidersSettings', () => {
       expect(within(ledger).getAllByText(ar('providers.health.ok')).length).toBeGreaterThan(0)
     );
     expect(client.testProvider).toHaveBeenCalledWith('openai-main');
+  });
+
+  it('fetches the provider’s models and adds the chosen one to the catalog', async () => {
+    const client = clientStub();
+    renderScreen(client);
+
+    fireEvent.click(await screen.findByTestId('provider-fetch-models-openai-main'));
+    await waitFor(() => expect(client.checkProviderModels).toHaveBeenCalledWith('openai-main'));
+    fireEvent.click(await screen.findByTestId('provider-add-model-openai-main-gpt-4o-mini'));
+
+    await waitFor(() =>
+      expect(client.addCustomModel).toHaveBeenCalledWith('openai-main', 'gpt-4o-mini', 'Mini 4o')
+    );
+    expect(
+      await screen.findByText(t('providers.models_added', { name: 'gpt-4o-mini' }, 'ar'))
+    ).toBeInTheDocument();
   });
 
   it('names a refused key, says what to do about it, and lights only then', async () => {

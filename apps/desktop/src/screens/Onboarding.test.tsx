@@ -8,9 +8,12 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import '@testing-library/jest-dom';
 import {
   createClient,
+  type CustomModelRecord,
+  type ModelCatalogDiff,
   type ProjectId,
   type ProjectSummary,
   type ProviderConfig,
+  type RoleRoutingConfig,
   type WarshaClient,
 } from '@warsha/client';
 import { LocaleProvider, t } from '@warsha/i18n';
@@ -42,6 +45,9 @@ interface FakeDaemon {
   providersFail?: boolean;
   addProvider?: (config: AddProviderConfig) => Promise<ProviderConfig>;
   testProvider?: (name: string) => Promise<void>;
+  addCustomModel?: (provider: string, modelId: string) => Promise<CustomModelRecord>;
+  checkProviderModels?: (name: string) => Promise<ModelCatalogDiff>;
+  setRoleConfig?: (config: RoleRoutingConfig) => Promise<void>;
   createProject?: (name: string) => Promise<ProjectSummary>;
 }
 
@@ -54,6 +60,25 @@ function fakeClient(daemon: FakeDaemon): WarshaClient {
   };
   client.addProvider = daemon.addProvider ?? (async () => router);
   client.testProvider = daemon.testProvider ?? (async () => undefined);
+  client.addCustomModel =
+    daemon.addCustomModel ??
+    (async (provider: string, modelId: string) => ({
+      provider,
+      modelId,
+      displayName: null,
+      contextWindow: null,
+      enabled: true,
+    }));
+  client.setRoleConfig = daemon.setRoleConfig ?? (async () => undefined);
+  client.checkProviderModels =
+    daemon.checkProviderModels ??
+    (async (name: string) => ({
+      provider: name,
+      new_models: [],
+      retained_count: 0,
+      total_count: 0,
+      updated_catalog: [],
+    }));
   client.createProject = daemon.createProject ?? (async () => project);
   return client;
 }
@@ -115,7 +140,7 @@ describe('provider step', () => {
     const first = await screen.findByTestId('onboarding-provider-warsha-router');
     expect(listProviders).toHaveBeenCalled();
     // The catalog names the kind; the name the daemon reported stays on the row.
-    expect(first).toHaveTextContent('OpenRouter');
+    expect(first).toHaveTextContent(t('onboarding.provider_kind.open_router', {}, 'ar'));
     expect(first).toHaveTextContent('warsha-router');
     expect(first).toHaveAttribute('aria-pressed', 'false');
     // A kind the catalog does not carry keeps the daemon's own name.
@@ -140,7 +165,7 @@ describe('provider step', () => {
     fireEvent.click(screen.getByTestId('onboarding-language-next'));
 
     expect(await screen.findByTestId('onboarding-provider-open_router')).toHaveTextContent(
-      'OpenRouter'
+      t('onboarding.provider_kind.open_router', {}, 'ar')
     );
     expect(screen.getByTestId('onboarding-provider-qwen')).toBeInTheDocument();
 
@@ -149,8 +174,9 @@ describe('provider step', () => {
       t('onboarding.provider_recommended', {}, 'ar')
     );
     expect(screen.getByText(t('onboarding.provider_hint.deep_seek', {}, 'ar'))).toBeInTheDocument();
-    // The one preset the wizard does not offer: it needs a base URL, which Settings → Providers owns.
-    expect(screen.queryByTestId('onboarding-provider-custom')).not.toBeInTheDocument();
+    // The custom endpoint is the sixth choice and is always offered: it is the way in for any
+    // OpenAI-compatible provider the daemon has no preset for.
+    expect(screen.getByTestId('onboarding-provider-custom')).toBeInTheDocument();
   });
 
   it('says the daemon did not answer rather than reporting an empty list', async () => {
@@ -214,6 +240,105 @@ describe('connect and test', () => {
     fireEvent.click(screen.getByTestId('onboarding-test-retry'));
     // The key the daemon has is not handed back to the screen.
     expect(screen.getByTestId('onboarding-key-input')).toHaveValue('');
+  });
+
+  it('registers a custom endpoint, its model and all twelve routes, then tests it', async () => {
+    const addProvider = vi.fn(async (_config: AddProviderConfig) => ({
+      name: '9router',
+      kind: 'custom',
+      enabled: true,
+      api_base: 'https://router.example/v1',
+    }));
+    const addCustomModel = vi.fn(async () => ({
+      provider: '9router',
+      modelId: 'deepseek-v4',
+      displayName: null,
+      contextWindow: null,
+      enabled: true,
+    }));
+    const setRoleConfig = vi.fn(async (_config: RoleRoutingConfig) => undefined);
+    const testProvider = vi.fn(async (_name: string) => undefined);
+
+    await renderWizard(
+      fakeClient({ providers: [], addProvider, testProvider, addCustomModel, setRoleConfig })
+    );
+    fireEvent.click(screen.getByTestId('onboarding-language-next'));
+    fireEvent.click(await screen.findByTestId('onboarding-provider-custom'));
+    fireEvent.click(screen.getByTestId('onboarding-provider-next'));
+    await screen.findByTestId('onboarding-key');
+
+    fireEvent.change(screen.getByTestId('onboarding-custom-name'), {
+      target: { value: '9router' },
+    });
+    fireEvent.change(screen.getByTestId('onboarding-custom-base'), {
+      target: { value: 'https://router.example/v1' },
+    });
+    fireEvent.change(screen.getByTestId('onboarding-custom-model'), {
+      target: { value: 'deepseek-v4' },
+    });
+    fireEvent.change(screen.getByTestId('onboarding-key-input'), {
+      target: { value: ACCEPTED_KEY },
+    });
+    fireEvent.click(screen.getByTestId('onboarding-connect'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('onboarding-test')).toHaveAttribute('data-status', 'passed')
+    );
+    expect(addProvider.mock.calls[0][0]).toEqual({
+      name: '9router',
+      kind: 'custom',
+      key: ACCEPTED_KEY,
+      api_base: 'https://router.example/v1',
+    });
+    expect(addCustomModel.mock.calls[0]).toEqual(['9router', 'deepseek-v4']);
+    expect(setRoleConfig).toHaveBeenCalledTimes(12);
+    expect(testProvider.mock.calls[0][0]).toBe('9router');
+  });
+
+  it('fetches the custom provider’s live models and picks one', async () => {
+    const addProvider = vi.fn(async () => ({
+      name: '9router',
+      kind: 'custom',
+      enabled: true,
+      api_base: 'https://router.example/v1',
+    }));
+    const checkProviderModels = vi.fn(async () => ({
+      provider: '9router',
+      new_models: [],
+      retained_count: 0,
+      total_count: 1,
+      updated_catalog: [
+        {
+          id: 'deepseek-v4',
+          name: 'DeepSeek V4',
+          provider: '9router',
+          context_window: 128000,
+          max_output: 8192,
+          pricing: { input_per_million_cents: 0, output_per_million_cents: 0 },
+        },
+      ],
+    }));
+
+    await renderWizard(fakeClient({ providers: [], addProvider, checkProviderModels }));
+    fireEvent.click(screen.getByTestId('onboarding-language-next'));
+    fireEvent.click(await screen.findByTestId('onboarding-provider-custom'));
+    fireEvent.click(screen.getByTestId('onboarding-provider-next'));
+    await screen.findByTestId('onboarding-key');
+
+    fireEvent.change(screen.getByTestId('onboarding-custom-name'), {
+      target: { value: '9router' },
+    });
+    fireEvent.change(screen.getByTestId('onboarding-custom-base'), {
+      target: { value: 'https://router.example/v1' },
+    });
+    fireEvent.change(screen.getByTestId('onboarding-key-input'), {
+      target: { value: ACCEPTED_KEY },
+    });
+    fireEvent.click(screen.getByTestId('onboarding-custom-fetch-button'));
+
+    await waitFor(() => expect(checkProviderModels).toHaveBeenCalledWith('9router'));
+    fireEvent.click(await screen.findByTestId('onboarding-custom-discovery-deepseek-v4'));
+    expect(screen.getByTestId('onboarding-custom-model')).toHaveValue('deepseek-v4');
   });
 });
 

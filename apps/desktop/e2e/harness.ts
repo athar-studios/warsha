@@ -148,6 +148,7 @@ export const RPC_METHODS = [
   'projects.get',
   'projects.list',
   'providers.add',
+  'providers.check_models',
   'providers.list',
   'providers.remove',
   'providers.test',
@@ -1432,6 +1433,22 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
         return { ok: false, code: -32001, message: `provider ${name} refused the API key` };
       }
       return { ok: true, result: null };
+    }
+    case 'providers.check_models': {
+      // `warsha_providers::ModelCatalogDiff` with an empty local catalog: no new rows to reconcile
+      // against, so the merged catalog is whatever the provider reported — and this stub reports
+      // nothing, because a visual case must not depend on a provider's live list.
+      const name = paramValue(params, 'name');
+      return {
+        ok: true,
+        result: {
+          provider: name ?? '',
+          new_models: [],
+          retained_count: 0,
+          total_count: 0,
+          updated_catalog: [],
+        },
+      };
     }
     case 'providers.remove':
     case 'budget.set':
