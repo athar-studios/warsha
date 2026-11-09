@@ -234,6 +234,8 @@ impl FilesystemToolExecutor {
     /// On installs a fresh enforcing [`ReadBeforeWriteGuard`]; off removes it, so
     /// writes need no prior read again. The guard is shared by every clone of this
     /// executor, so a read through one clone unlocks a write through another.
+    /// Creating a file that does not exist is always allowed: only overwriting an
+    /// existing, unread file is refused.
     pub fn with_read_before_write(mut self, enforce: bool) -> Self {
         self.read_guard = if enforce {
             Some(Arc::new(Mutex::new(ReadBeforeWriteGuard::new(true))))
@@ -271,30 +273,41 @@ impl FilesystemToolExecutor {
         Ok(self.working_dir.join(candidate))
     }
 
-    /// The shared key both guard calls use for `path`: the resolved absolute path
-    /// with `.` components normalised away, so `notes.md` and `./notes.md` name the
-    /// same file. An invalid path carries the same refusal the read/write itself
-    /// would report.
-    fn guard_key(&self, path: &str) -> Result<String, String> {
+    /// The resolved absolute path with `.` components normalised away, so
+    /// `notes.md` and `./notes.md` name the same file. An invalid path carries the
+    /// same refusal the read/write itself would report.
+    fn resolved_guard_path(&self, path: &str) -> Result<PathBuf, String> {
         self.resolve(path)
-            .map(|resolved| {
-                let normalized: PathBuf = resolved.components().collect();
-                normalized.display().to_string()
-            })
+            .map(|resolved| resolved.components().collect())
             .map_err(|error| error.to_string())
+    }
+
+    /// The shared key both guard calls use for `path`, derived from
+    /// [`Self::resolved_guard_path`] so the guard and the existence check agree.
+    fn guard_key(&self, path: &str) -> Result<String, String> {
+        self.resolved_guard_path(path)
+            .map(|normalized| normalized.display().to_string())
     }
 
     /// Whether a write to `path` is allowed. No guard means always allowed; a
     /// poisoned mutex is a refusal, never a panic.
+    ///
+    /// A genuine create is always allowed: a file that does not exist can never
+    /// have been read. The existence check runs on the same resolved path the
+    /// guard keys on, so `./notes.md` and `notes.md` agree. A file that does
+    /// exist still needs a prior read.
     fn write_allowed(&self, path: &str) -> Result<bool, String> {
         let Some(guard) = &self.read_guard else {
             return Ok(true);
         };
-        let key = self.guard_key(path)?;
+        let resolved = self.resolved_guard_path(path)?;
         let guard = guard
             .lock()
             .map_err(|_| "the read-before-write guard is poisoned".to_string())?;
-        Ok(guard.may_write(&key))
+        if !resolved.exists() {
+            return Ok(true);
+        }
+        Ok(guard.may_write(&resolved.display().to_string()))
     }
 
     /// Record a successful read of `path` with the guard, if one is installed. A
@@ -733,6 +746,7 @@ mod tests {
     #[test]
     fn an_enforced_executor_refuses_an_unread_write_and_writes_nothing() {
         let temp = fresh_tempdir();
+        std::fs::write(temp.path().join("notes.md"), "original").expect("the file is written");
         let executor = executor(temp.path()).with_read_before_write(true);
 
         let result = executor.execute(&AgentTool::WriteFile {
@@ -746,9 +760,79 @@ mod tests {
             "unexpected output: {}",
             result.output
         );
+        assert_eq!(
+            std::fs::read_to_string(temp.path().join("notes.md")).expect("the file is readable"),
+            "original",
+            "the unread write clobbered the file"
+        );
+    }
+
+    #[test]
+    fn an_enforced_executor_creates_a_missing_file_without_a_prior_read() {
+        let temp = fresh_tempdir();
+        let executor = executor(temp.path()).with_read_before_write(true);
+
+        let result = executor.execute(&AgentTool::WriteFile {
+            path: "notes.md".to_string(),
+            content: "a genuine create".to_string(),
+        });
+
+        assert!(result.success, "the create was refused: {result:?}");
+        assert_eq!(
+            std::fs::read_to_string(temp.path().join("notes.md")).expect("the file is readable"),
+            "a genuine create"
+        );
+
+        // The dotted form resolves to the same missing file: still a create.
+        let dotted = executor.execute(&AgentTool::WriteFile {
+            path: "./drafts/./plan.md".to_string(),
+            content: "nested create".to_string(),
+        });
+        assert!(dotted.success, "the dotted create was refused: {dotted:?}");
+        assert_eq!(
+            std::fs::read_to_string(temp.path().join("drafts/plan.md"))
+                .expect("the file is readable"),
+            "nested create"
+        );
+    }
+
+    #[test]
+    fn an_enforced_executor_refuses_an_unread_overwrite_via_the_dotted_path() {
+        let temp = fresh_tempdir();
+        std::fs::write(temp.path().join("notes.md"), "original").expect("the file is written");
+        let executor = executor(temp.path()).with_read_before_write(true);
+
+        // The file exists; the dotted spelling must not read as a create.
+        let result = executor.execute(&AgentTool::WriteFile {
+            path: "./notes.md".to_string(),
+            content: "should not land".to_string(),
+        });
+
         assert!(
-            !temp.path().join("notes.md").exists(),
-            "the unread write created the file"
+            !result.success,
+            "the dotted overwrite was allowed: {result:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(temp.path().join("notes.md")).expect("the file is readable"),
+            "original"
+        );
+    }
+
+    #[test]
+    fn a_disabled_executor_overwrites_an_unread_file() {
+        let temp = fresh_tempdir();
+        std::fs::write(temp.path().join("notes.md"), "original").expect("the file is written");
+        let executor = executor(temp.path()).with_read_before_write(false);
+
+        let result = executor.execute(&AgentTool::WriteFile {
+            path: "notes.md".to_string(),
+            content: "replaced without a read".to_string(),
+        });
+
+        assert!(result.success, "unexpected result: {result:?}");
+        assert_eq!(
+            std::fs::read_to_string(temp.path().join("notes.md")).expect("the file is readable"),
+            "replaced without a read"
         );
     }
 
