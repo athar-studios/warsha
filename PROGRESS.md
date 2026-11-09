@@ -16,7 +16,7 @@ two read-only Haiku audits; every high-severity claim re-checked in the file. No
 - **Palette**: primary = the logo yellow `#FFD400` (owner, U-D9) with dark ink, dark gold `#7A5C00` for links/indicators on light, orange for "waiting on you"; 50 contrast pairs, 0 failures (`tools/contrast.mjs`); the preview's CSS passes `--check-css`.
 - **Gate tools** (evidence dir, planner-owned): `actions-gate.mjs` self-test 12/12, `i18n-gate.mjs` 8/8, `pw-gate.mjs`
   7/7, `planner-simplicity.spec.ts`, `versions.mjs`; the dependency gate regex was tested both ways on sample diffs.
-- **Run** `2026-11-09-ui-v3`: 13 packets, 151 frozen gates, 6 fenced refreshes; supersedes the Phase B run (recorded
+- **Run** `2026-11-09-ui-v3`: 13 packets, 154 frozen gates, 6 fenced refreshes; supersedes the Phase B run (recorded
   `blocked`/superseded at seq 3). OD-U0 (approve the spec) is a hard stop before Qoder starts.
 
 ## Run 2026-11-09 — Phase B planned (planner only; nothing implemented) — superseded the same day by UI v3

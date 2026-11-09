@@ -1493,3 +1493,17 @@ reference `docs/designs/v3-preview.html`; run evidence `bridge-io/policy/2026-11
   DecisionCard); `UI_V3_PLAN.md` §3.0, §3.2; the preview; the run's PACKETS/EXECUTIVE_SUMMARY.
 - *Alternative rejected*: yellow for selection and indicators as well — it fails contrast on the light theme and repeats
   the v2 problem of every selected thing looking like the action.
+
+## 2026-11-09 — UI v3 run: three audit findings that had no packet now do (planner)
+
+- **U-D10.** A cross-check of every finding of the day against the packets found three without an owner; each now has
+  a step and a frozen gate (negative-controlled on `e3c1387`: each gate detects today's defect):
+  - `BOOTSTRAP_ADMIN_TOKEN` is printed through `tracing::info!` behind `WARSHA_PRINT_BOOTSTRAP_TOKEN=1`
+    (`crates/warshad/src/lib.rs:5884`), so it can reach a log file. **R1 step 6 / gate R1.10**: keep the opt-in, write
+    to stderr directly, test that tracing never sees the token.
+  - `docs/DAEMON.md:166-174` says the model has no `gate_a`/`gate_b` stage and that `providers.list` returns an empty
+    vector; both are false at `c1bcf4f`. **V1 step 8 / gate V1.11**: list the 14 stages, describe the real handlers.
+  - A failing `listRuns` at startup sends an onboarded owner to onboarding (`apps/desktop/src/App.tsx:224`, `:396-399`).
+    **U2 step 8 / gate U2.11**: `app/startup.ts` routes to onboarding only when onboarding is not complete.
+- The run now has **154** frozen gates. `QODER_PROMPT.md` in the evidence directory is the single copy-paste prompt:
+  the improvements, all 37 findings with the packet and gate that close each, and a pointer to `HANDOVER.md`.

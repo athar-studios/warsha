@@ -589,7 +589,7 @@ shape drift (`postlaunch.*`, `backend.export`, `handoff.*`).
 
 ## Run 2026-11-09 — UI v3: new design system «حِرفة», every page rebuilt, every control wired — PLANNED, awaiting OD-U0
 
-Run id `2026-11-09-ui-v3`, evidence `bridge-io/policy/2026-11-09-ui-v3/` (`state.json` seq 2, 151 frozen gates,
+Run id `2026-11-09-ui-v3`, evidence `bridge-io/policy/2026-11-09-ui-v3/` (`state.json` seq 2, 154 frozen gates,
 `HANDOVER.md` = the Qoder prompt, `PACKETS.md`, `OWNER_DECISIONS.md`). Spec: `docs/designs/DESIGN_SYSTEM_V3.md`,
 `docs/designs/UI_V3_PLAN.md`, visual reference `docs/designs/v3-preview.html`. Integration branch
 `run/2026-11-09-ui-v3/integration`; worktrees `C:/Users/Dragonfly/Downloads/warsha-wt/v3/<p>`. v3 is built beside v2
