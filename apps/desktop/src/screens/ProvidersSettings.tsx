@@ -604,19 +604,33 @@ export function ProvidersSettings({ client, onBack, project }: ProvidersSettings
                     <Text size="xs" dir={dir}>
                       {kindWord(provider.kind)}
                     </Text>
-                    <span
-                      dir="ltr"
-                      translate="no"
-                      style={{
-                        fontFamily: 'var(--warsha-font-mono)',
-                        fontVariantNumeric: 'tabular-nums',
-                        unicodeBidi: 'isolate',
-                        fontSize: 'var(--warsha-font-size-xs)',
-                        color: 'var(--warsha-color-text)',
-                      }}
-                    >
-                      {provider.api_base ?? label('providers.endpoint.default')}
-                    </span>
+                    {provider.api_base ? (
+                      <span
+                        dir="ltr"
+                        translate="no"
+                        style={{
+                          fontFamily: 'var(--warsha-font-mono)',
+                          fontVariantNumeric: 'tabular-nums',
+                          unicodeBidi: 'isolate',
+                          fontSize: 'var(--warsha-font-size-xs)',
+                          color: 'var(--warsha-color-text)',
+                        }}
+                      >
+                        {provider.api_base}
+                      </span>
+                    ) : (
+                      <span
+                        dir={dir}
+                        translate="yes"
+                        style={{
+                          fontFamily: 'var(--warsha-font-sans)',
+                          fontSize: 'var(--warsha-font-size-xs)',
+                          color: 'var(--warsha-color-text)',
+                        }}
+                      >
+                        {label('providers.endpoint.default')}
+                      </span>
+                    )}
                   </Box>
 
                   {state.detail && (

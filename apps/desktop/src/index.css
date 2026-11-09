@@ -462,6 +462,11 @@ html {
   .bench-rail > * {
     flex: 0 0 min(var(--warsha-size-strip-item), 70vw);
   }
+
+  .providers-settings .warsha-ledger-row {
+    flex-direction: column;
+    row-gap: var(--warsha-space-1);
+  }
 }
 
 /* 768 — two columns where a rail exists; the rail is 224px and the bar stops wrapping. */
