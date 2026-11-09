@@ -58,8 +58,8 @@ android {
         applicationId "dev.warsha.remote"
         minSdk 24
         targetSdk 35
-        versionCode 1
-        versionName "0.1.0"
+        versionCode 201
+        versionName "0.2.1"
     }
 
     signingConfigs {
@@ -121,20 +121,18 @@ def syncRemoteWebAssets = tasks.register("syncRemoteWebAssets", Sync) {
     group = "warsha"
 
     doFirst {
-        if (!remoteDistDir.isDirectory() || !new File(remoteDistDir, "index.html").isFile()) {
-            logger.lifecycle("apps/remote/dist is missing — building it with pnpm…")
-            def repoRoot = remoteDistDir.parentFile.parentFile.parentFile
-            def pnpm = org.gradle.internal.os.OperatingSystem.current().isWindows()
-                    ? ["cmd", "/c", "pnpm"] : ["pnpm"]
-            exec {
-                workingDir repoRoot
-                commandLine pnpm + ["--filter", "warsha-remote", "build"]
-            }
-            if (!new File(remoteDistDir, "index.html").isFile()) {
-                throw new GradleException(
-                        "apps/remote/dist/index.html still missing after build. " +
-                        "Run `pnpm --filter warsha-remote build` manually.")
-            }
+        logger.lifecycle("Building apps/remote with pnpm before sync…")
+        def repoRoot = remoteDistDir.parentFile.parentFile.parentFile
+        def pnpm = org.gradle.internal.os.OperatingSystem.current().isWindows()
+                ? ["cmd", "/c", "pnpm"] : ["pnpm"]
+        exec {
+            workingDir repoRoot
+            commandLine pnpm + ["--filter", "warsha-remote", "build"]
+        }
+        if (!new File(remoteDistDir, "index.html").isFile()) {
+            throw new GradleException(
+                    "apps/remote/dist/index.html missing after build. " +
+                    "Run `pnpm --filter warsha-remote build` manually.")
         }
     }
 

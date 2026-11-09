@@ -164,14 +164,13 @@ Not yet in the router (only `/health` is registered, `:500`). The contract to be
 | `devices.revoke` | `device_id: DeviceId` | `null` |
 
 Parameter serialization: `ProjectId`, `RunId` and `DeviceId` are newtypes over `Uuid`/`Ulid` and serialize
-as plain strings (hyphenated UUID, Crockford ULID). `Stage` serializes as `snake_case`
-(`idea`, `research`, `prd_spec`, `design`, `plan_tasks`, `code`, `review_qa_security`, `gate_c`, `release`,
-`gate_d`, `launch_drafts`, `feedback`) — note the model has **no `gate_a`/`gate_b` stage**; the mandatory
-gates that exist as stages today are `GateC` and `GateD` only.
+as plain strings (hyphenated UUID, Crockford ULID). `Stage` serializes as `snake_case` across all 14 stages
+defined in `crates/warsha-core/src/lib.rs:74-89`:
+`idea`, `gate_a`, `research`, `prd_spec`, `gate_b`, `design`, `plan_tasks`, `code`, `review_qa_security`, `gate_c`, `release`, `gate_d`, `launch_drafts`, `feedback`.
 
-Implementation status inside the server is uneven and worth knowing before relying on it:
-`projects.*`, `runs.*` and `gates.*` hit the store/pipeline for real; `providers.list` returns an empty
-vector and `providers.add` / `providers.test` return success without touching any provider (`:365-380`).
+Implementation status inside the server:
+`projects.*`, `runs.*` and `gates.*` hit the store and pipeline for real.
+`providers.*` are fully wired: `providers.list` queries configured providers from the settings store (`load_providers()`); `providers.add` validates kind/URL/key, stores the API key in the OS keychain via the secret store, persists configuration to the database (`save_provider`), and registers a deferred adapter in the router; `providers.test` resolves the test model, validates keychain credentials, and actively probes endpoint health (`probe_endpoint`); and `providers.remove` purges keychain secrets, removes settings, and registers a refusal adapter in the router.
 
 ---
 

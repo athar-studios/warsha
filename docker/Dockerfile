@@ -3,7 +3,7 @@
 # docker/Dockerfile — multi-stage production image for the Warsha daemon.
 #
 # Build from the REPOSITORY ROOT (the whole workspace is the build context):
-#   docker build -f docker/Dockerfile -t warsha/warshad:0.1.0 .
+#   docker build -f docker/Dockerfile -t warsha/warshad:0.2.1 .
 #
 # Stages:
 #   1. web-assets   — builds the apps/remote PWA static bundle with pnpm.
@@ -19,6 +19,7 @@
 # key is only ever passed through the process environment. See docs/DEPLOY.md.
 
 # Pinned for reproducibility; must be >= 1.89 because uuid@1.29.0 requires rustc >= 1.89.0.
+ARG WARSHA_VERSION=0.2.1
 ARG RUST_IMAGE=rust:1-bookworm
 ARG NODE_IMAGE=node:22-bookworm-slim
 ARG RUNTIME_IMAGE=debian:bookworm-slim
@@ -78,6 +79,9 @@ RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
 # Stage 3: runtime — minimal Debian, non-root, read-only friendly.
 # --------------------------------------------------------------------------
 FROM ${RUNTIME_IMAGE} AS runtime
+
+ARG WARSHA_VERSION
+LABEL org.opencontainers.image.version=$WARSHA_VERSION
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

@@ -51,8 +51,8 @@ JAVA_HOME="<Android Studio JBR>" ANDROID_HOME="<SDK>" \
 ```
 
 `syncRemoteWebAssets` (runs before `preBuild`) copies `apps/remote/dist` into
-`app/src/main/assets/public/` (gitignored; rebuilt on every assemble) and
-builds `apps/remote` with pnpm first if `dist/` is missing. The WebView loads
+`app/src/main/assets/public/` (gitignored; rebuilt on every assemble) and always
+builds `apps/remote` with pnpm before syncing. The WebView loads
 `file:///android_asset/public/index.html`.
 
 Verify a built APK:
@@ -69,9 +69,9 @@ Verify a built APK:
 - `minSdk 24` — Android Keystore AES-256-GCM requires API ≥ 23; we target 24+
   for WebView security-patch coverage.
 
-## Release artifact
+## Release artifact (v0.2.0 dated record)
 
-Built and signed locally for run `2026-11-08-design-and-remediation` (packet W7).
+Built and signed locally for run `2026-11-08-design-and-remediation` (packet W7, v0.2.0 dated record).
 The APK is **not** committed (it is gitignored build output); only its facts are
 recorded here. Signing used the owner-scoped release material in `~/.warsha/signing/`
 (RSA-4096, APK Signature Scheme v2). No signing secret is stored in the repository
@@ -83,7 +83,6 @@ or in this file.
   copy is the artifact `docs/VERIFY.md` and `docs/INSTALL.md` reference, while
   `app-release.apk` is the path the W7 release gates verify.
 - File size: **842,981 bytes**
-- Build date (UTC): **2026-11-08T07:56:11Z**
 - Base commit: `0772d502002562505c6438ae712abca7a7328d84` (`run/2026-11-08/integration`)
 
 SHA-256 (`app-release.apk`; identical for `warsha-remote-release.apk`):
@@ -121,6 +120,6 @@ JAVA_HOME="<Android Studio JBR>" ANDROID_HOME="<SDK>" \
 APK=apps/mobile/android/app/build/outputs/apk/release/app-release.apk
 "$ANDROID_HOME/build-tools/36.0.0/apksigner.bat" verify --verbose --print-certs "$APK"
 unzip -l "$APK" | grep -E 'assets/public/(index\.html|sw\.js)$'   # → 2 entries
-stat -c %s "$APK"                                                 # → 840513
+stat -c %s "$APK"                                                 # → 842981
 sha256sum "$APK"                                                  # → hash above
 ```
