@@ -2080,7 +2080,7 @@ impl WarshaRpc {
     /// a secret on the wire the browser reads.
     async fn integration_status_of(&self, id: &str) -> RpcResult<IntegrationStatus> {
         let row = self.stored_integration(id).await?;
-        Ok(wave2::integration_status(
+        wave2::integration_status(
             &row,
             self.state
                 .secrets
@@ -2092,7 +2092,8 @@ impl WarshaRpc {
                 .load(&wave2::integration_bot_secret_account(&row.id))
                 .await
                 .is_ok(),
-        ))
+        )
+        .map_err(rpc_error)
     }
 
     /// Every integration the daemon has been connected, by name.
@@ -2105,19 +2106,22 @@ impl WarshaRpc {
             .map_err(rpc_error)?;
         let mut statuses = Vec::with_capacity(rows.len());
         for row in &rows {
-            statuses.push(wave2::integration_status(
-                row,
-                self.state
-                    .secrets
-                    .load(&wave2::integration_secret_account(&row.id))
-                    .await
-                    .is_ok(),
-                self.state
-                    .secrets
-                    .load(&wave2::integration_bot_secret_account(&row.id))
-                    .await
-                    .is_ok(),
-            ));
+            statuses.push(
+                wave2::integration_status(
+                    row,
+                    self.state
+                        .secrets
+                        .load(&wave2::integration_secret_account(&row.id))
+                        .await
+                        .is_ok(),
+                    self.state
+                        .secrets
+                        .load(&wave2::integration_bot_secret_account(&row.id))
+                        .await
+                        .is_ok(),
+                )
+                .map_err(rpc_error)?,
+            );
         }
         Ok(statuses)
     }
@@ -2828,11 +2832,13 @@ impl WarshaApiServer for WarshaRpc {
         {
             let mut pairings = self.state.pairings.write().await;
             if pairings.get(&pairing_data.device_id.to_string()).is_none() {
-                let _ = pairings.create(
-                    &pairing_data.device_id.to_string(),
-                    &pairing_data.secret_token(),
-                    now_epoch_secs(),
-                );
+                pairings
+                    .create(
+                        &pairing_data.device_id.to_string(),
+                        &pairing_data.secret_token(),
+                        now_epoch_secs(),
+                    )
+                    .map_err(|e| rpc_error(e.to_string()))?;
             }
         }
         self.save_pairings().await?;
@@ -2910,7 +2916,9 @@ impl WarshaApiServer for WarshaRpc {
 
         {
             let mut pairings = self.state.pairings.write().await;
-            let _ = pairings.revoke(&device_id.to_string());
+            pairings
+                .revoke(&device_id.to_string())
+                .map_err(|e| rpc_error(e.to_string()))?;
         }
         self.save_pairings().await?;
         Ok(())
@@ -3945,8 +3953,7 @@ impl WarshaApiServer for WarshaRpc {
             .settings
             .get_active_harness(ACTIVE_HARNESS_GLOBAL_KEY)
             .await
-            .ok()
-            .flatten()
+            .map_err(rpc_error)?
             .unwrap_or_else(|| "autonomous-factory".to_string());
         let rows = self
             .state
@@ -3971,8 +3978,7 @@ impl WarshaApiServer for WarshaRpc {
             .settings
             .get_active_harness(ACTIVE_HARNESS_GLOBAL_KEY)
             .await
-            .ok()
-            .flatten()
+            .map_err(rpc_error)?
             .unwrap_or_else(|| "autonomous-factory".to_string());
         let mut def = wave2::harness_definition(&self.stored_harness(&id).await?);
         def.active = def.id == active_id;
@@ -3999,8 +4005,7 @@ impl WarshaApiServer for WarshaRpc {
             .settings
             .get_active_harness(ACTIVE_HARNESS_GLOBAL_KEY)
             .await
-            .ok()
-            .flatten()
+            .map_err(rpc_error)?
             .unwrap_or_else(|| "autonomous-factory".to_string());
         let mut def = wave2::harness_definition(&self.stored_harness(&row.id).await?);
         def.active = def.id == active_id;
@@ -4063,8 +4068,7 @@ impl WarshaApiServer for WarshaRpc {
             .settings
             .get_active_harness(ACTIVE_HARNESS_GLOBAL_KEY)
             .await
-            .ok()
-            .flatten()
+            .map_err(rpc_error)?
             .as_deref()
             == Some(id.as_str())
         {
@@ -4085,7 +4089,11 @@ impl WarshaApiServer for WarshaRpc {
     async fn list_skills(&self, ext: &RpcExtensions) -> RpcResult<Vec<SkillDefinition>> {
         self.authorize(ext, "skills.list")?;
         let rows = self.state.settings.list_skills().await.map_err(rpc_error)?;
-        Ok(rows.iter().map(wave2::skill_definition).collect())
+        let mut skills = Vec::with_capacity(rows.len());
+        for row in &rows {
+            skills.push(wave2::skill_definition(row).map_err(rpc_error)?);
+        }
+        Ok(skills)
     }
 
     async fn import_skill(
@@ -4115,7 +4123,7 @@ impl WarshaApiServer for WarshaRpc {
                     row.id
                 ))
             })?;
-        Ok(wave2::skill_definition(&stored))
+        wave2::skill_definition(&stored).map_err(rpc_error)
     }
 
     /// Set one skill's flag to the value the caller named.
@@ -4150,7 +4158,7 @@ impl WarshaApiServer for WarshaRpc {
                     "the skill `{id}` vanished while it was being enabled"
                 ))
             })?;
-        Ok(wave2::skill_definition(&stored))
+        wave2::skill_definition(&stored).map_err(rpc_error)
     }
 
     async fn delete_skill(&self, ext: &RpcExtensions, id: String) -> RpcResult<()> {
@@ -4172,7 +4180,11 @@ impl WarshaApiServer for WarshaRpc {
             .list_plugins()
             .await
             .map_err(rpc_error)?;
-        Ok(rows.iter().map(wave2::plugin_definition).collect())
+        let mut plugins = Vec::with_capacity(rows.len());
+        for row in &rows {
+            plugins.push(wave2::plugin_definition(row).map_err(rpc_error)?);
+        }
+        Ok(plugins)
     }
 
     async fn install_plugin(
@@ -4207,7 +4219,7 @@ impl WarshaApiServer for WarshaRpc {
                     row.id
                 ))
             })?;
-        Ok(wave2::plugin_definition(&stored))
+        wave2::plugin_definition(&stored).map_err(rpc_error)
     }
 
     async fn toggle_plugin(
@@ -4226,7 +4238,7 @@ impl WarshaApiServer for WarshaRpc {
                 .map_err(rpc_error)?;
         }
         let updated = self.stored_plugin(&id).await?;
-        let def = wave2::plugin_definition(&updated);
+        let def = wave2::plugin_definition(&updated).map_err(rpc_error)?;
         // Sync with MCP manager (F2)
         if enabled {
             if let Some(cmd) = &def.command {
@@ -4236,11 +4248,24 @@ impl WarshaApiServer for WarshaRpc {
                         cmd,
                         def.args.clone(),
                     );
-                    let _ = self.state.mcp.connect(mcp_cfg).await;
+                    self.state
+                        .mcp
+                        .connect(mcp_cfg)
+                        .await
+                        .map_err(|e| rpc_error(e.to_string()))?;
                 }
             }
-        } else {
-            let _ = self.state.mcp.disconnect(&def.id).await;
+        } else if def
+            .command
+            .as_deref()
+            .map(|c| !c.trim().is_empty())
+            .unwrap_or(false)
+        {
+            self.state
+                .mcp
+                .disconnect(&def.id)
+                .await
+                .map_err(|e| rpc_error(e.to_string()))?;
         }
         Ok(def)
     }
@@ -4267,7 +4292,7 @@ impl WarshaApiServer for WarshaRpc {
             .await
             .map_err(rpc_error)?;
         let updated = self.stored_plugin(&id).await?;
-        let def = wave2::plugin_definition(&updated);
+        let def = wave2::plugin_definition(&updated).map_err(rpc_error)?;
         // Sync with MCP manager if enabled (F2)
         if def.enabled {
             if let Some(cmd) = &def.command {
@@ -4277,7 +4302,11 @@ impl WarshaApiServer for WarshaRpc {
                         cmd,
                         def.args.clone(),
                     );
-                    let _ = self.state.mcp.connect(mcp_cfg).await;
+                    self.state
+                        .mcp
+                        .connect(mcp_cfg)
+                        .await
+                        .map_err(|e| rpc_error(e.to_string()))?;
                 }
             }
         }
@@ -4289,7 +4318,8 @@ impl WarshaApiServer for WarshaRpc {
         let row = self.stored_plugin(&id).await?;
         // Keychain first, exactly as `providers.remove` does it: a row deleted while
         // its secrets stayed behind would be an address nothing could reach again.
-        for account in wave2::filed_secret_accounts(&wave2::plugin_definition(&row).env) {
+        let def = wave2::plugin_definition(&row).map_err(rpc_error)?;
+        for account in wave2::filed_secret_accounts(&def.env) {
             self.state.secrets.delete(&account).await.map_err(|error| {
                 rpc_error(format!(
                     "the secret `{account}` could not be removed from the OS keychain: {error}"
@@ -4529,14 +4559,10 @@ impl WarshaApiServer for WarshaRpc {
                 ))
             })?;
         }
-        let disconnected = wave2::integration_row(
-            &row.id,
-            &row.name,
-            false,
-            &wave2::integration_config(&row),
-            row.configured_at,
-        )
-        .map_err(rpc_error)?;
+        let config = wave2::integration_config(&row).map_err(rpc_error)?;
+        let disconnected =
+            wave2::integration_row(&row.id, &row.name, false, &config, row.configured_at)
+                .map_err(rpc_error)?;
         self.state
             .settings
             .save_integration(&disconnected, Some(&disconnected.config_json))
@@ -4561,7 +4587,7 @@ impl WarshaApiServer for WarshaRpc {
     ) -> RpcResult<IntegrationTestResult> {
         self.authorize(ext, "integrations.test")?;
         let row = self.stored_integration(&id).await?;
-        let config = wave2::integration_config(&row);
+        let config = wave2::integration_config(&row).map_err(rpc_error)?;
         let has_token = self
             .state
             .secrets
@@ -8894,6 +8920,45 @@ mod tests {
                 "the ceilings printed a limiter key: {printed}"
             );
         });
+    }
+
+    #[tokio::test]
+    async fn revoking_an_unknown_device_returns_an_rpc_error() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+        let unknown = DeviceId::new();
+        let err = rpc
+            .revoke_device(&owner, unknown)
+            .await
+            .expect_err("revoking an unknown device must fail with an RPC error");
+        assert_eq!(rpc_error_code(&err), -32000);
+    }
+
+    #[tokio::test]
+    async fn toggle_plugin_returns_an_rpc_error_when_mcp_connect_fails() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+        let manifest = r#"{
+            "name": "Bad MCP Plugin",
+            "transport": "stdio",
+            "command": "definitely_nonexistent_binary_xyz_12345",
+            "enabled": false
+        }"#;
+        let installed = rpc
+            .install_plugin(&owner, manifest.to_string())
+            .await
+            .expect("plugin installs cleanly in disabled state");
+        assert!(!installed.enabled);
+
+        let err = rpc
+            .toggle_plugin(&owner, installed.id, true)
+            .await
+            .expect_err("enabling plugin with nonexistent binary must fail with an RPC error");
+        assert_eq!(rpc_error_code(&err), -32000);
     }
 }
 

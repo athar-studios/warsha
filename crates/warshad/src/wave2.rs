@@ -308,10 +308,11 @@ pub fn skill_row(definition: &SkillDefinition) -> Checked<StoredSkill> {
 
 /// The definition behind a row.
 ///
-/// The one damaged column is `tags_json`, and tags are metadata: an unparseable
-/// list reads as no tags rather than as no skill.
-pub fn skill_definition(row: &StoredSkill) -> SkillDefinition {
-    SkillDefinition {
+/// Returns an error naming the row if `tags_json` cannot be parsed.
+pub fn skill_definition(row: &StoredSkill) -> Checked<SkillDefinition> {
+    let tags = serde_json::from_str(&row.tags_json)
+        .map_err(|e| format!("corrupt skill row `{}`: invalid tags_json: {e}", row.id))?;
+    Ok(SkillDefinition {
         id: row.id.clone(),
         name: row.name.clone(),
         description: row.description.clone(),
@@ -319,8 +320,8 @@ pub fn skill_definition(row: &StoredSkill) -> SkillDefinition {
         license: row.license.clone(),
         content: row.content.clone(),
         enabled: row.enabled,
-        tags: serde_json::from_str(&row.tags_json).unwrap_or_default(),
-    }
+        tags,
+    })
 }
 
 /// What `skills.import` reads out of a markdown pack's front matter.
@@ -602,21 +603,29 @@ pub fn plugin_row(definition: &PluginDefinition) -> Checked<StoredPlugin> {
 
 /// The definition behind a row.
 ///
-/// A list column that does not parse reads as empty — the pack still launches with
-/// the arguments it did not lose — rather than dropping the row the owner installed.
-pub fn plugin_definition(row: &StoredPlugin) -> PluginDefinition {
-    PluginDefinition {
+/// The definition behind a plugin row.
+///
+/// Returns an error naming the row if any JSON column (`args_json`, `env_json`, `tools_json`)
+/// cannot be parsed.
+pub fn plugin_definition(row: &StoredPlugin) -> Checked<PluginDefinition> {
+    let args = serde_json::from_str(&row.args_json)
+        .map_err(|e| format!("corrupt plugin row `{}`: invalid args_json: {e}", row.id))?;
+    let env = serde_json::from_str(&row.env_json)
+        .map_err(|e| format!("corrupt plugin row `{}`: invalid env_json: {e}", row.id))?;
+    let tools = serde_json::from_str(&row.tools_json)
+        .map_err(|e| format!("corrupt plugin row `{}`: invalid tools_json: {e}", row.id))?;
+    Ok(PluginDefinition {
         id: row.id.clone(),
         name: row.name.clone(),
         description: row.description.clone(),
         transport: row.transport.clone(),
         command: row.command.clone(),
-        args: serde_json::from_str(&row.args_json).unwrap_or_default(),
-        env: serde_json::from_str(&row.env_json).unwrap_or_default(),
+        args,
+        env,
         enabled: row.enabled,
-        tools: serde_json::from_str(&row.tools_json).unwrap_or_default(),
+        tools,
         source: row.source.clone(),
-    }
+    })
 }
 
 /// What `plugins.install` reads, in one manifest per field.
@@ -857,8 +866,15 @@ pub fn integration_row(
 }
 
 /// The redacted config a row carries.
-pub fn integration_config(row: &StoredIntegration) -> IntegrationConfig {
-    serde_json::from_str(&row.config_json).unwrap_or_default()
+///
+/// Returns an error naming the row if `config_json` cannot be parsed.
+pub fn integration_config(row: &StoredIntegration) -> Checked<IntegrationConfig> {
+    serde_json::from_str(&row.config_json).map_err(|e| {
+        format!(
+            "corrupt integration row `{}`: invalid config_json: {e}",
+            row.id
+        )
+    })
 }
 
 /// The status line `integrations.list` answers with.
@@ -871,9 +887,9 @@ pub fn integration_status(
     row: &StoredIntegration,
     has_token: bool,
     has_bot_token: bool,
-) -> IntegrationStatus {
-    let config = integration_config(row);
-    IntegrationStatus {
+) -> Checked<IntegrationStatus> {
+    let config = integration_config(row)?;
+    Ok(IntegrationStatus {
         id: row.id.clone(),
         name: row.name.clone(),
         connected: row.connected,
@@ -885,7 +901,7 @@ pub fn integration_status(
             "has_token": has_token,
             "has_bot_token": has_bot_token,
         })),
-    }
+    })
 }
 
 /// The default name of a well-known integration, so a first `connect` on an id the
@@ -1372,7 +1388,7 @@ mod tests {
             .next()
             .expect("the packs are shipped");
         let row = plugin_row(&definition).expect("a pack serialises");
-        assert_eq!(plugin_definition(&row), definition);
+        assert_eq!(plugin_definition(&row).unwrap(), definition);
     }
 
     #[test]
@@ -1431,14 +1447,97 @@ mod tests {
             "the row must not hold the token"
         );
 
-        let status = integration_status(&row, true, false);
+        let status = integration_status(&row, true, false).unwrap();
         assert_eq!(status.id, "github");
         assert!(status.connected);
         let details = status.details.expect("a status carries its details");
         assert_eq!(details["org"], "warsha");
         assert_eq!(details["has_token"], true);
         assert_eq!(details["has_bot_token"], false);
-        assert!(integration_config(&row).token.is_none());
+        assert!(integration_config(&row).unwrap().token.is_none());
+    }
+
+    #[test]
+    fn a_corrupt_skill_row_returns_an_error_naming_the_row() {
+        let definition = warsha_core::bundled_skills()
+            .into_iter()
+            .next()
+            .expect("skills are shipped");
+        let row = skill_row(&definition).expect("a skill serialises");
+        assert_eq!(skill_definition(&row).unwrap(), definition);
+
+        let damaged = StoredSkill {
+            tags_json: "{ not json".to_string(),
+            ..row
+        };
+        let err = skill_definition(&damaged).expect_err("corrupt tags_json is refused");
+        assert!(
+            err.contains(&format!("corrupt skill row `{}`", damaged.id)),
+            "error should name the corrupt row: {err}"
+        );
+    }
+
+    #[test]
+    fn a_corrupt_plugin_row_returns_an_error_naming_the_row() {
+        let definition = warsha_core::bundled_plugins()
+            .into_iter()
+            .next()
+            .expect("the packs are shipped");
+        let row = plugin_row(&definition).expect("a pack serialises");
+
+        for (field_name, damaged) in [
+            (
+                "args",
+                StoredPlugin {
+                    args_json: "{ not json".to_string(),
+                    ..row.clone()
+                },
+            ),
+            (
+                "env",
+                StoredPlugin {
+                    env_json: "{ not json".to_string(),
+                    ..row.clone()
+                },
+            ),
+            (
+                "tools",
+                StoredPlugin {
+                    tools_json: "{ not json".to_string(),
+                    ..row.clone()
+                },
+            ),
+        ] {
+            let err = plugin_definition(&damaged)
+                .expect_err(&format!("corrupt {field_name}_json is refused"));
+            assert!(
+                err.contains(&format!("corrupt plugin row `{}`", damaged.id)),
+                "error for {field_name} should name the corrupt row: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_corrupt_integration_row_returns_an_error_naming_the_row() {
+        let damaged = StoredIntegration {
+            id: "slack".to_string(),
+            name: "Slack".to_string(),
+            connected: true,
+            config_json: "{ not json".to_string(),
+            configured_at: None,
+        };
+        let err = integration_config(&damaged).expect_err("corrupt config_json is refused");
+        assert!(
+            err.contains("corrupt integration row `slack`"),
+            "error should name the corrupt row: {err}"
+        );
+
+        let status_err = integration_status(&damaged, false, false)
+            .expect_err("corrupt config in status is refused");
+        assert!(
+            status_err.contains("corrupt integration row `slack`"),
+            "status error should name the corrupt row: {status_err}"
+        );
     }
 
     #[test]
