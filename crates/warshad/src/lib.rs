@@ -6858,6 +6858,21 @@ mod tests {
         data_dir: &Path,
         configure: impl FnOnce(&mut DaemonConfig),
     ) -> (Arc<DaemonState>, Arc<Store>) {
+        test_state_custom(data_dir, configure, None).await
+    }
+
+    async fn test_state_with_custom_settings(
+        data_dir: &Path,
+        settings: Arc<SettingsStore>,
+    ) -> (Arc<DaemonState>, Arc<Store>) {
+        test_state_custom(data_dir, |_| {}, Some(settings)).await
+    }
+
+    async fn test_state_custom(
+        data_dir: &Path,
+        configure: impl FnOnce(&mut DaemonConfig),
+        custom_settings: Option<Arc<SettingsStore>>,
+    ) -> (Arc<DaemonState>, Arc<Store>) {
         std::fs::create_dir_all(data_dir).expect("the data directory is made");
         let mut config = DaemonConfig {
             data_dir: data_dir.to_path_buf(),
@@ -6871,11 +6886,23 @@ mod tests {
                 .expect("the store opens"),
         );
         let providers = Arc::new(RwLock::new(agent_router_with_mock()));
-        let settings = Arc::new(
-            SettingsStore::open(&data_dir.join("warsha.db"))
-                .await
-                .expect("the settings open"),
-        );
+        let settings = match custom_settings {
+            Some(s) => s,
+            None => {
+                let s = Arc::new(
+                    SettingsStore::open(&data_dir.join("warsha.db"))
+                        .await
+                        .expect("the settings open"),
+                );
+                // The same seeding a real start performs, so a test's daemon answers
+                // `harness.list` with the presets it ships and a catalog write has the row
+                // under it that production would have.
+                wave2::seed_bundled_records(&s)
+                    .await
+                    .expect("the bundled catalogs seed");
+                s
+            }
+        };
         let pipeline = Arc::new(warsha_pipeline::PipelineEngine::new(
             store.clone(),
             providers.clone(),
@@ -6883,12 +6910,6 @@ mod tests {
         ));
         let identity = warsha_remote::DeviceIdentity::generate("test daemon".to_string())
             .expect("a device identity");
-        // The same seeding a real start performs, so a test's daemon answers
-        // `harness.list` with the presets it ships and a catalog write has the row
-        // under it that production would have.
-        wave2::seed_bundled_records(&settings)
-            .await
-            .expect("the bundled catalogs seed");
 
         let routines = Arc::new(RwLock::new(RoutineRegistry::new()));
         let routine_runner: Arc<dyn RoutineRunner + Send + Sync> =
@@ -9042,6 +9063,74 @@ mod tests {
             "tracing subscriber saw the auth token: {:?}",
             capture.lines()
         );
+    }
+
+    #[tokio::test]
+    async fn create_pairing_returns_an_rpc_error_when_device_already_paired() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+        let device_id = "test-device-duplicate".to_string();
+
+        let first = rpc
+            .create_pairing(&owner, device_id.clone(), "secret-1".to_string())
+            .await
+            .expect("first pairing creation succeeds");
+        assert_eq!(first.device_id, device_id);
+
+        let err = rpc
+            .create_pairing(&owner, device_id.clone(), "secret-2".to_string())
+            .await
+            .expect_err("creating duplicate pairing must fail with an RPC error");
+        assert_eq!(rpc_error_code(&err), -32000);
+        assert!(
+            err.message().contains("already paired"),
+            "expected duplicate pairing error, got: {}",
+            err.message()
+        );
+    }
+
+    #[tokio::test]
+    async fn toggle_plugin_returns_an_rpc_error_when_mcp_disconnect_fails() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+        let manifest = r#"{
+            "name": "Enabled Plugin For Disconnect",
+            "transport": "stdio",
+            "command": "definitely_nonexistent_binary_for_disconnect",
+            "enabled": true
+        }"#;
+        let installed = rpc
+            .install_plugin(&owner, manifest.to_string())
+            .await
+            .expect("plugin installs cleanly in enabled state");
+        assert!(installed.enabled);
+
+        let err = rpc
+            .toggle_plugin(&owner, installed.id, false)
+            .await
+            .expect_err("disabling an unconnected plugin must fail with an RPC error");
+        assert_eq!(rpc_error_code(&err), -32000);
+    }
+
+    #[tokio::test]
+    async fn get_active_harness_db_error_returns_an_rpc_error() {
+        let temp = crate::test_util::fresh_tempdir();
+        let corrupt_db = temp.path().join("corrupt_warsha.db");
+        std::fs::write(&corrupt_db, b"not-a-sqlite-database-header")
+            .expect("corrupt database file written");
+        let settings = Arc::new(SettingsStore::open_unvalidated(&corrupt_db));
+        let (state, _store) = test_state_with_custom_settings(temp.path(), settings).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+        let err = rpc
+            .list_harnesses(&owner)
+            .await
+            .expect_err("corrupt settings db in list_harnesses must fail with an RPC error");
+        assert_eq!(rpc_error_code(&err), -32000);
     }
 }
 
