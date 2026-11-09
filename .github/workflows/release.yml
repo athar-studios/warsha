@@ -179,7 +179,7 @@ jobs:
              "dist/warshad-${{ matrix.target }}${{ matrix.binary_suffix }}"
 
       - name: Upload CLI binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: warsha-${{ matrix.os }}
           path: dist/warsha-${{ matrix.target }}${{ matrix.binary_suffix }}
@@ -187,7 +187,7 @@ jobs:
           retention-days: 1
 
       - name: Upload daemon binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: warshad-${{ matrix.os }}
           path: dist/warshad-${{ matrix.target }}${{ matrix.binary_suffix }}
@@ -288,7 +288,7 @@ jobs:
       # warshad-*. if-no-files-found defaults to warn — an empty bundle dir used to
       # upload a zero-file artifact and stay green.
       - name: Upload desktop artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: desktop-installers-${{ matrix.os }}
           path: apps/desktop/src-tauri/target/${{ matrix.tauri_target }}/release/bundle/**/*
@@ -499,7 +499,7 @@ jobs:
       # if-no-files-found defaults to "warn", which is how this job stayed green while
       # publishing nothing. Now a missing checksum file or a missing SBOM fails the job.
       - name: Upload checksums and SBOMs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-artifacts
           path: |
@@ -677,7 +677,7 @@ jobs:
           EOF
 
       - name: Upload manifests
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: package-manifests
           path: manifests/
@@ -725,7 +725,7 @@ jobs:
           mdbook build
 
       - name: Upload docs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docs
           path: docs/book

@@ -190,7 +190,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload unsigned bundles
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unsigned-bundles-${{ matrix.os }}
           path: ${{ matrix.bundle_paths }}
@@ -198,7 +198,7 @@ jobs:
           retention-days: 30
 
       - name: Upload bundle manifest (path, size, SHA-256 per file)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bundle-manifest-${{ matrix.os }}
           path: evidence/bundle-manifest.txt
