@@ -1389,4 +1389,27 @@ The correct order is therefore: make the remote harness daemon-true (a Phase B i
   "G7.5 cannot be satisfied" verdict was wrong — the v2 signature is deterministic (`0x0104`, PKCS#1 v1.5); the
   drift came from AGP's encrypted dependency-metadata block plus non-reproducible source maps, both now excluded.
 - The R6.9 app-length ratchet holds a real zero: a planted `16px` fails it, and the scan walks both app roots.
+## 2026-11-09 — Owner acceptance of run `2026-11-08-design-and-remediation`, and the three resolutions
 
+- **Accepted.** The owner reviewed the completion audit, the 108 gate verdicts and `OWNER_DECISIONS.md`,
+  then accepted the run at sequence 59 and authorised `git merge --ff-only run/2026-11-08/integration`.
+  `dev` moved `642ae95` -> `282bcd6`, clean, no conflicts. Acceptance is the owner's alone; no agent
+  approved a gate at any point in the run.
+- **OD1 - baseline refresh (approved).** Two causes were separated before anything was refreshed. The
+  remote harness stubbed 2 of ~75 RPCs, so `runs.subscribe` was unanswered and the Run screen truthfully
+  reported a stopped stream; making the harness daemon-true fixed 32 of the 40 failing cases with no
+  baseline change. Only the remaining 8 - the projects screen, which gained an "Add a project" form - were
+  refreshed, on the Linux x86_64 capture host, after inspecting the actual/expected/diff images. Remote is
+  now 91 passed / 0 failed. *Alternative rejected*: refreshing all 40 first, which would have frozen the
+  reconnect banner as expected behaviour.
+- **OD2 - `G7.6` value-anchored (approved).** The gate greps a directory that also contains its own
+  definition, so it matched the brief and the verification report and could never pass. The owner chose a
+  pattern that matches a credential field *assigned a value* rather than the bare field name. Every
+  evidence file stays in scope; documentation that quotes the regex no longer matches; a real leak still
+  does. Proven both ways with a planted assignment.
+- **OD6 - read-before-write guard wired (approved).** The guard existed but was never enabled, while
+  `WorkProtectionPolicy::default()` set `read_before_write: true`; `warshad` read neither. Now the daemon
+  passes the policy through, and `FilesystemToolExecutor::write_allowed` resolves the path once and allows
+  a target that **does not exist** - because a file that has never existed cannot have been read - while
+  still refusing to overwrite unseen existing content. This is the exemption the owner asked for; wiring it
+  without it would have made every file creation fail.

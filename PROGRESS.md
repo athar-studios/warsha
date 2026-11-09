@@ -1,5 +1,34 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-08 — ACCEPTED (owner sign-off) and the post-acceptance resolutions
+
+The owner (Mohamed Ashry) reviewed the completion audit, the 108 gate verdicts and `OWNER_DECISIONS.md`,
+then issued formal acceptance of run `2026-11-08-design-and-remediation` at sequence 59 and authorised the
+fast-forward merge of the integration branch into `dev`. `dev` moved `642ae95` -> `282bcd6` with a clean
+tree and no conflicts, exactly as the fast-forward pre-check predicted.
+
+The owner also resolved the three open decisions, and all three are implemented:
+
+- **OD1** (stale remote baselines) - the order mattered. The remote e2e harness stubbed only **2 of ~75**
+  daemon methods, so `runs.subscribe` was unanswered and every streaming screen rendered a
+  "The event stream stopped - Reconnect" banner. Closing that gap (`75d1e3b`) fixed **32 of the 40** cases
+  with **zero** baseline edits. The remaining **8** were genuinely stale - the projects screen gained the
+  "Add a project" form, confirmed by opening the actual/expected/diff images before refreshing anything -
+  and only those 8 PNGs were refreshed on the authoritative Linux x86_64 host (`1019506`). The remote suite
+  now reports **91 passed / 0 failed** with zero snapshot writes on the verifying re-run.
+- **OD2** (`G7.6` could never pass) - the owner chose a **value-anchored** pattern over excluding evidence
+  files, so every evidence file stays in scope while a file that merely quotes the field names no longer
+  matches. Proven in both directions: a planted `storePassword = <value>` made the scan exit 0; with the
+  probe removed it returned to exit 1. The gate is green for the first time.
+- **OD6** (inert read-before-write guard) - wired into the daemon from `WorkProtectionPolicy`
+  (`5a48261`) with **genuine file creation exempted** (`bc6b4a4`): `write_allowed` resolves the path once,
+  allows a non-existent target, and otherwise requires a prior read. `warsha-pipeline` 355 passed,
+  workspace 746 passed, fmt and `clippy -D warnings` clean.
+
+Pre-release preflight on the accepted tip is green: `cargo fmt`, `check-arch` (5 rules),
+`check-engineering-policy` (8 checks), `check-wire-contract` (9 checks) each with their self-tests,
+`pnpm -r build`, `pnpm -r test`, `mdbook test` and `gitleaks` - all exit 0.
+
 ## Run 2026-11-08 — Design System v2 + post-Qoder remediation (ALL 8 PACKETS MERGED at `a643a53`; C3 swept; awaiting owner acceptance)
 
 Integrator fold of the worker reports. Evidence: `bridge-io/policy/2026-11-08-design-and-remediation/`

@@ -544,7 +544,7 @@
 - [x] Installers produced: `apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/Warsha_0.1.0_x64_en-US.msi` (8,085,504 bytes) and `...\bundle\nsis\Warsha_0.1.0_x64-setup.exe` (5,721,668 bytes)
 - [ ] Still open after this batch: the installers are unsigned (SmartScreen warns), the updater plugin is configured but not a dependency, the webview has no live event stream (`/events` authenticates from a header a browser cannot set), the ports are fixed rather than discovered, and the bundle identifier `dev.warsha.app` still ends in `.app` (Tauri warns about the macOS bundle-extension clash)
 
-## Run 2026-11-08 — Design System v2 + post-Qoder remediation (W1–W7) ✅ MERGED at `a643a53` — C3 swept; awaiting OWNER ACCEPTANCE (two open decisions: OD1 remote baselines, OD2 `G7.6`). See `verdict.json` and `COMPLETION_AUDIT.md`
+## Run 2026-11-08 — Design System v2 + post-Qoder remediation (W1–W7) ✅ ACCEPTED by the owner — merged to `dev`, OD1/OD2/OD6 resolved and implemented. See `verdict.json` and `PROGRESS.md`
 
 Run id `2026-11-08-design-and-remediation`, evidence `bridge-io/policy/2026-11-08-design-and-remediation/`
 (`state.json` = `warsha-run/v1`, resumable without chat). Spec: `docs/designs/DESIGN_SYSTEM_V2.md`.
