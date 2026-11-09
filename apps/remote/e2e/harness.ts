@@ -18,9 +18,11 @@ import {
   createStubReport,
   installDaemonStub,
   installEventStub,
+  rpcCalls,
   settleScroll,
   scenarioById,
   VIEWPORTS,
+  RPC_METHODS,
   type EventStubMode,
   type Locale,
   type RpcBehaviour,
@@ -30,6 +32,8 @@ import {
   type Theme,
   type Viewport,
 } from '../../desktop/e2e/harness';
+
+export { rpcCalls, RPC_METHODS };
 
 /** The daemon the paired cases point the phone at. Nothing listens here; the stub answers. */
 export const REMOTE_DAEMON_URL = 'http://127.0.0.1:8799';
