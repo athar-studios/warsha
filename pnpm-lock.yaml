@@ -54,7 +54,7 @@ importers:
   apps/desktop:
     dependencies:
       '@tauri-apps/api':
-        specifier: ^2.0.0
+        specifier: ^2.12.4
         version: 2.12.4
       '@tauri-apps/plugin-opener':
         specifier: ^2.0.0
@@ -69,17 +69,17 @@ importers:
         specifier: workspace:*
         version: link:../../packages/ui
       react:
-        specifier: ^18.3.0
+        specifier: ^18.3.1
         version: 18.3.1
       react-dom:
-        specifier: ^18.3.0
+        specifier: ^18.3.1
         version: 18.3.1(react@18.3.1)
       react-router-dom:
         specifier: ^6.25.0
         version: 6.30.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
       '@tauri-apps/cli':
-        specifier: ^2.0.0
+        specifier: ^2.12.4
         version: 2.12.4
       '@testing-library/dom':
         specifier: ^10.4.0
@@ -142,10 +142,10 @@ importers:
         specifier: ^8.0.0
         version: 8.0.4
       react:
-        specifier: ^18.3.0
+        specifier: ^18.3.1
         version: 18.3.1
       react-dom:
-        specifier: ^18.3.0
+        specifier: ^18.3.1
         version: 18.3.1(react@18.3.1)
       react-router-dom:
         specifier: ^6.25.0
@@ -240,7 +240,7 @@ importers:
         specifier: ^10.5.0
         version: 10.7.18
       react:
-        specifier: ^18.3.0
+        specifier: ^18.3.1
         version: 18.3.1
     devDependencies:
       '@types/react':
@@ -256,10 +256,10 @@ importers:
   packages/ui:
     dependencies:
       react:
-        specifier: ^18.3.0
+        specifier: ^18.3.1
         version: 18.3.1
       react-dom:
-        specifier: ^18.3.0
+        specifier: ^18.3.1
         version: 18.3.1(react@18.3.1)
     devDependencies:
       '@storybook/addon-essentials':

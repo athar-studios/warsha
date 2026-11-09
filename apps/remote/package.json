@@ -18,8 +18,8 @@
     "@warsha/ui": "workspace:*",
     "@warsha/i18n": "workspace:*",
     "@warsha/client": "workspace:*",
-    "react": "^18.3.0",
-    "react-dom": "^18.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "react-router-dom": "^6.25.0",
     "idb": "^8.0.0"
   },
