@@ -1011,13 +1011,12 @@ mod tests {
         panic!("process `{id}` printed nothing within four seconds");
     }
 
-    /// A command that outlives the test: `sleep` on Unix, a loopback ping on
-    /// Windows, quiet on both so the test log stays readable.
+    /// A command that outlives the test (Windows half): blocks on stdin like `cat`.
     #[cfg(windows)]
     fn long_running() -> (String, Vec<String>) {
         (
             "cmd".to_string(),
-            vec!["/C".to_string(), "ping -n 30 127.0.0.1 >nul".to_string()],
+            vec!["/C".to_string(), "more".to_string()],
         )
     }
 

@@ -8080,7 +8080,7 @@ mod tests {
     fn long_running() -> (String, Vec<String>) {
         (
             "cmd".to_string(),
-            vec!["/C".to_string(), "ping -n 30 127.0.0.1 >nul".to_string()],
+            vec!["/C".to_string(), "more".to_string()],
         )
     }
 
