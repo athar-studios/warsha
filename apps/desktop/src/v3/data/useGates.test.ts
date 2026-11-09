@@ -1,5 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
-import type { GateSummary, RunId, WarshaClient } from '@warsha/client';
+import type { DeviceId, GateSummary, RunId, WarshaClient } from '@warsha/client';
 import { describe, expect, it, vi } from 'vitest';
 
 import { useGates } from './useGates';
@@ -29,7 +29,7 @@ describe('useGates', () => {
 
   it('handles ready state when gates are returned', async () => {
     const list: GateSummary[] = [
-      { stage: 'gate_a', state: 'pending' },
+      { stage: 'gate_a', state: { state: 'pending' } },
     ];
     const client = {
       getGates: vi.fn().mockResolvedValue(list),
@@ -54,7 +54,10 @@ describe('useGates', () => {
     expect(result.current.error?.message).toBe('Gates failed');
 
     (client.getGates as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
-      { stage: 'gate_b', state: 'approved' },
+      {
+        stage: 'gate_b',
+        state: { state: 'approved', by: 'dev-1' as DeviceId, at: '2026-11-09T00:00:00Z' },
+      },
     ]);
 
     await act(async () => {

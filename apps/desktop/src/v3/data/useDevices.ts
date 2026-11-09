@@ -1,6 +1,7 @@
 import type { DeviceSummary, WarshaClient } from '@warsha/client';
 
 import { useClient } from '../app/ClientContext';
+
 import type { HookResult } from './types';
 import { useResource } from './useResource';
 

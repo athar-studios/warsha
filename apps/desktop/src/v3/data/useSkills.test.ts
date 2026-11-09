@@ -29,7 +29,16 @@ describe('useSkills', () => {
 
   it('handles ready state when skills exist', async () => {
     const list: SkillDefinition[] = [
-      { id: 'skill-1', name: 'commit', description: 'Make a git commit', enabled: true },
+      {
+        id: 'skill-1',
+        name: 'commit',
+        description: 'Make a git commit',
+        source: 'builtin',
+        license: 'MIT',
+        content: '# Commit skill',
+        enabled: true,
+        tags: ['git'],
+      },
     ];
     const client = {
       listSkills: vi.fn().mockResolvedValue(list),
@@ -54,7 +63,16 @@ describe('useSkills', () => {
     expect(result.current.error?.message).toBe('Skills error');
 
     (client.listSkills as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
-      { id: 'skill-2', name: 'search', description: 'Search codebase', enabled: true },
+      {
+        id: 'skill-2',
+        name: 'search',
+        description: 'Search codebase',
+        source: 'builtin',
+        license: 'MIT',
+        content: '# Search skill',
+        enabled: true,
+        tags: ['code'],
+      },
     ]);
 
     await act(async () => {

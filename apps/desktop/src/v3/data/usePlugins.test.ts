@@ -29,7 +29,18 @@ describe('usePlugins', () => {
 
   it('handles ready state when plugins exist', async () => {
     const list: PluginDefinition[] = [
-      { id: 'plugin-1', name: 'github', enabled: true, tools: ['search_prs'] },
+      {
+        id: 'plugin-1',
+        name: 'github',
+        description: 'GitHub integration',
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-github'],
+        env: {},
+        enabled: true,
+        tools: [{ name: 'search_prs', description: 'Search pull requests', parametersJson: null }],
+        source: 'registry',
+      },
     ];
     const client = {
       listPlugins: vi.fn().mockResolvedValue(list),
@@ -54,7 +65,18 @@ describe('usePlugins', () => {
     expect(result.current.error?.message).toBe('Plugins error');
 
     (client.listPlugins as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
-      { id: 'plugin-2', name: 'filesystem', enabled: true, tools: [] },
+      {
+        id: 'plugin-2',
+        name: 'filesystem',
+        description: 'Filesystem integration',
+        transport: 'stdio',
+        command: null,
+        args: [],
+        env: {},
+        enabled: true,
+        tools: [],
+        source: 'builtin',
+      },
     ]);
 
     await act(async () => {

@@ -29,7 +29,13 @@ describe('useModels', () => {
 
   it('handles ready state when custom models exist', async () => {
     const list: CustomModelRecord[] = [
-      { provider: 'ollama', model_id: 'llama3:8b', display_name: 'Llama 3' },
+      {
+        provider: 'ollama',
+        modelId: 'llama3:8b',
+        displayName: 'Llama 3',
+        contextWindow: 8192,
+        enabled: true,
+      },
     ];
     const client = {
       listCustomModels: vi.fn().mockResolvedValue(list),
@@ -54,7 +60,13 @@ describe('useModels', () => {
     expect(result.current.error?.message).toBe('Models error');
 
     (client.listCustomModels as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
-      { provider: 'ollama', model_id: 'mistral:7b' },
+      {
+        provider: 'ollama',
+        modelId: 'mistral:7b',
+        displayName: 'Mistral 7B',
+        contextWindow: 8192,
+        enabled: true,
+      },
     ]);
 
     await act(async () => {

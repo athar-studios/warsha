@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RunId, RunStreamSync, WarshaClient, WarshaEvent } from '@warsha/client';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useClient } from '../app/ClientContext';
+
 import type { HookResult, HookStatus } from './types';
 
 export interface UseRunEventsOptions {

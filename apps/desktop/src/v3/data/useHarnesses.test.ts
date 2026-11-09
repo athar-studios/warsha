@@ -29,7 +29,22 @@ describe('useHarnesses', () => {
 
   it('handles ready state when harnesses exist', async () => {
     const list: HarnessDefinition[] = [
-      { id: 'h1', name: 'Standard Harness', path: '/harness/std' },
+      {
+        id: 'h1',
+        version: '1.0',
+        name: 'Standard Harness',
+        description: 'Standard factory flow',
+        stages: [],
+        rules: {
+          maxRepairIterations: 3,
+          budgetCapCents: 500,
+          allowParallelSubagents: false,
+          requireVerificationReceipt: true,
+        },
+        preset: true,
+        active: true,
+        createdAt: '2026-11-09T00:00:00Z',
+      },
     ];
     const client = {
       listHarnesses: vi.fn().mockResolvedValue(list),
@@ -54,7 +69,22 @@ describe('useHarnesses', () => {
     expect(result.current.error?.message).toBe('Harness error');
 
     (client.listHarnesses as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
-      { id: 'h2', name: 'Custom Harness', path: '/harness/custom' },
+      {
+        id: 'h2',
+        version: '1.0',
+        name: 'Custom Harness',
+        description: 'Custom flow',
+        stages: [],
+        rules: {
+          maxRepairIterations: 1,
+          budgetCapCents: null,
+          allowParallelSubagents: false,
+          requireVerificationReceipt: false,
+        },
+        preset: false,
+        active: true,
+        createdAt: '2026-11-09T00:00:00Z',
+      },
     ]);
 
     await act(async () => {
