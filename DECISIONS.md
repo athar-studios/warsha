@@ -1442,3 +1442,37 @@ Planner: Opus 5.5 (planner role only). Evidence: `bridge-io/policy/2026-11-09-ph
   Phase C fonts are out of this run.
 - **How to reverse**: delete the evidence directory, this entry, the PLAN.md section "Run 2026-11-09" and the
   PROGRESS.md planner entry. The planner changed nothing under `crates/`, `apps/`, `packages/` or `scripts/`.
+
+## 2026-11-09 — Run `2026-11-09-ui-v3`: a clean-slate design system and UI, every control wired (planner decisions)
+
+Planner: Opus 5.5 (planner role only). Owner request (2026-11-09): the design is not liked; Simple mode is not simple;
+Advanced options do nothing when clicked; build a completely new design system and plan for every page, ignoring the old
+design, with every button working. Spec: `docs/designs/DESIGN_SYSTEM_V3.md`, `docs/designs/UI_V3_PLAN.md`; visual
+reference `docs/designs/v3-preview.html`; run evidence `bridge-io/policy/2026-11-09-ui-v3/`.
+
+- **U-D1 — Supersede the Phase B run.** DS v2 adoption (tints, Tabs, Composer, SettingsLayout) polishes the design the
+  owner rejected. Its visual packets are dropped; the harness, Rust, release and agent-policy packets continue as H1, R1,
+  V1, P7. The old run is recorded `blocked` (superseded), not deleted.
+- **U-D2 — Build beside, then cut over.** v3 lives in `packages/ui/src/v3` and `apps/desktop/src/v3`, reachable with
+  `?ui=v3`; v2 stays the default and its 793 desktop + 91 remote cases stay green as the regression fence for every
+  packet. U7 deletes v2 only on the owner's word (OD-U3). *Alternative rejected*: rewrite in place — every packet would
+  break every v2 baseline at once and nothing would fence regressions.
+- **U-D3 — "Every control works" is a contract, not a hope.** Each clickable element carries a literal
+  `data-action`, is registered per area with its effect (RPC / route / state), and is clicked by an e2e case that observes
+  the effect through the harness RPC log. The planner-owned `actions-gate.mjs` enforces registration, RPC existence (daemon
+  and client), e2e coverage and the ban on the v2 fake model/workflow lists. Static checks alone cannot see "state nobody
+  reads" (the scan found 0 literally empty handlers among 177 sites), which is why the e2e effect is mandatory.
+- **U-D4 — "Simple is simple" is measured.** `planner-simplicity.spec.ts`: ≤ 10 actions in the main area above the fold
+  and ≤ 1 primary button on Home and Project at 1280×800 and 390×844; one composer; no Latin UI text in Arabic.
+- **U-D5 — Palette.** Warm neutrals, one teal primary (`#0B6E5A` / `#3DBE9C`), amber reserved for "waiting on the
+  owner", brand yellow only in the logo. All 48 contrast pairs measured with `tools/contrast.mjs` (WCAG AA, both themes);
+  the implementation must declare exactly these values (`--check-css`).
+- **U-D6 — Nothing without a daemon method.** Preflight, deploy, eco mode, rename/archive, slash commands, mentions,
+  fast mode and the permission chip are left out (UI_V3_PLAN §6) rather than shipped as dead controls. The real chat is
+  built on the existing `agent.*` methods.
+- **U-D7 — Per-area files.** Action registries, catalogs and e2e specs are split per area so parallel page packets never
+  edit the same file; the gates read the directories.
+- **U-D8 — Fonts are the owner's call (OD-U2).** Default is no download (system fallback after IBM Plex); option A adds
+  two pinned `@fontsource` packages, option B vendors IBM's `woff2` with checksums.
+- **How to reverse**: delete the three docs under `docs/designs/` (and their SITEMAP rows), the evidence directory, this
+  entry and the PLAN/PROGRESS entries; restore the Phase B run by clearing its `blocker`. No product code was changed.

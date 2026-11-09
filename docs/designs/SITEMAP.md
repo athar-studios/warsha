@@ -13,6 +13,9 @@ Elephant-Goldfish Model flow (`/egm-brainstorm` → `/egm-draft` →
 |---|---|---|
 | Redesign baseline (S5/S6/§7/§10/§11) | Canonical reference | `../design/REDESIGN.md` |
 | Design System v2 — `lines.ts`/`elevation.ts`/`breakpoints.ts`, R6.1–R6.10 with the `APP_LENGTH_BUDGET = 145` ratchet, compound contracts, screen architecture, adoption ladder | Implemented in part: W3 merged at `406240a`; W5 (app adoption) pending | [`./DESIGN_SYSTEM_V2.md`](./DESIGN_SYSTEM_V2.md) |
+| Design System v3 «حِرفة» — clean-slate system: principles, measured palette (both themes), type, space, icons, 19 primitives, 27 composites, the action contract | Spec, awaiting owner approval (OD-U0, run `2026-11-09-ui-v3`) | [`./DESIGN_SYSTEM_V3.md`](./DESIGN_SYSTEM_V3.md) |
+| UI v3 plan — every page, every action id, the 14→5 stage map, what is not built and why | Spec, awaiting owner approval (OD-U0) | [`./UI_V3_PLAN.md`](./UI_V3_PLAN.md) |
+| UI v3 static preview — Home, Project, Workbench, Settings, the system; light/dark | Visual reference, not product code | [`./v3-preview.html`](./v3-preview.html) |
 | Skills and harnesses policy | Canonical policy | [`../SKILLS_AND_HARNESSES.md`](../SKILLS_AND_HARNESSES.md) |
 | Desktop UI reference | Canonical reference | [`../UI.md`](../UI.md) |
 | Install manual (build, install, uninstall) | Canonical reference | [`../INSTALL.md`](../INSTALL.md) |

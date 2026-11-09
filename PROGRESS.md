@@ -1,6 +1,25 @@
 # PROGRESS.md — Warsha Build Log
 
-## Run 2026-11-09 — Phase B planned (planner only; nothing implemented)
+## Run 2026-11-09 — UI v3 planned: design system «حِرفة» + every page + every action (planner only)
+
+The owner rejected the current design (Simple not simple; Advanced options inert) and asked for a clean-slate design
+system and a plan for every page with every control working. Planner: Claude Opus 5.5 (governance + design docs only);
+two read-only Haiku audits; every high-severity claim re-checked in the file. Nothing under `crates/`, `apps/`,
+`packages/` or `scripts/` changed.
+
+- **Spec**: `docs/designs/DESIGN_SYSTEM_V3.md` (principles, palette, type, space, icons, 19 primitives, 27 composites,
+  the action contract), `docs/designs/UI_V3_PLAN.md` (8 page areas, about 125 named actions, the 14→5 stage map, what is
+  not built), `docs/designs/v3-preview.html` (static reference, light/dark); SITEMAP rows added.
+- **Measured**: 137 controls traced — 27 RPC, 55 visible state, 22 navigation, 15 dead state, 8 no-op, 10 fake; 177
+  interactive sites and 45 hard-coded model/workflow names in `apps/desktop/src`. Verified in the file: the Simple chat
+  reply is a 1 s timer fixture; the chosen model never reaches `startRun`; inbox decisions never reach the daemon.
+- **Palette**: 48 contrast pairs, 0 failures (`tools/contrast.mjs`); the preview's CSS passes `--check-css`.
+- **Gate tools** (evidence dir, planner-owned): `actions-gate.mjs` self-test 12/12, `i18n-gate.mjs` 8/8, `pw-gate.mjs`
+  7/7, `planner-simplicity.spec.ts`, `versions.mjs`; the dependency gate regex was tested both ways on sample diffs.
+- **Run** `2026-11-09-ui-v3`: 13 packets, 151 frozen gates, 6 fenced refreshes; supersedes the Phase B run (recorded
+  `blocked`/superseded at seq 3). OD-U0 (approve the spec) is a hard stop before Qoder starts.
+
+## Run 2026-11-09 — Phase B planned (planner only; nothing implemented) — superseded the same day by UI v3
 
 Planner: Claude Opus 5.5, reading governance files only; the code audit at `c1bcf4f` was delegated to four read-only
 Haiku subagents and every HIGH claim was re-checked against the file. Output (gitignored):

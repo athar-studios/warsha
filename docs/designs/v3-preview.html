@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="ar" dir="rtl" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Warsha v3 preview</title>
+<!-- Static visual reference for DESIGN_SYSTEM_V3.md — NOT product code. The product vendors IBM Plex as woff2;
+     this preview loads it from Google Fonts only so the file can be opened on its own. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --w-bg:#F6F4EF;--w-surface:#FFFFFF;--w-sunken:#EFECE5;--w-line:#E2DDD3;--w-line-strong:#8C877C;
+  --w-text:#1B1A17;--w-text-muted:#5F5B53;--w-text-faint:#7A756B;
+  --w-primary:#0B6E5A;--w-primary-hover:#095C4B;--w-on-primary:#FFFFFF;--w-primary-soft:#E1F1EC;--w-primary-text:#0A5E4D;
+  --w-attention:#8A5300;--w-attention-soft:#FFF1D6;--w-success:#1B6B39;--w-success-soft:#E4F3E8;
+  --w-danger:#A8261D;--w-danger-soft:#FCE9E7;--w-info:#1F55A0;--w-info-soft:#E7EFFA;--w-focus:#0B6E5A;--w-scrim:#1B1A1766;
+  --w-shadow-1:0 1px 2px #1b1a170f,0 2px 8px #1b1a170a;--w-shadow-2:0 8px 24px #1b1a171f;
+  --w-font:"IBM Plex Sans Arabic",system-ui,"Segoe UI",Tahoma,sans-serif;--w-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  --w-r-sm:6px;--w-r-md:10px;--w-r-lg:14px;--w-r-xl:20px;--w-ease:cubic-bezier(.2,.8,.2,1);
+}
+:root[data-theme="dark"]{
+  --w-bg:#131210;--w-surface:#1B1A17;--w-sunken:#24221E;--w-line:#33302A;--w-line-strong:#7D776C;
+  --w-text:#F1EEE7;--w-text-muted:#B3AEA3;--w-text-faint:#948F84;
+  --w-primary:#3DBE9C;--w-primary-hover:#56CFAE;--w-on-primary:#062A21;--w-primary-soft:#163A31;--w-primary-text:#5FD3B2;
+  --w-attention:#F3B54A;--w-attention-soft:#3A2B10;--w-success:#5CC98A;--w-success-soft:#15301F;
+  --w-danger:#F07A70;--w-danger-soft:#3A1714;--w-info:#7DB0F5;--w-info-soft:#152842;--w-focus:#5FD3B2;--w-scrim:#000000A3;
+  --w-shadow-1:0 1px 2px #0006;--w-shadow-2:0 8px 24px #0008;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--w-bg);color:var(--w-text);font-family:var(--w-font);font-size:16px;line-height:1.625;-webkit-font-smoothing:antialiased}
+button,input,textarea,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--w-focus);outline-offset:2px}
+.ltr{direction:ltr;unicode-bidi:isolate;font-family:var(--w-mono);font-size:.9em}
+.muted{color:var(--w-text-muted)} .faint{color:var(--w-text-faint)}
+/* preview chrome (not part of the design) */
+.pv{position:sticky;top:0;z-index:50;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 16px;background:#2a2824;color:#f1eee7;font-size:14px}
+.pv b{margin-inline-end:8px}
+.pv button{background:#3a3731;border:1px solid #57524a;color:#f1eee7;border-radius:6px;padding:4px 12px;cursor:pointer}
+.pv button[aria-pressed="true"]{background:#f1eee7;color:#1b1a17}
+.pv .sp{flex:1}
+.view{display:none}.view.on{display:block}
+/* components */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding-inline:20px;border-radius:var(--w-r-sm);border:1px solid transparent;font-weight:600;cursor:pointer;transition:background .12s var(--w-ease)}
+.btn-primary{background:var(--w-primary);color:var(--w-on-primary)} .btn-primary:hover{background:var(--w-primary-hover)}
+.btn-secondary{background:var(--w-surface);border-color:var(--w-line-strong);color:var(--w-text)} .btn-secondary:hover{background:var(--w-sunken)}
+.btn-ghost{background:transparent;color:var(--w-text)} .btn-ghost:hover{background:var(--w-sunken)}
+.btn-danger-ghost{background:transparent;color:var(--w-danger)} .btn-danger-ghost:hover{background:var(--w-danger-soft)}
+.btn-sm{min-height:32px;padding-inline:12px;font-size:14px}
+.btn-lg{min-height:52px;padding-inline:28px;font-size:18px}
+.iconbtn{display:inline-grid;place-items:center;width:44px;height:44px;border-radius:var(--w-r-sm);border:0;background:transparent;color:var(--w-text);cursor:pointer;position:relative}
+.iconbtn:hover{background:var(--w-sunken)}
+.ic{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+[dir="rtl"] .mirror{transform:scaleX(-1)}
+.badge{position:absolute;inset-block-start:4px;inset-inline-end:2px;min-width:20px;height:20px;padding-inline:5px;border-radius:999px;background:var(--w-attention-soft);color:var(--w-attention);font-size:12px;font-weight:700;display:grid;place-items:center;border:1px solid var(--w-attention)}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:999px;font-size:13px;font-weight:600;white-space:nowrap}
+.pill::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
+.p-run{background:var(--w-info-soft);color:var(--w-info)} .p-wait{background:var(--w-attention-soft);color:var(--w-attention)}
+.p-done{background:var(--w-success-soft);color:var(--w-success)} .p-fail{background:var(--w-danger-soft);color:var(--w-danger)} .p-idle{background:var(--w-sunken);color:var(--w-text-muted)}
+.card{background:var(--w-surface);border:1px solid var(--w-line);border-radius:var(--w-r-md)}
+.seg{display:inline-flex;padding:3px;border-radius:999px;background:var(--w-sunken);border:1px solid var(--w-line)}
+.seg button{border:0;background:transparent;padding:6px 16px;border-radius:999px;cursor:pointer;color:var(--w-text-muted);font-weight:500;min-height:36px}
+.seg button[aria-checked="true"]{background:var(--w-surface);color:var(--w-text);box-shadow:var(--w-shadow-1);font-weight:600}
+.field label{display:block;font-weight:600;margin-block-end:6px}
+.input{width:100%;min-height:44px;padding:10px 12px;border:1px solid var(--w-line-strong);border-radius:var(--w-r-sm);background:var(--w-surface)}
+/* app frame */
+.top{display:flex;align-items:center;gap:12px;height:64px;padding-inline:20px;background:var(--w-surface);border-block-end:1px solid var(--w-line)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:20px}
+.hex{width:26px;height:26px}
+.switcher{display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:var(--w-r-sm);border:1px solid var(--w-line);background:var(--w-surface);cursor:pointer;font-weight:500}
+.top .end{margin-inline-start:auto;display:flex;align-items:center;gap:6px}
+.narrow{max-width:760px;margin-inline:auto;padding:40px 20px 120px}
+h1{font-size:36px;line-height:48px;margin:0 0 8px;font-weight:700}
+h2{font-size:22px;line-height:32px;margin:0;font-weight:600}
+h3{font-size:18px;line-height:28px;margin:0;font-weight:600}
+.composer{padding:20px;border-radius:var(--w-r-xl);box-shadow:var(--w-shadow-1)}
+.composer textarea{width:100%;min-height:96px;border:0;resize:none;background:transparent;font-size:18px;line-height:30px;outline:none}
+.composer .row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-block-start:12px;padding-block-start:12px;border-block-start:1px solid var(--w-line)}
+.composer .row .grow{flex:1;font-size:14px}
+.link{color:var(--w-primary-text);text-decoration:underline;text-underline-offset:3px;background:none;border:0;padding:0;cursor:pointer;font-weight:500}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-block:16px 32px}
+.chip{border:1px solid var(--w-line);background:var(--w-surface);border-radius:999px;padding:6px 14px;cursor:pointer;color:var(--w-text-muted)}
+.chip:hover{border-color:var(--w-line-strong);color:var(--w-text)}
+.banner{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:var(--w-r-md);background:var(--w-attention-soft);border:1px solid color-mix(in srgb,var(--w-attention) 35%,transparent);color:var(--w-text);margin-block-end:28px}
+.banner .ic{color:var(--w-attention)} .banner .grow{flex:1}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-block-start:14px}
+.pcard{padding:16px;display:flex;flex-direction:column;gap:10px;cursor:pointer;transition:box-shadow .12s}
+.pcard:hover{box-shadow:var(--w-shadow-1);border-color:var(--w-line-strong)}
+.mini{display:flex;gap:4px} .mini i{flex:1;height:6px;border-radius:3px;background:var(--w-sunken)}
+.mini i.d{background:var(--w-success)} .mini i.c{background:var(--w-info)} .mini i.w{background:var(--w-attention)}
+.sechead{display:flex;align-items:baseline;justify-content:space-between}
+/* project */
+.back{display:inline-flex;align-items:center;gap:6px;color:var(--w-text-muted);text-decoration:none;font-size:14px;margin-block-end:12px}
+.phead{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.phead h1{font-size:28px;line-height:40px;margin:0}
+.stepper{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-block:24px 8px;list-style:none;padding:0}
+.stepper li{display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--w-text-muted)}
+.stepper li span.bar{height:6px;border-radius:3px;background:var(--w-sunken)}
+.stepper li.d span.bar{background:var(--w-success)} .stepper li.c span.bar{background:var(--w-info)}
+.stepper li.c{color:var(--w-text);font-weight:600} .stepper li.d{color:var(--w-text)}
+.now{display:flex;align-items:center;gap:10px;margin-block:12px 28px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--w-info);box-shadow:0 0 0 4px var(--w-info-soft)}
+.decision{padding:20px;border-radius:var(--w-r-lg);background:var(--w-attention-soft);border:1px solid color-mix(in srgb,var(--w-attention) 40%,transparent);margin-block-end:28px}
+.decision .eyebrow{display:flex;align-items:center;gap:8px;color:var(--w-attention);font-weight:700;font-size:14px;margin-block-end:6px}
+.decision ul{margin:10px 0 16px;padding-inline-start:20px;color:var(--w-text-muted)}
+.decision .acts{display:flex;gap:10px;flex-wrap:wrap}
+.results{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-block:14px 28px}
+.results .card{padding:14px;display:flex;flex-direction:column;gap:6px}
+.results .k{font-size:13px;color:var(--w-text-muted)} .results .v{font-weight:600}
+.feed{list-style:none;padding:0;margin:12px 0 0}
+.feed li{display:flex;gap:10px;padding-block:10px;border-block-end:1px solid var(--w-line);font-size:15px}
+.feed time{color:var(--w-text-faint);font-size:13px;min-width:64px}
+.dock{position:sticky;bottom:16px;margin-block-start:24px;display:flex;gap:10px;align-items:center;padding:10px 10px 10px 14px;border-radius:var(--w-r-xl);background:var(--w-surface);border:1px solid var(--w-line);box-shadow:var(--w-shadow-2)}
+.dock input{flex:1;border:0;background:transparent;outline:none;min-height:44px;font-size:16px}
+.meter{font-size:13px;color:var(--w-text-muted);white-space:nowrap}
+/* workbench */
+.wb{display:grid;grid-template-columns:280px 1fr;min-height:calc(100vh - 108px)}
+.rail{background:var(--w-surface);border-inline-end:1px solid var(--w-line);padding:14px;font-size:14px}
+.rail h4{font-size:12px;color:var(--w-text-muted);margin:14px 0 6px;font-weight:600;letter-spacing:0}
+.rrow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:var(--w-r-sm);cursor:pointer}
+.rrow:hover{background:var(--w-sunken)} .rrow.sel{background:var(--w-primary-soft);color:var(--w-primary-text);font-weight:600}
+.wmain{padding:18px 24px;font-size:14px}
+.whead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.whead h2{font-size:20px}
+.whead .end{margin-inline-start:auto;display:flex;gap:8px}
+.stages{display:flex;gap:4px;margin-block:14px;flex-wrap:wrap}
+.stages span{padding:3px 8px;border-radius:var(--w-r-sm);background:var(--w-sunken);font-size:12px;color:var(--w-text-muted)}
+.stages span.d{background:var(--w-success-soft);color:var(--w-success)} .stages span.c{background:var(--w-info-soft);color:var(--w-info);font-weight:600}
+.tabs{display:flex;gap:4px;border-block-end:1px solid var(--w-line);margin-block:6px 14px;overflow-x:auto}
+.tabs button{border:0;background:none;padding:10px 12px;cursor:pointer;color:var(--w-text-muted);border-block-end:2px solid transparent;white-space:nowrap;min-height:40px}
+.tabs button[aria-selected="true"]{color:var(--w-text);border-color:var(--w-primary);font-weight:600}
+table{width:100%;border-collapse:collapse;background:var(--w-surface);border:1px solid var(--w-line);border-radius:var(--w-r-md);overflow:hidden}
+th,td{text-align:start;padding:8px 12px;border-block-end:1px solid var(--w-line)}
+th{font-size:12px;color:var(--w-text-muted);font-weight:600;background:var(--w-sunken)}
+tr:last-child td{border-block-end:0}
+.acomp{margin-block-start:16px;padding:12px;display:flex;flex-direction:column;gap:10px}
+.acomp textarea{width:100%;min-height:64px;border:1px solid var(--w-line-strong);border-radius:var(--w-r-sm);padding:10px;background:var(--w-surface);resize:vertical}
+.acomp .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.sel{min-height:32px;padding:4px 10px;border:1px solid var(--w-line-strong);border-radius:var(--w-r-sm);background:var(--w-surface);font-size:14px}
+/* settings */
+.set{display:grid;grid-template-columns:240px 1fr;max-width:1120px;margin-inline:auto;padding:28px 20px;gap:28px}
+.snav a{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--w-r-sm);color:var(--w-text);text-decoration:none}
+.snav a:hover{background:var(--w-sunken)} .snav a[aria-current="page"]{background:var(--w-primary-soft);color:var(--w-primary-text);font-weight:600}
+.snav .grp{font-size:12px;color:var(--w-text-muted);margin:14px 12px 4px}
+.prow{display:flex;align-items:center;gap:12px;padding:14px 16px;border-block-end:1px solid var(--w-line)}
+.prow:last-child{border-block-end:0} .prow .grow{flex:1}
+.av{width:36px;height:36px;border-radius:10px;background:var(--w-sunken);display:grid;place-items:center;font-weight:700;color:var(--w-text-muted)}
+/* ds gallery */
+.ds{max-width:1120px;margin-inline:auto;padding:28px 20px 80px}
+.sw{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-block:12px 28px}
+.sw div{border:1px solid var(--w-line);border-radius:var(--w-r-md);overflow:hidden;background:var(--w-surface);font-size:12px}
+.sw i{display:block;height:56px}
+.sw p{margin:0;padding:6px 8px}
+.row-g{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-block:10px 24px}
+@media (max-width:960px){.wb,.set{grid-template-columns:1fr}.rail{display:none}.results{grid-template-columns:1fr}.stepper{gap:4px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M4 13h4l2 3h4l2-3h4"/><path d="M5 5h14l1 8v6H4v-6z"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M5 12h13"/><path d="M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3l9 16H3z"/><path d="M12 10v4"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-git" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 8v8"/><path d="M18 10c0 4-6 3-10 7"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></symbol>
+  <symbol id="i-flow" viewBox="0 0 24 24"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M7 6h10M6 8l5 8M18 8l-5 8"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></symbol>
+</svg>
+
+<div class="pv" role="toolbar" aria-label="preview">
+  <b>Warsha v3 — معاينة ثابتة</b>
+  <button data-v="home" aria-pressed="true">الرئيسية (بسيط)</button>
+  <button data-v="project" aria-pressed="false">المشروع (بسيط)</button>
+  <button data-v="bench" aria-pressed="false">منضدة العمل (متقدّم)</button>
+  <button data-v="settings" aria-pressed="false">الإعدادات</button>
+  <button data-v="ds" aria-pressed="false">نظام التصميم</button>
+  <span class="sp"></span>
+  <button id="theme" aria-pressed="false">الوضع الداكن</button>
+</div>
+
+<header class="top">
+  <div class="brand"><svg class="hex" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l8.66 5v10L12 22l-8.66-5V7z" fill="#FFD400"/><circle cx="12" cy="12" r="3.5" fill="#1B1A17"/></svg>ورشة</div>
+  <button class="switcher" aria-haspopup="listbox">سيستم كاشير <span class="pill p-run">يبني</span><svg class="ic" style="width:16px;height:16px"><use href="#i-down"/></svg></button>
+  <div class="end">
+    <div class="seg" role="radiogroup" aria-label="الوضع"><button role="radio" aria-checked="true">بسيط</button><button role="radio" aria-checked="false">متقدّم</button></div>
+    <button class="iconbtn" aria-label="قرارات تنتظرك: 2"><svg class="ic"><use href="#i-inbox"/></svg><span class="badge">2</span></button>
+    <button class="iconbtn" aria-label="الإعدادات"><svg class="ic"><use href="#i-settings"/></svg></button>
+  </div>
+</header>
+
+<!-- HOME -->
+<main class="view on" id="v-home">
+  <div class="narrow">
+    <h1>أهلًا محمد، ماذا نبني اليوم؟</h1>
+    <p class="muted" style="margin:0 0 24px">صِف فكرتك بكلماتك، وسيخطّط الفريق ويبني ويختبر، ويعود إليك عند كل قرار مهم.</p>
+    <div class="card composer">
+      <label class="faint" for="idea" style="font-size:14px">فكرتك</label>
+      <textarea id="idea" placeholder="مثال: تطبيق حجز مواعيد لعيادة أسنان، فيه تذكير بالرسائل ولوحة للطبيب."></textarea>
+      <div class="row">
+        <span class="grow muted">يعمل بـ <bdi class="ltr">DeepSeek V3</bdi> · حدّ الإنفاق <bdi class="ltr">$10</bdi> · <button class="link">تغيير</button></span>
+        <button class="btn btn-primary btn-lg">ابدأ المشروع</button>
+      </div>
+    </div>
+    <div class="chips" aria-label="أفكار جاهزة">
+      <button class="chip">متجر إلكتروني بالعربية</button><button class="chip">نظام كاشير لمطعم</button>
+      <button class="chip">موقع شخصي</button><button class="chip">تطبيق مواعيد</button>
+    </div>
+    <div class="banner" role="status"><svg class="ic"><use href="#i-alert"/></svg><span class="grow"><b>قراران ينتظرانك</b> — في «متجر العطور» و«سيستم كاشير».</span><button class="btn btn-secondary btn-sm">راجِعهما</button></div>
+    <div class="sechead"><h2>مشاريعك</h2><button class="link">عرض الكل</button></div>
+    <div class="grid">
+      <article class="card pcard"><div class="sechead"><h3>سيستم كاشير</h3><span class="pill p-wait">ينتظرك</span></div><div class="mini"><i class="d"></i><i class="d"></i><i class="w"></i><i></i><i></i></div><span class="muted" style="font-size:14px">البناء · قرار ينتظر موافقتك</span></article>
+      <article class="card pcard"><div class="sechead"><h3>متجر العطور</h3><span class="pill p-run">يعمل</span></div><div class="mini"><i class="d"></i><i class="c"></i><i></i><i></i><i></i></div><span class="muted" style="font-size:14px">الخطة · منذ 4 دقائق</span></article>
+      <article class="card pcard"><div class="sechead"><h3>موقع العيادة</h3><span class="pill p-done">سُلِّم</span></div><div class="mini"><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i></div><span class="muted" style="font-size:14px">التسليم · أمس</span></article>
+    </div>
+  </div>
+</main>
+
+<!-- PROJECT -->
+<main class="view" id="v-project">
+  <div class="narrow">
+    <a class="back" href="#"><svg class="ic mirror" style="width:16px;height:16px;transform:scaleX(1)"><use href="#i-chev"/></svg>مشاريعك</a>
+    <div class="phead"><h1>سيستم كاشير</h1><span class="pill p-wait">قرار ينتظرك</span><span style="margin-inline-start:auto" class="meter">أُنفق <bdi class="ltr">$3.20</bdi> من <bdi class="ltr">$10</bdi></span><button class="iconbtn" aria-label="خيارات المشروع"><svg class="ic"><use href="#i-more"/></svg></button></div>
+    <ol class="stepper" aria-label="مراحل المشروع">
+      <li class="d"><span class="bar"></span>الفكرة</li><li class="d"><span class="bar"></span>الخطة</li><li class="c" aria-current="step"><span class="bar"></span>البناء</li><li><span class="bar"></span>الفحص</li><li><span class="bar"></span>التسليم</li>
+    </ol>
+    <div class="now"><span class="dot" aria-hidden="true"></span><span>المبرمج يكتب شاشة الفواتير الآن.</span><span class="faint" style="font-size:13px">منذ دقيقتين</span></div>
+    <section class="decision" aria-labelledby="d1">
+      <div class="eyebrow"><svg class="ic" style="width:18px;height:18px"><use href="#i-alert"/></svg>قرار ينتظرك</div>
+      <h3 id="d1">هل نعتمد تصميم قاعدة البيانات؟</h3>
+      <p class="muted" style="margin:6px 0 0">صمّم المهندس 6 جداول: المنتجات، الفواتير، بنود الفاتورة، العملاء، الورديات، المستخدمون.</p>
+      <ul><li>بعد موافقتك يبدأ المبرمج بشاشات البيع والفواتير.</li><li>يمكنك طلب تعديل بكلماتك، وسيعيد المهندس التصميم قبل البناء.</li></ul>
+      <div class="acts"><button class="btn btn-primary">موافق، تابِعوا</button><button class="btn btn-secondary">اطلب تعديلًا</button><button class="btn btn-danger-ghost">ارفض</button></div>
+    </section>
+    <h2>ما أُنجز حتى الآن</h2>
+    <div class="results">
+      <div class="card"><span class="k"><svg class="ic" style="width:16px;height:16px;vertical-align:-3px"><use href="#i-eye"/></svg> المعاينة الحية</span><span class="v">متوقفة</span><button class="btn btn-secondary btn-sm">شغّل المعاينة</button></div>
+      <div class="card"><span class="k"><svg class="ic" style="width:16px;height:16px;vertical-align:-3px"><use href="#i-git"/></svg> الكود</span><span class="v">3 طلبات دمج</span><button class="link" style="align-self:start">افتح على GitHub</button></div>
+      <div class="card"><span class="k"><svg class="ic" style="width:16px;height:16px;vertical-align:-3px"><use href="#i-check"/></svg> الاختبارات</span><span class="v">42 ناجحًا · 0 فاشلًا</span><button class="link" style="align-self:start">التفاصيل</button></div>
+    </div>
+    <details open><summary style="cursor:pointer"><h2 style="display:inline">النشاط</h2></summary>
+      <ul class="feed">
+        <li><time>10:42</time><span>المبرمج أنهى شاشة المنتجات واجتازت 12 اختبارًا.</span></li>
+        <li><time>10:31</time><span>المهندس أرسل تصميم قاعدة البيانات لموافقتك.</span></li>
+        <li><time>10:05</time><span>اعتمدتَ الخطة. بدأ البناء.</span></li>
+      </ul>
+    </details>
+    <div class="dock"><input aria-label="اطلب تعديلًا أو أعطِ الفريق تعليمات" placeholder="اطلب تعديلًا أو أعطِ الفريق تعليمات…"><button class="btn btn-secondary" aria-label="أرسل"><svg class="ic mirror"><use href="#i-send"/></svg>أرسل</button></div>
+  </div>
+</main>
+
+<!-- WORKBENCH -->
+<main class="view" id="v-bench">
+  <div class="wb">
+    <nav class="rail" aria-label="المشاريع والتشغيلات">
+      <button class="btn btn-secondary btn-sm" style="width:100%"><svg class="ic" style="width:18px;height:18px"><use href="#i-plus"/></svg>مشروع جديد</button>
+      <h4>سيستم كاشير</h4>
+      <div class="rrow sel"><span>التشغيل <bdi class="ltr">#3</bdi></span><span class="pill p-wait">ينتظرك</span></div>
+      <div class="rrow"><span>التشغيل <bdi class="ltr">#2</bdi></span><span class="pill p-fail">فشل</span></div>
+      <h4>متجر العطور</h4>
+      <div class="rrow"><span>التشغيل <bdi class="ltr">#1</bdi></span><span class="pill p-run">يعمل</span></div>
+      <h4>موقع العيادة</h4>
+      <div class="rrow"><span>التشغيل <bdi class="ltr">#4</bdi></span><span class="pill p-done">سُلِّم</span></div>
+    </nav>
+    <div class="wmain">
+      <div class="whead"><h2>سيستم كاشير · التشغيل <bdi class="ltr">#3</bdi></h2><span class="pill p-wait">بوابة: تصميم البيانات</span>
+        <div class="end"><button class="btn btn-secondary btn-sm">متابعة المرحلة</button><button class="btn btn-ghost btn-sm">إيقاف مؤقت</button><button class="btn btn-danger-ghost btn-sm">إلغاء</button></div></div>
+      <div class="stages" aria-label="المراحل التفصيلية"><span class="d">الاستقبال</span><span class="d">البحث</span><span class="d">المتطلبات</span><span class="d">بوابة أ</span><span class="d">التصميم</span><span class="c">المعمارية</span><span>بوابة ب</span><span>البرمجة</span><span>المراجعة</span><span>الجودة</span><span>الأمان</span><span>بوابة ج</span><span>الإصدار</span><span>بوابة د</span></div>
+      <div class="tabs" role="tablist" aria-label="أقسام التشغيل"><button role="tab" aria-selected="false">نظرة عامة</button><button role="tab" aria-selected="false">الخطة</button><button role="tab" aria-selected="false">الملفات</button><button role="tab" aria-selected="false">التغييرات</button><button role="tab" aria-selected="false">الطرفية</button><button role="tab" aria-selected="true">الفريق</button><button role="tab" aria-selected="false">التكلفة</button><button role="tab" aria-selected="false">المخرجات</button></div>
+      <table aria-label="الفريق">
+        <thead><tr><th scope="col">الدور</th><th scope="col">الحالة</th><th scope="col">النموذج</th><th scope="col">الرموز</th><th scope="col">التكلفة</th></tr></thead>
+        <tbody>
+          <tr><td>المنسّق</td><td><span class="pill p-run">يعمل</span></td><td><bdi class="ltr">deepseek/deepseek-chat</bdi></td><td><bdi class="ltr">48,210</bdi></td><td><bdi class="ltr">$0.41</bdi></td></tr>
+          <tr><td>المهندس</td><td><span class="pill p-wait">ينتظر قرارك</span></td><td><bdi class="ltr">anthropic/claude-sonnet</bdi></td><td><bdi class="ltr">91,004</bdi></td><td><bdi class="ltr">$1.62</bdi></td></tr>
+          <tr><td>المبرمج</td><td><span class="pill p-idle">خامل</span></td><td><bdi class="ltr">deepseek/deepseek-coder</bdi></td><td><bdi class="ltr">0</bdi></td><td><bdi class="ltr">$0.00</bdi></td></tr>
+          <tr><td>المراجع</td><td><span class="pill p-idle">خامل</span></td><td><bdi class="ltr">ollama/qwen2.5-coder</bdi></td><td><bdi class="ltr">0</bdi></td><td><bdi class="ltr">$0.00</bdi></td></tr>
+        </tbody>
+      </table>
+      <div class="card acomp">
+        <label for="fu" style="font-weight:600">تعليمات متابعة للفريق</label>
+        <textarea id="fu" placeholder="مثال: استخدم PostgreSQL بدل SQLite، وأضف جدول الخصومات."></textarea>
+        <div class="row">
+          <label class="faint" for="wf">سير العمل</label><select id="wf" class="sel"><option>خط المصنع الكامل</option></select>
+          <label class="faint" for="md">النموذج</label><select id="md" class="sel"><option>حسب توجيه الأدوار</option></select>
+          <div class="seg" role="radiogroup" aria-label="الوضع" style="margin-inline-start:4px"><button role="radio" aria-checked="true" style="min-height:28px;padding:2px 12px">خطة</button><button role="radio" aria-checked="false" style="min-height:28px;padding:2px 12px">تنفيذ</button></div>
+          <span style="flex:1"></span><button class="btn btn-primary btn-sm">أرسل للفريق</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- SETTINGS -->
+<main class="view" id="v-settings">
+  <div class="set">
+    <nav class="snav" aria-label="أقسام الإعدادات">
+      <a href="#">عام</a>
+      <a href="#" aria-current="page"><svg class="ic" style="width:18px;height:18px"><use href="#i-cpu"/></svg>النماذج والمزوّدون</a>
+      <a href="#"><svg class="ic" style="width:18px;height:18px"><use href="#i-phone"/></svg>الأجهزة</a>
+      <div class="grp">متقدّم</div>
+      <a href="#"><svg class="ic" style="width:18px;height:18px"><use href="#i-flow"/></svg>سير العمل</a><a href="#">المهارات</a><a href="#">الإضافات وخوادم MCP</a><a href="#">المهام المجدولة</a><a href="#">الميزانيات</a><a href="#">ما بعد الإطلاق</a><a href="#">الواجهة الخلفية</a><a href="#">حول ورشة</a>
+    </nav>
+    <section>
+      <div class="sechead"><div><h1 style="font-size:28px;line-height:40px">النماذج والمزوّدون</h1><p class="muted" style="margin:0">من يكتب الكود لفريقك، وبأيّ نموذج يعمل كل دور.</p></div><button class="btn btn-primary"><svg class="ic" style="width:18px;height:18px"><use href="#i-plus"/></svg>أضف مزوّدًا</button></div>
+      <div class="card" style="margin-block:20px 28px">
+        <div class="prow"><span class="av">د</span><div class="grow"><b>ديب سيك</b><div class="faint" style="font-size:13px">مفتاح محفوظ في سلسلة المفاتيح · 3 نماذج</div></div><span class="pill p-done">يعمل</span><button class="btn btn-ghost btn-sm">اختبر الاتصال</button><button class="btn btn-ghost btn-sm">جلب النماذج</button><button class="iconbtn" aria-label="خيارات ديب سيك"><svg class="ic"><use href="#i-more"/></svg></button></div>
+        <div class="prow"><span class="av">أ</span><div class="grow"><b>أولاما</b><div class="faint" style="font-size:13px">محلي على <bdi class="ltr">http://localhost:11434</bdi></div></div><span class="pill p-fail">لا يستجيب</span><button class="btn btn-ghost btn-sm">اختبر الاتصال</button><button class="btn btn-ghost btn-sm">جلب النماذج</button><button class="iconbtn" aria-label="خيارات أولاما"><svg class="ic"><use href="#i-more"/></svg></button></div>
+        <div class="prow"><span class="av"><svg class="ic" style="width:18px;height:18px"><use href="#i-globe"/></svg></span><div class="grow"><b>9router</b> <span class="faint" style="font-size:13px">(نقطة نهاية مخصّصة)</span><div class="faint" style="font-size:13px"><bdi class="ltr">https://router.example/v1</bdi></div></div><span class="pill p-done">يعمل</span><button class="btn btn-ghost btn-sm">اختبر الاتصال</button><button class="btn btn-ghost btn-sm">جلب النماذج</button><button class="iconbtn" aria-label="خيارات 9router"><svg class="ic"><use href="#i-more"/></svg></button></div>
+      </div>
+      <h2>من يعمل بأيّ نموذج</h2>
+      <table style="margin-block-start:12px" aria-label="توجيه الأدوار">
+        <thead><tr><th scope="col">الدور</th><th scope="col">النموذج</th><th scope="col"></th></tr></thead>
+        <tbody>
+          <tr><td>المنسّق</td><td><select class="sel"><option>deepseek/deepseek-chat</option></select></td><td><span class="faint">افتراضي</span></td></tr>
+          <tr><td>المهندس</td><td><select class="sel"><option>anthropic/claude-sonnet</option></select></td><td></td></tr>
+          <tr><td>المبرمج</td><td><select class="sel"><option>deepseek/deepseek-coder</option></select></td><td></td></tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+</main>
+
+<!-- DESIGN SYSTEM -->
+<main class="view" id="v-ds">
+  <div class="ds">
+    <h1 style="font-size:28px;line-height:40px">حِرفة — نظام تصميم ورشة v3</h1>
+    <p class="muted">لون رئيسي واحد للفعل الأساسي، ولون كهرماني واحد يعني «شيء ينتظر قرارك». كل الأزواج النصّية تتجاوز 4.5:1 في الوضعين.</p>
+    <h2>الألوان</h2>
+    <div class="sw" id="sw"></div>
+    <h2>الأزرار</h2>
+    <div class="row-g"><button class="btn btn-primary">ابدأ المشروع</button><button class="btn btn-secondary">اطلب تعديلًا</button><button class="btn btn-ghost">إلغاء</button><button class="btn btn-danger-ghost">احذف</button><button class="btn btn-primary" aria-disabled="true" style="opacity:1;background:var(--w-sunken);color:var(--w-text-faint);cursor:not-allowed">أضِف مزوّدًا أولًا</button></div>
+    <h2>الحالات</h2>
+    <div class="row-g"><span class="pill p-idle">خامل</span><span class="pill p-run">يعمل</span><span class="pill p-wait">ينتظرك</span><span class="pill p-done">تمّ</span><span class="pill p-fail">فشل</span></div>
+    <h2>الحقول</h2>
+    <div class="row-g" style="max-width:520px;display:block">
+      <div class="field" style="margin-block-end:12px"><label for="k">مفتاح الواجهة البرمجية</label><input id="k" class="input" type="password" value="••••••••••••"><div class="faint" style="font-size:13px;margin-block-start:4px">يُحفظ في سلسلة مفاتيح النظام ولا يغادر جهازك.</div></div>
+      <div class="field"><label for="b">حدّ الإنفاق لهذا المشروع</label><input id="b" class="input" value="10" style="direction:ltr;text-align:end"></div>
+    </div>
+    <h2>الخط</h2>
+    <p style="font-size:36px;line-height:48px;font-weight:700;margin:8px 0">ماذا نبني اليوم؟</p>
+    <p style="font-size:22px;line-height:32px;font-weight:600;margin:0">عنوان قسم</p>
+    <p style="margin:0">نص أساسي بخط IBM Plex Sans Arabic، بارتفاع سطر مريح للعربية.</p>
+    <p class="ltr" style="margin:0">runs.start · deepseek/deepseek-chat · $10.00</p>
+  </div>
+</main>
+
+<script>
+(function(){
+  var btns=document.querySelectorAll('.pv [data-v]');
+  btns.forEach(function(b){b.addEventListener('click',function(){
+    btns.forEach(function(x){x.setAttribute('aria-pressed',String(x===b));});
+    document.querySelectorAll('.view').forEach(function(v){v.classList.toggle('on',v.id==='v-'+b.dataset.v);});
+    window.scrollTo(0,0);
+  });});
+  var th=document.getElementById('theme');
+  th.addEventListener('click',function(){var d=document.documentElement;var dark=d.dataset.theme!=='dark';d.dataset.theme=dark?'dark':'light';th.setAttribute('aria-pressed',String(dark));th.textContent=dark?'الوضع الفاتح':'الوضع الداكن';paint();});
+  var names=['bg','surface','sunken','line','line-strong','text','text-muted','primary','primary-soft','primary-text','attention','attention-soft','success','success-soft','danger','danger-soft','info','info-soft'];
+  function paint(){var cs=getComputedStyle(document.documentElement);document.getElementById('sw').innerHTML=names.map(function(n){var v=cs.getPropertyValue('--w-'+n).trim();return '<div><i style="background:'+v+'"></i><p><span class="ltr">--w-'+n+'</span><br><span class="ltr faint">'+v+'</span></p></div>';}).join('');}
+  paint();
+})();
+</script>
+</body>
+</html>

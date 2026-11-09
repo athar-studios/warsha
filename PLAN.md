@@ -587,7 +587,29 @@ should reuse `split_command`; remaining `TODO(M20 wiring)` sites (`RunView`, `Ad
 `SettingsScreen`, stale `ArtifactViewer`); the timing-fragile `sleep 30` process tests; harness stub
 shape drift (`postlaunch.*`, `backend.export`, `handoff.*`).
 
-## Run 2026-11-09 — Phase B visual wave + build finalisation (P1–P7) — PLANNED, not started
+## Run 2026-11-09 — UI v3: new design system «حِرفة», every page rebuilt, every control wired — PLANNED, awaiting OD-U0
+
+Run id `2026-11-09-ui-v3`, evidence `bridge-io/policy/2026-11-09-ui-v3/` (`state.json` seq 2, 151 frozen gates,
+`HANDOVER.md` = the Qoder prompt, `PACKETS.md`, `OWNER_DECISIONS.md`). Spec: `docs/designs/DESIGN_SYSTEM_V3.md`,
+`docs/designs/UI_V3_PLAN.md`, visual reference `docs/designs/v3-preview.html`. Integration branch
+`run/2026-11-09-ui-v3/integration`; worktrees `C:/Users/Dragonfly/Downloads/warsha-wt/v3/<p>`. v3 is built beside v2
+(`?ui=v3`) and v2 stays the default — and its e2e suites stay green — until the cutover packet U7.
+
+- [ ] **Owner** approves the spec (OD-U0, hard stop) and answers OD-U1 (refresh mode), OD-U2 (fonts), OD-U3 (cutover), OD-B3 (version), OD-B4 (agent command policy), OD-B6 (hygiene)
+- [ ] **G0** + R0 (v0.2.1 drift on v2, fenced)
+- [ ] Wave A: **U0** DS foundation · **U2** v3 app infrastructure · **H1** harness truth + RPC log · **R1** Rust hygiene · **V1** release truth
+- [ ] **C1** merges + RH1
+- [ ] Wave B: **U1** DS composites · **E0** e2e v3 support · (**P7** if OD-B4 = approve)
+- [ ] **C2** merges
+- [ ] Wave C: **U3** Simple pages (frame, onboarding, home, projects, project, inbox) · **U4** Workbench · **U5** Settings · **U6** Remote PWA on v3
+- [ ] **C3** merges + genesis baselines RU3/RU4/RU5 + RU6
+- [ ] **U7** cutover (only on OD-U3) → v3 is the only UI; v2 code, specs and 763 desktop baselines deleted
+- [ ] **C-final** — INT-REL, GC.1–GC.17 (incl. the action contract, Arabic-only, palette and simplicity gates), local draft bundle → ready for acceptance
+
+Not built because the daemon has no method for it (follow-ups): release preflight, web deploy, eco mode, project
+rename/archive, slash commands and `@` mentions, fast-mode tier, permission-mode chip, MCP console, raw process control.
+
+## Run 2026-11-09 — Phase B visual wave + build finalisation (P1–P7) — SUPERSEDED by "Run 2026-11-09 — UI v3" (not executed; P2/P3/P4/P7 continue there as H1/R1/V1/P7)
 
 Run id `2026-11-09-phase-b-visual-wave`, evidence `bridge-io/policy/2026-11-09-phase-b-visual-wave/`
 (`state.json` seq 2, phase `plan`, 94 frozen gates; `HANDOVER.md` is the orchestrator prompt; `PACKETS.md` the worker
