@@ -576,9 +576,10 @@ visual 308, flows 30, layout 12, onboarding 3), remote 91 (bench.visual 84, flow
   web preflight are green on the release commit (`release/preflight-rust.out`, `release/preflight-web.out`),
   the three release artifacts were built and verified, and the **local draft bundle** is staged at
   `dist/release/v0.2.0/` (Windows NSIS + MSI, signed APK, Docker image tarball, two CycloneDX SBOMs,
-  `checksums.sha256`, release notes). The GitHub draft release was **not** created; nothing was pushed,
-  tagged or published, and `dist/` is gitignored. See `PROGRESS.md` and
-  `dist/release/v0.2.0/CREATE_DRAFT_RELEASE.md`.
+  `checksums.sha256`, release notes). The owner then authorised shipping: `main` fast-forwarded to
+  `4d76e69` and was pushed, tag `v0.2.0` was pushed, and
+  <https://github.com/athar-studios/warsha/releases/tag/v0.2.0> was published with all seven assets.
+  `dist/` stays gitignored. See `PROGRESS.md`.
 
 Phase B (visual wave, owner names the baseline set) and Phase C (IBM Plex vendoring, OFL-1.1 notice)
 are listed in `DESIGN_SYSTEM_V2.md` §9. Logged follow-ups outside this run: `warshad` `start_preview`

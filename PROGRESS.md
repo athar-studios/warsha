@@ -55,14 +55,21 @@ Built on the release commit `13a3b60` (working tree clean before and after; `dis
   `.github/workflows/release.yml`): `sbom-cli.cdx.xml` (359 components) and `sbom-daemon.cdx.xml`
   (358 components).
 - **Bundle** — `dist/release/v0.2.0/`: `upload/` (six assets + `checksums.sha256`, verified with
-  `sha256sum -c`), `RELEASE_NOTES.md`, `RELEASE_MANIFEST.json`, `CREATE_DRAFT_RELEASE.md`. The GitHub draft
-  release was **not** created: the repository has no tags, so `gh release create` would create and push a
-  new tag — an external write the owner has not authorised. Nothing was pushed, tagged or published.
+  `sha256sum -c`), `RELEASE_NOTES.md`, `RELEASE_MANIFEST.json`, `CREATE_DRAFT_RELEASE.md`. The owner then
+  authorised shipping: `main` fast-forwarded `2f042d1` → `4d76e69` and was pushed to `origin`, tag
+  `v0.2.0` was pushed, and the GitHub release
+  <https://github.com/athar-studios/warsha/releases/tag/v0.2.0> was published (not a draft) with all seven
+  assets. The bundle directory itself stays gitignored.
+- **Installed on the owner's Windows host** — the NSIS package installed silently to
+  `%LOCALAPPDATA%\Programs\Warsha` (exit 0); the installed binary's `--self-check` passed **11/11**; the
+  GUI launched and `/health` answered `{"status":"healthy"}` on 8765. The pre-existing `%APPDATA%\warsha`
+  data directory (which failed the migration check) was moved to `warsha.bak-2026-11-09T0210Z` first, so
+  the app started on a fresh data directory; the backup is intact for a manual restore.
 
 Known limits carried into the notes: the Windows installers are unsigned; no macOS/Linux desktop bundles
 were built locally (the tag-driven CI matrix builds them); the container image was not pushed anywhere;
-component versions differ (desktop 0.2.0, CLI/daemon/APK 0.1.0), so the proposed `v0.2.0` tag needs the
-owner's confirmation.
+component versions differ (desktop 0.2.0, CLI/daemon/APK 0.1.0), shipped together under the `v0.2.0` tag;
+aligning them remains future work.
 
 ## Run 2026-11-08 — Design System v2 + post-Qoder remediation (ALL 8 PACKETS MERGED at `a643a53`; C3 swept; awaiting owner acceptance)
 
