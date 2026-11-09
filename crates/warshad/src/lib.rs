@@ -3485,13 +3485,14 @@ impl WarshaApiServer for WarshaRpc {
         command: String,
     ) -> RpcResult<LivePreview> {
         self.authorize(ext, "preview.start")?;
-        // The command line is split on whitespace by the pipeline (no shell), so
-        // `npm run dev` runs `npm` with `run dev` and nothing else is interpreted.
-        // The policy judges the program the pipeline will start, which is its first
-        // word (audit H-05).
+        // The command line is quote-aware split by the pipeline (no shell) via
+        // `split_command`, so a program or argument with spaces survives quoting.
+        // The policy judges the program the pipeline will start, which is its
+        // first token (audit H-05).
         let policy = self.process_policy();
-        let program = command.split_whitespace().next().unwrap_or_default();
-        policy.check_command(program).map_err(rpc_policy_refused)?;
+        let (program, _) = warsha_pipeline::LivePreviewManager::split_command(&command)
+            .map_err(|e| rpc_policy_refused(e.to_string()))?;
+        policy.check_command(&program).map_err(rpc_policy_refused)?;
         self.state
             .previews
             .start(&project_id, &command)
@@ -8959,6 +8960,45 @@ mod tests {
             .await
             .expect_err("enabling plugin with nonexistent binary must fail with an RPC error");
         assert_eq!(rpc_error_code(&err), -32000);
+    }
+
+    #[tokio::test]
+    async fn preview_policy_allows_allow_listed_quoted_path_with_spaces() {
+        let temp = crate::test_util::fresh_tempdir();
+        let custom_bin = "C:/Program Files/My Tools/dev-server.exe".to_string();
+        let (state, _store) = test_state_with(temp.path(), |config| {
+            config.allowed_commands = vec![custom_bin.clone()];
+        })
+        .await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+        let cmd = format!("\"{custom_bin}\" --port 3000");
+        let result = rpc.start_preview(&owner, "proj-1".to_string(), cmd).await;
+        if let Err(err) = result {
+            assert_ne!(
+                rpc_error_code(&err),
+                auth::rpc_codes::POLICY_REFUSED,
+                "allow-listed quoted command was rejected by policy"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn preview_policy_refuses_quoted_path_with_spaces_not_allowed() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+        let cmd = "\"C:/Program Files/Disallowed Tool/evil.exe\" --port 3000".to_string();
+        let err = rpc
+            .start_preview(&owner, "proj-1".to_string(), cmd)
+            .await
+            .expect_err("disallowed quoted command must be rejected by policy");
+        assert_eq!(
+            rpc_error_code(&err),
+            auth::rpc_codes::POLICY_REFUSED,
+            "disallowed command must return POLICY_REFUSED (-32001)"
+        );
     }
 }
 
