@@ -85,7 +85,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # No `version:` input here on purpose: package.json's
       # `"packageManager": "pnpm@9.0.0"` is the single source of truth. Passing

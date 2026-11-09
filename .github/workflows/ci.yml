@@ -28,7 +28,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -213,7 +213,7 @@ jobs:
       # would quietly shrink the scanned set to the tip while still printing
       # "no leaks found" and exiting 0.
       - name: Checkout (full history)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -275,7 +275,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # ONE source of truth for the pnpm version: package.json's
       # `"packageManager": "pnpm@9.0.0"` (package.json:41). pnpm/action-setup@v4
@@ -404,7 +404,7 @@ jobs:
         language: [rust, javascript-typescript]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # The two Build steps below invoke tools this job never installed. That is
       # what run 41752421903 proved for the JS/TS leg: `Build (TypeScript)` died
@@ -486,7 +486,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # `uses: rhysd/actionlint@v1` was here and could never run: that repository
       # publishes no action.yml, so there is no action metadata for the runner to
