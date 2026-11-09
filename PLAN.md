@@ -569,6 +569,17 @@ visual 308, flows 30, layout 12, onboarding 3), remote 91 (bench.visual 84, flow
 - [x] **C2 / INT-2** — W2 merged at C2a/C2b/C2c; W5 at C2d; `APP_LENGTH_BUDGET` set to 0 at `e914ad3` (`@warsha/ui` 181 passed at the constant 0). — merge W2 + W5; set `APP_LENGTH_BUDGET = 0` in `packages/ui/src/tokens/tokenDrift.test.ts` (planner-specified one-line tightening)
 - [x] **C3** — swept at the final tip `a643a53`: GC.1–GC.9 and GC.11 pass; GC.10 passes on desktop (**793/0, 0 snapshot writes**) and its remote half is blocked on OD1; GC.12 passes every W7 gate except `G7.6` (OD2) after the APK was rebuilt on the integrated tree (842,981 B, `apksigner` Verifies, v2, RSA-4096, G7.5 grep exit 0). `acceptance.json` carries a verdict for all 108 gates. **Owner acceptance and the `dev` merge remain.** — full gate sweep on the integration branch (Windows + Linux capture host; W7 gates re-run on the integrated tree) → owner acceptance → merge to `dev`
 
+- [x] **Post-acceptance delivery** — at `13a3b60`: the owner accepted the run at seq 59 and authorised the
+  fast-forward merge, so `dev` moved `642ae95` → `282bcd6` with a clean tree and no conflicts. The three
+  resolutions were implemented (OD1: `runs.subscribe` harness gap then exactly 8 baselines refreshed;
+  OD2: value-anchored `G7.6`; OD6: read-before-write wired into `warshad` with creation exempt). Rust and
+  web preflight are green on the release commit (`release/preflight-rust.out`, `release/preflight-web.out`),
+  the three release artifacts were built and verified, and the **local draft bundle** is staged at
+  `dist/release/v0.2.0/` (Windows NSIS + MSI, signed APK, Docker image tarball, two CycloneDX SBOMs,
+  `checksums.sha256`, release notes). The GitHub draft release was **not** created; nothing was pushed,
+  tagged or published, and `dist/` is gitignored. See `PROGRESS.md` and
+  `dist/release/v0.2.0/CREATE_DRAFT_RELEASE.md`.
+
 Phase B (visual wave, owner names the baseline set) and Phase C (IBM Plex vendoring, OFL-1.1 notice)
 are listed in `DESIGN_SYSTEM_V2.md` §9. Logged follow-ups outside this run: `warshad` `start_preview`
 should reuse `split_command`; remaining `TODO(M20 wiring)` sites (`RunView`, `AdvancedMode`,

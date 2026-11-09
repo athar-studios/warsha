@@ -25,9 +25,40 @@ The owner also resolved the three open decisions, and all three are implemented:
   allows a non-existent target, and otherwise requires a prior read. `warsha-pipeline` 355 passed,
   workspace 746 passed, fmt and `clippy -D warnings` clean.
 
-Pre-release preflight on the accepted tip is green: `cargo fmt`, `check-arch` (5 rules),
-`check-engineering-policy` (8 checks), `check-wire-contract` (9 checks) each with their self-tests,
-`pnpm -r build`, `pnpm -r test`, `mdbook test` and `gitleaks` - all exit 0.
+Pre-release preflight at the release commit `13a3b60` is green, with logs: `release/preflight-rust.out`
+(`cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo test --workspace --all-targets` -> **746 passed / 0 failed / 10 ignored across 36 suites**) and
+`release/preflight-web.out` (`pnpm -r build`, `pnpm -r test` -> ui 181, client 148, crypto 22, i18n 52,
+remote 221, desktop 464; `check-arch` 5 rules, `check-engineering-policy` 8 checks,
+`check-wire-contract` 9 checks, each with its self-test; `mdbook test`; `gitleaks` 158 commits /
+50.25 MB, no leaks). All exit 0.
+
+### Post-acceptance delivery — release artifacts and the local draft bundle
+
+Built on the release commit `13a3b60` (working tree clean before and after; `dist/` is gitignored):
+
+- **Windows installers** — `Warsha_0.2.0_x64-setup.exe` (6,881,725 B,
+  `5a6e5034…6d1f1a9`) and `Warsha_0.2.0_x64_en-US.msi` (9,609,216 B, `0f56ed84…2fde0c5`) from
+  `tauri build`. **Authenticode: NotSigned** — no code-signing certificate is configured, so SmartScreen
+  will warn.
+- **Android** — `app-release.apk` 842,981 B (`6a468185…e2700ef`); `apksigner` **Verifies**, APK Signature
+  Scheme v2 only, RSA-4096, certificate SHA-256 `ad2708e4…f3c3`; package `dev.warsha.remote`,
+  versionName 0.1.0, versionCode 1 (confirmed with `aapt2 dump badging` on the bundled copy).
+- **Docker** — built from `docker/Dockerfile` as `warsha:acceptance`, re-tagged `warsha:0.1.0` for the
+  bundle; manifest list `sha256:bee73f42…3a18`, 186,949,308 B uncompressed; smoke run prints
+  `warsha 0.1.0`; exported to `warsha-0.1.0-docker-image.tar.gz` (49,864,914 B, gzip verified).
+- **SBOMs** — CycloneDX 1.3 XML from the pinned `cargo-cyclonedx 0.5.9` (same tool as
+  `.github/workflows/release.yml`): `sbom-cli.cdx.xml` (359 components) and `sbom-daemon.cdx.xml`
+  (358 components).
+- **Bundle** — `dist/release/v0.2.0/`: `upload/` (six assets + `checksums.sha256`, verified with
+  `sha256sum -c`), `RELEASE_NOTES.md`, `RELEASE_MANIFEST.json`, `CREATE_DRAFT_RELEASE.md`. The GitHub draft
+  release was **not** created: the repository has no tags, so `gh release create` would create and push a
+  new tag — an external write the owner has not authorised. Nothing was pushed, tagged or published.
+
+Known limits carried into the notes: the Windows installers are unsigned; no macOS/Linux desktop bundles
+were built locally (the tag-driven CI matrix builds them); the container image was not pushed anywhere;
+component versions differ (desktop 0.2.0, CLI/daemon/APK 0.1.0), so the proposed `v0.2.0` tag needs the
+owner's confirmation.
 
 ## Run 2026-11-08 — Design System v2 + post-Qoder remediation (ALL 8 PACKETS MERGED at `a643a53`; C3 swept; awaiting owner acceptance)
 
