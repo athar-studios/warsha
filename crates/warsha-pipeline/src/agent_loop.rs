@@ -1167,7 +1167,7 @@ mod tests {
         }
 
         // The write lock is what `providers.add`, `providers.remove` and `roles.set` need.
-        let acquired = tokio::time::timeout(Duration::from_millis(200), router.write()).await;
+        let acquired = tokio::time::timeout(Duration::from_millis(100), router.write()).await;
         assert!(
             acquired.is_ok(),
             "an agent turn held the router's write lock across its backoff sleep"
