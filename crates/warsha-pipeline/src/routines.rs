@@ -1019,11 +1019,31 @@ mod tests {
     #[tokio::test]
     async fn scheduler_graceful_stop() {
         let registry = Arc::new(RwLock::new(RoutineRegistry::new()));
+        registry
+            .write()
+            .await
+            .register(Routine::new(
+                "task_stop",
+                "Task Stop",
+                RoutineSchedule::IntervalSeconds(60),
+            ))
+            .expect("registers");
         let runner = Arc::new(MockRoutineRunner::new());
-        let scheduler = RoutineScheduler::new(registry, runner);
+        let scheduler = RoutineScheduler::new(registry, Arc::clone(&runner) as _);
 
         let handle = scheduler.start(std::time::Duration::from_millis(5));
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            if !runner.run_ids().is_empty() {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "scheduler background task never executed initial tick"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
 
         scheduler.stop();
         let result = tokio::time::timeout(std::time::Duration::from_millis(200), handle).await;

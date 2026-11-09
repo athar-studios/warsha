@@ -1079,10 +1079,9 @@ mod tests {
                 "tools/list" => json!({
                     "tools": [{ "name": "echo", "description": "echo tool", "inputSchema": { "type": "object" } }],
                 }),
-                "tools/call" => {
-                    std::thread::sleep(Duration::from_secs(30));
-                    continue;
-                }
+                "tools/call" => loop {
+                    std::thread::park();
+                },
                 _ => {
                     println!(
                         "{}",
@@ -1164,7 +1163,9 @@ mod tests {
         if !std::env::args().any(|arg| arg == "--exact") {
             return;
         }
-        std::thread::sleep(Duration::from_secs(30));
+        loop {
+            std::thread::park();
+        }
     }
 
     /// A stdio server that answers `initialize` with a protocol error.

@@ -964,7 +964,9 @@ mod tests {
             return;
         }
         println!("  ➜  Local:   {PROBE_URL}");
-        std::thread::sleep(Duration::from_secs(30));
+        loop {
+            std::thread::park();
+        }
     }
 
     /// The probe's `program args…` as one command line, which is what a preview takes.
@@ -980,7 +982,9 @@ mod tests {
         if !std::env::args().any(|arg| arg == "--exact") {
             return;
         }
-        std::thread::sleep(Duration::from_secs(30));
+        loop {
+            std::thread::park();
+        }
     }
 
     /// The command line that spawns one probe of this test binary.
@@ -1020,10 +1024,7 @@ mod tests {
     /// A command that outlives the test (Unix half).
     #[cfg(not(windows))]
     fn long_running() -> (String, Vec<String>) {
-        (
-            "sh".to_string(),
-            vec!["-c".to_string(), "sleep 30".to_string()],
-        )
+        ("sh".to_string(), vec!["-c".to_string(), "cat".to_string()])
     }
 
     /// A command that exits immediately with code 0.

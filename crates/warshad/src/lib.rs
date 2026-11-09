@@ -8022,7 +8022,9 @@ mod tests {
             return;
         }
         println!("  ➜  Local:   {PROBE_URL}");
-        std::thread::sleep(std::time::Duration::from_secs(30));
+        loop {
+            std::thread::park();
+        }
     }
 
     /// The command line that starts one probe of this test binary.
@@ -8064,10 +8066,7 @@ mod tests {
     /// A program plus args that keeps running until the test stops it (Unix).
     #[cfg(not(windows))]
     fn long_running() -> (String, Vec<String>) {
-        (
-            "sh".to_string(),
-            vec!["-c".to_string(), "sleep 30".to_string()],
-        )
+        ("sh".to_string(), vec!["-c".to_string(), "cat".to_string()])
     }
 
     #[tokio::test]
