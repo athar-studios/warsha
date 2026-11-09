@@ -1049,7 +1049,7 @@ function bindPairingData(source: Record<string, unknown>): StubOutcome {
 }
 
 /** What the stub answers for one call: a result, or an error the screen is meant to show. */
-type StubOutcome = { ok: true; result: unknown } | { ok: false; code: number; message: string };
+export type StubOutcome = { ok: true; result: unknown } | { ok: false; code: number; message: string };
 
 /** The wire shape `warsha_core::HarnessDefinition` serialises (`harness.get`/`harness.import`). */
 function harnessRow(id: string): Record<string, unknown> {
@@ -1282,7 +1282,7 @@ function bindRunModeConfig(value: unknown): { config: Record<string, unknown> } 
  * `StubReport.unimplemented` and fails a case, and it is deliberately different from an error the
  * daemon is modelled as returning (a refused API key), which a screen is supposed to render.
  */
-function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): StubOutcome | null {
+export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): StubOutcome | null {
   const override = daemon.fixtures[method];
   if (override !== undefined && (override.result !== undefined || override.error !== undefined)) {
     if (override.error !== undefined) return { ok: false, code: -32001, message: override.error };
@@ -1554,57 +1554,62 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
     case 'postlaunch.crashes':
       return {
         ok: true,
-        result: {
-          crashes: [
-            {
-              id: 'crash-9f3a',
-              run_id: 'run-code',
-              message: 'تعطلت المعاينة بعد تحميل الحزمة، ولم تُحفظ المراجعة',
-              stack_trace: '    at BenchPreview.render (src/components/LivePreview.tsx:118:9)',
-              occurred_at: 1764939300,
-              sent: false,
-            },
-            {
-              id: 'crash-4b71',
-              run_id: 'run-gate-a',
-              message: 'WebSocket closed while the run was waiting on a gate',
-              stack_trace: null,
-              occurred_at: 1764935700,
-              sent: true,
-            },
-          ],
-        },
+        result: [
+          {
+            id: 'crash-9f3a',
+            run_id: 'run-code',
+            message: 'تعطلت المعاينة بعد تحميل الحزمة، ولم تُحفظ المراجعة',
+            stack_trace: '    at BenchPreview.render (src/components/LivePreview.tsx:118:9)',
+            occurred_at: 1764939300,
+            sent: false,
+          },
+          {
+            id: 'crash-4b71',
+            run_id: 'run-gate-a',
+            message: 'WebSocket closed while the run was waiting on a gate',
+            stack_trace: null,
+            occurred_at: 1764935700,
+            sent: true,
+          },
+        ],
       };
     case 'postlaunch.reviews':
       return {
         ok: true,
-        result: {
-          reviews: [
-            {
-              id: 'rev-1',
-              store: 'play',
-              rating: 5,
-              body: 'أفضل أداة متابعة للعمل، عربية من البداية إلى النهاية',
-              author: 'Maha',
-              received_at: 1764939300,
-            },
-            {
-              id: 'rev-2',
-              store: 'ios',
-              rating: 3,
-              body: 'Works well, but I would like a darker theme for night shifts.',
-              author: 'Omar',
-              received_at: 1764935700,
-            },
-          ],
-        },
+        result: [
+          {
+            id: 'rev-1',
+            store: 'play',
+            rating: 5,
+            body: 'أفضل أداة متابعة للعمل، عربية من البداية إلى النهاية',
+            author: 'Maha',
+            received_at: 1764939300,
+          },
+          {
+            id: 'rev-2',
+            store: 'ios',
+            rating: 3,
+            body: 'Works well, but I would like a darker theme for night shifts.',
+            author: 'Omar',
+            received_at: 1764935700,
+          },
+        ],
       };
     case 'backend.export':
-      return { ok: true, result: { path: '/tmp/warsha/backend-kit' } };
+      return { ok: true, result: '/tmp/warsha/backend-kit' };
     case 'handoff.create':
-      return { ok: true, result: { path: '/tmp/warsha/handoff.zip' } };
+      return { ok: true, result: '/tmp/warsha/handoff.zip' };
     case 'handoff.apply':
-      return { ok: true, result: { summary: '{"files":3,"conflicts":0}' } };
+      return {
+        ok: true,
+        result: JSON.stringify({
+          applied: ['src/App.tsx', 'package.json'],
+          conflicts: [],
+          backups: ['/tmp/warsha/.warsha-backup/1764939300/src/App.tsx'],
+          resolved: [],
+          backup_dir: '/tmp/warsha/.warsha-backup/1764939300',
+        }),
+      };
     // Wave 2 reads and writes plus the wiring batch (PLAN.md M16/M19/M20). These stubs exist to keep
     // W9 honest (every client method has a stub) and to model the daemon's own answers: reads list
     // `[]` or answer `null`, and the mutations echo a minimal valid row built from the request.
@@ -1727,7 +1732,7 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
     case 'files.read':
       if (!paramEntry(params, 'project_id').found) return missingField('project_id');
       if (!paramEntry(params, 'path').found) return missingField('path');
-      return { ok: true, result: { path: paramValue(params, 'path') ?? '', content: '', mime_type: 'text/plain' } };
+      return { ok: true, result: { content: '', mime_type: 'text/plain', path: paramValue(params, 'path') ?? '' } };
     // `routines.*` (`warsha_pipeline::Routine`; lib.rs list/get/run_now/pause/resume). The registry
     // starts empty, so the two reads answer `[]`/`null`; each mutation echoes the row it acted on —
     // the state the daemon's runner would have moved it to (`run_now` → `running`, `pause` →
@@ -2335,33 +2340,29 @@ export const SCENARIOS: readonly Scenario[] = [
         ],
       },
       'postlaunch.reviews': {
-        result: {
-          reviews: [
-            {
-              id: 'rev-long',
-              store: 'play',
-              rating: 4,
-              body: 'أستخدم التطبيق لمتابعة أعمال الورشة منذ إصداره الأول وهو ممتاز، لكنني أتمنى إضافة تقارير مفصلة عن التكاليف لكل مشروع مع إمكانية تصديرها إلى جدول بيانات مباشرة من الهاتف دون الحاجة إلى اتصال بالإنترنت',
-              author: 'عبدالرحمن',
-              received_at: 1764939300,
-            },
-          ],
-        },
+        result: [
+          {
+            id: 'rev-long',
+            store: 'play',
+            rating: 4,
+            body: 'أستخدم التطبيق لمتابعة أعمال الورشة منذ إصداره الأول وهو ممتاز، لكنني أتمنى إضافة تقارير مفصلة عن التكاليف لكل مشروع مع إمكانية تصديرها إلى جدول بيانات مباشرة من الهاتف دون الحاجة إلى اتصال بالإنترنت',
+            author: 'عبدالرحمن',
+            received_at: 1764939300,
+          },
+        ],
       },
       'postlaunch.crashes': {
-        result: {
-          crashes: [
-            {
-              id: 'crash-bidi',
-              run_id: 'run-code',
-              message:
-                'فشل تحميل المعاينة عند المسار src/components/LivePreview.tsx:118 بينما كان الأمر cargo test --workspace يعمل',
-              stack_trace: 'thread main panicked at src/main.rs:42',
-              occurred_at: 1764939300,
-              sent: false,
-            },
-          ],
-        },
+        result: [
+          {
+            id: 'crash-bidi',
+            run_id: 'run-code',
+            message:
+              'فشل تحميل المعاينة عند المسار src/components/LivePreview.tsx:118 بينما كان الأمر cargo test --workspace يعمل',
+            stack_trace: 'thread main panicked at src/main.rs:42',
+            occurred_at: 1764939300,
+            sent: false,
+          },
+        ],
       },
     },
     settle: 'settled',
