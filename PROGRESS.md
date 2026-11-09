@@ -21,6 +21,9 @@ provider names).
   brand names. Model ids, base URLs and the owner's own provider names remain technical LTR data.
 - **Client/wire** — `checkProviderModels` wraps `providers.check_models`; the desktop e2e harness knows
   the method (`wire: 9 checks, 0 violations`; `arch: 5 rules, 0 violations`).
+- **Version alignment** — the Rust workspace version moved `0.1.0` → `0.2.1`, so `warsha --version`,
+  `warshad --version` and the daemon's `/health` report 0.2.1; the installers were rebuilt and reinstalled
+  on the owner's PC.
 - **Evidence** — desktop typecheck exit 0; desktop suite 50 files exit 0 (onboarding 14, models 8,
   providers 13); client 149, i18n 52, ui 181; installers `Warsha_0.2.1_x64-setup.exe` and
   `Warsha_0.2.1_x64_en-US.msi`.
