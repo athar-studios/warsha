@@ -21,7 +21,8 @@ Advanced mode the options do nothing when clicked.* The audit agrees:
   composer with its own model picker. Two ways to start, two model selectors, no clear first step.
 - Several controls change state that never reaches the daemon or render hard-coded lists (see `UI_V3_PLAN.md` §1).
 - The project is labelled with a raw UUID; three "not reported yet" items fill the status strip; the accent yellow
-  fills every selected pill, so nothing reads as *the* action.
+  fills every selected pill, so nothing reads as *the* action. (v3 keeps the brand yellow — the owner asked for it —
+  but spends it on exactly one thing per view: the main action.)
 
 v3 answers with five rules that every component and page must obey.
 
@@ -34,8 +35,8 @@ v3 answers with five rules that every component and page must obey.
    hard-coded model or workflow lists, no "coming soon". (Machine-checked: `actions-gate.mjs`, §7.)
 3. **Plain Arabic first.** Simple mode speaks the owner's language: no English UI words, no internal names
    (harness, stage ids, role ids). Technical names appear only in Advanced mode, and as data (model ids, URLs, code).
-4. **Calm until you are needed.** One primary colour for the one main action and the current selection. The
-   attention colour (amber) means exactly one thing: *something is waiting for your decision*.
+4. **Calm until you are needed.** One primary colour — the Warsha logo yellow — for the one main action. The
+   attention colour (orange) means exactly one thing: *something is waiting for your decision*.
 5. **Same data, more detail.** Advanced is not a second app. It shows the same project with more panels, denser
    rows and every knob. Switching modes never loses context.
 
@@ -44,7 +45,10 @@ v3 answers with five rules that every component and page must obey.
 ### 2.1 Colour — semantic tokens (CSS `--w-*`, TS `color.*`)
 
 Values measured with `bridge-io/policy/2026-11-09-ui-v3/tools/contrast.mjs` (WCAG 2.x relative luminance);
-**all 48 pairs pass** (text ≥ 4.5:1, UI boundaries and focus ≥ 3:1).
+**all 50 pairs pass** (text ≥ 4.5:1, UI boundaries and focus ≥ 3:1). The primary is the logo yellow (owner decision,
+2026-11-09): it is used as a **fill with dark ink on it** (12.2 : 1). Yellow on the light background is only ≈1.3 : 1,
+so on the light theme every yellow *line or text* — links, focus ring, selected tab, current step — uses
+`primary-text` (dark gold, ≥ 5.3 : 1) instead; on the dark theme yellow works directly.
 
 | Token | Light | Dark | Use |
 | --- | --- | --- | --- |
@@ -56,17 +60,17 @@ Values measured with `bridge-io/policy/2026-11-09-ui-v3/tools/contrast.mjs` (WCA
 | `text` | `#1B1A17` | `#F1EEE7` | body and headings (15.8 / 16.2 : 1 on bg) |
 | `text-muted` | `#5F5B53` | `#B3AEA3` | secondary text (6.2 / 8.5 : 1 on bg) |
 | `text-faint` | `#7A756B` | `#948F84` | placeholders, meta (≥ 4.5 on surface) |
-| `primary` | `#0B6E5A` | `#3DBE9C` | the one main action, selection, links' underline |
-| `primary-hover` | `#095C4B` | `#56CFAE` | hover/pressed of `primary` |
-| `on-primary` | `#FFFFFF` | `#062A21` | text on `primary` (6.2 / 6.7 : 1) |
-| `primary-soft` | `#E1F1EC` | `#163A31` | selected row/chip background |
-| `primary-text` | `#0A5E4D` | `#5FD3B2` | links and selected text on any surface |
-| `attention` | `#8A5300` | `#F3B54A` | **waiting on the owner** — text/icon |
-| `attention-soft` | `#FFF1D6` | `#3A2B10` | decision cards, inbox badge background |
+| `primary` | `#FFD400` | `#FFD400` | **the logo yellow** — fill of the one main action (and the logo mark) |
+| `primary-hover` | `#F2C600` | `#FFE04A` | hover/pressed of `primary` |
+| `on-primary` | `#1B1A17` | `#1B1A17` | text/icon on `primary` (12.2 : 1 both themes) |
+| `primary-soft` | `#FFF4C2` | `#3A3008` | selected row/chip background (text on it ≥ 11 : 1) |
+| `primary-text` | `#7A5C00` | `#FFD84D` | links, selected text, selected tab and current-step indicator (≥ 5.3 / 9.4 : 1) |
+| `attention` | `#A8430A` | `#FF9D5C` | **waiting on the owner** — text/icon (orange, kept apart from the yellow) |
+| `attention-soft` | `#FFEEDF` | `#3D2314` | decision cards, inbox badge background |
 | `success` / `success-soft` | `#1B6B39` / `#E4F3E8` | `#5CC98A` / `#15301F` | done, passed |
 | `danger` / `danger-soft` | `#A8261D` / `#FCE9E7` | `#F07A70` / `#3A1714` | failed, destructive |
 | `info` / `info-soft` | `#1F55A0` / `#E7EFFA` | `#7DB0F5` / `#152842` | running, neutral notices |
-| `focus` | `#0B6E5A` | `#5FD3B2` | focus ring (≥ 5.6 : 1 on bg) |
+| `focus` | `#7A5C00` | `#FFD400` | focus ring (5.7 / 13.1 : 1 on bg) |
 | `scrim` | `#1B1A1766` | `#000000A3` | behind dialogs and sheets |
 
 Rules:
@@ -74,9 +78,11 @@ Rules:
   is `primary` only where the composer *is* the page's main action (Home); elsewhere (the Project dock, the
   Workbench) it is `secondary`, so a pending decision's «موافق» stays the only primary. `Button` renders
   `data-variant` so this is testable.
-- **`attention` is reserved** for gates and anything that blocks on the owner. Running work is `info`, never amber.
+- **`attention` is reserved** for gates and anything that blocks on the owner. Running work is `info`, never orange.
 - **Never colour alone**: every status has an icon and a word.
-- The brand yellow hexagon (`#FFD400`) appears **only in the logo mark**, never as a UI fill.
+- **Yellow is spent once per view.** `primary` fills the main action button (and the logo); it is never used for
+  selected pills, chips, tabs or rows — those use `primary-soft` + `primary-text` — so the yellow always means
+  "this is the next thing to do". Never yellow text or yellow thin lines on the light theme (use `primary-text`).
 - Themes: `light`, `dark`, `system` (default). No accent picker.
 
 ### 2.2 Typography
@@ -178,8 +184,8 @@ all states below; has a story and a test file; uses tokens only (no hex, no px l
 | `Toast` | transient result of an action | auto-dismiss 5s except errors; "retry" for failed RPCs |
 | `Dialog`, `Sheet` | confirmation; side panel | focus trap, Esc, return focus, `layer-modal`, scrim |
 | `Menu` | overflow actions | `role=menu`, arrows, typeahead |
-| `Stepper` | the 5 plain stages (Simple) / 14 detailed (Advanced) | current = `primary`, waiting = `attention`, done = `success`, failed = `danger` |
-| `DecisionCard` | a gate: question, plain rationale, consequences, Approve / Request changes / Reject | the only amber card; Request changes opens a required text field |
+| `Stepper` | the 5 plain stages (Simple) / 14 detailed (Advanced) | current = `primary-text`, waiting = `attention`, done = `success`, failed = `danger` |
+| `DecisionCard` | a gate: question, plain rationale, consequences, Approve / Request changes / Reject | the only orange (`attention`) card; its Approve is the view's yellow primary; Request changes opens a required text field |
 | `Composer` | `simple` (textarea + one send) / `advanced` (+ workflow, model, budget, mode, mentions, slash) | Enter sends, Shift+Enter new line; disabled + reason when no provider |
 | `ModelPicker` | **data-driven** from configured models/routing; shows provider in Arabic, id as LTR data | no hard-coded list; empty → "add a model" action |
 | `BudgetField` | presets come from settings, custom amount | `$` prefix isolated LTR |

@@ -13,9 +13,9 @@
 :root{
   --w-bg:#F6F4EF;--w-surface:#FFFFFF;--w-sunken:#EFECE5;--w-line:#E2DDD3;--w-line-strong:#8C877C;
   --w-text:#1B1A17;--w-text-muted:#5F5B53;--w-text-faint:#7A756B;
-  --w-primary:#0B6E5A;--w-primary-hover:#095C4B;--w-on-primary:#FFFFFF;--w-primary-soft:#E1F1EC;--w-primary-text:#0A5E4D;
-  --w-attention:#8A5300;--w-attention-soft:#FFF1D6;--w-success:#1B6B39;--w-success-soft:#E4F3E8;
-  --w-danger:#A8261D;--w-danger-soft:#FCE9E7;--w-info:#1F55A0;--w-info-soft:#E7EFFA;--w-focus:#0B6E5A;--w-scrim:#1B1A1766;
+  --w-primary:#FFD400;--w-primary-hover:#F2C600;--w-on-primary:#1B1A17;--w-primary-soft:#FFF4C2;--w-primary-text:#7A5C00;
+  --w-attention:#A8430A;--w-attention-soft:#FFEEDF;--w-success:#1B6B39;--w-success-soft:#E4F3E8;
+  --w-danger:#A8261D;--w-danger-soft:#FCE9E7;--w-info:#1F55A0;--w-info-soft:#E7EFFA;--w-focus:#7A5C00;--w-scrim:#1B1A1766;
   --w-shadow-1:0 1px 2px #1b1a170f,0 2px 8px #1b1a170a;--w-shadow-2:0 8px 24px #1b1a171f;
   --w-font:"IBM Plex Sans Arabic",system-ui,"Segoe UI",Tahoma,sans-serif;--w-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
   --w-r-sm:6px;--w-r-md:10px;--w-r-lg:14px;--w-r-xl:20px;--w-ease:cubic-bezier(.2,.8,.2,1);
@@ -23,9 +23,9 @@
 :root[data-theme="dark"]{
   --w-bg:#131210;--w-surface:#1B1A17;--w-sunken:#24221E;--w-line:#33302A;--w-line-strong:#7D776C;
   --w-text:#F1EEE7;--w-text-muted:#B3AEA3;--w-text-faint:#948F84;
-  --w-primary:#3DBE9C;--w-primary-hover:#56CFAE;--w-on-primary:#062A21;--w-primary-soft:#163A31;--w-primary-text:#5FD3B2;
-  --w-attention:#F3B54A;--w-attention-soft:#3A2B10;--w-success:#5CC98A;--w-success-soft:#15301F;
-  --w-danger:#F07A70;--w-danger-soft:#3A1714;--w-info:#7DB0F5;--w-info-soft:#152842;--w-focus:#5FD3B2;--w-scrim:#000000A3;
+  --w-primary:#FFD400;--w-primary-hover:#FFE04A;--w-on-primary:#1B1A17;--w-primary-soft:#3A3008;--w-primary-text:#FFD84D;
+  --w-attention:#FF9D5C;--w-attention-soft:#3D2314;--w-success:#5CC98A;--w-success-soft:#15301F;
+  --w-danger:#F07A70;--w-danger-soft:#3A1714;--w-info:#7DB0F5;--w-info-soft:#152842;--w-focus:#FFD400;--w-scrim:#000000A3;
   --w-shadow-1:0 1px 2px #0006;--w-shadow-2:0 8px 24px #0008;
 }
 *{box-sizing:border-box}
@@ -89,7 +89,7 @@ h3{font-size:18px;line-height:28px;margin:0;font-weight:600}
 .pcard{padding:16px;display:flex;flex-direction:column;gap:10px;cursor:pointer;transition:box-shadow .12s}
 .pcard:hover{box-shadow:var(--w-shadow-1);border-color:var(--w-line-strong)}
 .mini{display:flex;gap:4px} .mini i{flex:1;height:6px;border-radius:3px;background:var(--w-sunken)}
-.mini i.d{background:var(--w-success)} .mini i.c{background:var(--w-info)} .mini i.w{background:var(--w-attention)}
+.mini i.d{background:var(--w-success)} .mini i.c{background:var(--w-primary-text)} .mini i.w{background:var(--w-attention)}
 .sechead{display:flex;align-items:baseline;justify-content:space-between}
 /* project */
 .back{display:inline-flex;align-items:center;gap:6px;color:var(--w-text-muted);text-decoration:none;font-size:14px;margin-block-end:12px}
@@ -98,7 +98,7 @@ h3{font-size:18px;line-height:28px;margin:0;font-weight:600}
 .stepper{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-block:24px 8px;list-style:none;padding:0}
 .stepper li{display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--w-text-muted)}
 .stepper li span.bar{height:6px;border-radius:3px;background:var(--w-sunken)}
-.stepper li.d span.bar{background:var(--w-success)} .stepper li.c span.bar{background:var(--w-info)}
+.stepper li.d span.bar{background:var(--w-success)} .stepper li.c span.bar{background:var(--w-primary-text)}
 .stepper li.c{color:var(--w-text);font-weight:600} .stepper li.d{color:var(--w-text)}
 .now{display:flex;align-items:center;gap:10px;margin-block:12px 28px}
 .dot{width:10px;height:10px;border-radius:50%;background:var(--w-info);box-shadow:0 0 0 4px var(--w-info-soft)}
@@ -127,10 +127,10 @@ h3{font-size:18px;line-height:28px;margin:0;font-weight:600}
 .whead .end{margin-inline-start:auto;display:flex;gap:8px}
 .stages{display:flex;gap:4px;margin-block:14px;flex-wrap:wrap}
 .stages span{padding:3px 8px;border-radius:var(--w-r-sm);background:var(--w-sunken);font-size:12px;color:var(--w-text-muted)}
-.stages span.d{background:var(--w-success-soft);color:var(--w-success)} .stages span.c{background:var(--w-info-soft);color:var(--w-info);font-weight:600}
+.stages span.d{background:var(--w-success-soft);color:var(--w-success)} .stages span.c{background:var(--w-primary-soft);color:var(--w-primary-text);font-weight:600}
 .tabs{display:flex;gap:4px;border-block-end:1px solid var(--w-line);margin-block:6px 14px;overflow-x:auto}
 .tabs button{border:0;background:none;padding:10px 12px;cursor:pointer;color:var(--w-text-muted);border-block-end:2px solid transparent;white-space:nowrap;min-height:40px}
-.tabs button[aria-selected="true"]{color:var(--w-text);border-color:var(--w-primary);font-weight:600}
+.tabs button[aria-selected="true"]{color:var(--w-text);border-color:var(--w-primary-text);font-weight:600}
 table{width:100%;border-collapse:collapse;background:var(--w-surface);border:1px solid var(--w-line);border-radius:var(--w-r-md);overflow:hidden}
 th,td{text-align:start;padding:8px 12px;border-block-end:1px solid var(--w-line)}
 th{font-size:12px;color:var(--w-text-muted);font-weight:600;background:var(--w-sunken)}
@@ -333,7 +333,7 @@ tr:last-child td{border-block-end:0}
 <main class="view" id="v-ds">
   <div class="ds">
     <h1 style="font-size:28px;line-height:40px">حِرفة — نظام تصميم ورشة v3</h1>
-    <p class="muted">لون رئيسي واحد للفعل الأساسي، ولون كهرماني واحد يعني «شيء ينتظر قرارك». كل الأزواج النصّية تتجاوز 4.5:1 في الوضعين.</p>
+    <p class="muted">أصفر ورشة للفعل الأساسي فقط، ولون برتقالي واحد يعني «شيء ينتظر قرارك». كل الأزواج النصّية تتجاوز 4.5:1 في الوضعين.</p>
     <h2>الألوان</h2>
     <div class="sw" id="sw"></div>
     <h2>الأزرار</h2>

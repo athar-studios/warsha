@@ -1464,9 +1464,9 @@ reference `docs/designs/v3-preview.html`; run evidence `bridge-io/policy/2026-11
   reads" (the scan found 0 literally empty handlers among 177 sites), which is why the e2e effect is mandatory.
 - **U-D4 — "Simple is simple" is measured.** `planner-simplicity.spec.ts`: ≤ 10 actions in the main area above the fold
   and ≤ 1 primary button on Home and Project at 1280×800 and 390×844; one composer; no Latin UI text in Arabic.
-- **U-D5 — Palette.** Warm neutrals, one teal primary (`#0B6E5A` / `#3DBE9C`), amber reserved for "waiting on the
-  owner", brand yellow only in the logo. All 48 contrast pairs measured with `tools/contrast.mjs` (WCAG AA, both themes);
-  the implementation must declare exactly these values (`--check-css`).
+- **U-D5 — Palette** *(revised the same day by U-D9 below)*. Warm neutrals, one teal primary (`#0B6E5A` / `#3DBE9C`),
+  amber reserved for "waiting on the owner", brand yellow only in the logo. All 48 contrast pairs measured with
+  `tools/contrast.mjs` (WCAG AA, both themes); the implementation must declare exactly these values (`--check-css`).
 - **U-D6 — Nothing without a daemon method.** Preflight, deploy, eco mode, rename/archive, slash commands, mentions,
   fast mode and the permission chip are left out (UI_V3_PLAN §6) rather than shipped as dead controls. The real chat is
   built on the existing `agent.*` methods.
@@ -1476,3 +1476,20 @@ reference `docs/designs/v3-preview.html`; run evidence `bridge-io/policy/2026-11
   two pinned `@fontsource` packages, option B vendors IBM's `woff2` with checksums.
 - **How to reverse**: delete the three docs under `docs/designs/` (and their SITEMAP rows), the evidence directory, this
   entry and the PLAN/PROGRESS entries; restore the Phase B run by clearing its `blocker`. No product code was changed.
+
+## 2026-11-09 — UI v3: the primary colour is the Warsha logo yellow (owner decision, revises U-D5)
+
+- **U-D9 — Yellow primary.** The owner asked for the primary colour to be the logo's yellow instead of teal, so the
+  brand and the main action are one colour. `primary` = `#FFD400` in both themes, used as a **fill with dark ink**
+  (`on-primary` `#1B1A17`, 12.2 : 1); hover `#F2C600` light / `#FFE04A` dark; `primary-soft` `#FFF4C2` / `#3A3008`.
+  Yellow on the light background is only ≈1.3 : 1, so on the light theme every yellow *line or text* — links, focus
+  ring, selected tab, current step — uses `primary-text` dark gold `#7A5C00` (≥ 5.3 : 1); the dark theme uses
+  `#FFD84D`/`#FFD400` directly. The yellow is spent once per view (the main action) and never on selected
+  pills/chips/rows, which is what made the v2 yellow noisy.
+- **Attention moves to orange** (`#A8430A` / soft `#FFEEDF` light, `#FF9D5C` / `#3D2314` dark) so "waiting on you" is
+  never confused with the yellow action.
+- Re-measured with `tools/contrast.mjs`: **50 pairs, 0 failures**; `docs/designs/v3-preview.html` passes `--check-css`
+  with the new values. Updated: `DESIGN_SYSTEM_V3.md` §1 (principle 4), §2.1 (table and rules), §3.2 (Stepper,
+  DecisionCard); `UI_V3_PLAN.md` §3.0, §3.2; the preview; the run's PACKETS/EXECUTIVE_SUMMARY.
+- *Alternative rejected*: yellow for selection and indicators as well — it fails contrast on the light theme and repeats
+  the v2 problem of every selected thing looking like the action.

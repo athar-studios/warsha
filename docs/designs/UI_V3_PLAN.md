@@ -70,7 +70,7 @@ Notation: each action is `id` → effect. `rpc:` lists the daemon methods in cal
 
 ### 3.0 Frame (every page) — area `frame`
 TopBar (64 px): logo · ProjectSwitcher (name + status, never a UUID; «مشروع بلا اسم» fallback) · mode Segmented ·
-Inbox IconButton with an amber count · Settings IconButton. No status strip; daemon trouble shows as one danger
+Inbox IconButton with an orange (`attention`) count · Settings IconButton. No status strip; daemon trouble shows as one danger
 Banner under the bar («لا يمكن الوصول إلى خادم ورشة — إعادة المحاولة»).
 
 | id | effect |
@@ -104,7 +104,7 @@ Three steps with a 3-dot progress, each one screen, one primary:
 
 ### 3.2 Home — `/` — area `home` (Simple and Advanced; Advanced shows the projects as a table)
 Question it answers: **"what do we build?"** Layout (narrow 720): greeting «أهلًا، ماذا نبني اليوم؟», one sentence of
-help, the composer card (textarea + defaults line + «ابدأ المشروع»), four example chips, the amber «قرارات تنتظرك»
+help, the composer card (textarea + defaults line + «ابدأ المشروع»), four example chips, the orange (`attention`) «قرارات تنتظرك»
 banner when gates wait, and «مشاريعك» (up to 6 cards: name, plain status pill, 5-segment mini progress, one line).
 The defaults line reads the coordinator's routed model (`roles.list` + `models.list`) and the default budget
 (`preferences.list` key `default_budget_usd`, fallback $10) — it is a sentence with one link, not pills.

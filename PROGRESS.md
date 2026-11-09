@@ -13,7 +13,7 @@ two read-only Haiku audits; every high-severity claim re-checked in the file. No
 - **Measured**: 137 controls traced — 27 RPC, 55 visible state, 22 navigation, 15 dead state, 8 no-op, 10 fake; 177
   interactive sites and 45 hard-coded model/workflow names in `apps/desktop/src`. Verified in the file: the Simple chat
   reply is a 1 s timer fixture; the chosen model never reaches `startRun`; inbox decisions never reach the daemon.
-- **Palette**: 48 contrast pairs, 0 failures (`tools/contrast.mjs`); the preview's CSS passes `--check-css`.
+- **Palette**: primary = the logo yellow `#FFD400` (owner, U-D9) with dark ink, dark gold `#7A5C00` for links/indicators on light, orange for "waiting on you"; 50 contrast pairs, 0 failures (`tools/contrast.mjs`); the preview's CSS passes `--check-css`.
 - **Gate tools** (evidence dir, planner-owned): `actions-gate.mjs` self-test 12/12, `i18n-gate.mjs` 8/8, `pw-gate.mjs`
   7/7, `planner-simplicity.spec.ts`, `versions.mjs`; the dependency gate regex was tested both ways on sample diffs.
 - **Run** `2026-11-09-ui-v3`: 13 packets, 151 frozen gates, 6 fenced refreshes; supersedes the Phase B run (recorded
