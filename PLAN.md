@@ -587,6 +587,31 @@ should reuse `split_command`; remaining `TODO(M20 wiring)` sites (`RunView`, `Ad
 `SettingsScreen`, stale `ArtifactViewer`); the timing-fragile `sleep 30` process tests; harness stub
 shape drift (`postlaunch.*`, `backend.export`, `handoff.*`).
 
+## Run 2026-11-09 — Phase B visual wave + build finalisation (P1–P7) — PLANNED, not started
+
+Run id `2026-11-09-phase-b-visual-wave`, evidence `bridge-io/policy/2026-11-09-phase-b-visual-wave/`
+(`state.json` seq 2, phase `plan`, 94 frozen gates; `HANDOVER.md` is the orchestrator prompt; `PACKETS.md` the worker
+briefs; `OWNER_DECISIONS.md` the owner's answers). Base: `dev` at the planner commit. Integration branch
+`run/2026-11-09/integration`; packet branches `run/2026-11-09/<p>-<slug>`; worktrees
+`C:/Users/Dragonfly/Downloads/warsha-wt/pb/<p>`. Workers never edit this file, `PROGRESS.md` or `DECISIONS.md`, and never
+touch `*-snapshots/**`; baselines change only in the fenced refreshes R0–R4 (`tools/pw-gate.mjs`, `named/*.txt`).
+
+- [ ] **Owner answers** `OWNER_DECISIONS.md` (OD-B1 refresh mode, OD-B3 release version, OD-B4 agent command policy, OD-B5 fonts, OD-B6 hygiene)
+- [ ] **G0** — unit/cargo/check counts on Windows, full Playwright JSON on the Linux x86_64 capture host at the planner commit; **R0** only if every failure is inside `named/R0.txt` (v0.2.1 drift: onboarding-*, providers, settings-providers)
+- [ ] **P1** (Wave A) `packages/ui` — status tints in `Chip`, no accent fill / no opacity in ModelPicker + SettingsScopeSentence, new `SettingsLayout` compound
+- [ ] **P2** (Wave A) e2e harness truth — daemon-true `postlaunch.*`, `backend.export`, `handoff.*`, `runs.subscribe` run; 4 Wave-2 screens in `SCREENS`; stub-vs-decoder contract test; wire check W10 (remote harness)
+- [ ] **P3** (Wave A) Rust hygiene — no non-test `unwrap`, no silently dropped RPC errors, preview policy on the `split_command` token, event-driven process tests
+- [ ] **P4** (Wave A) release truth — one version everywhere (0.2.1, APK versionCode 201), `scripts/check-versions.mjs`, Docker version label, stale-dist-proof APK sync, root keystore ignores, release.yml tag check + job-scoped permissions, mobile README truth
+- [ ] **C1** — merge P3 → P4 → P2 (+R1) → P1 (+R2)
+- [ ] **P5a** (Wave B) desktop structure — `Tabs` for the three hand-built tablists, `Composer` in SimpleMode, ModelPicker catalog strings, RunView preview + ArtifactViewer wired, startup `listRuns` failure handled
+- [ ] **P5b** (Wave B) settings — `SettingsLayout` on ten roots, SettingsScopeSentence catalog strings, opacity → `text-muted`, HandoffDialog on `layer-modal`
+- [ ] **P7** (Wave B, only if OD-B4 = approve) — agent `RunCommand` judged by the process allow-list
+- [ ] **C2** — merge P5a (+R3) → P5b (+R4) → P7
+- [ ] **P6** (Wave C) — English defaults removed from ModelPicker / SettingsScopeSentence (pixel-neutral) → **C3**
+- [ ] **C4** — INT-REL (owner's version), GC.1–GC.15, local draft bundle `dist/release/v<version>/`, `verdict.json`, records folded → ready for acceptance (owner merges, tags and publishes)
+
+Out of this run: Phase C fonts (OD-B5), Tauri updater and code signing (human-only), APK/Docker CI jobs.
+
 ## Definition of Done (v0.1.0 — M0–M9, per BUILD_PROMPT.md §8)
 - [ ] M0–M9 acceptance criteria all pass, CI is green on all three OSes, and there are no `TODO(security)` items left
 - [ ] A new user can install, add one provider (API key, Ollama, or an official CLI), create a project from an idea, approve the gates from desktop, CLI, or phone, and end with a GitHub repo containing merged PRs, passing CI, and a draft release with store-listing drafts

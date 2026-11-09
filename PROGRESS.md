@@ -1,5 +1,25 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-09 — Phase B planned (planner only; nothing implemented)
+
+Planner: Claude Opus 5.5, reading governance files only; the code audit at `c1bcf4f` was delegated to four read-only
+Haiku subagents and every HIGH claim was re-checked against the file. Output (gitignored):
+`bridge-io/policy/2026-11-09-phase-b-visual-wave/` — `EXECUTIVE_SUMMARY.md`, `HANDOVER.md` (Qoder orchestrator prompt),
+`PACKETS.md`, `OWNER_DECISIONS.md`, `state.json` (seq 2, `plan`), `acceptance.json` (94 gates, all `not-run`),
+`packets/<P>/gates.md`, `named/*.txt`, and the planner-owned gate tools `tools/pw-gate.mjs` (self-test 7/7 ok) and
+`tools/versions.mjs`.
+
+- **Measured at `c1bcf4f`**: `cargo fmt --check` 0, `cargo clippy -p warshad -p warsha-pipeline --all-targets -D warnings`
+  0, `pnpm -r typecheck` 0, `check-wire-contract` 9 checks / 0 violations, `check-arch` 5 / 0; Playwright `--list`
+  desktop 793 + remote 91 = 884; `versions.mjs` exit 1 (8 fields still at 0.1.0, APK versionCode 1).
+- **Found** (details and severities in `EXECUTIVE_SUMMARY.md`): five desktop e2e stubs return shapes the daemon never
+  returns, so the committed `crash-reports` baselines show the error "The daemon did not answer the crash list";
+  `RunCommand` runs any program once Agent mode is approved; `pairings.revoke` drops its error; English labels inside
+  the Arabic UI (ModelPicker, SettingsScopeSentence); v0.2.1 changed three visible screens with no Playwright run.
+- **Gate calibration**: all 17 grep-type defect gates were run against `c1bcf4f` as negative controls and each one
+  detects today's defect; `pw-gate snapshots 282bcd6 c1bcf4f -` correctly flags the 8 PNGs of the OD1 refresh.
+- Nothing under `crates/`, `apps/`, `packages/` or `scripts/` was changed.
+
 ## v0.2.1 — custom OpenAI-compatible endpoints, model discovery, Arabic provider names
 
 Built from `main` on 2026-11-09 (the owner asked for a way to add a custom endpoint such as 9router,

@@ -1413,3 +1413,32 @@ The correct order is therefore: make the remote harness daemon-true (a Phase B i
   a target that **does not exist** - because a file that has never existed cannot have been read - while
   still refusing to overwrite unseen existing content. This is the exemption the owner asked for; wiring it
   without it would have made every file creation fail.
+
+## 2026-11-09 — Run `2026-11-09-phase-b-visual-wave`: Phase B split, fenced refreshes, and what stays the owner's (planner decisions)
+
+Planner: Opus 5.5 (planner role only). Evidence: `bridge-io/policy/2026-11-09-phase-b-visual-wave/`.
+
+- **B-D1 — Fenced refreshes instead of "name 900 PNGs".** Status tints alone touch almost every screenshot, so a
+  hand-listed baseline set is not practical. Each refresh R0–R4 runs right after one packet merges, and is fenced by
+  the planner-owned `tools/pw-gate.mjs`: every failing case must match the packet's `named/<P>.txt` (screenshot
+  specs only — any behavioural failure is outside every set), and every changed PNG must match `named/<P>.snap.txt`.
+  The owner chooses `pre-authorised` or `review-each` (OD-B1). *Alternative rejected*: one refresh at the end — it
+  would mix five packets' diffs and hide a regression inside an intended change.
+- **B-D2 — The harness before the pixels.** Five desktop stubs (`postlaunch.crashes/reviews`, `backend.export`,
+  `handoff.create/apply`) return shapes the daemon never returns, so the client throws and the committed
+  `crash-reports` baselines show an error banner. P2 makes them daemon-true and adds a stub-vs-decoder contract test
+  and wire check W10 before any Phase B pixel work, the same order OD1 proved right for `runs.subscribe`.
+- **B-D3 — Packets split by file, not by §9 bullet.** P1 owns `packages/ui`; P5a owns `App.tsx` + AdvancedMode,
+  SimpleMode, RunView, ArtifactViewer; P5b owns the settings screens and four components; P6 removes the English
+  defaults last, so `pnpm -r typecheck` proves every caller already passes catalog strings. `RunView`'s tablist joins
+  the two named in §9.
+- **B-D4 — One version.** Every component follows the Rust workspace version; the APK `versionCode` is
+  `major*10000 + minor*100 + patch` (0.2.1 → 201). P4 aligns on 0.2.1; the release number (default 0.3.0) is the
+  owner's (OD-B3) and is set once at C4 by `scripts/check-versions.mjs --set`.
+- **B-D5 — `RunCommand` stays as it is unless the owner approves P7 (OD-B4).** It changes shipped agent behaviour,
+  like OD6 did.
+- **B-D6 — "Finalise the build" means a local draft bundle.** C4 rebuilds the v0.2.0 bundle shape at the owner's
+  version; pushing, tagging and publishing stay the owner's. APK/Docker CI jobs, the Tauri updater, code signing and
+  Phase C fonts are out of this run.
+- **How to reverse**: delete the evidence directory, this entry, the PLAN.md section "Run 2026-11-09" and the
+  PROGRESS.md planner entry. The planner changed nothing under `crates/`, `apps/`, `packages/` or `scripts/`.
