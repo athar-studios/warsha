@@ -803,6 +803,8 @@ const RUN_EVENTS: readonly EventFixture[] = RUN_LOGS.map((line, index) => ({
 export interface StubReport {
   /** JSON-RPC methods the app called, in order. */
   rpcMethods: string[];
+  /** JSON-RPC calls the app made, in order, with method and params. */
+  rpcCalls: { method: string; params: unknown }[];
   /** Requests whose bearer token was not the app's own — always zero when the stub is right. */
   unauthorized: number;
   /** Methods the stub does not implement, so an unexpected call fails the case instead of hiding. */
@@ -915,7 +917,7 @@ export function createDaemon(
 
 /** A fresh stub report, so an app-specific harness can start the same record. */
 export function createStubReport(): StubReport {
-  return { rpcMethods: [], unauthorized: 0, unimplemented: [], configWrites: [], eventsSent: 0 };
+  return { rpcMethods: [], rpcCalls: [], unauthorized: 0, unimplemented: [], configWrites: [], eventsSent: 0 };
 }
 
 /**
@@ -1900,6 +1902,16 @@ async function driveWizard(page: Page, target: WizardDrive): Promise<void> {
   await page.locator('.onboarding').waitFor({ state: 'detached' });
 }
 
+const PAGE_RPC_CALLS = new WeakMap<Page, { method: string; params: unknown }[]>();
+
+/**
+ * Return all JSON-RPC calls observed by the daemon stub for this page, in order.
+ */
+export async function rpcCalls(page: Page): Promise<{ method: string; params: unknown }[]> {
+  const calls = PAGE_RPC_CALLS.get(page);
+  return calls ? calls.map((c) => ({ method: c.method, params: c.params })) : [];
+}
+
 /**
  * The RPC surface both browser apps are tested against.
  *
@@ -1918,6 +1930,14 @@ export async function installDaemonStub(
   report: StubReport,
   token = DAEMON_TOKEN
 ): Promise<void> {
+  let pageCalls = PAGE_RPC_CALLS.get(page);
+  if (!pageCalls) {
+    pageCalls = report.rpcCalls;
+    PAGE_RPC_CALLS.set(page, pageCalls);
+  } else {
+    report.rpcCalls = pageCalls;
+  }
+
   // The daemon answers JSON-RPC over HTTP; nothing listens on its port, and nothing has to.
   await page.route('**/rpc', async (route) => {
     const request = route.request();
@@ -1942,6 +1962,7 @@ export async function installDaemonStub(
     }
 
     report.rpcMethods.push(method);
+    report.rpcCalls.push({ method, params });
     const behaviour = daemon.fixtures[method as RpcMethod];
 
     // "the daemon is not there" is a transport failure, not a JSON-RPC error: the client's own catch
@@ -2017,6 +2038,7 @@ export async function installEventStub(
 export async function openScreen(page: Page, options: OpenScreenOptions): Promise<StubReport> {
   const report: StubReport = {
     rpcMethods: [],
+    rpcCalls: [],
     unauthorized: 0,
     unimplemented: [],
     configWrites: [],
