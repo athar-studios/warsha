@@ -1,36 +1,21 @@
 // The phone's primary screen — "what waits on me, and can I decide it in ten seconds"
-// (docs/design/REDESIGN.md §2's mobile checker, §10's 390 row).
-//
-// The order is the glance order, so the queue sits first under the instrument strip and the reading of
-// the run below it:
-//
-//   * a banner when the bench has no live data — with the retry §7 asks for, because a closed feed is
-//     not a lost queue;
-//   * the queue plate — the lit gate card under the owner's thumb (the one the run is stopped at), the rest
-//     of the queue as ruled rows, and the *source* of the reading named in words (§1: a lit lamp is a gate
-//     waiting on this hand, not a gate in the daemon's list; §7: say what is unknown rather than implying
-//     you can see it);
-//   * the glance plate — project, run, stage, status, budget: one reading per ruled row, each said even
-//     when the daemon did not answer it (§7: an unread reading is a word, never a zero).
-//
-// No literal lives here: every string is `@warsha/i18n` copy, every surface is a `@warsha/ui` compound.
+// Rebuilt on @warsha/ui/v3 per DESIGN_SYSTEM_V3.md.
 import type { Stage } from '@warsha/client';
 import { t, useDirection, useLocale } from '@warsha/i18n';
+/* eslint-disable import/no-unresolved */
 import {
   Banner,
-  Box,
   Button,
+  Card,
   EmptyState,
-  Lamp,
-  Ledger,
-  Meter,
-  Panel,
+  KeyValue,
+  ListRow,
+  ProgressBar,
   Skeleton,
-  Text,
-  colorVar,
-  fontSize,
-  space,
-} from '@warsha/ui';
+  StatusPill,
+  type StatusPillState,
+} from '@warsha/ui/v3';
+/* eslint-enable import/no-unresolved */
 import React from 'react';
 import { Link } from 'react-router-dom';
 
@@ -38,20 +23,38 @@ import { GatePlate } from '../GatePlate';
 import { gateWaitsOnOwner, useRemote, type BenchGate } from '../bench';
 import { Machine, ScreenTitle } from '../chrome';
 import { clock, hasCeiling, money, percent, shortId } from '../format';
-import { gateLampState, gateStateWord, runLampState, runStatusWord, stageWord } from '../labels';
+import { gateStateWord, runStatusWord, stageWord } from '../labels';
 import { UnpairedScreen } from '../pairing';
 
-/**
- * The queue row's lamp: the pending gate the run is stopped at is the only one that lights (§1).
- *
- * `labels.ts` maps a gate *state* to a lamp, which was right while a pending row could only come from the
- * run's stage. A serving `gates.list` answers all four stages pending, so the state alone cannot tell the
- * parked gate from the three the run has not reached — and the comparison belongs to `bench.tsx`, not to
- * the word list, because the card, the row and the desktop inbox must apply the same one.
- */
-function queueLamp(gate: BenchGate, runStage: Stage | null): 'idle' | 'waiting' | 'ok' | 'fail' {
-  if (gate.state.state !== 'pending') return gateLampState(gate.state);
-  return gateWaitsOnOwner(gate, runStage) ? 'waiting' : 'idle';
+/** Map a queue gate to a v3 StatusPill state: only the parked gate lights as waiting. */
+function queueStatus(gate: BenchGate, runStage: Stage | null): StatusPillState {
+  switch (gate.state.state) {
+    case 'approved':
+      return 'done';
+    case 'rejected':
+    case 'changes_requested':
+      return 'failed';
+    default:
+      return gateWaitsOnOwner(gate, runStage) ? 'waiting' : 'idle';
+  }
+}
+
+/** Map a run status string to a v3 StatusPill state. */
+function runStatusPill(status: string): StatusPillState {
+  switch (status) {
+    case 'running':
+      return 'running';
+    case 'awaiting_gate':
+      return 'waiting';
+    case 'completed':
+      return 'done';
+    case 'failed':
+      return 'failed';
+    case 'paused':
+      return 'paused';
+    default:
+      return 'idle';
+  }
 }
 
 export function NeedsYouScreen() {
@@ -75,9 +78,9 @@ export function NeedsYouScreen() {
   } = useRemote();
 
   const title = (
-    <Box dir={dir} className="remote-title">
+    <div dir={dir} className="remote-title">
       <ScreenTitle>{t('remote.nav.needs_you', {}, locale)}</ScreenTitle>
-    </Box>
+    </div>
   );
 
   // The permission state owns the screen: nothing is readable until this device holds a session (§7).
@@ -88,12 +91,6 @@ export function NeedsYouScreen() {
   const spentCents = events.reduce((sum, event) => sum + (event.costCents ?? 0), 0);
   const runStage: Stage | null = run === null ? null : run.stage;
 
-  /**
-   * The card at the front of the bench: the gate the owner just decided, or the oldest one waiting.
-   *
-   * §1.4 and §7 both want the record visible: approving must not erase the card the owner pressed, or
-   * the phone shows an empty queue and the owner cannot tell whether their hand arrived.
-   */
   const acted = decision.stage === null ? null : gates.find((gate) => gate.stage === decision.stage) ?? null;
   const front = acted ?? topPendingGate;
 
@@ -103,9 +100,9 @@ export function NeedsYouScreen() {
 
       {connection === 'offline' && (
         <Banner
-          tone="error"
+          variant="danger"
           action={
-            <Button variant="secondary" size="sm" dir={dir} onClick={reloadAll} data-testid="remote-retry-daemon">
+            <Button variant="secondary" size="sm" onClick={reloadAll} data-testid="remote-retry-daemon">
               {t('common.retry', {}, locale)}
             </Button>
           }
@@ -117,9 +114,9 @@ export function NeedsYouScreen() {
       {/* The feed and the queue are different things: a closed feed never means lost work (§7). */}
       {streamState === 'closed' && (
         <Banner
-          tone="offline"
+          variant="attention"
           action={
-            <Button variant="secondary" size="sm" dir={dir} onClick={reconnectStream} data-testid="remote-reconnect-stream">
+            <Button variant="secondary" size="sm" onClick={reconnectStream} data-testid="remote-reconnect-stream">
               {t('simple.stream_retry', {}, locale)}
             </Button>
           }
@@ -128,168 +125,242 @@ export function NeedsYouScreen() {
         </Banner>
       )}
 
-      <Panel title={t('remote.queue_title', {}, locale)} label={t('remote.queue_title', {}, locale)}>
-        {/* The queue's count is said once, in the glance plate below (`remote.queue_pending`) and as the number
-            on the gates destination — not restated here beside the title. An earlier pass lit a `! N` chip up
-            here while the ledger said the same quantity in plain words, and a serving daemon counts four
-            pending gates for a run standing at one of them (§1: a lit lamp is a hand that is needed, not a row
-            in a list). The header carried the identical `remote.queue_pending` sentence the glance row already
-            renders — so on a waiting run the same words appeared twice on one screen; the header copy is the
-            duplicate and it is the one removed, while the glance row stays because it is also the empty-queue
-            reading (`لا بوّابات بانتظارك`) the plate must still state when nothing waits. */}
-        <Box dir={dir} style={{ display: 'grid', gap: space(3), minInlineSize: 0 }}>
-          {/* A press must answer in words, not only by repainting: this is the decision's live line (§7).
-              It exists only while there is something to report — an empty live region is a box that says
-              nothing to the tree and to the eye. */}
-          {(decision.status === 'saving' || decision.status === 'done') && (
-            <span
-              role="status"
-              aria-live="polite"
-              data-testid="remote-decision-status"
-              style={{ color: colorVar('text'), fontSize: fontSize('sm'), minInlineSize: 0 }}
-            >
-              {t(decision.status === 'saving' ? 'remote.decision_saving' : 'remote.decision_done', {}, locale)}
-            </span>
-          )}
-
-          {gatesState === 'loading' ? (
-            <Skeleton label={t('shell.gate_bell_loading', {}, locale)} variant="row" lines={3} />
-          ) : front === null ? (
-            <EmptyState
-              title={t('gates.empty', {}, locale)}
-              description={t('gates.empty_desc', {}, locale)}
-              action={
-                // One useful next step, as a real control (§7): the run is where the work is.
-                <Link
-                  to={run === null ? '/projects' : '/run'}
-                  dir={dir}
-                  className="warsha-control remote-action"
-                  data-testid="remote-queue-next"
-                >
-                  {run === null
-                    ? t('remote.open_projects', {}, locale)
-                    : t('remote.open_run', {}, locale)}
-                </Link>
-              }
-            />
-          ) : (
-            <>
-              <GatePlate gate={front} />
-
-              {gates.length > 1 && (
-                <Ledger label={t('gates.title', {}, locale)} recessed>
-                  {gates
-                    .filter((gate) => gate.stage !== front.stage)
-                    .map((gate) => (
-                      <Ledger.Row key={gate.stage} meta={<Machine title={gate.stage}>{shortId(gate.stage, 10)}</Machine>}>
-                        <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: space(2), minInlineSize: 0 }}>
-                          <Lamp state={queueLamp(gate, runStage)} size="xs">
-                            {gateStateWord(gate.state, locale)}
-                          </Lamp>
-                          <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-                            {stageWord(gate.stage, locale)}
-                          </Text>
-                        </Box>
-                      </Ledger.Row>
-                    ))}
-                </Ledger>
-              )}
-
-              <Box dir={dir}>
-                <Link to="/gates" dir={dir} className="remote-link" data-testid="remote-open-gates">
-                  {t('remote.open_all_gates', {}, locale)}
-                </Link>
-              </Box>
-            </>
-          )}
-        </Box>
-      </Panel>
-
-      <Panel title={t('remote.glance_title', {}, locale)} label={t('remote.glance_title', {}, locale)}>
-        <Ledger label={t('remote.glance_title', {}, locale)}>
-          <Ledger.Row meta={project === null ? <Machine>{t('remote.glance_no_project', {}, locale)}</Machine> : <Machine title={project.id}>{shortId(project.id)}</Machine>}>
-            <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-              {project === null ? t('bench.project_label', {}, locale) : project.name}
-            </Text>
-          </Ledger.Row>
-
-          <Ledger.Row meta={run === null ? <Machine>{t('bench.no_run', {}, locale)}</Machine> : <Machine title={run.id}>{shortId(run.id)}</Machine>}>
-            {run === null ? (
-              <Box dir={dir} style={{ display: 'grid', gap: space(1), minInlineSize: 0 }}>
-                <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-                  {t('bench.run_label', {}, locale)}
-                </Text>
-                <Text size="xs" dir={dir} style={{ color: colorVar('text'), fontSize: fontSize('xs') }}>
-                  {t('remote.glance_no_run_desc', {}, locale)}
-                </Text>
-              </Box>
-            ) : (
-              <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: space(2), minInlineSize: 0 }}>
-                <Lamp state={runLampState(run.status)} size="xs">
-                  {runStatusWord(run.status, locale)}
-                </Lamp>
-                <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-                  {`${t('bench.stage_label', {}, locale)} ${stageWord(run.stage, locale)}`}
-                </Text>
-              </Box>
+      <section aria-label={t('remote.queue_title', {}, locale)}>
+        <Card title={t('remote.queue_title', {}, locale)} variant="default">
+          <div dir={dir} style={{ display: 'grid', gap: 'var(--w-space-3)', minInlineSize: 0 }}>
+            {(decision.status === 'saving' || decision.status === 'done') && (
+              <span
+                role="status"
+                aria-live="polite"
+                data-testid="remote-decision-status"
+                style={{
+                  color: 'var(--w-text)',
+                  fontSize: 'var(--w-font-size-sm)',
+                  lineHeight: 'var(--w-line-height-sm)',
+                  minInlineSize: 0,
+                }}
+              >
+                {t(decision.status === 'saving' ? 'remote.decision_saving' : 'remote.decision_done', {}, locale)}
+              </span>
             )}
-          </Ledger.Row>
 
-          {run !== null && (
-            <Ledger.Row meta={<Machine>{clock(run.updatedAt, locale)}</Machine>}>
-              <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-                {t('projects.updated', {}, locale)}
-              </Text>
-            </Ledger.Row>
-          )}
+            {gatesState === 'loading' ? (
+              <div
+                role="status"
+                aria-label={t('shell.gate_bell_loading', {}, locale)}
+                style={{ display: 'grid', gap: 'var(--w-space-2)' }}
+              >
+                <Skeleton variant="text" />
+                <Skeleton variant="text" />
+                <Skeleton variant="text" />
+              </div>
+            ) : front === null ? (
+              <EmptyState
+                title={t('gates.empty', {}, locale)}
+                description={t('gates.empty_desc', {}, locale)}
+                action={
+                  <Link
+                    to={run === null ? '/projects' : '/run'}
+                    dir={dir}
+                    className="warsha-control remote-action"
+                    data-testid="remote-queue-next"
+                  >
+                    {run === null
+                      ? t('remote.open_projects', {}, locale)
+                      : t('remote.open_run', {}, locale)}
+                  </Link>
+                }
+              />
+            ) : (
+              <>
+                <GatePlate gate={front} />
 
-          <Ledger.Row
-            meta={
-              budget === null ? (
-                <Machine>{t('bench.not_reported', {}, locale)}</Machine>
-              ) : !hasCeiling(budget.totalBudgetUsd) ? (
-                // A ceiling the daemon never set arrives as `0`; the meter would print `$0.00`, which reads
-                // as "nothing left" rather than "no ceiling reported" (§7: an unread reading is a word).
-                <Machine>{`${money(budget.spentUsd)} · ${t('bench.no_ceiling', {}, locale)}`}</Machine>
-              ) : (
-                <Meter
-                  value={Number(budget.spentUsd.toFixed(2))}
-                  max={Number(budget.totalBudgetUsd.toFixed(2))}
-                  label={t('bench.budget_used', {}, locale)}
-                  trackSize={space(12)}
-                >
-                  {`${money(budget.spentUsd)} / ${money(budget.totalBudgetUsd)} · ${percent(budget.spentUsd, budget.totalBudgetUsd)}`}
-                </Meter>
-              )
-            }
+                {gates.length > 1 && (
+                  <ul
+                    role="list"
+                    aria-label={t('gates.title', {}, locale)}
+                    style={{
+                      listStyle: 'none',
+                      margin: 0,
+                      padding: 0,
+                      backgroundColor: 'var(--w-sunken)',
+                      borderRadius: 'var(--w-radius-md)',
+                      border: 'var(--w-border-width) solid var(--w-line)',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    {gates
+                      .filter((gate) => gate.stage !== front.stage)
+                      .map((gate) => (
+                        <li key={gate.stage}>
+                          <ListRow
+                            title={
+                              <span
+                                dir={dir}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 'var(--w-space-2)',
+                                  flexWrap: 'wrap',
+                                  minInlineSize: 0,
+                                }}
+                              >
+                                <StatusPill
+                                  status={queueStatus(gate, runStage)}
+                                  label={gateStateWord(gate.state, locale)}
+                                />
+                                <span>{stageWord(gate.stage, locale)}</span>
+                              </span>
+                            }
+                            meta={<Machine title={gate.stage}>{shortId(gate.stage, 10)}</Machine>}
+                          />
+                        </li>
+                      ))}
+                  </ul>
+                )}
+
+                <div dir={dir}>
+                  <Link to="/gates" dir={dir} className="remote-link" data-testid="remote-open-gates">
+                    {t('remote.open_all_gates', {}, locale)}
+                  </Link>
+                </div>
+              </>
+            )}
+          </div>
+        </Card>
+      </section>
+
+      <section aria-label={t('remote.glance_title', {}, locale)}>
+        <Card title={t('remote.glance_title', {}, locale)} variant="default">
+          <ul
+            role="list"
+            aria-label={t('remote.glance_title', {}, locale)}
+            style={{
+              listStyle: 'none',
+              margin: 0,
+              padding: 0,
+              display: 'grid',
+            }}
           >
-            <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-              {t('bench.budget_label', {}, locale)}
-            </Text>
-          </Ledger.Row>
+            <li style={{ borderBlockEnd: 'var(--w-border-width) solid var(--w-line)' }}>
+              <KeyValue
+                label={project === null ? t('bench.project_label', {}, locale) : project.name}
+                value={
+                  project === null ? (
+                    <Machine>{t('remote.glance_no_project', {}, locale)}</Machine>
+                  ) : (
+                    <Machine title={project.id}>{shortId(project.id)}</Machine>
+                  )
+                }
+              />
+            </li>
 
-          <Ledger.Row
-            meta={
-              // A cost nothing reported is not a free run: `$0.00` would be a claim, not a reading (§7).
-              events.some((candidate) => candidate.costCents !== null) ? (
-                <Machine>{money(spentCents / 100)}</Machine>
-              ) : (
-                <Machine>{t('bench.not_reported', {}, locale)}</Machine>
-              )
-            }
-          >
-            <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-              {t('run.cost_total', {}, locale)}
-            </Text>
-          </Ledger.Row>
+            <li style={{ borderBlockEnd: 'var(--w-border-width) solid var(--w-line)' }}>
+              <KeyValue
+                label={
+                  run === null ? (
+                    <span dir={dir} style={{ display: 'grid', gap: 'var(--w-space-1)', minInlineSize: 0 }}>
+                      <span style={{ color: 'var(--w-text)', fontSize: 'var(--w-font-size-sm)' }}>
+                        {t('bench.run_label', {}, locale)}
+                      </span>
+                      <span style={{ color: 'var(--w-text-muted)', fontSize: 'var(--w-font-size-xs)' }}>
+                        {t('remote.glance_no_run_desc', {}, locale)}
+                      </span>
+                    </span>
+                  ) : (
+                    <span
+                      dir={dir}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 'var(--w-space-2)',
+                        flexWrap: 'wrap',
+                        minInlineSize: 0,
+                      }}
+                    >
+                      <StatusPill
+                        status={runStatusPill(run.status)}
+                        label={runStatusWord(run.status, locale)}
+                      />
+                      <span style={{ color: 'var(--w-text)', fontSize: 'var(--w-font-size-sm)' }}>
+                        {`${t('bench.stage_label', {}, locale)} ${stageWord(run.stage, locale)}`}
+                      </span>
+                    </span>
+                  )
+                }
+                value={
+                  run === null ? (
+                    <Machine>{t('bench.no_run', {}, locale)}</Machine>
+                  ) : (
+                    <Machine title={run.id}>{shortId(run.id)}</Machine>
+                  )
+                }
+              />
+            </li>
 
-          <Ledger.Row meta={<Machine>{pendingGates.length}</Machine>}>
-            <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-              {t('remote.queue_pending', { count: pendingGates.length }, locale)}
-            </Text>
-          </Ledger.Row>
-        </Ledger>
-      </Panel>
+            {run !== null && (
+              <li style={{ borderBlockEnd: 'var(--w-border-width) solid var(--w-line)' }}>
+                <KeyValue
+                  label={t('projects.updated', {}, locale)}
+                  value={<Machine>{clock(run.updatedAt, locale)}</Machine>}
+                />
+              </li>
+            )}
+
+            <li style={{ borderBlockEnd: 'var(--w-border-width) solid var(--w-line)' }}>
+              <KeyValue
+                label={t('bench.budget_label', {}, locale)}
+                value={
+                  budget === null ? (
+                    <Machine>{t('bench.not_reported', {}, locale)}</Machine>
+                  ) : !hasCeiling(budget.totalBudgetUsd) ? (
+                    <Machine>{`${money(budget.spentUsd)} · ${t('bench.no_ceiling', {}, locale)}`}</Machine>
+                  ) : (
+                    <div
+                      dir={dir}
+                      style={{
+                        display: 'grid',
+                        gap: 'var(--w-space-1)',
+                        minInlineSize: 'var(--w-space-10)',
+                        justifyItems: 'end',
+                      }}
+                    >
+                      <ProgressBar
+                        value={Number(budget.spentUsd.toFixed(2))}
+                        max={Number(budget.totalBudgetUsd.toFixed(2))}
+                        label={t('bench.budget_used', {}, locale)}
+                      />
+                      <Machine>
+                        {`${money(budget.spentUsd)} / ${money(budget.totalBudgetUsd)} · ${percent(budget.spentUsd, budget.totalBudgetUsd)}`}
+                      </Machine>
+                    </div>
+                  )
+                }
+              />
+            </li>
+
+            <li style={{ borderBlockEnd: 'var(--w-border-width) solid var(--w-line)' }}>
+              <KeyValue
+                label={t('run.cost_total', {}, locale)}
+                value={
+                  events.some((candidate) => candidate.costCents !== null) ? (
+                    <Machine>{money(spentCents / 100)}</Machine>
+                  ) : (
+                    <Machine>{t('bench.not_reported', {}, locale)}</Machine>
+                  )
+                }
+              />
+            </li>
+
+            <li>
+              <KeyValue
+                label={t('remote.queue_pending', { count: pendingGates.length }, locale)}
+                value={<Machine>{pendingGates.length}</Machine>}
+              />
+            </li>
+          </ul>
+        </Card>
+      </section>
     </div>
   );
 }
