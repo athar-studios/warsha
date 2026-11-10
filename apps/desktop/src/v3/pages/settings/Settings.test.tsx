@@ -361,6 +361,30 @@ function createMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
         received_at: 1764939300,
       },
     ]),
+    listRuns: vi.fn().mockResolvedValue([
+      {
+        id: 'run-1',
+        projectId: 'proj-1',
+        stage: 'code',
+        status: 'running',
+        startedAt: '2026-10-05T07:00:00.000Z',
+        updatedAt: '2026-10-05T07:00:00.000Z',
+      },
+    ]),
+    getBackendKit: vi.fn().mockResolvedValue({
+      config: {
+        kind: 'pocket_base',
+        url: '',
+        projectName: 'proj-1',
+        enabledFeatures: ['auth'],
+      },
+      tables: [],
+      rlsPolicies: [],
+      storageBuckets: [],
+      functions: [],
+    }),
+    setBackendKit: vi.fn().mockResolvedValue(undefined),
+    exportBackend: vi.fn().mockResolvedValue('/tmp/warsha/backend-kit'),
     health: vi.fn().mockResolvedValue({ status: 'ok', version: '0.2.1' }),
     ...overrides,
   } as unknown as WarshaClient;
@@ -728,5 +752,22 @@ describe('SettingsPage (Slice 1)', () => {
     });
     fireEvent.click(document.querySelector('button[data-action="settings.reviews.filter"]') as HTMLElement);
     await waitFor(() => expect(client.listStoreReviews).toHaveBeenCalledWith('play'));
+  });
+
+  it('handles backend kind set, feature toggle, and export in BackendSection', async () => {
+    const client = createMockClient();
+    renderSettings('/settings/backend', client, 'advanced');
+    await waitFor(() => expect(screen.getByTestId('settings-section-backend')).toBeDefined());
+
+    const supabaseBtn = document.querySelector('button[data-action="settings.backend.kind.set"][data-value="supabase"]') as HTMLElement;
+    fireEvent.click(supabaseBtn);
+    await waitFor(() => expect(client.setBackendKit).toHaveBeenCalled());
+
+    const featureBtn = document.querySelector('button[data-action="settings.backend.feature.toggle"][data-value="auth"]') as HTMLElement;
+    fireEvent.click(featureBtn);
+    await waitFor(() => expect(client.setBackendKit).toHaveBeenCalled());
+
+    fireEvent.click(document.querySelector('button[data-action="settings.backend.export"]') as HTMLElement);
+    await waitFor(() => expect(client.exportBackend).toHaveBeenCalled());
   });
 });

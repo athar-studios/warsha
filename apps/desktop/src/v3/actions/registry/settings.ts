@@ -234,6 +234,26 @@ export const ACTIONS: readonly ActionDef[] = [
     rpc: ['postlaunch.reviews'],
   },
 
+  // Backend section
+  {
+    id: 'settings.backend.kind.set',
+    labelKey: 'settings.backend.kind_label',
+    effect: 'rpc',
+    rpc: ['backend.set'],
+  },
+  {
+    id: 'settings.backend.feature.toggle',
+    labelKey: 'settings.backend.features_label',
+    effect: 'rpc',
+    rpc: ['backend.set'],
+  },
+  {
+    id: 'settings.backend.export',
+    labelKey: 'settings.backend.export_btn',
+    effect: 'rpc',
+    rpc: ['backend.export'],
+  },
+
   // Shared dialog & error recovery actions
   { id: 'settings.dialog.cancel', labelKey: 'common.cancel', effect: 'state' },
   { id: 'settings.error.retry', labelKey: 'common.retry', effect: 'state' },

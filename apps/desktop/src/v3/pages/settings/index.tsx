@@ -1,16 +1,12 @@
 // apps/desktop/src/v3/pages/settings/index.tsx — Settings page shell (UI_V3_PLAN §3.7)
-/* eslint-disable import/no-unresolved */
-import { useT } from '@warsha/i18n/v3';
-import { EmptyState, SettingsSection } from '@warsha/ui/v3';
-/* eslint-enable import/no-unresolved */
 import React, { useEffect, useState } from 'react';
 
-import { useDataReady } from '../../app/DataReadyContext';
 import { useDensity } from '../../app/DensityContext';
 import { useNavigate, useRoute } from '../../router';
 
 import { SettingsNav } from './SettingsNav';
 import { AboutSection } from './sections/AboutSection';
+import { BackendSection } from './sections/BackendSection';
 import { BudgetsSection } from './sections/BudgetsSection';
 import { DevicesSection } from './sections/DevicesSection';
 import { GeneralSection } from './sections/GeneralSection';
@@ -23,32 +19,10 @@ import { SkillsSection } from './sections/SkillsSection';
 import { WorkflowsSection } from './sections/WorkflowsSection';
 import {
   isSettingsSectionId,
-  type SectionMeta,
   SETTINGS_SECTIONS,
   type SettingsSectionId,
 } from './types';
 import './settings.css';
-
-function PendingAdvancedSection({ meta }: { meta: SectionMeta }): React.ReactElement {
-  const t = useT();
-  const { setReady } = useDataReady();
-
-  useEffect(() => {
-    setReady(true);
-  }, [setReady]);
-
-  return (
-    <div data-testid={`settings-section-${meta.id}`}>
-      <SettingsSection
-        title={t(meta.labelKey)}
-        description={t(meta.descKey)}
-        scope={t(meta.scopeKey)}
-      >
-        <EmptyState title={t(meta.labelKey)} description={t(meta.descKey)} />
-      </SettingsSection>
-    </div>
-  );
-}
 
 export default function SettingsPage(): React.ReactElement {
   const { params } = useRoute();
@@ -83,8 +57,6 @@ export default function SettingsPage(): React.ReactElement {
         return <ModelsSection />;
       case 'devices':
         return <DevicesSection />;
-      case 'about':
-        return <AboutSection />;
       case 'workflows':
         return <WorkflowsSection />;
       case 'skills':
@@ -99,8 +71,12 @@ export default function SettingsPage(): React.ReactElement {
         return <BudgetsSection />;
       case 'postlaunch':
         return <PostLaunchSection />;
+      case 'backend':
+        return <BackendSection />;
+      case 'about':
+        return <AboutSection />;
       default:
-        return <PendingAdvancedSection meta={activeMeta} />;
+        return <GeneralSection />;
     }
   };
 

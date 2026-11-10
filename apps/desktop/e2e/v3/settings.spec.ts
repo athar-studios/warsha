@@ -30,6 +30,7 @@ const SECTIONS = [
   'routines',
   'budgets',
   'postlaunch',
+  'backend',
 ] as const;
 
 const CUSTOM_MODELS_FIXTURE = {
@@ -172,7 +173,7 @@ const BUDGETS_FIXTURE = {
   },
 } as const;
 
-test.describe('Settings v3 (Slice 1)', () => {
+test.describe('Settings v3', () => {
   // ---------------------------------------------------------------------------
   // Journeys
   // ---------------------------------------------------------------------------
@@ -516,8 +517,28 @@ test.describe('Settings v3 (Slice 1)', () => {
     await expectRpc(page, 'postlaunch.reviews');
   });
 
+  test('backend journey: switch backend kind, toggle features, and export kit', async ({
+    page,
+  }) => {
+    await openV3(page, '/settings/backend', { lang: 'ar', mode: 'advanced' });
+    await expect(page.locator('[data-testid="settings-section-backend"]')).toBeVisible();
+
+    await page
+      .locator('[data-action="settings.backend.kind.set"][data-value="supabase"]')
+      .click();
+    await expectRpc(page, 'backend.set');
+
+    await page
+      .locator('[data-action="settings.backend.feature.toggle"][data-value="auth"]')
+      .click();
+    await expectRpc(page, 'backend.set');
+
+    await act(page, 'settings.backend.export');
+    await expectRpc(page, 'backend.export');
+  });
+
   // ---------------------------------------------------------------------------
-  // One test per action id (for all 23 registered action ids)
+  // One test per action id (for all 54 registered action ids)
   // ---------------------------------------------------------------------------
   test('action: settings.nav.open', async ({ page }) => {
     await openV3(page, '/settings/general', { lang: 'ar' });
@@ -944,6 +965,28 @@ test.describe('Settings v3 (Slice 1)', () => {
     await page.locator('[data-testid="postlaunch-store-select"] select').selectOption('play');
     await act(page, 'settings.reviews.filter');
     await expectRpc(page, 'postlaunch.reviews');
+  });
+
+  test('action: settings.backend.kind.set', async ({ page }) => {
+    await openV3(page, '/settings/backend', { lang: 'ar', mode: 'advanced' });
+    await page
+      .locator('[data-action="settings.backend.kind.set"][data-value="supabase"]')
+      .click();
+    await expectRpc(page, 'backend.set');
+  });
+
+  test('action: settings.backend.feature.toggle', async ({ page }) => {
+    await openV3(page, '/settings/backend', { lang: 'ar', mode: 'advanced' });
+    await page
+      .locator('[data-action="settings.backend.feature.toggle"][data-value="auth"]')
+      .click();
+    await expectRpc(page, 'backend.set');
+  });
+
+  test('action: settings.backend.export', async ({ page }) => {
+    await openV3(page, '/settings/backend', { lang: 'ar', mode: 'advanced' });
+    await act(page, 'settings.backend.export');
+    await expectRpc(page, 'backend.export');
   });
 
   test('action: settings.dialog.cancel', async ({ page }) => {
