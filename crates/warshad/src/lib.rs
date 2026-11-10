@@ -9526,6 +9526,227 @@ mod tests {
             );
         }
     }
+
+    mod provider_truth {
+        use super::*;
+
+        #[tokio::test]
+        async fn unrouted_stage_role_returns_explicit_error_and_writes_zero_artifacts() {
+            let temp = crate::test_util::fresh_tempdir();
+            let (state, store) = test_state(temp.path()).await;
+            let rpc = WarshaRpc::new(state);
+            let owner = owner_ext();
+
+            let project = rpc
+                .create_project(
+                    &owner,
+                    "Provider Truth Project".to_string(),
+                    "Verify unrouted role fails explicitly".to_string(),
+                    "en".to_string(),
+                )
+                .await
+                .expect("project created");
+            let run = rpc
+                .start_run(&owner, project.id, "Task tracker app".to_string())
+                .await
+                .expect("run started");
+
+            // Advance Idea -> GateA.
+            let at_gate = rpc
+                .advance_run(&owner, run.id)
+                .await
+                .expect("advance to GateA succeeds");
+            assert_eq!(at_gate.current_stage, Stage::GateA);
+
+            // Approve GateA.
+            rpc.approve_gate(&owner, run.id, Stage::GateA, None)
+                .await
+                .expect("GateA approves");
+
+            // Next advance attempts Stage::Research (Role::Researcher), which is unrouted.
+            let err = rpc
+                .advance_run(&owner, run.id)
+                .await
+                .expect_err("unrouted stage role must return an explicit error");
+            assert!(
+                err.message().contains("No provider routed")
+                    || err.message().contains("Researcher"),
+                "unexpected error message: {}",
+                err.message()
+            );
+
+            // Verify zero artifacts were fabricated for research.
+            let reloaded = store.get_run(run.id).await.expect("reloaded run");
+            assert!(
+                !reloaded.artifacts.contains_key("research"),
+                "no artifact must be fabricated when role is unrouted"
+            );
+            assert_eq!(reloaded.status, RunStatus::Paused);
+
+            // Verify a provider_required error event was emitted.
+            let events = store.get_events(run.id).await.expect("events reloaded");
+            assert!(
+                events
+                    .iter()
+                    .any(|e| e.payload["action"] == "provider_required"),
+                "expected provider_required event"
+            );
+        }
+
+        #[tokio::test]
+        async fn unrouted_followup_returns_explicit_error_and_writes_no_artifact() {
+            let temp = crate::test_util::fresh_tempdir();
+            let (state, store) = test_state(temp.path()).await;
+            // Replace router with an empty one so even Intake is unrouted.
+            *state.providers.write().await = ProviderRouter::new();
+
+            let rpc = WarshaRpc::new(state.clone());
+            let owner = owner_ext();
+
+            let project = rpc
+                .create_project(
+                    &owner,
+                    "Followup Truth Project".to_string(),
+                    "Test unrouted followup".to_string(),
+                    "en".to_string(),
+                )
+                .await
+                .expect("project created");
+            let run = rpc
+                .start_run(&owner, project.id, "Followup test idea".to_string())
+                .await
+                .expect("run started");
+
+            let err = state
+                .pipeline
+                .followup_run(run.id, "Tell me more")
+                .await
+                .expect_err("unrouted pipeline followup must return an explicit error");
+            assert!(
+                err.to_string().contains("No provider routed")
+                    || err.to_string().contains("Intake"),
+                "unexpected error message: {err}"
+            );
+
+            let reloaded = store.get_run(run.id).await.expect("reloaded run");
+            assert!(
+                !reloaded.artifacts.contains_key("followup"),
+                "no followup artifact should be recorded"
+            );
+        }
+
+        #[tokio::test]
+        async fn explicitly_routed_provider_succeeds_and_produces_artifacts() {
+            let temp = crate::test_util::fresh_tempdir();
+            let (state, store) = test_state(temp.path()).await;
+
+            // Explicitly route Researcher and PM to mock provider.
+            for role in [Role::Researcher, Role::PM] {
+                state.providers.write().await.set_role_routing(RoleRouting {
+                    role,
+                    targets: vec![RoutingTarget {
+                        provider_id: "mock".to_string(),
+                        model_id: "mock-model".to_string(),
+                        weight: 100,
+                    }],
+                    fallback_enabled: false,
+                    budget_cents_per_run: None,
+                });
+            }
+
+            let rpc = WarshaRpc::new(state);
+            let owner = owner_ext();
+
+            let project = rpc
+                .create_project(
+                    &owner,
+                    "Explicit Routing Project".to_string(),
+                    "Test explicit routing".to_string(),
+                    "en".to_string(),
+                )
+                .await
+                .expect("project created");
+            let run = rpc
+                .start_run(&owner, project.id, "Explicit routing idea".to_string())
+                .await
+                .expect("run started");
+
+            rpc.advance_run(&owner, run.id).await.expect("to GateA");
+            rpc.approve_gate(&owner, run.id, Stage::GateA, None)
+                .await
+                .expect("approve GateA");
+
+            let advanced = rpc
+                .advance_run(&owner, run.id)
+                .await
+                .expect("advance succeeds with explicitly routed provider");
+            assert_eq!(advanced.current_stage, Stage::GateB);
+
+            let reloaded = store.get_run(run.id).await.expect("reloaded run");
+            assert!(reloaded.artifacts.contains_key("research"));
+            assert!(reloaded.artifacts.contains_key("prd_spec"));
+        }
+
+        #[tokio::test]
+        async fn unrouted_stage_resumes_cleanly_once_provider_is_routed() {
+            let temp = crate::test_util::fresh_tempdir();
+            let (state, store) = test_state(temp.path()).await;
+            let rpc = WarshaRpc::new(state.clone());
+            let owner = owner_ext();
+
+            let project = rpc
+                .create_project(
+                    &owner,
+                    "Resume After Routing Project".to_string(),
+                    "Test resuming after adding provider".to_string(),
+                    "en".to_string(),
+                )
+                .await
+                .expect("project created");
+            let run = rpc
+                .start_run(&owner, project.id, "Resume idea".to_string())
+                .await
+                .expect("run started");
+
+            rpc.advance_run(&owner, run.id).await.expect("to GateA");
+            rpc.approve_gate(&owner, run.id, Stage::GateA, None)
+                .await
+                .expect("approve GateA");
+
+            // Advance fails because Researcher is unrouted.
+            rpc.advance_run(&owner, run.id)
+                .await
+                .expect_err("advance fails unrouted");
+
+            let paused_run = store.get_run(run.id).await.unwrap();
+            assert_eq!(paused_run.status, RunStatus::Paused);
+
+            // Now configure routing for Researcher and PM.
+            for role in [Role::Researcher, Role::PM] {
+                state.providers.write().await.set_role_routing(RoleRouting {
+                    role,
+                    targets: vec![RoutingTarget {
+                        provider_id: "mock".to_string(),
+                        model_id: "mock-model".to_string(),
+                        weight: 100,
+                    }],
+                    fallback_enabled: false,
+                    budget_cents_per_run: None,
+                });
+            }
+
+            // Resuming now succeeds and executes the previously unrouted stage.
+            let resumed = rpc
+                .resume_run(&owner, run.id)
+                .await
+                .expect("resume succeeds after adding routing");
+            assert_eq!(resumed.status, RunStatus::Running);
+            assert_eq!(resumed.current_stage, Stage::GateB);
+
+            let reloaded = store.get_run(run.id).await.unwrap();
+            assert!(reloaded.artifacts.contains_key("research"));
+        }
+    }
 }
 
 // Declared last, after the test module above: `tests::the_startup_listener_lines_are_written_once`

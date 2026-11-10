@@ -456,16 +456,18 @@ mod tests {
         {
             let mut r = router.write().await;
             r.register_provider(Box::new(tracking));
-            r.set_role_routing(RoleRouting {
-                role: Role::Researcher,
-                targets: vec![RoutingTarget {
-                    provider_id: "budget-provider".to_string(),
-                    model_id: "test-model".to_string(),
-                    weight: 100,
-                }],
-                fallback_enabled: false,
-                budget_cents_per_run: None,
-            });
+            for role in [Role::Researcher, Role::PM] {
+                r.set_role_routing(RoleRouting {
+                    role,
+                    targets: vec![RoutingTarget {
+                        provider_id: "budget-provider".to_string(),
+                        model_id: "test-model".to_string(),
+                        weight: 100,
+                    }],
+                    fallback_enabled: false,
+                    budget_cents_per_run: None,
+                });
+            }
         }
 
         let mut run = engine.start_run(project_id, "Budget test").await.unwrap();
@@ -502,7 +504,23 @@ mod tests {
 
     #[tokio::test]
     async fn interrupted_run_marked_paused_and_resumable() {
-        let (store, engine, project_id, _router) = test_fixture().await;
+        let (store, engine, project_id, router) = test_fixture().await;
+        {
+            let mut r = router.write().await;
+            r.register_provider(Box::new(TestTrackingProvider::new("recover-provider")));
+            for role in [Role::Researcher, Role::PM] {
+                r.set_role_routing(RoleRouting {
+                    role,
+                    targets: vec![RoutingTarget {
+                        provider_id: "recover-provider".to_string(),
+                        model_id: "test-model".to_string(),
+                        weight: 100,
+                    }],
+                    fallback_enabled: false,
+                    budget_cents_per_run: None,
+                });
+            }
+        }
 
         let run = engine
             .start_run(project_id, "Interrupted test")
