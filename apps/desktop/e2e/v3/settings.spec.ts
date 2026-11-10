@@ -18,7 +18,7 @@ const VIEWPORTS = [
 
 const LOCALES = ['ar', 'en'] as const;
 const THEMES = ['light', 'dark'] as const;
-const SECTIONS = ['general', 'models', 'devices', 'about', 'workflows', 'skills'] as const;
+const SECTIONS = ['general', 'models', 'devices', 'about', 'workflows', 'skills', 'plugins'] as const;
 
 const CUSTOM_MODELS_FIXTURE = {
   'models.list': {
@@ -78,6 +78,25 @@ const SKILLS_FIXTURE = {
         content: '# Audit',
         enabled: true,
         tags: ['audit'],
+      },
+    ],
+  },
+} as const;
+
+const PLUGINS_FIXTURE = {
+  'plugins.list': {
+    result: [
+      {
+        id: 'plugin-1',
+        name: 'Git MCP',
+        description: 'Local git helper',
+        transport: 'stdio',
+        command: 'mcp-git',
+        args: [],
+        env: { GIT_DIR: '/repo' },
+        enabled: true,
+        tools: [{ name: 'git_status', description: 'status', parameters_json: null }],
+        source: 'installed',
       },
     ],
   },
@@ -292,6 +311,44 @@ test.describe('Settings v3 (Slice 1)', () => {
     await act(page, 'settings.skill.delete.confirm');
     await expectRpc(page, 'skills.delete');
     await expect(deleteDialog).not.toBeVisible();
+  });
+
+  test('plugins journey: install, toggle, configure env, and remove via dialog', async ({
+    page,
+  }) => {
+    await openV3(page, '/settings/plugins', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: PLUGINS_FIXTURE,
+    });
+    await expect(page.locator('[data-testid="settings-section-plugins"]')).toBeVisible();
+
+    await page
+      .locator('[data-testid="plugin-install-textarea"] textarea')
+      .fill('{"id":"plugin-2","transport":"stdio"}');
+    await act(page, 'settings.plugin.install');
+    await expectRpc(page, 'plugins.install');
+
+    await act(page, 'settings.plugin.toggle');
+    await expectRpc(page, 'plugins.toggle');
+
+    await act(page, 'settings.plugin.configure.open');
+    const configDialog = page.locator('[data-testid="plugin-configure-dialog"]');
+    await expect(configDialog).toBeVisible();
+    await configDialog.locator('[data-testid="plugin-env-key-input"] input').fill('EXT_REF');
+    await configDialog
+      .locator('[data-testid="plugin-env-val-input"] input')
+      .fill('secret-ref-placeholder');
+    await act(page, 'settings.plugin.configure.save');
+    await expectRpc(page, 'plugins.configure');
+    await expect(configDialog).not.toBeVisible();
+
+    await act(page, 'settings.plugin.remove.open');
+    const removeDialog = page.locator('[data-testid="plugin-remove-dialog"]');
+    await expect(removeDialog).toBeVisible();
+    await act(page, 'settings.plugin.remove.confirm');
+    await expectRpc(page, 'plugins.remove');
+    await expect(removeDialog).not.toBeVisible();
   });
 
   // ---------------------------------------------------------------------------
@@ -535,6 +592,67 @@ test.describe('Settings v3 (Slice 1)', () => {
     await act(page, 'settings.skill.delete.open');
     await act(page, 'settings.skill.delete.confirm');
     await expectRpc(page, 'skills.delete');
+  });
+
+  test('action: settings.plugin.install', async ({ page }) => {
+    await openV3(page, '/settings/plugins', { lang: 'ar', mode: 'advanced' });
+    await page
+      .locator('[data-testid="plugin-install-textarea"] textarea')
+      .fill('{"id":"plugin-2"}');
+    await act(page, 'settings.plugin.install');
+    await expectRpc(page, 'plugins.install');
+  });
+
+  test('action: settings.plugin.toggle', async ({ page }) => {
+    await openV3(page, '/settings/plugins', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: PLUGINS_FIXTURE,
+    });
+    await act(page, 'settings.plugin.toggle');
+    await expectRpc(page, 'plugins.toggle');
+  });
+
+  test('action: settings.plugin.configure.open', async ({ page }) => {
+    await openV3(page, '/settings/plugins', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: PLUGINS_FIXTURE,
+    });
+    await act(page, 'settings.plugin.configure.open');
+    await expect(page.locator('[data-testid="plugin-configure-dialog"]')).toBeVisible();
+  });
+
+  test('action: settings.plugin.configure.save', async ({ page }) => {
+    await openV3(page, '/settings/plugins', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: PLUGINS_FIXTURE,
+    });
+    await act(page, 'settings.plugin.configure.open');
+    await act(page, 'settings.plugin.configure.save');
+    await expectRpc(page, 'plugins.configure');
+  });
+
+  test('action: settings.plugin.remove.open', async ({ page }) => {
+    await openV3(page, '/settings/plugins', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: PLUGINS_FIXTURE,
+    });
+    await act(page, 'settings.plugin.remove.open');
+    await expect(page.locator('[data-testid="plugin-remove-dialog"]')).toBeVisible();
+  });
+
+  test('action: settings.plugin.remove.confirm', async ({ page }) => {
+    await openV3(page, '/settings/plugins', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: PLUGINS_FIXTURE,
+    });
+    await act(page, 'settings.plugin.remove.open');
+    await act(page, 'settings.plugin.remove.confirm');
+    await expectRpc(page, 'plugins.remove');
   });
 
   test('action: settings.dialog.cancel', async ({ page }) => {

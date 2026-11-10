@@ -5,6 +5,7 @@ import type {
   DeviceSummary,
   HarnessDefinition,
   PairingOffer,
+  PluginDefinition,
   ProviderConfig,
   RoleRouting,
   SkillDefinition,
@@ -199,6 +200,57 @@ function createMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
       tags: ['audit'],
     } satisfies SkillDefinition),
     deleteSkill: vi.fn().mockResolvedValue(undefined),
+    listPlugins: vi.fn().mockResolvedValue([
+      {
+        id: 'plugin-1',
+        name: 'Git MCP',
+        description: 'Local git operations',
+        transport: 'stdio',
+        command: 'mcp-git',
+        args: [],
+        env: { GIT_DIR: '/repo' },
+        enabled: true,
+        tools: [{ name: 'git_status', description: 'status', parametersJson: null }],
+        source: 'local',
+      } satisfies PluginDefinition,
+    ]),
+    installPlugin: vi.fn().mockResolvedValue({
+      id: 'plugin-2',
+      name: 'HTTP Pack',
+      description: '',
+      transport: 'http',
+      command: null,
+      args: [],
+      env: {},
+      enabled: true,
+      tools: [],
+      source: 'installed',
+    } satisfies PluginDefinition),
+    togglePlugin: vi.fn().mockResolvedValue({
+      id: 'plugin-1',
+      name: 'Git MCP',
+      description: 'Local git operations',
+      transport: 'stdio',
+      command: 'mcp-git',
+      args: [],
+      env: {},
+      enabled: false,
+      tools: [],
+      source: 'local',
+    } satisfies PluginDefinition),
+    configurePlugin: vi.fn().mockResolvedValue({
+      id: 'plugin-1',
+      name: 'Git MCP',
+      description: 'Local git operations',
+      transport: 'stdio',
+      command: 'mcp-git',
+      args: [],
+      env: { API_TOKEN: '${secrets:TOK}' },
+      enabled: true,
+      tools: [],
+      source: 'local',
+    } satisfies PluginDefinition),
+    removePlugin: vi.fn().mockResolvedValue(undefined),
     health: vi.fn().mockResolvedValue({ status: 'ok', version: '0.2.1' }),
     ...overrides,
   } as unknown as WarshaClient;
@@ -459,5 +511,36 @@ describe('SettingsPage (Slice 1)', () => {
     await waitFor(() => expect(screen.getByTestId('skill-delete-dialog')).toBeDefined());
     fireEvent.click(document.querySelector('button[data-action="settings.skill.delete.confirm"]') as HTMLElement);
     await waitFor(() => expect(client.deleteSkill).toHaveBeenCalledWith('skill-1'));
+  });
+
+  it('handles plugin install, toggle, configure dialog, and remove dialog in PluginsSection', async () => {
+    const client = createMockClient();
+    renderSettings('/settings/plugins', client, 'advanced');
+    await waitFor(() => expect(screen.getByTestId('settings-section-plugins')).toBeDefined());
+
+    fireEvent.change(screen.getByTestId('plugin-install-textarea').querySelector('textarea') as HTMLTextAreaElement, {
+      target: { value: '{"id":"plugin-2"}' },
+    });
+    fireEvent.click(document.querySelector('button[data-action="settings.plugin.install"]') as HTMLElement);
+    await waitFor(() => expect(client.installPlugin).toHaveBeenCalledWith('{"id":"plugin-2"}'));
+
+    fireEvent.click(document.querySelector('button[data-action="settings.plugin.toggle"]') as HTMLElement);
+    await waitFor(() => expect(client.togglePlugin).toHaveBeenCalledWith('plugin-1', false));
+
+    fireEvent.click(document.querySelector('button[data-action="settings.plugin.configure.open"]') as HTMLElement);
+    await waitFor(() => expect(screen.getByTestId('plugin-configure-dialog')).toBeDefined());
+    const envValInput = screen.getByTestId('plugin-env-val-input').querySelector('input') as HTMLInputElement;
+    expect(envValInput.type).toBe('password');
+    fireEvent.change(screen.getByTestId('plugin-env-key-input').querySelector('input') as HTMLInputElement, {
+      target: { value: 'API_TOKEN' },
+    });
+    fireEvent.change(envValInput, { target: { value: '${secrets:TOK}' } });
+    fireEvent.click(document.querySelector('button[data-action="settings.plugin.configure.save"]') as HTMLElement);
+    await waitFor(() => expect(client.configurePlugin).toHaveBeenCalled());
+
+    fireEvent.click(document.querySelector('button[data-action="settings.plugin.remove.open"]') as HTMLElement);
+    await waitFor(() => expect(screen.getByTestId('plugin-remove-dialog')).toBeDefined());
+    fireEvent.click(document.querySelector('button[data-action="settings.plugin.remove.confirm"]') as HTMLElement);
+    await waitFor(() => expect(client.removePlugin).toHaveBeenCalledWith('plugin-1'));
   });
 });

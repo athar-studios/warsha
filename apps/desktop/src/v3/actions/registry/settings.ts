@@ -135,6 +135,34 @@ export const ACTIONS: readonly ActionDef[] = [
     rpc: ['skills.delete'],
   },
 
+  // Plugins section
+  {
+    id: 'settings.plugin.install',
+    labelKey: 'settings.plugins.install_btn',
+    effect: 'rpc',
+    rpc: ['plugins.install'],
+  },
+  {
+    id: 'settings.plugin.toggle',
+    labelKey: 'settings.plugins.toggle',
+    effect: 'rpc',
+    rpc: ['plugins.toggle'],
+  },
+  { id: 'settings.plugin.configure.open', labelKey: 'settings.plugins.configure', effect: 'state' },
+  {
+    id: 'settings.plugin.configure.save',
+    labelKey: 'settings.plugins.configure.save',
+    effect: 'rpc',
+    rpc: ['plugins.configure'],
+  },
+  { id: 'settings.plugin.remove.open', labelKey: 'settings.plugins.remove', effect: 'state' },
+  {
+    id: 'settings.plugin.remove.confirm',
+    labelKey: 'settings.common.confirm_remove',
+    effect: 'rpc',
+    rpc: ['plugins.remove'],
+  },
+
   // Shared dialog & error recovery actions
   { id: 'settings.dialog.cancel', labelKey: 'common.cancel', effect: 'state' },
   { id: 'settings.error.retry', labelKey: 'common.retry', effect: 'state' },

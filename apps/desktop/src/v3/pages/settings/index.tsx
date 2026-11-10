@@ -14,6 +14,7 @@ import { AboutSection } from './sections/AboutSection';
 import { DevicesSection } from './sections/DevicesSection';
 import { GeneralSection } from './sections/GeneralSection';
 import { ModelsSection } from './sections/ModelsSection';
+import { PluginsSection } from './sections/PluginsSection';
 import { SkillsSection } from './sections/SkillsSection';
 import { WorkflowsSection } from './sections/WorkflowsSection';
 import {
@@ -84,6 +85,8 @@ export default function SettingsPage(): React.ReactElement {
         return <WorkflowsSection />;
       case 'skills':
         return <SkillsSection />;
+      case 'plugins':
+        return <PluginsSection />;
       default:
         return <PendingAdvancedSection meta={activeMeta} />;
     }
