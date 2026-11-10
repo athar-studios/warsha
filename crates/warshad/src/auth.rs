@@ -596,6 +596,11 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         tier: Standard,
     },
     M {
+        method: "runs.resume",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
         method: "runs.followup",
         policy: Session,
         tier: Standard,

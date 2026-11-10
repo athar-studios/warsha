@@ -1544,6 +1544,10 @@ pub trait WarshaApi {
     #[method(name = "runs.cancel", with_extensions)]
     async fn cancel_run(&self, run_id: RunId, reason: Option<String>) -> RpcResult<Run>;
 
+    /// Resume a paused run (change-request loop, budget-exceeded pause, or restart recovery).
+    #[method(name = "runs.resume", with_extensions)]
+    async fn resume_run(&self, run_id: RunId) -> RpcResult<Run>;
+
     /// Add a follow-up to a run at its current stage. Writes a `followup` artifact and
     /// appends an `AgentStep` event with the prompt and the response, both of which flow
     /// to `/events`. An empty or whitespace-only prompt is refused with `-32602`.
@@ -3135,16 +3139,15 @@ impl WarshaApiServer for WarshaRpc {
             .list_runs(project_id)
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
-        let mut run = runs
+        let run = runs
             .first()
-            .cloned()
             .ok_or_else(|| ErrorObject::owned(-32000, "No runs found for project", None::<()>))?;
-        run.budget_cents = Some(cents);
         self.state
-            .store
-            .update_run(&run)
+            .pipeline
+            .set_run_budget(run.id, cents)
             .await
-            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        Ok(())
     }
 
     // Backend kit (PLAN.md M19)
@@ -3826,32 +3829,21 @@ impl WarshaApiServer for WarshaRpc {
         reason: Option<String>,
     ) -> RpcResult<Run> {
         self.authorize(ext, "runs.cancel")?;
-        let mut run = self.state.store.get_run(run_id).await.map_err(rpc_error)?;
-        let reason = reason.unwrap_or_else(|| "Cancelled by user".to_string());
-        run.status = RunStatus::Cancelled;
-        run.updated_at = Utc::now();
-        self.state.store.update_run(&run).await.map_err(rpc_error)?;
-        // `warsha_core::EventKind` has no cancellation/stage-failed variant and that
-        // crate is outside this change's ownership, so `Error` carries it; the payload
-        // names the action so a viewer never has to infer it from the kind.
-        let event = Event {
-            id: ulid::Ulid::new(),
-            run_id,
-            stage: run.current_stage,
-            role: None,
-            kind: EventKind::Error,
-            payload: serde_json::json!({ "action": "run_cancelled", "reason": reason }),
-            cost_cents: None,
-            tokens: None,
-            created_at: Utc::now(),
-            device_id: None,
-        };
+        let reason = Some(reason.unwrap_or_else(|| "Cancelled by user".to_string()));
         self.state
-            .store
-            .append_event(&event)
+            .pipeline
+            .cancel_run(run_id, reason)
             .await
-            .map_err(rpc_error)?;
-        Ok(run)
+            .map_err(rpc_error)
+    }
+
+    async fn resume_run(&self, ext: &RpcExtensions, run_id: RunId) -> RpcResult<Run> {
+        self.authorize(ext, "runs.resume")?;
+        self.state
+            .pipeline
+            .resume_run(run_id)
+            .await
+            .map_err(rpc_error)
     }
 
     async fn followup_run(
@@ -5562,8 +5554,8 @@ pub async fn start_daemon_with_provider_factory(
     // from a pipeline stage, a gate decision, or one of the new `runs.*` writes.
     {
         let pump = Arc::clone(&state);
+        let mut rx = pump.store.subscribe_events();
         tokio::spawn(async move {
-            let mut rx = pump.store.subscribe_events();
             let token = pump.config.auth_token.clone();
             let sequencer = pump.events.clone();
             loop {
@@ -5582,6 +5574,17 @@ pub async fn start_daemon_with_provider_factory(
                 }
             }
         });
+    }
+
+    // Recover any runs left in `Running` status from a previous unclean shutdown:
+    // transition them to `Paused` and emit an `{ "action": "run_interrupted" }` event
+    // so they are visible and resumable via `runs.resume`.
+    let recovered = state.pipeline.recover_interrupted_runs().await?;
+    if !recovered.is_empty() {
+        info!(
+            "recovered {} interrupted run(s) on startup",
+            recovered.len()
+        );
     }
 
     // Start JSON-RPC server (TCP for cross-platform compatibility)
@@ -6885,6 +6888,10 @@ mod tests {
                 .await
                 .expect("the store opens"),
         );
+        store
+            .recover_interrupted_runs()
+            .await
+            .expect("interrupted runs recover");
         let providers = Arc::new(RwLock::new(agent_router_with_mock()));
         let settings = match custom_settings {
             Some(s) => s,
@@ -9139,6 +9146,229 @@ mod tests {
             .await
             .expect_err("corrupt settings db in list_harnesses must fail with an RPC error");
         assert_eq!(rpc_error_code(&err), -32000);
+    }
+
+    mod runs_resume {
+        use super::*;
+
+        #[tokio::test]
+        async fn runs_resume_requires_authorization_and_allows_session() {
+            let temp = crate::test_util::fresh_tempdir();
+            let (state, store) = test_state(temp.path()).await;
+            let rpc = WarshaRpc::new(state);
+            let owner = owner_ext();
+
+            let project = rpc
+                .create_project(
+                    &owner,
+                    "Resume Auth Project".to_string(),
+                    "Test auth on runs.resume".to_string(),
+                    "en".to_string(),
+                )
+                .await
+                .expect("project created");
+            let run = rpc
+                .start_run(&owner, project.id, "Idea for resume auth".to_string())
+                .await
+                .expect("run started");
+
+            // Anonymous caller must be refused with unauthorized.
+            let unauth_err = rpc
+                .resume_run(&anonymous_ext(), run.id)
+                .await
+                .expect_err("unauthenticated runs.resume must be refused");
+            assert_eq!(
+                rpc_error_code(&unauth_err),
+                auth::rpc_codes::UNAUTHENTICATED
+            );
+
+            // Pause the run via interruption recovery and verify a paired session can resume it.
+            store.recover_interrupted_runs().await.unwrap();
+            let paired = paired_ext(&DeviceId::new().to_string());
+            let resumed = rpc
+                .resume_run(&paired, run.id)
+                .await
+                .expect("paired session can resume a paused run");
+            assert_eq!(resumed.status, RunStatus::Running);
+        }
+
+        #[tokio::test]
+        async fn runs_resume_resumes_paused_run_after_change_request() {
+            let temp = crate::test_util::fresh_tempdir();
+            let (state, _store) = test_state(temp.path()).await;
+            let rpc = WarshaRpc::new(state);
+            let owner = owner_ext();
+
+            let project = rpc
+                .create_project(
+                    &owner,
+                    "Change Request Loop Project".to_string(),
+                    "Test change-request resume".to_string(),
+                    "en".to_string(),
+                )
+                .await
+                .expect("project created");
+            let run = rpc
+                .start_run(&owner, project.id, "Clinic booking app".to_string())
+                .await
+                .expect("run started");
+
+            // Advance Idea -> GateA.
+            let at_gate = rpc
+                .advance_run(&owner, run.id)
+                .await
+                .expect("advance to GateA");
+            assert_eq!(at_gate.current_stage, Stage::GateA);
+
+            // Request changes -> run pauses at GateA with ChangesRequested.
+            let paused = rpc
+                .request_changes(
+                    &owner,
+                    run.id,
+                    Stage::GateA,
+                    "Add bilingual receipts".to_string(),
+                    None,
+                )
+                .await
+                .expect("request_changes succeeds");
+            assert_eq!(paused.status, RunStatus::Paused);
+
+            // Resume via runs.resume -> re-opens GateA to Pending and re-runs producing stage.
+            let resumed = rpc
+                .resume_run(&owner, run.id)
+                .await
+                .expect("runs.resume succeeds");
+            assert_eq!(resumed.status, RunStatus::Running);
+            assert_eq!(resumed.current_stage, Stage::GateA);
+            assert_eq!(resumed.gate_states[&Stage::GateA], GateState::Pending);
+
+            // Approving GateA now succeeds.
+            let approved = rpc
+                .approve_gate(&owner, run.id, Stage::GateA, None)
+                .await
+                .expect("approve after resume succeeds");
+            assert!(matches!(
+                approved.gate_states[&Stage::GateA],
+                GateState::Approved { .. }
+            ));
+        }
+
+        #[tokio::test]
+        async fn runs_resume_budget_paused_run_succeeds_after_budget_set() {
+            let temp = crate::test_util::fresh_tempdir();
+            let (state, store) = test_state(temp.path()).await;
+            let rpc = WarshaRpc::new(state);
+            let owner = owner_ext();
+
+            let project = rpc
+                .create_project(
+                    &owner,
+                    "Budget Resume Project".to_string(),
+                    "Test budget pause & resume".to_string(),
+                    "en".to_string(),
+                )
+                .await
+                .expect("project created");
+            let run = rpc
+                .start_run(&owner, project.id, "Budgeted project".to_string())
+                .await
+                .expect("run started");
+
+            // Simulate a budget-paused run (spent_cents == 100, budget_cents == 100).
+            let (mut stored, v) = store.get_run_versioned(run.id).await.unwrap();
+            stored.budget_cents = Some(100);
+            stored.spent_cents = 100;
+            stored.status = RunStatus::Paused;
+            store.update_run_cas(&stored, v).await.unwrap();
+
+            // Resuming before increasing budget fails.
+            let err = rpc
+                .resume_run(&owner, run.id)
+                .await
+                .expect_err("runs.resume must refuse while budget is exceeded");
+            assert!(
+                err.message().contains("Budget exceeded"),
+                "unexpected error: {}",
+                err.message()
+            );
+
+            // Increase budget via budget.set RPC.
+            rpc.set_budget(&owner, project.id, 500)
+                .await
+                .expect("budget.set succeeds");
+
+            // Now runs.resume succeeds.
+            let resumed = rpc
+                .resume_run(&owner, run.id)
+                .await
+                .expect("runs.resume succeeds after budget.set");
+            assert_eq!(resumed.status, RunStatus::Running);
+            assert_eq!(resumed.current_stage, Stage::GateA);
+        }
+
+        #[tokio::test]
+        async fn daemon_restart_recovers_interrupted_run_and_runs_resume_resumes_it() {
+            let temp = crate::test_util::fresh_tempdir();
+            let data_dir = temp.path().to_path_buf();
+
+            let run_id = {
+                let store = Store::open_at(data_dir.join("warsha.db"))
+                    .await
+                    .expect("store opens");
+                let now = Utc::now();
+                let project = Project {
+                    id: ProjectId::new(),
+                    name: "Restart Recovery Project".to_string(),
+                    description: "Verify restart recovery".to_string(),
+                    language: "en".to_string(),
+                    created_at: now,
+                    updated_at: now,
+                    repo_path: None,
+                    repo_url: None,
+                };
+                store.create_project(&project).await.unwrap();
+
+                let mut gate_states = HashMap::new();
+                for stage in Stage::all() {
+                    if stage.is_gate() {
+                        gate_states.insert(*stage, GateState::Pending);
+                    }
+                }
+                let run = Run {
+                    id: RunId::new(),
+                    project_id: project.id,
+                    current_stage: Stage::Idea,
+                    gate_states,
+                    artifacts: HashMap::new(),
+                    created_at: now,
+                    updated_at: now,
+                    status: RunStatus::Running,
+                    budget_cents: None,
+                    spent_cents: 0,
+                };
+                store.create_run(&run).await.unwrap();
+                run.id
+            };
+
+            // Re-open / start daemon state over the existing data directory.
+            let (state, store) = test_state(&data_dir).await;
+            let rpc = WarshaRpc::new(state);
+            let owner = owner_ext();
+
+            // Check that runs.get sees status = paused.
+            let reloaded = rpc.get_run(&owner, run_id).await.unwrap();
+            assert_eq!(reloaded.status, RunStatus::Paused);
+
+            // Check that runs.events carries an {action: run_interrupted} event.
+            let events = store.get_events(run_id).await.unwrap();
+            assert!(events
+                .iter()
+                .any(|e| e.payload["action"] == "run_interrupted"));
+
+            // Call runs.resume to resume the interrupted run.
+            let resumed = rpc.resume_run(&owner, run_id).await.unwrap();
+            assert_eq!(resumed.status, RunStatus::Running);
+        }
     }
 }
 
