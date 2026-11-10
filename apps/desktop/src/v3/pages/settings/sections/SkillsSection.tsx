@@ -78,7 +78,7 @@ export function SkillsSection(): React.ReactElement {
       <SettingsSection
         title={t('settings.section.skills')}
         description={t('settings.section.skills.desc')}
-        scope={t('settings.scope.daemon')}
+        scope={<span className="v3-settings-scope">{t('settings.scope.daemon')}</span>}
       >
         <div style={{ padding: 'var(--w-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--w-space-3)' }}>
           <Skeleton variant="text" />
@@ -93,7 +93,7 @@ export function SkillsSection(): React.ReactElement {
       <SettingsSection
         title={t('settings.section.skills')}
         description={t('settings.section.skills.desc')}
-        scope={t('settings.scope.daemon')}
+        scope={<span className="v3-settings-scope">{t('settings.scope.daemon')}</span>}
       >
         {status === 'error' && (
           <div style={{ padding: 'var(--w-space-4)' }}>

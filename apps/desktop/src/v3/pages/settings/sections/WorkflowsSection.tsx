@@ -83,7 +83,7 @@ export function WorkflowsSection(): React.ReactElement {
       <SettingsSection
         title={t('settings.section.workflows')}
         description={t('settings.section.workflows.desc')}
-        scope={t('settings.scope.project')}
+        scope={<span className="v3-settings-scope">{t('settings.scope.project')}</span>}
       >
         <div style={{ padding: 'var(--w-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--w-space-3)' }}>
           <Skeleton variant="text" />
@@ -98,7 +98,7 @@ export function WorkflowsSection(): React.ReactElement {
       <SettingsSection
         title={t('settings.section.workflows')}
         description={t('settings.section.workflows.desc')}
-        scope={t('settings.scope.project')}
+        scope={<span className="v3-settings-scope">{t('settings.scope.project')}</span>}
       >
         {status === 'error' && (
           <div style={{ padding: 'var(--w-space-4)' }}>

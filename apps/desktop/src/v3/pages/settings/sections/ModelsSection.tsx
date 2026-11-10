@@ -281,7 +281,7 @@ export function ModelsSection(): React.ReactElement {
       <SettingsSection
         title={t('settings.section.models')}
         description={t('settings.section.models.desc')}
-        scope={t('settings.scope.system')}
+        scope={<span className="v3-settings-scope">{t('settings.scope.system')}</span>}
       >
         <div style={{ padding: 'var(--w-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--w-space-3)' }}>
           <Skeleton variant="text" />
@@ -297,7 +297,7 @@ export function ModelsSection(): React.ReactElement {
       <SettingsSection
         title={t('settings.section.models')}
         description={t('settings.section.models.desc')}
-        scope={t('settings.scope.system')}
+        scope={<span className="v3-settings-scope">{t('settings.scope.system')}</span>}
         action={
           <Button
             variant={anyDialogOpen ? 'secondary' : 'primary'}

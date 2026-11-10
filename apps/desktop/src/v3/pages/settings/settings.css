@@ -240,6 +240,10 @@
   color: var(--w-text);
 }
 
+.v3-settings-scope {
+  color: var(--w-text-muted);
+}
+
 .v3-settings-row-subtitle {
   font-size: var(--w-font-size-xs);
   color: var(--w-text-muted);

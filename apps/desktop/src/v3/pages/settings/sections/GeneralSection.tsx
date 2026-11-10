@@ -138,7 +138,7 @@ export function GeneralSection(): React.ReactElement {
       <SettingsSection
         title={t('settings.section.general')}
         description={t('settings.section.general.desc')}
-        scope={t('settings.scope.device')}
+        scope={<span className="v3-settings-scope">{t('settings.scope.device')}</span>}
       >
         <div style={{ padding: 'var(--w-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--w-space-3)' }}>
           <Skeleton variant="text" />
@@ -153,7 +153,7 @@ export function GeneralSection(): React.ReactElement {
     <SettingsSection
       title={t('settings.section.general')}
       description={t('settings.section.general.desc')}
-      scope={t('settings.scope.device')}
+      scope={<span className="v3-settings-scope">{t('settings.scope.device')}</span>}
       data-testid="settings-section-general"
     >
       {loadFailed && (

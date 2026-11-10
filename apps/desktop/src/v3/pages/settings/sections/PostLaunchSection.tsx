@@ -99,7 +99,7 @@ export function PostLaunchSection(): React.ReactElement {
       <SettingsSection
         title={t('settings.section.postlaunch')}
         description={t('settings.section.postlaunch.desc')}
-        scope={t('settings.scope.all_runs')}
+        scope={<span className="v3-settings-scope">{t('settings.scope.all_runs')}</span>}
       >
         <div style={{ padding: 'var(--w-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--w-space-3)' }}>
           <Skeleton variant="text" />
@@ -114,7 +114,7 @@ export function PostLaunchSection(): React.ReactElement {
       <SettingsSection
         title={t('settings.section.postlaunch')}
         description={t('settings.section.postlaunch.desc')}
-        scope={t('settings.scope.all_runs')}
+        scope={<span className="v3-settings-scope">{t('settings.scope.all_runs')}</span>}
       >
         {loadFailed && (
           <div style={{ padding: 'var(--w-space-4)' }}>

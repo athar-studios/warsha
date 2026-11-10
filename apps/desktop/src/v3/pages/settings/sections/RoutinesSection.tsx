@@ -89,7 +89,7 @@ export function RoutinesSection(): React.ReactElement {
       <SettingsSection
         title={t('settings.section.routines')}
         description={t('settings.section.routines.desc')}
-        scope={t('settings.scope.daemon')}
+        scope={<span className="v3-settings-scope">{t('settings.scope.daemon')}</span>}
       >
         <div style={{ padding: 'var(--w-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--w-space-3)' }}>
           <Skeleton variant="text" />
@@ -104,7 +104,7 @@ export function RoutinesSection(): React.ReactElement {
       <SettingsSection
         title={t('settings.section.routines')}
         description={t('settings.section.routines.desc')}
-        scope={t('settings.scope.daemon')}
+        scope={<span className="v3-settings-scope">{t('settings.scope.daemon')}</span>}
       >
         {status === 'error' && (
           <div style={{ padding: 'var(--w-space-4)' }}>

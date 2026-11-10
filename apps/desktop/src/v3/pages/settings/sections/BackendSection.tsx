@@ -160,7 +160,7 @@ export function BackendSection(): React.ReactElement {
       <SettingsSection
         title={t('settings.section.backend')}
         description={t('settings.section.backend.desc')}
-        scope={t('settings.scope.run')}
+        scope={<span className="v3-settings-scope">{t('settings.scope.run')}</span>}
       >
         <div style={{ padding: 'var(--w-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--w-space-3)' }}>
           <Skeleton variant="text" />
@@ -175,7 +175,7 @@ export function BackendSection(): React.ReactElement {
       <SettingsSection
         title={t('settings.section.backend')}
         description={t('settings.section.backend.desc')}
-        scope={t('settings.scope.run')}
+        scope={<span className="v3-settings-scope">{t('settings.scope.run')}</span>}
       >
         {loadFailed && (
           <div style={{ padding: 'var(--w-space-4)' }}>

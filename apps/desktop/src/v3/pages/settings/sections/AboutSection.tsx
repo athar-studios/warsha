@@ -64,7 +64,7 @@ export function AboutSection(): React.ReactElement {
       <SettingsSection
         title={t('settings.section.about')}
         description={t('settings.section.about.desc')}
-        scope={t('settings.scope.device')}
+        scope={<span className="v3-settings-scope">{t('settings.scope.device')}</span>}
       >
         <div style={{ padding: 'var(--w-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--w-space-3)' }}>
           <Skeleton variant="text" />
@@ -79,7 +79,7 @@ export function AboutSection(): React.ReactElement {
       <SettingsSection
         title={t('settings.section.about')}
         description={t('settings.section.about.desc')}
-        scope={t('settings.scope.device')}
+        scope={<span className="v3-settings-scope">{t('settings.scope.device')}</span>}
       >
         <div className="v3-settings-section-actions">
           <Button

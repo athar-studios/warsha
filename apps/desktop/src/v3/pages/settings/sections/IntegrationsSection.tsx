@@ -139,7 +139,7 @@ export function IntegrationsSection(): React.ReactElement {
       <SettingsSection
         title={t('settings.section.integrations')}
         description={t('settings.section.integrations.desc')}
-        scope={t('settings.scope.daemon')}
+        scope={<span className="v3-settings-scope">{t('settings.scope.daemon')}</span>}
       >
         <div style={{ padding: 'var(--w-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--w-space-3)' }}>
           <Skeleton variant="text" />
@@ -154,7 +154,7 @@ export function IntegrationsSection(): React.ReactElement {
       <SettingsSection
         title={t('settings.section.integrations')}
         description={t('settings.section.integrations.desc')}
-        scope={t('settings.scope.daemon')}
+        scope={<span className="v3-settings-scope">{t('settings.scope.daemon')}</span>}
         action={
           <Button
             variant={anyDialogOpen ? 'secondary' : 'primary'}
