@@ -1,30 +1,41 @@
-// The gates ledger — the owner's queue read whole, not only the top of it
-// (docs/design/REDESIGN.md §5's `gates` row: "gates inbox ledger + selected-gate detail").
-//
-// On the phone the ledger is the first column and the detail is below it; at 768 and above the ledger
-// becomes the inline-start rail (§10). Two things the direction insists on and this file keeps:
-//
-//   * **the queue is a ledger, not a card grid** (§1.1, §1.2): one ruled row per gate, one lamp, one
-//     state word, the stage id as mono meta. The selected row's signal edge is drawn by `aria-current`,
-//     so "which one am I reading" is one attribute rather than two claims (§6);
-//   * **decided gates leave a record, not a colour** (§1.4): a decided row's lamp is `ok`/`fail` *and*
-//     says the word, and its card shows the stamp with the acting device and the recorded note.
-//
-// Loading, empty, failed and the source of the reading each get their own object (§7), and every string
-// is the catalog's.
+// The gates ledger — the owner's queue read whole, not only the top of it.
+// Rebuilt on @warsha/ui/v3 per DESIGN_SYSTEM_V3.md.
 import type { Stage } from '@warsha/client';
 import { t, useDirection, useLocale } from '@warsha/i18n';
-import { Banner, Box, Button, EmptyState, Lamp, Ledger, Panel, Skeleton, Text, colorVar, fontSize, space } from '@warsha/ui';
+/* eslint-disable import/no-unresolved */
+import {
+  Banner,
+  Button,
+  Card,
+  EmptyState,
+  ListRow,
+  Skeleton,
+  StatusPill,
+  type StatusPillState,
+} from '@warsha/ui/v3';
+/* eslint-enable import/no-unresolved */
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 
-
 import { GatePlate } from '../GatePlate';
-import { useRemote, type BenchGate } from '../bench';
+import { gateWaitsOnOwner, useRemote, type BenchGate } from '../bench';
 import { Machine, ScreenTitle } from '../chrome';
 import { shortId } from '../format';
-import { gateLampState, gateStateWord, stageWord } from '../labels';
+import { gateStateWord, stageWord } from '../labels';
 import { UnpairedScreen } from '../pairing';
+
+/** Map a queue gate to a v3 StatusPill state: only the parked gate lights as waiting. */
+function gateRowStatus(gate: BenchGate, runStage: Stage | null): StatusPillState {
+  switch (gate.state.state) {
+    case 'approved':
+      return 'done';
+    case 'rejected':
+    case 'changes_requested':
+      return 'failed';
+    default:
+      return gateWaitsOnOwner(gate, runStage) ? 'waiting' : 'idle';
+  }
+}
 
 export function GatesScreen() {
   const dir = useDirection();
@@ -37,6 +48,9 @@ export function GatesScreen() {
     return <UnpairedScreen heading={t('gates.title', {}, locale)} testId="remote-screen-gates" />;
   }
 
+  const runStage: Stage | null = run === null ? null : run.stage;
+  const currentStageWaitingCount = gates.filter((gate) => gateWaitsOnOwner(gate, runStage)).length;
+
   /** The gate the detail is showing: the pressed row, else the oldest one waiting, else the first. */
   const current: BenchGate | null =
     gates.find((row) => row.stage === selectedStage) ?? pendingGates[0] ?? gates[0] ?? null;
@@ -47,25 +61,32 @@ export function GatesScreen() {
 
   return (
     <div dir={dir} className="remote-screen" data-testid="remote-screen-gates">
-      <Box dir={dir} className="remote-title">
+      <div dir={dir} className="remote-title">
         {/* §4: every pushed screen keeps a back control at the inline start, returning to its parent. */}
         <Link to={back} dir={dir} className="remote-link remote-back" data-testid="remote-gates-back">
           {t('common.back', {}, locale)}
         </Link>
         <ScreenTitle>{t('gates.title', {}, locale)}</ScreenTitle>
         {run !== null && (
-          <Text size="xs" dir={dir} style={{ color: colorVar('text'), fontSize: fontSize('xs') }}>
+          <span
+            dir={dir}
+            style={{
+              color: 'var(--w-text)',
+              fontSize: 'var(--w-font-size-xs)',
+              lineHeight: 'var(--w-line-height-xs)',
+            }}
+          >
             {`${t('bench.run_label', {}, locale)} `}
             <Machine title={run.id}>{run.id}</Machine>
-          </Text>
+          </span>
         )}
-      </Box>
+      </div>
 
       {gatesState === 'failed' && (
         <Banner
-          tone="error"
+          variant="danger"
           action={
-            <Button variant="secondary" size="sm" dir={dir} onClick={reloadGates} data-testid="remote-retry-gates">
+            <Button variant="secondary" size="sm" onClick={reloadGates} data-testid="remote-retry-gates">
               {t('common.retry', {}, locale)}
             </Button>
           }
@@ -74,19 +95,34 @@ export function GatesScreen() {
         </Banner>
       )}
 
-      <Box dir={dir} className="remote-two-column">
-        <Panel
+      <div dir={dir} className="remote-two-column">
+        <Card
+          variant="sunken"
           title={t('bench.gates_waiting', {}, locale)}
-          label={t('bench.gates_waiting', {}, locale)}
-          actions={
-            <Text size="xs" dir={dir} style={{ color: colorVar('text'), fontSize: fontSize('xs') }}>
-              {t('remote.queue_pending', { count: pendingGates.length }, locale)}
-            </Text>
+          headerEnd={
+            <span
+              dir={dir}
+              style={{
+                color: 'var(--w-text-muted)',
+                fontSize: 'var(--w-font-size-xs)',
+                lineHeight: 'var(--w-line-height-xs)',
+              }}
+            >
+              {t('remote.queue_pending', { count: currentStageWaitingCount }, locale)}
+            </span>
           }
-          recessed
         >
           {gatesState === 'loading' ? (
-            <Skeleton label={t('shell.gate_bell_loading', {}, locale)} variant="row" lines={4} />
+            <div
+              role="status"
+              aria-label={t('shell.gate_bell_loading', {}, locale)}
+              style={{ display: 'grid', gap: 'var(--w-space-2)' }}
+            >
+              <Skeleton variant="text" />
+              <Skeleton variant="text" />
+              <Skeleton variant="text" />
+              <Skeleton variant="text" />
+            </div>
           ) : gates.length === 0 ? (
             <EmptyState
               title={t('gates.empty', {}, locale)}
@@ -98,30 +134,70 @@ export function GatesScreen() {
               }
             />
           ) : (
-            <>
-              <Ledger label={t('gates.title', {}, locale)}>
-                {gates.map((gate) => (
-                  <Ledger.Row
-                    key={gate.stage}
-                    selected={current !== null && gate.stage === current.stage}
-                    onSelect={() => select(gate.stage)}
-                    meta={<Machine title={gate.stage}>{shortId(gate.stage, 10)}</Machine>}
-                  >
-                    <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: space(2), minInlineSize: 0 }}>
-                      {/* Lamp + word + glyph: the state is never carried by colour alone (§9). */}
-                      <Lamp state={gateLampState(gate.state)} size="xs">
-                        {gateStateWord(gate.state, locale)}
-                      </Lamp>
-                      <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-                        {stageWord(gate.stage, locale)}
-                      </Text>
-                    </Box>
-                  </Ledger.Row>
-                ))}
-              </Ledger>
-            </>
+            <ul
+              role="list"
+              aria-label={t('gates.title', {}, locale)}
+              style={{
+                listStyle: 'none',
+                margin: 0,
+                padding: 0,
+                backgroundColor: 'var(--w-surface)',
+                borderRadius: 'var(--w-radius-md)',
+                border: 'var(--w-border-width) solid var(--w-line)',
+                overflow: 'hidden',
+              }}
+            >
+              {gates.map((gate) => {
+                const isSelected = current !== null && gate.stage === current.stage;
+                return (
+                  <li key={gate.stage}>
+                    <button
+                      type="button"
+                      aria-current={isSelected ? 'true' : undefined}
+                      onClick={() => select(gate.stage)}
+                      style={{
+                        display: 'block',
+                        inlineSize: '100%',
+                        padding: 0,
+                        margin: 0,
+                        border: 'none',
+                        backgroundColor: 'transparent',
+                        textAlign: 'start',
+                        cursor: 'pointer',
+                        borderInlineStart: isSelected
+                          ? 'var(--w-space-1) solid var(--w-primary)'
+                          : 'var(--w-space-1) solid transparent',
+                      }}
+                    >
+                      <ListRow
+                        selected={isSelected}
+                        meta={<Machine title={gate.stage}>{shortId(gate.stage, 10)}</Machine>}
+                        title={
+                          <span
+                            dir={dir}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 'var(--w-space-2)',
+                              flexWrap: 'wrap',
+                              minInlineSize: 0,
+                            }}
+                          >
+                            <StatusPill
+                              status={gateRowStatus(gate, runStage)}
+                              label={gateStateWord(gate.state, locale)}
+                            />
+                            <span>{stageWord(gate.stage, locale)}</span>
+                          </span>
+                        }
+                      />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           )}
-        </Panel>
+        </Card>
 
         {/* The detail is a named region, so "you are reading this gate" is announced, not implied. */}
         <section
@@ -136,14 +212,26 @@ export function GatesScreen() {
               role="status"
               aria-live="polite"
               data-testid="remote-decision-status"
-              style={{ color: colorVar('text'), fontSize: fontSize('sm'), minInlineSize: 0 }}
+              style={{
+                color: 'var(--w-text)',
+                fontSize: 'var(--w-font-size-sm)',
+                lineHeight: 'var(--w-line-height-sm)',
+                minInlineSize: 0,
+              }}
             >
               {t(decision.status === 'saving' ? 'remote.decision_saving' : 'remote.decision_done', {}, locale)}
             </span>
           )}
 
           {gatesState === 'loading' ? (
-            <Skeleton label={t('shell.gate_bell_loading', {}, locale)} variant="block" lines={2} />
+            <div
+              role="status"
+              aria-label={t('shell.gate_bell_loading', {}, locale)}
+              style={{ display: 'grid', gap: 'var(--w-space-2)' }}
+            >
+              <Skeleton variant="rectangular" />
+              <Skeleton variant="text" />
+            </div>
           ) : current === null ? (
             <EmptyState
               title={t('gates.empty', {}, locale)}
@@ -158,7 +246,7 @@ export function GatesScreen() {
             <GatePlate key={current.stage} gate={current} />
           )}
         </section>
-      </Box>
+      </div>
     </div>
   );
 }

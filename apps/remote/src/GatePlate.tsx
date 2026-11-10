@@ -1,47 +1,17 @@
 // @warsha/remote — one gate, as the phone shows it: the card that asks, and the record it leaves.
-//
-// `GateCard` owns the three moves and the required half of a refusal (docs/design/REDESIGN.md §6, §7);
-// this file only wires it to the bench: which decision is in flight, what the daemon answered when it
-// refused, where the reading came from, and whether this is the stage the run is parked on. It is a
-// component rather than a block of JSX in each screen because the home queue and the gates ledger must
-// show the *same* object for the same gate — two slightly different approval affordances on one bench is
-// how an owner approves the wrong one.
-//
-// The wiring has one branch, and it is the branch §1's lamp rule forces now that `warshad` serves
-// `gates.list`: a pending gate is lit **only** when it is the stage the run stands on. A pending gate the
-// run has not reached is not an invitation to decide — it is a name on a quiet plate (`UnreachedGate`).
+// Rebuilt on @warsha/ui/v3 per DESIGN_SYSTEM_V3.md and §5.5-a (approve-only; run-ending controls absent until KEEL K1+K2).
 import { t, useDirection, useLocale } from '@warsha/i18n';
-import {
-  Box,
-  Chip,
-  ChipMeta,
-  GateCard,
-  Lamp,
-  Panel,
-  Text,
-  colorVar,
-  fontSize,
-  size,
-  space,
-} from '@warsha/ui';
-import React, { useMemo } from 'react';
+/* eslint-disable import/no-unresolved */
+import { Banner, Button, Card, StatusPill } from '@warsha/ui/v3';
+/* eslint-enable import/no-unresolved */
+import React from 'react';
 
-import { useRemote, gateWaitsOnOwner, type BenchGate } from './bench';
+import { gateWaitsOnOwner, useRemote, type BenchGate } from './bench';
 import { Machine } from './chrome';
-import { gateCardLabels, gateCardState, gateRecordNote, gateRecordWord, stageWord } from './labels';
-
-/** The gate card's inline-start band, taken back to the plate's own edge once the decision is on record. */
-const QUIET_BAND = { borderInlineStart: `${size('edge')} solid var(--warsha-bench-edge)` } as const;
+import { gateRecordNote, gateRecordWord, gateStateWord, stageWord } from './labels';
 
 /**
  * A pending gate the run has not reached: its name, its state word, and no way to decide it.
- *
- * `GateCard` is the one raised object on the bench and every part of it says *answer me* — the lit band,
- * the `!` lamp, the primary Approve. Handing that to a gate three stages away is the failure this plate's
- * own header was written against, and the daemon will take the press: `approve_gate`
- * (`crates/warsha-pipeline/src/lib.rs:620`) checks only that the gate is pending, so an approval here
- * clears a gate whose work has not run and a refusal pauses a run that never reached it. The owner is shown
- * where the run actually stands instead, in the same two catalog words the instrument strip uses for it.
  */
 function UnreachedGate({ gate, sourceKey }: { gate: BenchGate; sourceKey: string }) {
   const dir = useDirection();
@@ -49,26 +19,28 @@ function UnreachedGate({ gate, sourceKey }: { gate: BenchGate; sourceKey: string
   const { run } = useRemote();
 
   return (
-    <Panel
+    <Card
+      variant="sunken"
       title={stageWord(gate.stage, locale)}
-      label={t('gates.title', {}, locale)}
-      actions={<ChipMeta>{t(sourceKey, {}, locale)}</ChipMeta>}
-      recessed
+      subtitle={t(sourceKey, {}, locale)}
+      headerEnd={<StatusPill status="idle" label={t('gates.pending', {}, locale)} />}
+      data-testid="remote-gate-unreached"
     >
-      <Box dir={dir} style={{ display: 'grid', gap: space(2), minInlineSize: 0 }}>
-        {/* `idle`, never `waiting`: the dot, the `·` glyph and the word agree that this is not the queue
-            (§1, §9). The state is still the truth — the gate is pending — the claim is what changes. */}
-        <Lamp state="idle" size="xs">
-          {t('gates.pending', {}, locale)}
-        </Lamp>
-        <Text size="sm" dir={dir} style={{ color: colorVar('text'), fontSize: fontSize('sm'), minInlineSize: 0 }}>
+      <div dir={dir} style={{ display: 'grid', gap: 'var(--w-space-2)', minInlineSize: 0 }}>
+        <p
+          style={{
+            margin: 0,
+            color: 'var(--w-text-muted)',
+            fontSize: 'var(--w-font-size-sm)',
+            lineHeight: 'var(--w-line-height-sm)',
+          }}
+        >
           {run === null
             ? t('bench.no_run', {}, locale)
-            : // The run's own stage is the reason nothing is asked: named the way the strip names it.
-              `${t('bench.stage_label', {}, locale)} ${stageWord(run.stage, locale)}`}
-        </Text>
-      </Box>
-    </Panel>
+            : `${t('bench.stage_label', {}, locale)} ${stageWord(run.stage, locale)}`}
+        </p>
+      </div>
+    </Card>
   );
 }
 
@@ -77,7 +49,6 @@ export function GatePlate({ gate }: { gate: BenchGate }) {
   const locale = useLocale();
   const { decide, decision, gatesSource, run } = useRemote();
 
-  const labels = useMemo(() => gateCardLabels(locale), [locale]);
   const inFlight = decision.stage === gate.stage;
   const busy = inFlight && decision.status === 'saving';
   const failed = inFlight && decision.status === 'failed';
@@ -87,96 +58,159 @@ export function GatePlate({ gate }: { gate: BenchGate }) {
   const decided = gate.state.state !== 'pending';
   const recordedAt = gate.state.state === 'pending' ? null : gate.state.at;
 
-  // Where the reading came from: the daemon's gates list, or the run's own stage. The owner is owed the
-  // difference, because the second one cannot see a gate the first would have (§7: say what is unknown).
   const sourceKey =
     gatesSource === 'daemon' ? 'remote.queue_source_daemon' : 'remote.queue_source_stage';
 
-  // The parked-here reading is a comparison of *stages*, never of the row's source, and it lives in
-  // `bench.tsx` so this plate, the home queue's rows and the desktop inbox cannot disagree about it. Both
-  // readings can answer it; `meta` below is dropped for a decided gate, so it can only ever light a
-  // pending one.
   const parkedHere = gateWaitsOnOwner(gate, run === null ? null : run.stage);
 
-  // The one presentation rule: a pending gate that is not where the run stands is a name, not a plate.
+  // A pending gate that is not where the run stands is a name, not an approval plate.
   if (!decided && !parkedHere) {
     return <UnreachedGate gate={gate} sourceKey={sourceKey} />;
   }
 
-  return (
-    <GateCard
-      gateId={gate.stage}
-      title={stageWord(gate.stage, locale)}
-      state={gateCardState(gate.state)}
-      labels={labels}
-      busy={busy}
-      // §3 of the critique round: a decision is a record, not a standing request. `GateCard` hides the lamp
-      // and the actions for a decided gate and repaints the stamp; the band is the one thing it still draws
-      // unconditionally, so the caller that knows the decision exists takes it back to the plate's edge.
-      style={decided ? QUIET_BAND : undefined}
-      onDecision={(next, detail) => decide(gate.stage, next, detail.note)}
-      device={
-        decided && recordedAt !== null ? (
-          <>
-            {`${t('gate.device_record', {}, locale)} ${t('remote.settings_device', {}, locale)} `}
-            <Machine>{recordedAt.slice(11, 19)}</Machine>
-          </>
-        ) : undefined
-      }
-      meta={
-        decided ? undefined : (
-          <>
-            <ChipMeta>{t(sourceKey, {}, locale)}</ChipMeta>
-            {parkedHere && (
-              // A gate the run is parked on is the lit one; a later gate in the list is only a name (§1).
-              <Chip tone="lit" glyph="!" label={t('simple.pending_gates', {}, locale)}>
-                {t('gates.pending', {}, locale)}
-              </Chip>
-            )}
-          </>
-        )
-      }
-      error={
-        failed ? (
-          <Box dir={dir} style={{ display: 'grid', gap: space(1) }}>
-            <Text size="sm" dir={dir} style={{ color: colorVar('text'), fontSize: fontSize('sm') }}>
-              {t('remote.decision_failed', {}, locale)}
-            </Text>
-            {decision.detail !== null && (
-              <Text size="xs" dir={dir} style={{ color: colorVar('text') }}>
-                {`${t('onboarding.test_detail', {}, locale)} `}
-                <Machine title={decision.detail}>{decision.detail}</Machine>
-              </Text>
-            )}
-          </Box>
-        ) : undefined
-      }
-    >
-      <Box dir={dir} style={{ display: 'grid', gap: space(2) }}>
-        <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-          {/* Past this point a pending card *is* the parked gate — the other reading is `UnreachedGate` —
-              so the two sentences here are the only two the plate can honestly say. */}
-          {decided ? t('gates.decisions_label', {}, locale) : t('remote.stage_gate_waiting', {}, locale)}
-        </Text>
-
-        {note !== null && noteWord !== null && (
-          <Box
-            dir={dir}
+  if (decided) {
+    const statusPillState = gate.state.state === 'approved' ? 'done' : 'failed';
+    return (
+      <Card
+        variant="default"
+        style={{ borderInlineStart: 'var(--w-space-1) solid var(--w-line)' }}
+        title={stageWord(gate.stage, locale)}
+        subtitle={
+          recordedAt !== null ? (
+            <span
+              dir={dir}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 'var(--w-space-2)',
+                flexWrap: 'wrap',
+              }}
+            >
+              <span>
+                {`${t('gate.device_record', {}, locale)} ${t('remote.settings_device', {}, locale)} `}
+                <Machine>{recordedAt.slice(11, 19)}</Machine>
+              </span>
+              <Machine title={gate.stage}>{gate.stage}</Machine>
+            </span>
+          ) : (
+            <Machine title={gate.stage}>{gate.stage}</Machine>
+          )
+        }
+        headerEnd={<StatusPill status={statusPillState} label={gateStateWord(gate.state, locale)} />}
+        data-testid="remote-gate-decided"
+      >
+        <div dir={dir} style={{ display: 'grid', gap: 'var(--w-space-2)', minInlineSize: 0 }}>
+          <p
             style={{
-              paddingInlineStart: space(3),
-              borderInlineStart: `${size('edge')} solid var(--warsha-bench-edge)`,
+              margin: 0,
+              color: 'var(--w-text)',
+              fontSize: 'var(--w-font-size-sm)',
+              lineHeight: 'var(--w-line-height-sm)',
             }}
           >
-            <Text size="xs" dir={dir} style={{ color: colorVar('text') }}>
-              {noteWord}
-            </Text>
-            {/* The note is the owner's own Arabic prose: the reading measure, not a truncated row (§11). */}
-            <Text size="sm" dir={dir} style={{ lineHeight: 'var(--warsha-line-height-relaxed)' }}>
-              {note}
-            </Text>
-          </Box>
+            {t('gates.decisions_label', {}, locale)}
+          </p>
+
+          {note !== null && noteWord !== null && (
+            <div
+              dir={dir}
+              style={{
+                paddingInlineStart: 'var(--w-space-3)',
+                borderInlineStart: 'var(--w-border-width-strong) solid var(--w-line)',
+                display: 'grid',
+                gap: 'var(--w-space-1)',
+              }}
+            >
+              <span
+                style={{
+                  color: 'var(--w-text-muted)',
+                  fontSize: 'var(--w-font-size-xs)',
+                  lineHeight: 'var(--w-line-height-xs)',
+                }}
+              >
+                {noteWord}
+              </span>
+              <p
+                style={{
+                  margin: 0,
+                  color: 'var(--w-text)',
+                  fontSize: 'var(--w-font-size-sm)',
+                  lineHeight: 'var(--w-line-height-md)',
+                }}
+              >
+                {note}
+              </p>
+            </div>
+          )}
+        </div>
+      </Card>
+    );
+  }
+
+  // Parked pending gate: approve-only per §5.5-a (no reject / request-changes affordance until KEEL K1+K2).
+  return (
+    <Card
+      variant="default"
+      style={{
+        backgroundColor: 'var(--w-attention-soft)',
+        borderColor: 'var(--w-attention)',
+        borderInlineStart: 'var(--w-space-1) solid var(--w-attention)',
+      }}
+      title={stageWord(gate.stage, locale)}
+      subtitle={
+        <span
+          dir={dir}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 'var(--w-space-2)',
+            flexWrap: 'wrap',
+          }}
+        >
+          <span>{t(sourceKey, {}, locale)}</span>
+          <Machine title={gate.stage}>{gate.stage}</Machine>
+        </span>
+      }
+      headerEnd={<StatusPill status="waiting" label={t('gates.pending', {}, locale)} />}
+      data-testid="remote-gate-parked"
+    >
+      <div dir={dir} style={{ display: 'grid', gap: 'var(--w-space-3)', minInlineSize: 0 }}>
+        <p
+          style={{
+            margin: 0,
+            color: 'var(--w-text)',
+            fontSize: 'var(--w-font-size-sm)',
+            lineHeight: 'var(--w-line-height-sm)',
+          }}
+        >
+          {t('remote.stage_gate_waiting', {}, locale)}
+        </p>
+
+        {failed && (
+          <Banner variant="danger">
+            <div dir={dir} style={{ display: 'grid', gap: 'var(--w-space-1)' }}>
+              <span>{t('remote.decision_failed', {}, locale)}</span>
+              {decision.detail !== null && (
+                <span style={{ fontSize: 'var(--w-font-size-xs)', color: 'var(--w-text-muted)' }}>
+                  {`${t('onboarding.test_detail', {}, locale)} `}
+                  <Machine title={decision.detail}>{decision.detail}</Machine>
+                </span>
+              )}
+            </div>
+          </Banner>
         )}
-      </Box>
-    </GateCard>
+
+        <div>
+          <Button
+            variant="primary"
+            loading={busy}
+            onClick={() => decide(gate.stage, 'approve')}
+            data-action="gate.approve"
+          >
+            {t('gates.approve', {}, locale)}
+          </Button>
+        </div>
+      </div>
+    </Card>
   );
 }
