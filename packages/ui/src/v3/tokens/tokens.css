@@ -1,0 +1,195 @@
+/**
+ * Warsha Design System v3 — «حِرفة»
+ * Semantic Design Tokens (DESIGN_SYSTEM_V3.md §2.1–2.4)
+ */
+
+:root {
+  /* Color Palette — Light Theme (default) */
+  --w-bg: #F6F4EF;
+  --w-surface: #FFFFFF;
+  --w-sunken: #EFECE5;
+  --w-line: #E2DDD3;
+  --w-line-strong: #8C877C;
+  --w-text: #1B1A17;
+  --w-text-muted: #5F5B53;
+  --w-text-faint: #7A756B;
+  --w-primary: #FFD400;
+  --w-primary-hover: #F2C600;
+  --w-on-primary: #1B1A17;
+  --w-primary-soft: #FFF4C2;
+  --w-primary-text: #7A5C00;
+  --w-attention: #A8430A;
+  --w-attention-soft: #FFEEDF;
+  --w-success: #1B6B39;
+  --w-success-soft: #E4F3E8;
+  --w-danger: #A8261D;
+  --w-danger-soft: #FCE9E7;
+  --w-info: #1F55A0;
+  --w-info-soft: #E7EFFA;
+  --w-focus: #7A5C00;
+  --w-scrim: #1B1A1766;
+
+  /* Typography */
+  --w-font-sans: "IBM Plex Sans Arabic", "Segoe UI", "Noto Sans Arabic", Tahoma, system-ui, sans-serif;
+  --w-font-mono: "IBM Plex Mono", Consolas, ui-monospace, monospace;
+
+  --w-font-size-xs: 12px;
+  --w-font-size-sm: 14px;
+  --w-font-size-md: 16px;
+  --w-font-size-lg: 18px;
+  --w-font-size-xl: 22px;
+  --w-font-size-2xl: 28px;
+  --w-font-size-3xl: 36px;
+
+  --w-line-height-xs: 18px;
+  --w-line-height-sm: 22px;
+  --w-line-height-md: 26px;
+  --w-line-height-lg: 28px;
+  --w-line-height-xl: 32px;
+  --w-line-height-2xl: 40px;
+  --w-line-height-3xl: 48px;
+
+  --w-font-weight-regular: 400;
+  --w-font-weight-medium: 500;
+  --w-font-weight-semibold: 600;
+  --w-font-weight-bold: 700;
+
+  --w-tracking-code: 0.01em;
+
+  /* Borders */
+  --w-border-width: 1px;
+  --w-border-width-strong: 2px;
+
+  /* Spacing */
+  --w-space-1: 4px;
+  --w-space-2: 8px;
+  --w-space-3: 12px;
+  --w-space-4: 16px;
+  --w-space-5: 20px;
+  --w-space-6: 24px;
+  --w-space-7: 32px;
+  --w-space-8: 40px;
+  --w-space-9: 48px;
+  --w-space-10: 64px;
+
+  /* Radius */
+  --w-radius-sm: 6px;
+  --w-radius-md: 10px;
+  --w-radius-lg: 14px;
+  --w-radius-xl: 20px;
+  --w-radius-full: 9999px;
+
+  /* Elevation */
+  --w-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --w-shadow-2: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --w-shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.20);
+
+  /* Layers */
+  --w-layer-base: 0;
+  --w-layer-sticky: 10;
+  --w-layer-dropdown: 100;
+  --w-layer-overlay: 900;
+  --w-layer-modal: 1000;
+  --w-layer-toast: 1100;
+
+  /* Motion */
+  --w-dur-fast: 120ms;
+  --w-dur: 200ms;
+  --w-dur-slow: 320ms;
+  --w-ease: cubic-bezier(.2, .8, .2, 1);
+
+  /* Layout & Density Defaults (Comfortable) */
+  --w-content-narrow: 720px;
+  --w-content: 1120px;
+  --w-content-wide: 1440px;
+  --w-nav-width: 264px;
+  --w-rail-width: 300px;
+  --w-control-height: 44px;
+  --w-table-text-size: var(--w-font-size-md);
+  --w-table-line-height: var(--w-line-height-md);
+}
+
+/* Explicit Dark Theme */
+:root[data-theme="dark"] {
+  --w-bg: #131210;
+  --w-surface: #1B1A17;
+  --w-sunken: #24221E;
+  --w-line: #33302A;
+  --w-line-strong: #7D776C;
+  --w-text: #F1EEE7;
+  --w-text-muted: #B3AEA3;
+  --w-text-faint: #948F84;
+  --w-primary: #FFD400;
+  --w-primary-hover: #FFE04A;
+  --w-on-primary: #1B1A17;
+  --w-primary-soft: #3A3008;
+  --w-primary-text: #FFD84D;
+  --w-attention: #FF9D5C;
+  --w-attention-soft: #3D2314;
+  --w-success: #5CC98A;
+  --w-success-soft: #15301F;
+  --w-danger: #F07A70;
+  --w-danger-soft: #3A1714;
+  --w-info: #7DB0F5;
+  --w-info-soft: #152842;
+  --w-focus: #FFD400;
+  --w-scrim: #000000A3;
+
+  --w-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.40);
+  --w-shadow-2: 0 4px 12px rgba(0, 0, 0, 0.50);
+  --w-shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.60);
+}
+
+/* OS Dark Preference (unless overridden by data-theme="light") */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --w-bg: #131210;
+    --w-surface: #1B1A17;
+    --w-sunken: #24221E;
+    --w-line: #33302A;
+    --w-line-strong: #7D776C;
+    --w-text: #F1EEE7;
+    --w-text-muted: #B3AEA3;
+    --w-text-faint: #948F84;
+    --w-primary: #FFD400;
+    --w-primary-hover: #FFE04A;
+    --w-on-primary: #1B1A17;
+    --w-primary-soft: #3A3008;
+    --w-primary-text: #FFD84D;
+    --w-attention: #FF9D5C;
+    --w-attention-soft: #3D2314;
+    --w-success: #5CC98A;
+    --w-success-soft: #15301F;
+    --w-danger: #F07A70;
+    --w-danger-soft: #3A1714;
+    --w-info: #7DB0F5;
+    --w-info-soft: #152842;
+    --w-focus: #FFD400;
+    --w-scrim: #000000A3;
+
+    --w-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.40);
+    --w-shadow-2: 0 4px 12px rgba(0, 0, 0, 0.50);
+    --w-shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.60);
+  }
+}
+
+/* Compact Density: switches control height 44 -> 32 and table text md -> sm */
+[data-density="compact"] {
+  --w-control-height: 32px;
+  --w-table-text-size: var(--w-font-size-sm);
+  --w-table-line-height: var(--w-line-height-sm);
+}
+
+/* Reduced Motion: motion durations collapse to 0 */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --w-dur-fast: 0ms;
+    --w-dur: 0ms;
+    --w-dur-slow: 0ms;
+  }
+}
+
+/* RTL Icon Mirroring */
+[dir="rtl"] .w-icon--mirror {
+  transform: scaleX(-1);
+}

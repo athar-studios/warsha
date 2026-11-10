@@ -153,3 +153,57 @@ catalog or calls a network.
 - Stories: `pnpm --filter @warsha/ui build-storybook`.
 - Consumers still compile: `pnpm -r typecheck`; pixel neutrality is proven on the Linux capture host
   (`pnpm exec playwright test --project=desktop|remote`), never on Windows.
+
+---
+
+## Design System v3 — «حِرفة» (`@warsha/ui/v3`)
+
+Status: clean-slate design system for Warsha v3, coexisting with v2 until cutover.
+
+### Importing
+
+Import components, icons, and token helpers from the `./v3` subpath:
+
+```tsx
+import { Button, IconButton, TextField, IconSettings, StatusPill } from '@warsha/ui/v3';
+import '@warsha/ui/v3/tokens/tokens.css';
+```
+
+### The Five Binding Principles
+
+1. **One screen, one question.** Every page answers one question ("what do we build?", "what does this project need from me?", "what is the team doing?"). Anything that does not serve it moves to Advanced or Settings.
+2. **Every control works — or does not exist.** A control is rendered only when its action is registered, wired to a real effect (RPC, navigation or visible state) and its capability is available. No placeholder buttons, no hard-coded model lists.
+3. **Plain Arabic first.** Simple mode speaks the owner's language: no English UI words, no internal names. Technical names appear only in Advanced mode, and as data.
+4. **Calm until you are needed.** One primary colour — the Warsha logo yellow (`--w-primary`) — for the one main action. The attention colour (orange, `--w-attention`) means exactly one thing: something is waiting for your decision.
+5. **Same data, more detail.** Advanced is not a second app. It shows the same project with more panels, denser rows and every knob. Switching modes never loses context.
+
+### Semantic Token Names (`--w-*`)
+
+- **Colors (§2.1):**
+  - Surfaces & Backgrounds: `--w-bg`, `--w-surface`, `--w-sunken`, `--w-scrim`
+  - Lines & Borders: `--w-line`, `--w-line-strong`
+  - Text: `--w-text`, `--w-text-muted`, `--w-text-faint`
+  - Primary (Logo Yellow): `--w-primary`, `--w-primary-hover`, `--w-on-primary`, `--w-primary-soft`, `--w-primary-text`
+  - Semantic Status:
+    - Attention (owner decision waiting): `--w-attention`, `--w-attention-soft`
+    - Success: `--w-success`, `--w-success-soft`
+    - Danger: `--w-danger`, `--w-danger-soft`
+    - Info: `--w-info`, `--w-info-soft`
+    - Focus: `--w-focus`
+- **Typography (§2.2):**
+  - Fonts: `--w-font-sans` (`"IBM Plex Sans Arabic"`), `--w-font-mono` (`"IBM Plex Mono"`)
+  - Sizes & Line Heights: `--w-font-size-{xs,sm,md,lg,xl,2xl,3xl}`, `--w-line-height-{xs,sm,md,lg,xl,2xl,3xl}`
+  - Weights: `--w-font-weight-{regular,medium,semibold,bold}`
+  - Tracking: `--w-tracking-code`
+- **Space & Radius (§2.3):**
+  - Space (4-based): `--w-space-{1..10}` (4px to 64px)
+  - Radius: `--w-radius-{sm,md,lg,xl,full}` (6px, 10px, 14px, 20px, 9999px)
+- **Elevation, Layers & Motion (§2.4):**
+  - Shadows: `--w-shadow-{1,2,overlay}`
+  - Layers: `--w-layer-{base,sticky,dropdown,overlay,modal,toast}`
+  - Motion: `--w-dur-fast` (120ms), `--w-dur` (200ms), `--w-dur-slow` (320ms), `--w-ease`
+- **Layout & Density (§2.3, §5):**
+  - Content widths: `--w-content-narrow` (720px), `--w-content` (1120px), `--w-content-wide` (1440px), `--w-nav-width` (264px), `--w-rail-width` (300px)
+  - Control height: `--w-control-height` (44px comfortable default; switches to 32px under `[data-density="compact"]`)
+  - Table text: `--w-table-text-size`, `--w-table-line-height` (switches from `md` to `sm` in compact mode)
+
