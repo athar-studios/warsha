@@ -139,6 +139,7 @@ export async function openV3(
       stubWindow.__TAURI_INTERNALS__ = {
         invoke: (command: string, args?: { key?: string; value?: string }) => {
           if (command === 'get_config') return Promise.resolve(merged[args?.key ?? ''] ?? '');
+          if (command in merged) return Promise.resolve(merged[command] ?? '');
           if (command === 'set_config') {
             stubWindow.__WARSHA_STUB__?.configWrites.push({
               key: args?.key ?? '',
@@ -173,6 +174,8 @@ export async function openV3(
     window.dispatchEvent(new Event('hashchange'));
   }, targetHash);
 
+  await page.locator('main[data-ready="true"]').waitFor({ state: 'visible' });
+  await page.waitForLoadState('networkidle');
   await page.locator('main[data-ready="true"]').waitFor({ state: 'visible' });
 
   return report;
