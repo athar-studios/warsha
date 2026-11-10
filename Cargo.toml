@@ -62,7 +62,7 @@ clap = { version = "4.5", features = ["derive", "env", "string"] }
 keyring = "1.2"
 
 # Git
-gix = "0.70"
+gix = "0.90.0"
 octocrab = "0.30"
 
 async-trait = "0.1"
