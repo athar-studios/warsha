@@ -8,6 +8,8 @@ import type {
 // eslint-disable-next-line import/no-unresolved
 import { useT } from '@warsha/i18n/v3';
 // eslint-disable-next-line import/no-unresolved
+import '@warsha/ui/v3/tokens/tokens.css';
+// eslint-disable-next-line import/no-unresolved
 import { Banner, Button, Skeleton } from '@warsha/ui/v3';
 import React, { useEffect, useMemo, useState } from 'react';
 
@@ -49,6 +51,8 @@ import { PreviewTab } from './tabs/PreviewTab';
 import { TeamTab } from './tabs/TeamTab';
 import { TerminalTab } from './tabs/TerminalTab';
 import { type BenchTabId, BENCH_TABS } from './types';
+
+import './bench.css';
 
 export default function BenchPage(): React.ReactElement {
   const t = useT();
@@ -319,12 +323,8 @@ export default function BenchPage(): React.ReactElement {
   if (!run) {
     return (
       <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          minHeight: 'calc(100vh - var(--w-space-10))',
-          boxSizing: 'border-box',
-        }}
+        className="v3-bench-container"
+        data-density="compact"
         data-testid="bench-empty"
       >
         <BenchRail
@@ -361,16 +361,8 @@ export default function BenchPage(): React.ReactElement {
   return (
     <div
       className="v3-bench-container"
+      data-density="compact"
       data-testid="bench-container"
-      style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        minHeight: 'calc(100vh - var(--w-space-10))',
-        backgroundColor: 'var(--w-bg)',
-        color: 'var(--w-text)',
-        fontFamily: 'var(--w-font-sans)',
-        boxSizing: 'border-box',
-      }}
     >
       <BenchRail
         projects={projectsHook.data ?? []}
