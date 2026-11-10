@@ -18,9 +18,11 @@ import {
   createStubReport,
   installDaemonStub,
   installEventStub,
+  rpcCalls,
   settleScroll,
   scenarioById,
   VIEWPORTS,
+  RPC_METHODS,
   type EventStubMode,
   type Locale,
   type RpcBehaviour,
@@ -30,6 +32,8 @@ import {
   type Theme,
   type Viewport,
 } from '../../desktop/e2e/harness';
+
+export { rpcCalls, RPC_METHODS };
 
 /** The daemon the paired cases point the phone at. Nothing listens here; the stub answers. */
 export const REMOTE_DAEMON_URL = 'http://127.0.0.1:8799';
@@ -203,11 +207,13 @@ export const RUN_STREAM_SYNC_FIXTURE: RunStreamSync = {
   dropped_count: 0,
   run: {
     id: 'run-review',
-    projectId: 'proj-store',
+    project_id: 'proj-store',
     stage: 'review_qa_security',
+    current_stage: 'review_qa_security',
     status: 'running',
-    startedAt: '2026-10-05T07:15:00.000Z',
-    updatedAt: '2026-10-05T09:20:00.000Z',
+    created_at: '2026-10-05T07:15:00.000Z',
+    started_at: '2026-10-05T07:15:00.000Z',
+    updated_at: '2026-10-05T09:20:00.000Z',
   },
   events: REMOTE_EVENT_FIXTURES as unknown as WarshaEvent[],
 };

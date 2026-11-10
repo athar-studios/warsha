@@ -30,7 +30,7 @@
 //
 // Output contract (see docs/ARCH_RULES.md):
 //   `<CHECK-ID>: <file>:<line> <offence>` on stdout, one line per violation, exit 1;
-//   `wire: 9 checks, 0 violations` on stdout and exit 0 otherwise.
+//   `wire: 10 checks, 0 violations` on stdout and exit 0 otherwise.
 //
 // Four sources, compared until they agree:
 //   daemon   — every `#[method(name = "…")]` in crates/warshad/src/lib.rs (whitespace-tolerant,
@@ -120,6 +120,8 @@ const DAEMON_FILE = 'crates/warshad/src/lib.rs';
 const POLICY_FILE = 'crates/warshad/src/auth.rs';
 const CLIENT_FILE = 'packages/client/src/index.ts';
 const HARNESS_FILE = 'apps/desktop/e2e/harness.ts';
+const REMOTE_BENCH_FILE = 'apps/remote/src/bench.tsx';
+const REMOTE_HARNESS_FILE = 'apps/remote/e2e/harness.ts';
 
 const CHECK_IDS = [
   ['W1', 'client-method-unregistered'],
@@ -131,6 +133,7 @@ const CHECK_IDS = [
   ['W7', 'required-field-drift'],
   ['W8', 'param-name-drift'],
   ['W9', 'client-method-without-harness-stub'],
+  ['W10', 'remote-bench-api-without-harness-stub'],
 ];
 
 // The one-edit flip: when true, the KNOWN_* sets below are ignored and every parsed name and
@@ -506,6 +509,105 @@ function parseHarness(text) {
   return { found: true, names };
 }
 
+const BENCH_API_TO_RPC = {
+  health: 'health',
+  listProjects: 'projects.list',
+  listRuns: 'runs.list',
+  getRunStatus: 'runs.get',
+  getGates: 'gates.list',
+  getRunLogs: 'runs.events',
+  getProjectBudget: 'budget.show',
+  approveGate: 'gates.approve',
+  rejectGate: 'gates.reject',
+  requestChanges: 'gates.changes',
+  createProject: 'projects.create',
+  startRun: 'runs.start',
+  advanceRun: 'runs.advance',
+  cancelRun: 'runs.cancel',
+  followupRun: 'runs.followup',
+  getRunArtifacts: 'runs.artifacts',
+  subscribeRun: 'runs.subscribe',
+  createHandoff: 'handoff.create',
+  applyHandoff: 'handoff.apply',
+  listDevices: 'devices.list',
+  revokeDevice: 'devices.revoke',
+};
+
+/** Parse `BenchApi` method declarations in `apps/remote/src/bench.tsx`. */
+function parseBenchApi(text) {
+  const marker = 'export interface BenchApi';
+  const start = text.indexOf(marker);
+  if (start < 0) return { found: false, methods: [] };
+  const braceOpen = text.indexOf('{', start);
+  if (braceOpen < 0) return { found: false, methods: [] };
+  let depth = 1;
+  let i = braceOpen + 1;
+  while (i < text.length && depth > 0) {
+    if (text[i] === '{') depth += 1;
+    else if (text[i] === '}') depth -= 1;
+    i += 1;
+  }
+  const region = text.slice(braceOpen + 1, depth === 0 ? i - 1 : text.length);
+  const methodRe = /^\s*([a-zA-Z0-9_$]+)\??\s*\(/gm;
+  const methods = [];
+  let m;
+  while ((m = methodRe.exec(region)) !== null) {
+    const name = m[1];
+    const line = lineOf(text, braceOpen + 1 + m.index);
+    const rpc = BENCH_API_TO_RPC[name] ?? name;
+    methods.push({ name, rpc, line });
+  }
+  return { found: true, methods };
+}
+
+/** The set of RPC method names reachable from `apps/remote/e2e/harness.ts`. */
+function parseRemoteReachableStubs(remoteHarnessText, root) {
+  const stubs = new Set();
+  if (!remoteHarnessText) return stubs;
+
+  // 1. Directly declared RPC_METHODS in this file
+  const localHarness = parseHarness(remoteHarnessText);
+  if (localHarness.found) {
+    for (const entry of localHarness.names) stubs.add(entry.name);
+  }
+
+  // 2. Fixture method keys declared in fixtures tables
+  const fixtureKeyRe = /['"]([a-z_][a-z0-9_]*\.[a-z0-9_]+|[a-z_][a-z0-9_]*)['"]\s*:/g;
+  let match;
+  while ((match = fixtureKeyRe.exec(remoteHarnessText)) !== null) {
+    stubs.add(match[1]);
+  }
+
+  // 3. Methods reachable via imported harness files
+  const importRe = /import\s+[\s\S]*?from\s+['"]([^'"]+)['"]/g;
+  let imp;
+  while ((imp = importRe.exec(remoteHarnessText)) !== null) {
+    const importPath = imp[1];
+    if (importPath.startsWith('.')) {
+      const resolvedBase = path.resolve(root, path.dirname(REMOTE_HARNESS_FILE), importPath);
+      const candidates = [
+        resolvedBase,
+        `${resolvedBase}.ts`,
+        `${resolvedBase}.js`,
+        `${resolvedBase}.mjs`,
+        path.join(resolvedBase, 'index.ts'),
+      ];
+      for (const cand of candidates) {
+        const content = readIfExists(cand);
+        if (content !== null) {
+          const importedHarness = parseHarness(content);
+          if (importedHarness.found) {
+            for (const entry of importedHarness.names) stubs.add(entry.name);
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  return stubs;
+}
+
 // ------------------------------------------------------------------------------------------- checks
 
 /**
@@ -547,6 +649,8 @@ function run(root, opts = {}) {
   const policyText = readIfExists(path.join(root, POLICY_FILE));
   const clientText = readIfExists(path.join(root, CLIENT_FILE));
   const harnessText = readIfExists(path.join(root, HARNESS_FILE));
+  const remoteBenchText = readIfExists(path.join(root, REMOTE_BENCH_FILE));
+  const remoteHarnessText = readIfExists(path.join(root, REMOTE_HARNESS_FILE));
 
   // W6, the integrity half: a missing source or a parser that matches nothing would let the
   // other checks pass vacuously. The two daemon-side views are also counted against each other.
@@ -559,11 +663,14 @@ function run(root, opts = {}) {
   if (policyText === null) broken(POLICY_FILE, 'source file missing (the wire contract cannot be checked)');
   if (clientText === null) broken(CLIENT_FILE, 'source file missing (the wire contract cannot be checked)');
   if (harnessText === null) broken(HARNESS_FILE, 'source file missing (the wire contract cannot be checked)');
+  if (remoteBenchText === null) broken(REMOTE_BENCH_FILE, 'source file missing (the wire contract cannot be checked)');
+  if (remoteHarnessText === null) broken(REMOTE_HARNESS_FILE, 'source file missing (the wire contract cannot be checked)');
 
   const daemon = daemonText === null ? { found: false, methods: [], malformed: [] } : parseDaemon(daemonText);
   const policy = policyText === null ? { found: false, rows: [] } : parsePolicy(policyText);
   const client = clientText === null ? [] : parseClient(clientText);
   const harness = harnessText === null ? { found: false, names: [] } : parseHarness(harnessText);
+  const remoteBench = remoteBenchText === null ? { found: false, methods: [] } : parseBenchApi(remoteBenchText);
 
   if (daemonText !== null && !daemon.found) {
     broken(DAEMON_FILE, 'the `pub trait WarshaApi` declaration was not found (source moved or parser broken)');
@@ -573,6 +680,9 @@ function run(root, opts = {}) {
   }
   if (harnessText !== null && !harness.found) {
     broken(HARNESS_FILE, '`export const RPC_METHODS` was not found (source moved or parser broken)');
+  }
+  if (remoteBenchText !== null && !remoteBench.found) {
+    broken(REMOTE_BENCH_FILE, '`export interface BenchApi` was not found (source moved or parser broken)');
   }
   for (const m of daemon.malformed) {
     broken(DAEMON_FILE, `malformed method declaration at line ${m.line}: ${m.offence}`);
@@ -736,8 +846,28 @@ function run(root, opts = {}) {
     // rejects as an error long before it is a wire fact.
   }
 
-  violations.sort((a, b) => a.id.localeCompare(b.id) || a.file.localeCompare(b.file) || a.line - b.line);
-  knowns.sort((a, b) => a.id.localeCompare(b.id) || a.file.localeCompare(b.file) || a.line - b.line);
+  // W10: every RPC the remote BenchApi dials has a stub reachable from apps/remote/e2e/harness.ts.
+  const reachableStubs = parseRemoteReachableStubs(remoteHarnessText, root);
+  for (const method of remoteBench.methods) {
+    if (reachableStubs.has(method.rpc)) continue;
+    raise(
+      'W10',
+      REMOTE_BENCH_FILE,
+      method.line,
+      `remote BenchApi method "${method.name}" dials RPC "${method.rpc}", which has no stub reachable from ${REMOTE_HARNESS_FILE}`
+    );
+  }
+
+  const checkNum = (id) => {
+    const m = /^W(\d+)$/.exec(id);
+    return m ? Number(m[1]) : 999;
+  };
+  violations.sort(
+    (a, b) => checkNum(a.id) - checkNum(b.id) || a.file.localeCompare(b.file) || a.line - b.line
+  );
+  knowns.sort(
+    (a, b) => checkNum(a.id) - checkNum(b.id) || a.file.localeCompare(b.file) || a.line - b.line
+  );
   return { violations, knowns };
 }
 
@@ -865,6 +995,18 @@ function cleanFixture() {
       "  'gates.list',",
       "  'projects.create',",
       '] as const;',
+      '',
+    ].join('\n'),
+    [REMOTE_BENCH_FILE]: [
+      'export interface BenchApi {',
+      '  getGates(runId: string): Promise<unknown[]>;',
+      '  approveGate(runId: string, stage: string): Promise<void>;',
+      '}',
+      '',
+    ].join('\n'),
+    [REMOTE_HARNESS_FILE]: [
+      "import { RPC_METHODS } from '../../desktop/e2e/harness';",
+      'export const REMOTE_DEFAULT_FIXTURES = {};',
       '',
     ].join('\n'),
   };
@@ -1208,6 +1350,20 @@ const MUTATIONS = [
       f[HARNESS_FILE] = f[HARNESS_FILE].replace("  'gates.list',\n", '');
     },
   },
+  {
+    name: 'remote-bench-api-without-harness-stub',
+    ids: ['W10'],
+    expect: /remote BenchApi method "startRun" dials RPC "runs\.start", which has no stub reachable from apps\/remote\/e2e\/harness\.ts/,
+    mutate: (f) => {
+      // W10: every RPC dialed by BenchApi must have a stub reachable from apps/remote/e2e/harness.ts.
+      // In this mutant, startRun is added to BenchApi, dialing runs.start which cleanFixture's
+      // harness table does not declare, planting the required W10 violation.
+      f[REMOTE_BENCH_FILE] = f[REMOTE_BENCH_FILE].replace(
+        '  approveGate(runId: string, stage: string): Promise<void>;',
+        '  approveGate(runId: string, stage: string): Promise<void>;\n  startRun(projectId: string, idea: string): Promise<unknown>;'
+      );
+    },
+  },
 ];
 
 function selfTest() {
@@ -1425,7 +1581,7 @@ function selfTest() {
     writeTree(dir, MUTATIONS.reduce((files, m) => ((m.mutate(files), files)), cleanFixture()));
     for (const v of run(dir, { requireNoKnownDrift: true }).violations) {
       const rendered = `${v.id}: ${v.file}:${v.line} ${v.offence}`;
-      if (!/^W[1-9]: [^:\n]+:\d+ \S/.test(rendered) || path.isAbsolute(v.file)) {
+      if (!/^W(10|[1-9]): [^:\n]+:\d+ \S/.test(rendered) || path.isAbsolute(v.file)) {
         failed = true;
         console.log(`self-test message format: FAILED — ${rendered}`);
       }
