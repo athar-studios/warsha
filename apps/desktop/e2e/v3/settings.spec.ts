@@ -18,7 +18,7 @@ const VIEWPORTS = [
 
 const LOCALES = ['ar', 'en'] as const;
 const THEMES = ['light', 'dark'] as const;
-const SECTIONS = ['general', 'models', 'devices', 'about'] as const;
+const SECTIONS = ['general', 'models', 'devices', 'about', 'workflows'] as const;
 
 const CUSTOM_MODELS_FIXTURE = {
   'models.list': {
@@ -29,6 +29,38 @@ const CUSTOM_MODELS_FIXTURE = {
         display_name: 'Custom Model 1',
         context_window: 32000,
         enabled: true,
+      },
+    ],
+  },
+} as const;
+
+const WORKFLOWS_FIXTURE = {
+  'harness.list': {
+    result: [
+      {
+        id: 'wf-custom-1',
+        version: '1.0.0',
+        name: 'Custom Pipeline',
+        description: 'Custom workflow pipeline',
+        stages: [
+          {
+            id: 'code',
+            role: 'coder',
+            name: 'Code',
+            prompt_template: null,
+            gate: null,
+            auto_advance: false,
+          },
+        ],
+        rules: {
+          max_repair_iterations: 2,
+          budget_cap_cents: null,
+          allow_parallel_subagents: false,
+          require_verification_receipt: true,
+        },
+        preset: true,
+        active: false,
+        created_at: '2026-10-05T07:00:00.000Z',
       },
     ],
   },
@@ -187,6 +219,40 @@ test.describe('Settings v3 (Slice 1)', () => {
     await expect(page.locator('.w-banner--success')).toBeVisible();
   });
 
+  test('workflows journey: import, set default, view details, and delete via dialog', async ({
+    page,
+  }) => {
+    await openV3(page, '/settings/workflows', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: WORKFLOWS_FIXTURE,
+    });
+    await expect(page.locator('[data-testid="settings-section-workflows"]')).toBeVisible();
+
+    await page
+      .locator('[data-testid="workflow-import-textarea"] textarea')
+      .fill('{"id":"wf-2","name":"WF2"}');
+    await act(page, 'settings.harness.import');
+    await expectRpc(page, 'harness.import');
+
+    await act(page, 'settings.harness.select');
+    await expectRpc(page, 'harness.select');
+
+    await act(page, 'settings.harness.view');
+    await expectRpc(page, 'harness.get');
+    const viewDialog = page.locator('[data-testid="workflow-view-dialog"]');
+    await expect(viewDialog).toBeVisible();
+    await act(page, 'settings.dialog.cancel');
+    await expect(viewDialog).not.toBeVisible();
+
+    await act(page, 'settings.harness.delete.open');
+    const deleteDialog = page.locator('[data-testid="workflow-delete-dialog"]');
+    await expect(deleteDialog).toBeVisible();
+    await act(page, 'settings.harness.delete.confirm');
+    await expectRpc(page, 'harness.delete');
+    await expect(deleteDialog).not.toBeVisible();
+  });
+
   // ---------------------------------------------------------------------------
   // One test per action id (for all 23 registered action ids)
   // ---------------------------------------------------------------------------
@@ -339,6 +405,57 @@ test.describe('Settings v3 (Slice 1)', () => {
     await openV3(page, '/settings/about', { lang: 'ar' });
     await act(page, 'settings.about.copy');
     await expect(page.locator('.w-banner--success')).toBeVisible();
+  });
+
+  test('action: settings.harness.import', async ({ page }) => {
+    await openV3(page, '/settings/workflows', { lang: 'ar', mode: 'advanced' });
+    await page
+      .locator('[data-testid="workflow-import-textarea"] textarea')
+      .fill('{"id":"wf-2","name":"WF2"}');
+    await act(page, 'settings.harness.import');
+    await expectRpc(page, 'harness.import');
+  });
+
+  test('action: settings.harness.select', async ({ page }) => {
+    await openV3(page, '/settings/workflows', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: WORKFLOWS_FIXTURE,
+    });
+    await act(page, 'settings.harness.select');
+    await expectRpc(page, 'harness.select');
+  });
+
+  test('action: settings.harness.view', async ({ page }) => {
+    await openV3(page, '/settings/workflows', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: WORKFLOWS_FIXTURE,
+    });
+    await act(page, 'settings.harness.view');
+    await expectRpc(page, 'harness.get');
+    await expect(page.locator('[data-testid="workflow-view-dialog"]')).toBeVisible();
+  });
+
+  test('action: settings.harness.delete.open', async ({ page }) => {
+    await openV3(page, '/settings/workflows', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: WORKFLOWS_FIXTURE,
+    });
+    await act(page, 'settings.harness.delete.open');
+    await expect(page.locator('[data-testid="workflow-delete-dialog"]')).toBeVisible();
+  });
+
+  test('action: settings.harness.delete.confirm', async ({ page }) => {
+    await openV3(page, '/settings/workflows', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: WORKFLOWS_FIXTURE,
+    });
+    await act(page, 'settings.harness.delete.open');
+    await act(page, 'settings.harness.delete.confirm');
+    await expectRpc(page, 'harness.delete');
   });
 
   test('action: settings.dialog.cancel', async ({ page }) => {

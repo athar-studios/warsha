@@ -87,6 +87,33 @@ export const ACTIONS: readonly ActionDef[] = [
   },
   { id: 'settings.about.copy', labelKey: 'settings.about.copy', effect: 'state' },
 
+  // Workflows section
+  {
+    id: 'settings.harness.select',
+    labelKey: 'settings.workflows.select',
+    effect: 'rpc',
+    rpc: ['harness.select'],
+  },
+  {
+    id: 'settings.harness.import',
+    labelKey: 'settings.workflows.import_btn',
+    effect: 'rpc',
+    rpc: ['harness.import'],
+  },
+  {
+    id: 'settings.harness.view',
+    labelKey: 'settings.workflows.view',
+    effect: 'rpc',
+    rpc: ['harness.get'],
+  },
+  { id: 'settings.harness.delete.open', labelKey: 'settings.workflows.delete', effect: 'state' },
+  {
+    id: 'settings.harness.delete.confirm',
+    labelKey: 'settings.common.confirm_delete',
+    effect: 'rpc',
+    rpc: ['harness.delete'],
+  },
+
   // Shared dialog & error recovery actions
   { id: 'settings.dialog.cancel', labelKey: 'common.cancel', effect: 'state' },
   { id: 'settings.error.retry', labelKey: 'common.retry', effect: 'state' },

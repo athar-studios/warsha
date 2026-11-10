@@ -3,6 +3,7 @@ import type {
   CustomModelRecord,
   DeviceId,
   DeviceSummary,
+  HarnessDefinition,
   PairingOffer,
   ProviderConfig,
   RoleRouting,
@@ -103,6 +104,67 @@ function createMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
     listDevices: vi.fn().mockResolvedValue(devices),
     startPairing: vi.fn().mockResolvedValue(offer),
     removeDevice: vi.fn().mockResolvedValue(undefined),
+    listHarnesses: vi.fn().mockResolvedValue([
+      {
+        id: 'wf-1',
+        version: '1.0.0',
+        name: 'Standard Workflow',
+        description: 'Default workflow',
+        stages: [
+          {
+            id: 'code',
+            role: 'coder',
+            name: 'Code',
+            promptTemplate: null,
+            gate: null,
+            autoAdvance: false,
+          },
+        ],
+        rules: {
+          maxRepairIterations: 2,
+          budgetCapCents: null,
+          allowParallelSubagents: false,
+          requireVerificationReceipt: true,
+        },
+        preset: true,
+        active: false,
+        createdAt: '2026-10-05T07:00:00.000Z',
+      } satisfies HarnessDefinition,
+    ]),
+    getHarness: vi.fn().mockResolvedValue({
+      id: 'wf-1',
+      version: '1.0.0',
+      name: 'Standard Workflow',
+      description: 'Default workflow',
+      stages: [],
+      rules: {
+        maxRepairIterations: 2,
+        budgetCapCents: null,
+        allowParallelSubagents: false,
+        requireVerificationReceipt: true,
+      },
+      preset: true,
+      active: false,
+      createdAt: '2026-10-05T07:00:00.000Z',
+    } satisfies HarnessDefinition),
+    importHarness: vi.fn().mockResolvedValue({
+      id: 'wf-new',
+      version: '1.0.0',
+      name: 'Imported Workflow',
+      description: '',
+      stages: [],
+      rules: {
+        maxRepairIterations: 0,
+        budgetCapCents: null,
+        allowParallelSubagents: false,
+        requireVerificationReceipt: false,
+      },
+      preset: false,
+      active: false,
+      createdAt: '2026-10-05T07:00:00.000Z',
+    } satisfies HarnessDefinition),
+    selectHarness: vi.fn().mockResolvedValue(undefined),
+    deleteHarness: vi.fn().mockResolvedValue(undefined),
     health: vi.fn().mockResolvedValue({ status: 'ok', version: '0.2.1' }),
     ...overrides,
   } as unknown as WarshaClient;
@@ -317,5 +379,28 @@ describe('SettingsPage (Slice 1)', () => {
 
     fireEvent.click(document.querySelector('button[data-action="settings.about.copy"]') as HTMLElement);
     await waitFor(() => expect(document.querySelector('.w-banner--success')).not.toBeNull());
+  });
+
+  it('handles workflow import, select, view dialog, and delete dialog in WorkflowsSection', async () => {
+    const client = createMockClient();
+    renderSettings('/settings/workflows', client, 'advanced');
+    await waitFor(() => expect(screen.getByTestId('settings-section-workflows')).toBeDefined());
+
+    const importArea = screen.getByTestId('workflow-import-textarea').querySelector('textarea') as HTMLTextAreaElement;
+    fireEvent.change(importArea, { target: { value: '{"id":"wf-new","name":"Imported"}' } });
+    fireEvent.click(document.querySelector('button[data-action="settings.harness.import"]') as HTMLElement);
+    await waitFor(() => expect(client.importHarness).toHaveBeenCalled());
+
+    fireEvent.click(document.querySelector('button[data-action="settings.harness.select"]') as HTMLElement);
+    await waitFor(() => expect(client.selectHarness).toHaveBeenCalledWith('wf-1'));
+
+    fireEvent.click(document.querySelector('button[data-action="settings.harness.view"]') as HTMLElement);
+    await waitFor(() => expect(screen.getByTestId('workflow-view-dialog')).toBeDefined());
+    fireEvent.click(document.querySelector('button[data-action="settings.dialog.cancel"]') as HTMLElement);
+
+    fireEvent.click(document.querySelector('button[data-action="settings.harness.delete.open"]') as HTMLElement);
+    await waitFor(() => expect(screen.getByTestId('workflow-delete-dialog')).toBeDefined());
+    fireEvent.click(document.querySelector('button[data-action="settings.harness.delete.confirm"]') as HTMLElement);
+    await waitFor(() => expect(client.deleteHarness).toHaveBeenCalledWith('wf-1'));
   });
 });
