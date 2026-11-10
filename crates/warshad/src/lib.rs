@@ -37,8 +37,8 @@ use warsha_backends::BackendFactory;
 use warsha_core::*;
 use warsha_git::GitHubClient;
 use warsha_pipeline::{
-    AgentLoop, AgentMode, AgentTurnResult, AskUserQueue, BackendKind, BackendKit, CrashReport,
-    CrashReportStore, FilesystemToolExecutor, HandoffBundle, HandoffManager,
+    AgentLoop, AgentMode, AgentTurnResult, AskUserQueue, BackendKind, BackendKit, CommandPolicy,
+    CrashReport, CrashReportStore, FilesystemToolExecutor, HandoffBundle, HandoffManager,
     InMemoryCrashReportStore, InMemoryMcpManager, InMemoryPairingStore, InMemoryPreferenceStore,
     InMemoryProcessManager, InMemoryStoreReviewStore, LivePreview, LivePreviewManager,
     ManagedProcess, McpConnection, McpManager, MessageBus, ModeManager, ModeTransition,
@@ -3341,14 +3341,18 @@ impl WarshaApiServer for WarshaRpc {
     /// `agent.turn` is still the one place that says so.
     async fn agent_turn(&self, ext: &RpcExtensions, input: String) -> RpcResult<AgentTurnResult> {
         self.authorize(ext, "agent.turn")?;
-        // The turn parses, decides and compacts; in Agent mode it may also run one
-        // tool or make one model call, so the write lock is held across that await.
-        // Nothing else takes this lock mid-turn, so the ordering stays one turn at a
-        // time — which is what keeps the todo list and the transcript coherent.
+        // Prepare the turn under the write lock, drop the lock before executing
+        // commands or model calls so concurrent `agent.state` calls answer
+        // immediately, then commit the completed turn back under the lock.
         let skills = self.active_skill_catalog().await;
+        let prepared = {
+            let mut agent_loop = self.state.agent_loop.write().await;
+            agent_loop.prepare_turn(&input, &skills)
+        };
+        let executed = prepared.execute().await;
         let (result, snapshot) = {
             let mut agent_loop = self.state.agent_loop.write().await;
-            let result = agent_loop.run_turn(&input, &skills).await;
+            let result = agent_loop.finish_turn(executed);
             (result, AgentLoopSnapshot::of(&agent_loop))
         };
         if let Err(error) = self.store_agent(&snapshot).await {
@@ -4952,6 +4956,7 @@ const AGENT_METER_KEY: &str = "agent-loop";
 /// a silent no-op.
 fn build_agent_loop(
     data_dir: &Path,
+    allowed_commands: &[String],
     providers: Arc<RwLock<ProviderRouter>>,
     mcp: Arc<dyn McpManager>,
     backend_kit: Arc<RwLock<BackendKit>>,
@@ -4960,8 +4965,12 @@ fn build_agent_loop(
     // agent's file tools do too: an existing file must be read before it is
     // overwritten. A genuine create needs no prior read.
     let policy = WorkProtectionPolicy::default();
-    let tools = FilesystemToolExecutor::new(data_dir.join(AGENT_WORKSPACE_DIR))
-        .with_read_before_write(policy.read_before_write);
+    let workspace_dir = data_dir.join(AGENT_WORKSPACE_DIR);
+    let _ = std::fs::create_dir_all(&workspace_dir);
+    let command_policy = CommandPolicy::from_config(allowed_commands);
+    let tools = FilesystemToolExecutor::new(workspace_dir)
+        .with_read_before_write(policy.read_before_write)
+        .with_command_policy(command_policy);
     let router = ProviderRouterAdapter::new(providers, AGENT_ROLE, AGENT_METER_KEY);
     Arc::new(RwLock::new(
         AgentLoop::with_tool_executor(Box::new(tools))
@@ -5547,6 +5556,7 @@ pub async fn start_daemon_with_provider_factory(
     let default_kit = Arc::new(RwLock::new(default_backend_kit("default")));
     let agent_loop = build_agent_loop(
         &config.data_dir,
+        &config.allowed_commands,
         providers.clone(),
         mcp.clone(),
         default_kit,
@@ -7035,6 +7045,7 @@ mod tests {
         let default_kit = Arc::new(RwLock::new(default_backend_kit("default")));
         let agent_loop = build_agent_loop(
             &config.data_dir,
+            &config.allowed_commands,
             providers.clone(),
             mcp.clone(),
             default_kit,
@@ -9811,6 +9822,160 @@ mod tests {
 
             let reloaded = store.get_run(run.id).await.unwrap();
             assert!(reloaded.artifacts.contains_key("research"));
+        }
+    }
+
+    pub(crate) mod agent_lock {
+        use super::*;
+
+        #[tokio::test]
+        async fn a_second_agent_state_call_answers_while_a_command_runs() {
+            let temp = crate::test_util::fresh_tempdir();
+            let (state, _store) = test_state_with(temp.path(), |config| {
+                config.allowed_commands = vec!["ping".to_string(), "sleep".to_string()];
+            })
+            .await;
+            let rpc = WarshaRpc::new(state.clone());
+            let owner = owner_ext();
+
+            state
+                .agent_loop
+                .write()
+                .await
+                .approve_agent_mode("owner")
+                .expect("approve agent mode");
+
+            #[cfg(windows)]
+            let cmd_text = "run command ping -n 3 127.0.0.1".to_string();
+            #[cfg(not(windows))]
+            let cmd_text = "run command sleep 2".to_string();
+
+            let state_clone = state.clone();
+            let owner_clone = owner.clone();
+            let turn_handle = tokio::spawn(async move {
+                let rpc_bg = WarshaRpc::new(state_clone);
+                rpc_bg.agent_turn(&owner_clone, cmd_text).await
+            });
+
+            // Give the turn time to prepare and enter child command execution
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+            let start = std::time::Instant::now();
+            let state_res = rpc.agent_state(&owner).await;
+            let elapsed = start.elapsed();
+
+            assert!(
+                elapsed < std::time::Duration::from_millis(500),
+                "agent.state was blocked across command execution: elapsed = {elapsed:?}"
+            );
+            let agent_state = state_res.expect("agent_state should succeed while command runs");
+            assert_eq!(agent_state.mode, warsha_pipeline::AgentMode::Agent);
+
+            let turn_res = turn_handle
+                .await
+                .expect("turn task finished")
+                .expect("agent_turn succeeded");
+            assert_eq!(turn_res.tools.len(), 1);
+            assert!(
+                turn_res.tools[0].success,
+                "unexpected tool failure: {:?}",
+                turn_res.tools[0]
+            );
+        }
+
+        #[tokio::test]
+        async fn concurrent_agent_state_queries_observe_todos_without_deadlock() {
+            let temp = crate::test_util::fresh_tempdir();
+            let (state, _store) = test_state_with(temp.path(), |config| {
+                config.allowed_commands = vec!["ping".to_string(), "sleep".to_string()];
+            })
+            .await;
+            let rpc = WarshaRpc::new(state.clone());
+            let owner = owner_ext();
+
+            state
+                .agent_loop
+                .write()
+                .await
+                .approve_agent_mode("owner")
+                .expect("approve agent mode");
+
+            #[cfg(windows)]
+            let cmd_text = "run command ping -n 2 127.0.0.1".to_string();
+            #[cfg(not(windows))]
+            let cmd_text = "run command sleep 1".to_string();
+
+            let state_clone = state.clone();
+            let owner_clone = owner.clone();
+            let turn_handle = tokio::spawn(async move {
+                let rpc_bg = WarshaRpc::new(state_clone);
+                rpc_bg.agent_turn(&owner_clone, cmd_text).await
+            });
+
+            tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+
+            for _ in 0..5 {
+                let st = rpc.agent_state(&owner).await.expect("agent_state query");
+                assert_eq!(st.mode, warsha_pipeline::AgentMode::Agent);
+                assert!(
+                    !st.todos.is_empty(),
+                    "todos should contain active turn todo"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(15)).await;
+            }
+
+            let turn_res = turn_handle
+                .await
+                .expect("turn task finished")
+                .expect("turn succeeded");
+            assert_eq!(turn_res.tools.len(), 1);
+            assert!(turn_res.tools[0].success);
+
+            let final_state = rpc
+                .agent_state(&owner)
+                .await
+                .expect("final agent_state query");
+            assert_eq!(final_state.todos.len(), 1);
+            assert_eq!(
+                final_state.todos[0].status,
+                warsha_pipeline::TodoStatus::Done
+            );
+        }
+
+        #[tokio::test]
+        async fn agent_command_execution_obeys_daemon_allowed_commands_policy() {
+            let temp = crate::test_util::fresh_tempdir();
+            let (state, _store) = test_state_with(temp.path(), |config| {
+                config.allowed_commands = vec!["cargo".to_string()];
+            })
+            .await;
+            let rpc = WarshaRpc::new(state.clone());
+            let owner = owner_ext();
+
+            state
+                .agent_loop
+                .write()
+                .await
+                .approve_agent_mode("owner")
+                .expect("approve agent mode");
+
+            // Shell execution must be refused by the wired CommandPolicy
+            let turn_res = rpc
+                .agent_turn(&owner, "run command sh -c id".to_string())
+                .await
+                .expect("turn completes with failed tool result");
+            assert_eq!(turn_res.tools.len(), 1);
+            assert!(!turn_res.tools[0].success);
+            assert!(turn_res.tools[0].output.contains("refused"));
+
+            // Allow-listed cargo --version succeeds
+            let turn_cargo = rpc
+                .agent_turn(&owner, "run command cargo --version".to_string())
+                .await
+                .expect("turn completes with ok tool result");
+            assert_eq!(turn_cargo.tools.len(), 1);
+            assert!(turn_cargo.tools[0].success);
+            assert!(turn_cargo.tools[0].output.contains("cargo"));
         }
     }
 }
