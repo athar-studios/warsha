@@ -17,9 +17,7 @@ on:
         default: 'athar-studios/warsha'
 
 permissions:
-  contents: write
-  packages: write
-  id-token: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -56,6 +54,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Verify release version matches repository versions
+        run: |
+          node scripts/check-versions.mjs --expect "${GITHUB_REF_NAME#v}"
 
       - name: Extract version from tag
         id: version
@@ -516,6 +518,8 @@ jobs:
     name: Create Draft Release
     needs: [prepare, rust-build, desktop-build, artifacts]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download CLI binaries
         uses: actions/download-artifact@v4

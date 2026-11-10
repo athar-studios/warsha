@@ -1,6 +1,6 @@
 {
   "name": "warsha",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Warsha — Arabic-first AI Software Factory",
   "scripts": {
@@ -14,6 +14,7 @@
     "visual:remote": "playwright test --project=remote",
     "arch": "node scripts/check-arch.mjs",
     "policy": "node scripts/check-engineering-policy.mjs",
+    "versions": "node scripts/check-versions.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,json,md,css,html}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,json,md,css,html}\"",
     "prepare": "husky install"

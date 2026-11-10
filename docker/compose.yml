@@ -18,7 +18,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: warsha/warshad:0.1.0
+    image: warsha/warshad:0.2.1
     # Container-internal publication only; reverse_proxy reaches these on
     # the shared network. There is deliberately no `ports:` key here.
     expose:
