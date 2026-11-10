@@ -271,17 +271,31 @@ impl Scout {
     }
 
     /// Scout Git repositories
-    async fn scout_git(&self, _project_id: ProjectId, _role: Role) -> Result<Vec<ScoutProposal>> {
-        Ok(vec![])
+    async fn scout_git(&self, _project_id: ProjectId, role: Role) -> Result<Vec<ScoutProposal>> {
+        let url = self
+            .config
+            .catalog_urls
+            .get(&ScoutSource::Git)
+            .map(String::as_str);
+        self.registry_client
+            .fetch_proposals(ScoutSource::Git, url, role)
+            .await
     }
 
     /// Scout custom catalogs
     async fn scout_custom(
         &self,
         _project_id: ProjectId,
-        _role: Role,
+        role: Role,
     ) -> Result<Vec<ScoutProposal>> {
-        Ok(vec![])
+        let url = self
+            .config
+            .catalog_urls
+            .get(&ScoutSource::Custom)
+            .map(String::as_str);
+        self.registry_client
+            .fetch_proposals(ScoutSource::Custom, url, role)
+            .await
     }
 
     /// Install approved proposal (record in skills.lock)
@@ -494,5 +508,60 @@ mod tests {
             .expect("fixture scout succeeds");
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].name, "mcp-github");
+    }
+
+    #[tokio::test]
+    async fn test_production_scout_git_and_custom_return_catalog_unavailable() {
+        for source in [ScoutSource::Git, ScoutSource::Custom] {
+            let config = ScoutConfig {
+                enabled_sources: vec![source],
+                ..ScoutConfig::default()
+            };
+            let scout = Scout::new(config);
+            let err = scout
+                .scout_for_role(ProjectId::new(), Role::Coder, None)
+                .await
+                .expect_err("remote scout source must fail with catalog unavailable");
+            assert!(
+                matches!(err, ScoutError::CatalogUnavailable(_)),
+                "unexpected error for {source:?}: {err:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_recorded_json_fixture_client() {
+        const RECORDED_FIXTURE_JSON: &str = r#"[
+            {
+                "id": "rec-mcp-1",
+                "source": "mcp_registry",
+                "source_url": "https://registry.modelcontextprotocol.io/servers/filesystem",
+                "name": "mcp-filesystem",
+                "version": "1.2.0",
+                "description": "Recorded MCP filesystem fixture",
+                "license": "MIT",
+                "license_class": "permissive",
+                "target_role": "coder",
+                "provides": ["fs"],
+                "required_permissions": ["filesystem"],
+                "dependencies": [],
+                "metadata": {},
+                "discovered_at": "2026-11-10T00:00:00Z"
+            }
+        ]"#;
+        let proposals: Vec<ScoutProposal> =
+            serde_json::from_str(RECORDED_FIXTURE_JSON).expect("recorded JSON fixture parses");
+        let scout = Scout::with_client(
+            ScoutConfig::default(),
+            Arc::new(FixtureRegistryClient { proposals }),
+        );
+        let result = scout
+            .scout_project(ProjectId::new(), None, vec![Role::Coder])
+            .await
+            .expect("scout_project succeeds with recorded fixture");
+        let coder = result.proposals.get(&Role::Coder).expect("coder key");
+        assert_eq!(coder.len(), 1);
+        assert_eq!(coder[0].id, "rec-mcp-1");
+        assert_eq!(coder[0].name, "mcp-filesystem");
     }
 }

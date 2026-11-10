@@ -273,7 +273,7 @@ pub async fn load_skill_from_dir(path: PathBuf) -> Result<Skill> {
     let manifest_path = path.join("SKILL.md");
     let content = std::fs::read_to_string(&manifest_path)?;
 
-    // Parse frontmatter (simplified - in real implementation use a proper parser)
+    // Parse frontmatter
     let manifest = parse_skill_manifest(&content)?;
 
     Ok(Skill {
