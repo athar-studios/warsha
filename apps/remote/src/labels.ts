@@ -12,8 +12,27 @@ import type { GateState } from '@warsha/client';
 import { t, type Locale } from '@warsha/i18n';
 // The gate's *state* is the daemon's shape (`{ state: 'rejected', reason, by, at }`), while the moves it
 // answers to are the design system's (`approve` / `reject` / `changes_requested`). Both packages name a
-// type `GateState`, so the client's is imported by name and the UI's is never needed here.
-import type { GateCardLabels, GateDecision } from '@warsha/ui';
+// type `GateState`, so the client's is imported by name.
+
+/** The three moves a gate decision answers to. */
+export type GateDecision = 'approve' | 'reject' | 'changes_requested';
+
+/** The gate card label set, resolved from the live locale. */
+export interface GateCardLabels {
+  gate: string;
+  approve: string;
+  reject: string;
+  requestChanges: string;
+  reason: string;
+  reasonHint: string;
+  confirm: string;
+  cancel: string;
+  approved: string;
+  rejected: string;
+  changesRequested: string;
+  waiting: string;
+  required: string;
+}
 
 /** The gate card's whole label set, resolved from the live locale (§6: labels arrive as props). */
 export function gateCardLabels(locale: Locale): GateCardLabels {
