@@ -1,0 +1,478 @@
+import { expect, test } from '@playwright/test';
+
+import {
+  auditFocusWalk,
+  axeIsClean,
+  describeAxe,
+  describeFocus,
+  focusIsClean,
+  runAxe,
+} from '../support/a11y';
+
+import { act, expectRpc, openV3, rpcCalls } from './support';
+
+const VIEWPORTS = [
+  { name: '1280x800', width: 1280, height: 800 },
+  { name: '390x844', width: 390, height: 844 },
+] as const;
+
+const LOCALES = ['ar', 'en'] as const;
+const THEMES = ['light', 'dark'] as const;
+const SECTIONS = ['general', 'models', 'devices', 'about'] as const;
+
+const CUSTOM_MODELS_FIXTURE = {
+  'models.list': {
+    result: [
+      {
+        provider: 'warsha-router',
+        model_id: 'custom-m1',
+        display_name: 'Custom Model 1',
+        context_window: 32000,
+        enabled: true,
+      },
+    ],
+  },
+} as const;
+
+test.describe('Settings v3 (Slice 1)', () => {
+  // ---------------------------------------------------------------------------
+  // Journeys
+  // ---------------------------------------------------------------------------
+  test('navigation journey: Simple mode disclosure and switching sections', async ({
+    page,
+  }) => {
+    await openV3(page, '/settings/general', { lang: 'ar', mode: 'simple' });
+
+    const nav = page.locator('nav.v3-settings-nav');
+    await expect(nav.locator('a[data-action="settings.nav.open"]')).toHaveCount(4);
+
+    // Toggle advanced disclosure
+    await act(page, 'settings.advanced.toggle');
+    await expect(nav.locator('a[data-action="settings.nav.open"]')).toHaveCount(12);
+
+    // Navigate to Models & Providers
+    await page.locator('a[href="#/settings/models"]').click();
+    await expect(page.locator('[data-testid="settings-section-models"]')).toBeVisible();
+    await expect(page.locator('a[href="#/settings/models"]')).toHaveAttribute(
+      'aria-current',
+      'page'
+    );
+
+    // Navigate to Devices
+    await page.locator('a[href="#/settings/devices"]').click();
+    await expect(page.locator('[data-testid="settings-section-devices"]')).toBeVisible();
+
+    // Navigate to About
+    await page.locator('a[href="#/settings/about"]').click();
+    await expect(page.locator('[data-testid="settings-section-about"]')).toBeVisible();
+  });
+
+  test('general settings journey: language, theme, mode, and default budget', async ({
+    page,
+  }) => {
+    await openV3(page, '/settings/general', { lang: 'ar', theme: 'light', mode: 'simple' });
+
+    await page
+      .locator('[data-action="settings.language.set"][data-value="en"]')
+      .click();
+    await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
+
+    await page
+      .locator('[data-action="settings.theme.set"][data-value="dark"]')
+      .click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+
+    await page
+      .locator('[data-action="settings.mode-default.set"][data-value="advanced"]')
+      .click();
+    await expect(page.locator('html')).toHaveAttribute('data-mode', 'advanced');
+
+    const input = page.locator('[data-testid="general-default-budget-input"] input');
+    await input.fill('50');
+    await act(page, 'settings.budget-default.save');
+    await expectRpc(page, 'preferences.record');
+    await expect(page.locator('.w-banner--success')).toBeVisible();
+  });
+
+  test('models & providers journey: add provider, test, fetch models, remove provider, add custom model, remove model, save role', async ({
+    page,
+  }) => {
+    await openV3(page, '/settings/models', {
+      lang: 'ar',
+      fixtures: CUSTOM_MODELS_FIXTURE,
+    });
+    await expect(page.locator('[data-testid="settings-section-models"]')).toBeVisible();
+
+    // 1. Add provider (password API key)
+    await act(page, 'settings.provider.add.open');
+    const dialog = page.locator('[data-testid="add-provider-dialog"]');
+    await expect(dialog).toBeVisible();
+
+    const keyInput = dialog.locator('input[type="password"]');
+    await expect(keyInput).toBeVisible();
+
+    await dialog.locator('[data-testid="provider-form-name"] input').fill('test-provider');
+    await keyInput.fill('sk-test-fixture-value');
+    await act(page, 'settings.provider.add.save');
+    await expectRpc(page, 'providers.add');
+    await expect(dialog).not.toBeVisible();
+
+    // 2. Test provider connection
+    await act(page, 'settings.provider.test');
+    await expectRpc(page, 'providers.test');
+
+    // 3. Fetch provider models
+    await act(page, 'settings.provider.models.fetch');
+    await expectRpc(page, 'providers.check_models');
+
+    // 4. Remove provider with confirmation dialog
+    await act(page, 'settings.provider.remove.open');
+    const removeProvDialog = page.locator('[data-testid="remove-provider-dialog"]');
+    await expect(removeProvDialog).toBeVisible();
+    await act(page, 'settings.provider.remove.confirm');
+    await expectRpc(page, 'providers.remove');
+    await expect(removeProvDialog).not.toBeVisible();
+
+    // 5. Add custom model
+    await page.locator('[data-testid="custom-model-id-input"] input').fill('test-custom-model');
+    await act(page, 'settings.model.add');
+    await expectRpc(page, 'models.add');
+
+    // 6. Remove custom model with dialog
+    await act(page, 'settings.model.remove.open');
+    const removeModelDialog = page.locator('[data-testid="remove-model-dialog"]');
+    await expect(removeModelDialog).toBeVisible();
+    await act(page, 'settings.model.remove.confirm');
+    await expectRpc(page, 'models.remove');
+    await expect(removeModelDialog).not.toBeVisible();
+
+    // 7. Save role route (select first routed row with enabled save button)
+    await page
+      .locator('[data-action="settings.role.route.set"]:not([disabled])')
+      .first()
+      .click();
+    await expectRpc(page, 'roles.set');
+  });
+
+  test('devices journey: start pairing with QR code and revoke device with confirmation', async ({
+    page,
+  }) => {
+    await openV3(page, '/settings/devices', { lang: 'ar' });
+    await expect(page.locator('[data-testid="settings-section-devices"]')).toBeVisible();
+
+    await act(page, 'settings.device.pair.start');
+    await expectRpc(page, 'devices.pair-start');
+    const pairDialog = page.locator('[data-testid="device-pair-dialog"]');
+    await expect(pairDialog).toBeVisible();
+    await expect(pairDialog.locator('img')).toBeVisible();
+    await act(page, 'settings.dialog.cancel');
+    await expect(pairDialog).not.toBeVisible();
+
+    await act(page, 'settings.device.revoke.open');
+    const revokeDialog = page.locator('[data-testid="device-revoke-dialog"]');
+    await expect(revokeDialog).toBeVisible();
+    await act(page, 'settings.device.revoke.confirm');
+    await expectRpc(page, 'devices.revoke');
+    await expect(revokeDialog).not.toBeVisible();
+  });
+
+  test('about journey: inspect health, refresh status, and copy info', async ({ page }) => {
+    await openV3(page, '/settings/about', { lang: 'ar' });
+    await expect(page.locator('[data-testid="settings-section-about"]')).toBeVisible();
+
+    await act(page, 'settings.about.health.refresh');
+    await expectRpc(page, 'health');
+
+    await act(page, 'settings.about.copy');
+    await expect(page.locator('.w-banner--success')).toBeVisible();
+  });
+
+  // ---------------------------------------------------------------------------
+  // One test per action id (for all 23 registered action ids)
+  // ---------------------------------------------------------------------------
+  test('action: settings.nav.open', async ({ page }) => {
+    await openV3(page, '/settings/general', { lang: 'ar' });
+    await page.locator('a[data-action="settings.nav.open"][href="#/settings/models"]').click();
+    await expect(page.locator('[data-testid="settings-section-models"]')).toBeVisible();
+    await expect(page.locator('a[href="#/settings/models"]')).toHaveAttribute(
+      'aria-current',
+      'page'
+    );
+  });
+
+  test('action: settings.advanced.toggle', async ({ page }) => {
+    await openV3(page, '/settings/general', { lang: 'ar', mode: 'simple' });
+    await act(page, 'settings.advanced.toggle');
+    await expect(page.locator('a[href="#/settings/workflows"]')).toBeVisible();
+  });
+
+  test('action: settings.language.set', async ({ page }) => {
+    await openV3(page, '/settings/general', { lang: 'ar' });
+    await page.locator('[data-action="settings.language.set"][data-value="en"]').click();
+    await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  });
+
+  test('action: settings.theme.set', async ({ page }) => {
+    await openV3(page, '/settings/general', { lang: 'ar', theme: 'light' });
+    await page.locator('[data-action="settings.theme.set"][data-value="dark"]').click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  });
+
+  test('action: settings.mode-default.set', async ({ page }) => {
+    await openV3(page, '/settings/general', { lang: 'ar', mode: 'simple' });
+    await page.locator('[data-action="settings.mode-default.set"][data-value="advanced"]').click();
+    await expect(page.locator('html')).toHaveAttribute('data-mode', 'advanced');
+  });
+
+  test('action: settings.budget-default.save', async ({ page }) => {
+    await openV3(page, '/settings/general', { lang: 'ar' });
+    await page.locator('[data-testid="general-default-budget-input"] input').fill('30');
+    await act(page, 'settings.budget-default.save');
+    await expectRpc(page, 'preferences.record');
+    await expect(page.locator('.w-banner--success')).toBeVisible();
+  });
+
+  test('action: settings.provider.add.open', async ({ page }) => {
+    await openV3(page, '/settings/models', { lang: 'ar' });
+    await act(page, 'settings.provider.add.open');
+    await expect(page.locator('[data-testid="add-provider-dialog"]')).toBeVisible();
+  });
+
+  test('action: settings.provider.add.save', async ({ page }) => {
+    await openV3(page, '/settings/models', { lang: 'ar' });
+    await act(page, 'settings.provider.add.open');
+    const dialog = page.locator('[data-testid="add-provider-dialog"]');
+    await dialog.locator('[data-testid="provider-form-name"] input').fill('custom-prov');
+    await dialog.locator('[data-testid="provider-form-key"] input').fill('sk-test-fixture-value');
+    await act(page, 'settings.provider.add.save');
+    await expectRpc(page, 'providers.add');
+  });
+
+  test('action: settings.provider.test', async ({ page }) => {
+    await openV3(page, '/settings/models', { lang: 'ar' });
+    await act(page, 'settings.provider.test');
+    await expectRpc(page, 'providers.test');
+  });
+
+  test('action: settings.provider.models.fetch', async ({ page }) => {
+    await openV3(page, '/settings/models', { lang: 'ar' });
+    await act(page, 'settings.provider.models.fetch');
+    await expectRpc(page, 'providers.check_models');
+  });
+
+  test('action: settings.provider.remove.open', async ({ page }) => {
+    await openV3(page, '/settings/models', { lang: 'ar' });
+    await act(page, 'settings.provider.remove.open');
+    await expect(page.locator('[data-testid="remove-provider-dialog"]')).toBeVisible();
+  });
+
+  test('action: settings.provider.remove.confirm', async ({ page }) => {
+    await openV3(page, '/settings/models', { lang: 'ar' });
+    await act(page, 'settings.provider.remove.open');
+    await act(page, 'settings.provider.remove.confirm');
+    await expectRpc(page, 'providers.remove');
+  });
+
+  test('action: settings.model.add', async ({ page }) => {
+    await openV3(page, '/settings/models', { lang: 'ar' });
+    await page.locator('[data-testid="custom-model-id-input"] input').fill('my-model-1');
+    await act(page, 'settings.model.add');
+    await expectRpc(page, 'models.add');
+  });
+
+  test('action: settings.model.remove.open', async ({ page }) => {
+    await openV3(page, '/settings/models', {
+      lang: 'ar',
+      fixtures: CUSTOM_MODELS_FIXTURE,
+    });
+    await act(page, 'settings.model.remove.open');
+    await expect(page.locator('[data-testid="remove-model-dialog"]')).toBeVisible();
+  });
+
+  test('action: settings.model.remove.confirm', async ({ page }) => {
+    await openV3(page, '/settings/models', {
+      lang: 'ar',
+      fixtures: CUSTOM_MODELS_FIXTURE,
+    });
+    await act(page, 'settings.model.remove.open');
+    await act(page, 'settings.model.remove.confirm');
+    await expectRpc(page, 'models.remove');
+  });
+
+  test('action: settings.role.route.set', async ({ page }) => {
+    await openV3(page, '/settings/models', { lang: 'ar' });
+    await page
+      .locator('[data-action="settings.role.route.set"]:not([disabled])')
+      .first()
+      .click();
+    await expectRpc(page, 'roles.set');
+  });
+
+  test('action: settings.device.pair.start', async ({ page }) => {
+    await openV3(page, '/settings/devices', { lang: 'ar' });
+    await act(page, 'settings.device.pair.start');
+    await expectRpc(page, 'devices.pair-start');
+    await expect(page.locator('[data-testid="device-pair-dialog"]')).toBeVisible();
+  });
+
+  test('action: settings.device.revoke.open', async ({ page }) => {
+    await openV3(page, '/settings/devices', { lang: 'ar' });
+    await act(page, 'settings.device.revoke.open');
+    await expect(page.locator('[data-testid="device-revoke-dialog"]')).toBeVisible();
+  });
+
+  test('action: settings.device.revoke.confirm', async ({ page }) => {
+    await openV3(page, '/settings/devices', { lang: 'ar' });
+    await act(page, 'settings.device.revoke.open');
+    await act(page, 'settings.device.revoke.confirm');
+    await expectRpc(page, 'devices.revoke');
+  });
+
+  test('action: settings.about.health.refresh', async ({ page }) => {
+    await openV3(page, '/settings/about', { lang: 'ar' });
+    await act(page, 'settings.about.health.refresh');
+    await expectRpc(page, 'health');
+  });
+
+  test('action: settings.about.copy', async ({ page }) => {
+    await openV3(page, '/settings/about', { lang: 'ar' });
+    await act(page, 'settings.about.copy');
+    await expect(page.locator('.w-banner--success')).toBeVisible();
+  });
+
+  test('action: settings.dialog.cancel', async ({ page }) => {
+    await openV3(page, '/settings/models', { lang: 'ar' });
+    await act(page, 'settings.provider.add.open');
+    const dialog = page.locator('[data-testid="add-provider-dialog"]');
+    await expect(dialog).toBeVisible();
+    await act(page, 'settings.dialog.cancel');
+    await expect(dialog).not.toBeVisible();
+  });
+
+  test('action: settings.error.retry', async ({ page }) => {
+    await openV3(page, '/settings/general', {
+      lang: 'ar',
+      fixtures: {
+        'preferences.list': { error: 'Daemon connection failure' },
+      },
+    });
+    const errorBanner = page.locator('.w-banner--danger');
+    await expect(errorBanner).toBeVisible();
+    const beforeCalls = (await rpcCalls(page)).filter((c) => c.method === 'preferences.list').length;
+    await act(page, 'settings.error.retry');
+    await expect
+      .poll(async () => (await rpcCalls(page)).filter((c) => c.method === 'preferences.list').length)
+      .toBeGreaterThan(beforeCalls);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Accessibility & Keyboard (@a11y)
+  // ---------------------------------------------------------------------------
+  for (const locale of LOCALES) {
+    for (const theme of THEMES) {
+      test(`settings accessibility and keyboard navigation (${locale}, ${theme}) @a11y`, async ({
+        page,
+      }) => {
+        for (const section of SECTIONS) {
+          await openV3(page, `/settings/${section}`, { lang: locale, theme });
+          await expect(page.locator(`[data-testid="settings-section-${section}"]`)).toBeVisible();
+
+          const axe = await runAxe(page);
+          expect(axeIsClean(axe), `axe failed on ${section} (${locale}, ${theme}):\n${describeAxe(axe)}`).toBe(
+            true
+          );
+
+          const focus = await auditFocusWalk(page);
+          expect(focusIsClean(focus), `focus failed on ${section} (${locale}, ${theme}):\n${describeFocus(focus)}`).toBe(
+            true
+          );
+          expect(focus.stops.length).toBeGreaterThan(0);
+        }
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Visual checks (@visual) — per section/state × 1280×800 & 390×844 × ar/en × light/dark
+  // ---------------------------------------------------------------------------
+  for (const section of SECTIONS) {
+    for (const viewport of VIEWPORTS) {
+      for (const locale of LOCALES) {
+        for (const theme of THEMES) {
+          test(`visual baseline: settings ${section} ready ${viewport.name} ${locale} ${theme} @visual`, async ({
+            page,
+          }) => {
+            await openV3(page, `/settings/${section}`, {
+              lang: locale,
+              theme,
+              viewport: { width: viewport.width, height: viewport.height },
+            });
+            await expect(page.locator(`[data-testid="settings-section-${section}"]`)).toBeVisible();
+            await expect(page).toHaveScreenshot(
+              `settings-${section}-ready-${viewport.name}-${locale}-${theme}.png`
+            );
+          });
+        }
+      }
+    }
+  }
+
+  for (const viewport of VIEWPORTS) {
+    for (const locale of LOCALES) {
+      for (const theme of THEMES) {
+        test(`visual baseline: settings models empty ${viewport.name} ${locale} ${theme} @visual`, async ({
+          page,
+        }) => {
+          await openV3(page, '/settings/models', {
+            lang: locale,
+            theme,
+            viewport: { width: viewport.width, height: viewport.height },
+            fixtures: {
+              'providers.list': { result: [] },
+              'models.list': { result: [] },
+            },
+          });
+          await expect(page.locator('[data-testid="settings-section-models"]')).toBeVisible();
+          await expect(page).toHaveScreenshot(
+            `settings-models-empty-${viewport.name}-${locale}-${theme}.png`
+          );
+        });
+
+        test(`visual baseline: settings devices empty ${viewport.name} ${locale} ${theme} @visual`, async ({
+          page,
+        }) => {
+          await openV3(page, '/settings/devices', {
+            lang: locale,
+            theme,
+            viewport: { width: viewport.width, height: viewport.height },
+            fixtures: {
+              'devices.list': { result: [] },
+            },
+          });
+          await expect(page.locator('[data-testid="settings-section-devices"]')).toBeVisible();
+          await expect(page).toHaveScreenshot(
+            `settings-devices-empty-${viewport.name}-${locale}-${theme}.png`
+          );
+        });
+
+        test(`visual baseline: settings general error ${viewport.name} ${locale} ${theme} @visual`, async ({
+          page,
+        }) => {
+          await openV3(page, '/settings/general', {
+            lang: locale,
+            theme,
+            viewport: { width: viewport.width, height: viewport.height },
+            fixtures: {
+              'preferences.list': { error: 'Daemon connection failure' },
+            },
+          });
+          await expect(page.locator('.w-banner--danger')).toBeVisible();
+          await expect(page).toHaveScreenshot(
+            `settings-general-error-${viewport.name}-${locale}-${theme}.png`
+          );
+        });
+      }
+    }
+  }
+});
