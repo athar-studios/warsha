@@ -120,15 +120,14 @@ function renderSettings(
         initialCapabilities={{
           daemon: true,
           provider: true,
-          preview: true,
-          agent: true,
-          harnesses: true,
-          skills: true,
-          plugins: true,
+          devices: true,
           integrations: true,
+          plugins: true,
+          skills: true,
+          harnesses: true,
           routines: true,
+          preview: true,
           backend: true,
-          postlaunch: true,
         }}
       >
         <I18nProvider initialLocale={locale}>
