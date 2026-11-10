@@ -118,8 +118,8 @@ pub use crate::router_quality::{
     PerTaskDefaults, ResponseCache, RouterPolicy, RouterTarget, TargetKind, TaskDifficulty,
 };
 pub use crate::routines::{
-    MockRoutineRunner, Routine, RoutineAction, RoutineError, RoutineId, RoutineRegistry,
-    RoutineRunner, RoutineSchedule, RoutineScheduler, RoutineState,
+    Routine, RoutineAction, RoutineError, RoutineId, RoutineRegistry, RoutineRunner,
+    RoutineSchedule, RoutineScheduler, RoutineState, UnavailableRoutineRunner,
 };
 pub use crate::run_modes::{
     is_loopback_host, InMemoryPairingStore, PairingStore, PhonePairing, RunMode, RunModeConfig,

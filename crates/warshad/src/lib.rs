@@ -43,7 +43,7 @@ use warsha_pipeline::{
     InMemoryProcessManager, InMemoryStoreReviewStore, LivePreview, LivePreviewManager,
     ManagedProcess, McpConnection, McpManager, MessageBus, ModeManager, ModeTransition,
     PairingStore, PhonePairing, Preference, PreferenceSignal, PreferenceStore, ProcessManager,
-    ProcessStatus, ProcessSummary, ProviderRouterAdapter, Routine, RoutineRegistry, RoutineRunner,
+    ProcessStatus, ProcessSummary, ProviderRouterAdapter, Routine, RoutineError, RoutineRegistry, RoutineRunner,
     RoutineScheduler, RunMode, RunModeConfig, SlashCommand, SlashCommandRegistry, StoreReview,
     StoreReviewStore, TodoItem, TodoList, WorkProtectionPolicy, AGENT_ROLE,
 };
@@ -5521,7 +5521,7 @@ pub async fn start_daemon_with_provider_factory(
     wave2::seed_bundled_records(&settings).await?;
     let routines = Arc::new(RwLock::new(RoutineRegistry::new()));
     let routine_runner: Arc<dyn RoutineRunner + Send + Sync> =
-        Arc::new(warsha_pipeline::MockRoutineRunner::new());
+        Arc::new(warsha_pipeline::UnavailableRoutineRunner::new());
     let routine_scheduler = Arc::new(RoutineScheduler::new(routines.clone(), routine_runner));
 
     // Which credential means which caller, and how often it may ask (audit H-01,
@@ -6944,8 +6944,15 @@ mod tests {
             .expect("a device identity");
 
         let routines = Arc::new(RwLock::new(RoutineRegistry::new()));
+        #[derive(Debug, Default)]
+        struct TestRoutineRunner;
+        impl RoutineRunner for TestRoutineRunner {
+            fn run(&self, _routine: &Routine) -> std::result::Result<(), RoutineError> {
+                Ok(())
+            }
+        }
         let routine_runner: Arc<dyn RoutineRunner + Send + Sync> =
-            Arc::new(warsha_pipeline::MockRoutineRunner::new());
+            Arc::new(TestRoutineRunner);
         let routine_scheduler = Arc::new(RoutineScheduler::new(routines.clone(), routine_runner));
 
         // A hand-built state carries the same session and ceiling wiring a real one
