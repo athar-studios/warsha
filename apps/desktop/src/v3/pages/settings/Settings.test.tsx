@@ -327,6 +327,20 @@ function createMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
       state: 'idle',
       lastRunUnix: null,
     } satisfies Routine),
+    listProjects: vi.fn().mockResolvedValue([
+      {
+        id: 'proj-1',
+        name: 'Project One',
+        createdAt: '2026-10-05T07:00:00.000Z',
+        updatedAt: '2026-10-05T07:00:00.000Z',
+      },
+    ]),
+    getProjectBudget: vi.fn().mockResolvedValue({
+      totalBudgetUsd: 20,
+      spentUsd: 5,
+      remainingUsd: 15,
+    }),
+    setProjectBudget: vi.fn().mockResolvedValue(undefined),
     health: vi.fn().mockResolvedValue({ status: 'ok', version: '0.2.1' }),
     ...overrides,
   } as unknown as WarshaClient;
@@ -662,5 +676,16 @@ describe('SettingsPage (Slice 1)', () => {
 
     fireEvent.click(document.querySelector('button[data-action="settings.routine.view"]') as HTMLElement);
     await waitFor(() => expect(screen.getByTestId('routine-view-dialog')).toBeDefined());
+  });
+
+  it('handles project budget save in BudgetsSection', async () => {
+    const client = createMockClient();
+    renderSettings('/settings/budgets', client, 'advanced');
+    await waitFor(() => expect(screen.getByTestId('settings-section-budgets')).toBeDefined());
+
+    const input = screen.getByTestId('project-budget-input-proj-1').querySelector('input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '35' } });
+    fireEvent.click(document.querySelector('button[data-action="settings.budget.save"]') as HTMLElement);
+    await waitFor(() => expect(client.setProjectBudget).toHaveBeenCalledWith('proj-1', 3500));
   });
 });

@@ -28,6 +28,7 @@ const SECTIONS = [
   'plugins',
   'integrations',
   'routines',
+  'budgets',
 ] as const;
 
 const CUSTOM_MODELS_FIXTURE = {
@@ -146,6 +147,27 @@ const ROUTINES_FIXTURE = {
         last_run_unix: null,
       },
     ],
+  },
+} as const;
+
+const BUDGETS_FIXTURE = {
+  'projects.list': {
+    result: [
+      {
+        id: 'proj-1',
+        name: 'Project One',
+        createdAt: '2026-10-05T07:00:00.000Z',
+        updatedAt: '2026-10-05T07:00:00.000Z',
+      },
+    ],
+  },
+  'budget.show': {
+    result: {
+      project_id: 'proj-1',
+      budget_cents: 2000,
+      spent_cents: 500,
+      remaining_cents: 1500,
+    },
   },
 } as const;
 
@@ -457,6 +479,22 @@ test.describe('Settings v3 (Slice 1)', () => {
     await expect(viewDialog).toBeVisible();
     await act(page, 'settings.dialog.cancel');
     await expect(viewDialog).not.toBeVisible();
+  });
+
+  test('budgets journey: inspect project limits and update spending cap', async ({ page }) => {
+    await openV3(page, '/settings/budgets', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: BUDGETS_FIXTURE,
+    });
+    await expect(page.locator('[data-testid="settings-section-budgets"]')).toBeVisible();
+
+    await page
+      .locator('[data-testid="project-budget-input-proj-1"] input')
+      .fill('40');
+    await act(page, 'settings.budget.save');
+    await expectRpc(page, 'budget.set');
+    await expect(page.locator('.w-banner--success')).toBeVisible();
   });
 
   // ---------------------------------------------------------------------------
@@ -854,6 +892,19 @@ test.describe('Settings v3 (Slice 1)', () => {
     await act(page, 'settings.routine.view');
     await expectRpc(page, 'routines.get');
     await expect(page.locator('[data-testid="routine-view-dialog"]')).toBeVisible();
+  });
+
+  test('action: settings.budget.save', async ({ page }) => {
+    await openV3(page, '/settings/budgets', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: BUDGETS_FIXTURE,
+    });
+    await page
+      .locator('[data-testid="project-budget-input-proj-1"] input')
+      .fill('50');
+    await act(page, 'settings.budget.save');
+    await expectRpc(page, 'budget.set');
   });
 
   test('action: settings.dialog.cancel', async ({ page }) => {

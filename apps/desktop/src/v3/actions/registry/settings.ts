@@ -211,6 +211,14 @@ export const ACTIONS: readonly ActionDef[] = [
     rpc: ['routines.get'],
   },
 
+  // Budgets section
+  {
+    id: 'settings.budget.save',
+    labelKey: 'settings.budgets.save',
+    effect: 'rpc',
+    rpc: ['budget.set'],
+  },
+
   // Shared dialog & error recovery actions
   { id: 'settings.dialog.cancel', labelKey: 'common.cancel', effect: 'state' },
   { id: 'settings.error.retry', labelKey: 'common.retry', effect: 'state' },

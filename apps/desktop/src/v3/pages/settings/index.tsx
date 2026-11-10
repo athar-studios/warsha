@@ -11,6 +11,7 @@ import { useNavigate, useRoute } from '../../router';
 
 import { SettingsNav } from './SettingsNav';
 import { AboutSection } from './sections/AboutSection';
+import { BudgetsSection } from './sections/BudgetsSection';
 import { DevicesSection } from './sections/DevicesSection';
 import { GeneralSection } from './sections/GeneralSection';
 import { IntegrationsSection } from './sections/IntegrationsSection';
@@ -93,6 +94,8 @@ export default function SettingsPage(): React.ReactElement {
         return <IntegrationsSection />;
       case 'routines':
         return <RoutinesSection />;
+      case 'budgets':
+        return <BudgetsSection />;
       default:
         return <PendingAdvancedSection meta={activeMeta} />;
     }
