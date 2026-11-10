@@ -1,0 +1,8 @@
+# Gate: G1.9
+# Command: grep -q registerShellWorker apps/remote/README.md && grep -q RemoteProvider apps/remote/README.md
+# CWD: C:/Users/Dragonfly/Downloads/warsha-wt/verify-w1
+# Commit: 6d9728f52eb096199c4ace208435c8b8927e5140
+# UTC: 2026-11-08T09:09:17Z
+# --- output ---
+
+# Exit code: 0

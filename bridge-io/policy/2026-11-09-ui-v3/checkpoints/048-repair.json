@@ -1,0 +1,1713 @@
+{
+  "schema": "warsha-run/v1",
+  "run_id": "2026-11-09-ui-v3",
+  "task": "Rebuild the Warsha UI from a clean slate on Design System v3 «حِرفة» (docs/designs/DESIGN_SYSTEM_V3.md) following docs/designs/UI_V3_PLAN.md: a Simple mode that is simple, an Advanced Workbench where every control works, every page and action registered and proven by e2e; plus the still-valid audit packets of 2026-11-09 (harness truth, Rust hygiene, release truth, optional agent command policy); stage a local, unpublished draft release bundle.",
+  "phase": "implement",
+  "seq": 48,
+  "updated_at": "2026-11-09T17:11:16.236Z",
+  "supersedes": "2026-11-09-phase-b-visual-wave (its P1/P5a/P5b/P6 DS-v2 visual packets are dropped; P2/P3/P4/P7 continue here as H1/R1/V1/P7)",
+  "roles": {
+    "planner": "claude-opus-5-5 (planner only)",
+    "orchestrator": "qoder:software-dev-team/project-manager (stopped at step 0.2, 2026-11-09)",
+    "implementer": "per packet",
+    "reviewer": "per packet",
+    "verifier": "per packet"
+  },
+  "scope": {
+    "allowed_files": "per packet",
+    "out_of_scope": [
+      "**/*-snapshots/** for every implementer",
+      "PLAN.md, PROGRESS.md, DECISIONS.md (orchestrator only, at checkpoints)",
+      "dependencies (except OD-U2 = A: two pinned @fontsource packages in U0)",
+      "publishing, tags, pushes, releases",
+      "daemon features the UI lacks (UI_V3_PLAN §6)",
+      "Tauri updater, code signing (human-only)"
+    ]
+  },
+  "base": {
+    "branch": "dev",
+    "planner_commit": "ba90e713b2731870a7df3c1791bcbfe98e330717",
+    "integration_branch": "run/2026-11-09-ui-v3/integration",
+    "worktree_root": "C:/Users/Dragonfly/Downloads/warsha-wt/v3"
+  },
+  "plan": {
+    "order": [
+      "Step 0: owner answers (OD-U0 must be yes) + plan commit check",
+      "G0 (+R0 per OD-U1)",
+      "F1 (OD-F1 approve) -> C0.5 merge -> R0 completion",
+      "Wave A: U0 U2 H1 R1 V1 in parallel",
+      "C1: merge R1 -> V1 -> U0 -> U2 -> H1 (+refresh H1)",
+      "Wave B: U1 E0 (+P7 if OD-B4)",
+      "C2: merge U1 -> E0 (-> P7)",
+      "Wave C: U3 U4 U5 U6 in parallel",
+      "C3: merge U3 (+genesis U3) -> U4 (+U4) -> U5 (+U5) -> U6 (+U6)",
+      "Wave D: U7 cutover (only after OD-U3 = yes)",
+      "C-final: INT-REL -> GC.1..GC.17 -> local draft bundle -> verdict -> fold records -> ready for acceptance"
+    ],
+    "packets": [
+      {
+        "id": "H1",
+        "slug": "harness-truth",
+        "wave": "A",
+        "conditional": null,
+        "branch": "run/2026-11-09-ui-v3/h1-harness-truth",
+        "worktree": "C:/Users/Dragonfly/Downloads/warsha-wt/v3/h1",
+        "summary": "daemon-true e2e stubs (postlaunch.*, backend.export, handoff.*, runs.subscribe run), an RPC call log the e2e can read (rpcCalls), stub-vs-decoder contract test, wire check W10",
+        "allowed": [
+          "apps/desktop/e2e/harness.ts",
+          "apps/remote/e2e/harness.ts",
+          "scripts/check-wire-contract.mjs",
+          "apps/desktop/src/harness.contract.test.ts (new)"
+        ],
+        "named_set": "named/H1.txt",
+        "status": "repairing-2",
+        "base_commit": "4c65ead4f46cf97eecffd73149a57056e505568c",
+        "base_counts": {
+          "@warsha/ui": 181,
+          "@warsha/client": 149,
+          "@warsha/crypto": 22,
+          "@warsha/i18n": 52,
+          "warsha-remote": 221,
+          "warsha-desktop": 468,
+          "warsha-desktop_v3": 0,
+          "rust": 746,
+          "rust_ignored": 10,
+          "playwright_listed": 884,
+          "playwright_expected": 826,
+          "playwright_unexpected": 58,
+          "playwright_unexpected_outside_named": 0
+        },
+        "roles": {
+          "implementer": "agent:Coder (H1 session)",
+          "reviewer": "agent:debugger (H1 review, dispatched 14:40Z)",
+          "verifier": "member:Test engineer (H1 verify dispatched 15:27Z)"
+        },
+        "note": "first Coder session hit the 150-turn limit; salvaged worktree state and dispatched a continuation with edit-first guidance",
+        "partial_commits": "c6f1924,0562828,d36c613; contract test untracked; W10 pending",
+        "head_commit": "e1644cabc63d46f78a31cf50abd92961b66e0a0a",
+        "review_verdict": "APPROVE (re-review governing, repair 9d7d7c9)",
+        "repair_commit": "9d7d7c911d49c7618348538c36e0af3f552a77e1",
+        "gates_partial": "11/12 pass (H1.1-H1.9,deps,snap); H1.pw detached scratch 8faa734; orchestrator Monitor armed",
+        "pw_attempts": [
+          {
+            "label": "H1.pw",
+            "json": "gates/H1.pw.json",
+            "result": "835 expected / 49 unexpected; pw-gate outside=1 (flows.spec.ts mode-group 1440x900 en, browser-closed)"
+          },
+          {
+            "label": "isolation",
+            "json": "gates/H1.flake-isolate-1.json + -2",
+            "result": "flows.spec.ts alone: 30/30 then 29/1 (same mode-group case, 390x844 en, browser-closed) = flake class"
+          },
+          {
+            "label": "H1b.pw",
+            "json": "gates/H1b.pw.json",
+            "result": "49 unexpected, outside=1 again — flows.spec mode-group 390x844 ar (browser-closed); base+U0/U2/V1 scratch all 884/0 => likely H1-induced"
+          }
+        ]
+      },
+      {
+        "id": "R1",
+        "slug": "rust-hardening",
+        "wave": "A",
+        "conditional": null,
+        "branch": "run/2026-11-09-ui-v3/r1-rust-hardening",
+        "worktree": "C:/Users/Dragonfly/Downloads/warsha-wt/v3/r1",
+        "summary": "no non-test unwrap, no silently dropped RPC errors, preview policy on the split_command token, event-driven process tests",
+        "allowed": [
+          "crates/warshad/src/**",
+          "crates/warshad/tests/**",
+          "crates/warsha-pipeline/src/** (NOT the RunCommand behaviour — that is P7)"
+        ],
+        "named_set": "named/EMPTY.txt",
+        "status": "repairing",
+        "base_commit": "4c65ead4f46cf97eecffd73149a57056e505568c",
+        "base_counts": {
+          "@warsha/ui": 181,
+          "@warsha/client": 149,
+          "@warsha/crypto": 22,
+          "@warsha/i18n": 52,
+          "warsha-remote": 221,
+          "warsha-desktop": 468,
+          "warsha-desktop_v3": 0,
+          "rust": 746,
+          "rust_ignored": 10,
+          "playwright_listed": 884,
+          "playwright_expected": 826,
+          "playwright_unexpected": 58,
+          "playwright_unexpected_outside_named": 0
+        },
+        "roles": {
+          "implementer": "agent:Coder (R1 session)",
+          "reviewer": "agent:debugger (R1 review, dispatched 16:19Z)",
+          "verifier": null
+        },
+        "note": "3rd session hit 150-turn ceiling; dirty lib.rs+wave2.rs compiles; new session = commit state + steps 3,6; step 4 timing deferred",
+        "partial_commit": "1eb5260 (step 1 only)",
+        "partial_commits": "1eb5260,1d674dd,937267f,6f6ff09 = steps 1,2,3,6; step 4 session dispatched",
+        "head_commit": "86b57c070e4fa9c6450fdcd2ccb75981124b4dbb",
+        "review_verdict": "REQUEST-CHANGES (F1: 3 behaviours untested; F2: ping -n 30 x2; F3 minor)"
+      },
+      {
+        "id": "V1",
+        "slug": "release-truth",
+        "wave": "A",
+        "conditional": null,
+        "branch": "run/2026-11-09-ui-v3/v1-release-truth",
+        "worktree": "C:/Users/Dragonfly/Downloads/warsha-wt/v3/v1",
+        "summary": "one version everywhere (0.2.1, APK versionCode 201), scripts/check-versions.mjs (--expect/--set/--self-test), Docker version label, stale-dist-proof APK sync, root keystore ignores, release.yml tag check + job-scoped permissions, mobile README truth",
+        "allowed": [
+          "version fields of every package.json",
+          "root package.json \"scripts\"",
+          "apps/mobile/android/app/build.gradle",
+          "apps/mobile/README.md",
+          "docker/compose.yml",
+          "docker/Dockerfile",
+          ".gitignore",
+          ".github/workflows/release.yml",
+          ".github/workflows/desktop-bundle.yml",
+          "scripts/check-versions.mjs (new)",
+          "pnpm-lock.yaml only if --frozen-lockfile demands it, version lines only"
+        ],
+        "named_set": "named/EMPTY.txt",
+        "status": "verified",
+        "base_commit": "4c65ead4f46cf97eecffd73149a57056e505568c",
+        "base_counts": {
+          "@warsha/ui": 181,
+          "@warsha/client": 149,
+          "@warsha/crypto": 22,
+          "@warsha/i18n": 52,
+          "warsha-remote": 221,
+          "warsha-desktop": 468,
+          "warsha-desktop_v3": 0,
+          "rust": 746,
+          "rust_ignored": 10,
+          "playwright_listed": 884,
+          "playwright_expected": 826,
+          "playwright_unexpected": 58,
+          "playwright_unexpected_outside_named": 0
+        },
+        "roles": {
+          "implementer": "agent:Coder (V1 session)",
+          "reviewer": "agent:debugger (V1 review, dispatched 13:06Z)",
+          "verifier": "member:Test engineer (V1 verify dispatched 13:40Z)"
+        },
+        "head_commit": "017ffb9d98f63181ec73d9b00a8b81df1e0b29dc",
+        "review_verdict": "APPROVE",
+        "note": "CLI delegate failed unknown-outcome twice (nothing landed); reassigned via member-session follow-up 13:51Z",
+        "gates_verified": "V1.1-V1.11,V1.deps,V1.snap,V1.pw pass (V1.pw 884/884/0/0; logs+acceptance on disk)"
+      },
+      {
+        "id": "P7",
+        "slug": "agent-command-policy",
+        "wave": "B",
+        "conditional": "dispatch ONLY if OD-B4 = approve",
+        "branch": "run/2026-11-09-ui-v3/p7-agent-command-policy",
+        "worktree": "C:/Users/Dragonfly/Downloads/warsha-wt/v3/p7",
+        "summary": "RunCommand judged by the process allow-list (first split_command token); shells refused unless allow-listed",
+        "allowed": [
+          "crates/warsha-pipeline/src/{agent_tools,agent_loop,process_spawn,work_protection}.rs",
+          "crates/warshad/src/lib.rs (build_agent_loop wiring only)"
+        ],
+        "named_set": "named/EMPTY.txt",
+        "status": "not-started",
+        "base_commit": null,
+        "base_counts": null,
+        "roles": {
+          "implementer": null,
+          "reviewer": null,
+          "verifier": null
+        }
+      },
+      {
+        "id": "U0",
+        "slug": "ds-foundation",
+        "wave": "A",
+        "conditional": null,
+        "branch": "run/2026-11-09-ui-v3/u0-ds-foundation",
+        "worktree": "C:/Users/Dragonfly/Downloads/warsha-wt/v3/u0",
+        "summary": "DESIGN_SYSTEM_V3 foundations in packages/ui/src/v3: tokens (both themes), fonts per OD-U2, 46 icons, 19 primitives with stories and tests, contrast + parity tests, scripts/check-ds-v3.mjs",
+        "allowed": [
+          "packages/ui/src/v3/**",
+          "packages/ui/package.json (\"exports\" only; dependencies only if OD-U2 = A)",
+          "packages/ui/README.md",
+          "scripts/check-ds-v3.mjs (new)",
+          "THIRD_PARTY_NOTICES.md (if OD-U2 = A or B)",
+          "pnpm-lock.yaml (only if OD-U2 = A)"
+        ],
+        "named_set": "named/EMPTY.txt",
+        "status": "verified",
+        "base_commit": "4c65ead4f46cf97eecffd73149a57056e505568c",
+        "base_counts": {
+          "@warsha/ui": 181,
+          "@warsha/client": 149,
+          "@warsha/crypto": 22,
+          "@warsha/i18n": 52,
+          "warsha-remote": 221,
+          "warsha-desktop": 468,
+          "warsha-desktop_v3": 0,
+          "rust": 746,
+          "rust_ignored": 10,
+          "playwright_listed": 884,
+          "playwright_expected": 826,
+          "playwright_unexpected": 58,
+          "playwright_unexpected_outside_named": 0
+        },
+        "roles": {
+          "implementer": "agent:Coder (U0 session)",
+          "reviewer": "agent:debugger (U0 review, dispatched 13:46Z)",
+          "verifier": null
+        },
+        "head_commit": "bae6c0bbb056dccffc78f561b572bb21398a8db3",
+        "review_verdict": "APPROVE (re-review governing)",
+        "gates_partial": "13/14 pass (U0.1-U0.11, U0.deps, U0.snap); U0.pw in flight on scratch 1aeea250",
+        "gates_verified": "U0.1-U0.11,U0.deps,U0.snap,U0.pw pass (U0.pw 884/0); logs+acceptance on disk"
+      },
+      {
+        "id": "U2",
+        "slug": "app-infra",
+        "wave": "A",
+        "conditional": null,
+        "branch": "run/2026-11-09-ui-v3/u2-app-infra",
+        "worktree": "C:/Users/Dragonfly/Downloads/warsha-wt/v3/u2",
+        "summary": "apps/desktop/src/v3 app shell skeleton: router, action registry per area + useAction + capabilities, data hooks with 4 states, stage/event copy maps, placeholder pages, packages/i18n/src/v3 catalogs per area + useT, ?ui=v3 flag (v2 stays default)",
+        "allowed": [
+          "apps/desktop/src/v3/{app,router,actions,data,copy}/**",
+          "apps/desktop/src/v3/pages/** (placeholders only)",
+          "apps/desktop/src/main.tsx (the ui flag only)",
+          "packages/i18n/src/v3/**",
+          "packages/i18n/package.json (\"exports\" only)"
+        ],
+        "named_set": "named/EMPTY.txt",
+        "status": "verified",
+        "base_commit": "4c65ead4f46cf97eecffd73149a57056e505568c",
+        "base_counts": {
+          "@warsha/ui": 181,
+          "@warsha/client": 149,
+          "@warsha/crypto": 22,
+          "@warsha/i18n": 52,
+          "warsha-remote": 221,
+          "warsha-desktop": 468,
+          "warsha-desktop_v3": 0,
+          "rust": 746,
+          "rust_ignored": 10,
+          "playwright_listed": 884,
+          "playwright_expected": 826,
+          "playwright_unexpected": 58,
+          "playwright_unexpected_outside_named": 0
+        },
+        "roles": {
+          "implementer": "agent:Coder (U2 session)",
+          "reviewer": "agent:debugger (U2 review, dispatched 14:34Z)",
+          "verifier": "member:Test engineer (U2 verify dispatched 14:58Z)"
+        },
+        "note": "first Coder session hit the 150-turn limit; salvaged worktree state and dispatched a continuation with edit-first guidance",
+        "partial_commits": "862e793,50a1c72,8fc1fc0,a784b7d,f58427a; 17 data files untracked",
+        "head_commit": "fc8f06656a1b665913b0aeeecb19cb8278775bb6",
+        "gates_claimed": "U2.1-U2.11+deps+snap by implementer",
+        "review_verdict": "APPROVE",
+        "gates_verified": "U2.1-U2.11,U2.deps,U2.snap,U2.pw pass (U2.pw 884/0); logs+acceptance on disk"
+      },
+      {
+        "id": "U1",
+        "slug": "ds-composites",
+        "wave": "B",
+        "conditional": null,
+        "branch": "run/2026-11-09-ui-v3/u1-ds-composites",
+        "worktree": "C:/Users/Dragonfly/Downloads/warsha-wt/v3/u1",
+        "summary": "27 composites in packages/ui/src/v3/composites with stories and tests",
+        "allowed": [
+          "packages/ui/src/v3/composites/**",
+          "packages/ui/src/v3/index.ts (exports)",
+          "packages/ui/README.md"
+        ],
+        "named_set": "named/EMPTY.txt",
+        "status": "not-started",
+        "base_commit": null,
+        "base_counts": null,
+        "roles": {
+          "implementer": null,
+          "reviewer": null,
+          "verifier": null
+        }
+      },
+      {
+        "id": "E0",
+        "slug": "e2e-v3-support",
+        "wave": "B",
+        "conditional": null,
+        "branch": "run/2026-11-09-ui-v3/e0-e2e-v3-support",
+        "worktree": "C:/Users/Dragonfly/Downloads/warsha-wt/v3/e0",
+        "summary": "apps/desktop/e2e/v3/support (openV3, act, expectRpc, rpcCalls re-export) + a smoke spec that boots every v3 route",
+        "allowed": [
+          "apps/desktop/e2e/v3/support/**",
+          "apps/desktop/e2e/v3/smoke.spec.ts"
+        ],
+        "named_set": "named/EMPTY.txt",
+        "status": "not-started",
+        "base_commit": null,
+        "base_counts": null,
+        "roles": {
+          "implementer": null,
+          "reviewer": null,
+          "verifier": null
+        }
+      },
+      {
+        "id": "U3",
+        "slug": "simple-pages",
+        "wave": "C",
+        "conditional": null,
+        "branch": "run/2026-11-09-ui-v3/u3-simple-pages",
+        "worktree": "C:/Users/Dragonfly/Downloads/warsha-wt/v3/u3",
+        "summary": "Frame, Onboarding, Home, Projects, Project (Simple), Inbox — UI_V3_PLAN §3.0-3.5",
+        "allowed": [
+          "apps/desktop/src/v3/pages/frame/**",
+          "apps/desktop/src/v3/actions/registry/frame.ts",
+          "packages/i18n/src/v3/{ar,en}/frame.ts",
+          "apps/desktop/e2e/v3/frame.spec.ts",
+          "apps/desktop/src/v3/pages/onboarding/**",
+          "apps/desktop/src/v3/actions/registry/onboarding.ts",
+          "packages/i18n/src/v3/{ar,en}/onboarding.ts",
+          "apps/desktop/e2e/v3/onboarding.spec.ts",
+          "apps/desktop/src/v3/pages/home/**",
+          "apps/desktop/src/v3/actions/registry/home.ts",
+          "packages/i18n/src/v3/{ar,en}/home.ts",
+          "apps/desktop/e2e/v3/home.spec.ts",
+          "apps/desktop/src/v3/pages/projects/**",
+          "apps/desktop/src/v3/actions/registry/projects.ts",
+          "packages/i18n/src/v3/{ar,en}/projects.ts",
+          "apps/desktop/e2e/v3/projects.spec.ts",
+          "apps/desktop/src/v3/pages/project/**",
+          "apps/desktop/src/v3/actions/registry/project.ts",
+          "packages/i18n/src/v3/{ar,en}/project.ts",
+          "apps/desktop/e2e/v3/project.spec.ts",
+          "apps/desktop/src/v3/pages/inbox/**",
+          "apps/desktop/src/v3/actions/registry/inbox.ts",
+          "packages/i18n/src/v3/{ar,en}/inbox.ts",
+          "apps/desktop/e2e/v3/inbox.spec.ts"
+        ],
+        "named_set": "named/U3.txt",
+        "status": "not-started",
+        "base_commit": null,
+        "base_counts": null,
+        "roles": {
+          "implementer": null,
+          "reviewer": null,
+          "verifier": null
+        }
+      },
+      {
+        "id": "U4",
+        "slug": "workbench",
+        "wave": "C",
+        "conditional": null,
+        "branch": "run/2026-11-09-ui-v3/u4-workbench",
+        "worktree": "C:/Users/Dragonfly/Downloads/warsha-wt/v3/u4",
+        "summary": "Advanced Workbench — UI_V3_PLAN §3.6 (10 tabs, real assistant via agent.*, advanced composer)",
+        "allowed": [
+          "apps/desktop/src/v3/pages/bench/**",
+          "apps/desktop/src/v3/actions/registry/bench.ts",
+          "packages/i18n/src/v3/{ar,en}/bench.ts",
+          "apps/desktop/e2e/v3/bench.spec.ts"
+        ],
+        "named_set": "named/U4.txt",
+        "status": "not-started",
+        "base_commit": null,
+        "base_counts": null,
+        "roles": {
+          "implementer": null,
+          "reviewer": null,
+          "verifier": null
+        }
+      },
+      {
+        "id": "U5",
+        "slug": "settings",
+        "wave": "C",
+        "conditional": null,
+        "branch": "run/2026-11-09-ui-v3/u5-settings",
+        "worktree": "C:/Users/Dragonfly/Downloads/warsha-wt/v3/u5",
+        "summary": "Settings, 12 sections — UI_V3_PLAN §3.7",
+        "allowed": [
+          "apps/desktop/src/v3/pages/settings/**",
+          "apps/desktop/src/v3/actions/registry/settings.ts",
+          "packages/i18n/src/v3/{ar,en}/settings.ts",
+          "apps/desktop/e2e/v3/settings.spec.ts"
+        ],
+        "named_set": "named/U5.txt",
+        "status": "not-started",
+        "base_commit": null,
+        "base_counts": null,
+        "roles": {
+          "implementer": null,
+          "reviewer": null,
+          "verifier": null
+        }
+      },
+      {
+        "id": "U6",
+        "slug": "remote-v3",
+        "wave": "C",
+        "conditional": null,
+        "branch": "run/2026-11-09-ui-v3/u6-remote-v3",
+        "worktree": "C:/Users/Dragonfly/Downloads/warsha-wt/v3/u6",
+        "summary": "apps/remote rebuilt on @warsha/ui/v3 (same five screens, same behaviour and test ids, new look, Google Fonts removed)",
+        "allowed": [
+          "apps/remote/src/**",
+          "apps/remote/index.html"
+        ],
+        "named_set": "named/U6.txt",
+        "status": "not-started",
+        "base_commit": null,
+        "base_counts": null,
+        "roles": {
+          "implementer": null,
+          "reviewer": null,
+          "verifier": null
+        }
+      },
+      {
+        "id": "U7",
+        "slug": "cutover",
+        "wave": "D",
+        "conditional": "dispatch ONLY after OD-U3 = yes",
+        "branch": "run/2026-11-09-ui-v3/u7-cutover",
+        "worktree": "C:/Users/Dragonfly/Downloads/warsha-wt/v3/u7",
+        "summary": "v3 becomes the only UI: delete v2 screens/components/DS, the six v2 e2e specs and their baselines, Google Fonts links; retire DS v2 in docs",
+        "allowed": [
+          "apps/desktop/src/** (deletions; main.tsx)",
+          "apps/desktop/index.html",
+          "apps/desktop/e2e/*.spec.ts and their *-snapshots/** (deletions), apps/desktop/e2e/harness.ts (v2 SCREENS list only), apps/desktop/e2e/support/** (v2-only helpers)",
+          "packages/ui/src/** outside v3 (deletions) and packages/ui/src/index.ts",
+          "scripts/check-arch.mjs (retarget R6 to v3 paths, never weaken)",
+          "docs/UI.md, docs/designs/SITEMAP.md, docs/designs/DESIGN_SYSTEM_V2.md (status line)"
+        ],
+        "named_set": "named/EMPTY.txt",
+        "status": "not-started",
+        "base_commit": null,
+        "base_counts": null,
+        "roles": {
+          "implementer": null,
+          "reviewer": null,
+          "verifier": null
+        }
+      },
+      {
+        "id": "F1",
+        "slug": "v2-mobile-providers-truth",
+        "wave": "pre-A",
+        "conditional": "OD-F1 approve (given 2026-11-09T10:21:35Z)",
+        "branch": "run/2026-11-09-ui-v3/f1-v2-mobile-providers",
+        "worktree": "C:/Users/Dragonfly/Downloads/warsha-wt/v3/f1",
+        "summary": "scoped waiver fix of the two v0.2.1 v2 mobile-providers defects (zero-width status span; Arabic label in mono probe) so R0 and every Wave A .pw gate become satisfiable",
+        "allowed": [
+          "apps/desktop/src/index.css",
+          "apps/desktop/src/screens/ProvidersSettings.tsx"
+        ],
+        "named_set": "named/R0.txt",
+        "status": "merged",
+        "base_commit": "ba90e713b2731870a7df3c1791bcbfe98e330717",
+        "base_counts": {
+          "@warsha/ui": 181,
+          "@warsha/client": 149,
+          "@warsha/crypto": 22,
+          "@warsha/i18n": 52,
+          "warsha-remote": 221,
+          "warsha-desktop": 468,
+          "warsha-desktop_v3": 0,
+          "rust": 746,
+          "rust_ignored": 10,
+          "playwright_listed": 884,
+          "playwright_expected": 826,
+          "playwright_unexpected": 58,
+          "playwright_unexpected_outside_named": 0
+        },
+        "roles": {
+          "implementer": "agent:Coder (F1 session)",
+          "reviewer": "agent:debugger (F1 review session)",
+          "verifier": "member:Test engineer (tail confirmed 2026-11-09T11:09:59Z)"
+        }
+      },
+      {
+        "id": "F2",
+        "slug": "client-test-lint",
+        "wave": "pre-A",
+        "conditional": "base defect discovered during Wave A; no waiver involved (planner-capacity packet)",
+        "branch": "run/2026-11-09-ui-v3/f2-client-lint",
+        "worktree": "C:/Users/Dragonfly/Downloads/warsha-wt/v3/f2",
+        "summary": "remove five unused imports in packages/client/src/index.test.ts that fail pnpm -r lint at base 4c65ead",
+        "allowed": [
+          "packages/client/src/index.test.ts"
+        ],
+        "named_set": "n/a",
+        "status": "verified",
+        "base_commit": "4c65ead4f46cf97eecffd73149a57056e505568c",
+        "base_counts": {
+          "@warsha/ui": 181,
+          "@warsha/client": 149,
+          "@warsha/crypto": 22,
+          "@warsha/i18n": 52,
+          "warsha-remote": 221,
+          "warsha-desktop": 468,
+          "warsha-desktop_v3": 0,
+          "rust": 746,
+          "rust_ignored": 10,
+          "playwright_listed": 884,
+          "playwright_expected": 826,
+          "playwright_unexpected": 58,
+          "playwright_unexpected_outside_named": 0
+        },
+        "roles": {
+          "implementer": "agent:Coder (F2)",
+          "reviewer": "agent:debugger (F2 review, dispatched 13:27Z)",
+          "verifier": null
+        },
+        "head_commit": "a3d24a949e44951dbfc2671f62b1477f4d7ec276",
+        "gates_verified": "F2.1-F2.6 PASS (verifier, logs on disk)"
+      }
+    ],
+    "refreshes": [
+      {
+        "id": "R0",
+        "after": "G0",
+        "named": "named/R0.txt",
+        "snap": "named/R0.snap.txt",
+        "status": "done",
+        "pre": "gates/R0.pre2.json",
+        "fence": "gates/R0.snap-fence.log",
+        "pack": "od-visual/R0-post/",
+        "note": "Owner released the review-each stop with the continuation goal 'continue' (09:43Z). Rx step 5 ran (gates/R0.update.log): 54 of 58 baselines refreshed clean; providers 390x844 ar/en x light/dark stay red on non-pixel soft assertions that pre-exist at RUN_BASE (G0.json): auditLayout emptyBoxes (span 'لم يُختبر بعد' / 'not tested yet' holds text at 0x63 / 0x54) and auditUsedFonts (mono probe 'العنوان الافتراضي لهذا النوع' drawn with DejaVu Sans Mono; IBM Plex Mono has no Arabic glyphs). v0.2.1 v2 product defects at mobile width, not drift. Nothing committed: integration tip still ba90e71; the 58 refreshed PNGs sit uncommitted in /root/warsha-g0-v3 and the 4 defective renders must not be frozen. See blocker.",
+        "commit": "4c65ead4f46cf97eecffd73149a57056e505568c",
+        "owner_word": "refresh R0 (structured answer 2026-11-09T11:39Z, OD-U1 review-each)",
+        "attempts": [
+          {
+            "label": "R0",
+            "json": "gates/R0.final.json",
+            "counts": "gates/R0.counts.log",
+            "result": "883 passed / 1 failed (flows.spec.ts mode-group 390x844 en, browser-closed)"
+          },
+          {
+            "label": "isolation",
+            "json": "gates/R0.flake-isolate-1.json + -2",
+            "result": "flows.spec.ts alone 30/30 twice at 4c65ead = documented concurrency flow-closure flake"
+          },
+          {
+            "label": "R0b",
+            "json": "gates/R0b.final.json",
+            "counts": "gates/R0b.counts.log",
+            "result": "884 passed / 0 failed / 0 skipped; counts_exit=0 listed=884; dirty=0 (frozen gate, second unchanged attempt)"
+          }
+        ],
+        "counts": "gates/R0b.counts.log",
+        "completed_at": "2026-11-09T12:35:31.030Z",
+        "flake_note": "attempt 1 (883/1) = flows.spec.ts mode-group 390x844 en browser-closed; isolated 30/30 twice; documented concurrency flow-closure flake; both attempts preserved"
+      },
+      {
+        "id": "RH1",
+        "after": "H1 merge",
+        "named": "named/H1.txt",
+        "snap": "named/H1.snap.txt",
+        "status": "not-run"
+      },
+      {
+        "id": "RU3",
+        "after": "U3 merge (genesis)",
+        "named": "named/U3.txt",
+        "snap": "named/U3.snap.txt",
+        "status": "not-run"
+      },
+      {
+        "id": "RU4",
+        "after": "U4 merge (genesis)",
+        "named": "named/U4.txt",
+        "snap": "named/U4.snap.txt",
+        "status": "not-run"
+      },
+      {
+        "id": "RU5",
+        "after": "U5 merge (genesis)",
+        "named": "named/U5.txt",
+        "snap": "named/U5.snap.txt",
+        "status": "not-run"
+      },
+      {
+        "id": "RU6",
+        "after": "U6 merge",
+        "named": "named/U6.txt",
+        "snap": "named/U6.snap.txt",
+        "status": "not-run"
+      }
+    ],
+    "acceptance_gates": [
+      {
+        "id": "G0",
+        "host": "windows+capture",
+        "check": "HANDOVER.md step 1",
+        "expect": "records base_counts (incl. warsha-desktop_v3 = 0); v2 Playwright failures, if any, inside named/R0.txt"
+      },
+      {
+        "id": "H1.1",
+        "host": "any",
+        "check": "node scripts/check-wire-contract.mjs",
+        "expect": "exit 0 and output contains \"wire: 10 checks, 0 violations\""
+      },
+      {
+        "id": "H1.2",
+        "host": "any",
+        "check": "node scripts/check-wire-contract.mjs --self-test",
+        "expect": "exit 0"
+      },
+      {
+        "id": "H1.3",
+        "host": "any",
+        "check": "pnpm --filter warsha-desktop test",
+        "expect": "exit 0 and \"Tests N passed\" with N >= base_counts.warsha-desktop + 6"
+      },
+      {
+        "id": "H1.4",
+        "host": "any",
+        "check": "pnpm --filter warsha-remote test",
+        "expect": "exit 0 and \"Tests N passed\" with N >= base_counts.warsha-remote"
+      },
+      {
+        "id": "H1.5",
+        "host": "any",
+        "check": "pnpm -r typecheck && node scripts/check-arch.mjs",
+        "expect": "exit 0"
+      },
+      {
+        "id": "H1.6",
+        "host": "any",
+        "check": "grep -nE \"^[[:space:]]+(crashes|reviews):[[:space:]]*\\[|result: \\{ (path|summary):\" apps/desktop/e2e/harness.ts",
+        "expect": "exit 1 (no object-wrapped stub left)"
+      },
+      {
+        "id": "H1.7",
+        "host": "any",
+        "check": "test -f apps/desktop/src/harness.contract.test.ts && grep -cE \"postlaunch\\.crashes|postlaunch\\.reviews|backend\\.export|handoff\\.create|handoff\\.apply\" apps/desktop/src/harness.contract.test.ts",
+        "expect": "exit 0 and count >= 5"
+      },
+      {
+        "id": "H1.8",
+        "host": "any",
+        "check": "grep -nE \"export (async )?function rpcCalls\" apps/desktop/e2e/harness.ts",
+        "expect": "exit 0"
+      },
+      {
+        "id": "H1.9",
+        "host": "any",
+        "check": "test -z \"$(git diff --name-only $BASE..HEAD | grep -vE '^(apps/desktop/e2e/harness\\.ts|apps/remote/e2e/harness\\.ts|scripts/check-wire-contract\\.mjs|apps/desktop/src/harness\\.contract\\.test\\.ts)$')\"",
+        "expect": "exit 0"
+      },
+      {
+        "id": "H1.deps",
+        "host": "any",
+        "check": "git diff $BASE..HEAD -- '*package.json' 'crates/*/Cargo.toml' 'apps/*/src-tauri/Cargo.toml' Cargo.toml | grep -E '^\\+\\s*\"?[@a-zA-Z0-9_./-]+\"?\\s*[:=]\\s*(\"[~^=]?[0-9]|\\{[^}]*version)' | grep -vE '^\\+\\s*\"?(version|rust-version)\"?\\s*[:=]'",
+        "expect": "exit 1 (no dependency added or bumped)"
+      },
+      {
+        "id": "H1.snap",
+        "host": "any",
+        "check": "node \"$EV/tools\"/pw-gate.mjs snapshots $BASE HEAD -",
+        "expect": "exit 0, snapshot_changes=0"
+      },
+      {
+        "id": "H1.pw",
+        "host": "capture",
+        "check": "pnpm exec playwright test --project=desktop --project=remote --reporter=json > \"$EV/gates/$GATE.json\"; node \"$EV/tools\"/pw-gate.mjs failures \"$EV/gates/$GATE.json\" \"$EV/named/H1.txt\"",
+        "expect": "pw-gate exit 0 (every failure inside named/H1.txt; v2 suites and every behavioural spec 100% green); packet merged onto the integration tip in a scratch checkout; no --update-snapshots"
+      },
+      {
+        "id": "R1.1",
+        "host": "windows",
+        "check": "cargo fmt --all --check",
+        "expect": "exit 0"
+      },
+      {
+        "id": "R1.2",
+        "host": "windows",
+        "check": "cargo clippy --workspace --all-targets -- -D warnings",
+        "expect": "exit 0"
+      },
+      {
+        "id": "R1.3",
+        "host": "windows",
+        "check": "cargo test --workspace --all-targets",
+        "expect": "exit 0; passed >= base_counts.rust + 8; ignored <= base_counts.rust_ignored"
+      },
+      {
+        "id": "R1.4",
+        "host": "any",
+        "check": "sed -n '1,/#\\[cfg(test)\\]/p' crates/warsha-pipeline/src/settings.rs | grep -c \"\\.unwrap()\"",
+        "expect": "prints 0"
+      },
+      {
+        "id": "R1.5",
+        "host": "any",
+        "check": "grep -nE \"let _ = pairings\\.(revoke|create)|let _ = self\\.state\\.mcp\\.(connect|disconnect)\" crates/warshad/src/lib.rs",
+        "expect": "exit 1"
+      },
+      {
+        "id": "R1.6",
+        "host": "any",
+        "check": "grep -nE \"command\\.split_whitespace\\(\\)\" crates/warshad/src/lib.rs",
+        "expect": "exit 1"
+      },
+      {
+        "id": "R1.7",
+        "host": "any",
+        "check": "grep -rnE \"\\\"(sleep)\\\"[^)]*\\\"(30|120)\\\"|sleep (30|120)\" crates/warshad crates/warsha-pipeline",
+        "expect": "exit 1"
+      },
+      {
+        "id": "R1.8",
+        "host": "any",
+        "check": "test -z \"$(git diff --name-only $BASE..HEAD | grep -vE '^crates/(warshad/(src|tests)|warsha-pipeline/src)/')\"",
+        "expect": "exit 0"
+      },
+      {
+        "id": "R1.9",
+        "host": "any",
+        "check": "git diff $BASE..HEAD -- crates | grep -nE \"^\\+.*(#\\[ignore\\]|todo!\\(|unimplemented!\\()\"",
+        "expect": "exit 1"
+      },
+      {
+        "id": "R1.10",
+        "host": "any",
+        "check": "grep -nE \"(info|debug|warn|error|trace)!\\([^)]*BOOTSTRAP_ADMIN_TOKEN\" crates/warshad/src/lib.rs",
+        "expect": "exit 1 (the opt-in token print no longer goes through tracing)"
+      },
+      {
+        "id": "R1.deps",
+        "host": "any",
+        "check": "git diff $BASE..HEAD -- '*package.json' 'crates/*/Cargo.toml' 'apps/*/src-tauri/Cargo.toml' Cargo.toml | grep -E '^\\+\\s*\"?[@a-zA-Z0-9_./-]+\"?\\s*[:=]\\s*(\"[~^=]?[0-9]|\\{[^}]*version)' | grep -vE '^\\+\\s*\"?(version|rust-version)\"?\\s*[:=]'",
+        "expect": "exit 1 (no dependency added or bumped)"
+      },
+      {
+        "id": "V1.1",
+        "host": "any",
+        "check": "node \"$EV/tools\"/versions.mjs . --expect 0.2.1",
+        "expect": "exit 0, \"versions: aligned\""
+      },
+      {
+        "id": "V1.2",
+        "host": "any",
+        "check": "node scripts/check-versions.mjs && node scripts/check-versions.mjs --self-test",
+        "expect": "exit 0"
+      },
+      {
+        "id": "V1.3",
+        "host": "any",
+        "check": "pnpm install --frozen-lockfile && cargo metadata --format-version 1 --locked --offline > /dev/null",
+        "expect": "exit 0"
+      },
+      {
+        "id": "V1.4",
+        "host": "capture",
+        "check": "actionlint .github/workflows/release.yml .github/workflows/desktop-bundle.yml",
+        "expect": "exit 0"
+      },
+      {
+        "id": "V1.5",
+        "host": "any",
+        "check": "awk '/^jobs:/{exit} {print}' .github/workflows/release.yml | grep -nE \"(contents|packages|id-token): write\"",
+        "expect": "exit 1"
+      },
+      {
+        "id": "V1.6",
+        "host": "any",
+        "check": "grep -n \"draft: true\" .github/workflows/release.yml && grep -n \"check-versions\" .github/workflows/release.yml",
+        "expect": "exit 0"
+      },
+      {
+        "id": "V1.7",
+        "host": "any",
+        "check": "git check-ignore -q a/x.jks && git check-ignore -q a/x.keystore && git check-ignore -q a/keystore.properties && git check-ignore -q a/x.p12",
+        "expect": "exit 0"
+      },
+      {
+        "id": "V1.8",
+        "host": "any",
+        "check": "grep -n \"840513\" apps/mobile/README.md",
+        "expect": "exit 1"
+      },
+      {
+        "id": "V1.9",
+        "host": "any",
+        "check": "grep -nE \"org\\.opencontainers\\.image\\.version\" docker/Dockerfile",
+        "expect": "exit 0"
+      },
+      {
+        "id": "V1.10",
+        "host": "any",
+        "check": "test -z \"$(git diff --name-only $BASE..HEAD | grep -vE '^(package\\.json|apps/(desktop|remote)/package\\.json|packages/(ui|client|i18n|crypto)/package\\.json|pnpm-lock\\.yaml|apps/mobile/android/app/build\\.gradle|apps/mobile/README\\.md|docker/(compose\\.yml|Dockerfile)|\\.gitignore|\\.github/workflows/(release|desktop-bundle)\\.yml|scripts/check-versions\\.mjs|docs/DAEMON\\.md)$')\"",
+        "expect": "exit 0"
+      },
+      {
+        "id": "V1.11",
+        "host": "any",
+        "check": "grep -nE \"no .gate_a./.gate_b. stage|providers\\.list. returns an empty\" docs/DAEMON.md; test $? -eq 1 && for s in idea gate_a research prd_spec gate_b design plan_tasks code review_qa_security gate_c release gate_d launch_drafts feedback; do grep -q \"\\b$s\\b\" docs/DAEMON.md || { echo \"missing $s\"; exit 1; }; done",
+        "expect": "exit 0 (stale DAEMON.md claims gone; all 14 stages listed)"
+      },
+      {
+        "id": "V1.deps",
+        "host": "any",
+        "check": "git diff $BASE..HEAD -- '*package.json' 'crates/*/Cargo.toml' 'apps/*/src-tauri/Cargo.toml' Cargo.toml | grep -E '^\\+\\s*\"?[@a-zA-Z0-9_./-]+\"?\\s*[:=]\\s*(\"[~^=]?[0-9]|\\{[^}]*version)' | grep -vE '^\\+\\s*\"?(version|rust-version)\"?\\s*[:=]'",
+        "expect": "exit 1 (no dependency added or bumped)"
+      },
+      {
+        "id": "V1.snap",
+        "host": "any",
+        "check": "node \"$EV/tools\"/pw-gate.mjs snapshots $BASE HEAD -",
+        "expect": "exit 0, snapshot_changes=0"
+      },
+      {
+        "id": "V1.pw",
+        "host": "capture",
+        "check": "pnpm exec playwright test --project=desktop --project=remote --reporter=json > \"$EV/gates/$GATE.json\"; node \"$EV/tools\"/pw-gate.mjs failures \"$EV/gates/$GATE.json\" \"$EV/named/EMPTY.txt\"",
+        "expect": "pw-gate exit 0 (every failure inside named/EMPTY.txt; v2 suites and every behavioural spec 100% green); packet merged onto the integration tip in a scratch checkout; no --update-snapshots"
+      },
+      {
+        "id": "P7.1",
+        "host": "windows",
+        "check": "cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings",
+        "expect": "exit 0"
+      },
+      {
+        "id": "P7.2",
+        "host": "windows",
+        "check": "cargo test --workspace --all-targets",
+        "expect": "exit 0; passed >= base_counts.rust + 3"
+      },
+      {
+        "id": "P7.3",
+        "host": "windows",
+        "check": "cargo test -p warsha-pipeline -- --list 2>/dev/null | grep -ciE \"run_command.*(refus|allow)\"",
+        "expect": "count >= 2"
+      },
+      {
+        "id": "P7.4",
+        "host": "any",
+        "check": "test -z \"$(git diff --name-only $BASE..HEAD | grep -vE '^crates/(warsha-pipeline/src/(agent_tools|agent_loop|process_spawn|work_protection)\\.rs|warshad/src/lib\\.rs)$')\"",
+        "expect": "exit 0"
+      },
+      {
+        "id": "P7.deps",
+        "host": "any",
+        "check": "git diff $BASE..HEAD -- '*package.json' 'crates/*/Cargo.toml' 'apps/*/src-tauri/Cargo.toml' Cargo.toml | grep -E '^\\+\\s*\"?[@a-zA-Z0-9_./-]+\"?\\s*[:=]\\s*(\"[~^=]?[0-9]|\\{[^}]*version)' | grep -vE '^\\+\\s*\"?(version|rust-version)\"?\\s*[:=]'",
+        "expect": "exit 1 (no dependency added or bumped)"
+      },
+      {
+        "id": "U0.1",
+        "host": "any",
+        "check": "pnpm --filter @warsha/ui test",
+        "expect": "exit 0 and \"Tests N passed\" with N >= base_counts.@warsha/ui + 40"
+      },
+      {
+        "id": "U0.2",
+        "host": "any",
+        "check": "pnpm --filter @warsha/ui build-storybook",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U0.3",
+        "host": "any",
+        "check": "pnpm -r typecheck && pnpm --filter @warsha/ui lint",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U0.4",
+        "host": "any",
+        "check": "node scripts/check-ds-v3.mjs packages/ui/src/v3 && node scripts/check-ds-v3.mjs --self-test",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U0.5",
+        "host": "any",
+        "check": "node \"$EV/tools\"/contrast.mjs --check-css packages/ui/src/v3/tokens/tokens.css",
+        "expect": "exit 0, \"fails 0\" (every §2.1 value declared, both themes)"
+      },
+      {
+        "id": "U0.6",
+        "host": "any",
+        "check": "cd packages/ui/src/v3/primitives && for c in Button IconButton Link TextField TextArea Select Combobox Checkbox Radio Switch Segmented Tabs Tooltip Badge StatusPill RoleMark Spinner Skeleton ProgressBar; do test -f $c.tsx && test -f $c.test.tsx && test -f $c.stories.tsx || { echo \"missing $c\"; exit 1; }; done",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U0.7",
+        "host": "any",
+        "check": "cat packages/ui/src/v3/icons/*.tsx | grep -cE \"^export (const|function) Icon[A-Z]\"",
+        "expect": "prints >= 44"
+      },
+      {
+        "id": "U0.8",
+        "host": "any",
+        "check": "grep -q \"data-variant\" packages/ui/src/v3/primitives/Button.tsx && grep -rq \"IBM Plex Sans Arabic\" packages/ui/src/v3/tokens",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U0.9",
+        "host": "any",
+        "check": "node -e \"const p=require('./packages/ui/package.json');process.exit(p.exports&&p.exports['./v3']?0:1)\"",
+        "expect": "exit 0 (@warsha/ui/v3 is importable)"
+      },
+      {
+        "id": "U0.10",
+        "host": "any",
+        "check": "test -z \"$(git diff --name-only $BASE..HEAD -- packages/ui/src | grep -v '^packages/ui/src/v3/')\"",
+        "expect": "exit 0 (v2 untouched)"
+      },
+      {
+        "id": "U0.11",
+        "host": "any",
+        "check": "test -z \"$(git diff --name-only $BASE..HEAD | grep -vE '^(packages/ui/(src/v3/|package\\.json$|README\\.md$)|scripts/check-ds-v3\\.mjs$|THIRD_PARTY_NOTICES\\.md$|pnpm-lock\\.yaml$)')\"",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U0.deps",
+        "host": "any",
+        "check": "git diff $BASE..HEAD -- '*package.json' 'crates/*/Cargo.toml' 'apps/*/src-tauri/Cargo.toml' Cargo.toml | grep -E '^\\+\\s*\"?[@a-zA-Z0-9_./-]+\"?\\s*[:=]\\s*(\"[~^=]?[0-9]|\\{[^}]*version)' | grep -vE '^\\+\\s*\"?(version|rust-version)\"?\\s*[:=]' | grep -v '@fontsource/ibm-plex-'",
+        "expect": "exit 1 (no dependency added or bumped)"
+      },
+      {
+        "id": "U0.snap",
+        "host": "any",
+        "check": "node \"$EV/tools\"/pw-gate.mjs snapshots $BASE HEAD -",
+        "expect": "exit 0, snapshot_changes=0"
+      },
+      {
+        "id": "U0.pw",
+        "host": "capture",
+        "check": "pnpm exec playwright test --project=desktop --project=remote --reporter=json > \"$EV/gates/$GATE.json\"; node \"$EV/tools\"/pw-gate.mjs failures \"$EV/gates/$GATE.json\" \"$EV/named/EMPTY.txt\"",
+        "expect": "pw-gate exit 0 (every failure inside named/EMPTY.txt; v2 suites and every behavioural spec 100% green); packet merged onto the integration tip in a scratch checkout; no --update-snapshots"
+      },
+      {
+        "id": "U2.1",
+        "host": "any",
+        "check": "pnpm --filter warsha-desktop test",
+        "expect": "exit 0 and \"Tests N passed\" with N >= base_counts.warsha-desktop + 25"
+      },
+      {
+        "id": "U2.2",
+        "host": "any",
+        "check": "pnpm -r typecheck && pnpm --filter warsha-desktop lint",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U2.3",
+        "host": "any",
+        "check": "node \"$EV/tools\"/i18n-gate.mjs .",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U2.4",
+        "host": "any",
+        "check": "node \"$EV/tools\"/actions-gate.mjs .",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U2.5",
+        "host": "any",
+        "check": "for a in frame onboarding home projects project inbox bench settings; do test -f apps/desktop/src/v3/actions/registry/$a.ts && test -f packages/i18n/src/v3/ar/$a.ts && test -f packages/i18n/src/v3/en/$a.ts && test -d apps/desktop/src/v3/pages/$a || { echo \"missing $a\"; exit 1; }; done",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U2.6",
+        "host": "any",
+        "check": "for s in idea gate_a research prd_spec gate_b design plan_tasks code review_qa_security gate_c release gate_d launch_drafts feedback; do grep -q \"\\b$s\\b\" apps/desktop/src/v3/copy/stages.ts || { echo \"missing $s\"; exit 1; }; done",
+        "expect": "exit 0 (all 14 daemon stages mapped)"
+      },
+      {
+        "id": "U2.7",
+        "host": "any",
+        "check": "cd apps/desktop/src/v3/data && for h in useProjects useProject useRuns useRun useRunEvents useGates useBudget useProviders useModels useRoles useHarnesses useSkills usePlugins useRoutines useDevices usePreview useArtifacts usePreferences useHealth useFiles useAgent; do ls $h.ts* >/dev/null 2>&1 && ls $h.test.ts* >/dev/null 2>&1 || { echo \"missing $h\"; exit 1; }; done",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U2.8",
+        "host": "any",
+        "check": "grep -lE \"reconnect|resync\" apps/desktop/src/v3/data/useRunEvents.test.ts*",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U2.9",
+        "host": "any",
+        "check": "grep -nE \"ui=v3|ui_version\" apps/desktop/src/main.tsx && ! grep -rnE \"from '@warsha/ui'|from '(\\.\\./)+(screens|components)/\" apps/desktop/src/v3",
+        "expect": "exit 0 (flag present; v3 imports only @warsha/ui/v3 and nothing from v2 screens/components)"
+      },
+      {
+        "id": "U2.10",
+        "host": "any",
+        "check": "test -z \"$(git diff --name-only $BASE..HEAD | grep -vE '^(apps/desktop/src/(v3/|main\\.tsx$)|packages/i18n/(src/v3/|package\\.json$))')\"",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U2.11",
+        "host": "any",
+        "check": "test -f apps/desktop/src/v3/app/startup.ts && grep -cE \"\\b(it|test)\\(\" apps/desktop/src/v3/app/startup.test.ts",
+        "expect": "exit 0 and count >= 3 (onboarding only when onboarding is not complete; a daemon/list failure at startup shows the frame with an error, never onboarding)"
+      },
+      {
+        "id": "U2.deps",
+        "host": "any",
+        "check": "git diff $BASE..HEAD -- '*package.json' 'crates/*/Cargo.toml' 'apps/*/src-tauri/Cargo.toml' Cargo.toml | grep -E '^\\+\\s*\"?[@a-zA-Z0-9_./-]+\"?\\s*[:=]\\s*(\"[~^=]?[0-9]|\\{[^}]*version)' | grep -vE '^\\+\\s*\"?(version|rust-version)\"?\\s*[:=]'",
+        "expect": "exit 1 (no dependency added or bumped)"
+      },
+      {
+        "id": "U2.snap",
+        "host": "any",
+        "check": "node \"$EV/tools\"/pw-gate.mjs snapshots $BASE HEAD -",
+        "expect": "exit 0, snapshot_changes=0"
+      },
+      {
+        "id": "U2.pw",
+        "host": "capture",
+        "check": "pnpm exec playwright test --project=desktop --project=remote --reporter=json > \"$EV/gates/$GATE.json\"; node \"$EV/tools\"/pw-gate.mjs failures \"$EV/gates/$GATE.json\" \"$EV/named/EMPTY.txt\"",
+        "expect": "pw-gate exit 0 (every failure inside named/EMPTY.txt; v2 suites and every behavioural spec 100% green) — v2 is still the default; packet merged onto the integration tip in a scratch checkout; no --update-snapshots"
+      },
+      {
+        "id": "U1.1",
+        "host": "any",
+        "check": "pnpm --filter @warsha/ui test",
+        "expect": "exit 0 and \"Tests N passed\" with N >= base_counts.@warsha/ui + 30"
+      },
+      {
+        "id": "U1.2",
+        "host": "any",
+        "check": "pnpm --filter @warsha/ui build-storybook && pnpm -r typecheck && pnpm --filter @warsha/ui lint",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U1.3",
+        "host": "any",
+        "check": "node scripts/check-ds-v3.mjs packages/ui/src/v3",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U1.4",
+        "host": "any",
+        "check": "cd packages/ui/src/v3/composites && for c in AppFrame TopBar ProjectSwitcher SideNav Card ListRow EmptyState Banner Toast Dialog Sheet Menu Stepper DecisionCard Composer ModelPicker BudgetField ActivityFeed PreviewCard CodeView DiffView Transcript DataTable SettingsSection CopyField KeyValue QrCode; do test -f $c.tsx && test -f $c.test.tsx && test -f $c.stories.tsx || { echo \"missing $c\"; exit 1; }; done",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U1.5",
+        "host": "any",
+        "check": "grep -nE \"DeepSeek|GPT-4o|Claude 3\\.5|fleet-worktrees|autonomous-factory\" packages/ui/src/v3/composites/ModelPicker.tsx",
+        "expect": "exit 1 (data-driven, no hard-coded list)"
+      },
+      {
+        "id": "U1.6",
+        "host": "any",
+        "check": "test -z \"$(git diff --name-only $BASE..HEAD | grep -vE '^packages/ui/(src/v3/(composites/|index\\.ts$)|README\\.md$)')\"",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U1.deps",
+        "host": "any",
+        "check": "git diff $BASE..HEAD -- '*package.json' 'crates/*/Cargo.toml' 'apps/*/src-tauri/Cargo.toml' Cargo.toml | grep -E '^\\+\\s*\"?[@a-zA-Z0-9_./-]+\"?\\s*[:=]\\s*(\"[~^=]?[0-9]|\\{[^}]*version)' | grep -vE '^\\+\\s*\"?(version|rust-version)\"?\\s*[:=]'",
+        "expect": "exit 1 (no dependency added or bumped)"
+      },
+      {
+        "id": "U1.snap",
+        "host": "any",
+        "check": "node \"$EV/tools\"/pw-gate.mjs snapshots $BASE HEAD -",
+        "expect": "exit 0, snapshot_changes=0"
+      },
+      {
+        "id": "U1.pw",
+        "host": "capture",
+        "check": "pnpm exec playwright test --project=desktop --project=remote --reporter=json > \"$EV/gates/$GATE.json\"; node \"$EV/tools\"/pw-gate.mjs failures \"$EV/gates/$GATE.json\" \"$EV/named/EMPTY.txt\"",
+        "expect": "pw-gate exit 0 (every failure inside named/EMPTY.txt; v2 suites and every behavioural spec 100% green); packet merged onto the integration tip in a scratch checkout; no --update-snapshots"
+      },
+      {
+        "id": "E0.1",
+        "host": "any",
+        "check": "pnpm --filter warsha-desktop typecheck",
+        "expect": "exit 0 (includes tsconfig.e2e.json)"
+      },
+      {
+        "id": "E0.2",
+        "host": "any",
+        "check": "cat apps/desktop/e2e/v3/support/*.ts | grep -cE \"export (async )?function (openV3|act|expectRpc|rpcCalls)\\b\"",
+        "expect": "prints 4"
+      },
+      {
+        "id": "E0.3",
+        "host": "capture",
+        "check": "pnpm exec playwright test --project=desktop v3/smoke.spec.ts --reporter=json > \"$EV/gates/$GATE.json\"; node \"$EV/tools\"/pw-gate.mjs failures \"$EV/gates/$GATE.json\" \"$EV/named/EMPTY.txt\"",
+        "expect": "exit 0"
+      },
+      {
+        "id": "E0.4",
+        "host": "any",
+        "check": "test -z \"$(git diff --name-only $BASE..HEAD | grep -vE '^apps/desktop/e2e/v3/(support/|smoke\\.spec\\.ts$)')\"",
+        "expect": "exit 0"
+      },
+      {
+        "id": "E0.deps",
+        "host": "any",
+        "check": "git diff $BASE..HEAD -- '*package.json' 'crates/*/Cargo.toml' 'apps/*/src-tauri/Cargo.toml' Cargo.toml | grep -E '^\\+\\s*\"?[@a-zA-Z0-9_./-]+\"?\\s*[:=]\\s*(\"[~^=]?[0-9]|\\{[^}]*version)' | grep -vE '^\\+\\s*\"?(version|rust-version)\"?\\s*[:=]'",
+        "expect": "exit 1 (no dependency added or bumped)"
+      },
+      {
+        "id": "E0.snap",
+        "host": "any",
+        "check": "node \"$EV/tools\"/pw-gate.mjs snapshots $BASE HEAD -",
+        "expect": "exit 0, snapshot_changes=0"
+      },
+      {
+        "id": "E0.pw",
+        "host": "capture",
+        "check": "pnpm exec playwright test --project=desktop --project=remote --reporter=json > \"$EV/gates/$GATE.json\"; node \"$EV/tools\"/pw-gate.mjs failures \"$EV/gates/$GATE.json\" \"$EV/named/EMPTY.txt\"",
+        "expect": "pw-gate exit 0 (every failure inside named/EMPTY.txt; v2 suites and every behavioural spec 100% green); packet merged onto the integration tip in a scratch checkout; no --update-snapshots"
+      },
+      {
+        "id": "U3.1",
+        "host": "any",
+        "check": "pnpm --filter warsha-desktop test",
+        "expect": "exit 0 and \"Tests N passed\" with N >= base_counts.warsha-desktop + 30"
+      },
+      {
+        "id": "U3.2",
+        "host": "any",
+        "check": "pnpm -r typecheck && pnpm --filter warsha-desktop lint && node scripts/check-ds-v3.mjs apps/desktop/src/v3",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U3.3",
+        "host": "any",
+        "check": "node \"$EV/tools\"/i18n-gate.mjs .",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U3.4",
+        "host": "any",
+        "check": "node \"$EV/tools\"/actions-gate.mjs . --only frame.,onboarding.,home.,projects.,project.,inbox.",
+        "expect": "exit 0 (every action of these areas registered, used, wired to a served RPC and clicked by an e2e case; no fake names anywhere in v3)"
+      },
+      {
+        "id": "U3.5",
+        "host": "any",
+        "check": "for a in frame onboarding home projects project inbox; do test -d apps/desktop/src/v3/pages/$a && test -f apps/desktop/src/v3/actions/registry/$a.ts && test -f packages/i18n/src/v3/ar/$a.ts && test -f packages/i18n/src/v3/en/$a.ts && test -f apps/desktop/e2e/v3/$a.spec.ts || exit 1; done",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U3.6",
+        "host": "capture",
+        "check": "pnpm exec playwright test --project=desktop v3/frame.spec.ts v3/onboarding.spec.ts v3/home.spec.ts v3/projects.spec.ts v3/project.spec.ts v3/inbox.spec.ts --grep-invert @visual --reporter=json > \"$EV/gates/$GATE.json\"; node \"$EV/tools\"/pw-gate.mjs failures \"$EV/gates/$GATE.json\" \"$EV/named/EMPTY.txt\"",
+        "expect": "exit 0 (flows, action effects, axe + keyboard in ar/en x light/dark: all green)"
+      },
+      {
+        "id": "U3.7",
+        "host": "any",
+        "check": "test -z \"$(git diff --name-only $BASE..HEAD | grep -vE '^(apps/desktop/src/v3/(pages/(frame|onboarding|home|projects|project|inbox)/|actions/registry/(frame|onboarding|home|projects|project|inbox)\\.ts$)|packages/i18n/src/v3/(ar|en)/(frame|onboarding|home|projects|project|inbox)\\.ts$|apps/desktop/e2e/v3/(frame|onboarding|home|projects|project|inbox)\\.spec\\.ts$)')\"",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U3.deps",
+        "host": "any",
+        "check": "git diff $BASE..HEAD -- '*package.json' 'crates/*/Cargo.toml' 'apps/*/src-tauri/Cargo.toml' Cargo.toml | grep -E '^\\+\\s*\"?[@a-zA-Z0-9_./-]+\"?\\s*[:=]\\s*(\"[~^=]?[0-9]|\\{[^}]*version)' | grep -vE '^\\+\\s*\"?(version|rust-version)\"?\\s*[:=]'",
+        "expect": "exit 1 (no dependency added or bumped)"
+      },
+      {
+        "id": "U3.snap",
+        "host": "any",
+        "check": "node \"$EV/tools\"/pw-gate.mjs snapshots $BASE HEAD -",
+        "expect": "exit 0, snapshot_changes=0"
+      },
+      {
+        "id": "U3.pw",
+        "host": "capture",
+        "check": "pnpm exec playwright test --project=desktop --project=remote --reporter=json > \"$EV/gates/$GATE.json\"; node \"$EV/tools\"/pw-gate.mjs failures \"$EV/gates/$GATE.json\" \"$EV/named/U3.txt\"",
+        "expect": "pw-gate exit 0 (every failure inside named/U3.txt; v2 suites and every behavioural spec 100% green); packet merged onto the integration tip in a scratch checkout; no --update-snapshots"
+      },
+      {
+        "id": "U3.simplicity",
+        "host": "capture",
+        "check": "cp \"$EV/tools/planner-simplicity.spec.ts\" apps/desktop/e2e/v3/ && pnpm exec playwright test --project=desktop v3/planner-simplicity.spec.ts --reporter=json > \"$EV/gates/$GATE.json\"; rm -f apps/desktop/e2e/v3/planner-simplicity.spec.ts; node \"$EV/tools\"/pw-gate.mjs failures \"$EV/gates/$GATE.json\" \"$EV/named/EMPTY.txt\"",
+        "expect": "exit 0 (<= 10 actions above the fold, <= 1 primary, one composer, no Latin UI text in Arabic); the copied spec is never committed"
+      },
+      {
+        "id": "U4.1",
+        "host": "any",
+        "check": "pnpm --filter warsha-desktop test",
+        "expect": "exit 0 and \"Tests N passed\" with N >= base_counts.warsha-desktop + 30"
+      },
+      {
+        "id": "U4.2",
+        "host": "any",
+        "check": "pnpm -r typecheck && pnpm --filter warsha-desktop lint && node scripts/check-ds-v3.mjs apps/desktop/src/v3",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U4.3",
+        "host": "any",
+        "check": "node \"$EV/tools\"/i18n-gate.mjs .",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U4.4",
+        "host": "any",
+        "check": "node \"$EV/tools\"/actions-gate.mjs . --only bench.",
+        "expect": "exit 0 (every action of these areas registered, used, wired to a served RPC and clicked by an e2e case; no fake names anywhere in v3)"
+      },
+      {
+        "id": "U4.5",
+        "host": "any",
+        "check": "for a in bench; do test -d apps/desktop/src/v3/pages/$a && test -f apps/desktop/src/v3/actions/registry/$a.ts && test -f packages/i18n/src/v3/ar/$a.ts && test -f packages/i18n/src/v3/en/$a.ts && test -f apps/desktop/e2e/v3/$a.spec.ts || exit 1; done",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U4.6",
+        "host": "capture",
+        "check": "pnpm exec playwright test --project=desktop v3/bench.spec.ts --grep-invert @visual --reporter=json > \"$EV/gates/$GATE.json\"; node \"$EV/tools\"/pw-gate.mjs failures \"$EV/gates/$GATE.json\" \"$EV/named/EMPTY.txt\"",
+        "expect": "exit 0 (flows, action effects, axe + keyboard in ar/en x light/dark: all green)"
+      },
+      {
+        "id": "U4.7",
+        "host": "any",
+        "check": "test -z \"$(git diff --name-only $BASE..HEAD | grep -vE '^(apps/desktop/src/v3/(pages/(bench)/|actions/registry/(bench)\\.ts$)|packages/i18n/src/v3/(ar|en)/(bench)\\.ts$|apps/desktop/e2e/v3/(bench)\\.spec\\.ts$)')\"",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U4.deps",
+        "host": "any",
+        "check": "git diff $BASE..HEAD -- '*package.json' 'crates/*/Cargo.toml' 'apps/*/src-tauri/Cargo.toml' Cargo.toml | grep -E '^\\+\\s*\"?[@a-zA-Z0-9_./-]+\"?\\s*[:=]\\s*(\"[~^=]?[0-9]|\\{[^}]*version)' | grep -vE '^\\+\\s*\"?(version|rust-version)\"?\\s*[:=]'",
+        "expect": "exit 1 (no dependency added or bumped)"
+      },
+      {
+        "id": "U4.snap",
+        "host": "any",
+        "check": "node \"$EV/tools\"/pw-gate.mjs snapshots $BASE HEAD -",
+        "expect": "exit 0, snapshot_changes=0"
+      },
+      {
+        "id": "U4.pw",
+        "host": "capture",
+        "check": "pnpm exec playwright test --project=desktop --project=remote --reporter=json > \"$EV/gates/$GATE.json\"; node \"$EV/tools\"/pw-gate.mjs failures \"$EV/gates/$GATE.json\" \"$EV/named/U4.txt\"",
+        "expect": "pw-gate exit 0 (every failure inside named/U4.txt; v2 suites and every behavioural spec 100% green); packet merged onto the integration tip in a scratch checkout; no --update-snapshots"
+      },
+      {
+        "id": "U5.1",
+        "host": "any",
+        "check": "pnpm --filter warsha-desktop test",
+        "expect": "exit 0 and \"Tests N passed\" with N >= base_counts.warsha-desktop + 30"
+      },
+      {
+        "id": "U5.2",
+        "host": "any",
+        "check": "pnpm -r typecheck && pnpm --filter warsha-desktop lint && node scripts/check-ds-v3.mjs apps/desktop/src/v3",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U5.3",
+        "host": "any",
+        "check": "node \"$EV/tools\"/i18n-gate.mjs .",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U5.4",
+        "host": "any",
+        "check": "node \"$EV/tools\"/actions-gate.mjs . --only settings.",
+        "expect": "exit 0 (every action of these areas registered, used, wired to a served RPC and clicked by an e2e case; no fake names anywhere in v3)"
+      },
+      {
+        "id": "U5.5",
+        "host": "any",
+        "check": "for a in settings; do test -d apps/desktop/src/v3/pages/$a && test -f apps/desktop/src/v3/actions/registry/$a.ts && test -f packages/i18n/src/v3/ar/$a.ts && test -f packages/i18n/src/v3/en/$a.ts && test -f apps/desktop/e2e/v3/$a.spec.ts || exit 1; done",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U5.6",
+        "host": "capture",
+        "check": "pnpm exec playwright test --project=desktop v3/settings.spec.ts --grep-invert @visual --reporter=json > \"$EV/gates/$GATE.json\"; node \"$EV/tools\"/pw-gate.mjs failures \"$EV/gates/$GATE.json\" \"$EV/named/EMPTY.txt\"",
+        "expect": "exit 0 (flows, action effects, axe + keyboard in ar/en x light/dark: all green)"
+      },
+      {
+        "id": "U5.7",
+        "host": "any",
+        "check": "test -z \"$(git diff --name-only $BASE..HEAD | grep -vE '^(apps/desktop/src/v3/(pages/(settings)/|actions/registry/(settings)\\.ts$)|packages/i18n/src/v3/(ar|en)/(settings)\\.ts$|apps/desktop/e2e/v3/(settings)\\.spec\\.ts$)')\"",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U5.deps",
+        "host": "any",
+        "check": "git diff $BASE..HEAD -- '*package.json' 'crates/*/Cargo.toml' 'apps/*/src-tauri/Cargo.toml' Cargo.toml | grep -E '^\\+\\s*\"?[@a-zA-Z0-9_./-]+\"?\\s*[:=]\\s*(\"[~^=]?[0-9]|\\{[^}]*version)' | grep -vE '^\\+\\s*\"?(version|rust-version)\"?\\s*[:=]'",
+        "expect": "exit 1 (no dependency added or bumped)"
+      },
+      {
+        "id": "U5.snap",
+        "host": "any",
+        "check": "node \"$EV/tools\"/pw-gate.mjs snapshots $BASE HEAD -",
+        "expect": "exit 0, snapshot_changes=0"
+      },
+      {
+        "id": "U5.pw",
+        "host": "capture",
+        "check": "pnpm exec playwright test --project=desktop --project=remote --reporter=json > \"$EV/gates/$GATE.json\"; node \"$EV/tools\"/pw-gate.mjs failures \"$EV/gates/$GATE.json\" \"$EV/named/U5.txt\"",
+        "expect": "pw-gate exit 0 (every failure inside named/U5.txt; v2 suites and every behavioural spec 100% green); packet merged onto the integration tip in a scratch checkout; no --update-snapshots"
+      },
+      {
+        "id": "U6.1",
+        "host": "any",
+        "check": "pnpm --filter warsha-remote test",
+        "expect": "exit 0 and \"Tests N passed\" with N >= base_counts.warsha-remote"
+      },
+      {
+        "id": "U6.2",
+        "host": "any",
+        "check": "pnpm -r typecheck && pnpm --filter warsha-remote lint && node scripts/check-ds-v3.mjs apps/remote/src",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U6.3",
+        "host": "any",
+        "check": "grep -rnE \"from '@warsha/ui'\" apps/remote/src; test $? -eq 1 && grep -n \"fonts.googleapis\" apps/remote/index.html; test $? -eq 1",
+        "expect": "exit 0 (only @warsha/ui/v3; no Google Fonts)"
+      },
+      {
+        "id": "U6.4",
+        "host": "capture",
+        "check": "pnpm exec playwright test --project=remote flows.spec.ts --reporter=json > \"$EV/gates/$GATE.json\"; node \"$EV/tools\"/pw-gate.mjs failures \"$EV/gates/$GATE.json\" \"$EV/named/EMPTY.txt\"",
+        "expect": "exit 0 (7/7 remote flows)"
+      },
+      {
+        "id": "U6.5",
+        "host": "any",
+        "check": "test -z \"$(git diff --name-only $BASE..HEAD | grep -vE '^apps/remote/(src/|index\\.html$)')\"",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U6.deps",
+        "host": "any",
+        "check": "git diff $BASE..HEAD -- '*package.json' 'crates/*/Cargo.toml' 'apps/*/src-tauri/Cargo.toml' Cargo.toml | grep -E '^\\+\\s*\"?[@a-zA-Z0-9_./-]+\"?\\s*[:=]\\s*(\"[~^=]?[0-9]|\\{[^}]*version)' | grep -vE '^\\+\\s*\"?(version|rust-version)\"?\\s*[:=]'",
+        "expect": "exit 1 (no dependency added or bumped)"
+      },
+      {
+        "id": "U6.snap",
+        "host": "any",
+        "check": "node \"$EV/tools\"/pw-gate.mjs snapshots $BASE HEAD -",
+        "expect": "exit 0, snapshot_changes=0"
+      },
+      {
+        "id": "U6.pw",
+        "host": "capture",
+        "check": "pnpm exec playwright test --project=desktop --project=remote --reporter=json > \"$EV/gates/$GATE.json\"; node \"$EV/tools\"/pw-gate.mjs failures \"$EV/gates/$GATE.json\" \"$EV/named/U6.txt\"",
+        "expect": "pw-gate exit 0 (every failure inside named/U6.txt; v2 suites and every behavioural spec 100% green); packet merged onto the integration tip in a scratch checkout; no --update-snapshots"
+      },
+      {
+        "id": "U7.1",
+        "host": "any",
+        "check": "test ! -e apps/desktop/src/screens && test ! -e apps/desktop/src/App.tsx",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U7.2",
+        "host": "any",
+        "check": "for f in flows layout onboarding screens.a11y screens.visual states; do test ! -e apps/desktop/e2e/$f.spec.ts || { echo \"left $f\"; exit 1; }; done",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U7.3",
+        "host": "any",
+        "check": "test -z \"$(git ls-files 'apps/desktop/e2e/*-snapshots/*' | grep -v '^apps/desktop/e2e/v3/')\"",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U7.4",
+        "host": "any",
+        "check": "test -z \"$(git ls-files packages/ui/src | grep -v '^packages/ui/src/v3/' | grep -vE '^packages/ui/src/index\\.ts$')\"",
+        "expect": "exit 0 (v2 DS gone)"
+      },
+      {
+        "id": "U7.5",
+        "host": "any",
+        "check": "grep -rnE \"from '@warsha/ui'\" apps packages --include=*.ts --include=*.tsx; test $? -eq 1 && grep -n \"fonts.googleapis\" apps/desktop/index.html apps/remote/index.html; test $? -eq 1",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U7.6",
+        "host": "any",
+        "check": "node \"$EV/tools\"/actions-gate.mjs . && node \"$EV/tools\"/i18n-gate.mjs . && node scripts/check-arch.mjs && node scripts/check-arch.mjs --self-test && node scripts/check-ds-v3.mjs packages/ui/src/v3 apps/desktop/src apps/remote/src",
+        "expect": "exit 0 (full action contract, no --only)"
+      },
+      {
+        "id": "U7.7",
+        "host": "any",
+        "check": "pnpm -r typecheck && pnpm -r lint && pnpm -r test",
+        "expect": "exit 0; warsha-desktop passed >= base_counts.warsha-desktop_v3"
+      },
+      {
+        "id": "U7.8",
+        "host": "capture",
+        "check": "LISTED=$(pnpm exec playwright test --list --project=desktop --project=remote | grep -oE \"Total: [0-9]+\" | grep -oE \"[0-9]+\"); pnpm exec playwright test --project=desktop --project=remote --reporter=json > \"$EV/gates/$GATE.json\"; node \"$EV/tools\"/pw-gate.mjs counts \"$EV/gates/$GATE.json\" $LISTED 0",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U7.9",
+        "host": "any",
+        "check": "node \"$EV/tools\"/pw-gate.mjs snapshots $BASE HEAD \"$EV/named/U7.snap.txt\"",
+        "expect": "exit 0 (only deletions of the v2 baseline dirs)"
+      },
+      {
+        "id": "U7.10",
+        "host": "any",
+        "check": "grep -qi \"retired\" docs/designs/DESIGN_SYSTEM_V2.md && grep -q \"DESIGN_SYSTEM_V3\" docs/designs/SITEMAP.md",
+        "expect": "exit 0"
+      },
+      {
+        "id": "U7.deps",
+        "host": "any",
+        "check": "git diff $BASE..HEAD -- '*package.json' 'crates/*/Cargo.toml' 'apps/*/src-tauri/Cargo.toml' Cargo.toml | grep -E '^\\+\\s*\"?[@a-zA-Z0-9_./-]+\"?\\s*[:=]\\s*(\"[~^=]?[0-9]|\\{[^}]*version)' | grep -vE '^\\+\\s*\"?(version|rust-version)\"?\\s*[:=]'",
+        "expect": "exit 1 (no dependency added or bumped)"
+      },
+      {
+        "id": "GC.1",
+        "host": "windows",
+        "check": "cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings",
+        "expect": "exit 0"
+      },
+      {
+        "id": "GC.2",
+        "host": "windows",
+        "check": "cargo test --workspace --all-targets",
+        "expect": "exit 0; passed >= G0.rust + R1 delta (+ P7 delta)"
+      },
+      {
+        "id": "GC.3",
+        "host": "any",
+        "check": "pnpm -r typecheck && pnpm -r lint && pnpm -r build",
+        "expect": "exit 0"
+      },
+      {
+        "id": "GC.4",
+        "host": "any",
+        "check": "pnpm -r test",
+        "expect": "exit 0"
+      },
+      {
+        "id": "GC.5",
+        "host": "any",
+        "check": "node scripts/check-arch.mjs && node scripts/check-arch.mjs --self-test && node scripts/check-engineering-policy.mjs && node scripts/check-engineering-policy.mjs --self-test && node scripts/check-wire-contract.mjs && node scripts/check-wire-contract.mjs --self-test",
+        "expect": "exit 0; \"wire: 10 checks, 0 violations\""
+      },
+      {
+        "id": "GC.6",
+        "host": "any",
+        "check": "pnpm --filter @warsha/ui build-storybook && (cd docs && mdbook build && mdbook test)",
+        "expect": "exit 0"
+      },
+      {
+        "id": "GC.7",
+        "host": "capture",
+        "check": "LISTED=$(pnpm exec playwright test --list --project=desktop --project=remote | grep -oE \"Total: [0-9]+\" | grep -oE \"[0-9]+\"); pnpm exec playwright test --project=desktop --project=remote --reporter=json > \"$EV/gates/GC.7.json\"; node \"$EV/tools/pw-gate.mjs\" counts \"$EV/gates/GC.7.json\" $LISTED 0; git status --porcelain -- \"*-snapshots*\"",
+        "expect": "pw-gate exit 0; git status prints nothing"
+      },
+      {
+        "id": "GC.8",
+        "host": "any",
+        "check": "node \"$EV/tools/pw-gate.mjs\" snapshots $RUN_BASE HEAD \"$EV/named/ALL.snap.txt\"",
+        "expect": "exit 0"
+      },
+      {
+        "id": "GC.9",
+        "host": "any",
+        "check": "node \"$EV/tools/actions-gate.mjs\" . && node \"$EV/tools/i18n-gate.mjs\" . && node \"$EV/tools/contrast.mjs\" --check-css packages/ui/src/v3/tokens/tokens.css",
+        "expect": "exit 0 each"
+      },
+      {
+        "id": "GC.10",
+        "host": "capture",
+        "check": "cp \"$EV/tools/planner-simplicity.spec.ts\" apps/desktop/e2e/v3/ && pnpm exec playwright test --project=desktop v3/planner-simplicity.spec.ts --reporter=json > \"$EV/gates/GC.10.json\"; rm -f apps/desktop/e2e/v3/planner-simplicity.spec.ts; node \"$EV/tools/pw-gate.mjs\" failures \"$EV/gates/GC.10.json\" \"$EV/named/EMPTY.txt\"",
+        "expect": "exit 0"
+      },
+      {
+        "id": "GC.11",
+        "host": "any",
+        "check": "gitleaks detect --no-banner (same invocation as the v0.2.0 preflight log)",
+        "expect": "exit 0, no leaks"
+      },
+      {
+        "id": "GC.12",
+        "host": "any",
+        "check": "node \"$EV/tools/versions.mjs\" . --expect $RELEASE",
+        "expect": "exit 0 after INT-REL"
+      },
+      {
+        "id": "GC.13",
+        "host": "windows",
+        "check": "cd \"dist/release/v$RELEASE/upload\" && sha256sum -c checksums.sha256",
+        "expect": "exit 0"
+      },
+      {
+        "id": "GC.14",
+        "host": "windows",
+        "check": "apksigner(.bat) verify --print-certs <bundle>/app-release.apk && aapt2 dump badging <bundle>/app-release.apk | grep -E \"versionName=.$RELEASE.\"",
+        "expect": "Verifies; versionName == $RELEASE"
+      },
+      {
+        "id": "GC.15",
+        "host": "windows",
+        "check": "<built warsha-desktop.exe> --self-check --data-dir \"$(mktemp -d)\"",
+        "expect": "exit 0, 11 PASS; nothing installed"
+      },
+      {
+        "id": "GC.16",
+        "host": "windows",
+        "check": "two clean assembleRelease builds at the same commit; sha256 of both",
+        "expect": "identical"
+      },
+      {
+        "id": "GC.17",
+        "host": "any",
+        "check": "docker run --rm warsha:$RELEASE warsha --version",
+        "expect": "prints \"warsha $RELEASE\""
+      },
+      {
+        "id": "F1.1",
+        "host": "any",
+        "check": "pnpm --filter warsha-desktop test",
+        "expect": "exit 0 and \"Tests N passed\" with N >= base_counts.warsha-desktop"
+      },
+      {
+        "id": "F1.2",
+        "host": "any",
+        "check": "pnpm -r typecheck && pnpm --filter warsha-desktop lint",
+        "expect": "exit 0"
+      },
+      {
+        "id": "F1.3",
+        "host": "any",
+        "check": "test -z \"$(git diff --name-only $BASE..HEAD | grep -vE '^(apps/desktop/src/index.css|apps/desktop/src/screens/ProvidersSettings.tsx)$')\"",
+        "expect": "exit 0"
+      },
+      {
+        "id": "F1.4",
+        "host": "any",
+        "check": "git diff $BASE..HEAD -- '*package.json' 'crates/*/Cargo.toml' 'apps/*/src-tauri/Cargo.toml' Cargo.toml | grep -E '^+s*\"?[@a-zA-Z0-9_./-]+\"?s*[:=]s*(\"[~^=]?[0-9]|{[^}]*version)' | grep -vE '^+s*\"?(version|rust-version)\"?s*[:=]'",
+        "expect": "exit 1 (no dependency added or bumped)"
+      },
+      {
+        "id": "F1.5",
+        "host": "any",
+        "check": "node \"$EV/tools\"/pw-gate.mjs snapshots $BASE HEAD -",
+        "expect": "exit 0, snapshot_changes=0"
+      },
+      {
+        "id": "F1.6",
+        "host": "capture",
+        "check": "pnpm exec playwright test --project=desktop --project=remote --reporter=json > \"$EV/gates/$GATE.json\"; node \"$EV/tools\"/pw-gate.mjs failures \"$EV/gates/$GATE.json\" \"$EV/named/R0.txt\"",
+        "expect": "pw-gate exit 0; scratch merge onto integration tip; no --update-snapshots"
+      },
+      {
+        "id": "F1.7",
+        "host": "any",
+        "check": "node \"$EV/tools\"/f17-check.mjs \"$EV/gates/F1.6.json\"",
+        "expect": "exit 0 and \"f17: cases=4 defect-errors=0\""
+      },
+      {
+        "id": "F2.1",
+        "host": "any",
+        "check": "pnpm --filter @warsha/client lint",
+        "expect": "exit 0"
+      },
+      {
+        "id": "F2.2",
+        "host": "any",
+        "check": "pnpm --filter @warsha/client test",
+        "expect": "exit 0 and Tests N passed with N >= 149"
+      },
+      {
+        "id": "F2.3",
+        "host": "any",
+        "check": "pnpm -r typecheck",
+        "expect": "exit 0"
+      },
+      {
+        "id": "F2.4",
+        "host": "any",
+        "check": "test -z \"$(git diff --name-only $BASE..HEAD | grep -vE '^packages/client/src/index.test.ts$')\"",
+        "expect": "exit 0"
+      },
+      {
+        "id": "F2.5",
+        "host": "any",
+        "check": "deps gate (standard regex)",
+        "expect": "exit 1"
+      },
+      {
+        "id": "F2.6",
+        "host": "any",
+        "check": "node \"$EV/tools\"/pw-gate.mjs snapshots $BASE HEAD -",
+        "expect": "exit 0, snapshot_changes=0"
+      }
+    ]
+  },
+  "baseline": {
+    "counts": {
+      "@warsha/ui": 181,
+      "@warsha/client": 149,
+      "@warsha/crypto": 22,
+      "@warsha/i18n": 52,
+      "warsha-remote": 221,
+      "warsha-desktop": 468,
+      "warsha-desktop_v3": 0,
+      "rust": 746,
+      "rust_ignored": 10,
+      "playwright_listed": 884,
+      "playwright_expected": 826,
+      "playwright_unexpected": 58,
+      "playwright_unexpected_outside_named": 0
+    },
+    "recorded_at": "2026-11-09T08:20:27Z"
+  },
+  "repair": {
+    "iteration": 0,
+    "max_repair_iterations": 3,
+    "open_findings": []
+  },
+  "blocker": null,
+  "owner_decisions": {
+    "file": "OWNER_DECISIONS.md",
+    "OD-U0": "yes",
+    "OD-U1": "pre-authorised (owner goal 2026-11-09T16:44Z: do not stop until finished and pushed; remaining refreshes RH1/RU3-RU6 run fenced, packs kept for acceptance)",
+    "OD-U2": "C",
+    "OD-U3": "yes (owner goal 2026-11-09T16:44Z: finish, push to main, install on owner PC -> v3 becomes the only UI; U7 authorised)",
+    "OD-B3": "0.3.0",
+    "OD-B4": "defer",
+    "OD-B6": "no",
+    "provenance": "OD-U0 = yes granted by the owner in the task conversation on 2026-11-09 ('consider it yes') after the seq-3 stop; the OWNER_DECISIONS.md answer lines were left untouched (agents never fill that file). The other six answers were blank and take the documented defaults. OD-F1 (waiver of v2-untouched-until-U7 limited to the two mobile-providers defects; packet F1, C0.5 merge, R0 completion before Wave A) approved by the owner via structured answer at 2026-11-09T10:21:35Z.",
+    "OD-F1": "approve-scoped",
+    "authorization": "owner authorised: merge to main + NON-FORCE push of main, build installers and install on the owner PC, and produce an updated report to the planner/designer (Claude). Tagging/publishing a release remain NOT requested."
+  },
+  "evidence": {
+    "dir": "bridge-io/policy/2026-11-09-ui-v3",
+    "gates": [
+      "G0"
+    ],
+    "logs": [
+      "gates/G0.install.log",
+      "gates/G0.unit.log",
+      "gates/G0.rust.log",
+      "gates/G0.guards.log",
+      "gates/G0.versions.log",
+      "gates/G0.json",
+      "gates/G0.pw-gate.log",
+      "gates/R0.pre.json",
+      "gates/R0.pw-gate.log"
+    ]
+  },
+  "in_flight": [
+    {
+      "task": "Wave A implementation U0,U2,H1,R1,V1 (5 parallel Coder subagents, isolated worktrees)",
+      "owner": "agents:Coder x5",
+      "since": "2026-11-09T12:35:39.857Z"
+    }
+  ],
+  "notes": [
+    "C-final settings-RPC research chunk 2 did not land (session unreadable/APPLICATION_INTERNAL after 65+ min, no file); optional aid only — Wave C implementers read daemon ground truth, actions-gate enforces served RPCs",
+    "2026-11-09T16:44Z owner expanded the goal: finish -> push to main (non-force) -> install final version on owner PC -> updated report to planner/designer; recorded as owner decision with provenance; quality gates unchanged.",
+    "2026-11-09T16:5xZ platform error killed both repair sessions (generic \"something went wrong\"); H1 left 3 clean repro runs (30/30 each) and no code change; R1 repair left no changes. R1 repair re-dispatched; H1.pw attempt 3 delegated as the documented third run."
+  ]
+}

@@ -1,0 +1,8 @@
+gate: G2.S
+command: git diff --name-only $BASE..HEAD | grep -vE '^(docs/(ARCHITECTURE|ARCH_RULES|DEPLOY|DEVELOPERS|VERIFY)\.md|docs/src/(architecture|SUMMARY|design-system-v2|skills-and-harnesses|install|deploy|verify)\.md|docs/designs/SITEMAP\.md|_agents/skills/warsha_elephant/SKILL\.md|SECURITY\.md)$' | wc -l
+commit: e71567a499c435711899643bc676a004ac81eaa2
+timestamp: 2026-11-08T12:04:23Z
+exit: 0
+expected: 0
+--- output ---
+0

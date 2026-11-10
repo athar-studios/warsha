@@ -1,0 +1,60 @@
+unexpected=59 outside=59
+OUTSIDE desktop › settings.spec.ts › general settings journey: language, theme, mode, and default budget
+OUTSIDE desktop › settings.spec.ts › models & providers journey: add provider, test, fetch models, remove provider, add custom model, remove model, save role
+OUTSIDE desktop › settings.spec.ts › devices journey: start pairing with QR code and revoke device with confirmation
+OUTSIDE desktop › settings.spec.ts › about journey: inspect health, refresh status, and copy info
+OUTSIDE desktop › settings.spec.ts › workflows journey: import, set default, view details, and delete via dialog
+OUTSIDE desktop › settings.spec.ts › skills journey: import, toggle, and delete via dialog
+OUTSIDE desktop › settings.spec.ts › plugins journey: install, toggle, configure env, and remove via dialog
+OUTSIDE desktop › settings.spec.ts › integrations journey: connect, test, and disconnect via dialog
+OUTSIDE desktop › settings.spec.ts › routines journey: run now, pause, resume, and view details
+OUTSIDE desktop › settings.spec.ts › budgets journey: inspect project limits and update spending cap
+OUTSIDE desktop › settings.spec.ts › postlaunch journey: filter crashes, copy crash details, and filter store reviews
+OUTSIDE desktop › settings.spec.ts › backend journey: switch backend kind, toggle features, and export kit
+OUTSIDE desktop › settings.spec.ts › action: settings.budget-default.save
+OUTSIDE desktop › settings.spec.ts › action: settings.provider.add.save
+OUTSIDE desktop › settings.spec.ts › action: settings.provider.test
+OUTSIDE desktop › settings.spec.ts › action: settings.provider.models.fetch
+OUTSIDE desktop › settings.spec.ts › action: settings.provider.remove.open
+OUTSIDE desktop › settings.spec.ts › action: settings.provider.remove.confirm
+OUTSIDE desktop › settings.spec.ts › action: settings.model.add
+OUTSIDE desktop › settings.spec.ts › action: settings.model.remove.open
+OUTSIDE desktop › settings.spec.ts › action: settings.model.remove.confirm
+OUTSIDE desktop › settings.spec.ts › action: settings.role.route.set
+OUTSIDE desktop › settings.spec.ts › action: settings.device.pair.start
+OUTSIDE desktop › settings.spec.ts › action: settings.device.revoke.open
+OUTSIDE desktop › settings.spec.ts › action: settings.device.revoke.confirm
+OUTSIDE desktop › settings.spec.ts › action: settings.about.health.refresh
+OUTSIDE desktop › settings.spec.ts › action: settings.harness.import
+OUTSIDE desktop › settings.spec.ts › action: settings.harness.select
+OUTSIDE desktop › settings.spec.ts › action: settings.harness.view
+OUTSIDE desktop › settings.spec.ts › action: settings.harness.delete.open
+OUTSIDE desktop › settings.spec.ts › action: settings.harness.delete.confirm
+OUTSIDE desktop › settings.spec.ts › action: settings.skill.import
+OUTSIDE desktop › settings.spec.ts › action: settings.skill.toggle
+OUTSIDE desktop › settings.spec.ts › action: settings.skill.delete.open
+OUTSIDE desktop › settings.spec.ts › action: settings.skill.delete.confirm
+OUTSIDE desktop › settings.spec.ts › action: settings.plugin.install
+OUTSIDE desktop › settings.spec.ts › action: settings.plugin.toggle
+OUTSIDE desktop › settings.spec.ts › action: settings.plugin.configure.open
+OUTSIDE desktop › settings.spec.ts › action: settings.plugin.configure.save
+OUTSIDE desktop › settings.spec.ts › action: settings.plugin.remove.open
+OUTSIDE desktop › settings.spec.ts › action: settings.plugin.remove.confirm
+OUTSIDE desktop › settings.spec.ts › action: settings.integration.connect
+OUTSIDE desktop › settings.spec.ts › action: settings.integration.test
+OUTSIDE desktop › settings.spec.ts › action: settings.integration.disconnect.open
+OUTSIDE desktop › settings.spec.ts › action: settings.integration.disconnect
+OUTSIDE desktop › settings.spec.ts › action: settings.routine.run-now
+OUTSIDE desktop › settings.spec.ts › action: settings.routine.pause
+OUTSIDE desktop › settings.spec.ts › action: settings.routine.resume
+OUTSIDE desktop › settings.spec.ts › action: settings.routine.view
+OUTSIDE desktop › settings.spec.ts › action: settings.budget.save
+OUTSIDE desktop › settings.spec.ts › action: settings.crashes.filter
+OUTSIDE desktop › settings.spec.ts › action: settings.crash.copy
+OUTSIDE desktop › settings.spec.ts › action: settings.reviews.filter
+OUTSIDE desktop › settings.spec.ts › action: settings.backend.kind.set
+OUTSIDE desktop › settings.spec.ts › action: settings.backend.feature.toggle
+OUTSIDE desktop › settings.spec.ts › action: settings.backend.export
+OUTSIDE desktop › settings.spec.ts › action: settings.error.retry
+OUTSIDE desktop › settings.spec.ts › settings accessibility and keyboard navigation (ar, light) @a11y
+OUTSIDE desktop › settings.spec.ts › settings accessibility and keyboard navigation (en, light) @a11y

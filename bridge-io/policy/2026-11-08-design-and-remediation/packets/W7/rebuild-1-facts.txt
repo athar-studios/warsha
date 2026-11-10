@@ -1,0 +1,17 @@
+ce60f2bd5183779de7fd6a3c7593e0a612e878c8a1c05960f308e06ea3ad01ff *apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+size=840513
+ce60f2bd5183779de7fd6a3c7593e0a612e878c8a1c05960f308e06ea3ad01ff *apps/mobile/android/app/build/outputs/apk/release/warsha-remote-release.apk
+--- maps inside ---
+0
+--- public entries ---
+   431509  1981-01-01 01:01   assets/public/assets/index-DiWWrRzW.js
+    13946  1981-01-01 01:01   assets/public/assets/index-Kk7EORR4.css
+     7098  1981-01-01 01:01   assets/public/icons/apple-touch-icon.png
+     1259  1981-01-01 01:01   assets/public/icons/favicon-32.png
+     7821  1981-01-01 01:01   assets/public/icons/icon-192.png
+    14124  1981-01-01 01:01   assets/public/icons/icon-512.png
+    13941  1981-01-01 01:01   assets/public/icons/maskable-512.png
+     2592  1981-01-01 01:01   assets/public/index.html
+      938  1981-01-01 01:01   assets/public/manifest.webmanifest
+     1543  1981-01-01 01:01   assets/public/sw.js
+    14894  1981-01-01 01:01   assets/public/workbox-146ffa86.js

@@ -1,0 +1,105 @@
+From f17eb0717ae8f0b68417bb5308db2f8897cad4c0 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 14:56:50 +0400
+Subject: [PATCH 05/10] docs(security): document the bind_host opt-in,
+ deny.toml and TLS boundary
+
+---
+ SECURITY.md | 44 +++++++++++++++++++++++++++-----------------
+ 1 file changed, 27 insertions(+), 17 deletions(-)
+
+diff --git a/SECURITY.md b/SECURITY.md
+index 3e7a722..05bec54 100644
+--- a/SECURITY.md
++++ b/SECURITY.md
+@@ -66,26 +66,35 @@ Subscriptions are supported **only** by:
+ 
+ ### Local Transport — built, and it is not encrypted
+ 
+-- `warshad` binds **127.0.0.1 only**, on both its JSON-RPC server and its HTTP server
+-  (`crates/warshad/src/lib.rs:3300`, `:3364`). There is no flag and no config key that binds another
+-  interface.
+-- Every HTTP route except `/health` requires the bearer token (`crates/warshad/src/lib.rs:3352-3359`), and
+-  every RPC method reads its caller from the authenticated transport rather than from the params the caller
+-  sends (`crates/warshad/src/lib.rs:1255-1285`).
++- `warshad` binds **loopback by default** (`127.0.0.1`) on both its JSON-RPC and its HTTP listener.
++  Binding another interface is an **owner opt-in**, never a default: the `bind_host` config key
++  (`crates/warshad/src/lib.rs:542-543`), `--bind-host` (`:1009-1010`) or `WARSHA_BIND_HOST` (`:5899`)
++  take a bare IP literal. The daemon has no TLS listener, so a non-loopback bind is only as private as
++  the network and proxy in front of it; a wildcard bind additionally needs `advertised_host`
++  (`:555-556`, `--advertised-host` `:1012-1014`, `WARSHA_ADVERTISED_HOST` `:5902`) before it will
++  mint a pairing link. The Docker image sets `WARSHA_BIND_HOST=0.0.0.0` for a container attached
++  solely to an `internal: true` network — a deliberate deployment decision, not a changed default.
++- Every HTTP route except `/health` requires the bearer token (`crates/warshad/src/lib.rs:5644`,
++  `:6088`), and every RPC method reads its caller from the authenticated transport rather than from
++  the params the caller sends (`crates/warshad/src/lib.rs:2176`, `authorize(&RpcExtensions, …)`; the
++  RPC auth layer is `:914-960`).
+ - On first run the daemon generates a 32-byte token from the OS RNG and writes it into `config.toml`, which
+   is then set to `0600` **on Unix only** — the permission call sits inside `#[cfg(unix)]`
+-  (`crates/warshad/src/lib.rs:3492-3513`). On Windows nothing in the code sets the ACL; the file inherits
++  (`crates/warshad/src/lib.rs:5866-5867`). On Windows nothing in the code sets the ACL; the file inherits
+   whatever the profile directory grants.
+ - Inbound requests are rate-limited per verified identity, and the answer past a ceiling carries a
+-  `Retry-After` (`crates/warshad/src/lib.rs:438`, `:1273`).
++  `Retry-After` (`crates/warshad/src/lib.rs:953`, `:2189`).
+ - **There is no TLS in the daemon.** No `rustls`, `openssl` or `native-tls` dependency exists anywhere under
+   `crates/`, so `warshad` serves no `https://` or `wss://` listener. What *is* implemented is a transport
+   rule for the endpoints the daemon **dials out to** — MCP servers, provider APIs, a relay: `https`/`wss` are
+   accepted anywhere, a plain `http`/`ws` only on loopback (`crates/warshad/src/auth.rs:896-921`). That rule
+   does not encrypt anything coming *in* to the daemon.
+-- **Consequence for a remote phone or a second machine:** the loopback bind means Warsha is single-machine by
+-  default. If you expose it yourself — reverse proxy, SSH tunnel, Tailscale — the confidentiality of that hop
+-  is your infrastructure's job, not Warsha's, and the token in `config.toml` is the only credential on it.
++- **Consequence for a remote phone or a second machine:** loopback is the default, so Warsha is
++  single-machine until the owner opts into `bind_host`. If you expose it yourself — a LAN bind, reverse
++  proxy, SSH tunnel, Tailscale — the confidentiality of that hop is your infrastructure's job, not
++  Warsha's, and the token in `config.toml` is the only credential on it. This is the 2026-11-04
++  infrastructure-boundary decision (#11): TLS for the phone is an owner decision at the proxy or
++  tunnel, not a daemon feature, and a self-signed certificate on the daemon was rejected.
+ 
+ ### No ToS-Violating Subscription Reuse
+ 
+@@ -107,7 +116,7 @@ Subscriptions are supported **only** by:
+   revoked pairing resolves no session even when it presents the right secret
+   (`crates/warshad/src/auth.rs:1049-1068`), and the registry keeps the revoked row with `revoked_at`
+   (`crates/warsha-store/src/persistence.rs:366`).
+-- **Handshake**: Noise XX over the `snow` crate — **not built**. `EncryptedChannel` is annotated
++- **Handshake**: a Noise-style handshake over the `snow` crate — **not built**. `EncryptedChannel` is annotated
+   `#[allow(dead_code)]`, and `process_handshake` is a stub that returns `Ok(false)` without running a
+   handshake (`crates/warsha-remote/src/lib.rs:424-434`, `:493-496`). No session keys are derived today, so
+   nothing is encrypted end-to-end, and the replay cache is a field nothing reads
+@@ -119,8 +128,8 @@ Subscriptions are supported **only** by:
+   out of the URL immediately, and keeps it for the tab only, never in a file
+   (`apps/remote/src/App.tsx:70-73`, `:108-109`). So on any network that is not your own machine, run it behind
+   HTTPS or a tunnel you control.
+-- **Network**: `warshad` dials **out** to the relay; no inbound ports by default — designed, and the relay
+-  binary builds, but there is no live E2E channel for it to carry yet.
++- **Network**: `warshad` listens on loopback only by default, and dials **out** to the relay when one is
++  configured; the relay binary builds, but there is no live encrypted channel for it to carry yet.
+ 
+ ### Code Execution Control — an allow-list, not a sandbox
+ 
+@@ -162,8 +171,9 @@ Irreversible actions require **explicit human approval**:
+ `.github/workflows/ci.yml` declares:
+ 
+ - `cargo fmt --all --check`, `cargo clippy -D warnings --workspace --all-targets`, `cargo test --workspace --all-targets`
+-- `cargo deny` (`EmbarkStudios/cargo-deny-action@v1`) — note there is **no `deny.toml` in the repository**, so
+-  it runs on cargo-deny's built-in defaults rather than a policy this project wrote
++- `cargo deny --manifest-path Cargo.toml --all-features check` with a pinned, checksum-verified
++  cargo-deny 0.20.2, against the root **`deny.toml`** this project wrote (the license allow-list is
++  measured from the committed lock graph — `.github/workflows/ci.yml:188-192`)
+ - `gitleaks` (`gitleaks/gitleaks-action@v2` with `config: .gitleaks.toml`)
+ - CodeQL (`github/codeql-action/init@v3` + `analyze@v3`, Rust and TypeScript)
+ - ESLint, `tsc --noEmit`, Vitest, the architecture-boundary script, Playwright, and the mdBook build
+@@ -180,7 +190,7 @@ branch runs none of the above.
+ |--------|------------------------------|
+ | Secret leakage | OS keychain only, configuration and secret deliberately split (`secrets.rs`), daemon errors that name no secret, gitleaks declared in CI |
+ | Supply chain attack | `cargo deny` and CodeQL declared in CI, `Cargo.lock`/`pnpm-lock.yaml` pinned. An SBOM is attempted only by `release.yml` (which needs a tag, and tolerates the step failing) |
+-| Local port hijack | 127.0.0.1-only bind, bearer token on every route but `/health`, `config.toml` at 0600 on Unix, single-instance lock on the data directory |
++| Local port hijack | Loopback bind by default (a wider `bind_host` is an owner opt-in), bearer token on every route but `/health`, `config.toml` at 0600 on Unix, single-instance lock on the data directory |
+ | Network interception | **Not mitigated by Warsha today.** No TLS listener, and the E2E channel is unimplemented — stay on loopback, or add HTTPS/VPN yourself |
+ | Malicious code execution | Owner-role check first, then the program allow-list. No container, no sandbox, no egress control |
+ | Unauthorized gate approval | Session identity taken from the transport, per-method policy tiers and rate ceilings, revoked pairings resolve nothing. No second factor on the device |
+-- 
+2.55.0.windows.5
+

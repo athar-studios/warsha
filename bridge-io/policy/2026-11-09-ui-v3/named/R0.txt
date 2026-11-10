@@ -1,0 +1,2 @@
+# R0 — v0.2.1 drift on the v2 suites (Onboarding, ProvidersSettings, SettingsProviders)
+^desktop › (screens\.visual|states)\.spec\.ts › (onboarding-[a-z-]+|providers|settings-providers) 

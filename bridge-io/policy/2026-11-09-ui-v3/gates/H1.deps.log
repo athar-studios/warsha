@@ -1,0 +1,3 @@
+--- manifest diff stat ---
+--- gate pipeline ---
+PIPESTATUS(grep1,grep2)=1,1 GATE_EXIT=1

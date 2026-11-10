@@ -1,0 +1,28 @@
+From 7fec7a04d91fc3ba9fd6ddc2cb963d12e0d03c62 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Tue, 10 Nov 2026 00:35:59 +0400
+Subject: [PATCH 8/8] test(pipeline): revert agent_loop router write lock
+ timeout to 100ms (R1 F3)
+
+Revert router.write() timeout from 200ms back to the original 100ms bound
+in an_agent_turn_backing_off_holds_no_router_lock.
+---
+ crates/warsha-pipeline/src/agent_loop.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/crates/warsha-pipeline/src/agent_loop.rs b/crates/warsha-pipeline/src/agent_loop.rs
+index 2a6e896..9441850 100644
+--- a/crates/warsha-pipeline/src/agent_loop.rs
++++ b/crates/warsha-pipeline/src/agent_loop.rs
+@@ -1167,7 +1167,7 @@ mod tests {
+         }
+ 
+         // The write lock is what `providers.add`, `providers.remove` and `roles.set` need.
+-        let acquired = tokio::time::timeout(Duration::from_millis(200), router.write()).await;
++        let acquired = tokio::time::timeout(Duration::from_millis(100), router.write()).await;
+         assert!(
+             acquired.is_ok(),
+             "an agent turn held the router's write lock across its backoff sleep"
+-- 
+2.55.0.windows.5
+

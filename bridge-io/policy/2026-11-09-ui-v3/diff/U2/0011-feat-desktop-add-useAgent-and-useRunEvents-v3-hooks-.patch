@@ -1,0 +1,552 @@
+From da233dbc4ba57dd3d2a06206f7dcc1e75d9edf04 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Mon, 9 Nov 2026 18:14:53 +0400
+Subject: [PATCH 11/12] feat(desktop): add useAgent and useRunEvents v3 hooks
+ with data index
+
+Implement agent loop state hook and event streaming hook supporting
+runs.subscribe, resync on gaps/resync_required, reconnect with backoff,
+and unmount unsubscribe. Export all 21 data hooks from index.ts.
+---
+ apps/desktop/src/v3/data/index.ts             |  23 ++
+ apps/desktop/src/v3/data/useAgent.test.ts     |  99 +++++++
+ apps/desktop/src/v3/data/useAgent.ts          |  21 ++
+ apps/desktop/src/v3/data/useRunEvents.test.ts | 244 ++++++++++++++++++
+ apps/desktop/src/v3/data/useRunEvents.ts      | 110 ++++++++
+ 5 files changed, 497 insertions(+)
+ create mode 100644 apps/desktop/src/v3/data/index.ts
+ create mode 100644 apps/desktop/src/v3/data/useAgent.test.ts
+ create mode 100644 apps/desktop/src/v3/data/useAgent.ts
+ create mode 100644 apps/desktop/src/v3/data/useRunEvents.test.ts
+ create mode 100644 apps/desktop/src/v3/data/useRunEvents.ts
+
+diff --git a/apps/desktop/src/v3/data/index.ts b/apps/desktop/src/v3/data/index.ts
+new file mode 100644
+index 0000000..3a1101b
+--- /dev/null
++++ b/apps/desktop/src/v3/data/index.ts
+@@ -0,0 +1,23 @@
++export * from './types';
++export * from './useResource';
++export * from './useProjects';
++export * from './useProject';
++export * from './useRuns';
++export * from './useRun';
++export * from './useRunEvents';
++export * from './useGates';
++export * from './useBudget';
++export * from './useProviders';
++export * from './useModels';
++export * from './useRoles';
++export * from './useHarnesses';
++export * from './useSkills';
++export * from './usePlugins';
++export * from './useRoutines';
++export * from './useDevices';
++export * from './usePreview';
++export * from './useArtifacts';
++export * from './usePreferences';
++export * from './useHealth';
++export * from './useFiles';
++export * from './useAgent';
+diff --git a/apps/desktop/src/v3/data/useAgent.test.ts b/apps/desktop/src/v3/data/useAgent.test.ts
+new file mode 100644
+index 0000000..94d3e51
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useAgent.test.ts
+@@ -0,0 +1,99 @@
++import { act, renderHook } from '@testing-library/react';
++import type { AgentState, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useAgent } from './useAgent';
++
++describe('useAgent', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      agentState: () => new Promise<AgentState>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useAgent(client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when agent has no todos and no approvals', async () => {
++    const emptyState: AgentState = {
++      mode: 'plan',
++      approvals: [],
++      todos: [],
++      model_wired: false,
++    };
++    const client = {
++      agentState: vi.fn().mockResolvedValue(emptyState),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useAgent(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual(emptyState);
++  });
++
++  it('handles ready state when agent has todos or approvals', async () => {
++    const activeState: AgentState = {
++      mode: 'agent',
++      approvals: [
++        {
++          from: 'plan',
++          to: 'agent',
++          approved_by: 'dev-1',
++          approved_at: 1700000000,
++        },
++      ],
++      todos: [
++        {
++          id: 'todo-1',
++          description: 'Implement v3 hooks',
++          status: 'in_progress',
++        },
++      ],
++      model_wired: true,
++    };
++    const client = {
++      agentState: vi.fn().mockResolvedValue(activeState),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useAgent(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(activeState);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      agentState: vi.fn().mockRejectedValue(new Error('Agent error')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useAgent(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Agent error');
++
++    const recovered: AgentState = {
++      mode: 'plan',
++      approvals: [],
++      todos: [
++        {
++          id: 'todo-2',
++          description: 'Review gates',
++          status: 'pending',
++        },
++      ],
++      model_wired: true,
++    };
++    (client.agentState as ReturnType<typeof vi.fn>).mockResolvedValueOnce(recovered);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(recovered);
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useAgent.ts b/apps/desktop/src/v3/data/useAgent.ts
+new file mode 100644
+index 0000000..998d061
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useAgent.ts
+@@ -0,0 +1,21 @@
++import type { AgentState, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useAgent(
++  overrideClient?: WarshaClient | null
++): HookResult<AgentState> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<AgentState>(
++    async () => {
++      if (!client) return null;
++      return client.agentState();
++    },
++    (state) => !state || (state.todos.length === 0 && state.approvals.length === 0),
++    [client]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useRunEvents.test.ts b/apps/desktop/src/v3/data/useRunEvents.test.ts
+new file mode 100644
+index 0000000..7fffa86
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useRunEvents.test.ts
+@@ -0,0 +1,244 @@
++import { act, renderHook } from '@testing-library/react';
++import type { RunId, RunStreamSync, WarshaClient, WarshaEvent } from '@warsha/client';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++
++import { useRunEvents } from './useRunEvents';
++
++describe('useRunEvents', () => {
++  beforeEach(() => {
++    vi.useFakeTimers();
++  });
++
++  afterEach(() => {
++    vi.useRealTimers();
++  });
++
++  it('handles loading state initially', () => {
++    const client = {
++      subscribeRun: () => new Promise<RunStreamSync>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRunEvents('run-1' as RunId, {}, client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when no events exist in stream', async () => {
++    const emptySync: RunStreamSync = {
++      seq: 0,
++      gap_detected: false,
++      resync_required: false,
++      dropped_count: 0,
++      run: null,
++      events: [],
++    };
++    const client = {
++      subscribeRun: vi.fn().mockResolvedValue(emptySync),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRunEvents('run-1' as RunId, {}, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when stream returns events', async () => {
++    const event1: WarshaEvent = {
++      id: 'e1',
++      runId: 'run-1' as RunId,
++      stage: 'idea',
++      role: 'intake',
++      kind: 'run_started',
++      payload: null,
++      costCents: null,
++      createdAt: '2026-11-09T00:00:00Z',
++      deviceId: null,
++      seq: 1,
++    };
++    const sync: RunStreamSync = {
++      seq: 1,
++      gap_detected: false,
++      resync_required: false,
++      dropped_count: 0,
++      run: null,
++      events: [event1],
++    };
++    const client = {
++      subscribeRun: vi.fn().mockResolvedValue(sync),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRunEvents('run-1' as RunId, {}, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual([event1]);
++  });
++
++  it('handles error state and reloads manually', async () => {
++    const client = {
++      subscribeRun: vi.fn().mockRejectedValue(new Error('Connection lost')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRunEvents('run-1' as RunId, {}, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Connection lost');
++
++    const recoveredEvent: WarshaEvent = {
++      id: 'e2',
++      runId: 'run-1' as RunId,
++      stage: 'code',
++      role: 'coder',
++      kind: 'file_written',
++      payload: null,
++      costCents: null,
++      createdAt: '2026-11-09T01:00:00Z',
++      deviceId: null,
++      seq: 2,
++    };
++    (client.subscribeRun as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
++      seq: 2,
++      gap_detected: false,
++      resync_required: false,
++      dropped_count: 0,
++      run: null,
++      events: [recoveredEvent],
++    });
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual([recoveredEvent]);
++  });
++
++  it('handles reconnect with backoff after connection failure', async () => {
++    const client = {
++      subscribeRun: vi
++        .fn()
++        .mockRejectedValueOnce(new Error('Failed once'))
++        .mockResolvedValueOnce({
++          seq: 5,
++          gap_detected: false,
++          resync_required: false,
++          dropped_count: 0,
++          run: null,
++          events: [
++            {
++              id: 'e3',
++              runId: 'run-1' as RunId,
++              stage: 'design',
++              role: 'designer',
++              kind: 'spec_ready',
++              payload: null,
++              costCents: null,
++              createdAt: '2026-11-09T02:00:00Z',
++              deviceId: null,
++              seq: 5,
++            },
++          ],
++        }),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() =>
++      useRunEvents('run-1' as RunId, { initialBackoffMs: 50, maxBackoffMs: 500 }, client)
++    );
++
++    await act(async () => {});
++    expect(result.current.status).toBe('error');
++
++    // Advance time for backoff reconnect timer
++    await act(async () => {
++      vi.advanceTimersByTime(100);
++    });
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toHaveLength(1);
++    expect(client.subscribeRun).toHaveBeenCalledTimes(2);
++  });
++
++  it('handles resync when resync_required or gap is flagged', async () => {
++    const staleEvent: WarshaEvent = {
++      id: 'stale-1',
++      runId: 'run-1' as RunId,
++      stage: 'idea',
++      role: 'intake',
++      kind: 'stale',
++      payload: null,
++      costCents: null,
++      createdAt: '2026-11-09T00:00:00Z',
++      deviceId: null,
++      seq: 1,
++    };
++    const freshEvent: WarshaEvent = {
++      id: 'fresh-1',
++      runId: 'run-1' as RunId,
++      stage: 'prd_spec',
++      role: 'pm',
++      kind: 'resynced',
++      payload: null,
++      costCents: null,
++      createdAt: '2026-11-09T03:00:00Z',
++      deviceId: null,
++      seq: 10,
++    };
++
++    const client = {
++      subscribeRun: vi
++        .fn()
++        .mockResolvedValueOnce({
++          seq: 1,
++          gap_detected: false,
++          resync_required: false,
++          dropped_count: 0,
++          run: null,
++          events: [staleEvent],
++        })
++        .mockResolvedValueOnce({
++          seq: 10,
++          gap_detected: true,
++          resync_required: true,
++          dropped_count: 8,
++          run: null,
++          events: [freshEvent],
++        }),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRunEvents('run-1' as RunId, {}, client));
++    await act(async () => {});
++
++    expect(result.current.data).toEqual([staleEvent]);
++
++    // Trigger reload/update to simulate resync
++    await act(async () => {
++      result.current.reload();
++    });
++
++    // Stale event replaced by resynced events
++    expect(result.current.data).toEqual([freshEvent]);
++  });
++
++  it('unsubscribes on unmount', async () => {
++    const unsubscribeRun = vi.fn();
++    const client = {
++      subscribeRun: vi.fn().mockResolvedValue({
++        seq: 1,
++        gap_detected: false,
++        resync_required: false,
++        dropped_count: 0,
++        run: null,
++        events: [],
++      }),
++      unsubscribeRun,
++    } as unknown as WarshaClient;
++
++    const { unmount } = renderHook(() => useRunEvents('run-1' as RunId, {}, client));
++    await act(async () => {});
++
++    unmount();
++    expect(unsubscribeRun).toHaveBeenCalledWith('run-1');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useRunEvents.ts b/apps/desktop/src/v3/data/useRunEvents.ts
+new file mode 100644
+index 0000000..f8b50c3
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useRunEvents.ts
+@@ -0,0 +1,110 @@
++import { useCallback, useEffect, useRef, useState } from 'react';
++import type { RunId, RunStreamSync, WarshaClient, WarshaEvent } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++import type { HookResult, HookStatus } from './types';
++
++export interface UseRunEventsOptions {
++  sinceSeq?: number;
++  initialBackoffMs?: number;
++  maxBackoffMs?: number;
++}
++
++export function useRunEvents(
++  runId?: RunId | string | null,
++  options?: UseRunEventsOptions,
++  overrideClient?: WarshaClient | null
++): HookResult<WarshaEvent[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  const [status, setStatus] = useState<HookStatus>('loading');
++  const [data, setData] = useState<WarshaEvent[] | null>(null);
++  const [error, setError] = useState<Error | null>(null);
++  const [nonce, setNonce] = useState(0);
++
++  const initialBackoff = options?.initialBackoffMs ?? 100;
++  const maxBackoff = options?.maxBackoffMs ?? 2000;
++
++  const reload = useCallback(() => {
++    setNonce((n) => n + 1);
++  }, []);
++
++  const cursorRef = useRef<number | undefined>(options?.sinceSeq);
++  const backoffRef = useRef<number>(initialBackoff);
++  const eventsRef = useRef<WarshaEvent[]>([]);
++
++  useEffect(() => {
++    cursorRef.current = options?.sinceSeq;
++  }, [options?.sinceSeq]);
++
++  useEffect(() => {
++    if (!client || !runId) {
++      setStatus('empty');
++      setData([]);
++      return undefined;
++    }
++
++    let active = true;
++    let timerId: ReturnType<typeof setTimeout> | null = null;
++    setStatus('loading');
++    setError(null);
++    backoffRef.current = initialBackoff;
++    eventsRef.current = [];
++
++    const pollOrSubscribe = async () => {
++      try {
++        const sync: RunStreamSync = await client.subscribeRun(
++          runId as RunId,
++          cursorRef.current
++        );
++
++        if (!active) return;
++
++        cursorRef.current = sync.seq;
++        backoffRef.current = initialBackoff;
++
++        if (sync.resync_required || sync.gap_detected) {
++          // Resync: replace events on resync_required or gap
++          eventsRef.current = sync.events;
++        } else if (sync.events.length > 0) {
++          eventsRef.current = [...eventsRef.current, ...sync.events];
++        }
++
++        const currentEvents = eventsRef.current;
++        setData(currentEvents);
++        setStatus(currentEvents.length === 0 ? 'empty' : 'ready');
++      } catch (err) {
++        if (!active) return;
++        const errObj = err instanceof Error ? err : new Error(String(err));
++        setError(errObj);
++        setStatus('error');
++
++        // Reconnect with backoff
++        const nextBackoff = Math.min(backoffRef.current * 2, maxBackoff);
++        backoffRef.current = nextBackoff;
++        timerId = setTimeout(() => {
++          if (active) {
++            void pollOrSubscribe();
++          }
++        }, nextBackoff);
++      }
++    };
++
++    void pollOrSubscribe();
++
++    return () => {
++      active = false;
++      if (timerId !== null) {
++        clearTimeout(timerId);
++      }
++      // Unsubscribe on unmount
++      const clientWithUnsub = client as unknown as { unsubscribeRun?: (id: RunId) => void };
++      if (typeof clientWithUnsub.unsubscribeRun === 'function') {
++        clientWithUnsub.unsubscribeRun(runId as RunId);
++      }
++    };
++  }, [client, runId, initialBackoff, maxBackoff, nonce]);
++
++  return { status, data, error, reload };
++}
+-- 
+2.55.0.windows.5
+

@@ -1,0 +1,1390 @@
+From c96bf7fa9ccaf5c2230556c128ccf850984b123d Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 15:14:10 +0400
+Subject: [PATCH 4/5] refactor(desktop,remote): adopt the DS v2 line and layout
+ tokens
+
+---
+ .../src/components/BackendKitPanel.tsx        | 10 ++---
+ apps/desktop/src/components/EcoModeToggle.tsx |  2 +-
+ apps/desktop/src/components/ErrorBoundary.tsx |  8 ++--
+ apps/desktop/src/components/GateBell.tsx      |  2 +-
+ apps/desktop/src/components/HandoffDialog.tsx | 12 +++---
+ .../src/components/LivePreview.test.tsx       |  2 +-
+ apps/desktop/src/components/LivePreview.tsx   | 22 +++++-----
+ apps/desktop/src/components/MentionPicker.tsx |  6 +--
+ .../desktop/src/components/PreviewToolbar.tsx |  2 +-
+ apps/desktop/src/components/ProviderRow.tsx   |  6 +--
+ .../src/components/ProviderSetupWizard.tsx    |  2 +-
+ apps/desktop/src/components/RoutineRow.tsx    |  2 +-
+ .../src/components/SlashCommandPicker.tsx     |  6 +--
+ apps/desktop/src/components/ThemeToggle.tsx   |  2 +-
+ apps/desktop/src/index.css                    | 10 ++---
+ apps/desktop/src/screens/AdvancedMode.tsx     |  6 +--
+ apps/desktop/src/screens/ArtifactViewer.tsx   | 12 +++---
+ apps/desktop/src/screens/Budgets.tsx          |  4 +-
+ apps/desktop/src/screens/CrashReports.tsx     |  2 +-
+ apps/desktop/src/screens/Devices.tsx          | 16 ++++----
+ apps/desktop/src/screens/GatesInbox.test.tsx  |  4 +-
+ apps/desktop/src/screens/GatesInbox.tsx       | 10 ++---
+ .../desktop/src/screens/HarnessesSettings.tsx |  2 +-
+ apps/desktop/src/screens/ModelsSettings.tsx   |  4 +-
+ apps/desktop/src/screens/Onboarding.tsx       | 18 ++++-----
+ apps/desktop/src/screens/PluginsSettings.tsx  |  6 +--
+ apps/desktop/src/screens/ProjectsBoard.tsx    | 10 ++---
+ .../desktop/src/screens/ProvidersSettings.tsx |  6 +--
+ apps/desktop/src/screens/RolesSettings.tsx    | 16 ++++----
+ apps/desktop/src/screens/Routines.tsx         |  6 +--
+ apps/desktop/src/screens/RunView.tsx          | 22 +++++-----
+ .../desktop/src/screens/SettingsProviders.tsx |  2 +-
+ apps/desktop/src/screens/SettingsScreen.tsx   | 12 +++---
+ apps/desktop/src/screens/SimpleMode.tsx       | 40 +++++++++----------
+ apps/desktop/src/screens/SkillsSettings.tsx   |  2 +-
+ apps/remote/src/index.css                     |  4 +-
+ 36 files changed, 149 insertions(+), 149 deletions(-)
+
+diff --git a/apps/desktop/src/components/BackendKitPanel.tsx b/apps/desktop/src/components/BackendKitPanel.tsx
+index 80012c2..567673c 100644
+--- a/apps/desktop/src/components/BackendKitPanel.tsx
++++ b/apps/desktop/src/components/BackendKitPanel.tsx
+@@ -68,7 +68,7 @@ const PLATE: React.CSSProperties = {
+   gap: 'var(--warsha-space-4)',
+   paddingBlock: 'var(--warsha-space-4)',
+   paddingInline: 'var(--warsha-space-4)',
+-  border: '1px solid var(--warsha-bench-rule)',
++  border: 'var(--warsha-line-rule)',
+   borderRadius: 'var(--warsha-radius-md)',
+   backgroundColor: 'var(--warsha-color-surface)',
+   minInlineSize: 0,
+@@ -98,7 +98,7 @@ const FEATURE_ROW: React.CSSProperties = {
+   gap: 'var(--warsha-space-2)',
+   minBlockSize: 'var(--warsha-size-touch)',
+   paddingInline: 'var(--warsha-space-2)',
+-  borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++  borderBlockEnd: 'var(--warsha-line-rule)',
+   cursor: 'pointer',
+   fontSize: 'var(--warsha-font-size-sm)',
+   color: 'var(--warsha-color-text)',
+@@ -271,8 +271,8 @@ export function BackendKitPanel({
+                 style={{
+                   minBlockSize: 'var(--warsha-size-touch)',
+                   borderBlockEnd: selected
+-                    ? '3px solid var(--warsha-signal-text)'
+-                    : '3px solid transparent',
++                    ? 'var(--warsha-line-signal)'
++                    : 'var(--warsha-line-quiet)',
+                 }}
+                 onClick={() => onKindChange(candidate)}
+               >
+@@ -336,7 +336,7 @@ export function BackendKitPanel({
+                   gap: 'var(--warsha-space-2)',
+                   flexWrap: 'wrap',
+                   paddingBlock: 'var(--warsha-space-2)',
+-                  borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++                  borderBlockEnd: 'var(--warsha-line-rule)',
+                   minInlineSize: 0,
+                 }}
+               >
+diff --git a/apps/desktop/src/components/EcoModeToggle.tsx b/apps/desktop/src/components/EcoModeToggle.tsx
+index 1a2779d..5090cb3 100644
+--- a/apps/desktop/src/components/EcoModeToggle.tsx
++++ b/apps/desktop/src/components/EcoModeToggle.tsx
+@@ -77,7 +77,7 @@ export function EcoModeToggle({
+         paddingInline: 'var(--warsha-space-3)',
+         paddingBlock: 'var(--warsha-space-2)',
+         backgroundColor: 'var(--warsha-bench-plate)',
+-        border: '1px solid var(--warsha-bench-rule)',
++        border: 'var(--warsha-line-rule)',
+         borderRadius: 'var(--warsha-radius-md)',
+         flexWrap: 'wrap',
+         minInlineSize: 0,
+diff --git a/apps/desktop/src/components/ErrorBoundary.tsx b/apps/desktop/src/components/ErrorBoundary.tsx
+index 5d205a6..72a1072 100644
+--- a/apps/desktop/src/components/ErrorBoundary.tsx
++++ b/apps/desktop/src/components/ErrorBoundary.tsx
+@@ -106,13 +106,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
+             flexDirection: 'column',
+             gap: 'var(--warsha-space-4)',
+             inlineSize: '100%',
+-            maxInlineSize: '480px',
++            maxInlineSize: 'var(--warsha-size-notice)',
+             paddingInline: 'var(--warsha-space-6)',
+             paddingBlock: 'var(--warsha-space-6)',
+             backgroundColor: 'var(--warsha-color-surface)',
+-            border: 'var(--warsha-size-rule, 1px) solid var(--warsha-color-border)',
++            border: 'var(--warsha-size-rule) solid var(--warsha-color-border)',
+             // The error edge leads on the start side — inline-start, so it lands right in RTL.
+-            borderInlineStartWidth: 'var(--warsha-size-inscribe, 4px)',
++            borderInlineStartWidth: 'var(--warsha-size-inscribe)',
+             borderInlineStartColor: 'var(--warsha-color-error)',
+             borderRadius: 'var(--warsha-radius-lg)',
+           }}
+@@ -164,7 +164,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
+                 fontWeight: 'var(--warsha-font-weight-medium)',
+                 color: 'var(--warsha-color-text)',
+                 backgroundColor: 'var(--warsha-color-surface-muted)',
+-                border: 'var(--warsha-size-rule, 1px) solid var(--warsha-color-border-strong)',
++                border: 'var(--warsha-size-rule) solid var(--warsha-color-border-strong)',
+                 borderRadius: 'var(--warsha-radius-md)',
+                 cursor: 'pointer',
+               }}
+diff --git a/apps/desktop/src/components/GateBell.tsx b/apps/desktop/src/components/GateBell.tsx
+index c42d066..004dea5 100644
+--- a/apps/desktop/src/components/GateBell.tsx
++++ b/apps/desktop/src/components/GateBell.tsx
+@@ -163,7 +163,7 @@ export function GateBell({ gates, loading, failed, hasRun, onOpenGates, onRetry
+             position: 'fixed',
+             inset: 0,
+             zIndex: 140,
+-            backgroundColor: 'color-mix(in srgb, var(--warsha-color-bg) 55%, transparent)',
++            backgroundColor: 'var(--warsha-color-scrim)',
+           }}
+         >
+           <div
+diff --git a/apps/desktop/src/components/HandoffDialog.tsx b/apps/desktop/src/components/HandoffDialog.tsx
+index ba051ee..b2df849 100644
+--- a/apps/desktop/src/components/HandoffDialog.tsx
++++ b/apps/desktop/src/components/HandoffDialog.tsx
+@@ -184,7 +184,7 @@ export function HandoffDialog({
+         justifyContent: 'center',
+         paddingInline: 'var(--warsha-space-4)',
+         paddingBlock: 'var(--warsha-space-4)',
+-        backgroundColor: 'color-mix(in srgb, var(--warsha-color-muted) 55%, transparent)',
++        backgroundColor: 'var(--warsha-color-scrim)',
+         zIndex: 50,
+       }}
+     >
+@@ -201,12 +201,12 @@ export function HandoffDialog({
+         data-phase={phase}
+         onKeyDown={onKeyDown}
+         style={{
+-          inlineSize: 'min(32rem, 100%)',
++          inlineSize: 'min(var(--warsha-size-dialog), 100%)',
+           display: 'flex',
+           flexDirection: 'column',
+           gap: 'var(--warsha-space-3)',
+           backgroundColor: 'var(--warsha-color-surface)',
+-          border: '1px solid var(--warsha-bench-edge)',
++          border: 'var(--warsha-line-edge)',
+           borderRadius: 'var(--warsha-radius-xl)',
+           boxShadow: 'var(--warsha-shadow-md)',
+           paddingInline: 'var(--warsha-space-6)',
+@@ -272,8 +272,8 @@ export function HandoffDialog({
+             style={{
+               backgroundColor: 'var(--warsha-color-surface)',
+               border: showInvalid
+-                ? '1px solid var(--warsha-color-error)'
+-                : '1px solid var(--warsha-bench-edge)',
++                ? 'var(--warsha-line-fail)'
++                : 'var(--warsha-line-edge)',
+               borderRadius: 'var(--warsha-radius-sm)',
+               color: 'var(--warsha-color-text)',
+               fontFamily: 'var(--warsha-font-mono)',
+@@ -340,7 +340,7 @@ export function HandoffDialog({
+             style={{
+               margin: 0,
+               paddingInlineStart: 'var(--warsha-space-3)',
+-              borderInlineStart: '3px solid var(--warsha-color-error)',
++              borderInlineStart: 'var(--warsha-line-band-fail)',
+               fontSize: 'var(--warsha-font-size-sm)',
+               fontWeight: 600,
+               color: 'var(--warsha-color-text)',
+diff --git a/apps/desktop/src/components/LivePreview.test.tsx b/apps/desktop/src/components/LivePreview.test.tsx
+index 08bca14..4f2be60 100644
+--- a/apps/desktop/src/components/LivePreview.test.tsx
++++ b/apps/desktop/src/components/LivePreview.test.tsx
+@@ -211,7 +211,7 @@ describe('LivePreview', () => {
+ 
+     const panel = screen.getByTestId('live-preview');
+     expect(panel).toHaveStyle({
+-      border: '1px solid var(--warsha-bench-rule)',
++      border: 'var(--warsha-line-rule)',
+       borderRadius: 'var(--warsha-radius-md)',
+     });
+     expect(view.container.querySelector('[data-testid="live-preview"]')).not.toHaveStyle(
+diff --git a/apps/desktop/src/components/LivePreview.tsx b/apps/desktop/src/components/LivePreview.tsx
+index 5431699..5def14a 100644
+--- a/apps/desktop/src/components/LivePreview.tsx
++++ b/apps/desktop/src/components/LivePreview.tsx
+@@ -108,7 +108,7 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
+         display: 'flex',
+         flexDirection: 'column',
+         gap: 'var(--warsha-space-2)',
+-        border: '1px solid var(--warsha-bench-rule)',
++        border: 'var(--warsha-line-rule)',
+         borderRadius: 'var(--warsha-radius-md)',
+         backgroundColor: 'var(--warsha-color-surface)',
+         minInlineSize: 0,
+@@ -123,7 +123,7 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
+           flexWrap: 'wrap',
+           paddingInline: 'var(--warsha-space-3)',
+           paddingBlock: 'var(--warsha-space-2)',
+-          borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++          borderBlockEnd: 'var(--warsha-line-rule)',
+           minInlineSize: 0,
+         }}
+       >
+@@ -169,9 +169,9 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
+         style={{
+           position: 'relative',
+           margin: 'var(--warsha-space-2)',
+-          minHeight: '320px',
++          minHeight: 'var(--warsha-size-preview-min)',
+           borderRadius: 'var(--warsha-radius-sm)',
+-          border: '1px solid var(--warsha-bench-edge)',
++          border: 'var(--warsha-line-edge)',
+           overflow: 'hidden',
+           backgroundColor: 'var(--warsha-bench-plate)',
+         }}
+@@ -186,7 +186,7 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
+             style={{
+               display: 'block',
+               inlineSize: '100%',
+-              blockSize: '320px',
++              blockSize: 'var(--warsha-size-preview-min)',
+               border: 'none',
+               backgroundColor: 'var(--warsha-color-surface)',
+             }}
+@@ -202,7 +202,7 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
+               alignItems: 'center',
+               justifyContent: 'center',
+               gap: 'var(--warsha-space-1)',
+-              minHeight: '320px',
++              minHeight: 'var(--warsha-size-preview-min)',
+               paddingInline: 'var(--warsha-space-4)',
+               textAlign: 'center',
+               color: 'var(--warsha-color-text)',
+@@ -244,7 +244,7 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
+               paddingInline: 'var(--warsha-space-3)',
+               paddingBlock: 'var(--warsha-space-2)',
+               backgroundColor: 'var(--warsha-bench-plate)',
+-              borderBlockEnd: '1px solid var(--warsha-bench-edge)',
++              borderBlockEnd: 'var(--warsha-line-edge)',
+               minInlineSize: 0,
+             }}
+           >
+@@ -280,7 +280,7 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
+                   display: 'flex',
+                   flexDirection: 'column',
+                   gap: 'var(--warsha-space-1)',
+-                  flex: '1 1 12rem',
++                  flex: '1 1 var(--warsha-size-field-min)',
+                   minInlineSize: 0,
+                 }}
+               >
+@@ -312,7 +312,7 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
+                     minBlockSize: 'var(--warsha-size-touch)',
+                     paddingInline: 'var(--warsha-space-2)',
+                     borderRadius: 'var(--warsha-radius-sm)',
+-                    border: '1px solid var(--warsha-bench-edge)',
++                    border: 'var(--warsha-line-edge)',
+                     backgroundColor: 'var(--warsha-color-surface)',
+                     color: 'var(--warsha-color-text)',
+                     fontFamily: 'var(--warsha-font-mono)',
+@@ -349,8 +349,8 @@ export function LivePreview({ onElementClick, onRun, onStop, status, url }: Live
+             fontSize: 'var(--warsha-font-size-sm)',
+             color: 'var(--warsha-color-error)',
+             backgroundColor: 'var(--warsha-color-surface)',
+-            border: '1px solid var(--warsha-bench-rule)',
+-            borderInlineStart: '3px solid var(--warsha-color-error)',
++            border: 'var(--warsha-line-rule)',
++            borderInlineStart: 'var(--warsha-line-band-fail)',
+             borderRadius: 'var(--warsha-radius-sm)',
+             fontWeight: 'var(--warsha-font-weight-semibold)',
+             lineHeight: 'var(--warsha-line-height-relaxed)',
+diff --git a/apps/desktop/src/components/MentionPicker.tsx b/apps/desktop/src/components/MentionPicker.tsx
+index 0cff3ed..863dcfa 100644
+--- a/apps/desktop/src/components/MentionPicker.tsx
++++ b/apps/desktop/src/components/MentionPicker.tsx
+@@ -122,10 +122,10 @@ export function MentionPicker({ onSelect, query = '', onClose }: MentionPickerPr
+       style={{
+         display: 'flex',
+         flexDirection: 'column',
+-        minInlineSize: '13rem',
++        minInlineSize: 'var(--warsha-size-picker)',
+         maxInlineSize: '100%',
+         backgroundColor: 'var(--warsha-color-surface)',
+-        border: '1px solid var(--warsha-bench-rule)',
++        border: 'var(--warsha-line-rule)',
+         borderRadius: 'var(--warsha-radius-md)',
+       }}
+     >
+@@ -172,7 +172,7 @@ export function MentionPicker({ onSelect, query = '', onClose }: MentionPickerPr
+           ...LINE_STYLE,
+           paddingBlock: 'var(--warsha-space-2)',
+           fontSize: 'var(--warsha-font-size-xs)',
+-          borderBlockStart: '1px solid var(--warsha-bench-rule)',
++          borderBlockStart: 'var(--warsha-line-rule)',
+         }}
+       >
+         {t('agent_workflow.picker_hint', {}, locale)}
+diff --git a/apps/desktop/src/components/PreviewToolbar.tsx b/apps/desktop/src/components/PreviewToolbar.tsx
+index fbdc5c7..38e14b5 100644
+--- a/apps/desktop/src/components/PreviewToolbar.tsx
++++ b/apps/desktop/src/components/PreviewToolbar.tsx
+@@ -148,7 +148,7 @@ export function PreviewToolbar({
+         flexWrap: 'wrap',
+         padding: 'var(--warsha-space-1)',
+         backgroundColor: 'var(--warsha-bench-plate)',
+-        border: '1px solid var(--warsha-bench-rule)',
++        border: 'var(--warsha-line-rule)',
+         borderRadius: 'var(--warsha-radius-md)',
+         minInlineSize: 0,
+       }}
+diff --git a/apps/desktop/src/components/ProviderRow.tsx b/apps/desktop/src/components/ProviderRow.tsx
+index 9649669..a2ca77b 100644
+--- a/apps/desktop/src/components/ProviderRow.tsx
++++ b/apps/desktop/src/components/ProviderRow.tsx
+@@ -38,7 +38,7 @@ const CONTROL_STYLE: React.CSSProperties = {
+   paddingInline: 'var(--warsha-space-2)',
+   paddingBlock: 'var(--warsha-space-2)',
+   borderRadius: 'var(--warsha-radius-sm)',
+-  border: '1px solid var(--warsha-bench-edge)',
++  border: 'var(--warsha-line-edge)',
+   backgroundColor: 'var(--warsha-color-surface)',
+   color: 'var(--warsha-color-text)',
+   fontFamily: 'inherit',
+@@ -89,7 +89,7 @@ export function ProviderRow({
+         paddingInline: 'var(--warsha-space-4)',
+         paddingBlock: 'var(--warsha-space-3)',
+         listStyle: 'none',
+-        borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++        borderBlockEnd: 'var(--warsha-line-rule)',
+         backgroundColor: 'var(--warsha-color-surface)',
+         color: 'var(--warsha-color-text)',
+         minInlineSize: 0,
+@@ -184,7 +184,7 @@ export function ProviderRow({
+             fontFamily: 'var(--warsha-font-mono)',
+             fontVariantNumeric: 'tabular-nums',
+             unicodeBidi: 'isolate',
+-            maxInlineSize: '9rem',
++            maxInlineSize: 'var(--warsha-size-measure-compact)',
+           }}
+         />
+ 
+diff --git a/apps/desktop/src/components/ProviderSetupWizard.tsx b/apps/desktop/src/components/ProviderSetupWizard.tsx
+index 7260715..1d9279a 100644
+--- a/apps/desktop/src/components/ProviderSetupWizard.tsx
++++ b/apps/desktop/src/components/ProviderSetupWizard.tsx
+@@ -210,7 +210,7 @@ export function ProviderSetupWizard({
+         display: 'flex',
+         flexDirection: 'column',
+         gap: 'var(--warsha-space-1)',
+-        maxInlineSize: '26rem',
++        maxInlineSize: 'var(--warsha-size-wizard)',
+         minInlineSize: 0,
+       }}
+     >
+diff --git a/apps/desktop/src/components/RoutineRow.tsx b/apps/desktop/src/components/RoutineRow.tsx
+index 84049a2..b7b1de1 100644
+--- a/apps/desktop/src/components/RoutineRow.tsx
++++ b/apps/desktop/src/components/RoutineRow.tsx
+@@ -107,7 +107,7 @@ export function RoutineRow({ routine, onRun, onPause, onResume }: RoutineRowProp
+         gap: 'var(--warsha-space-1)',
+         paddingInline: 'var(--warsha-space-4)',
+         paddingBlock: 'var(--warsha-space-3)',
+-        borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++        borderBlockEnd: 'var(--warsha-line-rule)',
+         listStyle: 'none',
+         minInlineSize: 0,
+       }}
+diff --git a/apps/desktop/src/components/SlashCommandPicker.tsx b/apps/desktop/src/components/SlashCommandPicker.tsx
+index 039fde1..33f9da6 100644
+--- a/apps/desktop/src/components/SlashCommandPicker.tsx
++++ b/apps/desktop/src/components/SlashCommandPicker.tsx
+@@ -127,10 +127,10 @@ export function SlashCommandPicker({
+       style={{
+         display: 'flex',
+         flexDirection: 'column',
+-        minInlineSize: '15rem',
++        minInlineSize: 'var(--warsha-size-picker-wide)',
+         maxInlineSize: '100%',
+         backgroundColor: 'var(--warsha-color-surface)',
+-        border: '1px solid var(--warsha-bench-rule)',
++        border: 'var(--warsha-line-rule)',
+         borderRadius: 'var(--warsha-radius-md)',
+       }}
+     >
+@@ -187,7 +187,7 @@ export function SlashCommandPicker({
+           ...LINE_STYLE,
+           paddingBlock: 'var(--warsha-space-2)',
+           fontSize: 'var(--warsha-font-size-xs)',
+-          borderBlockStart: '1px solid var(--warsha-bench-rule)',
++          borderBlockStart: 'var(--warsha-line-rule)',
+         }}
+       >
+         {t('agent_workflow.picker_hint', {}, locale)}
+diff --git a/apps/desktop/src/components/ThemeToggle.tsx b/apps/desktop/src/components/ThemeToggle.tsx
+index 1b2ca9e..f191082 100644
+--- a/apps/desktop/src/components/ThemeToggle.tsx
++++ b/apps/desktop/src/components/ThemeToggle.tsx
+@@ -53,7 +53,7 @@ const GROUP_STYLE: React.CSSProperties = {
+   gap: 'var(--warsha-space-1)',
+   padding: 'var(--warsha-space-1)',
+   backgroundColor: 'var(--warsha-bench-plate)',
+-  border: '1px solid var(--warsha-bench-edge)',
++  border: 'var(--warsha-line-edge)',
+   borderRadius: 'var(--warsha-radius-md)',
+ };
+ 
+diff --git a/apps/desktop/src/index.css b/apps/desktop/src/index.css
+index 7ac3a9f..ba49b14 100644
+--- a/apps/desktop/src/index.css
++++ b/apps/desktop/src/index.css
+@@ -208,7 +208,7 @@ html {
+ .bench-main--document {
+   display: grid;
+   justify-items: stretch;
+-  max-inline-size: 1100px;
++  max-inline-size: var(--warsha-size-content-max);
+   margin-inline: auto;
+   inline-size: 100%;
+ }
+@@ -330,7 +330,7 @@ html {
+   inset-inline-end: var(--warsha-space-3);
+   inset-block-start: calc(var(--warsha-size-topbar) + var(--warsha-space-2));
+   z-index: 150;
+-  inline-size: min(360px, calc(100vw - 2 * var(--warsha-space-4)));
++  inline-size: min(var(--warsha-size-popover), calc(100vw - 2 * var(--warsha-space-4)));
+   background-color: var(--warsha-color-surface);
+   border: var(--warsha-size-rule) solid var(--warsha-bench-rule);
+   border-radius: var(--warsha-radius-md);
+@@ -399,7 +399,7 @@ html {
+ }
+ 
+ .bench-stream {
+-  max-block-size: min(60vh, 520px);
++  max-block-size: min(60vh, var(--warsha-size-popover-block));
+   overflow-y: auto;
+   overflow-x: hidden;
+ }
+@@ -460,7 +460,7 @@ html {
+   }
+ 
+   .bench-rail > * {
+-    flex: 0 0 min(240px, 70vw);
++    flex: 0 0 min(var(--warsha-size-strip-item), 70vw);
+   }
+ }
+ 
+@@ -594,7 +594,7 @@ html {
+ @media (min-width: 1440px) {
+   .bench-advanced,
+   .bench-screen-stack {
+-    max-inline-size: 1400px;
++    max-inline-size: var(--warsha-size-content-wide);
+     margin-inline: auto;
+     inline-size: 100%;
+   }
+diff --git a/apps/desktop/src/screens/AdvancedMode.tsx b/apps/desktop/src/screens/AdvancedMode.tsx
+index 6f784ae..d9bf03b 100644
+--- a/apps/desktop/src/screens/AdvancedMode.tsx
++++ b/apps/desktop/src/screens/AdvancedMode.tsx
+@@ -1418,7 +1418,7 @@ export function AdvancedMode({ client, project, onBack, endpoint, onModeChange }
+                               alignItems: 'center',
+                               gap: 'var(--warsha-space-2)',
+                               paddingBlock: 'var(--warsha-space-1)',
+-                              borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++                              borderBlockEnd: 'var(--warsha-line-rule)',
+                               fontWeight: active ? 'var(--warsha-font-weight-bold)' : 'var(--warsha-font-weight-normal)',
+                               minInlineSize: 0,
+                             }}
+@@ -1632,7 +1632,7 @@ export function AdvancedMode({ client, project, onBack, endpoint, onModeChange }
+                           fontSize: 'var(--warsha-font-size-sm)',
+                           color: 'var(--warsha-color-text)',
+                           backgroundColor: 'var(--warsha-bench-plate)',
+-                          border: '1px solid var(--warsha-bench-edge)',
++                          border: 'var(--warsha-line-edge)',
+                           borderRadius: 'var(--warsha-radius-sm)',
+                           paddingInline: 'var(--warsha-space-3)',
+                           paddingBlock: 'var(--warsha-space-2)',
+@@ -1825,7 +1825,7 @@ export function AdvancedMode({ client, project, onBack, endpoint, onModeChange }
+                     gap: 'var(--warsha-space-2)',
+                     flexWrap: 'wrap',
+                     paddingBlock: 'var(--warsha-space-1)',
+-                    borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++                    borderBlockEnd: 'var(--warsha-line-rule)',
+                     minInlineSize: 0,
+                   }}
+                 >
+diff --git a/apps/desktop/src/screens/ArtifactViewer.tsx b/apps/desktop/src/screens/ArtifactViewer.tsx
+index 9f137d0..aa215d3 100644
+--- a/apps/desktop/src/screens/ArtifactViewer.tsx
++++ b/apps/desktop/src/screens/ArtifactViewer.tsx
+@@ -182,7 +182,7 @@ export function ArtifactViewer({ client, run, onBack }: ArtifactViewerProps) {
+     <Box
+       dir={dir}
+       className="artifact-viewer"
+-      style={{ display: 'flex', minHeight: 'calc(100vh - 80px)', flexWrap: 'wrap', minInlineSize: 0 }}
++      style={{ display: 'flex', minHeight: 'calc(100vh - var(--warsha-size-bench-offset))', flexWrap: 'wrap', minInlineSize: 0 }}
+     >
+       {/* ------------------------------------------------------------------- the rail's ledger
+           Same §10 fact as the gates inbox: the 264px ledger is a ≥1024 rail, and fixed inline it left
+@@ -195,7 +195,7 @@ export function ArtifactViewer({ client, run, onBack }: ArtifactViewerProps) {
+           display: 'flex',
+           flexDirection: 'column',
+           backgroundColor: 'var(--warsha-bench-plate)',
+-          borderInlineEnd: '1px solid var(--warsha-bench-rule)',
++          borderInlineEnd: 'var(--warsha-line-rule)',
+         }}
+       >
+         <Box
+@@ -203,7 +203,7 @@ export function ArtifactViewer({ client, run, onBack }: ArtifactViewerProps) {
+           style={{
+             paddingInline: 'var(--warsha-space-4)',
+             paddingBlock: 'var(--warsha-space-2)',
+-            borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++            borderBlockEnd: 'var(--warsha-line-rule)',
+             display: 'flex',
+             flexDirection: 'column',
+             gap: 'var(--warsha-space-1)',
+@@ -379,10 +379,10 @@ export function ArtifactViewer({ client, run, onBack }: ArtifactViewerProps) {
+                   onChange={(event) => setDraft(event.target.value)}
+                   style={{
+                     inlineSize: '100%',
+-                    minBlockSize: '320px',
++                    minBlockSize: 'var(--warsha-size-preview-min)',
+                     padding: 'var(--warsha-space-4)',
+                     borderRadius: 'var(--warsha-radius-sm)',
+-                    border: '1px solid var(--warsha-bench-edge)',
++                    border: 'var(--warsha-line-edge)',
+                     backgroundColor: 'var(--warsha-color-surface)',
+                     color: 'var(--warsha-color-text)',
+                     fontFamily: 'var(--warsha-font-mono)',
+@@ -423,7 +423,7 @@ export function ArtifactViewer({ client, run, onBack }: ArtifactViewerProps) {
+                   padding: 'var(--warsha-space-4)',
+                   borderRadius: 'var(--warsha-radius-sm)',
+                   backgroundColor: 'var(--warsha-bench-plate)',
+-                  border: '1px solid var(--warsha-bench-rule)',
++                  border: 'var(--warsha-line-rule)',
+                   color: 'var(--warsha-color-text)',
+                   fontFamily: 'var(--warsha-font-mono)',
+                   fontSize: 'var(--warsha-font-size-sm)',
+diff --git a/apps/desktop/src/screens/Budgets.tsx b/apps/desktop/src/screens/Budgets.tsx
+index 311666a..b862c44 100644
+--- a/apps/desktop/src/screens/Budgets.tsx
++++ b/apps/desktop/src/screens/Budgets.tsx
+@@ -180,8 +180,8 @@ export function Budgets({ client, onBack }: BudgetsProps) {
+       style={{
+         paddingInline: 'var(--warsha-space-6)',
+         paddingBlock: 'var(--warsha-space-6)',
+-        minHeight: 'calc(100vh - 80px)',
+-        maxInlineSize: '1000px',
++        minHeight: 'calc(100vh - var(--warsha-size-bench-offset))',
++        maxInlineSize: 'var(--warsha-size-ledger-max)',
+         display: 'flex',
+         flexDirection: 'column',
+         gap: 'var(--warsha-space-4)',
+diff --git a/apps/desktop/src/screens/CrashReports.tsx b/apps/desktop/src/screens/CrashReports.tsx
+index 359ab2f..35a4a36 100644
+--- a/apps/desktop/src/screens/CrashReports.tsx
++++ b/apps/desktop/src/screens/CrashReports.tsx
+@@ -141,7 +141,7 @@ function CrashRow({ report, locale }: { report: CrashReport; locale: Locale }) {
+               tabIndex={0}
+               style={{
+                 margin: 0,
+-                maxBlockSize: '9rem',
++                maxBlockSize: 'var(--warsha-size-measure-compact)',
+                 overflow: 'auto',
+                 paddingInline: 'var(--warsha-space-3)',
+                 paddingBlock: 'var(--warsha-space-2)',
+diff --git a/apps/desktop/src/screens/Devices.tsx b/apps/desktop/src/screens/Devices.tsx
+index 7c3a30d..5a2a69c 100644
+--- a/apps/desktop/src/screens/Devices.tsx
++++ b/apps/desktop/src/screens/Devices.tsx
+@@ -258,8 +258,8 @@ export function Devices({ client, onBack }: DevicesProps) {
+       style={{
+         paddingInline: 'var(--warsha-space-6)',
+         paddingBlock: 'var(--warsha-space-6)',
+-        minHeight: 'calc(100vh - 80px)',
+-        maxInlineSize: '900px',
++        minHeight: 'calc(100vh - var(--warsha-size-bench-offset))',
++        maxInlineSize: 'var(--warsha-size-plate-max)',
+         display: 'flex',
+         flexDirection: 'column',
+         gap: 'var(--warsha-space-4)',
+@@ -423,13 +423,13 @@ export function Devices({ client, onBack }: DevicesProps) {
+             aria-busy={pairingLoading}
+             style={{
+               inlineSize: '100%',
+-              maxInlineSize: '420px',
++              maxInlineSize: 'var(--warsha-size-form-narrow)',
+               display: 'flex',
+               flexDirection: 'column',
+               gap: 'var(--warsha-space-3)',
+               padding: 'var(--warsha-space-6)',
+               backgroundColor: 'var(--warsha-color-surface)',
+-              border: '1px solid var(--warsha-bench-edge)',
++              border: 'var(--warsha-line-edge)',
+               borderRadius: 'var(--warsha-radius-xl)',
+               minInlineSize: 0,
+             }}
+@@ -464,7 +464,7 @@ export function Devices({ client, onBack }: DevicesProps) {
+                 gap: 'var(--warsha-space-2)',
+                 paddingBlock: 'var(--warsha-space-6)',
+                 backgroundColor: 'var(--warsha-bench-plate)',
+-                border: '1px solid var(--warsha-bench-edge)',
++                border: 'var(--warsha-line-edge)',
+                 borderRadius: 'var(--warsha-radius-md)',
+               }}
+             >
+@@ -477,8 +477,8 @@ export function Devices({ client, onBack }: DevicesProps) {
+                   }
+                   alt={label('devices.qr_code')}
+                   style={{
+-                    inlineSize: '160px',
+-                    blockSize: '160px',
++                    inlineSize: 'var(--warsha-size-qr)',
++                    blockSize: 'var(--warsha-size-qr)',
+                     objectFit: 'contain',
+                     borderRadius: 'var(--warsha-radius-sm)',
+                   }}
+@@ -492,7 +492,7 @@ export function Devices({ client, onBack }: DevicesProps) {
+                   fontFamily: 'var(--warsha-font-mono)',
+                   fontVariantNumeric: 'tabular-nums',
+                   fontSize: 'var(--warsha-font-size-2xl)',
+-                  letterSpacing: '0.2em',
++                  letterSpacing: 'var(--warsha-tracking-code)',
+                   color: 'var(--warsha-color-text)',
+                 }}
+               >
+diff --git a/apps/desktop/src/screens/GatesInbox.test.tsx b/apps/desktop/src/screens/GatesInbox.test.tsx
+index 073a85d..306f2a9 100644
+--- a/apps/desktop/src/screens/GatesInbox.test.tsx
++++ b/apps/desktop/src/screens/GatesInbox.test.tsx
+@@ -179,8 +179,8 @@ describe('a decided gate', () => {
+ 
+     const decided = await screen.findByText(t('gates.approved', {}, 'en'), { selector: '.warsha-stamp span' });
+     expect(decided.closest('[data-tone="ok"]')).not.toBeNull();
+-    expect(card().style.borderInlineStart).toContain('--warsha-bench-edge');
+-    expect(card().style.borderInlineStart).not.toContain('--warsha-signal-text');
++    expect(card().style.borderInlineStart).toContain('--warsha-line-band');
++    expect(card().style.borderInlineStart).not.toContain('--warsha-line-signal');
+     expect(card().querySelector('[data-state="waiting"]')).toBeNull();
+   });
+ 
+diff --git a/apps/desktop/src/screens/GatesInbox.tsx b/apps/desktop/src/screens/GatesInbox.tsx
+index 17a8d93..f47fd90 100644
+--- a/apps/desktop/src/screens/GatesInbox.tsx
++++ b/apps/desktop/src/screens/GatesInbox.tsx
+@@ -62,7 +62,7 @@ const GATE_STAGES: readonly Stage[] = ['gate_a', 'gate_b', 'gate_c', 'gate_d'];
+  * (`apps/remote/src/GatePlate.tsx`, `QUIET_BAND`), and 3px/`bench-edge` is the width and colour this file
+  * already uses for a recorded note beside it.
+  */
+-const QUIET_BAND: React.CSSProperties = { borderInlineStart: '3px solid var(--warsha-bench-edge)' };
++const QUIET_BAND: React.CSSProperties = { borderInlineStart: 'var(--warsha-line-band)' };
+ 
+ /**
+  * Is this gate the one the run is stopped at, waiting on the owner's hand?
+@@ -318,7 +318,7 @@ export function GatesInbox({ client, run, onBack }: GatesInboxProps) {
+         display: 'flex',
+         alignItems: 'stretch',
+         gap: 0,
+-        minHeight: 'calc(100vh - 80px)',
++        minHeight: 'calc(100vh - var(--warsha-size-bench-offset))',
+         backgroundColor: 'var(--warsha-color-bg)',
+         color: 'var(--warsha-color-text)',
+         flexWrap: 'wrap',
+@@ -337,7 +337,7 @@ export function GatesInbox({ client, run, onBack }: GatesInboxProps) {
+           display: 'flex',
+           flexDirection: 'column',
+           backgroundColor: 'var(--warsha-bench-plate)',
+-          borderInlineEnd: '1px solid var(--warsha-bench-rule)',
++          borderInlineEnd: 'var(--warsha-line-rule)',
+         }}
+       >
+         <div
+@@ -345,7 +345,7 @@ export function GatesInbox({ client, run, onBack }: GatesInboxProps) {
+           style={{
+             paddingInline: 'var(--warsha-space-4)',
+             paddingBlock: 'var(--warsha-space-2)',
+-            borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++            borderBlockEnd: 'var(--warsha-line-rule)',
+             minInlineSize: 0,
+           }}
+         >
+@@ -522,7 +522,7 @@ export function GatesInbox({ client, run, onBack }: GatesInboxProps) {
+                     dir={dir}
+                     style={{
+                       paddingInlineStart: 'var(--warsha-space-3)',
+-                      borderInlineStart: '3px solid var(--warsha-bench-edge)',
++                      borderInlineStart: 'var(--warsha-line-band)',
+                     }}
+                   >
+                     <Text size="xs" dir={dir}>
+diff --git a/apps/desktop/src/screens/HarnessesSettings.tsx b/apps/desktop/src/screens/HarnessesSettings.tsx
+index e756da1..8b78b8d 100644
+--- a/apps/desktop/src/screens/HarnessesSettings.tsx
++++ b/apps/desktop/src/screens/HarnessesSettings.tsx
+@@ -175,7 +175,7 @@ export function HarnessesSettings({ client, project = null }: HarnessesSettingsP
+       style={{
+         paddingInline: 'var(--warsha-space-4)',
+         paddingBlock: 'var(--warsha-space-4)',
+-        maxInlineSize: '900px',
++        maxInlineSize: 'var(--warsha-size-plate-max)',
+         margin: '0 auto',
+         display: 'flex',
+         flexDirection: 'column',
+diff --git a/apps/desktop/src/screens/ModelsSettings.tsx b/apps/desktop/src/screens/ModelsSettings.tsx
+index efe39ad..e95f431 100644
+--- a/apps/desktop/src/screens/ModelsSettings.tsx
++++ b/apps/desktop/src/screens/ModelsSettings.tsx
+@@ -234,7 +234,7 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
+       style={{
+         paddingInline: 'var(--warsha-space-4)',
+         paddingBlock: 'var(--warsha-space-4)',
+-        maxInlineSize: '900px',
++        maxInlineSize: 'var(--warsha-size-plate-max)',
+         margin: '0 auto',
+         display: 'flex',
+         flexDirection: 'column',
+@@ -467,7 +467,7 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
+                     }
+                     actions={
+                       <Box dir={dir} style={{ display: 'inline-flex', gap: 'var(--warsha-space-2)', alignItems: 'center', flexWrap: 'wrap' }}>
+-                        <label htmlFor={`models-role-select-${role}`} className="sr-only" style={{ position: 'absolute', inlineSize: '1px', blockSize: '1px', overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
++                        <label htmlFor={`models-role-select-${role}`} className="sr-only">
+                           {label('models.choose_model')} — {label(`role.${role}`)}
+                         </label>
+                         <select
+diff --git a/apps/desktop/src/screens/Onboarding.tsx b/apps/desktop/src/screens/Onboarding.tsx
+index 6163bb7..b603293 100644
+--- a/apps/desktop/src/screens/Onboarding.tsx
++++ b/apps/desktop/src/screens/Onboarding.tsx
+@@ -283,12 +283,12 @@ export function Onboarding({ client, onComplete }: OnboardingProps) {
+       className="onboarding-steps"
+       style={{
+         backgroundColor: 'var(--warsha-bench-plate)',
+-        borderInlineEnd: '1px solid var(--warsha-bench-rule)',
+-        borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++        borderInlineEnd: 'var(--warsha-line-rule)',
++        borderBlockEnd: 'var(--warsha-line-rule)',
+       }}
+     >
+       <RailHead>{label('onboarding.steps_title')}</RailHead>
+-      <Box p={4} style={{ borderBlockEnd: '1px solid var(--warsha-bench-rule)' }}>
++      <Box p={4} style={{ borderBlockEnd: 'var(--warsha-line-rule)' }}>
+         <Meter
+           value={stepIndex + 1}
+           max={STEPS.length}
+@@ -313,7 +313,7 @@ export function Onboarding({ client, onComplete }: OnboardingProps) {
+   );
+ 
+   const renderLanguageStep = () => (
+-    <div data-testid="onboarding-language" style={{ inlineSize: '100%', maxInlineSize: '32rem' }}>
++    <div data-testid="onboarding-language" style={{ inlineSize: '100%', maxInlineSize: 'var(--warsha-size-dialog)' }}>
+       <Panel title={label('app.name')}>
+         <Text size="md" dir={dir} style={{ marginBlockEnd: 'var(--warsha-space-4)' }}>
+           {label('app.tagline')}
+@@ -409,7 +409,7 @@ export function Onboarding({ client, onComplete }: OnboardingProps) {
+     const shown = listed.length > 0 ? listed : builtInProviderChoices;
+ 
+     return (
+-      <div data-testid="onboarding-provider" style={{ inlineSize: '100%', maxInlineSize: '34rem' }}>
++      <div data-testid="onboarding-provider" style={{ inlineSize: '100%', maxInlineSize: 'var(--warsha-size-dialog-wide)' }}>
+         <Panel title={label('onboarding.provider_title')}>
+           <Text size="sm" dir={dir} style={{ marginBlockEnd: 'var(--warsha-space-4)' }}>
+             {label('onboarding.provider_desc')}
+@@ -480,7 +480,7 @@ export function Onboarding({ client, onComplete }: OnboardingProps) {
+   };
+ 
+   const renderKeyStep = () => (
+-    <div data-testid="onboarding-key" style={{ inlineSize: '100%', maxInlineSize: '34rem' }}>
++    <div data-testid="onboarding-key" style={{ inlineSize: '100%', maxInlineSize: 'var(--warsha-size-dialog-wide)' }}>
+       <Panel title={label('onboarding.key_title')}>
+         <Text size="sm" dir={dir} style={{ marginBlockEnd: 'var(--warsha-space-4)' }}>
+           {label('onboarding.key_desc')}
+@@ -551,7 +551,7 @@ export function Onboarding({ client, onComplete }: OnboardingProps) {
+     const settled = status === 'passed' || status === 'refused';
+ 
+     return (
+-      <div data-testid="onboarding-test" data-status={settled ? status : 'running'} style={{ inlineSize: '100%', maxInlineSize: '34rem' }}>
++      <div data-testid="onboarding-test" data-status={settled ? status : 'running'} style={{ inlineSize: '100%', maxInlineSize: 'var(--warsha-size-dialog-wide)' }}>
+         <Panel title={label('onboarding.test_title')}>
+           <Box style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' }}>
+             {status === 'running' && (
+@@ -606,7 +606,7 @@ export function Onboarding({ client, onComplete }: OnboardingProps) {
+                   paddingBlock: 'var(--warsha-space-2)',
+                   borderRadius: 'var(--warsha-radius-sm)',
+                   backgroundColor: 'var(--warsha-bench-plate)',
+-                  border: '1px solid var(--warsha-bench-rule)',
++                  border: 'var(--warsha-line-rule)',
+                   color: 'var(--warsha-color-text)',
+                   fontFamily: 'var(--warsha-font-mono)',
+                   fontVariantNumeric: 'tabular-nums',
+@@ -669,7 +669,7 @@ export function Onboarding({ client, onComplete }: OnboardingProps) {
+   };
+ 
+   const renderProjectStep = () => (
+-    <div data-testid="onboarding-project" style={{ inlineSize: '100%', maxInlineSize: '34rem' }}>
++    <div data-testid="onboarding-project" style={{ inlineSize: '100%', maxInlineSize: 'var(--warsha-size-dialog-wide)' }}>
+       <Panel title={label('onboarding.project_title')}>
+         <Text size="sm" dir={dir} style={{ marginBlockEnd: 'var(--warsha-space-4)' }}>
+           {label('onboarding.project_desc')}
+diff --git a/apps/desktop/src/screens/PluginsSettings.tsx b/apps/desktop/src/screens/PluginsSettings.tsx
+index 6e654dd..f9af900 100644
+--- a/apps/desktop/src/screens/PluginsSettings.tsx
++++ b/apps/desktop/src/screens/PluginsSettings.tsx
+@@ -190,7 +190,7 @@ export function PluginsSettings({ client, project }: PluginsSettingsProps) {
+       style={{
+         paddingInline: 'var(--warsha-space-4)',
+         paddingBlock: 'var(--warsha-space-4)',
+-        maxInlineSize: '900px',
++        maxInlineSize: 'var(--warsha-size-plate-max)',
+         margin: '0 auto',
+         display: 'flex',
+         flexDirection: 'column',
+@@ -399,7 +399,7 @@ export function PluginsSettings({ client, project }: PluginsSettingsProps) {
+                             dir={dir}
+                             style={{ display: 'flex', gap: 'var(--warsha-space-2)', alignItems: 'flex-end', flexWrap: 'wrap' }}
+                           >
+-                            <Box dir={dir} style={{ flex: '1', minInlineSize: '140px' }}>
++                            <Box dir={dir} style={{ flex: '1', minInlineSize: 'var(--warsha-size-input-min)' }}>
+                               <Field id={`plugins-env-key-${index}`} label={label('plugins.env_key')}>
+                                 <input
+                                   {...fieldControl(`plugins-env-key-${index}`)}
+@@ -416,7 +416,7 @@ export function PluginsSettings({ client, project }: PluginsSettingsProps) {
+                                 />
+                               </Field>
+                             </Box>
+-                            <Box dir={dir} style={{ flex: '1', minInlineSize: '140px' }}>
++                            <Box dir={dir} style={{ flex: '1', minInlineSize: 'var(--warsha-size-input-min)' }}>
+                               <Field id={`plugins-env-value-${index}`} label={label('plugins.env_value')}>
+                                 <input
+                                   {...fieldControl(`plugins-env-value-${index}`)}
+diff --git a/apps/desktop/src/screens/ProjectsBoard.tsx b/apps/desktop/src/screens/ProjectsBoard.tsx
+index b16502a..3d19e7d 100644
+--- a/apps/desktop/src/screens/ProjectsBoard.tsx
++++ b/apps/desktop/src/screens/ProjectsBoard.tsx
+@@ -381,7 +381,7 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
+       style={{
+         paddingInline: 'var(--warsha-space-6)',
+         paddingBlock: 'var(--warsha-space-6)',
+-        minHeight: 'calc(100vh - 80px)',
++        minHeight: 'calc(100vh - var(--warsha-size-bench-offset))',
+         display: 'flex',
+         flexDirection: 'column',
+         gap: 'var(--warsha-space-4)',
+@@ -457,7 +457,7 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
+                 fontSize: 'var(--warsha-font-size-sm)',
+                 color: 'var(--warsha-color-text)',
+                 backgroundColor: 'var(--warsha-bench-plate)',
+-                border: '1px solid var(--warsha-bench-rule)',
++                border: 'var(--warsha-line-rule)',
+                 borderRadius: 'var(--warsha-radius-md)',
+               }}
+             >
+@@ -496,7 +496,7 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
+                   fontSize: 'var(--warsha-font-size-sm)',
+                   color: 'var(--warsha-color-text)',
+                   backgroundColor: 'var(--warsha-bench-plate)',
+-                  border: '1px solid var(--warsha-bench-rule)',
++                  border: 'var(--warsha-line-rule)',
+                   borderRadius: 'var(--warsha-radius-md)',
+                   lineHeight: 'var(--warsha-line-height-relaxed)',
+                 }}
+@@ -556,13 +556,13 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
+             data-testid="projects-new-project-dialog"
+             style={{
+               inlineSize: '100%',
+-              maxInlineSize: '480px',
++              maxInlineSize: 'var(--warsha-size-notice)',
+               display: 'flex',
+               flexDirection: 'column',
+               gap: 'var(--warsha-space-2)',
+               padding: 'var(--warsha-space-6)',
+               backgroundColor: 'var(--warsha-color-surface)',
+-              border: '1px solid var(--warsha-bench-edge)',
++              border: 'var(--warsha-line-edge)',
+               borderRadius: 'var(--warsha-radius-xl)',
+               maxBlockSize: '100%',
+               overflowY: 'auto',
+diff --git a/apps/desktop/src/screens/ProvidersSettings.tsx b/apps/desktop/src/screens/ProvidersSettings.tsx
+index 5e4be21..f06d577 100644
+--- a/apps/desktop/src/screens/ProvidersSettings.tsx
++++ b/apps/desktop/src/screens/ProvidersSettings.tsx
+@@ -232,8 +232,8 @@ export function ProvidersSettings({ client, onBack, project }: ProvidersSettings
+       style={{
+         paddingInline: 'var(--warsha-space-6)',
+         paddingBlock: 'var(--warsha-space-6)',
+-        minHeight: 'calc(100vh - 80px)',
+-        maxInlineSize: '900px',
++        minHeight: 'calc(100vh - var(--warsha-size-bench-offset))',
++        maxInlineSize: 'var(--warsha-size-plate-max)',
+         display: 'flex',
+         flexDirection: 'column',
+         gap: 'var(--warsha-space-4)',
+@@ -509,7 +509,7 @@ export function ProvidersSettings({ client, onBack, project }: ProvidersSettings
+                       style={{
+                         marginBlockStart: 'var(--warsha-space-1)',
+                         paddingInlineStart: 'var(--warsha-space-3)',
+-                        borderInlineStart: '3px solid var(--warsha-color-error)',
++                        borderInlineStart: 'var(--warsha-line-band-fail)',
+                         minInlineSize: 0,
+                       }}
+                     >
+diff --git a/apps/desktop/src/screens/RolesSettings.tsx b/apps/desktop/src/screens/RolesSettings.tsx
+index 9cd9814..c65aca0 100644
+--- a/apps/desktop/src/screens/RolesSettings.tsx
++++ b/apps/desktop/src/screens/RolesSettings.tsx
+@@ -185,8 +185,8 @@ export function RolesSettings({ client, onBack }: RolesSettingsProps) {
+       style={{
+         paddingInline: 'var(--warsha-space-6)',
+         paddingBlock: 'var(--warsha-space-6)',
+-        minHeight: 'calc(100vh - 80px)',
+-        maxInlineSize: '1000px',
++        minHeight: 'calc(100vh - var(--warsha-size-bench-offset))',
++        maxInlineSize: 'var(--warsha-size-ledger-max)',
+         display: 'flex',
+         flexDirection: 'column',
+         gap: 'var(--warsha-space-4)',
+@@ -255,14 +255,14 @@ export function RolesSettings({ client, onBack }: RolesSettingsProps) {
+                       alignItems: 'flex-end',
+                       flexWrap: 'wrap',
+                       paddingBlockStart: 'var(--warsha-space-2)',
+-                      borderBlockStart: '1px solid var(--warsha-bench-rule)',
++                      borderBlockStart: 'var(--warsha-line-rule)',
+                       minInlineSize: 0,
+                     }}
+                   >
+                     <Field
+                       id={`role-target-provider-${index}`}
+                       label={label('roles.provider')}
+-                      style={{ flex: '1 1 12rem', marginBlockEnd: 0 }}
++                      style={{ flex: '1 1 var(--warsha-size-field-min)', marginBlockEnd: 0 }}
+                     >
+                       <select
+                         {...fieldControl(`role-target-provider-${index}`)}
+@@ -288,7 +288,7 @@ export function RolesSettings({ client, onBack }: RolesSettingsProps) {
+                     <Field
+                       id={`role-target-model-${index}`}
+                       label={label('roles.model')}
+-                      style={{ flex: '1 1 12rem', marginBlockEnd: 0 }}
++                      style={{ flex: '1 1 var(--warsha-size-field-min)', marginBlockEnd: 0 }}
+                     >
+                       <input
+                         {...fieldControl(`role-target-model-${index}`)}
+@@ -312,7 +312,7 @@ export function RolesSettings({ client, onBack }: RolesSettingsProps) {
+                       id={`role-target-weight-${index}`}
+                       label={label('roles.weight')}
+                       hint={label('roles.weight_hint')}
+-                      style={{ flex: '0 0 7rem', marginBlockEnd: 0 }}
++                      style={{ flex: '0 0 var(--warsha-size-label-col)', marginBlockEnd: 0 }}
+                     >
+                       <input
+                         {...fieldControl(`role-target-weight-${index}`, { hint: true })}
+@@ -409,10 +409,10 @@ export function RolesSettings({ client, onBack }: RolesSettingsProps) {
+                               unicodeBidi: 'isolate',
+                               fontSize: 'var(--warsha-font-size-xs)',
+                               color: 'var(--warsha-color-text)',
+-                              border: '1px solid var(--warsha-bench-edge)',
++                              border: 'var(--warsha-line-edge)',
+                               borderRadius: 'var(--warsha-radius-sm)',
+                               paddingInline: 'var(--warsha-space-2)',
+-                              paddingBlock: '2px',
++                              paddingBlock: 'var(--warsha-space-0-5)',
+                             }}
+                           >
+                             {`${target.provider_id}/${target.model_id} · ${target.weight}`}
+diff --git a/apps/desktop/src/screens/Routines.tsx b/apps/desktop/src/screens/Routines.tsx
+index 01a04aa..8078977 100644
+--- a/apps/desktop/src/screens/Routines.tsx
++++ b/apps/desktop/src/screens/Routines.tsx
+@@ -81,7 +81,7 @@ export function Routines({ routines, error, onRun, onPause, onResume }: Routines
+             fontSize: 'var(--warsha-font-size-xs)',
+             color: 'var(--warsha-color-text)',
+             paddingInline: 'var(--warsha-space-2)',
+-            borderInlineStart: '1px solid var(--warsha-bench-edge)',
++            borderInlineStart: 'var(--warsha-line-edge)',
+             paddingInlineStart: 'var(--warsha-space-3)',
+           }}
+         >
+@@ -103,7 +103,7 @@ export function Routines({ routines, error, onRun, onPause, onResume }: Routines
+             fontSize: 'var(--warsha-font-size-sm)',
+             color: 'var(--warsha-color-text)',
+             backgroundColor: 'var(--warsha-bench-plate)',
+-            border: '1px solid var(--warsha-bench-rule)',
++            border: 'var(--warsha-line-rule)',
+             borderRadius: 'var(--warsha-radius-md)',
+             lineHeight: 'var(--warsha-line-height-relaxed)',
+           }}
+@@ -123,7 +123,7 @@ export function Routines({ routines, error, onRun, onPause, onResume }: Routines
+             padding: 0,
+             listStyle: 'none',
+             backgroundColor: 'var(--warsha-bench-plate)',
+-            border: '1px solid var(--warsha-bench-rule)',
++            border: 'var(--warsha-line-rule)',
+             borderRadius: 'var(--warsha-radius-md)',
+             borderBlockStart: 'none',
+             minInlineSize: 0,
+diff --git a/apps/desktop/src/screens/RunView.tsx b/apps/desktop/src/screens/RunView.tsx
+index 5cce371..e99c488 100644
+--- a/apps/desktop/src/screens/RunView.tsx
++++ b/apps/desktop/src/screens/RunView.tsx
+@@ -311,7 +311,7 @@ export function RunView({ client, run, onBack }: RunViewProps) {
+       style={{
+         display: 'flex',
+         flexDirection: 'column',
+-        height: 'calc(100vh - 80px)',
++        height: 'calc(100vh - var(--warsha-size-bench-offset))',
+         backgroundColor: 'var(--warsha-color-bg)',
+         color: 'var(--warsha-color-text)',
+         minInlineSize: 0,
+@@ -327,7 +327,7 @@ export function RunView({ client, run, onBack }: RunViewProps) {
+           flexWrap: 'wrap',
+           paddingInline: 'var(--warsha-space-6)',
+           paddingBlock: 'var(--warsha-space-3)',
+-          borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++          borderBlockEnd: 'var(--warsha-line-rule)',
+           backgroundColor: 'var(--warsha-color-surface)',
+           minInlineSize: 0,
+         }}
+@@ -419,7 +419,7 @@ export function RunView({ client, run, onBack }: RunViewProps) {
+           gap: 'var(--warsha-space-1)',
+           paddingInline: 'var(--warsha-space-6)',
+           backgroundColor: 'var(--warsha-color-surface)',
+-          borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++          borderBlockEnd: 'var(--warsha-line-rule)',
+           overflowX: 'auto',
+           minInlineSize: 0,
+         }}
+@@ -448,8 +448,8 @@ export function RunView({ client, run, onBack }: RunViewProps) {
+                 flex: 'none',
+                 borderRadius: 0,
+                 borderBlockEnd: selected
+-                  ? '3px solid var(--warsha-signal-text)'
+-                  : '3px solid transparent',
++                  ? 'var(--warsha-line-signal)'
++                  : 'var(--warsha-line-quiet)',
+                 backgroundColor: 'transparent',
+                 color: 'var(--warsha-color-text)',
+                 fontWeight: selected ? 700 : 500,
+@@ -475,16 +475,16 @@ export function RunView({ client, run, onBack }: RunViewProps) {
+             style={{
+               /* §10: 400px is the stream's preferred column, not a promise — at 320/390 it takes the whole
+                   line and the artifact plate follows underneath, instead of being squeezed to zero. */
+-              flex: '1 1 400px',
+-              maxWidth: '400px',
+-              borderInlineEnd: '1px solid var(--warsha-bench-rule)',
++              flex: '1 1 var(--warsha-size-pane)',
++              maxWidth: 'var(--warsha-size-pane)',
++              borderInlineEnd: 'var(--warsha-line-rule)',
+               backgroundColor: 'var(--warsha-color-surface)',
+               display: 'flex',
+               flexDirection: 'column',
+               minInlineSize: 0,
+             }}
+           >
+-            <Box dir={dir} p={4} style={{ borderBlockEnd: '1px solid var(--warsha-bench-rule)' }}>
++            <Box dir={dir} p={4} style={{ borderBlockEnd: 'var(--warsha-line-rule)' }}>
+               <Text weight="bold" size="sm" dir={dir}>
+                 {label('run.event_stream')}
+               </Text>
+@@ -574,12 +574,12 @@ export function RunView({ client, run, onBack }: RunViewProps) {
+                           padding: 'var(--warsha-space-4)',
+                           borderRadius: 'var(--warsha-radius-sm)',
+                           backgroundColor: 'var(--warsha-bench-plate)',
+-                          border: '1px solid var(--warsha-bench-rule)',
++                          border: 'var(--warsha-line-rule)',
+                           color: 'var(--warsha-color-text)',
+                           fontFamily: 'var(--warsha-font-mono)',
+                           fontSize: 'var(--warsha-font-size-sm)',
+                           lineHeight: 'var(--warsha-line-height-base)',
+-                          maxHeight: '400px',
++                          maxHeight: 'var(--warsha-size-pane)',
+                           overflowX: 'auto',
+                           overflowY: 'auto',
+                           unicodeBidi: 'isolate',
+diff --git a/apps/desktop/src/screens/SettingsProviders.tsx b/apps/desktop/src/screens/SettingsProviders.tsx
+index ac2000b..cc0de66 100644
+--- a/apps/desktop/src/screens/SettingsProviders.tsx
++++ b/apps/desktop/src/screens/SettingsProviders.tsx
+@@ -179,7 +179,7 @@ export function SettingsProviders({
+             fontSize: 'var(--warsha-font-size-sm)',
+             color: 'var(--warsha-color-text)',
+             backgroundColor: 'var(--warsha-bench-plate)',
+-            border: '1px solid var(--warsha-bench-rule)',
++            border: 'var(--warsha-line-rule)',
+             borderRadius: 'var(--warsha-radius-md)',
+           }}
+         >
+diff --git a/apps/desktop/src/screens/SettingsScreen.tsx b/apps/desktop/src/screens/SettingsScreen.tsx
+index bd1faeb..ca89066 100644
+--- a/apps/desktop/src/screens/SettingsScreen.tsx
++++ b/apps/desktop/src/screens/SettingsScreen.tsx
+@@ -161,7 +161,7 @@ export function SettingsScreen({ client, onBack, project }: SettingsScreenProps)
+       style={{
+         paddingInline: 'var(--warsha-space-4)',
+         paddingBlock: 'var(--warsha-space-6)',
+-        maxInlineSize: '900px',
++        maxInlineSize: 'var(--warsha-size-plate-max)',
+         margin: '0 auto',
+         display: 'flex',
+         flexDirection: 'column',
+@@ -201,7 +201,7 @@ export function SettingsScreen({ client, onBack, project }: SettingsScreenProps)
+           aria-label={label('settings.preferences')}
+           style={{
+             backgroundColor: 'var(--warsha-color-surface)',
+-            border: '1px solid var(--warsha-bench-rule)',
++            border: 'var(--warsha-line-rule)',
+             borderRadius: 'var(--warsha-radius-md)',
+             minInlineSize: 0,
+           }}
+@@ -212,7 +212,7 @@ export function SettingsScreen({ client, onBack, project }: SettingsScreenProps)
+               margin: 0,
+               paddingInline: 'var(--warsha-space-4)',
+               paddingBlock: 'var(--warsha-space-3)',
+-              borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++              borderBlockEnd: 'var(--warsha-line-rule)',
+               fontSize: 'var(--warsha-font-size-sm)',
+               fontWeight: 'var(--warsha-font-weight-semibold)',
+               color: 'var(--warsha-color-text)',
+@@ -269,7 +269,7 @@ export function SettingsScreen({ client, onBack, project }: SettingsScreenProps)
+           title={integrations === null ? label('settings.subscriptions') : label('connectors.title')}
+           label={integrations === null ? label('settings.subscriptions') : label('connectors.title')}
+           recessed
+-          style={{ border: '1px solid var(--warsha-bench-rule)', borderRadius: 'var(--warsha-radius-md)' }}
++          style={{ border: 'var(--warsha-line-rule)', borderRadius: 'var(--warsha-radius-md)' }}
+         >
+           {integrations === null ? (
+           <Ledger
+@@ -506,7 +506,7 @@ function PreferenceRow({
+         flexWrap: 'wrap',
+         paddingInline: 'var(--warsha-space-4)',
+         paddingBlock: 'var(--warsha-space-3)',
+-        borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++        borderBlockEnd: 'var(--warsha-line-rule)',
+         minInlineSize: 0,
+       }}
+     >
+@@ -516,7 +516,7 @@ function PreferenceRow({
+           fontSize: 'var(--warsha-font-size-sm)',
+           fontWeight: 'var(--warsha-font-weight-medium)',
+           color: 'var(--warsha-color-text)',
+-          flex: '1 1 12rem',
++          flex: '1 1 var(--warsha-size-field-min)',
+           minInlineSize: 0,
+         }}
+       >
+diff --git a/apps/desktop/src/screens/SimpleMode.tsx b/apps/desktop/src/screens/SimpleMode.tsx
+index b2377d8..cf92b88 100644
+--- a/apps/desktop/src/screens/SimpleMode.tsx
++++ b/apps/desktop/src/screens/SimpleMode.tsx
+@@ -386,7 +386,7 @@ function MessageRow({
+         gap: 'var(--warsha-space-3)',
+         paddingInline: 'var(--warsha-space-4)',
+         paddingBlock: 'var(--warsha-space-3)',
+-        borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++        borderBlockEnd: 'var(--warsha-line-rule)',
+         minInlineSize: 0,
+       }}
+     >
+@@ -403,7 +403,7 @@ function MessageRow({
+           borderRadius: 'var(--warsha-radius-sm)',
+           backgroundColor: owner ? 'var(--warsha-signal)' : 'var(--warsha-bench-plate)',
+           color: owner ? 'var(--warsha-signal-ink)' : 'var(--warsha-color-text)',
+-          border: '1px solid var(--warsha-bench-rule)',
++          border: 'var(--warsha-line-rule)',
+           fontSize: 'var(--warsha-font-size-sm)',
+           fontWeight: 700,
+         }}
+@@ -909,7 +909,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }:
+           display: 'flex',
+           flexDirection: 'column',
+           backgroundColor: 'var(--warsha-bench-plate)',
+-          borderInlineEnd: '1px solid var(--warsha-bench-rule)',
++          borderInlineEnd: 'var(--warsha-line-rule)',
+         }}
+       >
+         <div
+@@ -917,7 +917,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }:
+           style={{
+             paddingInline: 'var(--warsha-space-4)',
+             paddingBlock: 'var(--warsha-space-3)',
+-            borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++            borderBlockEnd: 'var(--warsha-line-rule)',
+             minInlineSize: 0,
+           }}
+         >
+@@ -949,7 +949,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }:
+               paddingInline: 'var(--warsha-space-4)',
+               paddingBlock: 'var(--warsha-space-2)',
+               backgroundColor: 'var(--warsha-color-surface)',
+-              borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++              borderBlockEnd: 'var(--warsha-line-rule)',
+               fontSize: 'var(--warsha-font-size-xs)',
+               minInlineSize: 0,
+             }}
+@@ -1033,7 +1033,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }:
+               paddingInline: 'var(--warsha-space-4)',
+               minHeight: 'var(--warsha-size-topbar)',
+               backgroundColor: 'var(--warsha-color-surface)',
+-              borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++              borderBlockEnd: 'var(--warsha-line-rule)',
+               minInlineSize: 0,
+             }}
+           >
+@@ -1133,7 +1133,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }:
+             paddingInline: 'var(--warsha-space-4)',
+             paddingBlock: 'var(--warsha-space-3)',
+             backgroundColor: 'var(--warsha-bench-plate)',
+-            borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++            borderBlockEnd: 'var(--warsha-line-rule)',
+             display: 'flex',
+             flexDirection: 'column',
+             gap: 'var(--warsha-space-2)',
+@@ -1164,7 +1164,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }:
+               lineHeight: 'var(--warsha-line-height-relaxed)',
+               color: 'var(--warsha-color-text)',
+               backgroundColor: 'var(--warsha-color-surface)',
+-              border: '1px solid var(--warsha-bench-edge)',
++              border: 'var(--warsha-line-edge)',
+               borderRadius: 'var(--warsha-radius-sm)',
+               paddingInline: 'var(--warsha-space-3)',
+               paddingBlock: 'var(--warsha-space-2)',
+@@ -1284,7 +1284,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }:
+                 fontSize: 'var(--warsha-font-size-sm)',
+                 color: 'var(--warsha-color-text)',
+                 backgroundColor: 'var(--warsha-color-surface)',
+-                border: '1px solid var(--warsha-bench-edge)',
++                border: 'var(--warsha-line-edge)',
+                 borderRadius: 'var(--warsha-radius-sm)',
+                 paddingInline: 'var(--warsha-space-2)',
+                 paddingBlock: 'var(--warsha-space-1)',
+@@ -1324,7 +1324,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }:
+             flex: 'none',
+             paddingInline: 'var(--warsha-space-4)',
+             paddingBlock: 'var(--warsha-space-3)',
+-            borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++            borderBlockEnd: 'var(--warsha-line-rule)',
+             display: 'flex',
+             flexDirection: 'column',
+             gap: 'var(--warsha-space-2)',
+@@ -1341,7 +1341,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }:
+             dir={dir}
+             style={{
+               display: 'grid',
+-              gridTemplateColumns: 'repeat(auto-fit, minmax(9rem, 1fr))',
++              gridTemplateColumns: 'repeat(auto-fit, minmax(var(--warsha-size-measure-compact), 1fr))',
+               gap: 'var(--warsha-space-2)',
+               minInlineSize: 0,
+             }}
+@@ -1359,7 +1359,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }:
+                   paddingInline: 'var(--warsha-space-2)',
+                   paddingBlock: 'var(--warsha-space-1)',
+                   backgroundColor: 'var(--warsha-bench-plate)',
+-                  border: '1px solid var(--warsha-bench-rule)',
++                  border: 'var(--warsha-line-rule)',
+                   borderRadius: 'var(--warsha-radius-sm)',
+                   minInlineSize: 0,
+                 }}
+@@ -1385,7 +1385,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }:
+               paddingInline: 'var(--warsha-space-4)',
+               paddingBlock: 'var(--warsha-space-3)',
+               backgroundColor: 'var(--warsha-bench-plate)',
+-              borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++              borderBlockEnd: 'var(--warsha-line-rule)',
+               display: 'flex',
+               flexDirection: 'column',
+               gap: 'var(--warsha-space-3)',
+@@ -1495,7 +1495,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }:
+             paddingBlock: 'var(--warsha-space-3)',
+             paddingBlockEnd: 'var(--warsha-space-4)',
+             backgroundColor: 'var(--warsha-color-surface)',
+-            borderBlockStart: '1px solid var(--warsha-bench-rule)',
++            borderBlockStart: 'var(--warsha-line-rule)',
+             // B4 §4 + §9, settled in the browser: the composer stays at the inline-end edge of the column
+             // and stays visible, but it gets there by being the column's fixed footer under an internally
+             // scrolling transcript — not by `position: sticky`. Sticky resolves against the *screen's*
+@@ -1553,7 +1553,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }:
+               lineHeight: 'var(--warsha-line-height-relaxed)',
+               color: 'var(--warsha-color-text)',
+               backgroundColor: 'var(--warsha-bench-plate)',
+-              border: '1px solid var(--warsha-bench-edge)',
++              border: 'var(--warsha-line-edge)',
+               borderRadius: 'var(--warsha-radius-sm)',
+               paddingInline: 'var(--warsha-space-3)',
+               paddingBlock: 'var(--warsha-space-2)',
+@@ -1619,7 +1619,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }:
+           display: 'flex',
+           flexDirection: 'column',
+           backgroundColor: 'var(--warsha-color-surface)',
+-          borderInlineStart: '1px solid var(--warsha-bench-rule)',
++          borderInlineStart: 'var(--warsha-line-rule)',
+         }}
+       >
+         <div
+@@ -1627,7 +1627,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }:
+           style={{
+             paddingInline: 'var(--warsha-space-4)',
+             paddingBlock: 'var(--warsha-space-3)',
+-            borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++            borderBlockEnd: 'var(--warsha-line-rule)',
+             minInlineSize: 0,
+           }}
+         >
+@@ -1688,7 +1688,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }:
+               style={{
+                 paddingInline: 'var(--warsha-space-4)',
+                 paddingBlock: 'var(--warsha-space-3)',
+-                borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++                borderBlockEnd: 'var(--warsha-line-rule)',
+                 display: 'flex',
+                 flexDirection: 'column',
+                 gap: 'var(--warsha-space-2)',
+@@ -1755,7 +1755,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }:
+               style={{
+                 paddingInline: 'var(--warsha-space-4)',
+                 paddingBlock: 'var(--warsha-space-3)',
+-                borderBlockEnd: '1px solid var(--warsha-bench-rule)',
++                borderBlockEnd: 'var(--warsha-line-rule)',
+                 display: 'flex',
+                 flexDirection: 'column',
+                 gap: 'var(--warsha-space-1)',
+@@ -1875,7 +1875,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }:
+           p={4}
+           style={{
+             marginTop: 'auto',
+-            borderBlockStart: '1px solid var(--warsha-bench-rule)',
++            borderBlockStart: 'var(--warsha-line-rule)',
+             backgroundColor: 'var(--warsha-bench-plate)',
+           }}
+         >
+diff --git a/apps/desktop/src/screens/SkillsSettings.tsx b/apps/desktop/src/screens/SkillsSettings.tsx
+index f1a6277..19245cb 100644
+--- a/apps/desktop/src/screens/SkillsSettings.tsx
++++ b/apps/desktop/src/screens/SkillsSettings.tsx
+@@ -165,7 +165,7 @@ export function SkillsSettings({ client, project }: SkillsSettingsProps) {
+       style={{
+         paddingInline: 'var(--warsha-space-4)',
+         paddingBlock: 'var(--warsha-space-4)',
+-        maxInlineSize: '900px',
++        maxInlineSize: 'var(--warsha-size-plate-max)',
+         margin: '0 auto',
+         display: 'flex',
+         flexDirection: 'column',
+diff --git a/apps/remote/src/index.css b/apps/remote/src/index.css
+index f768c7c..ba41b35 100644
+--- a/apps/remote/src/index.css
++++ b/apps/remote/src/index.css
+@@ -386,7 +386,7 @@ html {
+ 
+ /* The event feed scrolls inside its own plate: a phone's page must not become a transcript (§10). */
+ .remote-stream {
+-  max-block-size: min(48vh, 420px);
++  max-block-size: min(48vh, var(--warsha-size-sheet-block));
+   overflow-y: auto;
+   overflow-x: hidden;
+   min-inline-size: 0;
+@@ -495,7 +495,7 @@ html {
+ /* 1440: the reference width — ledgers and forms take the 1100px prose measure, the bench stays centred. */
+ @media (min-width: 1440px) {
+   .app-main {
+-    max-inline-size: 1100px;
++    max-inline-size: var(--warsha-size-content-max);
+     margin-inline: auto;
+     inline-size: 100%;
+   }
+-- 
+2.55.0.windows.5
+

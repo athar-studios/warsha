@@ -1,0 +1,2 @@
+# U3 — genesis v3 baselines (missing snapshots) for its pages; @visual cases only
+^desktop › (frame|onboarding|home|projects|project|inbox)\.spec\.ts › .*@visual

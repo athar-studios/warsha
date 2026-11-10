@@ -1,0 +1,181 @@
+From 52fdd1fd29c7b3e9defcd9e1fa33d455cc400fb6 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Tue, 10 Nov 2026 00:32:00 +0400
+Subject: [PATCH 6/8] test(warshad): cover pairing duplicate, plugin
+ disconnect, and harness db errors (R1 F1)
+
+Add unit tests covering three surfaced error behaviors:
+- Duplicate device pairing creation surfaces DeviceAlreadyPaired (-32000)
+- Disabling an unconnected plugin surfaces MCP disconnect error (-32000)
+- Active harness query on corrupt DB surfaces error (-32000) instead of default
+---
+ crates/warshad/src/lib.rs      | 111 +++++++++++++++++++++++++++++----
+ crates/warshad/src/settings.rs |   9 +++
+ 2 files changed, 109 insertions(+), 11 deletions(-)
+
+diff --git a/crates/warshad/src/lib.rs b/crates/warshad/src/lib.rs
+index e5023d1..ef1bd21 100644
+--- a/crates/warshad/src/lib.rs
++++ b/crates/warshad/src/lib.rs
+@@ -6857,6 +6857,21 @@ mod tests {
+     async fn test_state_with(
+         data_dir: &Path,
+         configure: impl FnOnce(&mut DaemonConfig),
++    ) -> (Arc<DaemonState>, Arc<Store>) {
++        test_state_custom(data_dir, configure, None).await
++    }
++
++    async fn test_state_with_custom_settings(
++        data_dir: &Path,
++        settings: Arc<SettingsStore>,
++    ) -> (Arc<DaemonState>, Arc<Store>) {
++        test_state_custom(data_dir, |_| {}, Some(settings)).await
++    }
++
++    async fn test_state_custom(
++        data_dir: &Path,
++        configure: impl FnOnce(&mut DaemonConfig),
++        custom_settings: Option<Arc<SettingsStore>>,
+     ) -> (Arc<DaemonState>, Arc<Store>) {
+         std::fs::create_dir_all(data_dir).expect("the data directory is made");
+         let mut config = DaemonConfig {
+@@ -6871,11 +6886,23 @@ mod tests {
+                 .expect("the store opens"),
+         );
+         let providers = Arc::new(RwLock::new(agent_router_with_mock()));
+-        let settings = Arc::new(
+-            SettingsStore::open(&data_dir.join("warsha.db"))
+-                .await
+-                .expect("the settings open"),
+-        );
++        let settings = match custom_settings {
++            Some(s) => s,
++            None => {
++                let s = Arc::new(
++                    SettingsStore::open(&data_dir.join("warsha.db"))
++                        .await
++                        .expect("the settings open"),
++                );
++                // The same seeding a real start performs, so a test's daemon answers
++                // `harness.list` with the presets it ships and a catalog write has the row
++                // under it that production would have.
++                wave2::seed_bundled_records(&s)
++                    .await
++                    .expect("the bundled catalogs seed");
++                s
++            }
++        };
+         let pipeline = Arc::new(warsha_pipeline::PipelineEngine::new(
+             store.clone(),
+             providers.clone(),
+@@ -6883,12 +6910,6 @@ mod tests {
+         ));
+         let identity = warsha_remote::DeviceIdentity::generate("test daemon".to_string())
+             .expect("a device identity");
+-        // The same seeding a real start performs, so a test's daemon answers
+-        // `harness.list` with the presets it ships and a catalog write has the row
+-        // under it that production would have.
+-        wave2::seed_bundled_records(&settings)
+-            .await
+-            .expect("the bundled catalogs seed");
+ 
+         let routines = Arc::new(RwLock::new(RoutineRegistry::new()));
+         let routine_runner: Arc<dyn RoutineRunner + Send + Sync> =
+@@ -9043,6 +9064,74 @@ mod tests {
+             capture.lines()
+         );
+     }
++
++    #[tokio::test]
++    async fn create_pairing_returns_an_rpc_error_when_device_already_paired() {
++        let temp = crate::test_util::fresh_tempdir();
++        let (state, _store) = test_state(temp.path()).await;
++        let rpc = WarshaRpc::new(state);
++        let owner = owner_ext();
++        let device_id = "test-device-duplicate".to_string();
++
++        let first = rpc
++            .create_pairing(&owner, device_id.clone(), "secret-1".to_string())
++            .await
++            .expect("first pairing creation succeeds");
++        assert_eq!(first.device_id, device_id);
++
++        let err = rpc
++            .create_pairing(&owner, device_id.clone(), "secret-2".to_string())
++            .await
++            .expect_err("creating duplicate pairing must fail with an RPC error");
++        assert_eq!(rpc_error_code(&err), -32000);
++        assert!(
++            err.message().contains("already paired"),
++            "expected duplicate pairing error, got: {}",
++            err.message()
++        );
++    }
++
++    #[tokio::test]
++    async fn toggle_plugin_returns_an_rpc_error_when_mcp_disconnect_fails() {
++        let temp = crate::test_util::fresh_tempdir();
++        let (state, _store) = test_state(temp.path()).await;
++        let rpc = WarshaRpc::new(state);
++        let owner = owner_ext();
++        let manifest = r#"{
++            "name": "Enabled Plugin For Disconnect",
++            "transport": "stdio",
++            "command": "definitely_nonexistent_binary_for_disconnect",
++            "enabled": true
++        }"#;
++        let installed = rpc
++            .install_plugin(&owner, manifest.to_string())
++            .await
++            .expect("plugin installs cleanly in enabled state");
++        assert!(installed.enabled);
++
++        let err = rpc
++            .toggle_plugin(&owner, installed.id, false)
++            .await
++            .expect_err("disabling an unconnected plugin must fail with an RPC error");
++        assert_eq!(rpc_error_code(&err), -32000);
++    }
++
++    #[tokio::test]
++    async fn get_active_harness_db_error_returns_an_rpc_error() {
++        let temp = crate::test_util::fresh_tempdir();
++        let corrupt_db = temp.path().join("corrupt_warsha.db");
++        std::fs::write(&corrupt_db, b"not-a-sqlite-database-header")
++            .expect("corrupt database file written");
++        let settings = Arc::new(SettingsStore::open_unvalidated(&corrupt_db));
++        let (state, _store) = test_state_with_custom_settings(temp.path(), settings).await;
++        let rpc = WarshaRpc::new(state);
++        let owner = owner_ext();
++        let err = rpc
++            .list_harnesses(&owner)
++            .await
++            .expect_err("corrupt settings db in list_harnesses must fail with an RPC error");
++        assert_eq!(rpc_error_code(&err), -32000);
++    }
+ }
+ 
+ // Declared last, after the test module above: `tests::the_startup_listener_lines_are_written_once`
+diff --git a/crates/warshad/src/settings.rs b/crates/warshad/src/settings.rs
+index 8748eee..a33b54f 100644
+--- a/crates/warshad/src/settings.rs
++++ b/crates/warshad/src/settings.rs
+@@ -114,6 +114,15 @@ impl SettingsStore {
+         Ok(settings)
+     }
+ 
++    /// A store pointed at a database file without running migrations.
++    ///
++    /// Intended for tests asserting error behavior against corrupt or unreachable databases.
++    pub fn open_unvalidated(path: &Path) -> Self {
++        Self {
++            path: path.display().to_string(),
++        }
++    }
++
+     /// The path of the database these settings live in.
+     pub fn path(&self) -> &str {
+         &self.path
+-- 
+2.55.0.windows.5
+

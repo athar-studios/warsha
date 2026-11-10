@@ -1,0 +1,90 @@
+{
+  "schema": "warsha-run/v1",
+  "run_id": "2026-11-08-design-and-remediation",
+  "task": "Phase 1 intake + Phase 2 plan for the post-Qoder (08d61af..f7b8583) remediation and Design System v2: verify the owner brief against code, specify DS v2 (docs/designs/DESIGN_SYSTEM_V2.md), and split the remaining work into 7 file-isolated worker packets (W1-W7) with frozen machine-checkable gates; W3/W5 are pixel-neutral; no runtime code is written by the planner.",
+  "phase": "intake",
+  "seq": 1,
+  "updated_at": "2026-11-08T00:38:12Z",
+  "roles": {
+    "planner": "agent:opus-5.5 (Claude Code, planner only)",
+    "implementer": "unassigned — one worker model per packet (see packets[].roles)",
+    "reviewer": "unassigned — must differ from each packet implementer",
+    "verifier": "unassigned — must differ from implementer and reviewer",
+    "owner": "human: Mohamed Ashry"
+  },
+  "scope": {
+    "allowed_files": [
+      "crates/warsha-remote/README.md",
+      "packages/crypto/README.md",
+      "apps/remote/README.md",
+      "crates/warsha-git/README.md",
+      "templates/README.md",
+      "crates/warsha-pipeline/README.md",
+      "apps/desktop/README.md",
+      "README.md",
+      "README.ar.md",
+      "docs/ARCHITECTURE.md",
+      "docs/ARCH_RULES.md",
+      "docs/DEPLOY.md",
+      "docs/DEVELOPERS.md",
+      "docs/VERIFY.md",
+      "docs/src/architecture.md",
+      "docs/src/SUMMARY.md",
+      "docs/src/design-system-v2.md",
+      "docs/src/skills-and-harnesses.md",
+      "docs/src/install.md",
+      "docs/src/deploy.md",
+      "docs/src/verify.md",
+      "docs/designs/SITEMAP.md",
+      "_agents/skills/warsha_elephant/SKILL.md",
+      "SECURITY.md",
+      "packages/ui/src/**",
+      "packages/ui/.storybook/**",
+      "packages/ui/README.md",
+      "scripts/check-wire-contract.mjs",
+      "packages/client/src/index.ts",
+      "packages/client/src/index.test.ts",
+      "apps/desktop/e2e/harness.ts",
+      "apps/desktop/src/**",
+      "apps/desktop/real-acceptance.cjs",
+      "apps/remote/src/**",
+      "packages/i18n/src/**",
+      "crates/warsha-pipeline/src/process_spawn.rs",
+      "crates/warsha-pipeline/src/agent_tools.rs",
+      "crates/warsha-pipeline/src/agent_loop.rs",
+      "apps/mobile/**"
+    ],
+    "out_of_scope": [
+      "PLAN.md",
+      "PROGRESS.md",
+      "DECISIONS.md",
+      "**/*-snapshots/**",
+      "Cargo.toml / package.json / lockfiles (no dependency change)",
+      ".github/**",
+      "files owned by another packet"
+    ]
+  },
+  "worktree": {
+    "path": "C:/Users/Dragonfly/Downloads/Warsha",
+    "branch": "run/2026-11-08/integration",
+    "base_commit": "0772d502002562505c6438ae712abca7a7328d84",
+    "mode": "git-worktree",
+    "audited_head": "f7b8583"
+  },
+  "plan": {
+    "spec": null,
+    "note": "intake: brief restated; corrections C1-C15 recorded in PROGRESS.md 2026-11-08 planner entry; scope and out-of-scope fixed per packet"
+  },
+  "repair": {
+    "iteration": 0,
+    "max_repair_iterations": 3,
+    "open_findings": []
+  },
+  "blocker": null,
+  "evidence": {
+    "dir": "bridge-io/policy/2026-11-08-design-and-remediation",
+    "gates": [],
+    "logs": [],
+    "handover": "HANDOVER.md"
+  }
+}

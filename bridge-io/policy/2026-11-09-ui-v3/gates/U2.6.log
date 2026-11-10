@@ -1,0 +1,15 @@
+mapped: idea
+mapped: gate_a
+mapped: research
+mapped: prd_spec
+mapped: gate_b
+mapped: design
+mapped: plan_tasks
+mapped: code
+mapped: review_qa_security
+mapped: gate_c
+mapped: release
+mapped: gate_d
+mapped: launch_drafts
+mapped: feedback
+ALL_14_MAPPED GATE_EXIT=0

@@ -1,0 +1,18 @@
+data dir: C:/Users/Dragonfly/AppData/Local/Temp/warsha-selfcheck-20261109b
+daemon:     http://127.0.0.1:50611 (started by this process: true)
+events ws:  ws://127.0.0.1:50612
+token:      43 bytes
+PASS  an authorized JSON-RPC call answers
+PASS  a wrong token is refused
+PASS  the webview's CORS preflight is answered
+PASS  GET /health on the daemon's HTTP port answers 200 with a healthy status
+PASS  projects.create creates the smoke project
+PASS  runs.start starts the smoke run at the Idea stage
+PASS  gates.approve records the Gate A decision over RPC
+PASS  runs.advance walks Idea → GateA → Research → PrdSpec on the zero-key FakeProvider
+PASS  the smoke run is waiting at Gate B
+PASS  zero-key FakeProvider run produced research and prd_spec artifacts
+daemon stopped (children reaped, lock released)
+second daemon refused, as it must: another warshad holds "C:/Users/Dragonfly/AppData/Local/Temp/warsha-selfcheck-20261109b\\warshad.lock" (pid 30896); this daemon will not share a data directory
+PASS  one daemon holds the data directory, and a restart gets it back
+self-check: OK

@@ -1,0 +1,102 @@
+
+Running 48 tests using 2 workers
+
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/crash-reports-390x844-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  1 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 390x844 ar light (2.1s)
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/crash-reports-390x844-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  2 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 390x844 ar dark (2.1s)
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/crash-reports-390x844-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  3 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 390x844 en light (1.8s)
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/crash-reports-390x844-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  4 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 390x844 en dark (1.8s)
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/crash-reports-768x1024-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  5 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 768x1024 ar light (2.0s)
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/crash-reports-768x1024-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  6 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 768x1024 ar dark (2.0s)
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/crash-reports-768x1024-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  7 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 768x1024 en light (1.9s)
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/crash-reports-768x1024-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  8 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 768x1024 en dark (1.9s)
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/crash-reports-1440x900-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  9 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 1440x900 ar light (2.1s)
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/crash-reports-1440x900-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  10 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 1440x900 ar dark (2.1s)
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/crash-reports-1440x900-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  11 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 1440x900 en light (2.1s)
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/crash-reports-1440x900-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  12 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 1440x900 en dark (2.1s)
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/store-reviews-390x844-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  13 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 390x844 ar light (1.8s)
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/store-reviews-390x844-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  14 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 390x844 ar dark (1.8s)
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/store-reviews-390x844-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  15 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 390x844 en light (1.7s)
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/store-reviews-390x844-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  16 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 390x844 en dark (1.7s)
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/store-reviews-768x1024-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  17 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 768x1024 ar light (1.9s)
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/store-reviews-768x1024-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  18 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 768x1024 ar dark (1.9s)
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/store-reviews-768x1024-en-light-desktop-linux.png is re-generated, writing actual.
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/store-reviews-768x1024-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  20 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 768x1024 en dark (1.9s)
+  ✓  19 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 768x1024 en light (1.9s)
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/store-reviews-1440x900-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  21 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 1440x900 ar light (2.1s)
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/store-reviews-1440x900-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  22 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 1440x900 ar dark (2.1s)
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/store-reviews-1440x900-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  23 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 1440x900 en light (2.2s)
+/root/warsha-rh1/apps/desktop/e2e/screens.visual.spec.ts-snapshots/store-reviews-1440x900-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  24 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 1440x900 en dark (2.3s)
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/store-reviews-dense-320x568-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  25 [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 320x568 ar light (2.3s)
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/store-reviews-dense-320x568-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  26 [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 320x568 ar dark (2.3s)
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/store-reviews-dense-320x568-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  27 [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 320x568 en light (2.4s)
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/store-reviews-dense-320x568-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  28 [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 320x568 en dark (2.3s)
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/store-reviews-dense-390x844-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  29 [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 390x844 ar light (2.5s)
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/store-reviews-dense-390x844-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  30 [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 390x844 ar dark (2.5s)
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/store-reviews-dense-390x844-en-light-desktop-linux.png is re-generated, writing actual.
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/store-reviews-dense-390x844-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  31 [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 390x844 en light (2.4s)
+  ✓  32 [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 390x844 en dark (2.4s)
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/store-reviews-dense-1440x900-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  33 [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 1440x900 ar light (2.7s)
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/store-reviews-dense-1440x900-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  34 [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 1440x900 ar dark (2.8s)
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/store-reviews-dense-1440x900-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  35 [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 1440x900 en light (2.7s)
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/store-reviews-dense-1440x900-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  36 [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 1440x900 en dark (2.8s)
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/crash-reports-dense-320x568-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  37 [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 320x568 ar light (2.4s)
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/crash-reports-dense-320x568-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  38 [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 320x568 ar dark (2.4s)
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/crash-reports-dense-320x568-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  39 [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 320x568 en light (2.4s)
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/crash-reports-dense-320x568-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  40 [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 320x568 en dark (2.4s)
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/crash-reports-dense-390x844-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  42 [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 390x844 ar dark (2.4s)
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/crash-reports-dense-390x844-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  41 [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 390x844 ar light (2.5s)
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/crash-reports-dense-390x844-en-light-desktop-linux.png is re-generated, writing actual.
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/crash-reports-dense-390x844-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  43 [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 390x844 en light (2.4s)
+  ✓  44 [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 390x844 en dark (2.4s)
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/crash-reports-dense-1440x900-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  45 [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 1440x900 ar light (2.8s)
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/crash-reports-dense-1440x900-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  46 [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 1440x900 ar dark (2.9s)
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/crash-reports-dense-1440x900-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  47 [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 1440x900 en light (2.8s)
+/root/warsha-rh1/apps/desktop/e2e/states.spec.ts-snapshots/crash-reports-dense-1440x900-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  48 [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 1440x900 en dark (2.8s)
+
+  48 passed (58.3s)
+::notice title=🎭 Playwright Run Summary::  48 passed (58.3s)

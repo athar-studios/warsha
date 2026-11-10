@@ -1,0 +1,19 @@
+Scope: 7 of 8 workspace projects
+packages/client typecheck$ tsc --noEmit
+packages/ui typecheck$ tsc --noEmit && tsc --noEmit -p tsconfig.storybook.json
+packages/i18n typecheck$ tsc --noEmit
+packages/crypto typecheck$ tsc --noEmit
+packages/crypto typecheck: Done
+packages/client typecheck: Done
+packages/i18n typecheck: Done
+packages/ui typecheck: Done
+apps/desktop typecheck$ tsc --noEmit && tsc --noEmit -p tsconfig.e2e.json
+apps/remote typecheck$ tsc --noEmit
+apps/remote typecheck: Done
+apps/desktop typecheck: Done
+
+> warsha-desktop@0.2.1 lint C:\Users\Dragonfly\Downloads\warsha-wt\v3\u4\apps\desktop
+> eslint src --ext .ts,.tsx
+
+check-ds-v3: 0 violations in apps/desktop/src/v3
+EXIT=0

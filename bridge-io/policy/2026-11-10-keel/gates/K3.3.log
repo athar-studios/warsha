@@ -1,0 +1,13 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.82s
+     Running unittests src\lib.rs (target\debug\deps\warsha_pipeline-214fd92e5d6adae7.exe)
+
+running 6 tests
+test status_truth::unavailable_routine_runner_refuses_execution_honestly ... ok
+test status_truth::scout_registry_seam_reports_honest_catalog_unavailable_in_production ... ok
+test status_truth::unrouted_stage_pauses_run_and_emits_provider_required_event ... ok
+test status_truth::unrouted_followup_fails_honestly_without_creating_fake_artifact ... ok
+test status_truth::forced_fake_environment_only_answers_when_explicitly_configured ... ok
+test status_truth::unrouted_role_returns_typed_error_and_does_not_silently_fallback ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 369 filtered out; finished in 0.54s
+

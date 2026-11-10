@@ -1,0 +1,15 @@
+U5.1.sh
+U5.2.sh
+U5.3.sh
+U5.4.sh
+U5.5.sh
+U5.7.sh
+U5.deps.sh
+U5.snap.sh
+wsl-busy.sh
+---
+---
+/tmp/docker-desktop-root/run/desktop/mnt/host/c/Users/Dragonfly/AppData/Roaming/npm/pnpm
+---
+ls: /root/warsha*: No such file or directory
+ls: /home/*warsha*: No such file or directory

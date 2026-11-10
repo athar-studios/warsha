@@ -1,0 +1,41 @@
+gate: GC.8a
+command: node scripts/check-wire-contract.mjs --self-test
+commit: a643a536323b845fe7dec486a5d747f16653660d
+host: Windows integration worktree (FINAL tip)
+timestamp: 2026-11-08T15:41:03Z
+---
+self-test parser multi-line-#[method]: detected gates.list (5/5 methods parsed)
+self-test parser bound-args: detected run_id (required) + device_id (Option)
+self-test parser const-indirect + rpc<T>: detected gates.list and alpha.write
+self-test parser quote-styles: dq-literal + dq-generic + template + dq-const + nested-angle parsed, quoted params keys counted
+self-test parser param-names: snake + alias + shorthand + quoted keys read; spread + computed + positional + variable reported, not guessed
+self-test parser harness-stub-quotes: detected the sq, dq and template-literal entries
+self-test W1 client-method-unregistered/const-indirect-ghost: detected
+self-test W1 client-method-unregistered/generic-ghost: detected
+self-test W2 harness-method-unregistered/harness-stub: detected
+self-test W3 daemon-method-without-policy/missing-policy-row: detected
+self-test W4+W6 policy-row-without-daemon-method/stale-policy-row: detected
+self-test W5 method-without-extensions/no-with-extensions: detected
+self-test W6 view-integrity/trait-region-moved: detected
+self-test W1 client-method-unregistered/camel-key-not-an-offence: detected
+self-test W7 required-field-drift/omitted-required-params: detected
+self-test W7 required-field-drift/one-short-required-field: detected
+self-test W7 required-field-drift/required-field-drift-enforced-in-both-modes: detected
+self-test W1 client-method-unregistered/unregistered-name-enforced-in-both-modes: detected
+self-test W1 client-method-unregistered/dq-literal-ghost: detected
+self-test W1 client-method-unregistered/dq-generic-ghost: detected
+self-test W1 client-method-unregistered/dq-const-indirect-ghost: detected
+self-test W2 harness-method-unregistered/dq-harness-stub: detected
+self-test W1 client-method-unregistered/nested-generic-ghost: detected
+self-test W7 required-field-drift/quoted-params-key-still-counts: detected
+self-test W8 param-name-drift/renamed-param-key: detected
+self-test W8 param-name-drift/aliased-casing-is-not-an-offence: accepted (legal spelling, 0 violations)
+self-test W8 param-name-drift/params-from-a-variable: detected
+self-test W8 param-name-drift/params-with-a-spread: detected
+self-test W8 param-name-drift/params-with-a-computed-key: detected
+self-test W8 param-name-drift/positional-array-params: detected
+self-test W9 client-method-without-harness-stub/client-call-without-harness-stub: detected
+self-test clean fixture (shipped): 0 violations
+self-test clean fixture (strict): 0 violations
+wire self-test: 9 checks fire, clean fixture is clean in both modes
+exit_code: 0

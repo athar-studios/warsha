@@ -1,0 +1,11 @@
+run=2026-11-08-design-and-remediation packet=W7 (repair iteration 1)
+base=0772d502002562505c6438ae712abca7a7328d84
+worktree=C:/Users/Dragonfly/Downloads/warsha-wt/w7 branch=run/2026-11-08/w7-android-apk
+artifact=apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+size_bytes=840513
+sha256=ce60f2bd5183779de7fd6a3c7593e0a612e878c8a1c05960f308e06ea3ad01ff
+mtime_utc=2026-11-08T07:56:11Z
+friendly_copy_sha256=ce60f2bd5183779de7fd6a3c7593e0a612e878c8a1c05960f308e06ea3ad01ff
+map_entries_in_apk=0
+web_asset_count=2
+signing_pairs=0x7109871a(v2,alg0x0104),0x42726577(verity-padding)

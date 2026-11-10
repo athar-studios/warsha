@@ -1,0 +1,9 @@
+gate: GC.9
+command: mdbook build docs
+commit: 99a7c03b2be953f4468174a6c236eeb84da58767
+timestamp: 2026-11-08T10:34:39Z
+---
+ INFO Book building has started
+ INFO Running the html backend
+ INFO HTML book written to `C:\Users\Dragonfly\Downloads\warsha-wt\integration\docs\book`
+exit_code: 0

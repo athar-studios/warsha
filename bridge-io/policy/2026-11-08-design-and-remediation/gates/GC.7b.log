@@ -1,0 +1,8 @@
+gate: GC.7b
+command: node scripts/check-engineering-policy.mjs
+commit: c27091696796805bbdf72848fbc93ff611866dcc
+host: Windows integration worktree
+timestamp: 2026-11-08T12:40:13Z
+---
+policy: 8 checks, 0 failures
+exit_code: 0

@@ -1,0 +1,15 @@
+Cargo.toml [workspace.package]                    0.2.1
+apps/desktop/src-tauri/Cargo.toml                 0.2.1
+apps/desktop/src-tauri/tauri.conf.json            0.2.1
+package.json                                      0.2.1
+apps/desktop/package.json                         0.2.1
+apps/remote/package.json                          0.2.1
+packages/ui/package.json                          0.2.1
+packages/client/package.json                      0.2.1
+packages/i18n/package.json                        0.2.1
+packages/crypto/package.json                      0.2.1
+apps/mobile/android/app/build.gradle versionName  0.2.1
+docker/compose.yml warshad image tag              0.2.1
+apps/mobile versionCode                           201 (want 201)
+versions: aligned (expected 0.2.1)
+GATE_EXIT=0

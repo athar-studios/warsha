@@ -1,0 +1,66 @@
+From fb665e91621b8be64d18cc6c05c282795c5f90bb Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 15:05:16 +0400
+Subject: [PATCH 1/5] feat(i18n): add the routine and backend wiring strings
+
+---
+ packages/i18n/src/index.tsx | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/packages/i18n/src/index.tsx b/packages/i18n/src/index.tsx
+index a3811cf..f412cba 100644
+--- a/packages/i18n/src/index.tsx
++++ b/packages/i18n/src/index.tsx
+@@ -569,6 +569,12 @@ export const messages: Record<Locale, Record<string, string>> = {
+     'routines.action.run': 'شغّل الآن',
+     'routines.action.pause': 'إيقاف مؤقت',
+     'routines.action.resume': 'استئناف',
++    'routines.every_seconds': 'كل {count} ثانية',
++    'routines.manual': 'يدوي',
++    'routines.error.load': 'لم يستطع الخادم قراءة الروتينات.',
++    'routines.error.run': 'لم يستطع الخادم تشغيل الروتين.',
++    'routines.error.pause': 'لم يستطع الخادم إيقاف الروتين مؤقتاً.',
++    'routines.error.resume': 'لم يستطع الخادم استئناف الروتين.',
+     // Backend kit (`BackendKitPanel`).
+     'backend_kit.title': 'حزمة الواجهة الخلفية',
+     'backend_kit.kind': 'الواجهة الخلفية',
+@@ -591,6 +597,11 @@ export const messages: Record<Locale, Record<string, string>> = {
+     'backend_kit.payments.on': 'مفعّلة',
+     'backend_kit.payments.approved_by': 'بموافقة',
+     'backend_kit.url.none': 'لم يُضبط العنوان بعد',
++    'backend.error.load': 'لم يستطع الخادم قراءة حزمة الواجهة الخلفية.',
++    'backend.error.save': 'لم يحفظ الخادم حزمة الواجهة الخلفية.',
++    'backend.error.export': 'لم يستطع الخادم تصدير حزمة الواجهة الخلفية.',
++    'backend.export.no_run': 'اختر تشغيلاً لتصدير حزمة واجهته الخلفية.',
++    'backend.export.unavailable': 'يحتاج التصدير إلى مجلد عمل لم يبلّغ عنه الخادم بعد.',
+     // Settings → Providers (`SettingsProviders`).
+     'settings_providers.title': 'المزوّدون',
+     'settings_providers.note':
+@@ -1744,6 +1755,12 @@ export const messages: Record<Locale, Record<string, string>> = {
+     'routines.action.run': 'Run now',
+     'routines.action.pause': 'Pause',
+     'routines.action.resume': 'Resume',
++    'routines.every_seconds': 'Every {count}s',
++    'routines.manual': 'Manual',
++    'routines.error.load': 'The daemon could not read the routines.',
++    'routines.error.run': 'The daemon could not run the routine.',
++    'routines.error.pause': 'The daemon could not pause the routine.',
++    'routines.error.resume': 'The daemon could not resume the routine.',
+     'backend_kit.title': 'Backend kit',
+     'backend_kit.kind': 'Backend',
+     'backend_kit.kind.pocket_base': 'PocketBase',
+@@ -1765,6 +1782,11 @@ export const messages: Record<Locale, Record<string, string>> = {
+     'backend_kit.payments.on': 'Enabled',
+     'backend_kit.payments.approved_by': 'approved by',
+     'backend_kit.url.none': 'No URL set yet',
++    'backend.error.load': 'The daemon could not read the backend kit.',
++    'backend.error.save': 'The daemon did not save the backend kit.',
++    'backend.error.export': 'The daemon could not export the backend kit.',
++    'backend.export.no_run': 'Select a run to export its backend kit.',
++    'backend.export.unavailable': 'Export needs a workspace folder the daemon has not reported.',
+     'settings_providers.title': 'Providers',
+     'settings_providers.note':
+       'Off by default — nothing updates or connects on its own unless you turn it on here.',
+-- 
+2.55.0.windows.5
+

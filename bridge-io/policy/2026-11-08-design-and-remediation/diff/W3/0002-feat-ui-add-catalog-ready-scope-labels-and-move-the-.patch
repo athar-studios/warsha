@@ -1,0 +1,138 @@
+From 2318f069560f75dd6057ae3d6076a9cb00f99210 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 12:03:28 +0400
+Subject: [PATCH 2/7] feat(ui): add catalog-ready scope labels and move the
+ lagging stories to Bench/
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+SettingsScopeSentence gains optional globalLabel/projectLabel/globalHint/projectHint
+props that default to today's English (D9), and its decorative glyph becomes
+aria-hidden so the sentence is read once. FastModeToggle, ModelPicker and
+SettingsScopeSentence move from Compounds/ to the Bench/ group every other
+compound already uses (DS v2 §6). No rendered pixel moves.
+---
+ .../src/compounds/FastModeToggle.stories.tsx  |  2 +-
+ .../ui/src/compounds/ModelPicker.stories.tsx  |  2 +-
+ .../SettingsScopeSentence.stories.tsx         |  2 +-
+ .../src/compounds/SettingsScopeSentence.tsx   | 37 +++++++++++--------
+ 4 files changed, 24 insertions(+), 19 deletions(-)
+
+diff --git a/packages/ui/src/compounds/FastModeToggle.stories.tsx b/packages/ui/src/compounds/FastModeToggle.stories.tsx
+index 41d4359..5e9b875 100644
+--- a/packages/ui/src/compounds/FastModeToggle.stories.tsx
++++ b/packages/ui/src/compounds/FastModeToggle.stories.tsx
+@@ -5,7 +5,7 @@ import type { Meta, StoryObj } from '@storybook/react';
+ import { FastModeToggle } from './FastModeToggle';
+ 
+ const meta: Meta<typeof FastModeToggle> = {
+-  title: 'Compounds/FastModeToggle',
++  title: 'Bench/FastModeToggle',
+   component: FastModeToggle,
+   parameters: {
+     layout: 'centered',
+diff --git a/packages/ui/src/compounds/ModelPicker.stories.tsx b/packages/ui/src/compounds/ModelPicker.stories.tsx
+index 826065c..7c771e3 100644
+--- a/packages/ui/src/compounds/ModelPicker.stories.tsx
++++ b/packages/ui/src/compounds/ModelPicker.stories.tsx
+@@ -12,7 +12,7 @@ const mockOptions: readonly ModelOption[] = [
+ ];
+ 
+ const meta: Meta<typeof ModelPicker> = {
+-  title: 'Compounds/ModelPicker',
++  title: 'Bench/ModelPicker',
+   component: ModelPicker,
+   parameters: {
+     layout: 'centered',
+diff --git a/packages/ui/src/compounds/SettingsScopeSentence.stories.tsx b/packages/ui/src/compounds/SettingsScopeSentence.stories.tsx
+index 2a284d1..494bb27 100644
+--- a/packages/ui/src/compounds/SettingsScopeSentence.stories.tsx
++++ b/packages/ui/src/compounds/SettingsScopeSentence.stories.tsx
+@@ -5,7 +5,7 @@ import type { Meta, StoryObj } from '@storybook/react';
+ import { SettingsScopeSentence as SettingsScopeSentenceComponent } from './SettingsScopeSentence';
+ 
+ const meta: Meta<typeof SettingsScopeSentenceComponent> = {
+-  title: 'Compounds/SettingsScopeSentence',
++  title: 'Bench/SettingsScopeSentence',
+   component: SettingsScopeSentenceComponent,
+   parameters: {
+     layout: 'centered',
+diff --git a/packages/ui/src/compounds/SettingsScopeSentence.tsx b/packages/ui/src/compounds/SettingsScopeSentence.tsx
+index 8aa5665..613fdaf 100644
+--- a/packages/ui/src/compounds/SettingsScopeSentence.tsx
++++ b/packages/ui/src/compounds/SettingsScopeSentence.tsx
+@@ -20,27 +20,31 @@ export interface SettingsScopeSentenceProps {
+   className?: string;
+   /** Optional dir prop for RTL support. */
+   dir?: TextProps['dir'];
++  /**
++   * The global scope's label, when the consumer passes catalog strings (DS v2 §6, D9). Defaults to
++   * today's English so the rendered pixels do not move; Phase B passes the catalog value.
++   */
++  globalLabel?: string;
++  /** The project scope's label, as a function of the project name; same contract as `globalLabel`. */
++  projectLabel?: (projectName: string) => string;
++  /** The global scope's hint; same contract as `globalLabel`. */
++  globalHint?: string;
++  /** The project scope's hint; same contract as `globalLabel`. */
++  projectHint?: string;
+ }
+ 
+ export function SettingsScopeSentence({
+   project,
+   className = '',
+   dir = 'auto',
++  globalLabel = 'All projects',
++  projectLabel = (projectName: string) => `Current project: ${projectName}`,
++  globalHint = 'This setting applies to all projects.',
++  projectHint = 'This setting applies to the selected project only.',
+ }: SettingsScopeSentenceProps) {
+   const isGlobal = !project;
+   const projectName = project?.name ?? '';
+ 
+-  // We use a local i18n call through the consumer; the component receives the
+-  // already-translated strings as children would, but here we keep it simple
+-  // and let the consumer pass the label and hint. However, the t3code pattern
+-  // shows a self-contained component, so we use a small trick: the consumer
+-  // can pass a `t` function via context, but for now we'll expect the label
+-  // and hint to be passed as props when i18n is not directly available.
+-  //
+-  // Actually, looking at other compounds like Lamp, they don't use i18n directly
+-  // either - the label comes from the consumer. So we'll follow that pattern
+-  // and make this a purely presentational component that receives the strings.
+-
+   return (
+     <span
+       dir={dir}
+@@ -61,13 +65,14 @@ export function SettingsScopeSentence({
+     >
+       {isGlobal ? (
+         <>
+-          <span style={{ fontSize: fontSize('sm') }}>🌐</span>
+-          <span data-testid="settings-scope-label">{'All projects'}</span>
++          {/* Decorative: the label already says "global", so the glyph must not be read twice. */}
++          <span aria-hidden="true" style={{ fontSize: fontSize('sm') }}>🌐</span>
++          <span data-testid="settings-scope-label">{globalLabel}</span>
+         </>
+       ) : (
+         <>
+-          <span style={{ fontSize: fontSize('sm') }}>📁</span>
+-          <span data-testid="settings-scope-label">{`Current project: ${projectName}`}</span>
++          <span aria-hidden="true" style={{ fontSize: fontSize('sm') }}>📁</span>
++          <span data-testid="settings-scope-label">{projectLabel(projectName)}</span>
+         </>
+       )}
+       <span
+@@ -78,7 +83,7 @@ export function SettingsScopeSentence({
+           fontSize: fontSize('xs'),
+         }}
+       >
+-        {isGlobal ? 'This setting applies to all projects.' : 'This setting applies to the selected project only.'}
++        {isGlobal ? globalHint : projectHint}
+       </span>
+     </span>
+   );
+-- 
+2.55.0.windows.5
+

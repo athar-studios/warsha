@@ -1,0 +1,1579 @@
+{
+  "schema": "warsha-run/v1",
+  "run_id": "2026-11-08-design-and-remediation",
+  "task": "Phase 1 intake + Phase 2 plan for the post-Qoder (08d61af..f7b8583) remediation and Design System v2: verify the owner brief against code, specify DS v2 (docs/designs/DESIGN_SYSTEM_V2.md), and split the remaining work into 7 file-isolated worker packets (W1-W7) with frozen machine-checkable gates; W3/W5 are pixel-neutral; no runtime code is written by the planner.",
+  "phase": "blocked",
+  "seq": 5,
+  "updated_at": "2026-11-08T00:58:36Z",
+  "roles": {
+    "planner": "agent:opus-5.5 (Claude Code, planner only)",
+    "implementer": "unassigned - dispatch blocked by expired subagent authentication (seq 5)",
+    "reviewer": "unassigned - not yet reached",
+    "verifier": "unassigned - G0 dispatch outcome pending at seq 5",
+    "owner": "human: Mohamed Ashry"
+  },
+  "scope": {
+    "allowed_files": [
+      "crates/warsha-remote/README.md",
+      "packages/crypto/README.md",
+      "apps/remote/README.md",
+      "crates/warsha-git/README.md",
+      "templates/README.md",
+      "crates/warsha-pipeline/README.md",
+      "apps/desktop/README.md",
+      "README.md",
+      "README.ar.md",
+      "docs/ARCHITECTURE.md",
+      "docs/ARCH_RULES.md",
+      "docs/DEPLOY.md",
+      "docs/DEVELOPERS.md",
+      "docs/VERIFY.md",
+      "docs/src/architecture.md",
+      "docs/src/SUMMARY.md",
+      "docs/src/design-system-v2.md",
+      "docs/src/skills-and-harnesses.md",
+      "docs/src/install.md",
+      "docs/src/deploy.md",
+      "docs/src/verify.md",
+      "docs/designs/SITEMAP.md",
+      "_agents/skills/warsha_elephant/SKILL.md",
+      "SECURITY.md",
+      "packages/ui/src/**",
+      "packages/ui/.storybook/**",
+      "packages/ui/README.md",
+      "scripts/check-wire-contract.mjs",
+      "packages/client/src/index.ts",
+      "packages/client/src/index.test.ts",
+      "apps/desktop/e2e/harness.ts",
+      "apps/desktop/src/**",
+      "apps/desktop/real-acceptance.cjs",
+      "apps/remote/src/**",
+      "packages/i18n/src/**",
+      "crates/warsha-pipeline/src/process_spawn.rs",
+      "crates/warsha-pipeline/src/agent_tools.rs",
+      "crates/warsha-pipeline/src/agent_loop.rs",
+      "apps/mobile/**"
+    ],
+    "out_of_scope": [
+      "PLAN.md",
+      "PROGRESS.md",
+      "DECISIONS.md",
+      "**/*-snapshots/**",
+      "Cargo.toml / package.json / lockfiles (no dependency change)",
+      ".github/**",
+      "files owned by another packet"
+    ]
+  },
+  "worktree": {
+    "path": "C:/Users/Dragonfly/Downloads/Warsha",
+    "branch": "run/2026-11-08/integration",
+    "base_commit": "0772d502002562505c6438ae712abca7a7328d84",
+    "mode": "git-worktree",
+    "audited_head": "f7b8583"
+  },
+  "plan": {
+    "spec": "docs/designs/DESIGN_SYSTEM_V2.md",
+    "plan_doc": "PLAN.md#run-2026-11-08",
+    "decisions": "DECISIONS.md 2026-11-08 D1-D10",
+    "dag": [
+      "G0 (Linux capture-host baseline)",
+      "Wave A parallel: W1 W3 W4 W6 W7",
+      "C1: owner merges accepted W3+W4 (+W1/W6/W7) into run/2026-11-08/integration --no-ff",
+      "Wave B parallel: W2 W5 (base = integration after C1)",
+      "C2: merge W2+W5; INT-2 sets APP_LENGTH_BUDGET=0",
+      "C3: GC.1-GC.12 on integration; owner acceptance; merge to dev"
+    ],
+    "steps": [
+      "G0",
+      "W1",
+      "W3",
+      "W4",
+      "W6",
+      "W7",
+      "C1",
+      "W2",
+      "W5",
+      "C2",
+      "INT-2",
+      "C3"
+    ],
+    "baselines": {
+      "vitest": {
+        "@warsha/ui": 151,
+        "@warsha/client": 112,
+        "@warsha/i18n": 52,
+        "warsha-desktop": 443,
+        "warsha-remote": 221
+      },
+      "cargo": {
+        "warsha-pipeline": 341,
+        "workspace": 725
+      },
+      "playwright_listed": {
+        "desktop": 793,
+        "a11y": 188,
+        "states": 252,
+        "visual": 308,
+        "flows": 30,
+        "layout": 12,
+        "onboarding": 3,
+        "remote": 91
+      }
+    },
+    "packets": [
+      {
+        "id": "W1",
+        "slug": "readme-truth",
+        "title": "README truth (docs only)",
+        "wave": "A",
+        "depends_on": [
+          "G0"
+        ],
+        "allowed_files": [
+          "crates/warsha-remote/README.md",
+          "packages/crypto/README.md",
+          "apps/remote/README.md",
+          "crates/warsha-git/README.md",
+          "templates/README.md",
+          "crates/warsha-pipeline/README.md",
+          "apps/desktop/README.md",
+          "README.md",
+          "README.ar.md"
+        ],
+        "branch": "run/2026-11-08/w1-readme-truth",
+        "worktree": {
+          "path": "C:/Users/Dragonfly/Downloads/warsha-wt/w1",
+          "base": "run/2026-11-08/integration",
+          "mode": "git-worktree"
+        },
+        "out_of_scope": [
+          "PLAN.md",
+          "PROGRESS.md",
+          "DECISIONS.md",
+          "**/*-snapshots/**",
+          "Cargo.toml / package.json / lockfiles (no dependency change)",
+          ".github/**",
+          "files owned by another packet"
+        ],
+        "prompt": "packets/W1/prompt.md",
+        "report": "packets/W1/report.md",
+        "status": "ready",
+        "acceptance_gates": [
+          {
+            "id": "G1.S",
+            "check": "git diff --name-only $BASE..HEAD | grep -vE '^(crates/warsha-(remote|git|pipeline)/README\\.md|packages/crypto/README\\.md|apps/(remote|desktop)/README\\.md|templates/README\\.md|README(\\.ar)?\\.md)$' | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.1",
+            "check": "grep -nE 'registers no service worker|لا يسجّل خدمة' README.md README.ar.md",
+            "expect": "expect exit 1 (no match)",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.2",
+            "check": "grep -nE '^(Planned:|المخطط له:)' README.md README.ar.md",
+            "expect": "expect exit 1 (no match)",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.3",
+            "check": "( for f in README.md README.ar.md; do for m in M10 M11 M12 M13 M14 M15 M16 M17 M18 M19 M20 'Wave 2'; do grep -qE \"^\\| $m \\|\" \"$f\" || { echo \"$f $m\"; exit 1; }; done; done )",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.4",
+            "check": "( for m in agent_loop agent_tools agent_workflow backend_kit build_cache evals guardrails handoff llm_cache observability orchestrator post_launch preferences process_spawn prompts provider_setup router_quality routines run_modes scale_standards scout skills work_protection mcp mcp_transport settings; do grep -q \"\\`$m\\`\" crates/warsha-pipeline/README.md || { echo \"$m\"; exit 1; }; done )",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.5",
+            "check": "grep -q process_handshake crates/warsha-remote/README.md && grep -qiE 'stub|not implemented' crates/warsha-remote/README.md",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.6",
+            "check": "( grep -q ProjectTemplate templates/README.md && for t in web cli desktop android; do grep -qw \"$t\" templates/README.md || exit 1; done )",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.7",
+            "check": "grep -q 'The pipeline asks this crate' crates/warsha-git/README.md",
+            "expect": "expect exit 1 (no match)",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.8",
+            "check": "grep -q flows.spec.ts apps/desktop/README.md && grep -q real-acceptance.cjs apps/desktop/README.md && grep -q 188 apps/desktop/README.md",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.9",
+            "check": "grep -q registerShellWorker apps/remote/README.md && grep -q RemoteProvider apps/remote/README.md",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.A",
+            "check": "node scripts/check-arch.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.P",
+            "check": "node scripts/check-engineering-policy.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.W",
+            "check": "node scripts/check-wire-contract.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          }
+        ]
+      },
+      {
+        "id": "W2",
+        "slug": "canonical-docs",
+        "title": "Canonical architecture, deployment, security and index docs (docs only)",
+        "wave": "B",
+        "depends_on": [
+          "C1"
+        ],
+        "allowed_files": [
+          "docs/ARCHITECTURE.md",
+          "docs/ARCH_RULES.md",
+          "docs/DEPLOY.md",
+          "docs/DEVELOPERS.md",
+          "docs/VERIFY.md",
+          "docs/src/architecture.md",
+          "docs/src/SUMMARY.md",
+          "docs/src/design-system-v2.md",
+          "docs/src/skills-and-harnesses.md",
+          "docs/src/install.md",
+          "docs/src/deploy.md",
+          "docs/src/verify.md",
+          "docs/designs/SITEMAP.md",
+          "_agents/skills/warsha_elephant/SKILL.md",
+          "SECURITY.md"
+        ],
+        "branch": "run/2026-11-08/w2-canonical-docs",
+        "worktree": {
+          "path": "C:/Users/Dragonfly/Downloads/warsha-wt/w2",
+          "base": "run/2026-11-08/integration",
+          "mode": "git-worktree"
+        },
+        "out_of_scope": [
+          "PLAN.md",
+          "PROGRESS.md",
+          "DECISIONS.md",
+          "**/*-snapshots/**",
+          "Cargo.toml / package.json / lockfiles (no dependency change)",
+          ".github/**",
+          "files owned by another packet"
+        ],
+        "prompt": "packets/W2/prompt.md",
+        "report": "packets/W2/report.md",
+        "status": "ready",
+        "acceptance_gates": [
+          {
+            "id": "G2.S",
+            "check": "git diff --name-only $BASE..HEAD | grep -vE '^(docs/(ARCHITECTURE|ARCH_RULES|DEPLOY|DEVELOPERS|VERIFY)\\.md|docs/src/(architecture|SUMMARY|design-system-v2|skills-and-harnesses|install|deploy|verify)\\.md|docs/designs/SITEMAP\\.md|_agents/skills/warsha_elephant/SKILL\\.md|SECURITY\\.md)$' | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G2.1",
+            "check": "mdbook build docs",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G2.2",
+            "check": "grep -nE 'Only `warsha-pipeline` and `warsha-providers`|~800 lines|does not yet mount|there is no offline service worker today|no `Dockerfile` or compose file exists|no `deny\\.toml` in the repository|There is no flag and no config key that binds another interface|octocrab|Noise XX|sixteen private modules|registers 60 methods|all 32 client call sites|open disagreement' docs/ARCHITECTURE.md docs/DEPLOY.md docs/src/architecture.md SECURITY.md docs/DEVELOPERS.md docs/ARCH_RULES.md docs/VERIFY.md",
+            "expect": "expect exit 1 (no match)",
+            "host": "worktree"
+          },
+          {
+            "id": "G2.3",
+            "check": "( for p in 'docs/ARCHITECTURE.md:apps/mobile' 'docs/ARCHITECTURE.md:docker/' 'docs/ARCHITECTURE.md:deploy/' 'docs/ARCHITECTURE.md:persistence.rs' 'docs/ARCHITECTURE.md:wave2' 'docs/DEPLOY.md:WARSHA_REMOTE_ASSETS_DIR' 'docs/src/architecture.md:bind_host' 'docs/src/architecture.md:advertised_host' 'docs/src/architecture.md:remote_assets_dir' 'docs/src/architecture.md:registerShellWorker' 'SECURITY.md:bind_host' 'SECURITY.md:advertised_host' 'SECURITY.md:deny.toml' 'docs/DEVELOPERS.md:apps/mobile' 'docs/DEVELOPERS.md:packages/crypto' 'docs/DEVELOPERS.md:reqwest' 'docs/ARCH_RULES.md:88' 'docs/VERIFY.md:294b8e259e88c804275154e8f3bd4ba4e957b15eb912cff3e7f2b9cbb4aabd99' 'docs/VERIFY.md:f3549485798919c9d81627d52e34c4a897483a3b4483fadfb0590ed45be0e7a9'; do f=${p%%:*}; t=${p#*:}; grep -qF -- \"$t\" \"$f\" || { echo \"missing $t in $f\"; exit 1; }; done )",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G2.4",
+            "check": "node -e \"const fs=require('fs');const n=(fs.readFileSync('packages/ui/src/tokens/tokenDrift.test.ts','utf8').match(/^\\s*it\\(/gm)||[]).length;const ok=fs.readFileSync('docs/ARCH_RULES.md','utf8').includes('tokenDrift.test.ts\\` ('+n+' tests)');console.log(n,ok);process.exit(ok?0:1)\"",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G2.5",
+            "check": "( n=$(node scripts/check-wire-contract.mjs | grep -oE '[0-9]+ checks' | head -1); echo \"$n\"; grep -qF \"$n\" docs/ARCH_RULES.md )",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G2.6",
+            "check": "( for t in DESIGN_SYSTEM_V2.md SKILLS_AND_HARNESSES.md UI.md INSTALL.md DEPLOY.md VERIFY.md; do grep -qF \"$t\" docs/designs/SITEMAP.md || { echo \"SITEMAP $t\"; exit 1; }; done; for t in design-system-v2.md skills-and-harnesses.md install.md deploy.md verify.md UI.md; do grep -qF \"$t\" docs/src/SUMMARY.md || { echo \"SUMMARY $t\"; exit 1; }; done; for t in DESIGN_SYSTEM_V2.md 188 252 308 apps/remote/e2e; do grep -qF \"$t\" _agents/skills/warsha_elephant/SKILL.md || { echo \"SKILL $t\"; exit 1; }; done )",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G2.A",
+            "check": "node scripts/check-arch.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G2.P",
+            "check": "node scripts/check-engineering-policy.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G2.W",
+            "check": "node scripts/check-wire-contract.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          }
+        ]
+      },
+      {
+        "id": "W3",
+        "slug": "ui-v2",
+        "title": "Design System v2 in packages/ui (tokens, R6 v2, compounds, README)",
+        "wave": "A",
+        "depends_on": [
+          "G0"
+        ],
+        "allowed_files": [
+          "packages/ui/src/**",
+          "packages/ui/.storybook/**",
+          "packages/ui/README.md"
+        ],
+        "branch": "run/2026-11-08/w3-ui-v2",
+        "worktree": {
+          "path": "C:/Users/Dragonfly/Downloads/warsha-wt/w3",
+          "base": "run/2026-11-08/integration",
+          "mode": "git-worktree"
+        },
+        "out_of_scope": [
+          "PLAN.md",
+          "PROGRESS.md",
+          "DECISIONS.md",
+          "**/*-snapshots/**",
+          "Cargo.toml / package.json / lockfiles (no dependency change)",
+          ".github/**",
+          "files owned by another packet"
+        ],
+        "prompt": "packets/W3/prompt.md",
+        "report": "packets/W3/report.md",
+        "status": "ready",
+        "acceptance_gates": [
+          {
+            "id": "G3.S",
+            "check": "git diff --name-only $BASE..HEAD | grep -vE '^packages/ui/(src/|\\.storybook/|README\\.md$)' | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G3.1",
+            "check": "pnpm --filter @warsha/ui typecheck",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G3.2",
+            "check": "pnpm --filter @warsha/ui lint",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G3.3",
+            "check": "pnpm --filter @warsha/ui test",
+            "expect": "expect exit 0 and \"Tests  N passed\" with N >= 170, 0 failed",
+            "host": "worktree"
+          },
+          {
+            "id": "G3.4",
+            "check": "pnpm --filter @warsha/ui build-storybook",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G3.5",
+            "check": "pnpm -r typecheck",
+            "expect": "expect exit 0 (apps still compile against the changed package)",
+            "host": "worktree"
+          },
+          {
+            "id": "G3.6",
+            "check": "pnpm --filter warsha-desktop test",
+            "expect": "expect exit 0 with >= 443 and >= 221 passed, 0 failed",
+            "host": "worktree"
+          },
+          {
+            "id": "G3.7",
+            "check": "pnpm --filter warsha-remote test",
+            "expect": "expect exit 0 with >= 443 and >= 221 passed, 0 failed",
+            "host": "worktree"
+          },
+          {
+            "id": "G3.8",
+            "check": "pnpm exec playwright test --project=desktop --reporter=line",
+            "expect": "expect 793 passed, 0 failed, equal to the G0 baseline",
+            "host": "linux-capture-host"
+          },
+          {
+            "id": "G3.9",
+            "check": "pnpm exec playwright test --project=remote --reporter=line",
+            "expect": "expect 91 passed, 0 failed",
+            "host": "linux-capture-host"
+          },
+          {
+            "id": "G3.10",
+            "check": "git status --porcelain -- '*-snapshots/*' | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G3.A",
+            "check": "node scripts/check-arch.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G3.P",
+            "check": "node scripts/check-engineering-policy.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G3.W",
+            "check": "node scripts/check-wire-contract.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          }
+        ]
+      },
+      {
+        "id": "W4",
+        "slug": "wire-client-harness",
+        "title": "Wire-contract cleanup, WarshaClient expansion, e2e harness completion",
+        "wave": "A",
+        "depends_on": [
+          "G0"
+        ],
+        "allowed_files": [
+          "scripts/check-wire-contract.mjs",
+          "packages/client/src/index.ts",
+          "packages/client/src/index.test.ts",
+          "apps/desktop/e2e/harness.ts"
+        ],
+        "branch": "run/2026-11-08/w4-wire-client-harness",
+        "worktree": {
+          "path": "C:/Users/Dragonfly/Downloads/warsha-wt/w4",
+          "base": "run/2026-11-08/integration",
+          "mode": "git-worktree"
+        },
+        "out_of_scope": [
+          "PLAN.md",
+          "PROGRESS.md",
+          "DECISIONS.md",
+          "**/*-snapshots/**",
+          "Cargo.toml / package.json / lockfiles (no dependency change)",
+          ".github/**",
+          "files owned by another packet"
+        ],
+        "prompt": "packets/W4/prompt.md",
+        "report": "packets/W4/report.md",
+        "status": "ready",
+        "acceptance_gates": [
+          {
+            "id": "G4.S",
+            "check": "git diff --name-only $BASE..HEAD | grep -vE '^(scripts/check-wire-contract\\.mjs|packages/client/src/index(\\.test)?\\.ts|apps/desktop/e2e/harness\\.ts)$' | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G4.1",
+            "check": "pnpm --filter @warsha/client test",
+            "expect": "expect exit 0 and >= 140 passed, 0 failed",
+            "host": "worktree"
+          },
+          {
+            "id": "G4.2",
+            "check": "pnpm --filter @warsha/client typecheck",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G4.3",
+            "check": "pnpm --filter @warsha/client lint",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G4.4",
+            "check": "node scripts/check-wire-contract.mjs --self-test",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G4.5",
+            "check": "node scripts/check-wire-contract.mjs",
+            "expect": "expect exit 0 and output containing \"wire: 9 checks, 0 violations\"",
+            "host": "worktree"
+          },
+          {
+            "id": "G4.6",
+            "check": "pnpm --dir apps/desktop exec tsc --noEmit -p tsconfig.e2e.json",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G4.7",
+            "check": "node -e \"const h=require('fs').readFileSync('apps/desktop/e2e/harness.ts','utf8');const m=h.match(/RPC_METHODS\\s*=\\s*\\[([\\s\\S]*?)\\]\\s*as const/);const n=(m[1].match(/'[^']+'/g)||[]).length;console.log(n);process.exit(n===75?0:1)\"",
+            "expect": "expect exit 0 (prints 75)",
+            "host": "worktree"
+          },
+          {
+            "id": "G4.8",
+            "check": "grep -nE 'REQUIRE_NO_KNOWN_DRIFT is false|FALSE again|RE-OPENED for Wave 2|deferred in .KNOWN_UNREGISTERED_METHODS' scripts/check-wire-contract.mjs packages/client/src/index.ts",
+            "expect": "expect exit 1 (no match)",
+            "host": "worktree"
+          },
+          {
+            "id": "G4.9",
+            "check": "pnpm exec playwright test --project=desktop --reporter=line",
+            "expect": "expect 793 passed, 0 failed, equal to G0",
+            "host": "linux-capture-host"
+          },
+          {
+            "id": "G4.10",
+            "check": "git status --porcelain -- '*-snapshots/*' | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G4.A",
+            "check": "node scripts/check-arch.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G4.P",
+            "check": "node scripts/check-engineering-policy.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          }
+        ]
+      },
+      {
+        "id": "W5",
+        "slug": "apps-adoption",
+        "title": "Apps adopt Design System v2 + live Routines/BackendKit wiring",
+        "wave": "B",
+        "depends_on": [
+          "C1"
+        ],
+        "allowed_files": [
+          "apps/desktop/src/**",
+          "apps/desktop/real-acceptance.cjs",
+          "apps/remote/src/**",
+          "packages/i18n/src/**"
+        ],
+        "branch": "run/2026-11-08/w5-apps-adoption",
+        "worktree": {
+          "path": "C:/Users/Dragonfly/Downloads/warsha-wt/w5",
+          "base": "run/2026-11-08/integration",
+          "mode": "git-worktree"
+        },
+        "out_of_scope": [
+          "PLAN.md",
+          "PROGRESS.md",
+          "DECISIONS.md",
+          "**/*-snapshots/**",
+          "Cargo.toml / package.json / lockfiles (no dependency change)",
+          ".github/**",
+          "files owned by another packet"
+        ],
+        "prompt": "packets/W5/prompt.md",
+        "report": "packets/W5/report.md",
+        "status": "ready",
+        "acceptance_gates": [
+          {
+            "id": "G5.S",
+            "check": "git diff --name-only $BASE..HEAD | grep -vE '^(apps/desktop/src/|apps/desktop/real-acceptance\\.cjs$|apps/remote/src/|packages/i18n/src/)' | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.1",
+            "check": "pnpm --filter warsha-desktop test",
+            "expect": "expect exit 0 and >= 451 passed, 0 failed",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.2",
+            "check": "pnpm --filter warsha-remote test",
+            "expect": "expect exit 0 with >= 221 and >= 52 passed, 0 failed",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.3",
+            "check": "pnpm --filter @warsha/i18n test",
+            "expect": "expect exit 0 with >= 221 and >= 52 passed, 0 failed",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.4",
+            "check": "pnpm -r typecheck",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.5",
+            "check": "pnpm -r lint",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.6",
+            "check": "pnpm -r build",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.7",
+            "check": "WARSHA_R6_APP_LENGTH_BUDGET=0 pnpm --filter @warsha/ui test",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.8",
+            "check": "grep -n 'TODO(M20 wiring)' apps/desktop/src/App.tsx",
+            "expect": "expect exit 1 (no match)",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.9",
+            "check": "grep -q \"daemon_ws_url: 'ws://127.0.0.1:8765'\" apps/desktop/real-acceptance.cjs",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.10",
+            "check": "pnpm exec playwright test --project=desktop --reporter=line",
+            "expect": "expect 793 passed, 0 failed, equal to G0",
+            "host": "linux-capture-host"
+          },
+          {
+            "id": "G5.11",
+            "check": "pnpm exec playwright test --project=remote --reporter=line",
+            "expect": "expect 91 passed, 0 failed",
+            "host": "linux-capture-host"
+          },
+          {
+            "id": "G5.12",
+            "check": "git status --porcelain -- '*-snapshots/*' | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.A",
+            "check": "node scripts/check-arch.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.P",
+            "check": "node scripts/check-engineering-policy.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.W",
+            "check": "node scripts/check-wire-contract.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          }
+        ]
+      },
+      {
+        "id": "W6",
+        "slug": "pipeline-hardening",
+        "title": "Rust pipeline hardening (process_spawn, agent_tools, agent_loop)",
+        "wave": "A",
+        "depends_on": [
+          "G0"
+        ],
+        "allowed_files": [
+          "crates/warsha-pipeline/src/process_spawn.rs",
+          "crates/warsha-pipeline/src/agent_tools.rs",
+          "crates/warsha-pipeline/src/agent_loop.rs"
+        ],
+        "branch": "run/2026-11-08/w6-pipeline-hardening",
+        "worktree": {
+          "path": "C:/Users/Dragonfly/Downloads/warsha-wt/w6",
+          "base": "run/2026-11-08/integration",
+          "mode": "git-worktree",
+          "cargo_target_dir": "C:/Users/Dragonfly/Downloads/warsha-wt/target-w6"
+        },
+        "out_of_scope": [
+          "PLAN.md",
+          "PROGRESS.md",
+          "DECISIONS.md",
+          "**/*-snapshots/**",
+          "Cargo.toml / package.json / lockfiles (no dependency change)",
+          ".github/**",
+          "files owned by another packet"
+        ],
+        "prompt": "packets/W6/prompt.md",
+        "report": "packets/W6/report.md",
+        "status": "ready",
+        "acceptance_gates": [
+          {
+            "id": "G6.S",
+            "check": "git diff --name-only $BASE..HEAD | grep -vE '^crates/warsha-pipeline/src/(process_spawn|agent_tools|agent_loop)\\.rs$' | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G6.1",
+            "check": "cargo fmt --all --check",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G6.2",
+            "check": "cargo clippy --workspace --all-targets -- -D warnings",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G6.3",
+            "check": "cargo test -p warsha-pipeline --all-targets",
+            "expect": "expect exit 0 and >= 350 passed, 0 failed (sum of \"test result: ok. N passed\" lines)",
+            "host": "worktree"
+          },
+          {
+            "id": "G6.4",
+            "check": "cargo test --workspace --all-targets",
+            "expect": "expect exit 0 and >= 734 passed, 0 failed",
+            "host": "worktree"
+          },
+          {
+            "id": "G6.5",
+            "check": "grep -q 'pub fn with_read_before_write' crates/warsha-pipeline/src/agent_tools.rs && grep -q 'OutputCompressor::compress' crates/warsha-pipeline/src/agent_loop.rs",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G6.A",
+            "check": "node scripts/check-arch.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G6.P",
+            "check": "node scripts/check-engineering-policy.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G6.W",
+            "check": "node scripts/check-wire-contract.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          }
+        ]
+      },
+      {
+        "id": "W7",
+        "slug": "android-apk",
+        "title": "Android web-asset sync and signed APK",
+        "wave": "A",
+        "depends_on": [
+          "G0"
+        ],
+        "allowed_files": [
+          "apps/mobile/**"
+        ],
+        "branch": "run/2026-11-08/w7-android-apk",
+        "worktree": {
+          "path": "C:/Users/Dragonfly/Downloads/warsha-wt/w7",
+          "base": "run/2026-11-08/integration",
+          "mode": "git-worktree"
+        },
+        "out_of_scope": [
+          "PLAN.md",
+          "PROGRESS.md",
+          "DECISIONS.md",
+          "**/*-snapshots/**",
+          "Cargo.toml / package.json / lockfiles (no dependency change)",
+          ".github/**",
+          "files owned by another packet"
+        ],
+        "prompt": "packets/W7/prompt.md",
+        "report": "packets/W7/report.md",
+        "status": "ready",
+        "acceptance_gates": [
+          {
+            "id": "G7.S",
+            "check": "git diff --name-only $BASE..HEAD | grep -vE '^apps/mobile/' | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G7.1",
+            "check": "pnpm --filter warsha-remote build && test -f apps/remote/dist/sw.js && test -f apps/remote/dist/index.html",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G7.2",
+            "check": "( cd apps/mobile/android && ./gradlew assembleRelease --no-daemon )",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G7.3",
+            "check": "\"$(ls -d \"$ANDROID_HOME\"/build-tools/* | sort -V | tail -1)\"/apksigner verify --print-certs \"$APK\"",
+            "expect": "expect exit 0 (use the newest build-tools apksigner)",
+            "host": "worktree"
+          },
+          {
+            "id": "G7.4",
+            "check": "unzip -l \"$APK\" | grep -cE 'assets/public/(index\\.html|sw\\.js)$'",
+            "expect": "expect output: 2",
+            "host": "worktree"
+          },
+          {
+            "id": "G7.5",
+            "check": "grep -qF \"$(sha256sum \"$APK\" | cut -d' ' -f1)\" apps/mobile/README.md",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G7.6",
+            "check": "grep -rniE 'storePassword|keyPassword|WARSHA_KEYSTORE_PASSWORD=|WARSHA_KEY_PASSWORD=' C:/Users/Dragonfly/Downloads/Warsha/bridge-io/policy/2026-11-08-design-and-remediation/packets/W7",
+            "expect": "expect exit 1 (no match)",
+            "host": "worktree"
+          },
+          {
+            "id": "G7.7",
+            "check": "git ls-files apps/mobile/android/app/src/main/assets | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G7.A",
+            "check": "node scripts/check-arch.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G7.P",
+            "check": "node scripts/check-engineering-policy.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          }
+        ]
+      }
+    ],
+    "acceptance_gates": [
+      {
+        "id": "G0",
+        "check": "pnpm exec playwright test --project=desktop --reporter=line ; pnpm exec playwright test --project=remote --reporter=line",
+        "expect": "record passed/failed per spec at the planner commit (listed: desktop 793 = a11y 188 + states 252 + visual 308 + flows 30 + layout 12 + onboarding 3; remote 91); this record is the pixel baseline every later Playwright gate must equal",
+        "host": "linux-capture-host"
+      },
+      {
+        "id": "G1.S",
+        "check": "git diff --name-only $BASE..HEAD | grep -vE '^(crates/warsha-(remote|git|pipeline)/README\\.md|packages/crypto/README\\.md|apps/(remote|desktop)/README\\.md|templates/README\\.md|README(\\.ar)?\\.md)$' | wc -l",
+        "expect": "expect output: 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.1",
+        "check": "grep -nE 'registers no service worker|لا يسجّل خدمة' README.md README.ar.md",
+        "expect": "expect exit 1 (no match)",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.2",
+        "check": "grep -nE '^(Planned:|المخطط له:)' README.md README.ar.md",
+        "expect": "expect exit 1 (no match)",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.3",
+        "check": "( for f in README.md README.ar.md; do for m in M10 M11 M12 M13 M14 M15 M16 M17 M18 M19 M20 'Wave 2'; do grep -qE \"^\\| $m \\|\" \"$f\" || { echo \"$f $m\"; exit 1; }; done; done )",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.4",
+        "check": "( for m in agent_loop agent_tools agent_workflow backend_kit build_cache evals guardrails handoff llm_cache observability orchestrator post_launch preferences process_spawn prompts provider_setup router_quality routines run_modes scale_standards scout skills work_protection mcp mcp_transport settings; do grep -q \"\\`$m\\`\" crates/warsha-pipeline/README.md || { echo \"$m\"; exit 1; }; done )",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.5",
+        "check": "grep -q process_handshake crates/warsha-remote/README.md && grep -qiE 'stub|not implemented' crates/warsha-remote/README.md",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.6",
+        "check": "( grep -q ProjectTemplate templates/README.md && for t in web cli desktop android; do grep -qw \"$t\" templates/README.md || exit 1; done )",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.7",
+        "check": "grep -q 'The pipeline asks this crate' crates/warsha-git/README.md",
+        "expect": "expect exit 1 (no match)",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.8",
+        "check": "grep -q flows.spec.ts apps/desktop/README.md && grep -q real-acceptance.cjs apps/desktop/README.md && grep -q 188 apps/desktop/README.md",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.9",
+        "check": "grep -q registerShellWorker apps/remote/README.md && grep -q RemoteProvider apps/remote/README.md",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.A",
+        "check": "node scripts/check-arch.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.P",
+        "check": "node scripts/check-engineering-policy.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.W",
+        "check": "node scripts/check-wire-contract.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G2.S",
+        "check": "git diff --name-only $BASE..HEAD | grep -vE '^(docs/(ARCHITECTURE|ARCH_RULES|DEPLOY|DEVELOPERS|VERIFY)\\.md|docs/src/(architecture|SUMMARY|design-system-v2|skills-and-harnesses|install|deploy|verify)\\.md|docs/designs/SITEMAP\\.md|_agents/skills/warsha_elephant/SKILL\\.md|SECURITY\\.md)$' | wc -l",
+        "expect": "expect output: 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G2.1",
+        "check": "mdbook build docs",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G2.2",
+        "check": "grep -nE 'Only `warsha-pipeline` and `warsha-providers`|~800 lines|does not yet mount|there is no offline service worker today|no `Dockerfile` or compose file exists|no `deny\\.toml` in the repository|There is no flag and no config key that binds another interface|octocrab|Noise XX|sixteen private modules|registers 60 methods|all 32 client call sites|open disagreement' docs/ARCHITECTURE.md docs/DEPLOY.md docs/src/architecture.md SECURITY.md docs/DEVELOPERS.md docs/ARCH_RULES.md docs/VERIFY.md",
+        "expect": "expect exit 1 (no match)",
+        "host": "worktree"
+      },
+      {
+        "id": "G2.3",
+        "check": "( for p in 'docs/ARCHITECTURE.md:apps/mobile' 'docs/ARCHITECTURE.md:docker/' 'docs/ARCHITECTURE.md:deploy/' 'docs/ARCHITECTURE.md:persistence.rs' 'docs/ARCHITECTURE.md:wave2' 'docs/DEPLOY.md:WARSHA_REMOTE_ASSETS_DIR' 'docs/src/architecture.md:bind_host' 'docs/src/architecture.md:advertised_host' 'docs/src/architecture.md:remote_assets_dir' 'docs/src/architecture.md:registerShellWorker' 'SECURITY.md:bind_host' 'SECURITY.md:advertised_host' 'SECURITY.md:deny.toml' 'docs/DEVELOPERS.md:apps/mobile' 'docs/DEVELOPERS.md:packages/crypto' 'docs/DEVELOPERS.md:reqwest' 'docs/ARCH_RULES.md:88' 'docs/VERIFY.md:294b8e259e88c804275154e8f3bd4ba4e957b15eb912cff3e7f2b9cbb4aabd99' 'docs/VERIFY.md:f3549485798919c9d81627d52e34c4a897483a3b4483fadfb0590ed45be0e7a9'; do f=${p%%:*}; t=${p#*:}; grep -qF -- \"$t\" \"$f\" || { echo \"missing $t in $f\"; exit 1; }; done )",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G2.4",
+        "check": "node -e \"const fs=require('fs');const n=(fs.readFileSync('packages/ui/src/tokens/tokenDrift.test.ts','utf8').match(/^\\s*it\\(/gm)||[]).length;const ok=fs.readFileSync('docs/ARCH_RULES.md','utf8').includes('tokenDrift.test.ts\\` ('+n+' tests)');console.log(n,ok);process.exit(ok?0:1)\"",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G2.5",
+        "check": "( n=$(node scripts/check-wire-contract.mjs | grep -oE '[0-9]+ checks' | head -1); echo \"$n\"; grep -qF \"$n\" docs/ARCH_RULES.md )",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G2.6",
+        "check": "( for t in DESIGN_SYSTEM_V2.md SKILLS_AND_HARNESSES.md UI.md INSTALL.md DEPLOY.md VERIFY.md; do grep -qF \"$t\" docs/designs/SITEMAP.md || { echo \"SITEMAP $t\"; exit 1; }; done; for t in design-system-v2.md skills-and-harnesses.md install.md deploy.md verify.md UI.md; do grep -qF \"$t\" docs/src/SUMMARY.md || { echo \"SUMMARY $t\"; exit 1; }; done; for t in DESIGN_SYSTEM_V2.md 188 252 308 apps/remote/e2e; do grep -qF \"$t\" _agents/skills/warsha_elephant/SKILL.md || { echo \"SKILL $t\"; exit 1; }; done )",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G2.A",
+        "check": "node scripts/check-arch.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G2.P",
+        "check": "node scripts/check-engineering-policy.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G2.W",
+        "check": "node scripts/check-wire-contract.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.S",
+        "check": "git diff --name-only $BASE..HEAD | grep -vE '^packages/ui/(src/|\\.storybook/|README\\.md$)' | wc -l",
+        "expect": "expect output: 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.1",
+        "check": "pnpm --filter @warsha/ui typecheck",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.2",
+        "check": "pnpm --filter @warsha/ui lint",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.3",
+        "check": "pnpm --filter @warsha/ui test",
+        "expect": "expect exit 0 and \"Tests  N passed\" with N >= 170, 0 failed",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.4",
+        "check": "pnpm --filter @warsha/ui build-storybook",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.5",
+        "check": "pnpm -r typecheck",
+        "expect": "expect exit 0 (apps still compile against the changed package)",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.6",
+        "check": "pnpm --filter warsha-desktop test",
+        "expect": "expect exit 0 with >= 443 and >= 221 passed, 0 failed",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.7",
+        "check": "pnpm --filter warsha-remote test",
+        "expect": "expect exit 0 with >= 443 and >= 221 passed, 0 failed",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.8",
+        "check": "pnpm exec playwright test --project=desktop --reporter=line",
+        "expect": "expect 793 passed, 0 failed, equal to the G0 baseline",
+        "host": "linux-capture-host"
+      },
+      {
+        "id": "G3.9",
+        "check": "pnpm exec playwright test --project=remote --reporter=line",
+        "expect": "expect 91 passed, 0 failed",
+        "host": "linux-capture-host"
+      },
+      {
+        "id": "G3.10",
+        "check": "git status --porcelain -- '*-snapshots/*' | wc -l",
+        "expect": "expect output: 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.A",
+        "check": "node scripts/check-arch.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.P",
+        "check": "node scripts/check-engineering-policy.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.W",
+        "check": "node scripts/check-wire-contract.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.S",
+        "check": "git diff --name-only $BASE..HEAD | grep -vE '^(scripts/check-wire-contract\\.mjs|packages/client/src/index(\\.test)?\\.ts|apps/desktop/e2e/harness\\.ts)$' | wc -l",
+        "expect": "expect output: 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.1",
+        "check": "pnpm --filter @warsha/client test",
+        "expect": "expect exit 0 and >= 140 passed, 0 failed",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.2",
+        "check": "pnpm --filter @warsha/client typecheck",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.3",
+        "check": "pnpm --filter @warsha/client lint",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.4",
+        "check": "node scripts/check-wire-contract.mjs --self-test",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.5",
+        "check": "node scripts/check-wire-contract.mjs",
+        "expect": "expect exit 0 and output containing \"wire: 9 checks, 0 violations\"",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.6",
+        "check": "pnpm --dir apps/desktop exec tsc --noEmit -p tsconfig.e2e.json",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.7",
+        "check": "node -e \"const h=require('fs').readFileSync('apps/desktop/e2e/harness.ts','utf8');const m=h.match(/RPC_METHODS\\s*=\\s*\\[([\\s\\S]*?)\\]\\s*as const/);const n=(m[1].match(/'[^']+'/g)||[]).length;console.log(n);process.exit(n===75?0:1)\"",
+        "expect": "expect exit 0 (prints 75)",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.8",
+        "check": "grep -nE 'REQUIRE_NO_KNOWN_DRIFT is false|FALSE again|RE-OPENED for Wave 2|deferred in .KNOWN_UNREGISTERED_METHODS' scripts/check-wire-contract.mjs packages/client/src/index.ts",
+        "expect": "expect exit 1 (no match)",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.9",
+        "check": "pnpm exec playwright test --project=desktop --reporter=line",
+        "expect": "expect 793 passed, 0 failed, equal to G0",
+        "host": "linux-capture-host"
+      },
+      {
+        "id": "G4.10",
+        "check": "git status --porcelain -- '*-snapshots/*' | wc -l",
+        "expect": "expect output: 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.A",
+        "check": "node scripts/check-arch.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.P",
+        "check": "node scripts/check-engineering-policy.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.S",
+        "check": "git diff --name-only $BASE..HEAD | grep -vE '^(apps/desktop/src/|apps/desktop/real-acceptance\\.cjs$|apps/remote/src/|packages/i18n/src/)' | wc -l",
+        "expect": "expect output: 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.1",
+        "check": "pnpm --filter warsha-desktop test",
+        "expect": "expect exit 0 and >= 451 passed, 0 failed",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.2",
+        "check": "pnpm --filter warsha-remote test",
+        "expect": "expect exit 0 with >= 221 and >= 52 passed, 0 failed",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.3",
+        "check": "pnpm --filter @warsha/i18n test",
+        "expect": "expect exit 0 with >= 221 and >= 52 passed, 0 failed",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.4",
+        "check": "pnpm -r typecheck",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.5",
+        "check": "pnpm -r lint",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.6",
+        "check": "pnpm -r build",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.7",
+        "check": "WARSHA_R6_APP_LENGTH_BUDGET=0 pnpm --filter @warsha/ui test",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.8",
+        "check": "grep -n 'TODO(M20 wiring)' apps/desktop/src/App.tsx",
+        "expect": "expect exit 1 (no match)",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.9",
+        "check": "grep -q \"daemon_ws_url: 'ws://127.0.0.1:8765'\" apps/desktop/real-acceptance.cjs",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.10",
+        "check": "pnpm exec playwright test --project=desktop --reporter=line",
+        "expect": "expect 793 passed, 0 failed, equal to G0",
+        "host": "linux-capture-host"
+      },
+      {
+        "id": "G5.11",
+        "check": "pnpm exec playwright test --project=remote --reporter=line",
+        "expect": "expect 91 passed, 0 failed",
+        "host": "linux-capture-host"
+      },
+      {
+        "id": "G5.12",
+        "check": "git status --porcelain -- '*-snapshots/*' | wc -l",
+        "expect": "expect output: 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.A",
+        "check": "node scripts/check-arch.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.P",
+        "check": "node scripts/check-engineering-policy.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.W",
+        "check": "node scripts/check-wire-contract.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G6.S",
+        "check": "git diff --name-only $BASE..HEAD | grep -vE '^crates/warsha-pipeline/src/(process_spawn|agent_tools|agent_loop)\\.rs$' | wc -l",
+        "expect": "expect output: 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G6.1",
+        "check": "cargo fmt --all --check",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G6.2",
+        "check": "cargo clippy --workspace --all-targets -- -D warnings",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G6.3",
+        "check": "cargo test -p warsha-pipeline --all-targets",
+        "expect": "expect exit 0 and >= 350 passed, 0 failed (sum of \"test result: ok. N passed\" lines)",
+        "host": "worktree"
+      },
+      {
+        "id": "G6.4",
+        "check": "cargo test --workspace --all-targets",
+        "expect": "expect exit 0 and >= 734 passed, 0 failed",
+        "host": "worktree"
+      },
+      {
+        "id": "G6.5",
+        "check": "grep -q 'pub fn with_read_before_write' crates/warsha-pipeline/src/agent_tools.rs && grep -q 'OutputCompressor::compress' crates/warsha-pipeline/src/agent_loop.rs",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G6.A",
+        "check": "node scripts/check-arch.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G6.P",
+        "check": "node scripts/check-engineering-policy.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G6.W",
+        "check": "node scripts/check-wire-contract.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G7.S",
+        "check": "git diff --name-only $BASE..HEAD | grep -vE '^apps/mobile/' | wc -l",
+        "expect": "expect output: 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G7.1",
+        "check": "pnpm --filter warsha-remote build && test -f apps/remote/dist/sw.js && test -f apps/remote/dist/index.html",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G7.2",
+        "check": "( cd apps/mobile/android && ./gradlew assembleRelease --no-daemon )",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G7.3",
+        "check": "\"$(ls -d \"$ANDROID_HOME\"/build-tools/* | sort -V | tail -1)\"/apksigner verify --print-certs \"$APK\"",
+        "expect": "expect exit 0 (use the newest build-tools apksigner)",
+        "host": "worktree"
+      },
+      {
+        "id": "G7.4",
+        "check": "unzip -l \"$APK\" | grep -cE 'assets/public/(index\\.html|sw\\.js)$'",
+        "expect": "expect output: 2",
+        "host": "worktree"
+      },
+      {
+        "id": "G7.5",
+        "check": "grep -qF \"$(sha256sum \"$APK\" | cut -d' ' -f1)\" apps/mobile/README.md",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G7.6",
+        "check": "grep -rniE 'storePassword|keyPassword|WARSHA_KEYSTORE_PASSWORD=|WARSHA_KEY_PASSWORD=' C:/Users/Dragonfly/Downloads/Warsha/bridge-io/policy/2026-11-08-design-and-remediation/packets/W7",
+        "expect": "expect exit 1 (no match)",
+        "host": "worktree"
+      },
+      {
+        "id": "G7.7",
+        "check": "git ls-files apps/mobile/android/app/src/main/assets | wc -l",
+        "expect": "expect output: 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G7.A",
+        "check": "node scripts/check-arch.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G7.P",
+        "check": "node scripts/check-engineering-policy.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "INT-2",
+        "check": "set `const APP_LENGTH_BUDGET = 0;` in packages/ui/src/tokens/tokenDrift.test.ts on run/2026-11-08/integration after W5 merges, then: pnpm --filter @warsha/ui test",
+        "expect": "exit 0 (planner-specified one-line tightening, reviewed like any diff)",
+        "host": "integration"
+      },
+      {
+        "id": "GC.1",
+        "check": "cargo fmt --all --check",
+        "expect": "exit 0",
+        "host": "integration"
+      },
+      {
+        "id": "GC.2",
+        "check": "cargo clippy --workspace --all-targets -- -D warnings",
+        "expect": "exit 0",
+        "host": "integration"
+      },
+      {
+        "id": "GC.3",
+        "check": "cargo test --workspace --all-targets",
+        "expect": "exit 0, >= 734 passed, 0 failed",
+        "host": "integration"
+      },
+      {
+        "id": "GC.4",
+        "check": "pnpm -r typecheck && pnpm -r lint && pnpm -r test && pnpm -r build",
+        "expect": "exit 0; vitest >= ui 170, client 140, i18n 52, desktop 451, remote 221",
+        "host": "integration"
+      },
+      {
+        "id": "GC.5",
+        "check": "pnpm --dir apps/desktop exec tsc --noEmit -p tsconfig.e2e.json",
+        "expect": "exit 0",
+        "host": "integration"
+      },
+      {
+        "id": "GC.6",
+        "check": "node scripts/check-arch.mjs --self-test && node scripts/check-arch.mjs",
+        "expect": "exit 0",
+        "host": "integration"
+      },
+      {
+        "id": "GC.7",
+        "check": "node scripts/check-engineering-policy.mjs --self-test && node scripts/check-engineering-policy.mjs",
+        "expect": "exit 0",
+        "host": "integration"
+      },
+      {
+        "id": "GC.8",
+        "check": "node scripts/check-wire-contract.mjs --self-test && node scripts/check-wire-contract.mjs",
+        "expect": "exit 0, \"wire: 9 checks, 0 violations\"",
+        "host": "integration"
+      },
+      {
+        "id": "GC.9",
+        "check": "mdbook build docs",
+        "expect": "exit 0",
+        "host": "integration"
+      },
+      {
+        "id": "GC.10",
+        "check": "pnpm exec playwright test --project=desktop --reporter=line ; pnpm exec playwright test --project=remote --reporter=line",
+        "expect": "desktop 793 + remote 91 passed, equal to G0, no snapshot file changed",
+        "host": "linux-capture-host"
+      },
+      {
+        "id": "GC.11",
+        "check": "gitleaks detect --source . --config .gitleaks.toml",
+        "expect": "exit 0, no leaks",
+        "host": "integration"
+      },
+      {
+        "id": "GC.12",
+        "check": "rerun W7 gates G7.1-G7.6 on the integration tree",
+        "expect": "all as specified in packets/W7/prompt.md",
+        "host": "integration"
+      }
+    ]
+  },
+  "repair": {
+    "iteration": 0,
+    "max_repair_iterations": 3,
+    "open_findings": []
+  },
+  "blocker": {
+    "kind": "out-of-scope",
+    "reason": "Subagent execution is unavailable: every dispatched specialist failed immediately with \"Your authentication has expired. Please sign in again.\" Five implementation agents (W1, W3, W4, W6, W7) each terminated in ~0.66s with 0 subagent tokens and 0 tool uses. The earlier team Researcher delegation returned a bare failure with no evidence and is now explained by the same cause. The orchestrator session itself still executes local tools, but it cannot spawn workers. ENGINEERING_POLICY §2 and the run handover forbid the orchestrator from implementing packets itself, and a silent implementer+reviewer+verifier role merge is a §5 policy failure, so no implementation was attempted in their place. Verified clean failure: no worktree was created (C:/Users/Dragonfly/Downloads/warsha-wt still absent), no run/2026-11-08/wN-* branch exists, no packets/WN/report.md exists, gates/ does not exist, and acceptance.json still has all 99 gates not-run. The separate G0 capture-host agent had not reported at the time of this checkpoint.",
+    "needs": "The owner must re-authenticate the Qoder session so specialist agents can run. This is an external condition the orchestrator cannot resolve and must not retry automatically after an expiration. Once auth is restored the run resumes from this checkpoint: dispatch Wave A (W1/W3/W4/W6/W7) to separate implementers, then independent review, then separate verification. The capture-host prerequisite blocker recorded at seq 4 still applies to G0 and to the 5 linux-capture-host gates.",
+    "at": "2026-11-08T00:58:36Z",
+    "supersedes_reason_detail": "seq 4 capture-host findings remain valid and are retained in orchestration_findings; this seq 5 blocker is the nearer-term cause preventing all dispatch."
+  },
+  "evidence": {
+    "dir": "bridge-io/policy/2026-11-08-design-and-remediation",
+    "gates": [],
+    "logs": [],
+    "handover": "HANDOVER.md"
+  },
+  "owner_approvals": [
+    {
+      "at": "2026-11-08T00:49:20Z",
+      "seq": 3,
+      "by": "human: Mohamed Ashry (owner)",
+      "asked": "How should checkpoint merges into run/2026-11-08/integration be authorized at C1/C2/C3?",
+      "verbatim_answer": "all approved by me",
+      "acting_interpretation": "Owner grants approval for the run checkpoint merges C1 and C2 into run/2026-11-08/integration (local, --no-ff, reversible). The wording does not unambiguously cover the final integration->dev merge, so that single step will be confirmed with the owner at C3 before it is executed. No push, no publish, no release, no force-push under any reading.",
+      "scope": [
+        "C1",
+        "C2"
+      ],
+      "explicitly_not_yet_authorized": [
+        "integration->dev merge at C3",
+        "any push",
+        "any release or publish"
+      ]
+    },
+    {
+      "at": "2026-11-08T00:49:20Z",
+      "seq": 3,
+      "by": "human: Mohamed Ashry (owner)",
+      "asked": "W7 may use only owner-scoped signing material (~/.warsha/signing/ or WARSHA_KEY*); if absent, what do you want?",
+      "verbatim_answer": "I will supply signing material",
+      "acting_interpretation": "Owner will supply the owner-scoped signing material for W7. W7 is dispatched, but if the material is still absent at build/verify time W7 is recorded blocked (out-of-scope) per D7 and is never faked. No secret value may enter state, checkpoints, logs, diffs or reports.",
+      "scope": [
+        "W7"
+      ]
+    }
+  ],
+  "orchestration_findings": [
+    {
+      "at": "2026-11-08T00:55:03Z",
+      "topic": "delegation failure",
+      "fact": "The prerequisite research subtask assigned to the Researcher returned only \"The delegated Agent could not complete this task.\" - no findings, no evidence, no reason. It was not re-issued. The orchestrator gathered the blocking facts directly with read-only commands instead. No packet implementation, review or gate verification was performed by the orchestrator."
+    },
+    {
+      "at": "2026-11-08T00:55:03Z",
+      "topic": "a11y 180-vs-188 SETTLED",
+      "fact": "pnpm exec playwright test --project=desktop --list at 0772d50 reports Total: 793 tests in 6 files; per-spec: screens.a11y 188, states 252, screens.visual 308, flows 30, layout 12, onboarding 3. --project=remote reports Total: 91 tests in 2 files (bench.visual 84, flows 7). This matches PLAN.md exactly; the 180 figure in the owner brief is not what the tree lists. Evidence: orchestration/list-desktop-0772d50.txt and orchestration/list-remote-0772d50.txt. NOTE: this is a LISTING, not gate G0 - G0 remains not-run and acceptance.json was not altered."
+    },
+    {
+      "at": "2026-11-08T00:55:03Z",
+      "topic": "W7 signing material PRESENT",
+      "fact": "C:/Users/Dragonfly/.warsha/signing/ exists and contains keystore.properties and warsha-release.jks (entry names only; no value, password or keystore content was read, printed or copied). No WARSHA_KEY* environment variable is set. W7 is therefore not blocked on missing material."
+    },
+    {
+      "at": "2026-11-08T00:55:03Z",
+      "topic": "capture-host assets present",
+      "fact": "On WSL Ubuntu as root: node v20.20.2 resolves, IBM Plex faces are installed (9 fc-list matches), Playwright browsers chromium-1148 / chromium_headless_shell-1148 / ffmpeg-1010 are cached, and scripts/ci/install-capture-fonts.sh + scripts/ci/capture-fontconfig.conf exist in the capture clone. The gap is the commit, the isolation and Linux pnpm - not the fonts or the browser."
+    },
+    {
+      "at": "2026-11-08T00:55:03Z",
+      "topic": "gate host inventory",
+      "fact": "85 packet gates + 14 top-level plan gates = 99. linux-capture-host packet gates are exactly 5: G3.8, G3.9 (W3), G4.9 (W4), G5.10, G5.11 (W5). W1 (13), W2 (10), W6 (9), W7 (10) are worktree-only."
+    },
+    {
+      "at": "2026-11-08T00:55:03Z",
+      "topic": "Windows worktree readiness",
+      "fact": "Windows host: node v26.8.1, pnpm 9.0.0, cargo/rustc 1.99.1, node_modules installed. C:/Users/Dragonfly/Downloads/warsha-wt does not exist yet. run/2026-11-08/integration resolves to 0772d502002562505c6438ae712abca7a7328d84. Seven pre-existing Qoder agent worktrees under .qoder/worktrees are present and were left untouched."
+    },
+    {
+      "at": "2026-11-08T00:55:03Z",
+      "topic": "secret-handling event",
+      "fact": "The owner pasted a live third-party provider API key into the task conversation. No part of that key was written to state.json, checkpoints, acceptance.json, logs, diffs, reports or any file, and no real model API call was made. Rotation/revocation was recommended to the owner. Real-model testing is outside this run: ENGINEERING_POLICY §6 forbids real model API calls in gates and permits a real-model run only behind the owner explicit WARSHA_E2E_REAL opt-in."
+    },
+    {
+      "at": "2026-11-08T00:58:36Z",
+      "topic": "dispatch attempt and clean failure",
+      "fact": "Wave A was dispatched to five separate local Coder specialists with file-isolated scopes and verbatim packet prompts, plus one general-purpose verifier for G0. All five Coder agents failed on expired authentication before executing a single tool. No code, branch, worktree, report or gate artifact was produced. Nothing was merged, pushed or published. acceptance.json untouched at 99/99 not-run."
+    }
+  ]
+}

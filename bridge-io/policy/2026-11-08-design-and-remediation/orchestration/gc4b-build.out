@@ -1,0 +1,48 @@
+Scope: 7 of 8 workspace projects
+docs build$ mdbook build
+packages/client build$ tsc --noEmit
+packages/crypto build$ tsc --noEmit
+packages/i18n build$ tsc --noEmit
+docs build:  INFO Book building has started
+docs build:  INFO Running the html backend
+docs build:  INFO HTML book written to `C:\Users\Dragonfly\Downloads\warsha-wt\integration\docs\book`
+docs build: Done
+packages/ui build$ tsc --noEmit && tsc --noEmit -p tsconfig.storybook.json
+packages/crypto build: Done
+packages/i18n build: Done
+packages/client build: Done
+packages/ui build: Done
+apps/remote build$ tsc && vite build && node scripts/generate-service-worker.mjs
+apps/desktop build$ tsc && vite build
+apps/remote build: [36mvite v5.4.21 [32mbuilding for production...[36m[39m
+apps/remote build: transforming...
+apps/remote build: [32m✓[39m 109 modules transformed.
+apps/remote build: rendering chunks...
+apps/remote build: computing gzip size...
+apps/remote build: [2mdist/[22m[32mindex.html                 [39m[1m[2m  2.55 kB[22m[1m[22m[2m │ gzip:   1.24 kB[22m
+apps/remote build: [2mdist/[22m[35massets/index-CfSv9h-m.css  [39m[1m[2m 16.72 kB[22m[1m[22m[2m │ gzip:   3.61 kB[22m
+apps/remote build: [2mdist/[22m[36massets/index-DCwO_TR_.js   [39m[1m[2m420.27 kB[22m[1m[22m[2m │ gzip: 127.44 kB[22m[2m │ map: 1,727.18 kB[22m
+apps/remote build: [32m✓ built in 1.56s[39m
+apps/desktop build: [36mvite v5.4.21 [32mbuilding for production...[36m[39m
+apps/desktop build: transforming...
+apps/desktop build: [32m✓[39m 144 modules transformed.
+apps/remote build: Using configuration from C:/Users/Dragonfly/Downloads/warsha-wt/integration/apps/remote/workbox-config.cjs.
+apps/desktop build: rendering chunks...
+apps/desktop build: computing gzip size...
+apps/desktop build: [2mdist/[22m[32mindex.html                 [39m[1m[2m  0.71 kB[22m[1m[22m[2m │ gzip:   0.42 kB[22m
+apps/desktop build: [33m
+apps/desktop build: (!) Some chunks are larger than 500 kB after minification. Consider:
+apps/desktop build: - Using dynamic import() to code-split the application
+apps/desktop build: - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+apps/desktop build: - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+apps/desktop build: [2mdist/[22m[35massets/index-BwFYQDYa.css  [39m[1m[2m 17.51 kB[22m[1m[22m[2m │ gzip:   3.75 kB[22m
+apps/desktop build: [2mdist/[22m[36massets/index-vNqPXAtv.js   [39m[1m[33m623.24 kB[39m[22m[2m │ gzip: 166.97 kB[22m[2m │ map: 2,550.37 kB[22m
+apps/desktop build: [32m✓ built in 3.65s[39m
+apps/desktop build: Done
+apps/remote build: The service worker files were written to:
+apps/remote build:   • C:/Users/Dragonfly/Downloads/warsha-wt/integration/apps/remote/dist/sw.js
+apps/remote build:   • C:/Users/Dragonfly/Downloads/warsha-wt/integration/apps/remote/dist/sw.js.map
+apps/remote build:   • C:/Users/Dragonfly/Downloads/warsha-wt/integration/apps/remote/dist/workbox-146ffa86.js
+apps/remote build:   • C:/Users/Dragonfly/Downloads/warsha-wt/integration/apps/remote/dist/workbox-146ffa86.js.map
+apps/remote build: The service worker will precache 9 URLs, totaling 502 kB.
+apps/remote build: Done

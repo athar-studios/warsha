@@ -1,0 +1,715 @@
+diff --git a/.github/workflows/desktop-bundle.yml b/.github/workflows/desktop-bundle.yml
+index 062f5e4..8570fd0 100644
+--- a/.github/workflows/desktop-bundle.yml
++++ b/.github/workflows/desktop-bundle.yml
+@@ -16,11 +16,12 @@ name: Desktop Bundle (unsigned installers)
+ #
+ # Updater-artifact override (the part that would otherwise fail):
+ # apps/desktop/src-tauri/tauri.conf.json:38 sets bundle.createUpdaterArtifacts
+-# to true and that file must stay untouched (it is the owner's signed-release
+-# configuration). With no TAURI_SIGNING_PRIVATE_KEY present (by design at this
+-# stage) the bundle step would fail on updater-artifact generation, which looks
+-# identical to a broken installer build. So the build passes a CI-only config
+-# override that sets bundle.createUpdaterArtifacts to false.
++# to false (defensive override in tauri.ci.unsigned.json below guarantees updater
++# artifacts stay disabled even if tauri.conf.json is switched to true for signed releases).
++# With no TAURI_SIGNING_PRIVATE_KEY present (by design at this stage) the bundle
++# step would fail on updater-artifact generation, which looks identical to a broken
++# installer build. So the build passes a CI-only config override that sets
++# bundle.createUpdaterArtifacts to false.
+ # Syntax verified, not guessed: pnpm-lock.yaml pins @tauri-apps/cli 2.12.4 and
+ # that installed CLI's own `tauri build --help` documents -c/--config as
+ # "JSON strings or paths to JSON, JSON5 or TOML files to merge with the default
+diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml
+index 80f15d6..c0e8d61 100644
+--- a/.github/workflows/release.yml
++++ b/.github/workflows/release.yml
+@@ -17,9 +17,7 @@ on:
+         default: 'athar-studios/warsha'
+ 
+ permissions:
+-  contents: write
+-  packages: write
+-  id-token: write
++  contents: read
+ 
+ env:
+   CARGO_TERM_COLOR: always
+@@ -57,6 +55,10 @@ jobs:
+         with:
+           fetch-depth: 0
+ 
++      - name: Verify release version matches repository versions
++        run: |
++          node scripts/check-versions.mjs --expect "${GITHUB_REF_NAME#v}"
++
+       - name: Extract version from tag
+         id: version
+         run: |
+@@ -516,6 +518,8 @@ jobs:
+     name: Create Draft Release
+     needs: [prepare, rust-build, desktop-build, artifacts]
+     runs-on: ubuntu-latest
++    permissions:
++      contents: write
+     steps:
+       - name: Download CLI binaries
+         uses: actions/download-artifact@v4
+diff --git a/.gitignore b/.gitignore
+index 260b953..0a68484 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -81,4 +81,11 @@ RUN_TRIGGER
+ graphify-out/
+ .graphify*
+ 
++# Android signing keys (SECURITY.md)
++*.jks
++*.keystore
++*.p12
++keystore.properties
++
++
+ 
+diff --git a/apps/mobile/README.md b/apps/mobile/README.md
+index 2f8c210..b2387a5 100644
+--- a/apps/mobile/README.md
++++ b/apps/mobile/README.md
+@@ -51,8 +51,8 @@ JAVA_HOME="<Android Studio JBR>" ANDROID_HOME="<SDK>" \
+ ```
+ 
+ `syncRemoteWebAssets` (runs before `preBuild`) copies `apps/remote/dist` into
+-`app/src/main/assets/public/` (gitignored; rebuilt on every assemble) and
+-builds `apps/remote` with pnpm first if `dist/` is missing. The WebView loads
++`app/src/main/assets/public/` (gitignored; rebuilt on every assemble) and always
++builds `apps/remote` with pnpm before syncing. The WebView loads
+ `file:///android_asset/public/index.html`.
+ 
+ Verify a built APK:
+@@ -69,9 +69,9 @@ Verify a built APK:
+ - `minSdk 24` — Android Keystore AES-256-GCM requires API ≥ 23; we target 24+
+   for WebView security-patch coverage.
+ 
+-## Release artifact
++## Release artifact (v0.2.0 dated record)
+ 
+-Built and signed locally for run `2026-11-08-design-and-remediation` (packet W7).
++Built and signed locally for run `2026-11-08-design-and-remediation` (packet W7, v0.2.0 dated record).
+ The APK is **not** committed (it is gitignored build output); only its facts are
+ recorded here. Signing used the owner-scoped release material in `~/.warsha/signing/`
+ (RSA-4096, APK Signature Scheme v2). No signing secret is stored in the repository
+@@ -83,7 +83,6 @@ or in this file.
+   copy is the artifact `docs/VERIFY.md` and `docs/INSTALL.md` reference, while
+   `app-release.apk` is the path the W7 release gates verify.
+ - File size: **842,981 bytes**
+-- Build date (UTC): **2026-11-08T07:56:11Z**
+ - Base commit: `0772d502002562505c6438ae712abca7a7328d84` (`run/2026-11-08/integration`)
+ 
+ SHA-256 (`app-release.apk`; identical for `warsha-remote-release.apk`):
+@@ -121,6 +120,6 @@ JAVA_HOME="<Android Studio JBR>" ANDROID_HOME="<SDK>" \
+ APK=apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+ "$ANDROID_HOME/build-tools/36.0.0/apksigner.bat" verify --verbose --print-certs "$APK"
+ unzip -l "$APK" | grep -E 'assets/public/(index\.html|sw\.js)$'   # → 2 entries
+-stat -c %s "$APK"                                                 # → 840513
++stat -c %s "$APK"                                                 # → 842981
+ sha256sum "$APK"                                                  # → hash above
+ ```
+diff --git a/apps/mobile/android/app/build.gradle b/apps/mobile/android/app/build.gradle
+index 039ad74..39bffaa 100644
+--- a/apps/mobile/android/app/build.gradle
++++ b/apps/mobile/android/app/build.gradle
+@@ -58,8 +58,8 @@ android {
+         applicationId "dev.warsha.remote"
+         minSdk 24
+         targetSdk 35
+-        versionCode 1
+-        versionName "0.1.0"
++        versionCode 201
++        versionName "0.2.1"
+     }
+ 
+     signingConfigs {
+@@ -121,20 +121,18 @@ def syncRemoteWebAssets = tasks.register("syncRemoteWebAssets", Sync) {
+     group = "warsha"
+ 
+     doFirst {
+-        if (!remoteDistDir.isDirectory() || !new File(remoteDistDir, "index.html").isFile()) {
+-            logger.lifecycle("apps/remote/dist is missing — building it with pnpm…")
+-            def repoRoot = remoteDistDir.parentFile.parentFile.parentFile
+-            def pnpm = org.gradle.internal.os.OperatingSystem.current().isWindows()
+-                    ? ["cmd", "/c", "pnpm"] : ["pnpm"]
+-            exec {
+-                workingDir repoRoot
+-                commandLine pnpm + ["--filter", "warsha-remote", "build"]
+-            }
+-            if (!new File(remoteDistDir, "index.html").isFile()) {
+-                throw new GradleException(
+-                        "apps/remote/dist/index.html still missing after build. " +
+-                        "Run `pnpm --filter warsha-remote build` manually.")
+-            }
++        logger.lifecycle("Building apps/remote with pnpm before sync…")
++        def repoRoot = remoteDistDir.parentFile.parentFile.parentFile
++        def pnpm = org.gradle.internal.os.OperatingSystem.current().isWindows()
++                ? ["cmd", "/c", "pnpm"] : ["pnpm"]
++        exec {
++            workingDir repoRoot
++            commandLine pnpm + ["--filter", "warsha-remote", "build"]
++        }
++        if (!new File(remoteDistDir, "index.html").isFile()) {
++            throw new GradleException(
++                    "apps/remote/dist/index.html missing after build. " +
++                    "Run `pnpm --filter warsha-remote build` manually.")
+         }
+     }
+ 
+diff --git a/apps/remote/package.json b/apps/remote/package.json
+index 4fb7f46..da3a4e4 100644
+--- a/apps/remote/package.json
++++ b/apps/remote/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "warsha-remote",
+-  "version": "0.1.0",
++  "version": "0.2.1",
+   "private": true,
+   "type": "module",
+   "scripts": {
+diff --git a/docker/Dockerfile b/docker/Dockerfile
+index a775b37..df2f44d 100644
+--- a/docker/Dockerfile
++++ b/docker/Dockerfile
+@@ -3,7 +3,7 @@
+ # docker/Dockerfile — multi-stage production image for the Warsha daemon.
+ #
+ # Build from the REPOSITORY ROOT (the whole workspace is the build context):
+-#   docker build -f docker/Dockerfile -t warsha/warshad:0.1.0 .
++#   docker build -f docker/Dockerfile -t warsha/warshad:0.2.1 .
+ #
+ # Stages:
+ #   1. web-assets   — builds the apps/remote PWA static bundle with pnpm.
+@@ -19,6 +19,7 @@
+ # key is only ever passed through the process environment. See docs/DEPLOY.md.
+ 
+ # Pinned for reproducibility; must be >= 1.89 because uuid@1.29.0 requires rustc >= 1.89.0.
++ARG WARSHA_VERSION=0.2.1
+ ARG RUST_IMAGE=rust:1-bookworm
+ ARG NODE_IMAGE=node:22-bookworm-slim
+ ARG RUNTIME_IMAGE=debian:bookworm-slim
+@@ -79,6 +80,9 @@ RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
+ # --------------------------------------------------------------------------
+ FROM ${RUNTIME_IMAGE} AS runtime
+ 
++ARG WARSHA_VERSION
++LABEL org.opencontainers.image.version=$WARSHA_VERSION
++
+ RUN apt-get update \
+     && apt-get install -y --no-install-recommends \
+         ca-certificates \
+diff --git a/docker/compose.yml b/docker/compose.yml
+index 342f95b..5f04f32 100644
+--- a/docker/compose.yml
++++ b/docker/compose.yml
+@@ -18,7 +18,7 @@ services:
+     build:
+       context: ..
+       dockerfile: docker/Dockerfile
+-    image: warsha/warshad:0.1.0
++    image: warsha/warshad:0.2.1
+     # Container-internal publication only; reverse_proxy reaches these on
+     # the shared network. There is deliberately no `ports:` key here.
+     expose:
+diff --git a/docs/DAEMON.md b/docs/DAEMON.md
+index 78876e0..3f921e6 100644
+--- a/docs/DAEMON.md
++++ b/docs/DAEMON.md
+@@ -164,14 +164,13 @@ Not yet in the router (only `/health` is registered, `:500`). The contract to be
+ | `devices.revoke` | `device_id: DeviceId` | `null` |
+ 
+ Parameter serialization: `ProjectId`, `RunId` and `DeviceId` are newtypes over `Uuid`/`Ulid` and serialize
+-as plain strings (hyphenated UUID, Crockford ULID). `Stage` serializes as `snake_case`
+-(`idea`, `research`, `prd_spec`, `design`, `plan_tasks`, `code`, `review_qa_security`, `gate_c`, `release`,
+-`gate_d`, `launch_drafts`, `feedback`) — note the model has **no `gate_a`/`gate_b` stage**; the mandatory
+-gates that exist as stages today are `GateC` and `GateD` only.
+-
+-Implementation status inside the server is uneven and worth knowing before relying on it:
+-`projects.*`, `runs.*` and `gates.*` hit the store/pipeline for real; `providers.list` returns an empty
+-vector and `providers.add` / `providers.test` return success without touching any provider (`:365-380`).
++as plain strings (hyphenated UUID, Crockford ULID). `Stage` serializes as `snake_case` across all 14 stages
++defined in `crates/warsha-core/src/lib.rs:74-89`:
++`idea`, `gate_a`, `research`, `prd_spec`, `gate_b`, `design`, `plan_tasks`, `code`, `review_qa_security`, `gate_c`, `release`, `gate_d`, `launch_drafts`, `feedback`.
++
++Implementation status inside the server:
++`projects.*`, `runs.*` and `gates.*` hit the store and pipeline for real.
++`providers.*` are fully wired: `providers.list` queries configured providers from the settings store (`load_providers()`); `providers.add` validates kind/URL/key, stores the API key in the OS keychain via the secret store, persists configuration to the database (`save_provider`), and registers a deferred adapter in the router; `providers.test` resolves the test model, validates keychain credentials, and actively probes endpoint health (`probe_endpoint`); and `providers.remove` purges keychain secrets, removes settings, and registers a refusal adapter in the router.
+ 
+ ---
+ 
+diff --git a/package.json b/package.json
+index aeeb91c..2cdb8f3 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "warsha",
+-  "version": "0.1.0",
++  "version": "0.2.1",
+   "private": true,
+   "description": "Warsha — Arabic-first AI Software Factory",
+   "scripts": {
+@@ -14,6 +14,7 @@
+     "visual:remote": "playwright test --project=remote",
+     "arch": "node scripts/check-arch.mjs",
+     "policy": "node scripts/check-engineering-policy.mjs",
++    "versions": "node scripts/check-versions.mjs",
+     "format": "prettier --write \"**/*.{ts,tsx,json,md,css,html}\"",
+     "format:check": "prettier --check \"**/*.{ts,tsx,json,md,css,html}\"",
+     "prepare": "husky install"
+diff --git a/packages/client/package.json b/packages/client/package.json
+index 0a3ea86..ee57c7a 100644
+--- a/packages/client/package.json
++++ b/packages/client/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "@warsha/client",
+-  "version": "0.1.0",
++  "version": "0.2.1",
+   "private": true,
+   "main": "./src/index.ts",
+   "types": "./src/index.ts",
+diff --git a/packages/crypto/package.json b/packages/crypto/package.json
+index d8d00a5..b4292e1 100644
+--- a/packages/crypto/package.json
++++ b/packages/crypto/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "@warsha/crypto",
+-  "version": "0.1.0",
++  "version": "0.2.1",
+   "private": true,
+   "main": "./src/index.ts",
+   "types": "./src/index.ts",
+diff --git a/packages/i18n/package.json b/packages/i18n/package.json
+index 262f010..489599a 100644
+--- a/packages/i18n/package.json
++++ b/packages/i18n/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "@warsha/i18n",
+-  "version": "0.1.0",
++  "version": "0.2.1",
+   "private": true,
+   "main": "./src/index.tsx",
+   "types": "./src/index.tsx",
+diff --git a/packages/ui/package.json b/packages/ui/package.json
+index 4dcad3c..16f97f7 100644
+--- a/packages/ui/package.json
++++ b/packages/ui/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "@warsha/ui",
+-  "version": "0.1.0",
++  "version": "0.2.1",
+   "private": true,
+   "main": "./src/index.ts",
+   "types": "./src/index.ts",
+diff --git a/scripts/check-versions.mjs b/scripts/check-versions.mjs
+new file mode 100644
+index 0000000..74e33ef
+--- /dev/null
++++ b/scripts/check-versions.mjs
+@@ -0,0 +1,395 @@
++#!/usr/bin/env node
++// scripts/check-versions.mjs — validate and synchronize Warsha component versions.
++//
++// Usage:
++//   node scripts/check-versions.mjs [dir]                 check that all component versions match
++//   node scripts/check-versions.mjs [dir] --expect <v>   check that all component versions equal <v>
++//   node scripts/check-versions.mjs [dir] --set <v>      update all component versions to <v>
++//   node scripts/check-versions.mjs --self-test           verify checker and updater on temp fixtures
++//
++// Managed fields:
++//   - Cargo.toml [workspace.package] version
++//   - apps/desktop/src-tauri/Cargo.toml [package] version
++//   - apps/desktop/src-tauri/tauri.conf.json version
++//   - package.json (root) version
++//   - apps/desktop/package.json version
++//   - apps/remote/package.json version
++//   - packages/ui/package.json version
++//   - packages/client/package.json version
++//   - packages/i18n/package.json version
++//   - packages/crypto/package.json version
++//   - apps/mobile/android/app/build.gradle versionName and versionCode (major*10000 + minor*100 + patch)
++//   - docker/compose.yml warshad image tag
++//   - Cargo.lock workspace member entries (offline)
++
++import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { dirname, join } from 'node:path';
++import { fileURLToPath } from 'node:url';
++
++const WORKSPACE_CRATES = [
++  'warsha-backends',
++  'warsha-cli',
++  'warsha-core',
++  'warsha-desktop',
++  'warsha-git',
++  'warsha-pipeline',
++  'warsha-providers',
++  'warsha-relay',
++  'warsha-remote',
++  'warsha-store',
++  'warshad',
++];
++
++const JSON_PACKAGES = [
++  'package.json',
++  'apps/desktop/package.json',
++  'apps/remote/package.json',
++  'packages/ui/package.json',
++  'packages/client/package.json',
++  'packages/i18n/package.json',
++  'packages/crypto/package.json',
++];
++
++function computeVersionCode(version) {
++  const parts = String(version).split('.').map(Number);
++  if (parts.length < 3 || parts.some(isNaN)) {
++    throw new Error(`Invalid semver for versionCode: ${version}`);
++  }
++  const [major, minor, patch] = parts;
++  return String(major * 10000 + minor * 100 + patch);
++}
++
++function readVersions(rootDir) {
++  const readFile = (rel) => {
++    const full = join(rootDir, rel);
++    return existsSync(full) ? readFileSync(full, 'utf8') : null;
++  };
++
++  const rows = [];
++  const add = (label, file, value) => rows.push({ label, file, value: value ?? 'MISSING' });
++
++  // 1. Cargo.toml [workspace.package]
++  const rootCargo = readFile('Cargo.toml');
++  const rootCargoVer = rootCargo?.match(/\[workspace\.package\][^[]*?\nversion\s*=\s*"([^"]+)"/s)?.[1];
++  add('Cargo.toml [workspace.package]', 'Cargo.toml', rootCargoVer);
++
++  // 2. apps/desktop/src-tauri/Cargo.toml
++  const desktopCargo = readFile('apps/desktop/src-tauri/Cargo.toml');
++  const desktopCargoVer = desktopCargo?.match(/\[package\][^[]*?\nversion\s*=\s*"([^"]+)"/s)?.[1];
++  add('apps/desktop/src-tauri/Cargo.toml', 'apps/desktop/src-tauri/Cargo.toml', desktopCargoVer);
++
++  // 3. apps/desktop/src-tauri/tauri.conf.json
++  const tauriConf = readFile('apps/desktop/src-tauri/tauri.conf.json');
++  let tauriVer = null;
++  if (tauriConf) {
++    try {
++      tauriVer = JSON.parse(tauriConf).version;
++    } catch {
++      tauriVer = 'PARSE_ERROR';
++    }
++  }
++  add('apps/desktop/src-tauri/tauri.conf.json', 'apps/desktop/src-tauri/tauri.conf.json', tauriVer);
++
++  // 4-10. JSON packages
++  for (const p of JSON_PACKAGES) {
++    const content = readFile(p);
++    let ver = null;
++    if (content) {
++      try {
++        ver = JSON.parse(content).version;
++      } catch {
++        ver = 'PARSE_ERROR';
++      }
++    }
++    add(p, p, ver);
++  }
++
++  // 11. apps/mobile/android/app/build.gradle
++  const gradle = readFile('apps/mobile/android/app/build.gradle');
++  const versionName = gradle?.match(/versionName\s+["']([^"']+)["']/)?.[1];
++  const versionCode = gradle?.match(/versionCode\s+(\d+)/)?.[1];
++  add('apps/mobile versionName', 'apps/mobile/android/app/build.gradle', versionName);
++
++  // 12. docker/compose.yml
++  const compose = readFile('docker/compose.yml');
++  const composeTag = compose?.match(/warsha\/warshad:([0-9][^\s"']*)/)?.[1];
++  add('docker/compose.yml warshad tag', 'docker/compose.yml', composeTag);
++
++  // 13. Cargo.lock workspace entries (offline check)
++  const rootLock = readFile('Cargo.lock');
++  let lockMismatch = false;
++  let lockVer = null;
++  if (rootLock) {
++    for (const crate of WORKSPACE_CRATES) {
++      const re = new RegExp(`\\[\\[package\\]\\]\\r?\\nname = "${crate}"\\r?\\nversion = "([^"]+)"`, 'g');
++      const match = re.exec(rootLock);
++      if (match) {
++        if (lockVer === null) {
++          lockVer = match[1];
++        } else if (lockVer !== match[1]) {
++          lockMismatch = true;
++        }
++      }
++    }
++  }
++  add('Cargo.lock workspace crates', 'Cargo.lock', lockMismatch ? 'MISMATCH' : lockVer);
++
++  return { rows, versionCode };
++}
++
++function setVersions(rootDir, newVersion) {
++  const newCode = computeVersionCode(newVersion);
++  const updateFile = (rel, updater) => {
++    const full = join(rootDir, rel);
++    if (!existsSync(full)) return;
++    const oldContent = readFileSync(full, 'utf8');
++    const newContent = updater(oldContent);
++    writeFileSync(full, newContent, 'utf8');
++  };
++
++  // 1. Cargo.toml
++  updateFile('Cargo.toml', (content) => {
++    return content.replace(
++      /(\[workspace\.package\][^[]*?\nversion\s*=\s*")[^"]+(")/s,
++      `$1${newVersion}$2`
++    );
++  });
++
++  // 2. apps/desktop/src-tauri/Cargo.toml
++  updateFile('apps/desktop/src-tauri/Cargo.toml', (content) => {
++    return content.replace(
++      /(\[package\][^[]*?\nversion\s*=\s*")[^"]+(")/s,
++      `$1${newVersion}$2`
++    );
++  });
++
++  // 3. apps/desktop/src-tauri/tauri.conf.json
++  updateFile('apps/desktop/src-tauri/tauri.conf.json', (content) => {
++    return content.replace(
++      /("version"\s*:\s*")[^"]+(")/,
++      `$1${newVersion}$2`
++    );
++  });
++
++  // 4-10. JSON packages
++  for (const p of JSON_PACKAGES) {
++    updateFile(p, (content) => {
++      return content.replace(
++        /("version"\s*:\s*")[^"]+(")/,
++        `$1${newVersion}$2`
++      );
++    });
++  }
++
++  // 11. apps/mobile/android/app/build.gradle
++  updateFile('apps/mobile/android/app/build.gradle', (content) => {
++    let updated = content.replace(
++      /(versionName\s+["'])[^"']+(["'])/,
++      `$1${newVersion}$2`
++    );
++    updated = updated.replace(
++      /(versionCode\s+)\d+/,
++      `$1${newCode}`
++    );
++    return updated;
++  });
++
++  // 12. docker/compose.yml
++  updateFile('docker/compose.yml', (content) => {
++    return content.replace(
++      /(warsha\/warshad:)[0-9][^\s"']*/,
++      `$1${newVersion}`
++    );
++  });
++
++  // 13. Cargo.lock files (offline workspace entries)
++  const lockFiles = ['Cargo.lock', 'apps/desktop/src-tauri/Cargo.lock'];
++  for (const lockFile of lockFiles) {
++    updateFile(lockFile, (content) => {
++      let updated = content;
++      for (const crate of WORKSPACE_CRATES) {
++        const re = new RegExp(`(\\[\\[package\\]\\]\\r?\\nname = "${crate}"\\r?\\nversion = ")[^"]+(")`, 'g');
++        updated = updated.replace(re, `$1${newVersion}$2`);
++      }
++      return updated;
++    });
++  }
++}
++
++function check(rootDir, expectedVersion, silent = false) {
++  const { rows, versionCode } = readVersions(rootDir);
++  const reference = rows[0]?.value;
++
++  let wantCode = null;
++  try {
++    wantCode = reference && reference !== 'MISSING' ? computeVersionCode(reference) : null;
++  } catch {
++    wantCode = null;
++  }
++
++  const allRowsEqual = rows.every((r) => r.value === reference && r.value !== 'MISSING' && r.value !== 'MISMATCH');
++  const codeMatches = versionCode === wantCode;
++  const expectMatches = expectedVersion ? reference === expectedVersion : true;
++  const ok = allRowsEqual && codeMatches && expectMatches;
++
++  if (!silent) {
++    const width = Math.max(...rows.map((r) => r.label.length), 'apps/mobile versionCode'.length);
++    for (const r of rows) {
++      const match = r.value === reference && (expectedVersion ? r.value === expectedVersion : true);
++      const mark = match ? '' : '   <-- differs';
++      process.stdout.write(`${r.label.padEnd(width)}  ${r.value}${mark}\n`);
++    }
++    const codeOk = versionCode === wantCode;
++    process.stdout.write(
++      `${'apps/mobile versionCode'.padEnd(width)}  ${versionCode ?? 'MISSING'} (want ${wantCode ?? '?'})${codeOk ? '' : '   <-- differs'}\n`
++    );
++    process.stdout.write(
++      `versions: ${ok ? 'aligned' : 'NOT aligned'}${expectedVersion ? ` (expected ${expectedVersion})` : ''}\n`
++    );
++  }
++
++  return ok;
++}
++
++function runSelfTest() {
++  process.stdout.write('Running check-versions self-test...\n');
++  const tmpRoot = join(tmpdir(), `warsha-versions-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
++  mkdirSync(tmpRoot, { recursive: true });
++
++  try {
++    const setupFixture = (ver) => {
++      const code = computeVersionCode(ver);
++      writeFileSync(join(tmpRoot, 'Cargo.toml'), `[workspace.package]\nversion = "${ver}"\n`, 'utf8');
++
++      mkdirSync(join(tmpRoot, 'apps/desktop/src-tauri'), { recursive: true });
++      writeFileSync(
++        join(tmpRoot, 'apps/desktop/src-tauri/Cargo.toml'),
++        `[package]\nname = "warsha-desktop"\nversion = "${ver}"\n`,
++        'utf8'
++      );
++      writeFileSync(
++        join(tmpRoot, 'apps/desktop/src-tauri/tauri.conf.json'),
++        JSON.stringify({ version: ver }, null, 2),
++        'utf8'
++      );
++
++      writeFileSync(join(tmpRoot, 'package.json'), JSON.stringify({ name: 'root', version: ver }, null, 2), 'utf8');
++      writeFileSync(
++        join(tmpRoot, 'apps/desktop/package.json'),
++        JSON.stringify({ name: 'desktop', version: ver }, null, 2),
++        'utf8'
++      );
++
++      mkdirSync(join(tmpRoot, 'apps/remote'), { recursive: true });
++      writeFileSync(
++        join(tmpRoot, 'apps/remote/package.json'),
++        JSON.stringify({ name: 'remote', version: ver }, null, 2),
++        'utf8'
++      );
++
++      for (const pkg of ['ui', 'client', 'i18n', 'crypto']) {
++        mkdirSync(join(tmpRoot, `packages/${pkg}`), { recursive: true });
++        writeFileSync(
++          join(tmpRoot, `packages/${pkg}/package.json`),
++          JSON.stringify({ name: `@warsha/${pkg}`, version: ver }, null, 2),
++          'utf8'
++        );
++      }
++
++      mkdirSync(join(tmpRoot, 'apps/mobile/android/app'), { recursive: true });
++      writeFileSync(
++        join(tmpRoot, 'apps/mobile/android/app/build.gradle'),
++        `android {\n  defaultConfig {\n    versionCode ${code}\n    versionName "${ver}"\n  }\n}\n`,
++        'utf8'
++      );
++
++      mkdirSync(join(tmpRoot, 'docker'), { recursive: true });
++      writeFileSync(
++        join(tmpRoot, 'docker/compose.yml'),
++        `services:\n  warshad:\n    image: warsha/warshad:${ver}\n`,
++        'utf8'
++      );
++
++      let lock = '# generated lockfile\n';
++      for (const crate of WORKSPACE_CRATES) {
++        lock += `[[package]]\nname = "${crate}"\nversion = "${ver}"\n\n`;
++      }
++      writeFileSync(join(tmpRoot, 'Cargo.lock'), lock, 'utf8');
++    };
++
++    // Test 1: aligned fixture with 0.2.1
++    setupFixture('0.2.1');
++    if (!check(tmpRoot, null, true)) {
++      throw new Error('Self-test assertion failed: expected aligned 0.2.1 fixture to pass check');
++    }
++    if (!check(tmpRoot, '0.2.1', true)) {
++      throw new Error('Self-test assertion failed: expected --expect 0.2.1 to pass on 0.2.1 fixture');
++    }
++    if (check(tmpRoot, '0.3.0', true)) {
++      throw new Error('Self-test assertion failed: expected --expect 0.3.0 to fail on 0.2.1 fixture');
++    }
++
++    // Test 2: mismatch detection
++    writeFileSync(
++      join(tmpRoot, 'apps/remote/package.json'),
++      JSON.stringify({ name: 'remote', version: '0.1.0' }, null, 2),
++      'utf8'
++    );
++    if (check(tmpRoot, null, true)) {
++      throw new Error('Self-test assertion failed: expected differing file to fail check');
++    }
++
++    // Test 3: setVersions updates all files
++    setVersions(tmpRoot, '0.3.2');
++    if (!check(tmpRoot, '0.3.2', true)) {
++      throw new Error('Self-test assertion failed: expected setVersions(0.3.2) to bring all files to 0.3.2');
++    }
++
++    process.stdout.write('check-versions self-test: 4 assertions, 0 failures\n');
++  } finally {
++    try {
++      rmSync(tmpRoot, { recursive: true, force: true });
++    } catch {
++      // ignore temp cleanup error
++    }
++  }
++}
++
++function main() {
++  const argv = process.argv.slice(2);
++
++  if (argv.includes('--self-test')) {
++    runSelfTest();
++    process.exit(0);
++  }
++
++  const expectIdx = argv.indexOf('--expect');
++  const expected = expectIdx >= 0 ? argv[expectIdx + 1] : null;
++
++  const setIdx = argv.indexOf('--set');
++  const setTo = setIdx >= 0 ? argv[setIdx + 1] : null;
++
++  const scriptDir = dirname(fileURLToPath(import.meta.url));
++  const repoDefault = join(scriptDir, '..');
++
++  const dirArg = argv.find(
++    (a, i) =>
++      !a.startsWith('--') &&
++      i !== expectIdx + 1 &&
++      i !== setIdx + 1
++  );
++  const rootDir = dirArg ?? repoDefault;
++
++  if (setTo) {
++    process.stdout.write(`Updating versions in ${rootDir} to ${setTo}...\n`);
++    setVersions(rootDir, setTo);
++    const ok = check(rootDir, setTo);
++    process.exit(ok ? 0 : 1);
++  }
++
++  const ok = check(rootDir, expected);
++  process.exit(ok ? 0 : 1);
++}
++
++main();

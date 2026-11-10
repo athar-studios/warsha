@@ -1,0 +1,9 @@
+# gate: G7.6 (no secret in evidence) - LITERAL
+# command: grep -rniE 'storePassword|keyPassword|WARSHA_KEYSTORE_PASSWORD=|WARSHA_KEY_PASSWORD=' C:/Users/Dragonfly/Downloads/Warsha/bridge-io/policy/2026-11-08-design-and-remediation/packets/W7
+# expected: exit 1 (no match); known frozen-gate self-reference defect: prompt.md contains its own tokens
+# cwd: /c/Users/Dragonfly/Downloads/warsha-wt/w7
+# commit: 7adbff4dd697e0dff7541a5200a5fcacca8fba6b
+# timestamp_utc: 2026-11-08T08:54:58Z
+# exit_code: 0
+--- output ---
+C:/Users/Dragonfly/Downloads/Warsha/bridge-io/policy/2026-11-08-design-and-remediation/packets/W7/prompt.md:78:grep -rniE 'storePassword|keyPassword|WARSHA_KEYSTORE_PASSWORD=|WARSHA_KEY_PASSWORD=' C:/Users/Dragonfly/Downloads/Warsha/bridge-io/policy/2026-11-08-design-and-remediation/packets/W7

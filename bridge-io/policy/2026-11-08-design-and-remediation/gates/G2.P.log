@@ -1,0 +1,8 @@
+gate: G2.P
+command: node scripts/check-engineering-policy.mjs
+commit: e71567a499c435711899643bc676a004ac81eaa2
+timestamp: 2026-11-08T12:04:32Z
+exit: 0
+expected: 0
+--- output ---
+policy: 8 checks, 0 failures

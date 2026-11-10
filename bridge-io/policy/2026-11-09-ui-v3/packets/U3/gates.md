@@ -1,0 +1,19 @@
+# Frozen gates — U3 simple-pages
+
+Frozen by the planner (2026-11-09T07:03:54Z). The VERIFIER runs them in the packet worktree at the reviewed commit with
+`EV=C:/Users/Dragonfly/Downloads/Warsha/bridge-io/policy/2026-11-09-ui-v3`, `BASE=<packets[U3].base_commit>`, `GATE=<gate id>`; raw output ->
+`$EV/gates/<gate id>.log`. The implementer must not edit, narrow or re-word any of them.
+
+| id | host | check | expect |
+| --- | --- | --- | --- |
+| `U3.1` | any | `pnpm --filter warsha-desktop test` | exit 0 and "Tests N passed" with N >= base_counts.warsha-desktop + 30 |
+| `U3.2` | any | `pnpm -r typecheck && pnpm --filter warsha-desktop lint && node scripts/check-ds-v3.mjs apps/desktop/src/v3` | exit 0 |
+| `U3.3` | any | `node "$EV/tools"/i18n-gate.mjs .` | exit 0 |
+| `U3.4` | any | `node "$EV/tools"/actions-gate.mjs . --only frame.,onboarding.,home.,projects.,project.,inbox.` | exit 0 (every action of these areas registered, used, wired to a served RPC and clicked by an e2e case; no fake names anywhere in v3) |
+| `U3.5` | any | `for a in frame onboarding home projects project inbox; do test -d apps/desktop/src/v3/pages/$a && test -f apps/desktop/src/v3/actions/registry/$a.ts && test -f packages/i18n/src/v3/ar/$a.ts && test -f packages/i18n/src/v3/en/$a.ts && test -f apps/desktop/e2e/v3/$a.spec.ts \|\| exit 1; done` | exit 0 |
+| `U3.6` | capture | `pnpm exec playwright test --project=desktop v3/frame.spec.ts v3/onboarding.spec.ts v3/home.spec.ts v3/projects.spec.ts v3/project.spec.ts v3/inbox.spec.ts --grep-invert @visual --reporter=json > "$EV/gates/$GATE.json"; node "$EV/tools"/pw-gate.mjs failures "$EV/gates/$GATE.json" "$EV/named/EMPTY.txt"` | exit 0 (flows, action effects, axe + keyboard in ar/en x light/dark: all green) |
+| `U3.7` | any | `test -z "$(git diff --name-only $BASE..HEAD \| grep -vE '^(apps/desktop/src/v3/(pages/(frame\|onboarding\|home\|projects\|project\|inbox)/\|actions/registry/(frame\|onboarding\|home\|projects\|project\|inbox)\.ts$)\|packages/i18n/src/v3/(ar\|en)/(frame\|onboarding\|home\|projects\|project\|inbox)\.ts$\|apps/desktop/e2e/v3/(frame\|onboarding\|home\|projects\|project\|inbox)\.spec\.ts$)')"` | exit 0 |
+| `U3.deps` | any | `git diff $BASE..HEAD -- '*package.json' 'crates/*/Cargo.toml' 'apps/*/src-tauri/Cargo.toml' Cargo.toml \| grep -E '^\+\s*"?[@a-zA-Z0-9_./-]+"?\s*[:=]\s*("[~^=]?[0-9]\|\{[^}]*version)' \| grep -vE '^\+\s*"?(version\|rust-version)"?\s*[:=]'` | exit 1 (no dependency added or bumped) |
+| `U3.snap` | any | `node "$EV/tools"/pw-gate.mjs snapshots $BASE HEAD -` | exit 0, snapshot_changes=0 |
+| `U3.pw` | capture | `pnpm exec playwright test --project=desktop --project=remote --reporter=json > "$EV/gates/$GATE.json"; node "$EV/tools"/pw-gate.mjs failures "$EV/gates/$GATE.json" "$EV/named/U3.txt"` | pw-gate exit 0 (every failure inside named/U3.txt; v2 suites and every behavioural spec 100% green); packet merged onto the integration tip in a scratch checkout; no --update-snapshots |
+| `U3.simplicity` | capture | `cp "$EV/tools/planner-simplicity.spec.ts" apps/desktop/e2e/v3/ && pnpm exec playwright test --project=desktop v3/planner-simplicity.spec.ts --reporter=json > "$EV/gates/$GATE.json"; rm -f apps/desktop/e2e/v3/planner-simplicity.spec.ts; node "$EV/tools"/pw-gate.mjs failures "$EV/gates/$GATE.json" "$EV/named/EMPTY.txt"` | exit 0 (<= 10 actions above the fold, <= 1 primary, one composer, no Latin UI text in Arabic); the copied spec is never committed |

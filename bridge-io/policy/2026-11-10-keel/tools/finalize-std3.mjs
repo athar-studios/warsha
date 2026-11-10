@@ -1,0 +1,15 @@
+import fs from 'node:fs';
+const ev = 'C:/Users/Dragonfly/Downloads/Warsha/bridge-io/policy/2026-11-10-keel';
+const path = `${ev}/acceptance.json`;
+const doc = JSON.parse(fs.readFileSync(path, 'utf8'));
+const at = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+const commit = 'bef00eb203f98973fb157a789f278b38e27862f4';
+const row = doc.standing.find(r => r.id === 'STD.3');
+row.verdict = 'pass';
+row.verified_at = at;
+row.commit = commit;
+row.marker = 'gates/STD.3.done';
+row.note = 'KEEL-PASS rust-tests passed=763 ignored=10; exit file gates/STD.3.exit=0';
+delete row.in_flight;
+fs.writeFileSync(path, JSON.stringify(doc, null, 2) + '\n');
+console.log('STD.3 verdict=pass at=' + at);

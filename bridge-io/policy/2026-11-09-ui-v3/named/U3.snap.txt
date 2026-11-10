@@ -1,0 +1,1 @@
+^apps/desktop/e2e/v3/(frame|onboarding|home|projects|project|inbox)\.spec\.ts-snapshots/

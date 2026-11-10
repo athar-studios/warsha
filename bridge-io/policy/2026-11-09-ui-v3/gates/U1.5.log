@@ -1,0 +1,2 @@
+EXIT=1
+matches=0 (grep found no forbidden strings; exit 1 as required)

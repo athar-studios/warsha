@@ -1,0 +1,122 @@
+
+Running 58 tests using 3 workers
+
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-390x844-ar-light-desktop-linux.png is re-generated, writing actual.
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-390x844-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  1 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 390x844 ar light (2.7s)
+  ✓  2 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 390x844 ar dark (2.7s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-390x844-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  3 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 390x844 en light (2.7s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-390x844-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  4 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 390x844 en dark (2.2s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-768x1024-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  5 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 768x1024 ar light (2.5s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-768x1024-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  6 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 768x1024 ar dark (2.5s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-768x1024-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  7 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 768x1024 en light (2.1s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-768x1024-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  8 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 768x1024 en dark (2.4s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-1440x900-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  9 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 1440x900 ar light (2.6s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-1440x900-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  10 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 1440x900 ar dark (2.4s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-1440x900-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  11 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 1440x900 en light (2.8s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-1440x900-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  12 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 1440x900 en dark (2.7s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-390x844-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  13 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 390x844 ar light (2.1s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-390x844-ar-dark-desktop-linux.png is re-generated, writing actual.
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-390x844-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  14 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 390x844 ar dark (2.2s)
+  ✓  15 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 390x844 en light (2.1s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-390x844-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  16 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 390x844 en dark (2.0s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-768x1024-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  18 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 768x1024 ar dark (2.3s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-768x1024-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  17 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 768x1024 ar light (2.4s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-768x1024-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  19 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 768x1024 en light (2.4s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-768x1024-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  20 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 768x1024 en dark (2.4s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-1440x900-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  21 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 1440x900 ar light (2.6s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-1440x900-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  22 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 1440x900 ar dark (2.6s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-1440x900-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  23 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 1440x900 en light (2.5s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-1440x900-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  24 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 1440x900 en dark (2.7s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-390x844-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  25 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 390x844 ar light (2.1s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-390x844-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  26 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 390x844 ar dark (1.9s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-390x844-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  28 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 390x844 en dark (1.8s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-390x844-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  27 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 390x844 en light (2.1s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-768x1024-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  29 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 768x1024 ar light (2.0s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-768x1024-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  30 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 768x1024 ar dark (2.2s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-768x1024-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  31 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 768x1024 en light (2.1s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-768x1024-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  32 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 768x1024 en dark (2.2s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-1440x900-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  33 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 1440x900 ar light (2.4s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-1440x900-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  34 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 1440x900 ar dark (2.4s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-1440x900-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  35 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 1440x900 en light (2.4s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-first-run-390x844-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  37 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 390x844 ar light (2.1s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-1440x900-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  36 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 1440x900 en dark (2.5s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-first-run-390x844-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  38 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 390x844 ar dark (2.0s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-first-run-768x1024-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  39 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 768x1024 ar light (2.2s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-first-run-768x1024-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  40 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 768x1024 ar dark (2.1s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-first-run-768x1024-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  41 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 768x1024 en light (2.2s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-first-run-768x1024-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  42 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 768x1024 en dark (2.1s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-first-run-1440x900-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  43 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 1440x900 ar light (2.6s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-first-run-1440x900-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  44 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 1440x900 ar dark (2.4s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-first-run-1440x900-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  45 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 1440x900 en light (2.5s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-first-run-1440x900-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  46 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 1440x900 en dark (2.4s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-390x844-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  47 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 390x844 ar light (2.1s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-390x844-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  48 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 390x844 ar dark (1.9s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-390x844-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  49 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 390x844 en light (2.0s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-390x844-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  50 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 390x844 en dark (1.9s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-768x1024-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  51 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 768x1024 ar light (2.1s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-768x1024-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  52 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 768x1024 ar dark (2.2s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-768x1024-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  53 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 768x1024 en light (2.3s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-768x1024-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  54 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 768x1024 en dark (2.2s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-1440x900-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  55 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 1440x900 ar light (2.4s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-1440x900-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  56 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 1440x900 ar dark (2.5s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-1440x900-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  57 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 1440x900 en light (2.1s)
+/root/warsha-r0post/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-1440x900-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  58 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 1440x900 en dark (2.1s)
+
+  58 passed (48.5s)
+changed=58

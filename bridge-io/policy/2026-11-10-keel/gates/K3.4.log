@@ -1,0 +1,11 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.96s
+     Running unittests src\lib.rs (target\debug\deps\warshad-7b3880424b529e45.exe)
+
+running 4 tests
+test tests::provider_truth::unrouted_followup_returns_explicit_error_and_writes_no_artifact ... ok
+test tests::provider_truth::unrouted_stage_role_returns_explicit_error_and_writes_zero_artifacts ... ok
+test tests::provider_truth::explicitly_routed_provider_succeeds_and_produces_artifacts ... ok
+test tests::provider_truth::unrouted_stage_resumes_cleanly_once_provider_is_routed ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 115 filtered out; finished in 0.93s
+

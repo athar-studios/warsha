@@ -1,0 +1,2 @@
+# P2 snapshot allowlist
+^apps/desktop/e2e/(screens\.visual|states)\.spec\.ts-snapshots/(crash-reports|store-reviews|backend-kit|harnesses|skills|plugins|models)-

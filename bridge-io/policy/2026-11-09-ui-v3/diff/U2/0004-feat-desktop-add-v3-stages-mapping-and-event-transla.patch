@@ -1,0 +1,259 @@
+From a784b7db74eae73092cf7ff018194e7eecf63514 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Mon, 9 Nov 2026 17:41:01 +0400
+Subject: [PATCH 04/12] feat(desktop): add v3 stages mapping and event
+ translation copy helpers
+
+Map 14 daemon stages into 5 display stages and 4 gate approval questions.
+Provide event kind to i18n translation key mapping for stream event
+presentation, with unit test coverage.
+---
+ apps/desktop/src/v3/copy/events.test.ts | 31 +++++++++
+ apps/desktop/src/v3/copy/events.ts      | 23 +++++++
+ apps/desktop/src/v3/copy/stages.test.ts | 84 +++++++++++++++++++++++++
+ apps/desktop/src/v3/copy/stages.ts      | 74 ++++++++++++++++++++++
+ 4 files changed, 212 insertions(+)
+ create mode 100644 apps/desktop/src/v3/copy/events.test.ts
+ create mode 100644 apps/desktop/src/v3/copy/events.ts
+ create mode 100644 apps/desktop/src/v3/copy/stages.test.ts
+ create mode 100644 apps/desktop/src/v3/copy/stages.ts
+
+diff --git a/apps/desktop/src/v3/copy/events.test.ts b/apps/desktop/src/v3/copy/events.test.ts
+new file mode 100644
+index 0000000..92750c6
+--- /dev/null
++++ b/apps/desktop/src/v3/copy/events.test.ts
+@@ -0,0 +1,31 @@
++import { describe, expect, it } from 'vitest';
++
++import { EVENT_KIND_TO_KEY, getEventKey } from './events';
++
++describe('events copy mapping', () => {
++  const allKinds = [
++    'stage_started',
++    'stage_completed',
++    'gate_decision',
++    'agent_step',
++    'tool_call',
++    'artifact_created',
++    'artifact_updated',
++    'cost_recorded',
++    'error',
++    'fallback',
++    'budget_warning',
++    'budget_exceeded',
++  ];
++
++  it('maps every EventKind to a catalog key', () => {
++    for (const kind of allKinds) {
++      expect(EVENT_KIND_TO_KEY[kind]).toBe(`events.${kind}`);
++      expect(getEventKey(kind)).toBe(`events.${kind}`);
++    }
++  });
++
++  it('falls back to events.unknown for unrecognized kinds', () => {
++    expect(getEventKey('unexpected_event_kind')).toBe('events.unknown');
++  });
++});
+diff --git a/apps/desktop/src/v3/copy/events.ts b/apps/desktop/src/v3/copy/events.ts
+new file mode 100644
+index 0000000..0cdf7f3
+--- /dev/null
++++ b/apps/desktop/src/v3/copy/events.ts
+@@ -0,0 +1,23 @@
++/**
++ * Plain-language event map (UI_V3_PLAN §4).
++ * Every EventKind -> a catalog key.
++ */
++
++export const EVENT_KIND_TO_KEY: Record<string, string> = {
++  stage_started: 'events.stage_started',
++  stage_completed: 'events.stage_completed',
++  gate_decision: 'events.gate_decision',
++  agent_step: 'events.agent_step',
++  tool_call: 'events.tool_call',
++  artifact_created: 'events.artifact_created',
++  artifact_updated: 'events.artifact_updated',
++  cost_recorded: 'events.cost_recorded',
++  error: 'events.error',
++  fallback: 'events.fallback',
++  budget_warning: 'events.budget_warning',
++  budget_exceeded: 'events.budget_exceeded',
++};
++
++export function getEventKey(kind: string): string {
++  return EVENT_KIND_TO_KEY[kind] ?? 'events.unknown';
++}
+diff --git a/apps/desktop/src/v3/copy/stages.test.ts b/apps/desktop/src/v3/copy/stages.test.ts
+new file mode 100644
+index 0000000..dd758c2
+--- /dev/null
++++ b/apps/desktop/src/v3/copy/stages.test.ts
+@@ -0,0 +1,84 @@
++import { describe, expect, it } from 'vitest';
++
++import {
++  DAEMON_TO_SIMPLE_STAGE,
++  GATE_QUESTIONS,
++  getGateQuestionKey,
++  getSimpleStageLabelKey,
++  toSimpleStage,
++  type DaemonStage,
++} from './stages';
++
++describe('stages copy mapping', () => {
++  const allDaemonStages: DaemonStage[] = [
++    'idea',
++    'gate_a',
++    'research',
++    'prd_spec',
++    'gate_b',
++    'design',
++    'plan_tasks',
++    'code',
++    'review_qa_security',
++    'gate_c',
++    'release',
++    'gate_d',
++    'launch_drafts',
++    'feedback',
++  ];
++
++  it('maps all 14 daemon stages to the 5 simple stages', () => {
++    for (const stage of allDaemonStages) {
++      const simple = toSimpleStage(stage);
++      expect(['idea', 'plan', 'build', 'qa', 'delivery']).toContain(simple);
++      expect(DAEMON_TO_SIMPLE_STAGE[stage]).toBe(simple);
++    }
++  });
++
++  it('maps idea and gate_a to idea', () => {
++    expect(toSimpleStage('idea')).toBe('idea');
++    expect(toSimpleStage('gate_a')).toBe('idea');
++    expect(getSimpleStageLabelKey('idea')).toBe('stages.idea');
++  });
++
++  it('maps research, prd_spec, gate_b, design, plan_tasks to plan', () => {
++    expect(toSimpleStage('research')).toBe('plan');
++    expect(toSimpleStage('prd_spec')).toBe('plan');
++    expect(toSimpleStage('gate_b')).toBe('plan');
++    expect(toSimpleStage('design')).toBe('plan');
++    expect(toSimpleStage('plan_tasks')).toBe('plan');
++    expect(getSimpleStageLabelKey('plan_tasks')).toBe('stages.plan');
++  });
++
++  it('maps code to build', () => {
++    expect(toSimpleStage('code')).toBe('build');
++    expect(getSimpleStageLabelKey('code')).toBe('stages.build');
++  });
++
++  it('maps review_qa_security and gate_c to qa', () => {
++    expect(toSimpleStage('review_qa_security')).toBe('qa');
++    expect(toSimpleStage('gate_c')).toBe('qa');
++    expect(getSimpleStageLabelKey('gate_c')).toBe('stages.qa');
++  });
++
++  it('maps release, gate_d, launch_drafts, feedback to delivery', () => {
++    expect(toSimpleStage('release')).toBe('delivery');
++    expect(toSimpleStage('gate_d')).toBe('delivery');
++    expect(toSimpleStage('launch_drafts')).toBe('delivery');
++    expect(toSimpleStage('feedback')).toBe('delivery');
++    expect(getSimpleStageLabelKey('feedback')).toBe('stages.delivery');
++  });
++
++  it('falls back safely for unknown stage', () => {
++    expect(toSimpleStage('unknown_stage')).toBe('idea');
++  });
++
++  it('provides catalog keys for the 4 gate questions', () => {
++    expect(getGateQuestionKey('a')).toBe('gate.question.a');
++    expect(getGateQuestionKey('b')).toBe('gate.question.b');
++    expect(getGateQuestionKey('c')).toBe('gate.question.c');
++    expect(getGateQuestionKey('d')).toBe('gate.question.d');
++    expect(getGateQuestionKey('A')).toBe('gate.question.a');
++    expect(GATE_QUESTIONS.a).toBe('gate.question.a');
++  });
++});
+diff --git a/apps/desktop/src/v3/copy/stages.ts b/apps/desktop/src/v3/copy/stages.ts
+new file mode 100644
+index 0000000..2c1572b
+--- /dev/null
++++ b/apps/desktop/src/v3/copy/stages.ts
+@@ -0,0 +1,74 @@
++/**
++ * Plain-language stages map and gate questions (UI_V3_PLAN §4).
++ *
++ * Maps all 14 daemon stages into 5 Simple stages:
++ * - idea, gate_a -> idea
++ * - research, prd_spec, gate_b, design, plan_tasks -> plan
++ * - code -> build
++ * - review_qa_security, gate_c -> qa
++ * - release, gate_d, launch_drafts, feedback -> delivery
++ */
++
++export type DaemonStage =
++  | 'idea'
++  | 'gate_a'
++  | 'research'
++  | 'prd_spec'
++  | 'gate_b'
++  | 'design'
++  | 'plan_tasks'
++  | 'code'
++  | 'review_qa_security'
++  | 'gate_c'
++  | 'release'
++  | 'gate_d'
++  | 'launch_drafts'
++  | 'feedback';
++
++export type SimpleStage = 'idea' | 'plan' | 'build' | 'qa' | 'delivery';
++
++export const DAEMON_TO_SIMPLE_STAGE: Record<DaemonStage, SimpleStage> = {
++  idea: 'idea',
++  gate_a: 'idea',
++  research: 'plan',
++  prd_spec: 'plan',
++  gate_b: 'plan',
++  design: 'plan',
++  plan_tasks: 'plan',
++  code: 'build',
++  review_qa_security: 'qa',
++  gate_c: 'qa',
++  release: 'delivery',
++  gate_d: 'delivery',
++  launch_drafts: 'delivery',
++  feedback: 'delivery',
++};
++
++export const SIMPLE_STAGE_LABEL_KEYS: Record<SimpleStage, string> = {
++  idea: 'stages.idea',
++  plan: 'stages.plan',
++  build: 'stages.build',
++  qa: 'stages.qa',
++  delivery: 'stages.delivery',
++};
++
++export const GATE_QUESTIONS: Record<'a' | 'b' | 'c' | 'd', string> = {
++  a: 'gate.question.a',
++  b: 'gate.question.b',
++  c: 'gate.question.c',
++  d: 'gate.question.d',
++};
++
++export function toSimpleStage(stage: DaemonStage | string): SimpleStage {
++  return (DAEMON_TO_SIMPLE_STAGE as Record<string, SimpleStage>)[stage] ?? 'idea';
++}
++
++export function getSimpleStageLabelKey(stage: DaemonStage | string): string {
++  const simple = toSimpleStage(stage);
++  return SIMPLE_STAGE_LABEL_KEYS[simple];
++}
++
++export function getGateQuestionKey(gate: 'a' | 'b' | 'c' | 'd' | string): string {
++  const normalized = gate.toLowerCase();
++  return (GATE_QUESTIONS as Record<string, string>)[normalized] ?? 'gate.question.a';
++}
+-- 
+2.55.0.windows.5
+

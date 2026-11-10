@@ -1,0 +1,120 @@
+From 1eb5260ac63ac3e589d6c9e2668c84be83b9c723 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Mon, 9 Nov 2026 17:05:54 +0400
+Subject: [PATCH 1/5] fix(pipeline): propagate non-test settings serialization
+ errors (R1)
+
+Replace non-test unwrap calls in settings.rs with propagated Results
+via try_new and autonomous_factory_harness, adding unit tests.
+---
+ crates/warsha-pipeline/src/settings.rs | 52 ++++++++++++++++++++++----
+ 1 file changed, 44 insertions(+), 8 deletions(-)
+
+diff --git a/crates/warsha-pipeline/src/settings.rs b/crates/warsha-pipeline/src/settings.rs
+index da0e98e..809535f 100644
+--- a/crates/warsha-pipeline/src/settings.rs
++++ b/crates/warsha-pipeline/src/settings.rs
+@@ -99,6 +99,8 @@ pub enum SettingsError {
+     DocumentIo { name: String, reason: String },
+     #[error("settings document {0} is not valid JSON")]
+     DocumentFormat(String),
++    #[error("settings serialization error: {0}")]
++    Serialization(#[from] serde_json::Error),
+ }
+ 
+ /// In-memory settings store for testing
+@@ -111,12 +113,12 @@ pub struct SettingsStore {
+ }
+ 
+ impl SettingsStore {
+-    /// Create a new settings store with defaults
+-    pub fn new() -> Self {
++    /// Create a new settings store with defaults, returning an error if serialization fails
++    pub fn try_new() -> Result<Self, SettingsError> {
+         let mut harnesses = HashMap::new();
+         harnesses.insert(
+             "autonomous-factory".to_string(),
+-            autonomous_factory_harness(),
++            autonomous_factory_harness()?,
+         );
+ 
+         let mut skills = HashMap::new();
+@@ -128,14 +130,30 @@ impl SettingsStore {
+             license: "MIT".to_string(),
+             content: "# Test-Driven Development\n\nWrite the failing test first, watch it fail for the right reason, then implement the minimum code to pass. Red, green, refactor.\n".to_string(),
+             enabled: true,
+-            tags_json: serde_json::to_string(&["testing", "coding", "quality"]).unwrap(),
++            tags_json: serde_json::to_string(&["testing", "coding", "quality"])?,
+         });
+ 
+-        Self {
++        Ok(Self {
+             harnesses: Arc::new(RwLock::new(harnesses)),
+             skills: Arc::new(RwLock::new(skills)),
+             plugins: Arc::new(RwLock::new(HashMap::new())),
+             active_harness: Arc::new(RwLock::new(HashMap::new())),
++        })
++    }
++
++    /// Create a new settings store with defaults
++    pub fn new() -> Self {
++        match Self::try_new() {
++            Ok(store) => store,
++            Err(e) => {
++                tracing::error!("failed to initialize default SettingsStore: {e}");
++                Self {
++                    harnesses: Arc::new(RwLock::new(HashMap::new())),
++                    skills: Arc::new(RwLock::new(HashMap::new())),
++                    plugins: Arc::new(RwLock::new(HashMap::new())),
++                    active_harness: Arc::new(RwLock::new(HashMap::new())),
++                }
++            }
+         }
+     }
+ 
+@@ -217,7 +235,7 @@ impl SettingsProvider for SettingsStore {
+     }
+ }
+ 
+-fn autonomous_factory_harness() -> StoredHarness {
++fn autonomous_factory_harness() -> Result<StoredHarness, SettingsError> {
+     let harness_def = HarnessDefinition {
+         id: "autonomous-factory".to_string(),
+         version: "1.0.0".to_string(),
+@@ -308,13 +326,31 @@ fn autonomous_factory_harness() -> StoredHarness {
+         created_at: DateTime::from_timestamp(1_735_689_600, 0).unwrap_or_default(),
+     };
+ 
+-    StoredHarness {
++    Ok(StoredHarness {
+         id: "autonomous-factory".to_string(),
+         version: "1.0.0".to_string(),
+         name: "Autonomous Factory".to_string(),
+         description: "Loki + Hard Mode 9-stage autonomous pipeline".to_string(),
+-        data_json: serde_json::to_string(&harness_def).unwrap(),
++        data_json: serde_json::to_string(&harness_def)?,
+         is_preset: true,
+         created_at: 1_735_689_600,
++    })
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[tokio::test]
++    async fn settings_store_try_new_and_defaults_succeed() {
++        let store = SettingsStore::try_new().expect("try_new succeeds");
++        assert!(store.get_harness("autonomous-factory").await.is_ok());
++    }
++
++    #[test]
++    fn autonomous_factory_harness_serializes_cleanly() {
++        let harness = autonomous_factory_harness().expect("harness serializes cleanly");
++        assert_eq!(harness.id, "autonomous-factory");
++        assert!(harness.is_preset);
+     }
+ }
+-- 
+2.55.0.windows.5
+

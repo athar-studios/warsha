@@ -1,0 +1,14 @@
+gate: GC.6a
+command: node scripts/check-arch.mjs --self-test
+commit: c27091696796805bbdf72848fbc93ff611866dcc
+host: Windows integration worktree
+timestamp: 2026-11-08T12:40:07Z
+---
+self-test R1 core-is-leaf: detected path dependency warsha-store
+self-test R2 no-daemon-under-pipeline: detected dependency warshad
+self-test R3 no-upward-edges: detected dependency warsha-pipeline (tier 3 is above warsha-store tier 1)
+self-test R4 no-private-module-reach: detected path warsha_pipeline::handoff (private module)
+self-test R5 ui-through-client: detected fetch( (call daemon through @warsha/client)
+self-test clean fixture: 0 violations
+arch self-test: 5 rules fire, clean fixture is clean
+exit_code: 0

@@ -1,0 +1,37 @@
+gate: G7.2
+command: ( cd apps/mobile/android && ./gradlew assembleRelease --no-daemon )
+commit: e172caf238550bbe4c26d311ccd0f08a6ca964dd
+worktree: C:/Users/Dragonfly/Downloads/warsha-wt/integration
+host: Windows integration worktree (re-derived by the orchestrator)
+env: ANDROID_HOME=C:/Users/Dragonfly/AppData/Local/Android/Sdk  JAVA_HOME=C:/Program Files/Android/Android Studio/jbr
+timestamp: 2026-11-08T17:41:54Z
+note: the first orchestrated attempt failed in 9s with 'SDK location not found' because ANDROID_HOME
+note: was unset in that shell. That was an environment gap in the harness, not a build failure;
+note: this run sets the SDK and JDK explicitly.
+---
+> Task :app:lintVitalRelease
+> Task :app:processReleaseJavaRes NO-SOURCE
+> Task :app:mergeReleaseJavaResource UP-TO-DATE
+> Task :app:optimizeReleaseResources UP-TO-DATE
+> Task :app:validateSigningRelease UP-TO-DATE
+> Task :app:writeReleaseAppMetadata UP-TO-DATE
+> Task :app:writeReleaseSigningConfigVersions UP-TO-DATE
+> Task :app:packageRelease UP-TO-DATE
+> Task :app:createReleaseApkListingFileRedirect UP-TO-DATE
+> Task :app:assembleRelease
+
+> Task :app:renameReleaseApk
+Signed release APK: C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\mobile\android\app\build\outputs\apk\release\warsha-remote-release.apk (kept app-release.apk)
+
+[Incubating] Problems report is available at: file:///C:/Users/Dragonfly/Downloads/warsha-wt/integration/apps/mobile/android/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.3.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 10s
+45 actionable tasks: 3 executed, 42 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.3.1/userguide/configuration_cache_enabling.html
+exit_code: 0

@@ -1,0 +1,938 @@
+=== Linux gate harness-selftest ===
+commit:  0772d502002562505c6438ae712abca7a7328d84
+project: both  mode: --list-only
+host:    WSL Ubuntu x86_64 user=root node=v20.20.2 pnpm=9.0.0
+worktree: /root/verify-harness-selftest
+CI: unset (matches the G0 baseline: 3 workers)
+plex faces: 9
+
+Preparing worktree (detached HEAD 0772d50)
+HEAD is now at 0772d50 docs(plan): specify Design System v2 and split the post-Qoder remediation into W1–W7
+--- pnpm install --frozen-lockfile ---
+Scope: all 8 workspace projects
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +806
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Progress: resolved 806, reused 438, downloaded 0, added 0
+Progress: resolved 806, reused 806, downloaded 0, added 806, done
+
+devDependencies:
++ @playwright/test 1.49.1
++ @typescript-eslint/eslint-plugin 8.72.1
++ @typescript-eslint/parser 8.72.1
++ axe-core 4.14.0
++ eslint 9.39.5
++ eslint-config-prettier 10.1.8
++ eslint-plugin-import 2.32.0
++ eslint-plugin-jsx-a11y 6.10.2
++ eslint-plugin-react 7.37.5
++ eslint-plugin-react-hooks 5.2.0
++ husky 9.1.7
++ prettier 3.9.10
++ typescript 5.9.3
++ vitest 2.1.9
+
+. prepare$ husky install
+. prepare: husky - install command is DEPRECATED
+. prepare: Done
+Done in 4.1s
+[install exit: 0]
+=== pnpm exec playwright test --project=desktop --list ===
+Listing tests:
+  [desktop] › desktop/e2e/flows.spec.ts:70:5 › the skip link is the first stop and it lands in the bench: 390x844 ar
+  [desktop] › desktop/e2e/flows.spec.ts:81:5 › the mode group moves focus with the arrows and presses with Enter: 390x844 ar
+  [desktop] › desktop/e2e/flows.spec.ts:109:5 › the settings tab strip is a roving tablist: 390x844 ar
+  [desktop] › desktop/e2e/flows.spec.ts:147:5 › the composer: Shift+Enter breaks the line, Enter sends it: 390x844 ar
+  [desktop] › desktop/e2e/flows.spec.ts:172:5 › a gate is approved from the keyboard, and only by the daemon: 390x844 ar
+  [desktop] › desktop/e2e/flows.spec.ts:189:5 › a refusal needs a note, and Escape hands focus back: 390x844 ar
+  [desktop] › desktop/e2e/flows.spec.ts:229:5 › the handoff dialog traps the keyboard and gives focus back on Escape: 390x844 ar
+  [desktop] › desktop/e2e/flows.spec.ts:70:5 › the skip link is the first stop and it lands in the bench: 390x844 en
+  [desktop] › desktop/e2e/flows.spec.ts:81:5 › the mode group moves focus with the arrows and presses with Enter: 390x844 en
+  [desktop] › desktop/e2e/flows.spec.ts:109:5 › the settings tab strip is a roving tablist: 390x844 en
+  [desktop] › desktop/e2e/flows.spec.ts:147:5 › the composer: Shift+Enter breaks the line, Enter sends it: 390x844 en
+  [desktop] › desktop/e2e/flows.spec.ts:172:5 › a gate is approved from the keyboard, and only by the daemon: 390x844 en
+  [desktop] › desktop/e2e/flows.spec.ts:189:5 › a refusal needs a note, and Escape hands focus back: 390x844 en
+  [desktop] › desktop/e2e/flows.spec.ts:229:5 › the handoff dialog traps the keyboard and gives focus back on Escape: 390x844 en
+  [desktop] › desktop/e2e/flows.spec.ts:70:5 › the skip link is the first stop and it lands in the bench: 1440x900 ar
+  [desktop] › desktop/e2e/flows.spec.ts:81:5 › the mode group moves focus with the arrows and presses with Enter: 1440x900 ar
+  [desktop] › desktop/e2e/flows.spec.ts:109:5 › the settings tab strip is a roving tablist: 1440x900 ar
+  [desktop] › desktop/e2e/flows.spec.ts:147:5 › the composer: Shift+Enter breaks the line, Enter sends it: 1440x900 ar
+  [desktop] › desktop/e2e/flows.spec.ts:172:5 › a gate is approved from the keyboard, and only by the daemon: 1440x900 ar
+  [desktop] › desktop/e2e/flows.spec.ts:189:5 › a refusal needs a note, and Escape hands focus back: 1440x900 ar
+  [desktop] › desktop/e2e/flows.spec.ts:229:5 › the handoff dialog traps the keyboard and gives focus back on Escape: 1440x900 ar
+  [desktop] › desktop/e2e/flows.spec.ts:70:5 › the skip link is the first stop and it lands in the bench: 1440x900 en
+  [desktop] › desktop/e2e/flows.spec.ts:81:5 › the mode group moves focus with the arrows and presses with Enter: 1440x900 en
+  [desktop] › desktop/e2e/flows.spec.ts:109:5 › the settings tab strip is a roving tablist: 1440x900 en
+  [desktop] › desktop/e2e/flows.spec.ts:147:5 › the composer: Shift+Enter breaks the line, Enter sends it: 1440x900 en
+  [desktop] › desktop/e2e/flows.spec.ts:172:5 › a gate is approved from the keyboard, and only by the daemon: 1440x900 en
+  [desktop] › desktop/e2e/flows.spec.ts:189:5 › a refusal needs a note, and Escape hands focus back: 1440x900 en
+  [desktop] › desktop/e2e/flows.spec.ts:229:5 › the handoff dialog traps the keyboard and gives focus back on Escape: 1440x900 en
+  [desktop] › desktop/e2e/flows.spec.ts:278:3 › a focused control draws the §9 ring in light
+  [desktop] › desktop/e2e/flows.spec.ts:278:3 › a focused control draws the §9 ring in dark
+  [desktop] › desktop/e2e/layout.spec.ts:44:5 › the onboarding heading stack keeps three separate boxes (320x568, ar)
+  [desktop] › desktop/e2e/layout.spec.ts:44:5 › the onboarding heading stack keeps three separate boxes (320x568, en)
+  [desktop] › desktop/e2e/layout.spec.ts:44:5 › the onboarding heading stack keeps three separate boxes (390x844, ar)
+  [desktop] › desktop/e2e/layout.spec.ts:44:5 › the onboarding heading stack keeps three separate boxes (390x844, en)
+  [desktop] › desktop/e2e/layout.spec.ts:44:5 › the onboarding heading stack keeps three separate boxes (768x1024, ar)
+  [desktop] › desktop/e2e/layout.spec.ts:44:5 › the onboarding heading stack keeps three separate boxes (768x1024, en)
+  [desktop] › desktop/e2e/layout.spec.ts:44:5 › the onboarding heading stack keeps three separate boxes (1024x768, ar)
+  [desktop] › desktop/e2e/layout.spec.ts:44:5 › the onboarding heading stack keeps three separate boxes (1024x768, en)
+  [desktop] › desktop/e2e/layout.spec.ts:44:5 › the onboarding heading stack keeps three separate boxes (1440x900, ar)
+  [desktop] › desktop/e2e/layout.spec.ts:44:5 › the onboarding heading stack keeps three separate boxes (1440x900, en)
+  [desktop] › desktop/e2e/layout.spec.ts:120:3 › the settings plate keeps every box inside its phone width (ar)
+  [desktop] › desktop/e2e/layout.spec.ts:120:3 › the settings plate keeps every box inside its phone width (en)
+  [desktop] › desktop/e2e/onboarding.spec.ts:45:1 › the first run lists providers, tests the key, creates the project and leaves the wizard
+  [desktop] › desktop/e2e/onboarding.spec.ts:76:1 › a refused key is reported as a failure, and the key is nowhere it could leak from
+  [desktop] › desktop/e2e/onboarding.spec.ts:110:1 › the owner is told the test passed, and only then can name a project
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: simple 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: simple 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: simple 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: simple 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: simple 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: simple 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: simple 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: simple 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: advanced 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: advanced 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: advanced 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: advanced 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: advanced 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: advanced 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: advanced 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: advanced 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: gates 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: gates 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: gates 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: gates 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: gates 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: gates 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: gates 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: gates 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: projects 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: projects 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: projects 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: projects 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: projects 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: projects 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: projects 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: projects 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: run 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: run 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: run 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: run 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: run 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: run 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: run 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: run 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: artifacts 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: artifacts 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: artifacts 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: artifacts 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: artifacts 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: artifacts 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: artifacts 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: artifacts 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: providers 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: providers 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: providers 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: providers 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: providers 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: providers 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: providers 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: providers 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: roles 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: roles 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: roles 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: roles 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: roles 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: roles 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: roles 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: roles 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: budgets 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: budgets 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: budgets 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: budgets 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: budgets 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: budgets 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: budgets 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: budgets 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: devices 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: devices 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: devices 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: devices 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: devices 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: devices 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: devices 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: devices 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings-providers 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings-providers 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings-providers 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings-providers 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings-providers 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings-providers 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings-providers 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings-providers 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: routines 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: routines 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: routines 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: routines 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: routines 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: routines 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: routines 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: routines 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: crash-reports 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: crash-reports 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: crash-reports 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: crash-reports 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: crash-reports 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: crash-reports 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: crash-reports 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: crash-reports 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: store-reviews 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: store-reviews 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: store-reviews 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: store-reviews 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: store-reviews 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: store-reviews 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: store-reviews 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: store-reviews 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: backend-kit 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: backend-kit 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: backend-kit 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: backend-kit 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: backend-kit 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: backend-kit 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: backend-kit 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: backend-kit 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-language 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-language 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-language 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-language 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-language 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-language 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-language 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-language 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-provider 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-provider 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-provider 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-provider 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-provider 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-provider 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-provider 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-provider 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-provider-first-run 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-provider-first-run 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-provider-first-run 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-provider-first-run 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-provider-first-run 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-provider-first-run 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-provider-first-run 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-provider-first-run 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-key 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-key 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-key 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-key 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-key 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-key 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-key 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-key 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-test-ok 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-test-ok 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-test-ok 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-test-ok 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-test-ok 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-test-ok 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-test-ok 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-test-ok 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-test-failed 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-test-failed 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-test-failed 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-test-failed 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-test-failed 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-test-failed 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-test-failed 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-test-failed 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-project 390x844 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-project 390x844 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-project 390x844 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-project 390x844 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-project 1440x900 ar light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-project 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-project 1440x900 en light
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: onboarding-project 1440x900 en dark
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:90:3 › the bench's landmarks are the §4 regions (light)
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:110:3 › the first-run wizard is inside the bench's landmark (light)
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:90:3 › the bench's landmarks are the §4 regions (dark)
+  [desktop] › desktop/e2e/screens.a11y.spec.ts:110:3 › the first-run wizard is inside the bench's landmark (dark)
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › simple 320x568 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › simple 320x568 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › simple 320x568 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › simple 320x568 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › simple 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › simple 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › simple 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › simple 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › simple 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › simple 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › simple 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › simple 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › simple 1024x768 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › simple 1024x768 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › simple 1024x768 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › simple 1024x768 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › simple 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › simple 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › simple 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › simple 1440x900 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › advanced 320x568 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › advanced 320x568 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › advanced 320x568 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › advanced 320x568 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › advanced 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › advanced 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › advanced 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › advanced 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › advanced 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › advanced 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › advanced 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › advanced 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › advanced 1024x768 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › advanced 1024x768 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › advanced 1024x768 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › advanced 1024x768 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › advanced 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › advanced 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › advanced 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › advanced 1440x900 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › gates 320x568 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › gates 320x568 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › gates 320x568 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › gates 320x568 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › gates 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › gates 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › gates 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › gates 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › gates 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › gates 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › gates 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › gates 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › gates 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › gates 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › gates 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › gates 1440x900 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › projects 320x568 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › projects 320x568 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › projects 320x568 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › projects 320x568 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › projects 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › projects 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › projects 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › projects 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › projects 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › projects 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › projects 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › projects 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › projects 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › projects 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › projects 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › projects 1440x900 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › run 320x568 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › run 320x568 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › run 320x568 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › run 320x568 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › run 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › run 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › run 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › run 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › run 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › run 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › run 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › run 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › run 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › run 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › run 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › run 1440x900 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › artifacts 320x568 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › artifacts 320x568 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › artifacts 320x568 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › artifacts 320x568 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › artifacts 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › artifacts 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › artifacts 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › artifacts 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › artifacts 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › artifacts 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › artifacts 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › artifacts 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › artifacts 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › artifacts 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › artifacts 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › artifacts 1440x900 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings 1440x900 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 1440x900 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › roles 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › roles 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › roles 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › roles 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › roles 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › roles 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › roles 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › roles 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › roles 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › roles 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › roles 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › roles 1440x900 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › budgets 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › budgets 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › budgets 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › budgets 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › budgets 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › budgets 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › budgets 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › budgets 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › budgets 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › budgets 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › budgets 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › budgets 1440x900 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › devices 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › devices 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › devices 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › devices 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › devices 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › devices 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › devices 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › devices 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › devices 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › devices 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › devices 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › devices 1440x900 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 1440x900 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › routines 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › routines 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › routines 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › routines 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › routines 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › routines 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › routines 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › routines 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › routines 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › routines 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › routines 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › routines 1440x900 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › crash-reports 1440x900 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › store-reviews 1440x900 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › backend-kit 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › backend-kit 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › backend-kit 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › backend-kit 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › backend-kit 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › backend-kit 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › backend-kit 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › backend-kit 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › backend-kit 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › backend-kit 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › backend-kit 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › backend-kit 1440x900 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-language 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-language 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-language 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-language 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-language 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-language 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-language 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-language 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-language 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-language 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-language 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-language 1440x900 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 1440x900 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 1440x900 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 1440x900 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-ok 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-ok 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-ok 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-ok 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-ok 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-ok 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-ok 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-ok 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-ok 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-ok 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-ok 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-ok 1440x900 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-failed 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-failed 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-failed 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-failed 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-failed 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-failed 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-failed 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-failed 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-failed 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-failed 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-failed 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-test-failed 1440x900 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-project 390x844 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-project 390x844 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-project 390x844 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-project 390x844 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-project 768x1024 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-project 768x1024 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-project 768x1024 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-project 768x1024 en dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-project 1440x900 ar light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-project 1440x900 ar dark
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-project 1440x900 en light
+  [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-project 1440x900 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects empty 320x568 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects empty 320x568 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects empty 320x568 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects empty 320x568 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects empty 390x844 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects empty 390x844 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects empty 390x844 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects empty 390x844 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects empty 1440x900 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects empty 1440x900 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects empty 1440x900 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects empty 1440x900 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects loading 320x568 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects loading 320x568 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects loading 320x568 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects loading 320x568 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects loading 390x844 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects loading 390x844 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects loading 390x844 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects loading 390x844 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects loading 1440x900 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects loading 1440x900 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects loading 1440x900 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects loading 1440x900 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple offline 320x568 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple offline 320x568 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple offline 320x568 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple offline 320x568 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple offline 390x844 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple offline 390x844 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple offline 390x844 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple offline 390x844 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple offline 1440x900 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple offline 1440x900 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple offline 1440x900 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple offline 1440x900 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › providers error 320x568 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › providers error 320x568 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › providers error 320x568 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › providers error 320x568 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › providers error 390x844 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › providers error 390x844 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › providers error 390x844 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › providers error 390x844 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › providers error 1440x900 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › providers error 1440x900 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › providers error 1440x900 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › providers error 1440x900 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › roles error 320x568 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › roles error 320x568 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › roles error 320x568 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › roles error 320x568 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › roles error 390x844 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › roles error 390x844 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › roles error 390x844 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › roles error 390x844 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › roles error 1440x900 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › roles error 1440x900 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › roles error 1440x900 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › roles error 1440x900 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices error 320x568 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices error 320x568 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices error 320x568 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices error 320x568 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices error 390x844 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices error 390x844 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices error 390x844 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices error 390x844 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices error 1440x900 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices error 1440x900 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices error 1440x900 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices error 1440x900 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports error 320x568 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports error 320x568 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports error 320x568 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports error 320x568 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports error 390x844 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports error 390x844 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports error 390x844 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports error 390x844 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports error 1440x900 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports error 1440x900 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports error 1440x900 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports error 1440x900 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews error 320x568 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews error 320x568 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews error 320x568 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews error 320x568 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews error 390x844 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews error 390x844 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews error 390x844 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews error 390x844 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews error 1440x900 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews error 1440x900 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews error 1440x900 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews error 1440x900 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports screen-loading 320x568 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports screen-loading 320x568 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports screen-loading 320x568 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports screen-loading 320x568 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports screen-loading 390x844 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports screen-loading 390x844 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports screen-loading 390x844 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports screen-loading 390x844 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports screen-loading 1440x900 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports screen-loading 1440x900 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports screen-loading 1440x900 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports screen-loading 1440x900 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews screen-loading 320x568 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews screen-loading 320x568 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews screen-loading 320x568 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews screen-loading 320x568 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews screen-loading 390x844 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews screen-loading 390x844 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews screen-loading 390x844 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews screen-loading 390x844 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews screen-loading 1440x900 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews screen-loading 1440x900 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews screen-loading 1440x900 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews screen-loading 1440x900 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices screen-loading 320x568 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices screen-loading 320x568 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices screen-loading 320x568 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices screen-loading 320x568 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices screen-loading 390x844 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices screen-loading 390x844 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices screen-loading 390x844 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices screen-loading 390x844 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices screen-loading 1440x900 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices screen-loading 1440x900 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices screen-loading 1440x900 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › devices screen-loading 1440x900 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates permission 320x568 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates permission 320x568 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates permission 320x568 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates permission 320x568 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates permission 390x844 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates permission 390x844 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates permission 390x844 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates permission 390x844 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates permission 1440x900 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates permission 1440x900 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates permission 1440x900 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates permission 1440x900 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates parked 320x568 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates parked 320x568 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates parked 320x568 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates parked 320x568 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates parked 390x844 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates parked 390x844 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates parked 390x844 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates parked 390x844 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates parked 1440x900 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates parked 1440x900 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates parked 1440x900 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates parked 1440x900 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 320x568 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 320x568 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 320x568 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 320x568 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 390x844 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 390x844 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 390x844 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 390x844 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 1440x900 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 1440x900 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 1440x900 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 1440x900 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › budgets no-ceiling 320x568 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › budgets no-ceiling 320x568 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › budgets no-ceiling 320x568 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › budgets no-ceiling 320x568 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › budgets no-ceiling 390x844 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › budgets no-ceiling 390x844 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › budgets no-ceiling 390x844 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › budgets no-ceiling 390x844 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › budgets no-ceiling 1440x900 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › budgets no-ceiling 1440x900 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › budgets no-ceiling 1440x900 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › budgets no-ceiling 1440x900 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects no-ceiling 320x568 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects no-ceiling 320x568 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects no-ceiling 320x568 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects no-ceiling 320x568 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects no-ceiling 390x844 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects no-ceiling 390x844 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects no-ceiling 390x844 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects no-ceiling 390x844 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects no-ceiling 1440x900 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects no-ceiling 1440x900 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects no-ceiling 1440x900 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects no-ceiling 1440x900 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple no-ceiling 320x568 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple no-ceiling 320x568 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple no-ceiling 320x568 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple no-ceiling 320x568 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple no-ceiling 390x844 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple no-ceiling 390x844 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple no-ceiling 390x844 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple no-ceiling 390x844 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple no-ceiling 1440x900 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple no-ceiling 1440x900 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple no-ceiling 1440x900 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple no-ceiling 1440x900 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects dense 320x568 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects dense 320x568 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects dense 320x568 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects dense 320x568 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects dense 390x844 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects dense 390x844 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects dense 390x844 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects dense 390x844 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects dense 1440x900 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects dense 1440x900 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects dense 1440x900 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › projects dense 1440x900 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple dense 320x568 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple dense 320x568 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple dense 320x568 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple dense 320x568 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple dense 390x844 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple dense 390x844 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple dense 390x844 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple dense 390x844 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple dense 1440x900 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple dense 1440x900 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple dense 1440x900 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › simple dense 1440x900 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 320x568 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 320x568 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 320x568 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 320x568 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 390x844 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 390x844 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 390x844 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 390x844 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 1440x900 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 1440x900 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 1440x900 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › store-reviews dense 1440x900 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 320x568 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 320x568 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 320x568 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 320x568 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 390x844 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 390x844 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 390x844 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 390x844 en dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 1440x900 ar light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 1440x900 ar dark
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 1440x900 en light
+  [desktop] › desktop/e2e/states.spec.ts:289:9 › crash-reports dense 1440x900 en dark
+Total: 793 tests in 6 files
+[list exit for desktop: 0]
+=== pnpm exec playwright test --project=remote --list ===
+Listing tests:
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 320x568 ar light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 320x568 ar dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 320x568 en light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 320x568 en dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 390x844 ar light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 390x844 ar dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 390x844 en light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 390x844 en dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 768x1024 ar light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 768x1024 ar dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 768x1024 en light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 768x1024 en dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 320x568 ar light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 320x568 ar dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 320x568 en light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 320x568 en dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 390x844 ar light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 390x844 ar dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 390x844 en light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 390x844 en dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 768x1024 ar light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 768x1024 ar dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 768x1024 en light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 768x1024 en dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 320x568 ar light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 320x568 ar dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 320x568 en light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 320x568 en dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 390x844 ar light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 390x844 ar dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 390x844 en light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 390x844 en dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 768x1024 ar light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 768x1024 ar dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 768x1024 en light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 768x1024 en dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 320x568 ar light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 320x568 ar dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 320x568 en light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 320x568 en dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 390x844 ar light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 390x844 ar dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 390x844 en light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 390x844 en dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › settings 320x568 ar light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › settings 320x568 ar dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › settings 320x568 en light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › settings 320x568 en dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › settings 390x844 ar light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › settings 390x844 ar dark
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › settings 390x844 en light
+  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › settings 390x844 en dark
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you unpaired 320x568 ar light
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you unpaired 320x568 ar dark
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you unpaired 320x568 en light
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you unpaired 320x568 en dark
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you empty 320x568 ar light
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you empty 320x568 ar dark
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you empty 320x568 en light
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you empty 320x568 en dark
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you error 320x568 ar light
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you error 320x568 ar dark
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you error 320x568 en light
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you error 320x568 en dark
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you offline 320x568 ar light
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you offline 320x568 ar dark
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you offline 320x568 en light
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you offline 320x568 en dark
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you permission 320x568 ar light
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you permission 320x568 ar dark
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you permission 320x568 en light
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you permission 320x568 en dark
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you dense 320x568 ar light
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you dense 320x568 ar dark
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you dense 320x568 en light
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you dense 320x568 en dark
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › gates empty 320x568 ar light
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › gates empty 320x568 ar dark
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › gates empty 320x568 en light
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › gates empty 320x568 en dark
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › gates dense 320x568 ar light
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › gates dense 320x568 ar dark
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › gates dense 320x568 en light
+  [remote] › remote/e2e/bench.visual.spec.ts:120:9 › gates dense 320x568 en dark
+  [remote] › remote/e2e/flows.spec.ts:45:1 › the language switch changes the catalog, the direction and the declared language
+  [remote] › remote/e2e/flows.spec.ts:69:1 › a pairing link typed by hand becomes a session, and leaves the address
+  [remote] › remote/e2e/flows.spec.ts:110:1 › the skip link is the first thing a keyboard finds on the phone
+  [remote] › remote/e2e/flows.spec.ts:120:1 › a gate is decided from the keyboard, and the decision reaches the daemon
+  [remote] › remote/e2e/flows.spec.ts:145:1 › a dropped feed says so and keeps the queue
+  [remote] › remote/e2e/flows.spec.ts:167:1 › the offline bench offers a retry rather than implying the work is gone
+  [remote] › remote/e2e/flows.spec.ts:187:1 › the phone and the desktop say the same thing about the same gate
+Total: 91 tests in 2 files
+[list exit for remote: 0]
+
+=== post-run integrity ===
+snapshot_writes: 0
+dirty_after: 0
+head_after: 0772d502002562505c6438ae712abca7a7328d84
+desktop_exit= remote_exit=

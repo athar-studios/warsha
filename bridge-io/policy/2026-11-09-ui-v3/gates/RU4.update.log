@@ -1,0 +1,428 @@
+
+Running 96 tests using 2 workers
+
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-plan-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  1 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-plan-1280x800-ar-light (2.4s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-overview-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  2 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-overview-1280x800-ar-light (2.5s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-files-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  3 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-files-1280x800-ar-light (2.2s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-changes-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  4 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-changes-1280x800-ar-light (2.2s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-terminal-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  5 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-terminal-1280x800-ar-light (2.1s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-team-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  6 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-team-1280x800-ar-light (2.2s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-assistant-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  7 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-1280x800-ar-light (2.1s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-cost-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  8 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-cost-1280x800-ar-light (2.1s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-artifacts-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  9 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-artifacts-1280x800-ar-light (2.2s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-preview-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  10 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-preview-1280x800-ar-light (2.2s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-gate-waiting-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  11 [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-1280x800-ar-light (2.1s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-error-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  12 [desktop] › desktop/e2e/v3/bench.spec.ts:549:9 › @visual Workbench tabs & states › @visual bench-error-1280x800-ar-light (2.0s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-overview-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  13 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-overview-1280x800-ar-dark (2.1s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-plan-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  14 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-plan-1280x800-ar-dark (2.1s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-files-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  15 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-files-1280x800-ar-dark (2.0s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-changes-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  16 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-changes-1280x800-ar-dark (2.0s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-terminal-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  17 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-terminal-1280x800-ar-dark (2.4s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-team-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  18 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-team-1280x800-ar-dark (2.7s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-assistant-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  19 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-1280x800-ar-dark (3.0s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-cost-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  20 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-cost-1280x800-ar-dark (3.0s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-artifacts-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  21 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-artifacts-1280x800-ar-dark (2.8s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-preview-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  22 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-preview-1280x800-ar-dark (3.0s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-gate-waiting-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  23 [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-1280x800-ar-dark (2.6s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-error-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  24 [desktop] › desktop/e2e/v3/bench.spec.ts:549:9 › @visual Workbench tabs & states › @visual bench-error-1280x800-ar-dark (2.3s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-overview-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  25 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-overview-1280x800-en-light (2.4s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-plan-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  26 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-plan-1280x800-en-light (2.3s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-files-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  27 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-files-1280x800-en-light (2.1s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-changes-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  28 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-changes-1280x800-en-light (2.1s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-terminal-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  29 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-terminal-1280x800-en-light (2.1s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-team-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  30 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-team-1280x800-en-light (2.1s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-assistant-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  31 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-1280x800-en-light (2.0s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-cost-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  32 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-cost-1280x800-en-light (2.1s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-artifacts-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  33 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-artifacts-1280x800-en-light (2.3s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-preview-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  34 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-preview-1280x800-en-light (2.2s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-gate-waiting-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  35 [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-1280x800-en-light (2.1s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-error-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  36 [desktop] › desktop/e2e/v3/bench.spec.ts:549:9 › @visual Workbench tabs & states › @visual bench-error-1280x800-en-light (2.0s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-overview-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  37 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-overview-1280x800-en-dark (2.1s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-plan-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  38 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-plan-1280x800-en-dark (2.2s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-files-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  39 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-files-1280x800-en-dark (2.8s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-changes-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  40 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-changes-1280x800-en-dark (3.4s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-terminal-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  41 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-terminal-1280x800-en-dark (4.7s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-team-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  42 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-team-1280x800-en-dark (4.1s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-assistant-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  43 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-1280x800-en-dark (2.9s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-cost-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  44 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-cost-1280x800-en-dark (2.8s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-preview-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  46 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-preview-1280x800-en-dark (6.1s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-artifacts-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  45 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-artifacts-1280x800-en-dark (6.4s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-error-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  48 [desktop] › desktop/e2e/v3/bench.spec.ts:549:9 › @visual Workbench tabs & states › @visual bench-error-1280x800-en-dark (6.2s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-gate-waiting-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  47 [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-1280x800-en-dark (7.0s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-overview-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  49 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-overview-390x844-ar-light (6.6s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-plan-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  50 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-plan-390x844-ar-light (6.7s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-files-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  51 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-files-390x844-ar-light (6.4s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-changes-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  52 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-changes-390x844-ar-light (6.3s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-terminal-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  53 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-terminal-390x844-ar-light (6.5s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-team-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  54 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-team-390x844-ar-light (6.4s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-assistant-390x844-ar-light-desktop-linux.png, writing actual.
+  ✘  55 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-ar-light (5.4s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-cost-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  56 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-cost-390x844-ar-light (5.3s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-preview-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  57 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-preview-390x844-ar-light (5.9s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-artifacts-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  58 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-artifacts-390x844-ar-light (6.2s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-gate-waiting-390x844-ar-light-desktop-linux.png, writing actual.
+  ✘  59 [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-ar-light (5.9s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-error-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  60 [desktop] › desktop/e2e/v3/bench.spec.ts:549:9 › @visual Workbench tabs & states › @visual bench-error-390x844-ar-light (5.3s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-plan-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  61 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-plan-390x844-ar-dark (5.1s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-overview-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  62 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-overview-390x844-ar-dark (6.0s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-files-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  63 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-files-390x844-ar-dark (5.2s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-changes-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  64 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-changes-390x844-ar-dark (4.8s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-terminal-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  65 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-terminal-390x844-ar-dark (3.4s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-team-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  66 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-team-390x844-ar-dark (3.2s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-assistant-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✘  67 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-ar-dark (2.7s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-cost-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  68 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-cost-390x844-ar-dark (3.2s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-preview-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  69 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-preview-390x844-ar-dark (3.7s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-artifacts-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  70 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-artifacts-390x844-ar-dark (3.8s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-gate-waiting-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✘  71 [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-ar-dark (2.9s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-error-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  72 [desktop] › desktop/e2e/v3/bench.spec.ts:549:9 › @visual Workbench tabs & states › @visual bench-error-390x844-ar-dark (2.1s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-overview-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  73 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-overview-390x844-en-light (3.0s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-plan-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  74 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-plan-390x844-en-light (2.9s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-files-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  75 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-files-390x844-en-light (2.6s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-changes-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  76 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-changes-390x844-en-light (2.7s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-terminal-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  77 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-terminal-390x844-en-light (3.3s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-team-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  78 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-team-390x844-en-light (3.2s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-assistant-390x844-en-light-desktop-linux.png, writing actual.
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-cost-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  80 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-cost-390x844-en-light (2.6s)
+  ✘  79 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-en-light (2.6s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-artifacts-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  81 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-artifacts-390x844-en-light (2.9s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-preview-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  82 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-preview-390x844-en-light (3.4s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-gate-waiting-390x844-en-light-desktop-linux.png, writing actual.
+  ✘  83 [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-en-light (2.9s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-error-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  84 [desktop] › desktop/e2e/v3/bench.spec.ts:549:9 › @visual Workbench tabs & states › @visual bench-error-390x844-en-light (2.4s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-overview-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  85 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-overview-390x844-en-dark (2.6s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-plan-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  86 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-plan-390x844-en-dark (2.3s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-files-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  87 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-files-390x844-en-dark (2.5s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-changes-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  88 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-changes-390x844-en-dark (2.7s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-terminal-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  89 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-terminal-390x844-en-dark (2.6s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-team-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  90 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-team-390x844-en-dark (2.7s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-assistant-390x844-en-dark-desktop-linux.png, writing actual.
+  ✘  91 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-en-dark (2.4s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-cost-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  92 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-cost-390x844-en-dark (2.2s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-preview-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  93 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-preview-390x844-en-dark (2.4s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-artifacts-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  94 [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-artifacts-390x844-en-dark (3.6s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-gate-waiting-390x844-en-dark-desktop-linux.png, writing actual.
+  ✘  95 [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-en-dark (4.8s)
+A snapshot doesn't exist at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-error-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  96 [desktop] › desktop/e2e/v3/bench.spec.ts:549:9 › @visual Workbench tabs & states › @visual bench-error-390x844-en-dark (4.5s)
+
+
+  1) [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-ar-light 
+
+    Error: emptyBoxes: <div> "وضع الخطة: يقترح المساعد الخطوات" holds text but is 0×198
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32mtrue[39m
+    Received: [31mfalse[39m
+
+      520 |
+      521 |             const layout = await auditLayout(page, '[data-testid="bench-container"]', theme);
+    > 522 |             expect.soft(auditIsClean(layout), describeAudit(layout)).toBe(true);
+          |                                                                      ^
+      523 |
+      524 |             const clips = await auditClipping(page, '[data-testid="bench-container"]');
+      525 |             expect.soft(clipsAreClean(clips), describeClips(clips)).toBe(true);
+        at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts:522:70
+
+    attachment #1: bench-assistant-390x844-ar-light-expected.png (image/png) ───────────────────────
+    apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-assistant-390x844-ar-light-desktop-linux.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: bench-assistant-390x844-ar-light-actual.png (image/png) ─────────────────────────
+    test-results/v3-bench--visual-Workbench-2ff59--assistant-390x844-ar-light-desktop/bench-assistant-390x844-ar-light-actual.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-ar-light 
+
+    Error: emptyBoxes: <li> "عند الموافقة، ينتقل الفريق تلقائ" holds text but is 0×176
+    emptyBoxes: <li> "يمكنك مراجعة المخرجات والأحداث ق" holds text but is 0×154
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32mtrue[39m
+    Received: [31mfalse[39m
+
+      540 |
+      541 |           const layout = await auditLayout(page, '[data-testid="bench-container"]', theme);
+    > 542 |           expect.soft(auditIsClean(layout), describeAudit(layout)).toBe(true);
+          |                                                                    ^
+      543 |
+      544 |           await expect(page).toHaveScreenshot(
+      545 |             `bench-gate-waiting-${viewport.name}-${lang}-${theme}.png`
+        at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts:542:68
+
+    attachment #1: bench-gate-waiting-390x844-ar-light-expected.png (image/png) ────────────────────
+    apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-gate-waiting-390x844-ar-light-desktop-linux.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: bench-gate-waiting-390x844-ar-light-actual.png (image/png) ──────────────────────
+    test-results/v3-bench--visual-Workbench-52f55-te-waiting-390x844-ar-light-desktop/bench-gate-waiting-390x844-ar-light-actual.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-ar-dark 
+
+    Error: emptyBoxes: <div> "وضع الخطة: يقترح المساعد الخطوات" holds text but is 0×198
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32mtrue[39m
+    Received: [31mfalse[39m
+
+      520 |
+      521 |             const layout = await auditLayout(page, '[data-testid="bench-container"]', theme);
+    > 522 |             expect.soft(auditIsClean(layout), describeAudit(layout)).toBe(true);
+          |                                                                      ^
+      523 |
+      524 |             const clips = await auditClipping(page, '[data-testid="bench-container"]');
+      525 |             expect.soft(clipsAreClean(clips), describeClips(clips)).toBe(true);
+        at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts:522:70
+
+    attachment #1: bench-assistant-390x844-ar-dark-expected.png (image/png) ────────────────────────
+    apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-assistant-390x844-ar-dark-desktop-linux.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: bench-assistant-390x844-ar-dark-actual.png (image/png) ──────────────────────────
+    test-results/v3-bench--visual-Workbench-840a4-h-assistant-390x844-ar-dark-desktop/bench-assistant-390x844-ar-dark-actual.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-ar-dark 
+
+    Error: emptyBoxes: <li> "عند الموافقة، ينتقل الفريق تلقائ" holds text but is 0×176
+    emptyBoxes: <li> "يمكنك مراجعة المخرجات والأحداث ق" holds text but is 0×154
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32mtrue[39m
+    Received: [31mfalse[39m
+
+      540 |
+      541 |           const layout = await auditLayout(page, '[data-testid="bench-container"]', theme);
+    > 542 |           expect.soft(auditIsClean(layout), describeAudit(layout)).toBe(true);
+          |                                                                    ^
+      543 |
+      544 |           await expect(page).toHaveScreenshot(
+      545 |             `bench-gate-waiting-${viewport.name}-${lang}-${theme}.png`
+        at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts:542:68
+
+    attachment #1: bench-gate-waiting-390x844-ar-dark-expected.png (image/png) ─────────────────────
+    apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-gate-waiting-390x844-ar-dark-desktop-linux.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: bench-gate-waiting-390x844-ar-dark-actual.png (image/png) ───────────────────────
+    test-results/v3-bench--visual-Workbench-ea6a6-ate-waiting-390x844-ar-dark-desktop/bench-gate-waiting-390x844-ar-dark-actual.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  5) [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-en-light 
+
+    Error: emptyBoxes: <div> "Plan mode: The assistant propose" holds text but is 0×220
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32mtrue[39m
+    Received: [31mfalse[39m
+
+      520 |
+      521 |             const layout = await auditLayout(page, '[data-testid="bench-container"]', theme);
+    > 522 |             expect.soft(auditIsClean(layout), describeAudit(layout)).toBe(true);
+          |                                                                      ^
+      523 |
+      524 |             const clips = await auditClipping(page, '[data-testid="bench-container"]');
+      525 |             expect.soft(clipsAreClean(clips), describeClips(clips)).toBe(true);
+        at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts:522:70
+
+    attachment #1: bench-assistant-390x844-en-light-expected.png (image/png) ───────────────────────
+    apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-assistant-390x844-en-light-desktop-linux.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: bench-assistant-390x844-en-light-actual.png (image/png) ─────────────────────────
+    test-results/v3-bench--visual-Workbench-1bf7a--assistant-390x844-en-light-desktop/bench-assistant-390x844-en-light-actual.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  6) [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-en-light 
+
+    Error: emptyBoxes: <li> "Upon approval, the team automati" holds text but is 0×220
+    emptyBoxes: <li> "You can inspect artifacts and ev" holds text but is 0×220
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32mtrue[39m
+    Received: [31mfalse[39m
+
+      540 |
+      541 |           const layout = await auditLayout(page, '[data-testid="bench-container"]', theme);
+    > 542 |           expect.soft(auditIsClean(layout), describeAudit(layout)).toBe(true);
+          |                                                                    ^
+      543 |
+      544 |           await expect(page).toHaveScreenshot(
+      545 |             `bench-gate-waiting-${viewport.name}-${lang}-${theme}.png`
+        at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts:542:68
+
+    attachment #1: bench-gate-waiting-390x844-en-light-expected.png (image/png) ────────────────────
+    apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-gate-waiting-390x844-en-light-desktop-linux.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: bench-gate-waiting-390x844-en-light-actual.png (image/png) ──────────────────────
+    test-results/v3-bench--visual-Workbench-7befc-te-waiting-390x844-en-light-desktop/bench-gate-waiting-390x844-en-light-actual.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  7) [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-en-dark 
+
+    Error: emptyBoxes: <div> "Plan mode: The assistant propose" holds text but is 0×220
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32mtrue[39m
+    Received: [31mfalse[39m
+
+      520 |
+      521 |             const layout = await auditLayout(page, '[data-testid="bench-container"]', theme);
+    > 522 |             expect.soft(auditIsClean(layout), describeAudit(layout)).toBe(true);
+          |                                                                      ^
+      523 |
+      524 |             const clips = await auditClipping(page, '[data-testid="bench-container"]');
+      525 |             expect.soft(clipsAreClean(clips), describeClips(clips)).toBe(true);
+        at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts:522:70
+
+    attachment #1: bench-assistant-390x844-en-dark-expected.png (image/png) ────────────────────────
+    apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-assistant-390x844-en-dark-desktop-linux.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: bench-assistant-390x844-en-dark-actual.png (image/png) ──────────────────────────
+    test-results/v3-bench--visual-Workbench-e5882-h-assistant-390x844-en-dark-desktop/bench-assistant-390x844-en-dark-actual.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  8) [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-en-dark 
+
+    Error: emptyBoxes: <li> "Upon approval, the team automati" holds text but is 0×220
+    emptyBoxes: <li> "You can inspect artifacts and ev" holds text but is 0×220
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32mtrue[39m
+    Received: [31mfalse[39m
+
+      540 |
+      541 |           const layout = await auditLayout(page, '[data-testid="bench-container"]', theme);
+    > 542 |           expect.soft(auditIsClean(layout), describeAudit(layout)).toBe(true);
+          |                                                                    ^
+      543 |
+      544 |           await expect(page).toHaveScreenshot(
+      545 |             `bench-gate-waiting-${viewport.name}-${lang}-${theme}.png`
+        at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts:542:68
+
+    attachment #1: bench-gate-waiting-390x844-en-dark-expected.png (image/png) ─────────────────────
+    apps/desktop/e2e/v3/bench.spec.ts-snapshots/bench-gate-waiting-390x844-en-dark-desktop-linux.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: bench-gate-waiting-390x844-en-dark-actual.png (image/png) ───────────────────────
+    test-results/v3-bench--visual-Workbench-81122-ate-waiting-390x844-en-dark-desktop/bench-gate-waiting-390x844-en-dark-actual.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  8 failed
+    [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-ar-light 
+    [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-ar-light 
+    [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-ar-dark 
+    [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-ar-dark 
+    [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-en-light 
+    [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-en-light 
+    [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-en-dark 
+    [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-en-dark 
+  88 passed (3.0m)
+::error file=apps/desktop/e2e/v3/bench.spec.ts,title=[desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-ar-light,line=522,col=70::  1) [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-ar-light %0A    Error: emptyBoxes: <div> "وضع الخطة: يقترح المساعد الخطوات" holds text but is 0×198%0A%0A    expect(received).toBe(expected) // Object.is equality%0A%0A    Expected: true%0A    Received: false%0A%0A      520 |%0A      521 |             const layout = await auditLayout(page, '[data-testid="bench-container"]', theme);%0A    > 522 |             expect.soft(auditIsClean(layout), describeAudit(layout)).toBe(true);%0A          |                                                                      ^%0A      523 |%0A      524 |             const clips = await auditClipping(page, '[data-testid="bench-container"]');%0A      525 |             expect.soft(clipsAreClean(clips), describeClips(clips)).toBe(true);%0A        at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts:522:70
+::error file=apps/desktop/e2e/v3/bench.spec.ts,title=[desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-ar-light,line=542,col=68::  2) [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-ar-light %0A    Error: emptyBoxes: <li> "عند الموافقة، ينتقل الفريق تلقائ" holds text but is 0×176%0A    emptyBoxes: <li> "يمكنك مراجعة المخرجات والأحداث ق" holds text but is 0×154%0A%0A    expect(received).toBe(expected) // Object.is equality%0A%0A    Expected: true%0A    Received: false%0A%0A      540 |%0A      541 |           const layout = await auditLayout(page, '[data-testid="bench-container"]', theme);%0A    > 542 |           expect.soft(auditIsClean(layout), describeAudit(layout)).toBe(true);%0A          |                                                                    ^%0A      543 |%0A      544 |           await expect(page).toHaveScreenshot(%0A      545 |             `bench-gate-waiting-${viewport.name}-${lang}-${theme}.png`%0A        at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts:542:68
+::error file=apps/desktop/e2e/v3/bench.spec.ts,title=[desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-ar-dark,line=522,col=70::  3) [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-ar-dark %0A    Error: emptyBoxes: <div> "وضع الخطة: يقترح المساعد الخطوات" holds text but is 0×198%0A%0A    expect(received).toBe(expected) // Object.is equality%0A%0A    Expected: true%0A    Received: false%0A%0A      520 |%0A      521 |             const layout = await auditLayout(page, '[data-testid="bench-container"]', theme);%0A    > 522 |             expect.soft(auditIsClean(layout), describeAudit(layout)).toBe(true);%0A          |                                                                      ^%0A      523 |%0A      524 |             const clips = await auditClipping(page, '[data-testid="bench-container"]');%0A      525 |             expect.soft(clipsAreClean(clips), describeClips(clips)).toBe(true);%0A        at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts:522:70
+::error file=apps/desktop/e2e/v3/bench.spec.ts,title=[desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-ar-dark,line=542,col=68::  4) [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-ar-dark %0A    Error: emptyBoxes: <li> "عند الموافقة، ينتقل الفريق تلقائ" holds text but is 0×176%0A    emptyBoxes: <li> "يمكنك مراجعة المخرجات والأحداث ق" holds text but is 0×154%0A%0A    expect(received).toBe(expected) // Object.is equality%0A%0A    Expected: true%0A    Received: false%0A%0A      540 |%0A      541 |           const layout = await auditLayout(page, '[data-testid="bench-container"]', theme);%0A    > 542 |           expect.soft(auditIsClean(layout), describeAudit(layout)).toBe(true);%0A          |                                                                    ^%0A      543 |%0A      544 |           await expect(page).toHaveScreenshot(%0A      545 |             `bench-gate-waiting-${viewport.name}-${lang}-${theme}.png`%0A        at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts:542:68
+::error file=apps/desktop/e2e/v3/bench.spec.ts,title=[desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-en-light,line=522,col=70::  5) [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-en-light %0A    Error: emptyBoxes: <div> "Plan mode: The assistant propose" holds text but is 0×220%0A%0A    expect(received).toBe(expected) // Object.is equality%0A%0A    Expected: true%0A    Received: false%0A%0A      520 |%0A      521 |             const layout = await auditLayout(page, '[data-testid="bench-container"]', theme);%0A    > 522 |             expect.soft(auditIsClean(layout), describeAudit(layout)).toBe(true);%0A          |                                                                      ^%0A      523 |%0A      524 |             const clips = await auditClipping(page, '[data-testid="bench-container"]');%0A      525 |             expect.soft(clipsAreClean(clips), describeClips(clips)).toBe(true);%0A        at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts:522:70
+::error file=apps/desktop/e2e/v3/bench.spec.ts,title=[desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-en-light,line=542,col=68::  6) [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-en-light %0A    Error: emptyBoxes: <li> "Upon approval, the team automati" holds text but is 0×220%0A    emptyBoxes: <li> "You can inspect artifacts and ev" holds text but is 0×220%0A%0A    expect(received).toBe(expected) // Object.is equality%0A%0A    Expected: true%0A    Received: false%0A%0A      540 |%0A      541 |           const layout = await auditLayout(page, '[data-testid="bench-container"]', theme);%0A    > 542 |           expect.soft(auditIsClean(layout), describeAudit(layout)).toBe(true);%0A          |                                                                    ^%0A      543 |%0A      544 |           await expect(page).toHaveScreenshot(%0A      545 |             `bench-gate-waiting-${viewport.name}-${lang}-${theme}.png`%0A        at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts:542:68
+::error file=apps/desktop/e2e/v3/bench.spec.ts,title=[desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-en-dark,line=522,col=70::  7) [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-en-dark %0A    Error: emptyBoxes: <div> "Plan mode: The assistant propose" holds text but is 0×220%0A%0A    expect(received).toBe(expected) // Object.is equality%0A%0A    Expected: true%0A    Received: false%0A%0A      520 |%0A      521 |             const layout = await auditLayout(page, '[data-testid="bench-container"]', theme);%0A    > 522 |             expect.soft(auditIsClean(layout), describeAudit(layout)).toBe(true);%0A          |                                                                      ^%0A      523 |%0A      524 |             const clips = await auditClipping(page, '[data-testid="bench-container"]');%0A      525 |             expect.soft(clipsAreClean(clips), describeClips(clips)).toBe(true);%0A        at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts:522:70
+::error file=apps/desktop/e2e/v3/bench.spec.ts,title=[desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-en-dark,line=542,col=68::  8) [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-en-dark %0A    Error: emptyBoxes: <li> "Upon approval, the team automati" holds text but is 0×220%0A    emptyBoxes: <li> "You can inspect artifacts and ev" holds text but is 0×220%0A%0A    expect(received).toBe(expected) // Object.is equality%0A%0A    Expected: true%0A    Received: false%0A%0A      540 |%0A      541 |           const layout = await auditLayout(page, '[data-testid="bench-container"]', theme);%0A    > 542 |           expect.soft(auditIsClean(layout), describeAudit(layout)).toBe(true);%0A          |                                                                    ^%0A      543 |%0A      544 |           await expect(page).toHaveScreenshot(%0A      545 |             `bench-gate-waiting-${viewport.name}-${lang}-${theme}.png`%0A        at /root/warsha-ru4/apps/desktop/e2e/v3/bench.spec.ts:542:68
+::notice title=🎭 Playwright Run Summary::  8 failed%0A    [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-ar-light %0A    [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-ar-light %0A    [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-ar-dark %0A    [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-ar-dark %0A    [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-en-light %0A    [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-en-light %0A    [desktop] › desktop/e2e/v3/bench.spec.ts:513:11 › @visual Workbench tabs & states › @visual bench-assistant-390x844-en-dark %0A    [desktop] › desktop/e2e/v3/bench.spec.ts:533:9 › @visual Workbench tabs & states › @visual bench-gate-waiting-390x844-en-dark %0A  88 passed (3.0m)

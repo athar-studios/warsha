@@ -1,0 +1,5667 @@
+diff --git a/packages/ui/README.md b/packages/ui/README.md
+index 6b6d13b..f33b6f1 100644
+--- a/packages/ui/README.md
++++ b/packages/ui/README.md
+@@ -153,3 +153,57 @@ catalog or calls a network.
+ - Stories: `pnpm --filter @warsha/ui build-storybook`.
+ - Consumers still compile: `pnpm -r typecheck`; pixel neutrality is proven on the Linux capture host
+   (`pnpm exec playwright test --project=desktop|remote`), never on Windows.
++
++---
++
++## Design System v3 — «حِرفة» (`@warsha/ui/v3`)
++
++Status: clean-slate design system for Warsha v3, coexisting with v2 until cutover.
++
++### Importing
++
++Import components, icons, and token helpers from the `./v3` subpath:
++
++```tsx
++import { Button, IconButton, TextField, IconSettings, StatusPill } from '@warsha/ui/v3';
++import '@warsha/ui/v3/tokens/tokens.css';
++```
++
++### The Five Binding Principles
++
++1. **One screen, one question.** Every page answers one question ("what do we build?", "what does this project need from me?", "what is the team doing?"). Anything that does not serve it moves to Advanced or Settings.
++2. **Every control works — or does not exist.** A control is rendered only when its action is registered, wired to a real effect (RPC, navigation or visible state) and its capability is available. No placeholder buttons, no hard-coded model lists.
++3. **Plain Arabic first.** Simple mode speaks the owner's language: no English UI words, no internal names. Technical names appear only in Advanced mode, and as data.
++4. **Calm until you are needed.** One primary colour — the Warsha logo yellow (`--w-primary`) — for the one main action. The attention colour (orange, `--w-attention`) means exactly one thing: something is waiting for your decision.
++5. **Same data, more detail.** Advanced is not a second app. It shows the same project with more panels, denser rows and every knob. Switching modes never loses context.
++
++### Semantic Token Names (`--w-*`)
++
++- **Colors (§2.1):**
++  - Surfaces & Backgrounds: `--w-bg`, `--w-surface`, `--w-sunken`, `--w-scrim`
++  - Lines & Borders: `--w-line`, `--w-line-strong`
++  - Text: `--w-text`, `--w-text-muted`, `--w-text-faint`
++  - Primary (Logo Yellow): `--w-primary`, `--w-primary-hover`, `--w-on-primary`, `--w-primary-soft`, `--w-primary-text`
++  - Semantic Status:
++    - Attention (owner decision waiting): `--w-attention`, `--w-attention-soft`
++    - Success: `--w-success`, `--w-success-soft`
++    - Danger: `--w-danger`, `--w-danger-soft`
++    - Info: `--w-info`, `--w-info-soft`
++    - Focus: `--w-focus`
++- **Typography (§2.2):**
++  - Fonts: `--w-font-sans` (`"IBM Plex Sans Arabic"`), `--w-font-mono` (`"IBM Plex Mono"`)
++  - Sizes & Line Heights: `--w-font-size-{xs,sm,md,lg,xl,2xl,3xl}`, `--w-line-height-{xs,sm,md,lg,xl,2xl,3xl}`
++  - Weights: `--w-font-weight-{regular,medium,semibold,bold}`
++  - Tracking: `--w-tracking-code`
++- **Space & Radius (§2.3):**
++  - Space (4-based): `--w-space-{1..10}` (4px to 64px)
++  - Radius: `--w-radius-{sm,md,lg,xl,full}` (6px, 10px, 14px, 20px, 9999px)
++- **Elevation, Layers & Motion (§2.4):**
++  - Shadows: `--w-shadow-{1,2,overlay}`
++  - Layers: `--w-layer-{base,sticky,dropdown,overlay,modal,toast}`
++  - Motion: `--w-dur-fast` (120ms), `--w-dur` (200ms), `--w-dur-slow` (320ms), `--w-ease`
++- **Layout & Density (§2.3, §5):**
++  - Content widths: `--w-content-narrow` (720px), `--w-content` (1120px), `--w-content-wide` (1440px), `--w-nav-width` (264px), `--w-rail-width` (300px)
++  - Control height: `--w-control-height` (44px comfortable default; switches to 32px under `[data-density="compact"]`)
++  - Table text: `--w-table-text-size`, `--w-table-line-height` (switches from `md` to `sm` in compact mode)
++
+diff --git a/packages/ui/package.json b/packages/ui/package.json
+index 4dcad3c..39c1b0e 100644
+--- a/packages/ui/package.json
++++ b/packages/ui/package.json
+@@ -8,6 +8,8 @@
+     ".": "./src/index.ts",
+     "./tokens": "./src/tokens/index.ts",
+     "./tokens/tokens.css": "./src/tokens/tokens.css",
++    "./v3": "./src/v3/index.ts",
++    "./v3/tokens/tokens.css": "./src/v3/tokens/tokens.css",
+     "./package.json": "./package.json"
+   },
+   "scripts": {
+diff --git a/packages/ui/src/v3/icons/icons.test.tsx b/packages/ui/src/v3/icons/icons.test.tsx
+new file mode 100644
+index 0000000..c618cc3
+--- /dev/null
++++ b/packages/ui/src/v3/icons/icons.test.tsx
+@@ -0,0 +1,47 @@
++// packages/ui/src/v3/icons/icons.test.tsx — Icon test suite (DS v3 §2.5)
++import { render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it } from 'vitest';
++
++import { ALL_ICONS, IconChevron, IconHome } from './icons';
++
++describe('Design System v3 Icons', () => {
++  it('exports all 46 icons', () => {
++    expect(Object.keys(ALL_ICONS)).toHaveLength(46);
++  });
++
++  it('renders with 24 viewBox, currentColor, and 1.75 stroke', () => {
++    const { container } = render(<IconHome />);
++    const svg = container.querySelector('svg');
++    expect(svg).toBeInTheDocument();
++    expect(svg).toHaveAttribute('viewBox', '0 0 24 24');
++    expect(svg).toHaveAttribute('stroke', 'currentColor');
++    expect(svg).toHaveAttribute('stroke-width', '1.75');
++  });
++
++  it('has aria-hidden="true" when no label is provided', () => {
++    const { container } = render(<IconHome />);
++    const svg = container.querySelector('svg');
++    expect(svg).toHaveAttribute('aria-hidden', 'true');
++    expect(svg).not.toHaveAttribute('role');
++  });
++
++  it('sets role="img" and aria-label when label is provided', () => {
++    render(<IconHome label="الصفحة الرئيسية" />);
++    const icon = screen.getByRole('img', { name: 'الصفحة الرئيسية' });
++    expect(icon).toBeInTheDocument();
++    expect(icon).not.toHaveAttribute('aria-hidden');
++  });
++
++  it('adds w-icon--mirror class for directional icons by default', () => {
++    const { container } = render(<IconChevron />);
++    const svg = container.querySelector('svg');
++    expect(svg).toHaveClass('w-icon--mirror');
++  });
++
++  it('supports explicit mirror prop', () => {
++    const { container } = render(<IconHome mirror={true} />);
++    const svg = container.querySelector('svg');
++    expect(svg).toHaveClass('w-icon--mirror');
++  });
++});
+diff --git a/packages/ui/src/v3/icons/icons.tsx b/packages/ui/src/v3/icons/icons.tsx
+new file mode 100644
+index 0000000..88571ab
+--- /dev/null
++++ b/packages/ui/src/v3/icons/icons.tsx
+@@ -0,0 +1,480 @@
++// packages/ui/src/v3/icons/icons.tsx — Design System v3 Icons (DESIGN_SYSTEM_V3.md §2.5)
++// 46 in-house SVG icons: 24 viewBox, currentColor, stroke 1.75, aria-hidden unless label given.
++// Directional icons mirror in RTL via w-icon--mirror.
++
++import React from 'react';
++
++export interface IconProps extends React.SVGAttributes<SVGSVGElement> {
++  size?: number | string;
++  label?: string;
++  mirror?: boolean;
++}
++
++function createIcon(
++  name: string,
++  paths: React.ReactNode,
++  directional = false
++): React.FC<IconProps> {
++  const Component: React.FC<IconProps> = ({
++    size = 24,
++    label,
++    mirror,
++    className = '',
++    style,
++    ...rest
++  }) => {
++    const shouldMirror = mirror ?? directional;
++    const classes = [
++      'w-icon',
++      `w-icon-${name}`,
++      shouldMirror ? 'w-icon--mirror' : '',
++      className,
++    ]
++      .filter(Boolean)
++      .join(' ');
++
++    return (
++      <svg
++        viewBox="0 0 24 24"
++        width={size}
++        height={size}
++        fill="none"
++        stroke="currentColor"
++        strokeWidth="1.75"
++        strokeLinecap="round"
++        strokeLinejoin="round"
++        className={classes}
++        style={style}
++        aria-hidden={label ? undefined : true}
++        role={label ? 'img' : undefined}
++        aria-label={label}
++        {...rest}
++      >
++        {paths}
++      </svg>
++    );
++  };
++
++  Component.displayName = `Icon${name.charAt(0).toUpperCase() + name.slice(1)}`;
++  return Component;
++}
++
++export const IconHome = createIcon(
++  'home',
++  <path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1V9.5z" />
++);
++
++export const IconInbox = createIcon(
++  'inbox',
++  <>
++    <path d="M22 12h-6l-2 3h-4l-2-3H2" />
++    <path d="M5.45 5.11L2 12v7a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-7l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
++  </>
++);
++
++export const IconSettings = createIcon(
++  'settings',
++  <>
++    <circle cx="12" cy="12" r="3" />
++    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
++  </>
++);
++
++export const IconPlus = createIcon(
++  'plus',
++  <>
++    <line x1="12" y1="5" x2="12" y2="19" />
++    <line x1="5" y1="12" x2="19" y2="12" />
++  </>
++);
++
++export const IconSend = createIcon(
++  'send',
++  <>
++    <line x1="22" y1="2" x2="11" y2="13" />
++    <polygon points="22 2 15 22 11 13 2 9 22 2" />
++  </>,
++  true
++);
++
++export const IconStop = createIcon(
++  'stop',
++  <rect x="6" y="6" width="12" height="12" rx="2" />
++);
++
++export const IconPause = createIcon(
++  'pause',
++  <>
++    <line x1="10" y1="4" x2="10" y2="20" />
++    <line x1="14" y1="4" x2="14" y2="20" />
++  </>
++);
++
++export const IconPlay = createIcon(
++  'play',
++  <polygon points="5 3 19 12 5 21 5 3" />
++);
++
++export const IconCheck = createIcon(
++  'check',
++  <polyline points="20 6 9 17 4 12" />
++);
++
++export const IconX = createIcon(
++  'x',
++  <>
++    <line x1="18" y1="6" x2="6" y2="18" />
++    <line x1="6" y1="6" x2="18" y2="18" />
++  </>
++);
++
++export const IconAlert = createIcon(
++  'alert',
++  <>
++    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
++    <line x1="12" y1="9" x2="12" y2="13" />
++    <line x1="12" y1="17" x2="12.01" y2="17" />
++  </>
++);
++
++export const IconInfo = createIcon(
++  'info',
++  <>
++    <circle cx="12" cy="12" r="10" />
++    <line x1="12" y1="16" x2="12" y2="12" />
++    <line x1="12" y1="8" x2="12.01" y2="8" />
++  </>
++);
++
++export const IconClock = createIcon(
++  'clock',
++  <>
++    <circle cx="12" cy="12" r="10" />
++    <polyline points="12 6 12 12 16 14" />
++  </>
++);
++
++export const IconSparkle = createIcon(
++  'sparkle',
++  <path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z" />
++);
++
++export const IconUser = createIcon(
++  'user',
++  <>
++    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
++    <circle cx="12" cy="7" r="4" />
++  </>
++);
++
++export const IconUsers = createIcon(
++  'users',
++  <>
++    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
++    <circle cx="9" cy="7" r="4" />
++    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
++    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
++  </>
++);
++
++export const IconCpu = createIcon(
++  'cpu',
++  <>
++    <rect x="4" y="4" width="16" height="16" rx="2" />
++    <rect x="9" y="9" width="6" height="6" />
++    <line x1="9" y1="1" x2="9" y2="4" />
++    <line x1="15" y1="1" x2="15" y2="4" />
++    <line x1="9" y1="20" x2="9" y2="23" />
++    <line x1="15" y1="20" x2="15" y2="23" />
++    <line x1="20" y1="9" x2="23" y2="9" />
++    <line x1="20" y1="14" x2="23" y2="14" />
++    <line x1="1" y1="9" x2="4" y2="9" />
++    <line x1="1" y1="14" x2="4" y2="14" />
++  </>
++);
++
++export const IconFolder = createIcon(
++  'folder',
++  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
++);
++
++export const IconFile = createIcon(
++  'file',
++  <>
++    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
++    <polyline points="13 2 13 9 20 9" />
++  </>
++);
++
++export const IconCode = createIcon(
++  'code',
++  <>
++    <polyline points="16 18 22 12 16 6" />
++    <polyline points="8 6 2 12 8 18" />
++  </>
++);
++
++export const IconDiff = createIcon(
++  'diff',
++  <>
++    <rect x="3" y="3" width="18" height="18" rx="2" />
++    <line x1="8" y1="12" x2="16" y2="12" />
++    <line x1="12" y1="8" x2="12" y2="16" />
++    <line x1="3" y1="9" x2="21" y2="9" />
++  </>
++);
++
++export const IconTerminal = createIcon(
++  'terminal',
++  <>
++    <polyline points="4 17 10 11 4 5" />
++    <line x1="12" y1="19" x2="20" y2="19" />
++  </>
++);
++
++export const IconEye = createIcon(
++  'eye',
++  <>
++    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
++    <circle cx="12" cy="12" r="3" />
++  </>
++);
++
++export const IconLink = createIcon(
++  'link',
++  <>
++    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
++    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
++  </>
++);
++
++export const IconExternal = createIcon(
++  'external',
++  <>
++    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
++    <polyline points="15 3 21 3 21 9" />
++    <line x1="10" y1="14" x2="21" y2="3" />
++  </>,
++  true
++);
++
++export const IconCopy = createIcon(
++  'copy',
++  <>
++    <rect x="9" y="9" width="13" height="13" rx="2" />
++    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
++  </>
++);
++
++export const IconSearch = createIcon(
++  'search',
++  <>
++    <circle cx="11" cy="11" r="8" />
++    <line x1="21" y1="21" x2="16.65" y2="16.65" />
++  </>
++);
++
++export const IconFilter = createIcon(
++  'filter',
++  <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
++);
++
++export const IconChevron = createIcon(
++  'chevron',
++  <polyline points="9 18 15 12 9 6" />,
++  true
++);
++
++export const IconArrow = createIcon(
++  'arrow',
++  <>
++    <line x1="5" y1="12" x2="19" y2="12" />
++    <polyline points="12 5 19 12 12 19" />
++  </>,
++  true
++);
++
++export const IconMore = createIcon(
++  'more',
++  <>
++    <circle cx="12" cy="12" r="1" />
++    <circle cx="19" cy="12" r="1" />
++    <circle cx="5" cy="12" r="1" />
++  </>
++);
++
++export const IconSun = createIcon(
++  'sun',
++  <>
++    <circle cx="12" cy="12" r="5" />
++    <line x1="12" y1="1" x2="12" y2="3" />
++    <line x1="12" y1="21" x2="12" y2="23" />
++    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
++    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
++    <line x1="1" y1="12" x2="3" y2="12" />
++    <line x1="21" y1="12" x2="23" y2="12" />
++    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
++    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
++  </>
++);
++
++export const IconMoon = createIcon(
++  'moon',
++  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
++);
++
++export const IconGlobe = createIcon(
++  'globe',
++  <>
++    <circle cx="12" cy="12" r="10" />
++    <line x1="2" y1="12" x2="22" y2="12" />
++    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
++  </>
++);
++
++export const IconKey = createIcon(
++  'key',
++  <>
++    <path d="M21 2l-2 2m-1.5 1.5L14 9l-2-2-4 4 1.5 1.5L8 14l-2-2-3 3a4.24 4.24 0 0 0 6 6l8.5-8.5" />
++    <circle cx="18" cy="6" r="3" />
++  </>
++);
++
++export const IconPlug = createIcon(
++  'plug',
++  <path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0V8zM12 18v4" />
++);
++
++export const IconCalendar = createIcon(
++  'calendar',
++  <>
++    <rect x="3" y="4" width="18" height="18" rx="2" />
++    <line x1="16" y1="2" x2="16" y2="6" />
++    <line x1="8" y1="2" x2="8" y2="6" />
++    <line x1="3" y1="10" x2="21" y2="10" />
++  </>
++);
++
++export const IconWallet = createIcon(
++  'wallet',
++  <>
++    <path d="M20 7H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
++    <path d="M16 3H4a2 2 0 0 0-2 2v2" />
++    <circle cx="16" cy="14" r="1" />
++  </>
++);
++
++export const IconPhone = createIcon(
++  'phone',
++  <>
++    <rect x="5" y="2" width="14" height="20" rx="2" />
++    <line x1="12" y1="18" x2="12.01" y2="18" />
++  </>
++);
++
++export const IconRefresh = createIcon(
++  'refresh',
++  <>
++    <polyline points="23 4 23 10 17 10" />
++    <polyline points="1 20 1 14 7 14" />
++    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
++  </>
++);
++
++export const IconTrash = createIcon(
++  'trash',
++  <>
++    <polyline points="3 6 5 6 21 6" />
++    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
++  </>
++);
++
++export const IconEdit = createIcon(
++  'edit',
++  <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
++);
++
++export const IconDownload = createIcon(
++  'download',
++  <>
++    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
++    <polyline points="7 10 12 15 17 10" />
++    <line x1="12" y1="15" x2="12" y2="3" />
++  </>
++);
++
++export const IconUpload = createIcon(
++  'upload',
++  <>
++    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
++    <polyline points="17 8 12 3 7 8" />
++    <line x1="12" y1="3" x2="12" y2="15" />
++  </>
++);
++
++export const IconLock = createIcon(
++  'lock',
++  <>
++    <rect x="3" y="11" width="18" height="11" rx="2" />
++    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
++  </>
++);
++
++export const IconGitBranch = createIcon(
++  'git-branch',
++  <>
++    <line x1="6" y1="3" x2="6" y2="15" />
++    <circle cx="18" cy="6" r="3" />
++    <circle cx="6" cy="18" r="3" />
++    <path d="M18 9a9 9 0 0 1-9 9" />
++  </>
++);
++
++export const ALL_ICONS = {
++  IconHome,
++  IconInbox,
++  IconSettings,
++  IconPlus,
++  IconSend,
++  IconStop,
++  IconPause,
++  IconPlay,
++  IconCheck,
++  IconX,
++  IconAlert,
++  IconInfo,
++  IconClock,
++  IconSparkle,
++  IconUser,
++  IconUsers,
++  IconCpu,
++  IconFolder,
++  IconFile,
++  IconCode,
++  IconDiff,
++  IconTerminal,
++  IconEye,
++  IconLink,
++  IconExternal,
++  IconCopy,
++  IconSearch,
++  IconFilter,
++  IconChevron,
++  IconArrow,
++  IconMore,
++  IconSun,
++  IconMoon,
++  IconGlobe,
++  IconKey,
++  IconPlug,
++  IconCalendar,
++  IconWallet,
++  IconPhone,
++  IconRefresh,
++  IconTrash,
++  IconEdit,
++  IconDownload,
++  IconUpload,
++  IconLock,
++  IconGitBranch,
++} as const;
+diff --git a/packages/ui/src/v3/icons/index.ts b/packages/ui/src/v3/icons/index.ts
+new file mode 100644
+index 0000000..838008a
+--- /dev/null
++++ b/packages/ui/src/v3/icons/index.ts
+@@ -0,0 +1 @@
++export * from './icons';
+diff --git a/packages/ui/src/v3/index.ts b/packages/ui/src/v3/index.ts
+new file mode 100644
+index 0000000..6da2a31
+--- /dev/null
++++ b/packages/ui/src/v3/index.ts
+@@ -0,0 +1,6 @@
++// packages/ui/src/v3/index.ts — Design System v3 «حِرفة» Entry Point
++// Exports tokens, icons, and primitives per DESIGN_SYSTEM_V3.md
++
++export * from './tokens';
++export * from './icons';
++export * from './primitives';
+diff --git a/packages/ui/src/v3/primitives/Badge.stories.tsx b/packages/ui/src/v3/primitives/Badge.stories.tsx
+new file mode 100644
+index 0000000..f363b1d
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Badge.stories.tsx
+@@ -0,0 +1,20 @@
++import type { Meta, StoryObj } from '@storybook/react';
++
++import { Badge } from './Badge';
++
++const meta = {
++  title: 'v3/Primitives/Badge',
++  component: Badge,
++  parameters: { layout: 'centered' },
++  argTypes: {
++    variant: { control: 'inline-radio', options: ['neutral', 'attention', 'primary'] },
++  },
++  args: { count: 3, variant: 'neutral' },
++} satisfies Meta<typeof Badge>;
++
++export default meta;
++type Story = StoryObj<typeof meta>;
++
++export const Neutral: Story = {};
++export const Attention: Story = { args: { variant: 'attention', count: 7 } };
++export const Overflow: Story = { args: { count: 150 } };
+diff --git a/packages/ui/src/v3/primitives/Badge.test.tsx b/packages/ui/src/v3/primitives/Badge.test.tsx
+new file mode 100644
+index 0000000..6562ac0
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Badge.test.tsx
+@@ -0,0 +1,22 @@
++import { render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it } from 'vitest';
++
++import { Badge } from './Badge';
++
++describe('Badge primitive', () => {
++  it('renders count correctly', () => {
++    render(<Badge count={5} />);
++    expect(screen.getByText('5')).toBeInTheDocument();
++  });
++
++  it('caps count at 99+ when greater than 99', () => {
++    render(<Badge count={120} />);
++    expect(screen.getByText('99+')).toBeInTheDocument();
++  });
++
++  it('forwards data-action and data-testid', () => {
++    render(<Badge count={3} data-action="inbox.count" data-testid="inbox-badge" />);
++    expect(screen.getByTestId('inbox-badge')).toHaveAttribute('data-action', 'inbox.count');
++  });
++});
+diff --git a/packages/ui/src/v3/primitives/Badge.tsx b/packages/ui/src/v3/primitives/Badge.tsx
+new file mode 100644
+index 0000000..ef89917
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Badge.tsx
+@@ -0,0 +1,72 @@
++// packages/ui/src/v3/primitives/Badge.tsx — Design System v3 Badge (DS v3 §3.1)
++// Variants: neutral, attention, primary. Count caps at 99+.
++
++import React from 'react';
++
++export type BadgeVariant = 'neutral' | 'attention' | 'primary';
++
++export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
++  count?: number;
++  variant?: BadgeVariant;
++  'data-action'?: string;
++  'data-testid'?: string;
++}
++
++const BADGE_STYLES: Record<BadgeVariant, React.CSSProperties> = {
++  neutral: {
++    backgroundColor: 'var(--w-sunken)',
++    color: 'var(--w-text-muted)',
++  },
++  attention: {
++    backgroundColor: 'var(--w-attention-soft)',
++    color: 'var(--w-attention)',
++  },
++  primary: {
++    backgroundColor: 'var(--w-primary-soft)',
++    color: 'var(--w-primary-text)',
++  },
++};
++
++export const Badge: React.FC<BadgeProps> = ({
++  count,
++  variant = 'neutral',
++  children,
++  className = '',
++  style,
++  'data-action': dataAction,
++  'data-testid': dataTestId,
++  ...rest
++}) => {
++  const displayContent =
++    count !== undefined ? (count > 99 ? '99+' : String(count)) : children;
++
++  return (
++    <span
++      data-variant={variant}
++      className={`w-badge w-badge--${variant} ${className}`.trim()}
++      style={{
++        display: 'inline-flex',
++        alignItems: 'center',
++        justifyContent: 'center',
++        paddingBlock: 'var(--w-space-1)',
++        paddingInline: 'var(--w-space-2)',
++        borderRadius: 'var(--w-radius-full)',
++        fontSize: 'var(--w-font-size-xs)',
++        lineHeight: 'var(--w-line-height-xs)',
++        fontWeight: 'var(--w-font-weight-medium)',
++        fontFamily: 'var(--w-font-sans)',
++        minWidth: 'var(--w-space-5)',
++        boxSizing: 'border-box',
++        ...BADGE_STYLES[variant],
++        ...style,
++      }}
++      data-action={dataAction}
++      data-testid={dataTestId}
++      {...rest}
++    >
++      {displayContent}
++    </span>
++  );
++};
++
++Badge.displayName = 'Badge';
+diff --git a/packages/ui/src/v3/primitives/Button.stories.tsx b/packages/ui/src/v3/primitives/Button.stories.tsx
+new file mode 100644
+index 0000000..0029660
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Button.stories.tsx
+@@ -0,0 +1,26 @@
++import type { Meta, StoryObj } from '@storybook/react';
++
++import { Button } from './Button';
++
++const meta = {
++  title: 'v3/Primitives/Button',
++  component: Button,
++  parameters: { layout: 'centered' },
++  argTypes: {
++    variant: { control: 'inline-radio', options: ['primary', 'secondary', 'ghost', 'danger'] },
++    size: { control: 'inline-radio', options: ['sm', 'md', 'lg'] },
++    loading: { control: 'boolean' },
++    disabled: { control: 'boolean' },
++  },
++  args: { children: 'موافق', variant: 'primary', size: 'md' },
++} satisfies Meta<typeof Button>;
++
++export default meta;
++type Story = StoryObj<typeof meta>;
++
++export const Primary: Story = {};
++export const Secondary: Story = { args: { variant: 'secondary' } };
++export const Ghost: Story = { args: { variant: 'ghost' } };
++export const Danger: Story = { args: { variant: 'danger' } };
++export const Loading: Story = { args: { loading: true } };
++export const DisabledWithReason: Story = { args: { disabledReason: 'يتطلب ترقية الاشتراك' } };
+diff --git a/packages/ui/src/v3/primitives/Button.test.tsx b/packages/ui/src/v3/primitives/Button.test.tsx
+new file mode 100644
+index 0000000..1f36f63
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Button.test.tsx
+@@ -0,0 +1,45 @@
++import { fireEvent, render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it, vi } from 'vitest';
++
++import { Button } from './Button';
++
++describe('Button primitive', () => {
++  it('renders children with data-variant', () => {
++    render(<Button variant="primary">حفظ</Button>);
++    const button = screen.getByRole('button', { name: 'حفظ' });
++    expect(button).toBeInTheDocument();
++    expect(button).toHaveAttribute('data-variant', 'primary');
++  });
++
++  it('handles click events when enabled', () => {
++    const handleClick = vi.fn();
++    render(<Button onClick={handleClick}>ابدأ</Button>);
++    fireEvent.click(screen.getByRole('button', { name: 'ابدأ' }));
++    expect(handleClick).toHaveBeenCalledOnce();
++  });
++
++  it('renders loading state with aria-busy and disables interaction', () => {
++    const handleClick = vi.fn();
++    render(<Button loading onClick={handleClick}>تحميل</Button>);
++    const button = screen.getByRole('button');
++    expect(button).toHaveAttribute('aria-busy', 'true');
++    expect(button).toBeDisabled();
++    fireEvent.click(button);
++    expect(handleClick).not.toHaveBeenCalled();
++    expect(screen.getByRole('progressbar')).toBeInTheDocument();
++  });
++
++  it('renders disabledReason with aria-disabled and tooltip', () => {
++    render(<Button disabledReason="لا يوجد مزود مفعل">تشغيل</Button>);
++    const button = screen.getByRole('button', { name: 'تشغيل' });
++    expect(button).toBeDisabled();
++    expect(button).toHaveAttribute('aria-disabled', 'true');
++  });
++
++  it('forwards data-action and data-testid', () => {
++    render(<Button data-action="home.start" data-testid="start-btn">ابدأ</Button>);
++    const button = screen.getByTestId('start-btn');
++    expect(button).toHaveAttribute('data-action', 'home.start');
++  });
++});
+diff --git a/packages/ui/src/v3/primitives/Button.tsx b/packages/ui/src/v3/primitives/Button.tsx
+new file mode 100644
+index 0000000..cab65fd
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Button.tsx
+@@ -0,0 +1,168 @@
++// packages/ui/src/v3/primitives/Button.tsx — Design System v3 Button (DS v3 §3.1)
++// Variants: primary (logo yellow fill), secondary, ghost, danger.
++// Supports loading (aria-busy, keeps width), disabledReason (aria-disabled + Tooltip), icon, iconEnd.
++// Must render data-variant attribute (Gate U0.8).
++
++import React from 'react';
++
++import { Spinner } from './Spinner';
++import { Tooltip } from './Tooltip';
++
++export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
++export type ButtonSize = 'sm' | 'md' | 'lg';
++
++export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
++  variant?: ButtonVariant;
++  size?: ButtonSize;
++  icon?: React.ReactNode;
++  iconEnd?: React.ReactNode;
++  loading?: boolean;
++  disabledReason?: string;
++  'data-action'?: string;
++  'data-testid'?: string;
++}
++
++const VARIANT_STYLES: Record<ButtonVariant, React.CSSProperties> = {
++  primary: {
++    backgroundColor: 'var(--w-primary)',
++    color: 'var(--w-on-primary)',
++    border: 'none',
++  },
++  secondary: {
++    backgroundColor: 'var(--w-surface)',
++    color: 'var(--w-text)',
++    border: 'var(--w-border-width) solid var(--w-line-strong)',
++  },
++  ghost: {
++    backgroundColor: 'transparent',
++    color: 'var(--w-text)',
++    border: 'none',
++  },
++  danger: {
++    backgroundColor: 'var(--w-danger)',
++    color: 'var(--w-surface)',
++    border: 'none',
++  },
++};
++
++const SIZE_STYLES: Record<ButtonSize, React.CSSProperties> = {
++  sm: {
++    minHeight: 'var(--w-control-height)',
++    paddingBlock: 'var(--w-space-1)',
++    paddingInline: 'var(--w-space-3)',
++    fontSize: 'var(--w-font-size-sm)',
++    lineHeight: 'var(--w-line-height-sm)',
++  },
++  md: {
++    minHeight: 'var(--w-control-height)',
++    paddingBlock: 'var(--w-space-2)',
++    paddingInline: 'var(--w-space-4)',
++    fontSize: 'var(--w-font-size-md)',
++    lineHeight: 'var(--w-line-height-md)',
++  },
++  lg: {
++    minHeight: 'var(--w-control-height)',
++    paddingBlock: 'var(--w-space-3)',
++    paddingInline: 'var(--w-space-5)',
++    fontSize: 'var(--w-font-size-lg)',
++    lineHeight: 'var(--w-line-height-lg)',
++  },
++};
++
++export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
++  (
++    {
++      variant = 'secondary',
++      size = 'md',
++      icon,
++      iconEnd,
++      loading = false,
++      disabledReason,
++      disabled,
++      className = '',
++      style,
++      children,
++      type = 'button',
++      'data-action': dataAction,
++      'data-testid': dataTestId,
++      ...rest
++    },
++    ref
++  ) => {
++    const isDisabled = disabled || loading || Boolean(disabledReason);
++    const ariaDisabled = Boolean(disabledReason) || undefined;
++
++    const buttonElement = (
++      <button
++        ref={ref}
++        type={type}
++        disabled={isDisabled}
++        aria-disabled={ariaDisabled}
++        aria-busy={loading ? true : undefined}
++        data-variant={variant}
++        data-size={size}
++        data-action={dataAction}
++        data-testid={dataTestId}
++        className={`w-button w-button--${variant} w-button--${size} ${loading ? 'w-button--loading' : ''} ${className}`.trim()}
++        style={{
++          display: 'inline-flex',
++          alignItems: 'center',
++          justifyContent: 'center',
++          gap: 'var(--w-space-2)',
++          fontFamily: 'var(--w-font-sans)',
++          fontWeight: 'var(--w-font-weight-medium)',
++          borderRadius: 'var(--w-radius-sm)',
++          cursor: isDisabled ? 'not-allowed' : 'pointer',
++          opacity: isDisabled && !loading ? 0.5 : 1,
++          position: 'relative',
++          textDecoration: 'none',
++          boxSizing: 'border-box',
++          transition: 'background-color var(--w-dur-fast) var(--w-ease), opacity var(--w-dur-fast) var(--w-ease)',
++          ...VARIANT_STYLES[variant],
++          ...SIZE_STYLES[size],
++          ...style,
++        }}
++        {...rest}
++      >
++        {loading && (
++          <span
++            className="w-button__spinner"
++            style={{
++              position: 'absolute',
++              insetInlineStart: '50%',
++              insetBlockStart: '50%',
++              transform: 'translate(-50%, -50%)',
++              display: 'inline-flex',
++              alignItems: 'center',
++              justifyContent: 'center',
++            }}
++          >
++            <Spinner size={size === 'lg' ? 'md' : 'sm'} />
++          </span>
++        )}
++
++        <span
++          className="w-button__content"
++          style={{
++            display: 'inline-flex',
++            alignItems: 'center',
++            gap: 'var(--w-space-2)',
++            visibility: loading ? 'hidden' : 'visible',
++          }}
++        >
++          {icon && <span className="w-button__icon" aria-hidden="true">{icon}</span>}
++          {children}
++          {iconEnd && <span className="w-button__icon-end" aria-hidden="true">{iconEnd}</span>}
++        </span>
++      </button>
++    );
++
++    if (disabledReason) {
++      return <Tooltip content={disabledReason}>{buttonElement}</Tooltip>;
++    }
++
++    return buttonElement;
++  }
++);
++
++Button.displayName = 'Button';
+diff --git a/packages/ui/src/v3/primitives/Checkbox.stories.tsx b/packages/ui/src/v3/primitives/Checkbox.stories.tsx
+new file mode 100644
+index 0000000..2fa9f8b
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Checkbox.stories.tsx
+@@ -0,0 +1,21 @@
++import type { Meta, StoryObj } from '@storybook/react';
++
++import { Checkbox } from './Checkbox';
++
++const meta = {
++  title: 'v3/Primitives/Checkbox',
++  component: Checkbox,
++  parameters: { layout: 'centered' },
++  args: {
++    label: 'حفظ سجل المحادثات تلقائياً',
++    checked: false,
++  },
++} satisfies Meta<typeof Checkbox>;
++
++export default meta;
++type Story = StoryObj<typeof meta>;
++
++export const Default: Story = {};
++export const Checked: Story = { args: { checked: true } };
++export const Disabled: Story = { args: { disabled: true } };
++export const WithError: Story = { args: { error: 'يجب الموافقة للاستمرار' } };
+diff --git a/packages/ui/src/v3/primitives/Checkbox.test.tsx b/packages/ui/src/v3/primitives/Checkbox.test.tsx
+new file mode 100644
+index 0000000..a675e3e
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Checkbox.test.tsx
+@@ -0,0 +1,33 @@
++import { fireEvent, render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it, vi } from 'vitest';
++
++import { Checkbox } from './Checkbox';
++
++describe('Checkbox primitive', () => {
++  it('renders required label', () => {
++    render(<Checkbox label="تفعيل الوضع السريع" />);
++    const checkbox = screen.getByLabelText('تفعيل الوضع السريع');
++    expect(checkbox).toBeInTheDocument();
++    expect(checkbox).not.toBeChecked();
++  });
++
++  it('triggers onChange when clicked', () => {
++    const handleChange = vi.fn();
++    render(<Checkbox label="موافق" onChange={handleChange} />);
++    const checkbox = screen.getByLabelText('موافق');
++    fireEvent.click(checkbox);
++    expect(handleChange).toHaveBeenCalledOnce();
++  });
++
++  it('forwards data-action and data-testid', () => {
++    render(
++      <Checkbox
++        label="خيار"
++        data-action="settings.toggle"
++        data-testid="toggle-chk"
++      />
++    );
++    expect(screen.getByTestId('toggle-chk')).toHaveAttribute('data-action', 'settings.toggle');
++  });
++});
+diff --git a/packages/ui/src/v3/primitives/Checkbox.tsx b/packages/ui/src/v3/primitives/Checkbox.tsx
+new file mode 100644
+index 0000000..d1ee9c5
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Checkbox.tsx
+@@ -0,0 +1,147 @@
++// packages/ui/src/v3/primitives/Checkbox.tsx — Design System v3 Checkbox (DS v3 §3.1)
++// Label required; logical layout; forwards data-action, data-testid, aria-*.
++
++import React, { useId } from 'react';
++
++import { IconCheck } from '../icons';
++
++export interface CheckboxProps
++  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'> {
++  label: string; // required
++  error?: string;
++  hint?: string;
++  'data-action'?: string;
++  'data-testid'?: string;
++}
++
++export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
++  (
++    {
++      label,
++      error,
++      hint,
++      id,
++      checked,
++      disabled,
++      className = '',
++      style,
++      'data-action': dataAction,
++      'data-testid': dataTestId,
++      ...rest
++    },
++    ref
++  ) => {
++    const generatedId = useId();
++    const inputId = id ?? generatedId;
++    const errorId = `${inputId}-error`;
++    const hintId = `${inputId}-hint`;
++    const describedBy = error ? errorId : hint ? hintId : undefined;
++
++    return (
++      <div
++        className={`w-checkbox-field ${className}`.trim()}
++        style={{
++          display: 'inline-flex',
++          flexDirection: 'column',
++          gap: 'var(--w-space-1)',
++          fontFamily: 'var(--w-font-sans)',
++          ...style,
++        }}
++        data-action={dataAction}
++        data-testid={dataTestId}
++      >
++        <label
++          htmlFor={inputId}
++          className="w-checkbox"
++          style={{
++            display: 'inline-flex',
++            alignItems: 'center',
++            gap: 'var(--w-space-2)',
++            cursor: disabled ? 'not-allowed' : 'pointer',
++            opacity: disabled ? 0.6 : 1,
++            userSelect: 'none',
++          }}
++        >
++          <input
++            ref={ref}
++            id={inputId}
++            type="checkbox"
++            checked={checked}
++            disabled={disabled}
++            aria-invalid={error ? true : undefined}
++            aria-describedby={describedBy}
++            className="w-checkbox__input"
++            style={{
++              position: 'absolute',
++              opacity: 0,
++              width: 0,
++              height: 0,
++              margin: 0,
++            }}
++            {...rest}
++          />
++          <span
++            className="w-checkbox__box"
++            aria-hidden="true"
++            style={{
++              width: 'var(--w-space-5)',
++              height: 'var(--w-space-5)',
++              borderRadius: 'var(--w-radius-sm)',
++              border: `var(--w-border-width) solid ${error ? 'var(--w-danger)' : checked ? 'var(--w-primary-text)' : 'var(--w-line-strong)'}`,
++              backgroundColor: checked ? 'var(--w-primary)' : 'var(--w-surface)',
++              color: 'var(--w-on-primary)',
++              display: 'inline-flex',
++              alignItems: 'center',
++              justifyContent: 'center',
++              boxSizing: 'border-box',
++              flexShrink: 0,
++              transition: 'background-color var(--w-dur-fast) var(--w-ease), border-color var(--w-dur-fast) var(--w-ease)',
++            }}
++          >
++            {checked && <IconCheck size={14} />}
++          </span>
++          <span
++            className="w-checkbox__label"
++            style={{
++              fontSize: 'var(--w-font-size-md)',
++              lineHeight: 'var(--w-line-height-md)',
++              color: 'var(--w-text)',
++            }}
++          >
++            {label}
++          </span>
++        </label>
++
++        {error && (
++          <span
++            id={errorId}
++            role="alert"
++            style={{
++              fontSize: 'var(--w-font-size-xs)',
++              color: 'var(--w-danger)',
++              marginInlineStart: 'calc(var(--w-space-5) + var(--w-space-2))',
++            }}
++          >
++            {error}
++          </span>
++        )}
++
++        {hint && !error && (
++          <span
++            id={hintId}
++            className="w-checkbox__hint"
++            style={{
++              fontSize: 'var(--w-font-size-xs)',
++              color: 'var(--w-text-muted)',
++              marginInlineStart: 'calc(var(--w-space-5) + var(--w-space-2))',
++            }}
++          >
++            {hint}
++          </span>
++        )}
++      </div>
++    );
++  }
++);
++
++Checkbox.displayName = 'Checkbox';
+diff --git a/packages/ui/src/v3/primitives/Combobox.stories.tsx b/packages/ui/src/v3/primitives/Combobox.stories.tsx
+new file mode 100644
+index 0000000..7b1e44f
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Combobox.stories.tsx
+@@ -0,0 +1,24 @@
++import type { Meta, StoryObj } from '@storybook/react';
++
++import { Combobox } from './Combobox';
++
++const meta = {
++  title: 'v3/Primitives/Combobox',
++  component: Combobox,
++  parameters: { layout: 'centered' },
++  args: {
++    label: 'النموذج الذكي',
++    options: [
++      { value: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet', description: 'الأفضل في المهام المعقدة' },
++      { value: 'gpt-4o', label: 'GPT-4o', description: 'سريع ومتعدد الوسائط' },
++      { value: 'deepseek-v3', label: 'DeepSeek V3', description: 'اقتصادي وعالي الدقة' },
++    ],
++  },
++} satisfies Meta<typeof Combobox>;
++
++export default meta;
++type Story = StoryObj<typeof meta>;
++
++export const Default: Story = {};
++export const Loading: Story = { args: { loading: true } };
++export const WithError: Story = { args: { error: 'تعذر تحميل قائمة النماذج' } };
+diff --git a/packages/ui/src/v3/primitives/Combobox.test.tsx b/packages/ui/src/v3/primitives/Combobox.test.tsx
+new file mode 100644
+index 0000000..94dfb37
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Combobox.test.tsx
+@@ -0,0 +1,49 @@
++import { fireEvent, render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it, vi } from 'vitest';
++
++import { Combobox } from './Combobox';
++
++describe('Combobox primitive', () => {
++  const options = [
++    { value: 'gpt-4o', label: 'GPT-4o' },
++    { value: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
++  ];
++
++  it('renders with role="combobox"', () => {
++    render(<Combobox label="النموذج" options={options} />);
++    expect(screen.getByRole('combobox')).toBeInTheDocument();
++  });
++
++  it('filters options on typing', () => {
++    render(<Combobox label="النموذج" options={options} />);
++    const input = screen.getByRole('combobox');
++    fireEvent.focus(input);
++    fireEvent.change(input, { target: { value: 'Claude' } });
++
++    expect(screen.getByRole('option', { name: 'Claude 3.5 Sonnet' })).toBeInTheDocument();
++    expect(screen.queryByRole('option', { name: 'GPT-4o' })).not.toBeInTheDocument();
++  });
++
++  it('calls onChange on selecting an option', () => {
++    const handleChange = vi.fn();
++    render(<Combobox label="النموذج" options={options} onChange={handleChange} />);
++    const input = screen.getByRole('combobox');
++    fireEvent.focus(input);
++    fireEvent.click(screen.getByRole('option', { name: 'GPT-4o' }));
++
++    expect(handleChange).toHaveBeenCalledWith('gpt-4o');
++  });
++
++  it('forwards data-action and data-testid', () => {
++    render(
++      <Combobox
++        label="النموذج"
++        options={options}
++        data-action="model.select"
++        data-testid="model-combo"
++      />
++    );
++    expect(screen.getByTestId('model-combo')).toHaveAttribute('data-action', 'model.select');
++  });
++});
+diff --git a/packages/ui/src/v3/primitives/Combobox.tsx b/packages/ui/src/v3/primitives/Combobox.tsx
+new file mode 100644
+index 0000000..9c5dda1
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Combobox.tsx
+@@ -0,0 +1,312 @@
++// packages/ui/src/v3/primitives/Combobox.tsx — Design System v3 Combobox (DS v3 §3.1)
++// Searchable options, keyboard navigation, empty/loading/error states.
++
++import React, { useId, useRef, useState } from 'react';
++
++import { IconCheck, IconChevron } from '../icons';
++
++import { Spinner } from './Spinner';
++
++export interface ComboboxOption {
++  value: string;
++  label: string;
++  description?: string;
++  disabled?: boolean;
++}
++
++export interface ComboboxProps {
++  label?: string;
++  options: ComboboxOption[];
++  value?: string;
++  onChange?: (value: string) => void;
++  placeholder?: string;
++  loading?: boolean;
++  error?: string;
++  emptyText?: string;
++  disabled?: boolean;
++  className?: string;
++  style?: React.CSSProperties;
++  'data-action'?: string;
++  'data-testid'?: string;
++}
++
++export const Combobox: React.FC<ComboboxProps> = ({
++  label,
++  options,
++  value,
++  onChange,
++  placeholder = 'اختر أو ابحث...',
++  loading = false,
++  error,
++  emptyText = 'لا توجد نتائج مطابقة',
++  disabled = false,
++  className = '',
++  style,
++  'data-action': dataAction,
++  'data-testid': dataTestId,
++}) => {
++  const generatedId = useId();
++  const inputId = `${generatedId}-input`;
++  const listboxId = `${generatedId}-listbox`;
++
++  const [open, setOpen] = useState(false);
++  const [query, setQuery] = useState('');
++  const [activeIndex, setActiveIndex] = useState(-1);
++  const containerRef = useRef<HTMLDivElement>(null);
++
++  const selectedOption = options.find((opt) => opt.value === value);
++
++  const filteredOptions = options.filter(
++    (opt) =>
++      opt.label.toLowerCase().includes(query.toLowerCase()) ||
++      opt.value.toLowerCase().includes(query.toLowerCase())
++  );
++
++  const handleSelect = (opt: ComboboxOption) => {
++    if (opt.disabled) return;
++    onChange?.(opt.value);
++    setQuery('');
++    setOpen(false);
++    setActiveIndex(-1);
++  };
++
++  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
++    if (e.key === 'ArrowDown') {
++      e.preventDefault();
++      if (!open) {
++        setOpen(true);
++      } else {
++        setActiveIndex((prev) => (prev < filteredOptions.length - 1 ? prev + 1 : 0));
++      }
++    } else if (e.key === 'ArrowUp') {
++      e.preventDefault();
++      if (!open) {
++        setOpen(true);
++      } else {
++        setActiveIndex((prev) => (prev > 0 ? prev - 1 : filteredOptions.length - 1));
++      }
++    } else if (e.key === 'Enter') {
++      e.preventDefault();
++      if (open && activeIndex >= 0 && activeIndex < filteredOptions.length) {
++        handleSelect(filteredOptions[activeIndex]);
++      } else if (!open) {
++        setOpen(true);
++      }
++    } else if (e.key === 'Escape') {
++      setOpen(false);
++      setActiveIndex(-1);
++    }
++  };
++
++  return (
++    <div
++      ref={containerRef}
++      className={`w-field w-combobox ${className}`.trim()}
++      style={{
++        display: 'flex',
++        flexDirection: 'column',
++        gap: 'var(--w-space-1)',
++        position: 'relative',
++        fontFamily: 'var(--w-font-sans)',
++        ...style,
++      }}
++      data-action={dataAction}
++      data-testid={dataTestId}
++    >
++      {label && (
++        <label
++          htmlFor={inputId}
++          className="w-field__label"
++          style={{
++            fontSize: 'var(--w-font-size-sm)',
++            fontWeight: 'var(--w-font-weight-medium)',
++            color: 'var(--w-text)',
++          }}
++        >
++          {label}
++        </label>
++      )}
++
++      <div
++        className="w-field__control"
++        style={{
++          position: 'relative',
++          display: 'flex',
++          alignItems: 'center',
++          backgroundColor: 'var(--w-surface)',
++          border: `var(--w-border-width) solid ${error ? 'var(--w-danger)' : 'var(--w-line-strong)'}`,
++          borderRadius: 'var(--w-radius-sm)',
++          minHeight: 'var(--w-control-height)',
++          boxSizing: 'border-box',
++          paddingInline: 'var(--w-space-3)',
++        }}
++      >
++        <input
++          id={inputId}
++          role="combobox"
++          aria-expanded={open}
++          aria-haspopup="listbox"
++          aria-controls={listboxId}
++          aria-activedescendant={
++            activeIndex >= 0 ? `${generatedId}-opt-${activeIndex}` : undefined
++          }
++          disabled={disabled}
++          value={open ? query : selectedOption ? selectedOption.label : ''}
++          placeholder={placeholder}
++          onChange={(e) => {
++            setQuery(e.target.value);
++            if (!open) setOpen(true);
++            setActiveIndex(0);
++          }}
++          onFocus={() => setOpen(true)}
++          onKeyDown={handleKeyDown}
++          className="w-combobox__input"
++          style={{
++            flex: 1,
++            border: 'none',
++            outline: 'none',
++            background: 'transparent',
++            color: 'var(--w-text)',
++            fontSize: 'var(--w-font-size-md)',
++            lineHeight: 'var(--w-line-height-md)',
++            fontFamily: 'inherit',
++          }}
++        />
++
++        {loading ? (
++          <Spinner size="sm" />
++        ) : (
++          <button
++            type="button"
++            tabIndex={-1}
++            aria-label="تبديل القائمة"
++            onClick={() => setOpen(!open)}
++            disabled={disabled}
++            style={{
++              background: 'transparent',
++              border: 'none',
++              cursor: 'pointer',
++              color: 'var(--w-text-muted)',
++              display: 'inline-flex',
++              alignItems: 'center',
++              padding: 0,
++            }}
++          >
++            <IconChevron size={16} mirror={false} />
++          </button>
++        )}
++      </div>
++
++      {open && (
++        <ul
++          id={listboxId}
++          role="listbox"
++          className="w-combobox__listbox"
++          style={{
++            position: 'absolute',
++            insetBlockStart: 'calc(100% + var(--w-space-1))',
++            insetInlineStart: 0,
++            insetInlineEnd: 0,
++            backgroundColor: 'var(--w-surface)',
++            border: 'var(--w-border-width) solid var(--w-line)',
++            borderRadius: 'var(--w-radius-md)',
++            boxShadow: 'var(--w-shadow-1)',
++            maxHeight: 'var(--w-nav-width)',
++            overflowY: 'auto',
++            padding: 'var(--w-space-1)',
++            margin: 0,
++            listStyle: 'none',
++            zIndex: 'var(--w-layer-dropdown)',
++          }}
++        >
++          {loading ? (
++            <li
++              style={{
++                padding: 'var(--w-space-3)',
++                textAlign: 'center',
++                color: 'var(--w-text-muted)',
++                fontSize: 'var(--w-font-size-sm)',
++              }}
++            >
++              <Spinner size="sm" />
++            </li>
++          ) : filteredOptions.length === 0 ? (
++            <li
++              style={{
++                padding: 'var(--w-space-3)',
++                textAlign: 'center',
++                color: 'var(--w-text-muted)',
++                fontSize: 'var(--w-font-size-sm)',
++              }}
++            >
++              {emptyText}
++            </li>
++          ) : (
++            filteredOptions.map((opt, idx) => {
++              const isSelected = opt.value === value;
++              const isActive = idx === activeIndex;
++
++              return (
++                <li
++                  key={opt.value}
++                  id={`${generatedId}-opt-${idx}`}
++                  role="option"
++                  aria-selected={isSelected}
++                  aria-disabled={opt.disabled}
++                  onClick={() => handleSelect(opt)}
++                  onMouseEnter={() => setActiveIndex(idx)}
++                  className="w-combobox__option"
++                  style={{
++                    display: 'flex',
++                    alignItems: 'center',
++                    justifyContent: 'space-between',
++                    paddingBlock: 'var(--w-space-2)',
++                    paddingInline: 'var(--w-space-3)',
++                    borderRadius: 'var(--w-radius-sm)',
++                    cursor: opt.disabled ? 'not-allowed' : 'pointer',
++                    backgroundColor: isActive
++                      ? 'var(--w-sunken)'
++                      : isSelected
++                      ? 'var(--w-primary-soft)'
++                      : 'transparent',
++                    color: opt.disabled
++                      ? 'var(--w-text-faint)'
++                      : isSelected
++                      ? 'var(--w-primary-text)'
++                      : 'var(--w-text)',
++                    fontSize: 'var(--w-font-size-sm)',
++                  }}
++                >
++                  <div style={{ display: 'flex', flexDirection: 'column' }}>
++                    <span>{opt.label}</span>
++                    {opt.description && (
++                      <span style={{ fontSize: 'var(--w-font-size-xs)', color: 'var(--w-text-muted)' }}>
++                        {opt.description}
++                      </span>
++                    )}
++                  </div>
++                  {isSelected && <IconCheck size={16} />}
++                </li>
++              );
++            })
++          )}
++        </ul>
++      )}
++
++      {error && (
++        <span
++          role="alert"
++          className="w-field__error"
++          style={{
++            fontSize: 'var(--w-font-size-xs)',
++            color: 'var(--w-danger)',
++          }}
++        >
++          {error}
++        </span>
++      )}
++    </div>
++  );
++};
++
++Combobox.displayName = 'Combobox';
+diff --git a/packages/ui/src/v3/primitives/Divider.tsx b/packages/ui/src/v3/primitives/Divider.tsx
+new file mode 100644
+index 0000000..62e51b1
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Divider.tsx
+@@ -0,0 +1,49 @@
++// packages/ui/src/v3/primitives/Divider.tsx — Design System v3 Divider (DS v3 §3.1)
++import React from 'react';
++
++export interface DividerProps extends React.HTMLAttributes<HTMLHRElement> {
++  orientation?: 'horizontal' | 'vertical';
++  'data-action'?: string;
++  'data-testid'?: string;
++}
++
++export const Divider: React.FC<DividerProps> = ({
++  orientation = 'horizontal',
++  className = '',
++  style,
++  'data-action': dataAction,
++  'data-testid': dataTestId,
++  ...rest
++}) => {
++  const isVertical = orientation === 'vertical';
++
++  return (
++    <hr
++      role="separator"
++      aria-orientation={orientation}
++      className={`w-divider w-divider--${orientation} ${className}`.trim()}
++      style={{
++        border: 'none',
++        backgroundColor: 'var(--w-line)',
++        margin: 0,
++        ...(isVertical
++          ? {
++              width: 'var(--w-border-width)',
++              height: '100%',
++              display: 'inline-block',
++            }
++          : {
++              width: '100%',
++              height: 'var(--w-border-width)',
++              display: 'block',
++            }),
++        ...style,
++      }}
++      data-action={dataAction}
++      data-testid={dataTestId}
++      {...rest}
++    />
++  );
++};
++
++Divider.displayName = 'Divider';
+diff --git a/packages/ui/src/v3/primitives/IconButton.stories.tsx b/packages/ui/src/v3/primitives/IconButton.stories.tsx
+new file mode 100644
+index 0000000..0c1003b
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/IconButton.stories.tsx
+@@ -0,0 +1,29 @@
++import type { Meta, StoryObj } from '@storybook/react';
++import React from 'react';
++
++import { IconPlus, IconSettings, IconTrash } from '../icons';
++
++import { IconButton } from './IconButton';
++
++const meta = {
++  title: 'v3/Primitives/IconButton',
++  component: IconButton,
++  parameters: { layout: 'centered' },
++  argTypes: {
++    variant: { control: 'inline-radio', options: ['primary', 'secondary', 'ghost', 'danger'] },
++    size: { control: 'inline-radio', options: ['sm', 'md', 'lg'] },
++  },
++  args: {
++    icon: <IconSettings />,
++    label: 'الإعدادات',
++    variant: 'ghost',
++    size: 'md',
++  },
++} satisfies Meta<typeof IconButton>;
++
++export default meta;
++type Story = StoryObj<typeof meta>;
++
++export const Default: Story = {};
++export const Primary: Story = { args: { icon: <IconPlus />, label: 'إضافة', variant: 'primary' } };
++export const Danger: Story = { args: { icon: <IconTrash />, label: 'حذف', variant: 'danger' } };
+diff --git a/packages/ui/src/v3/primitives/IconButton.test.tsx b/packages/ui/src/v3/primitives/IconButton.test.tsx
+new file mode 100644
+index 0000000..9364349
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/IconButton.test.tsx
+@@ -0,0 +1,34 @@
++import { fireEvent, render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it, vi } from 'vitest';
++
++import { IconSettings } from '../icons';
++
++import { IconButton } from './IconButton';
++
++describe('IconButton primitive', () => {
++  it('renders with required label as aria-label', () => {
++    render(<IconButton icon={<IconSettings />} label="الإعدادات" />);
++    const button = screen.getByRole('button', { name: 'الإعدادات' });
++    expect(button).toBeInTheDocument();
++  });
++
++  it('handles click events', () => {
++    const handleClick = vi.fn();
++    render(<IconButton icon={<IconSettings />} label="الإعدادات" onClick={handleClick} />);
++    fireEvent.click(screen.getByRole('button', { name: 'الإعدادات' }));
++    expect(handleClick).toHaveBeenCalledOnce();
++  });
++
++  it('forwards data-action and data-testid', () => {
++    render(
++      <IconButton
++        icon={<IconSettings />}
++        label="الإعدادات"
++        data-action="topbar.settings"
++        data-testid="settings-btn"
++      />
++    );
++    expect(screen.getByTestId('settings-btn')).toHaveAttribute('data-action', 'topbar.settings');
++  });
++});
+diff --git a/packages/ui/src/v3/primitives/IconButton.tsx b/packages/ui/src/v3/primitives/IconButton.tsx
+new file mode 100644
+index 0000000..6a3a09d
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/IconButton.tsx
+@@ -0,0 +1,77 @@
++// packages/ui/src/v3/primitives/IconButton.tsx — Design System v3 IconButton (DS v3 §3.1)
++// Requires label (becomes aria-label + Tooltip). Forwards data-action, data-testid, aria-*.
++
++import React from 'react';
++
++import { Button, type ButtonSize, type ButtonVariant } from './Button';
++import { Tooltip } from './Tooltip';
++
++export interface IconButtonProps
++  extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
++  icon: React.ReactNode;
++  label: string; // required
++  variant?: ButtonVariant;
++  size?: ButtonSize;
++  loading?: boolean;
++  disabledReason?: string;
++  'data-action'?: string;
++  'data-testid'?: string;
++}
++
++const ICON_SIZE_STYLES: Record<ButtonSize, React.CSSProperties> = {
++  sm: {
++    width: 'var(--w-control-height)',
++    height: 'var(--w-control-height)',
++    padding: 0,
++  },
++  md: {
++    width: 'var(--w-control-height)',
++    height: 'var(--w-control-height)',
++    padding: 0,
++  },
++  lg: {
++    width: 'var(--w-control-height)',
++    height: 'var(--w-control-height)',
++    padding: 0,
++  },
++};
++
++export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
++  (
++    {
++      icon,
++      label,
++      variant = 'ghost',
++      size = 'md',
++      disabledReason,
++      className = '',
++      style,
++      ...rest
++    },
++    ref
++  ) => {
++    const tooltipContent = disabledReason ?? label;
++
++    return (
++      <Tooltip content={tooltipContent}>
++        <Button
++          ref={ref}
++          variant={variant}
++          size={size}
++          aria-label={label}
++          disabledReason={disabledReason}
++          className={`w-icon-button ${className}`.trim()}
++          style={{
++            ...ICON_SIZE_STYLES[size],
++            ...style,
++          }}
++          {...rest}
++        >
++          {icon}
++        </Button>
++      </Tooltip>
++    );
++  }
++);
++
++IconButton.displayName = 'IconButton';
+diff --git a/packages/ui/src/v3/primitives/Kbd.tsx b/packages/ui/src/v3/primitives/Kbd.tsx
+new file mode 100644
+index 0000000..dfbcaec
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Kbd.tsx
+@@ -0,0 +1,45 @@
++// packages/ui/src/v3/primitives/Kbd.tsx — Design System v3 Keyboard key (DS v3 §3.1)
++import React from 'react';
++
++export interface KbdProps extends React.HTMLAttributes<HTMLElement> {
++  'data-action'?: string;
++  'data-testid'?: string;
++}
++
++export const Kbd: React.FC<KbdProps> = ({
++  children,
++  className = '',
++  style,
++  'data-action': dataAction,
++  'data-testid': dataTestId,
++  ...rest
++}) => {
++  return (
++    <kbd
++      className={`w-kbd ${className}`.trim()}
++      style={{
++        display: 'inline-flex',
++        alignItems: 'center',
++        justifyContent: 'center',
++        paddingBlock: 'var(--w-space-1)',
++        paddingInline: 'var(--w-space-2)',
++        backgroundColor: 'var(--w-sunken)',
++        border: 'var(--w-border-width) solid var(--w-line-strong)',
++        borderRadius: 'var(--w-radius-sm)',
++        fontFamily: 'var(--w-font-mono)',
++        fontSize: 'var(--w-font-size-xs)',
++        lineHeight: 'var(--w-line-height-xs)',
++        color: 'var(--w-text)',
++        boxShadow: 'var(--w-shadow-1)',
++        ...style,
++      }}
++      data-action={dataAction}
++      data-testid={dataTestId}
++      {...rest}
++    >
++      {children}
++    </kbd>
++  );
++};
++
++Kbd.displayName = 'Kbd';
+diff --git a/packages/ui/src/v3/primitives/Link.stories.tsx b/packages/ui/src/v3/primitives/Link.stories.tsx
+new file mode 100644
+index 0000000..0f2b06a
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Link.stories.tsx
+@@ -0,0 +1,21 @@
++import type { Meta, StoryObj } from '@storybook/react';
++
++import { Link } from './Link';
++
++const meta = {
++  title: 'v3/Primitives/Link',
++  component: Link,
++  parameters: { layout: 'centered' },
++  argTypes: {
++    variant: { control: 'inline-radio', options: ['inline', 'standalone'] },
++    external: { control: 'boolean' },
++  },
++  args: { children: 'دليل الاستخدام', href: '#', variant: 'inline' },
++} satisfies Meta<typeof Link>;
++
++export default meta;
++type Story = StoryObj<typeof meta>;
++
++export const Inline: Story = {};
++export const Standalone: Story = { args: { variant: 'standalone' } };
++export const External: Story = { args: { external: true, href: 'https://warsha.io' } };
+diff --git a/packages/ui/src/v3/primitives/Link.test.tsx b/packages/ui/src/v3/primitives/Link.test.tsx
+new file mode 100644
+index 0000000..f04c620
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Link.test.tsx
+@@ -0,0 +1,26 @@
++import { render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it } from 'vitest';
++
++import { Link } from './Link';
++
++describe('Link primitive', () => {
++  it('renders inline link with href', () => {
++    render(<Link href="/docs">التوثيق</Link>);
++    const link = screen.getByRole('link', { name: 'التوثيق' });
++    expect(link).toBeInTheDocument();
++    expect(link).toHaveAttribute('href', '/docs');
++  });
++
++  it('adds target="_blank" and rel for external link', () => {
++    render(<Link href="https://example.com" external>رابط خارجي</Link>);
++    const link = screen.getByRole('link', { name: 'رابط خارجي' });
++    expect(link).toHaveAttribute('target', '_blank');
++    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
++  });
++
++  it('forwards data-action and data-testid', () => {
++    render(<Link href="/test" data-action="nav.docs" data-testid="doc-link">وثيقة</Link>);
++    expect(screen.getByTestId('doc-link')).toHaveAttribute('data-action', 'nav.docs');
++  });
++});
+diff --git a/packages/ui/src/v3/primitives/Link.tsx b/packages/ui/src/v3/primitives/Link.tsx
+new file mode 100644
+index 0000000..836d7ab
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Link.tsx
+@@ -0,0 +1,66 @@
++// packages/ui/src/v3/primitives/Link.tsx — Design System v3 Link (DS v3 §3.1)
++// Variants: inline / standalone. external adds IconExternal + rel/target.
++
++import React from 'react';
++
++import { IconExternal } from '../icons';
++
++export interface LinkProps extends React.AnchorHTMLAttributes<HTMLAnchorElement> {
++  variant?: 'inline' | 'standalone';
++  external?: boolean;
++  'data-action'?: string;
++  'data-testid'?: string;
++}
++
++export const Link = React.forwardRef<HTMLAnchorElement, LinkProps>(
++  (
++    {
++      variant = 'inline',
++      external = false,
++      href,
++      children,
++      className = '',
++      style,
++      'data-action': dataAction,
++      'data-testid': dataTestId,
++      ...rest
++    },
++    ref
++  ) => {
++    const isExternal = external || (href && (href.startsWith('http://') || href.startsWith('https://')));
++
++    return (
++      <a
++        ref={ref}
++        href={href}
++        target={isExternal ? '_blank' : undefined}
++        rel={isExternal ? 'noopener noreferrer' : undefined}
++        data-variant={variant}
++        data-action={dataAction}
++        data-testid={dataTestId}
++        className={`w-link w-link--${variant} ${className}`.trim()}
++        style={{
++          color: 'var(--w-primary-text)',
++          fontFamily: 'var(--w-font-sans)',
++          textDecoration: variant === 'inline' ? 'underline' : 'none',
++          textUnderlineOffset: 'var(--w-space-1)',
++          display: variant === 'standalone' ? 'inline-flex' : 'inline',
++          alignItems: 'center',
++          gap: 'var(--w-space-1)',
++          cursor: 'pointer',
++          ...style,
++        }}
++        {...rest}
++      >
++        {children}
++        {isExternal && (
++          <span className="w-link__external-icon" aria-hidden="true" style={{ display: 'inline-flex' }}>
++            <IconExternal size={14} />
++          </span>
++        )}
++      </a>
++    );
++  }
++);
++
++Link.displayName = 'Link';
+diff --git a/packages/ui/src/v3/primitives/ProgressBar.stories.tsx b/packages/ui/src/v3/primitives/ProgressBar.stories.tsx
+new file mode 100644
+index 0000000..bbd8d0f
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/ProgressBar.stories.tsx
+@@ -0,0 +1,22 @@
++import type { Meta, StoryObj } from '@storybook/react';
++
++import { ProgressBar } from './ProgressBar';
++
++const meta = {
++  title: 'v3/Primitives/ProgressBar',
++  component: ProgressBar,
++  parameters: { layout: 'centered' },
++  argTypes: {
++    value: { control: { type: 'range', min: 0, max: 100, step: 1 } },
++    variant: { control: 'inline-radio', options: ['primary', 'attention', 'success'] },
++  },
++  args: { value: 65, variant: 'primary', label: 'نسبة الإنجاز' },
++} satisfies Meta<typeof ProgressBar>;
++
++export default meta;
++type Story = StoryObj<typeof meta>;
++
++export const Default: Story = {};
++export const Attention: Story = { args: { variant: 'attention', value: 40 } };
++export const Success: Story = { args: { variant: 'success', value: 100 } };
++export const Indeterminate: Story = { args: { value: undefined } };
+diff --git a/packages/ui/src/v3/primitives/ProgressBar.test.tsx b/packages/ui/src/v3/primitives/ProgressBar.test.tsx
+new file mode 100644
+index 0000000..d134062
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/ProgressBar.test.tsx
+@@ -0,0 +1,33 @@
++import { render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it } from 'vitest';
++
++import { ProgressBar } from './ProgressBar';
++
++describe('ProgressBar primitive', () => {
++  it('renders role="progressbar" with aria-valuenow when value is provided', () => {
++    render(<ProgressBar value={60} max={100} label="اكتمال البناء" />);
++    const bar = screen.getByRole('progressbar', { name: 'اكتمال البناء' });
++    expect(bar).toBeInTheDocument();
++    expect(bar).toHaveAttribute('aria-valuenow', '60');
++    expect(bar).toHaveAttribute('aria-valuemin', '0');
++    expect(bar).toHaveAttribute('aria-valuemax', '100');
++  });
++
++  it('renders indeterminate state when value is undefined', () => {
++    render(<ProgressBar label="جارٍ المعالجة" />);
++    const bar = screen.getByRole('progressbar');
++    expect(bar).not.toHaveAttribute('aria-valuenow');
++  });
++
++  it('forwards data-action and data-testid', () => {
++    render(
++      <ProgressBar
++        value={25}
++        data-action="stage.progress"
++        data-testid="stage-prog"
++      />
++    );
++    expect(screen.getByTestId('stage-prog')).toHaveAttribute('data-action', 'stage.progress');
++  });
++});
+diff --git a/packages/ui/src/v3/primitives/ProgressBar.tsx b/packages/ui/src/v3/primitives/ProgressBar.tsx
+new file mode 100644
+index 0000000..711c06c
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/ProgressBar.tsx
+@@ -0,0 +1,73 @@
++// packages/ui/src/v3/primitives/ProgressBar.tsx — Design System v3 ProgressBar (DS v3 §3.1)
++// role="progressbar", aria-valuenow; logical layout; RTL-aware.
++
++import React from 'react';
++
++export interface ProgressBarProps extends React.HTMLAttributes<HTMLDivElement> {
++  value?: number; // 0 to max
++  max?: number;
++  label?: string;
++  variant?: 'primary' | 'attention' | 'success';
++  'data-action'?: string;
++  'data-testid'?: string;
++}
++
++const VARIANT_COLORS = {
++  primary: 'var(--w-primary)',
++  attention: 'var(--w-attention)',
++  success: 'var(--w-success)',
++} as const;
++
++export const ProgressBar: React.FC<ProgressBarProps> = ({
++  value,
++  max = 100,
++  label = 'التقدم',
++  variant = 'primary',
++  className = '',
++  style,
++  'data-action': dataAction,
++  'data-testid': dataTestId,
++  ...rest
++}) => {
++  const isIndeterminate = value === undefined;
++  const percentage = !isIndeterminate ? Math.min(100, Math.max(0, (value / max) * 100)) : undefined;
++
++  return (
++    <div
++      role="progressbar"
++      aria-label={label}
++      aria-valuenow={percentage}
++      aria-valuemin={0}
++      aria-valuemax={max}
++      className={`w-progress-bar w-progress-bar--${variant} ${className}`.trim()}
++      style={{
++        display: 'flex',
++        width: '100%',
++        height: 'var(--w-space-2)',
++        borderRadius: 'var(--w-radius-full)',
++        backgroundColor: 'var(--w-sunken)',
++        overflow: 'hidden',
++        position: 'relative',
++        boxSizing: 'border-box',
++        ...style,
++      }}
++      data-action={dataAction}
++      data-testid={dataTestId}
++      {...rest}
++    >
++      <div
++        className="w-progress-bar__fill"
++        style={{
++          height: '100%',
++          width: isIndeterminate ? '30%' : `${percentage}%`,
++          backgroundColor: VARIANT_COLORS[variant],
++          borderRadius: 'var(--w-radius-full)',
++          transition: isIndeterminate ? 'none' : 'width var(--w-dur) var(--w-ease)',
++          animation: isIndeterminate ? 'w-progress-indeterminate 1.5s infinite ease-in-out' : 'none',
++        }}
++      />
++    </div>
++  );
++};
++
++ProgressBar.displayName = 'ProgressBar';
+diff --git a/packages/ui/src/v3/primitives/Radio.stories.tsx b/packages/ui/src/v3/primitives/Radio.stories.tsx
+new file mode 100644
+index 0000000..9e79eb4
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Radio.stories.tsx
+@@ -0,0 +1,21 @@
++import type { Meta, StoryObj } from '@storybook/react';
++
++import { Radio } from './Radio';
++
++const meta = {
++  title: 'v3/Primitives/Radio',
++  component: Radio,
++  parameters: { layout: 'centered' },
++  args: {
++    label: 'الوضع البسيط (Simple)',
++    name: 'demo-mode',
++    checked: false,
++  },
++} satisfies Meta<typeof Radio>;
++
++export default meta;
++type Story = StoryObj<typeof meta>;
++
++export const Default: Story = {};
++export const Checked: Story = { args: { checked: true } };
++export const Disabled: Story = { args: { disabled: true } };
+diff --git a/packages/ui/src/v3/primitives/Radio.test.tsx b/packages/ui/src/v3/primitives/Radio.test.tsx
+new file mode 100644
+index 0000000..6e95997
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Radio.test.tsx
+@@ -0,0 +1,34 @@
++import { fireEvent, render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it, vi } from 'vitest';
++
++import { Radio } from './Radio';
++
++describe('Radio primitive', () => {
++  it('renders required label', () => {
++    render(<Radio label="الوضع البسيط" name="mode" value="simple" />);
++    const radio = screen.getByLabelText('الوضع البسيط');
++    expect(radio).toBeInTheDocument();
++    expect(radio).not.toBeChecked();
++  });
++
++  it('handles change event', () => {
++    const handleChange = vi.fn();
++    render(<Radio label="متقدم" name="mode" value="advanced" onChange={handleChange} />);
++    const radio = screen.getByLabelText('متقدم');
++    fireEvent.click(radio);
++    expect(handleChange).toHaveBeenCalledOnce();
++  });
++
++  it('forwards data-action and data-testid', () => {
++    render(
++      <Radio
++        label="خيار"
++        name="opt"
++        data-action="settings.mode"
++        data-testid="mode-radio"
++      />
++    );
++    expect(screen.getByTestId('mode-radio')).toHaveAttribute('data-action', 'settings.mode');
++  });
++});
+diff --git a/packages/ui/src/v3/primitives/Radio.tsx b/packages/ui/src/v3/primitives/Radio.tsx
+new file mode 100644
+index 0000000..9dcbb8f
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Radio.tsx
+@@ -0,0 +1,153 @@
++// packages/ui/src/v3/primitives/Radio.tsx — Design System v3 Radio (DS v3 §3.1)
++// Label required; logical layout; forwards data-action, data-testid, aria-*.
++
++import React, { useId } from 'react';
++
++export interface RadioProps
++  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'> {
++  label: string; // required
++  error?: string;
++  hint?: string;
++  'data-action'?: string;
++  'data-testid'?: string;
++}
++
++export const Radio = React.forwardRef<HTMLInputElement, RadioProps>(
++  (
++    {
++      label,
++      error,
++      hint,
++      id,
++      checked,
++      disabled,
++      className = '',
++      style,
++      'data-action': dataAction,
++      'data-testid': dataTestId,
++      ...rest
++    },
++    ref
++  ) => {
++    const generatedId = useId();
++    const inputId = id ?? generatedId;
++    const errorId = `${inputId}-error`;
++    const hintId = `${inputId}-hint`;
++    const describedBy = error ? errorId : hint ? hintId : undefined;
++
++    return (
++      <div
++        className={`w-radio-field ${className}`.trim()}
++        style={{
++          display: 'inline-flex',
++          flexDirection: 'column',
++          gap: 'var(--w-space-1)',
++          fontFamily: 'var(--w-font-sans)',
++          ...style,
++        }}
++        data-action={dataAction}
++        data-testid={dataTestId}
++      >
++        <label
++          htmlFor={inputId}
++          className="w-radio"
++          style={{
++            display: 'inline-flex',
++            alignItems: 'center',
++            gap: 'var(--w-space-2)',
++            cursor: disabled ? 'not-allowed' : 'pointer',
++            opacity: disabled ? 0.6 : 1,
++            userSelect: 'none',
++          }}
++        >
++          <input
++            ref={ref}
++            id={inputId}
++            type="radio"
++            checked={checked}
++            disabled={disabled}
++            aria-invalid={error ? true : undefined}
++            aria-describedby={describedBy}
++            className="w-radio__input"
++            style={{
++              position: 'absolute',
++              opacity: 0,
++              width: 0,
++              height: 0,
++              margin: 0,
++            }}
++            {...rest}
++          />
++          <span
++            className="w-radio__circle"
++            aria-hidden="true"
++            style={{
++              width: 'var(--w-space-5)',
++              height: 'var(--w-space-5)',
++              borderRadius: 'var(--w-radius-full)',
++              border: `var(--w-border-width) solid ${error ? 'var(--w-danger)' : checked ? 'var(--w-primary-text)' : 'var(--w-line-strong)'}`,
++              backgroundColor: 'var(--w-surface)',
++              display: 'inline-flex',
++              alignItems: 'center',
++              justifyContent: 'center',
++              boxSizing: 'border-box',
++              flexShrink: 0,
++              transition: 'border-color var(--w-dur-fast) var(--w-ease)',
++            }}
++          >
++            {checked && (
++              <span
++                style={{
++                  width: 'var(--w-space-2)',
++                  height: 'var(--w-space-2)',
++                  borderRadius: 'var(--w-radius-full)',
++                  backgroundColor: 'var(--w-primary)',
++                }}
++              />
++            )}
++          </span>
++          <span
++            className="w-radio__label"
++            style={{
++              fontSize: 'var(--w-font-size-md)',
++              lineHeight: 'var(--w-line-height-md)',
++              color: 'var(--w-text)',
++            }}
++          >
++            {label}
++          </span>
++        </label>
++
++        {error && (
++          <span
++            id={errorId}
++            role="alert"
++            style={{
++              fontSize: 'var(--w-font-size-xs)',
++              color: 'var(--w-danger)',
++              marginInlineStart: 'calc(var(--w-space-5) + var(--w-space-2))',
++            }}
++          >
++            {error}
++          </span>
++        )}
++
++        {hint && !error && (
++          <span
++            id={hintId}
++            className="w-radio__hint"
++            style={{
++              fontSize: 'var(--w-font-size-xs)',
++              color: 'var(--w-text-muted)',
++              marginInlineStart: 'calc(var(--w-space-5) + var(--w-space-2))',
++            }}
++          >
++            {hint}
++          </span>
++        )}
++      </div>
++    );
++  }
++);
++
++Radio.displayName = 'Radio';
+diff --git a/packages/ui/src/v3/primitives/RoleMark.stories.tsx b/packages/ui/src/v3/primitives/RoleMark.stories.tsx
+new file mode 100644
+index 0000000..8c37638
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/RoleMark.stories.tsx
+@@ -0,0 +1,38 @@
++import type { Meta, StoryObj } from '@storybook/react';
++
++import { RoleMark } from './RoleMark';
++
++const meta = {
++  title: 'v3/Primitives/RoleMark',
++  component: RoleMark,
++  parameters: { layout: 'centered' },
++  argTypes: {
++    role: {
++      control: 'select',
++      options: [
++        'planner',
++        'architect',
++        'coder',
++        'reviewer',
++        'verifier',
++        'tester',
++        'security',
++        'releaser',
++        'orchestrator',
++        'debugger',
++        'scribe',
++        'designer',
++      ],
++    },
++    showLabel: { control: 'boolean' },
++  },
++  args: { role: 'coder', showLabel: true },
++} satisfies Meta<typeof RoleMark>;
++
++export default meta;
++type Story = StoryObj<typeof meta>;
++
++export const Coder: Story = {};
++export const Planner: Story = { args: { role: 'planner' } };
++export const Reviewer: Story = { args: { role: 'reviewer' } };
++export const IconOnly: Story = { args: { showLabel: false } };
+diff --git a/packages/ui/src/v3/primitives/RoleMark.test.tsx b/packages/ui/src/v3/primitives/RoleMark.test.tsx
+new file mode 100644
+index 0000000..6617a29
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/RoleMark.test.tsx
+@@ -0,0 +1,29 @@
++import { render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it } from 'vitest';
++
++import { RoleMark } from './RoleMark';
++
++describe('RoleMark primitive', () => {
++  it('renders role label and decorative icon', () => {
++    render(<RoleMark role="coder" />);
++    expect(screen.getByText('المبرمج')).toBeInTheDocument();
++  });
++
++  it('can hide label when showLabel is false', () => {
++    render(<RoleMark role="coder" showLabel={false} data-testid="coder-mark" />);
++    expect(screen.queryByText('المبرمج')).not.toBeInTheDocument();
++    expect(screen.getByTestId('coder-mark')).toHaveAttribute('data-role', 'coder');
++  });
++
++  it('forwards data-action and data-testid', () => {
++    render(
++      <RoleMark
++        role="reviewer"
++        data-action="team.view-role"
++        data-testid="reviewer-mark"
++      />
++    );
++    expect(screen.getByTestId('reviewer-mark')).toHaveAttribute('data-action', 'team.view-role');
++  });
++});
+diff --git a/packages/ui/src/v3/primitives/RoleMark.tsx b/packages/ui/src/v3/primitives/RoleMark.tsx
+new file mode 100644
+index 0000000..c395d88
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/RoleMark.tsx
+@@ -0,0 +1,104 @@
++// packages/ui/src/v3/primitives/RoleMark.tsx — Design System v3 RoleMark (DS v3 §3.1)
++// 12 agent roles: Arabic name + icon. Decorative icon aria-hidden="true".
++
++import React from 'react';
++
++import {
++  IconAlert,
++  IconCalendar,
++  IconCheck,
++  IconCode,
++  IconCpu,
++  IconEdit,
++  IconEye,
++  IconLock,
++  IconSend,
++  IconSparkle,
++  IconTerminal,
++  IconUsers,
++} from '../icons';
++
++export type AgentRole =
++  | 'planner'
++  | 'architect'
++  | 'coder'
++  | 'reviewer'
++  | 'verifier'
++  | 'tester'
++  | 'security'
++  | 'releaser'
++  | 'orchestrator'
++  | 'debugger'
++  | 'scribe'
++  | 'designer';
++
++export interface RoleMarkProps extends React.HTMLAttributes<HTMLSpanElement> {
++  role: AgentRole;
++  showLabel?: boolean;
++  size?: 'sm' | 'md' | 'lg';
++  'data-action'?: string;
++  'data-testid'?: string;
++}
++
++export const ROLE_CONFIG: Record<
++  AgentRole,
++  { label: string; icon: React.ReactNode }
++> = {
++  planner: { label: 'المخطط', icon: <IconCalendar size={16} /> },
++  architect: { label: 'المعماري', icon: <IconCpu size={16} /> },
++  coder: { label: 'المبرمج', icon: <IconCode size={16} /> },
++  reviewer: { label: 'المراجع', icon: <IconEye size={16} /> },
++  verifier: { label: 'الفاحص', icon: <IconCheck size={16} /> },
++  tester: { label: 'المختبر', icon: <IconTerminal size={16} /> },
++  security: { label: 'الأمني', icon: <IconLock size={16} /> },
++  releaser: { label: 'المُطلق', icon: <IconSend size={16} /> },
++  orchestrator: { label: 'المنسق', icon: <IconUsers size={16} /> },
++  debugger: { label: 'المصحح', icon: <IconAlert size={16} /> },
++  scribe: { label: 'الموثق', icon: <IconEdit size={16} /> },
++  designer: { label: 'المصمم', icon: <IconSparkle size={16} /> },
++};
++
++export const RoleMark: React.FC<RoleMarkProps> = ({
++  role,
++  showLabel = true,
++  size = 'md',
++  className = '',
++  style,
++  'data-action': dataAction,
++  'data-testid': dataTestId,
++  ...rest
++}) => {
++  const config = ROLE_CONFIG[role];
++
++  return (
++    <span
++      data-role={role}
++      className={`w-role-mark w-role-mark--${role} w-role-mark--${size} ${className}`.trim()}
++      style={{
++        display: 'inline-flex',
++        alignItems: 'center',
++        gap: 'var(--w-space-1)',
++        paddingBlock: 'var(--w-space-1)',
++        paddingInline: 'var(--w-space-2)',
++        borderRadius: 'var(--w-radius-sm)',
++        backgroundColor: 'var(--w-sunken)',
++        color: 'var(--w-text)',
++        fontSize: size === 'sm' ? 'var(--w-font-size-xs)' : 'var(--w-font-size-sm)',
++        lineHeight: size === 'sm' ? 'var(--w-line-height-xs)' : 'var(--w-line-height-sm)',
++        fontFamily: 'var(--w-font-sans)',
++        fontWeight: 'var(--w-font-weight-medium)',
++        ...style,
++      }}
++      data-action={dataAction}
++      data-testid={dataTestId}
++      {...rest}
++    >
++      <span aria-hidden="true" style={{ display: 'inline-flex', alignItems: 'center' }}>
++        {config.icon}
++      </span>
++      {showLabel && <span>{config.label}</span>}
++    </span>
++  );
++};
++
++RoleMark.displayName = 'RoleMark';
+diff --git a/packages/ui/src/v3/primitives/Segmented.stories.tsx b/packages/ui/src/v3/primitives/Segmented.stories.tsx
+new file mode 100644
+index 0000000..da14920
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Segmented.stories.tsx
+@@ -0,0 +1,31 @@
++import type { Meta, StoryObj } from '@storybook/react';
++
++import { Segmented } from './Segmented';
++
++const meta = {
++  title: 'v3/Primitives/Segmented',
++  component: Segmented,
++  parameters: { layout: 'centered' },
++  args: {
++    options: [
++      { value: 'simple', label: 'الوضع البسيط' },
++      { value: 'advanced', label: 'المشغل المتقدم' },
++    ],
++    value: 'simple',
++  },
++} satisfies Meta<typeof Segmented>;
++
++export default meta;
++type Story = StoryObj<typeof meta>;
++
++export const Default: Story = {};
++export const ThreeOptions: Story = {
++  args: {
++    options: [
++      { value: 'all', label: 'الكل' },
++      { value: 'active', label: 'النشطة' },
++      { value: 'done', label: 'المكتملة' },
++    ],
++    value: 'active',
++  },
++};
+diff --git a/packages/ui/src/v3/primitives/Segmented.test.tsx b/packages/ui/src/v3/primitives/Segmented.test.tsx
+new file mode 100644
+index 0000000..ca72773
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Segmented.test.tsx
+@@ -0,0 +1,40 @@
++import { fireEvent, render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it, vi } from 'vitest';
++
++import { Segmented } from './Segmented';
++
++describe('Segmented primitive', () => {
++  const options = [
++    { value: 'simple', label: 'بسيط' },
++    { value: 'advanced', label: 'متقدم' },
++  ];
++
++  it('renders radiogroup with radio buttons', () => {
++    render(<Segmented options={options} value="simple" onChange={() => {}} />);
++    expect(screen.getByRole('radiogroup')).toBeInTheDocument();
++    const radioSimple = screen.getByRole('radio', { name: 'بسيط' });
++    expect(radioSimple).toHaveAttribute('aria-checked', 'true');
++    expect(screen.getByRole('radio', { name: 'متقدم' })).toHaveAttribute('aria-checked', 'false');
++  });
++
++  it('calls onChange on click', () => {
++    const handleChange = vi.fn();
++    render(<Segmented options={options} value="simple" onChange={handleChange} />);
++    fireEvent.click(screen.getByRole('radio', { name: 'متقدم' }));
++    expect(handleChange).toHaveBeenCalledWith('advanced');
++  });
++
++  it('forwards data-action and data-testid', () => {
++    render(
++      <Segmented
++        options={options}
++        value="simple"
++        onChange={() => {}}
++        data-action="view.mode"
++        data-testid="mode-segmented"
++      />
++    );
++    expect(screen.getByTestId('mode-segmented')).toHaveAttribute('data-action', 'view.mode');
++  });
++});
+diff --git a/packages/ui/src/v3/primitives/Segmented.tsx b/packages/ui/src/v3/primitives/Segmented.tsx
+new file mode 100644
+index 0000000..58339db
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Segmented.tsx
+@@ -0,0 +1,122 @@
++// packages/ui/src/v3/primitives/Segmented.tsx — Design System v3 Segmented Control (DS v3 §3.1)
++// 2–4 options, single choice, role="radiogroup", arrows move, Space/Enter selects.
++
++import React, { useRef } from 'react';
++
++export interface SegmentedOption {
++  value: string;
++  label: React.ReactNode;
++  disabled?: boolean;
++}
++
++export interface SegmentedProps {
++  options: SegmentedOption[];
++  value: string;
++  onChange?: (value: string) => void;
++  disabled?: boolean;
++  className?: string;
++  style?: React.CSSProperties;
++  'data-action'?: string;
++  'data-testid'?: string;
++}
++
++export const Segmented: React.FC<SegmentedProps> = ({
++  options,
++  value,
++  onChange = () => {},
++  disabled = false,
++  className = '',
++  style,
++  'data-action': dataAction,
++  'data-testid': dataTestId,
++}) => {
++  const containerRef = useRef<HTMLDivElement>(null);
++
++  const handleKeyDown = (e: React.KeyboardEvent, currentIndex: number) => {
++    let nextIndex = currentIndex;
++    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
++      e.preventDefault();
++      nextIndex = (currentIndex + 1) % options.length;
++    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
++      e.preventDefault();
++      nextIndex = (currentIndex - 1 + options.length) % options.length;
++    } else if (e.key === ' ' || e.key === 'Enter') {
++      e.preventDefault();
++      if (!options[currentIndex].disabled && !disabled) {
++        onChange(options[currentIndex].value);
++      }
++      return;
++    }
++
++    if (nextIndex !== currentIndex) {
++      const nextOpt = options[nextIndex];
++      if (!nextOpt.disabled && !disabled) {
++        onChange(nextOpt.value);
++        const buttons = containerRef.current?.querySelectorAll<HTMLButtonElement>('[role="radio"]');
++        buttons?.[nextIndex]?.focus();
++      }
++    }
++  };
++
++  return (
++    <div
++      ref={containerRef}
++      role="radiogroup"
++      className={`w-segmented ${className}`.trim()}
++      style={{
++        display: 'inline-flex',
++        alignItems: 'center',
++        backgroundColor: 'var(--w-sunken)',
++        borderRadius: 'var(--w-radius-sm)',
++        padding: 'var(--w-space-1)',
++        gap: 'var(--w-space-1)',
++        fontFamily: 'var(--w-font-sans)',
++        ...style,
++      }}
++      data-action={dataAction}
++      data-testid={dataTestId}
++    >
++      {options.map((opt, idx) => {
++        const isSelected = opt.value === value;
++        const optDisabled = disabled || opt.disabled;
++
++        return (
++          <button
++            key={opt.value}
++            type="button"
++            role="radio"
++            aria-checked={isSelected}
++            disabled={optDisabled}
++            tabIndex={isSelected ? 0 : -1}
++            onClick={() => !optDisabled && onChange(opt.value)}
++            onKeyDown={(e) => handleKeyDown(e, idx)}
++            className={`w-segmented__item ${isSelected ? 'w-segmented__item--selected' : ''}`.trim()}
++            style={{
++              display: 'inline-flex',
++              alignItems: 'center',
++              justifyContent: 'center',
++              border: 'none',
++              borderRadius: 'var(--w-radius-sm)',
++              paddingBlock: 'var(--w-space-1)',
++              paddingInline: 'var(--w-space-3)',
++              minHeight: 'var(--w-control-height)',
++              fontSize: 'var(--w-font-size-sm)',
++              lineHeight: 'var(--w-line-height-sm)',
++              fontWeight: isSelected ? 'var(--w-font-weight-medium)' : 'var(--w-font-weight-regular)',
++              backgroundColor: isSelected ? 'var(--w-surface)' : 'transparent',
++              color: isSelected ? 'var(--w-text)' : 'var(--w-text-muted)',
++              boxShadow: isSelected ? 'var(--w-shadow-1)' : 'none',
++              cursor: optDisabled ? 'not-allowed' : 'pointer',
++              opacity: optDisabled ? 0.5 : 1,
++              transition: 'background-color var(--w-dur-fast) var(--w-ease), color var(--w-dur-fast) var(--w-ease)',
++            }}
++          >
++            {opt.label}
++          </button>
++        );
++      })}
++    </div>
++  );
++};
++
++Segmented.displayName = 'Segmented';
+diff --git a/packages/ui/src/v3/primitives/Select.stories.tsx b/packages/ui/src/v3/primitives/Select.stories.tsx
+new file mode 100644
+index 0000000..c0284ad
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Select.stories.tsx
+@@ -0,0 +1,23 @@
++import type { Meta, StoryObj } from '@storybook/react';
++
++import { Select } from './Select';
++
++const meta = {
++  title: 'v3/Primitives/Select',
++  component: Select,
++  parameters: { layout: 'centered' },
++  args: {
++    label: 'المزود الافتراضي',
++    options: [
++      { value: 'anthropic', label: 'Anthropic (Claude)' },
++      { value: 'openai', label: 'OpenAI (GPT)' },
++      { value: 'ollama', label: 'Ollama (محلي)' },
++    ],
++  },
++} satisfies Meta<typeof Select>;
++
++export default meta;
++type Story = StoryObj<typeof meta>;
++
++export const Default: Story = {};
++export const WithError: Story = { args: { error: 'يرجى اختيار مزود مدعوم' } };
+diff --git a/packages/ui/src/v3/primitives/Select.test.tsx b/packages/ui/src/v3/primitives/Select.test.tsx
+new file mode 100644
+index 0000000..c0660ec
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Select.test.tsx
+@@ -0,0 +1,39 @@
++import { fireEvent, render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it, vi } from 'vitest';
++
++import { Select } from './Select';
++
++describe('Select primitive', () => {
++  const options = [
++    { value: 'ar', label: 'العربية' },
++    { value: 'en', label: 'English' },
++  ];
++
++  it('renders required label and options', () => {
++    render(<Select label="اللغة" options={options} />);
++    const select = screen.getByLabelText('اللغة');
++    expect(select).toBeInTheDocument();
++    expect(screen.getByRole('option', { name: 'العربية' })).toBeInTheDocument();
++  });
++
++  it('handles onChange selection', () => {
++    const handleChange = vi.fn();
++    render(<Select label="اللغة" options={options} onChange={handleChange} />);
++    const select = screen.getByLabelText('اللغة');
++    fireEvent.change(select, { target: { value: 'en' } });
++    expect(handleChange).toHaveBeenCalledOnce();
++  });
++
++  it('forwards data-action and data-testid', () => {
++    render(
++      <Select
++        label="اللغة"
++        options={options}
++        data-action="settings.language"
++        data-testid="lang-select"
++      />
++    );
++    expect(screen.getByTestId('lang-select')).toHaveAttribute('data-action', 'settings.language');
++  });
++});
+diff --git a/packages/ui/src/v3/primitives/Select.tsx b/packages/ui/src/v3/primitives/Select.tsx
+new file mode 100644
+index 0000000..df58b3b
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Select.tsx
+@@ -0,0 +1,177 @@
++// packages/ui/src/v3/primitives/Select.tsx — Design System v3 Select (DS v3 §3.1)
++// Native-backed select; label required; keyboard native.
++
++import React, { useId } from 'react';
++
++import { IconChevron } from '../icons';
++
++export interface SelectOption {
++  value: string;
++  label: string;
++  disabled?: boolean;
++}
++
++export interface SelectProps
++  extends Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'children'> {
++  label: string; // required
++  options: SelectOption[];
++  hint?: string;
++  error?: string;
++  'data-action'?: string;
++  'data-testid'?: string;
++}
++
++export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
++  (
++    {
++      label,
++      options,
++      hint,
++      error,
++      id,
++      className = '',
++      style,
++      disabled,
++      required,
++      'data-action': dataAction,
++      'data-testid': dataTestId,
++      ...rest
++    },
++    ref
++  ) => {
++    const generatedId = useId();
++    const selectId = id ?? generatedId;
++    const errorId = `${selectId}-error`;
++    const hintId = `${selectId}-hint`;
++
++    const describedBy = [
++      error ? errorId : undefined,
++      hint && !error ? hintId : undefined,
++    ]
++      .filter(Boolean)
++      .join(' ') || undefined;
++
++    return (
++      <div
++        className={`w-field w-select ${className}`.trim()}
++        style={{
++          display: 'flex',
++          flexDirection: 'column',
++          gap: 'var(--w-space-1)',
++          fontFamily: 'var(--w-font-sans)',
++          ...style,
++        }}
++        data-action={dataAction}
++        data-testid={dataTestId}
++      >
++        <label
++          htmlFor={selectId}
++          className="w-field__label"
++          style={{
++            fontSize: 'var(--w-font-size-sm)',
++            fontWeight: 'var(--w-font-weight-medium)',
++            color: 'var(--w-text)',
++          }}
++        >
++          {label}
++          {required && (
++            <span aria-hidden="true" style={{ marginInlineStart: 'var(--w-space-1)', color: 'var(--w-danger)' }}>
++              *
++            </span>
++          )}
++        </label>
++
++        <div
++          className="w-field__control"
++          style={{
++            position: 'relative',
++            display: 'flex',
++            alignItems: 'center',
++            backgroundColor: 'var(--w-surface)',
++            border: `var(--w-border-width) solid ${error ? 'var(--w-danger)' : 'var(--w-line-strong)'}`,
++            borderRadius: 'var(--w-radius-sm)',
++            minHeight: 'var(--w-control-height)',
++            boxSizing: 'border-box',
++          }}
++        >
++          <select
++            ref={ref}
++            id={selectId}
++            disabled={disabled}
++            required={required}
++            aria-invalid={error ? true : undefined}
++            aria-describedby={describedBy}
++            className="w-select__input"
++            style={{
++              width: '100%',
++              minHeight: 'var(--w-control-height)',
++              border: 'none',
++              outline: 'none',
++              background: 'transparent',
++              color: 'var(--w-text)',
++              fontSize: 'var(--w-font-size-md)',
++              lineHeight: 'var(--w-line-height-md)',
++              fontFamily: 'inherit',
++              paddingInlineStart: 'var(--w-space-3)',
++              paddingInlineEnd: 'var(--w-space-8)',
++              appearance: 'none',
++              cursor: disabled ? 'not-allowed' : 'pointer',
++            }}
++            {...rest}
++          >
++            {options.map((opt) => (
++              <option key={opt.value} value={opt.value} disabled={opt.disabled}>
++                {opt.label}
++              </option>
++            ))}
++          </select>
++
++          <span
++            className="w-select__chevron"
++            aria-hidden="true"
++            style={{
++              position: 'absolute',
++              insetInlineEnd: 'var(--w-space-3)',
++              pointerEvents: 'none',
++              color: 'var(--w-text-muted)',
++              display: 'inline-flex',
++              alignItems: 'center',
++              transform: 'rotate(90deg)',
++            }}
++          >
++            <IconChevron size={16} mirror={false} />
++          </span>
++        </div>
++
++        {error && (
++          <span
++            id={errorId}
++            role="alert"
++            className="w-field__error"
++            style={{
++              fontSize: 'var(--w-font-size-xs)',
++              color: 'var(--w-danger)',
++            }}
++          >
++            {error}
++          </span>
++        )}
++
++        {hint && !error && (
++          <span
++            id={hintId}
++            className="w-field__hint"
++            style={{
++              fontSize: 'var(--w-font-size-xs)',
++              color: 'var(--w-text-muted)',
++            }}
++          >
++            {hint}
++          </span>
++        )}
++      </div>
++    );
++  }
++);
++
++Select.displayName = 'Select';
+diff --git a/packages/ui/src/v3/primitives/Skeleton.stories.tsx b/packages/ui/src/v3/primitives/Skeleton.stories.tsx
+new file mode 100644
+index 0000000..de54da2
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Skeleton.stories.tsx
+@@ -0,0 +1,20 @@
++import type { Meta, StoryObj } from '@storybook/react';
++
++import { Skeleton } from './Skeleton';
++
++const meta = {
++  title: 'v3/Primitives/Skeleton',
++  component: Skeleton,
++  parameters: { layout: 'centered' },
++  argTypes: {
++    variant: { control: 'inline-radio', options: ['text', 'circular', 'rectangular'] },
++  },
++  args: { variant: 'text', width: 'var(--w-rail-width)' },
++} satisfies Meta<typeof Skeleton>;
++
++export default meta;
++type Story = StoryObj<typeof meta>;
++
++export const Text: Story = {};
++export const Circular: Story = { args: { variant: 'circular' } };
++export const Rectangular: Story = { args: { variant: 'rectangular', height: 'var(--w-space-10)' } };
+diff --git a/packages/ui/src/v3/primitives/Skeleton.test.tsx b/packages/ui/src/v3/primitives/Skeleton.test.tsx
+new file mode 100644
+index 0000000..a36a722
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Skeleton.test.tsx
+@@ -0,0 +1,26 @@
++import { render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it } from 'vitest';
++
++import { Skeleton } from './Skeleton';
++
++describe('Skeleton primitive', () => {
++  it('renders with aria-hidden="true"', () => {
++    const { container } = render(<Skeleton data-testid="skel" />);
++    const skel = container.querySelector('.w-skeleton');
++    expect(skel).toBeInTheDocument();
++    expect(skel).toHaveAttribute('aria-hidden', 'true');
++  });
++
++  it('renders circular variant', () => {
++    const { container } = render(<Skeleton variant="circular" />);
++    const skel = container.querySelector('.w-skeleton--circular');
++    expect(skel).toBeInTheDocument();
++    expect(skel).toHaveAttribute('data-variant', 'circular');
++  });
++
++  it('forwards data-action and data-testid', () => {
++    render(<Skeleton data-action="card.loading" data-testid="skel-test" />);
++    expect(screen.getByTestId('skel-test')).toHaveAttribute('data-action', 'card.loading');
++  });
++});
+diff --git a/packages/ui/src/v3/primitives/Skeleton.tsx b/packages/ui/src/v3/primitives/Skeleton.tsx
+new file mode 100644
+index 0000000..19417d2
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Skeleton.tsx
+@@ -0,0 +1,52 @@
++// packages/ui/src/v3/primitives/Skeleton.tsx — Design System v3 Skeleton (DS v3 §3.1)
++// aria-hidden="true", shaped like content, subtle shimmer animation.
++
++import React from 'react';
++
++export interface SkeletonProps extends React.HTMLAttributes<HTMLSpanElement> {
++  width?: string | number;
++  height?: string | number;
++  variant?: 'text' | 'circular' | 'rectangular';
++  'data-action'?: string;
++  'data-testid'?: string;
++}
++
++export const Skeleton: React.FC<SkeletonProps> = ({
++  width,
++  height,
++  variant = 'text',
++  className = '',
++  style,
++  'data-action': dataAction,
++  'data-testid': dataTestId,
++  ...rest
++}) => {
++  const isCircular = variant === 'circular';
++
++  return (
++    <span
++      aria-hidden="true"
++      data-variant={variant}
++      className={`w-skeleton w-skeleton--${variant} ${className}`.trim()}
++      style={{
++        display: 'inline-block',
++        backgroundColor: 'var(--w-sunken)',
++        borderRadius: isCircular
++          ? 'var(--w-radius-full)'
++          : variant === 'text'
++          ? 'var(--w-radius-sm)'
++          : 'var(--w-radius-md)',
++        width: width ?? (isCircular ? 'var(--w-space-8)' : '100%'),
++        height: height ?? (isCircular ? 'var(--w-space-8)' : variant === 'text' ? 'var(--w-font-size-md)' : 'var(--w-space-10)'),
++        opacity: 0.8,
++        animation: 'w-pulse 1.5s ease-in-out infinite',
++        ...style,
++      }}
++      data-action={dataAction}
++      data-testid={dataTestId}
++      {...rest}
++    />
++  );
++};
++
++Skeleton.displayName = 'Skeleton';
+diff --git a/packages/ui/src/v3/primitives/Spinner.stories.tsx b/packages/ui/src/v3/primitives/Spinner.stories.tsx
+new file mode 100644
+index 0000000..296f6f6
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Spinner.stories.tsx
+@@ -0,0 +1,20 @@
++import type { Meta, StoryObj } from '@storybook/react';
++
++import { Spinner } from './Spinner';
++
++const meta = {
++  title: 'v3/Primitives/Spinner',
++  component: Spinner,
++  parameters: { layout: 'centered' },
++  argTypes: {
++    size: { control: 'inline-radio', options: ['sm', 'md', 'lg'] },
++  },
++  args: { size: 'md', label: 'جارٍ التحميل...' },
++} satisfies Meta<typeof Spinner>;
++
++export default meta;
++type Story = StoryObj<typeof meta>;
++
++export const Default: Story = {};
++export const Small: Story = { args: { size: 'sm' } };
++export const Large: Story = { args: { size: 'lg' } };
+diff --git a/packages/ui/src/v3/primitives/Spinner.test.tsx b/packages/ui/src/v3/primitives/Spinner.test.tsx
+new file mode 100644
+index 0000000..fa3d7ca
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Spinner.test.tsx
+@@ -0,0 +1,24 @@
++import { render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it } from 'vitest';
++
++import { Spinner } from './Spinner';
++
++describe('Spinner primitive', () => {
++  it('renders role="progressbar" with default label', () => {
++    render(<Spinner />);
++    const spinner = screen.getByRole('progressbar');
++    expect(spinner).toHaveAttribute('aria-label', 'جارٍ التحميل...');
++  });
++
++  it('renders custom label', () => {
++    render(<Spinner label="Loading data..." />);
++    expect(screen.getByRole('progressbar', { name: 'Loading data...' })).toBeInTheDocument();
++  });
++
++  it('forwards data-action and data-testid', () => {
++    render(<Spinner data-action="test.spin" data-testid="test-spinner" />);
++    const spinner = screen.getByTestId('test-spinner');
++    expect(spinner).toHaveAttribute('data-action', 'test.spin');
++  });
++});
+diff --git a/packages/ui/src/v3/primitives/Spinner.tsx b/packages/ui/src/v3/primitives/Spinner.tsx
+new file mode 100644
+index 0000000..8dfa5e1
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Spinner.tsx
+@@ -0,0 +1,61 @@
++// packages/ui/src/v3/primitives/Spinner.tsx — Design System v3 Spinner (DS v3 §3.1)
++import React from 'react';
++
++export interface SpinnerProps extends React.HTMLAttributes<HTMLSpanElement> {
++  size?: 'sm' | 'md' | 'lg';
++  label?: string;
++  'data-action'?: string;
++  'data-testid'?: string;
++}
++
++const SIZE_MAP = {
++  sm: 16,
++  md: 20,
++  lg: 28,
++} as const;
++
++export const Spinner: React.FC<SpinnerProps> = ({
++  size = 'md',
++  label = 'جارٍ التحميل...',
++  className = '',
++  style,
++  ...rest
++}) => {
++  const pixelSize = SIZE_MAP[size];
++
++  return (
++    <span
++      role="progressbar"
++      aria-label={label}
++      data-size={size}
++      className={`w-spinner w-spinner--${size} ${className}`.trim()}
++      style={{
++        display: 'inline-flex',
++        alignItems: 'center',
++        justifyContent: 'center',
++        color: 'currentColor',
++        ...style,
++      }}
++      {...rest}
++    >
++      <svg
++        viewBox="0 0 24 24"
++        width={pixelSize}
++        height={pixelSize}
++        fill="none"
++        stroke="currentColor"
++        strokeWidth="2.5"
++        strokeLinecap="round"
++        style={{
++          animation: 'w-spin 0.8s linear infinite',
++        }}
++        aria-hidden="true"
++      >
++        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.25" />
++        <path d="M12 3a9 9 0 0 1 9 9" stroke="currentColor" />
++      </svg>
++    </span>
++  );
++};
++
++Spinner.displayName = 'Spinner';
+diff --git a/packages/ui/src/v3/primitives/StatusPill.stories.tsx b/packages/ui/src/v3/primitives/StatusPill.stories.tsx
+new file mode 100644
+index 0000000..2e8d3c6
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/StatusPill.stories.tsx
+@@ -0,0 +1,24 @@
++import type { Meta, StoryObj } from '@storybook/react';
++
++import { StatusPill } from './StatusPill';
++
++const meta = {
++  title: 'v3/Primitives/StatusPill',
++  component: StatusPill,
++  parameters: { layout: 'centered' },
++  argTypes: {
++    status: {
++      control: 'inline-radio',
++      options: ['idle', 'running', 'waiting', 'done', 'failed', 'paused'],
++    },
++  },
++  args: { status: 'waiting' },
++} satisfies Meta<typeof StatusPill>;
++
++export default meta;
++type Story = StoryObj<typeof meta>;
++
++export const Waiting: Story = {};
++export const Running: Story = { args: { status: 'running' } };
++export const Done: Story = { args: { status: 'done' } };
++export const Failed: Story = { args: { status: 'failed' } };
+diff --git a/packages/ui/src/v3/primitives/StatusPill.test.tsx b/packages/ui/src/v3/primitives/StatusPill.test.tsx
+new file mode 100644
+index 0000000..61298eb
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/StatusPill.test.tsx
+@@ -0,0 +1,29 @@
++import { render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it } from 'vitest';
++
++import { StatusPill } from './StatusPill';
++
++describe('StatusPill primitive', () => {
++  it('renders status text and icon for waiting', () => {
++    render(<StatusPill status="waiting" />);
++    expect(screen.getByText('ينتظر قرارك')).toBeInTheDocument();
++    expect(screen.getByText('ينتظر قرارك').closest('.w-status-pill')).toHaveAttribute('data-status', 'waiting');
++  });
++
++  it('renders custom label when provided', () => {
++    render(<StatusPill status="running" label="جارٍ المعالجة" />);
++    expect(screen.getByText('جارٍ المعالجة')).toBeInTheDocument();
++  });
++
++  it('forwards data-action and data-testid', () => {
++    render(
++      <StatusPill
++        status="done"
++        data-action="run.status"
++        data-testid="run-status-pill"
++      />
++    );
++    expect(screen.getByTestId('run-status-pill')).toHaveAttribute('data-action', 'run.status');
++  });
++});
+diff --git a/packages/ui/src/v3/primitives/StatusPill.tsx b/packages/ui/src/v3/primitives/StatusPill.tsx
+new file mode 100644
+index 0000000..62f56ef
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/StatusPill.tsx
+@@ -0,0 +1,132 @@
++// packages/ui/src/v3/primitives/StatusPill.tsx — Design System v3 StatusPill (DS v3 §3.1)
++// Statuses: idle, running, waiting (attention), done, failed, paused.
++// Always renders icon + word (never colour alone).
++
++import React from 'react';
++
++import {
++  IconAlert,
++  IconCheck,
++  IconClock,
++  IconPause,
++  IconX,
++} from '../icons';
++
++import { Spinner } from './Spinner';
++
++export type StatusPillState =
++  | 'idle'
++  | 'running'
++  | 'waiting'
++  | 'done'
++  | 'failed'
++  | 'paused';
++
++export interface StatusPillProps extends React.HTMLAttributes<HTMLSpanElement> {
++  status: StatusPillState;
++  label?: string;
++  'data-action'?: string;
++  'data-testid'?: string;
++}
++
++const STATUS_CONFIG: Record<
++  StatusPillState,
++  {
++    defaultLabel: string;
++    icon: React.ReactNode;
++    style: React.CSSProperties;
++  }
++> = {
++  idle: {
++    defaultLabel: 'خامل',
++    icon: <IconClock size={14} />,
++    style: {
++      backgroundColor: 'var(--w-sunken)',
++      color: 'var(--w-text-muted)',
++    },
++  },
++  running: {
++    defaultLabel: 'قيد التنفيذ',
++    icon: <Spinner size="sm" />,
++    style: {
++      backgroundColor: 'var(--w-info-soft)',
++      color: 'var(--w-info)',
++    },
++  },
++  waiting: {
++    defaultLabel: 'ينتظر قرارك',
++    icon: <IconAlert size={14} />,
++    style: {
++      backgroundColor: 'var(--w-attention-soft)',
++      color: 'var(--w-attention)',
++    },
++  },
++  done: {
++    defaultLabel: 'مكتمل',
++    icon: <IconCheck size={14} />,
++    style: {
++      backgroundColor: 'var(--w-success-soft)',
++      color: 'var(--w-success)',
++    },
++  },
++  failed: {
++    defaultLabel: 'فشل',
++    icon: <IconX size={14} />,
++    style: {
++      backgroundColor: 'var(--w-danger-soft)',
++      color: 'var(--w-danger)',
++    },
++  },
++  paused: {
++    defaultLabel: 'موقوف مؤقتاً',
++    icon: <IconPause size={14} />,
++    style: {
++      backgroundColor: 'var(--w-sunken)',
++      color: 'var(--w-text-muted)',
++    },
++  },
++};
++
++export const StatusPill: React.FC<StatusPillProps> = ({
++  status,
++  label,
++  className = '',
++  style,
++  'data-action': dataAction,
++  'data-testid': dataTestId,
++  ...rest
++}) => {
++  const config = STATUS_CONFIG[status];
++  const text = label ?? config.defaultLabel;
++
++  return (
++    <span
++      data-status={status}
++      className={`w-status-pill w-status-pill--${status} ${className}`.trim()}
++      style={{
++        display: 'inline-flex',
++        alignItems: 'center',
++        gap: 'var(--w-space-1)',
++        paddingBlock: 'var(--w-space-1)',
++        paddingInline: 'var(--w-space-2)',
++        borderRadius: 'var(--w-radius-full)',
++        fontSize: 'var(--w-font-size-xs)',
++        lineHeight: 'var(--w-line-height-xs)',
++        fontWeight: 'var(--w-font-weight-medium)',
++        fontFamily: 'var(--w-font-sans)',
++        ...config.style,
++        ...style,
++      }}
++      data-action={dataAction}
++      data-testid={dataTestId}
++      {...rest}
++    >
++      <span aria-hidden="true" style={{ display: 'inline-flex', alignItems: 'center' }}>
++        {config.icon}
++      </span>
++      <span>{text}</span>
++    </span>
++  );
++};
++
++StatusPill.displayName = 'StatusPill';
+diff --git a/packages/ui/src/v3/primitives/Switch.stories.tsx b/packages/ui/src/v3/primitives/Switch.stories.tsx
+new file mode 100644
+index 0000000..3594165
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Switch.stories.tsx
+@@ -0,0 +1,20 @@
++import type { Meta, StoryObj } from '@storybook/react';
++
++import { Switch } from './Switch';
++
++const meta = {
++  title: 'v3/Primitives/Switch',
++  component: Switch,
++  parameters: { layout: 'centered' },
++  args: {
++    label: 'المظهر الداكن (Dark Mode)',
++    checked: false,
++  },
++} satisfies Meta<typeof Switch>;
++
++export default meta;
++type Story = StoryObj<typeof meta>;
++
++export const Default: Story = {};
++export const Checked: Story = { args: { checked: true } };
++export const Disabled: Story = { args: { disabled: true } };
+diff --git a/packages/ui/src/v3/primitives/Switch.test.tsx b/packages/ui/src/v3/primitives/Switch.test.tsx
+new file mode 100644
+index 0000000..4a223a0
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Switch.test.tsx
+@@ -0,0 +1,33 @@
++import { fireEvent, render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it, vi } from 'vitest';
++
++import { Switch } from './Switch';
++
++describe('Switch primitive', () => {
++  it('renders with role="switch" and aria-checked', () => {
++    render(<Switch label="الوضع الليلي" checked={false} />);
++    const sw = screen.getByRole('switch');
++    expect(sw).toBeInTheDocument();
++    expect(sw).toHaveAttribute('aria-checked', 'false');
++  });
++
++  it('toggles on click and calls onChange', () => {
++    const handleChange = vi.fn();
++    render(<Switch label="الوضع الليلي" checked={false} onChange={handleChange} />);
++    const sw = screen.getByRole('switch');
++    fireEvent.click(sw);
++    expect(handleChange).toHaveBeenCalledWith(true);
++  });
++
++  it('forwards data-action and data-testid', () => {
++    render(
++      <Switch
++        label="خيار"
++        data-action="settings.dark"
++        data-testid="dark-switch"
++      />
++    );
++    expect(screen.getByTestId('dark-switch')).toHaveAttribute('data-action', 'settings.dark');
++  });
++});
+diff --git a/packages/ui/src/v3/primitives/Switch.tsx b/packages/ui/src/v3/primitives/Switch.tsx
+new file mode 100644
+index 0000000..2d18843
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Switch.tsx
+@@ -0,0 +1,110 @@
++// packages/ui/src/v3/primitives/Switch.tsx — Design System v3 Switch (DS v3 §3.1)
++// Uses role="switch", aria-checked; label required; forwards data-action, data-testid, aria-*.
++
++import React, { useId } from 'react';
++
++export interface SwitchProps {
++  label: string; // required
++  checked?: boolean;
++  onChange?: (checked: boolean) => void;
++  disabled?: boolean;
++  className?: string;
++  style?: React.CSSProperties;
++  'data-action'?: string;
++  'data-testid'?: string;
++}
++
++export const Switch: React.FC<SwitchProps> = ({
++  label,
++  checked = false,
++  onChange,
++  disabled = false,
++  className = '',
++  style,
++  'data-action': dataAction,
++  'data-testid': dataTestId,
++}) => {
++  const switchId = useId();
++
++  const handleToggle = () => {
++    if (disabled) return;
++    onChange?.(!checked);
++  };
++
++  const handleKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
++    if (e.key === ' ' || e.key === 'Enter') {
++      e.preventDefault();
++      handleToggle();
++    }
++  };
++
++  return (
++    <label
++      htmlFor={switchId}
++      className={`w-switch ${className}`.trim()}
++      style={{
++        display: 'inline-flex',
++        alignItems: 'center',
++        gap: 'var(--w-space-3)',
++        cursor: disabled ? 'not-allowed' : 'pointer',
++        opacity: disabled ? 0.6 : 1,
++        userSelect: 'none',
++        fontFamily: 'var(--w-font-sans)',
++        ...style,
++      }}
++      data-action={dataAction}
++      data-testid={dataTestId}
++    >
++      <button
++        id={switchId}
++        type="button"
++        role="switch"
++        aria-checked={checked}
++        disabled={disabled}
++        onClick={handleToggle}
++        onKeyDown={handleKeyDown}
++        className="w-switch__track"
++        style={{
++          width: 'var(--w-space-9)',
++          height: 'var(--w-space-6)',
++          borderRadius: 'var(--w-radius-full)',
++          backgroundColor: checked ? 'var(--w-primary)' : 'var(--w-sunken)',
++          border: 'var(--w-border-width) solid var(--w-line-strong)',
++          padding: 'var(--w-space-1)',
++          display: 'inline-flex',
++          alignItems: 'center',
++          boxSizing: 'border-box',
++          cursor: disabled ? 'not-allowed' : 'pointer',
++          position: 'relative',
++          transition: 'background-color var(--w-dur-fast) var(--w-ease)',
++        }}
++      >
++        <span
++          className="w-switch__thumb"
++          style={{
++            width: 'var(--w-space-4)',
++            height: 'var(--w-space-4)',
++            borderRadius: 'var(--w-radius-full)',
++            backgroundColor: checked ? 'var(--w-on-primary)' : 'var(--w-text-muted)',
++            display: 'block',
++            transition: 'transform var(--w-dur-fast) var(--w-ease), background-color var(--w-dur-fast) var(--w-ease)',
++            transform: checked ? 'translateX(var(--w-space-4))' : 'translateX(0)',
++          }}
++        />
++      </button>
++
++      <span
++        className="w-switch__label"
++        style={{
++          fontSize: 'var(--w-font-size-md)',
++          lineHeight: 'var(--w-line-height-md)',
++          color: 'var(--w-text)',
++        }}
++      >
++        {label}
++      </span>
++    </label>
++  );
++};
++
++Switch.displayName = 'Switch';
+diff --git a/packages/ui/src/v3/primitives/Tabs.stories.tsx b/packages/ui/src/v3/primitives/Tabs.stories.tsx
+new file mode 100644
+index 0000000..26c4d07
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Tabs.stories.tsx
+@@ -0,0 +1,28 @@
++import type { Meta, StoryObj } from '@storybook/react';
++
++import { Tabs } from './Tabs';
++
++const meta = {
++  title: 'v3/Primitives/Tabs',
++  component: Tabs,
++  parameters: { layout: 'centered' },
++  argTypes: {
++    variant: { control: 'inline-radio', options: ['line', 'pill'] },
++  },
++  args: {
++    tabs: [
++      { id: 'summary', label: 'الملخص' },
++      { id: 'team', label: 'الفريق' },
++      { id: 'tasks', label: 'المهام' },
++      { id: 'output', label: 'المخرجات' },
++    ],
++    activeTab: 'summary',
++    variant: 'line',
++  },
++} satisfies Meta<typeof Tabs>;
++
++export default meta;
++type Story = StoryObj<typeof meta>;
++
++export const Line: Story = {};
++export const Pill: Story = { args: { variant: 'pill' } };
+diff --git a/packages/ui/src/v3/primitives/Tabs.test.tsx b/packages/ui/src/v3/primitives/Tabs.test.tsx
+new file mode 100644
+index 0000000..f65cf6a
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Tabs.test.tsx
+@@ -0,0 +1,41 @@
++import { fireEvent, render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it, vi } from 'vitest';
++
++import { Tabs } from './Tabs';
++
++describe('Tabs primitive', () => {
++  const tabs = [
++    { id: 'overview', label: 'نظرة عامة' },
++    { id: 'team', label: 'الفريق' },
++    { id: 'logs', label: 'السجلات' },
++  ];
++
++  it('renders tablist and tabs with aria-selected', () => {
++    render(<Tabs tabs={tabs} activeTab="overview" onChange={() => {}} />);
++    expect(screen.getByRole('tablist')).toBeInTheDocument();
++    const overview = screen.getByRole('tab', { name: 'نظرة عامة' });
++    expect(overview).toHaveAttribute('aria-selected', 'true');
++    expect(screen.getByRole('tab', { name: 'الفريق' })).toHaveAttribute('aria-selected', 'false');
++  });
++
++  it('calls onChange when clicking a tab', () => {
++    const handleChange = vi.fn();
++    render(<Tabs tabs={tabs} activeTab="overview" onChange={handleChange} />);
++    fireEvent.click(screen.getByRole('tab', { name: 'الفريق' }));
++    expect(handleChange).toHaveBeenCalledWith('team');
++  });
++
++  it('forwards data-action and data-testid', () => {
++    render(
++      <Tabs
++        tabs={tabs}
++        activeTab="overview"
++        onChange={() => {}}
++        data-action="bench.tab"
++        data-testid="bench-tabs"
++      />
++    );
++    expect(screen.getByTestId('bench-tabs')).toHaveAttribute('data-action', 'bench.tab');
++  });
++});
+diff --git a/packages/ui/src/v3/primitives/Tabs.tsx b/packages/ui/src/v3/primitives/Tabs.tsx
+new file mode 100644
+index 0000000..b2ff07f
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Tabs.tsx
+@@ -0,0 +1,139 @@
++// packages/ui/src/v3/primitives/Tabs.tsx — Design System v3 Tabs (DS v3 §3.1)
++// Variants: line (Workbench), pill (filters). Roving tabindex, arrows, Home/End, aria-controls.
++
++import React, { useRef } from 'react';
++
++export interface TabItem {
++  id: string;
++  label: React.ReactNode;
++  disabled?: boolean;
++}
++
++export interface TabsProps {
++  tabs: TabItem[];
++  activeTab: string;
++  onChange?: (tabId: string) => void;
++  variant?: 'line' | 'pill';
++  className?: string;
++  style?: React.CSSProperties;
++  'data-action'?: string;
++  'data-testid'?: string;
++}
++
++export const Tabs: React.FC<TabsProps> = ({
++  tabs,
++  activeTab,
++  onChange = () => {},
++  variant = 'line',
++  className = '',
++  style,
++  'data-action': dataAction,
++  'data-testid': dataTestId,
++}) => {
++  const tablistRef = useRef<HTMLDivElement>(null);
++
++  const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
++    let targetIndex = index;
++    if (e.key === 'ArrowRight') {
++      e.preventDefault();
++      targetIndex = (index + 1) % tabs.length;
++    } else if (e.key === 'ArrowLeft') {
++      e.preventDefault();
++      targetIndex = (index - 1 + tabs.length) % tabs.length;
++    } else if (e.key === 'Home') {
++      e.preventDefault();
++      targetIndex = 0;
++    } else if (e.key === 'End') {
++      e.preventDefault();
++      targetIndex = tabs.length - 1;
++    } else if (e.key === ' ' || e.key === 'Enter') {
++      e.preventDefault();
++      if (!tabs[index].disabled) {
++        onChange(tabs[index].id);
++      }
++      return;
++    }
++
++    if (targetIndex !== index) {
++      const nextTab = tabs[targetIndex];
++      if (!nextTab.disabled) {
++        onChange(nextTab.id);
++        const buttons = tablistRef.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
++        buttons?.[targetIndex]?.focus();
++      }
++    }
++  };
++
++  return (
++    <div
++      ref={tablistRef}
++      role="tablist"
++      data-variant={variant}
++      className={`w-tabs w-tabs--${variant} ${className}`.trim()}
++      style={{
++        display: 'flex',
++        alignItems: 'center',
++        gap: variant === 'pill' ? 'var(--w-space-2)' : 'var(--w-space-4)',
++        borderBlockEnd: variant === 'line' ? 'var(--w-border-width) solid var(--w-line)' : 'none',
++        fontFamily: 'var(--w-font-sans)',
++        boxSizing: 'border-box',
++        ...style,
++      }}
++      data-action={dataAction}
++      data-testid={dataTestId}
++    >
++      {tabs.map((tab, idx) => {
++        const isSelected = tab.id === activeTab;
++        const isDisabled = tab.disabled;
++
++        return (
++          <button
++            key={tab.id}
++            type="button"
++            role="tab"
++            id={`tab-${tab.id}`}
++            aria-selected={isSelected}
++            aria-controls={`panel-${tab.id}`}
++            tabIndex={isSelected ? 0 : -1}
++            disabled={isDisabled}
++            onClick={() => !isDisabled && onChange(tab.id)}
++            onKeyDown={(e) => handleKeyDown(e, idx)}
++            className={`w-tab ${isSelected ? 'w-tab--selected' : ''}`.trim()}
++            style={{
++              display: 'inline-flex',
++              alignItems: 'center',
++              gap: 'var(--w-space-2)',
++              border: 'none',
++              background: 'transparent',
++              paddingBlock: 'var(--w-space-2)',
++              paddingInline: variant === 'pill' ? 'var(--w-space-3)' : 'var(--w-space-1)',
++              borderRadius: variant === 'pill' ? 'var(--w-radius-full)' : 0,
++              fontSize: 'var(--w-font-size-md)',
++              lineHeight: 'var(--w-line-height-md)',
++              fontWeight: isSelected ? 'var(--w-font-weight-medium)' : 'var(--w-font-weight-regular)',
++              color: isSelected
++                ? 'var(--w-primary-text)'
++                : 'var(--w-text-muted)',
++              backgroundColor: variant === 'pill' && isSelected
++                ? 'var(--w-primary-soft)'
++                : 'transparent',
++              borderBlockEnd: variant === 'line' && isSelected
++                ? 'var(--w-border-width-strong) solid var(--w-primary-text)'
++                : variant === 'line'
++                ? 'var(--w-border-width-strong) solid transparent'
++                : 'none',
++              marginBlockEnd: variant === 'line' ? 'calc(-1 * var(--w-border-width))' : 0,
++              cursor: isDisabled ? 'not-allowed' : 'pointer',
++              opacity: isDisabled ? 0.5 : 1,
++              transition: 'color var(--w-dur-fast) var(--w-ease), border-color var(--w-dur-fast) var(--w-ease)',
++            }}
++          >
++            {tab.label}
++          </button>
++        );
++      })}
++    </div>
++  );
++};
++
++Tabs.displayName = 'Tabs';
+diff --git a/packages/ui/src/v3/primitives/TextArea.stories.tsx b/packages/ui/src/v3/primitives/TextArea.stories.tsx
+new file mode 100644
+index 0000000..b94c660
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/TextArea.stories.tsx
+@@ -0,0 +1,21 @@
++import type { Meta, StoryObj } from '@storybook/react';
++
++import { TextArea } from './TextArea';
++
++const meta = {
++  title: 'v3/Primitives/TextArea',
++  component: TextArea,
++  parameters: { layout: 'centered' },
++  args: {
++    label: 'تفاصيل الطلب',
++    placeholder: 'اكتب ما تريد بناءه هنا...',
++    rows: 4,
++  },
++} satisfies Meta<typeof TextArea>;
++
++export default meta;
++type Story = StoryObj<typeof meta>;
++
++export const Default: Story = {};
++export const WithCounter: Story = { args: { counter: true, maxLength: 200 } };
++export const WithError: Story = { args: { error: 'الحقل مطلوب للمتابعة' } };
+diff --git a/packages/ui/src/v3/primitives/TextArea.test.tsx b/packages/ui/src/v3/primitives/TextArea.test.tsx
+new file mode 100644
+index 0000000..786c520
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/TextArea.test.tsx
+@@ -0,0 +1,37 @@
++import { fireEvent, render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it, vi } from 'vitest';
++
++import { TextArea } from './TextArea';
++
++describe('TextArea primitive', () => {
++  it('submits on Enter only when onEnter is configured', () => {
++    const handleEnter = vi.fn();
++    render(<TextArea label="الرسالة" onEnter={handleEnter} />);
++    const textarea = screen.getByLabelText('الرسالة');
++
++    // Shift+Enter should NOT call onEnter
++    fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true });
++    expect(handleEnter).not.toHaveBeenCalled();
++
++    // Plain Enter should call onEnter
++    fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
++    expect(handleEnter).toHaveBeenCalledOnce();
++  });
++
++  it('renders counter when counter prop is true', () => {
++    render(<TextArea label="الوصف" counter maxLength={100} defaultValue="تجربة" />);
++    expect(screen.getByText('5 / 100')).toBeInTheDocument();
++  });
++
++  it('forwards data-action and data-testid', () => {
++    render(
++      <TextArea
++        label="ملاحظات"
++        data-action="composer.input"
++        data-testid="notes-area"
++      />
++    );
++    expect(screen.getByTestId('notes-area')).toHaveAttribute('data-action', 'composer.input');
++  });
++});
+diff --git a/packages/ui/src/v3/primitives/TextArea.tsx b/packages/ui/src/v3/primitives/TextArea.tsx
+new file mode 100644
+index 0000000..bbea14b
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/TextArea.tsx
+@@ -0,0 +1,184 @@
++// packages/ui/src/v3/primitives/TextArea.tsx — Design System v3 TextArea (DS v3 §3.1)
++// Autosize support, optional counter, Enter submits only where configured.
++
++import React, { useId, useState } from 'react';
++
++export interface TextAreaProps
++  extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
++  label?: string;
++  hint?: string;
++  error?: string;
++  counter?: boolean;
++  onEnter?: () => void;
++  'data-action'?: string;
++  'data-testid'?: string;
++}
++
++export const TextArea = React.forwardRef<HTMLTextAreaElement, TextAreaProps>(
++  (
++    {
++      label,
++      hint,
++      error,
++      counter = false,
++      maxLength,
++      onEnter,
++      id,
++      className = '',
++      style,
++      value,
++      defaultValue,
++      onChange,
++      onKeyDown,
++      rows = 3,
++      disabled,
++      'data-action': dataAction,
++      'data-testid': dataTestId,
++      ...rest
++    },
++    ref
++  ) => {
++    const generatedId = useId();
++    const inputId = id ?? generatedId;
++    const errorId = `${inputId}-error`;
++    const hintId = `${inputId}-hint`;
++
++    const [charCount, setCharCount] = useState<number>(
++      String(value ?? defaultValue ?? '').length
++    );
++
++    const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
++      setCharCount(e.target.value.length);
++      onChange?.(e);
++    };
++
++    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
++      if (e.key === 'Enter' && !e.shiftKey && onEnter) {
++        e.preventDefault();
++        onEnter();
++      }
++      onKeyDown?.(e);
++    };
++
++    const describedBy = [
++      error ? errorId : undefined,
++      hint && !error ? hintId : undefined,
++    ]
++      .filter(Boolean)
++      .join(' ') || undefined;
++
++    return (
++      <div
++        className={`w-field w-textarea ${className}`.trim()}
++        style={{
++          display: 'flex',
++          flexDirection: 'column',
++          gap: 'var(--w-space-1)',
++          fontFamily: 'var(--w-font-sans)',
++          ...style,
++        }}
++        data-action={dataAction}
++        data-testid={dataTestId}
++      >
++        {label && (
++          <label
++            htmlFor={inputId}
++            className="w-field__label"
++            style={{
++              fontSize: 'var(--w-font-size-sm)',
++              fontWeight: 'var(--w-font-weight-medium)',
++              color: 'var(--w-text)',
++            }}
++          >
++            {label}
++          </label>
++        )}
++
++        <div
++          className="w-field__control"
++          style={{
++            position: 'relative',
++            backgroundColor: 'var(--w-surface)',
++            border: `var(--w-border-width) solid ${error ? 'var(--w-danger)' : 'var(--w-line-strong)'}`,
++            borderRadius: 'var(--w-radius-sm)',
++            padding: 'var(--w-space-2)',
++            boxSizing: 'border-box',
++          }}
++        >
++          <textarea
++            ref={ref}
++            id={inputId}
++            rows={rows}
++            maxLength={maxLength}
++            disabled={disabled}
++            value={value}
++            defaultValue={defaultValue}
++            onChange={handleChange}
++            onKeyDown={handleKeyDown}
++            aria-invalid={error ? true : undefined}
++            aria-describedby={describedBy}
++            className="w-textarea__input"
++            style={{
++              width: '100%',
++              border: 'none',
++              outline: 'none',
++              background: 'transparent',
++              color: 'var(--w-text)',
++              fontSize: 'var(--w-font-size-md)',
++              lineHeight: 'var(--w-line-height-md)',
++              fontFamily: 'inherit',
++              resize: 'vertical',
++              boxSizing: 'border-box',
++            }}
++            {...rest}
++          />
++
++          {counter && (
++            <div
++              className="w-textarea__counter"
++              style={{
++                display: 'flex',
++                justifyContent: 'flex-end',
++                fontSize: 'var(--w-font-size-xs)',
++                color: 'var(--w-text-muted)',
++                marginBlockStart: 'var(--w-space-1)',
++              }}
++            >
++              {charCount}
++              {maxLength ? ` / ${maxLength}` : ''}
++            </div>
++          )}
++        </div>
++
++        {error && (
++          <span
++            id={errorId}
++            role="alert"
++            className="w-field__error"
++            style={{
++              fontSize: 'var(--w-font-size-xs)',
++              color: 'var(--w-danger)',
++            }}
++          >
++            {error}
++          </span>
++        )}
++
++        {hint && !error && (
++          <span
++            id={hintId}
++            className="w-field__hint"
++            style={{
++              fontSize: 'var(--w-font-size-xs)',
++              color: 'var(--w-text-muted)',
++            }}
++          >
++            {hint}
++          </span>
++        )}
++      </div>
++    );
++  }
++);
++
++TextArea.displayName = 'TextArea';
+diff --git a/packages/ui/src/v3/primitives/TextField.stories.tsx b/packages/ui/src/v3/primitives/TextField.stories.tsx
+new file mode 100644
+index 0000000..c94ba4f
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/TextField.stories.tsx
+@@ -0,0 +1,21 @@
++import type { Meta, StoryObj } from '@storybook/react';
++
++import { TextField } from './TextField';
++
++const meta = {
++  title: 'v3/Primitives/TextField',
++  component: TextField,
++  parameters: { layout: 'centered' },
++  args: {
++    label: 'اسم المشروع',
++    placeholder: 'أدخل الاسم...',
++  },
++} satisfies Meta<typeof TextField>;
++
++export default meta;
++type Story = StoryObj<typeof meta>;
++
++export const Default: Story = {};
++export const WithPrefix: Story = { args: { label: 'الميزانية القصوى', prefix: '$', placeholder: '100' } };
++export const WithError: Story = { args: { label: 'البريد الإلكتروني', error: 'البريد غير صحيح', value: 'bad' } };
++export const WithHint: Story = { args: { label: 'مفتاح API', hint: 'مفتاح مزود الذكاء الاصطناعي' } };
+diff --git a/packages/ui/src/v3/primitives/TextField.test.tsx b/packages/ui/src/v3/primitives/TextField.test.tsx
+new file mode 100644
+index 0000000..6f19e94
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/TextField.test.tsx
+@@ -0,0 +1,38 @@
++import { render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it } from 'vitest';
++
++import { TextField } from './TextField';
++
++describe('TextField primitive', () => {
++  it('renders required label associated with input', () => {
++    render(<TextField label="اسم المشروع" />);
++    const input = screen.getByLabelText('اسم المشروع');
++    expect(input).toBeInTheDocument();
++  });
++
++  it('renders error state with aria-invalid and describedby', () => {
++    render(<TextField label="البريد" error="صيغة البريد غير صحيحة" />);
++    const input = screen.getByLabelText('البريد');
++    expect(input).toHaveAttribute('aria-invalid', 'true');
++    const alert = screen.getByRole('alert');
++    expect(alert).toHaveTextContent('صيغة البريد غير صحيحة');
++    expect(input).toHaveAttribute('aria-describedby', alert.id);
++  });
++
++  it('renders hint when no error is present', () => {
++    render(<TextField label="المفتاح" hint="يبدأ بـ sk-" />);
++    expect(screen.getByText('يبدأ بـ sk-')).toBeInTheDocument();
++  });
++
++  it('forwards data-action and data-testid', () => {
++    render(
++      <TextField
++        label="الموقع"
++        data-action="settings.url"
++        data-testid="url-field"
++      />
++    );
++    expect(screen.getByTestId('url-field')).toHaveAttribute('data-action', 'settings.url');
++  });
++});
+diff --git a/packages/ui/src/v3/primitives/TextField.tsx b/packages/ui/src/v3/primitives/TextField.tsx
+new file mode 100644
+index 0000000..d47d346
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/TextField.tsx
+@@ -0,0 +1,171 @@
++// packages/ui/src/v3/primitives/TextField.tsx — Design System v3 TextField (DS v3 §3.1)
++// Requires visible label; error has aria-invalid + message id; prefix/suffix support.
++
++import React, { useId } from 'react';
++
++export interface TextFieldProps
++  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'prefix'> {
++  label: string; // required
++  hint?: string;
++  error?: string;
++  prefix?: React.ReactNode;
++  suffix?: React.ReactNode;
++  'data-action'?: string;
++  'data-testid'?: string;
++}
++
++export const TextField = React.forwardRef<HTMLInputElement, TextFieldProps>(
++  (
++    {
++      label,
++      hint,
++      error,
++      prefix,
++      suffix,
++      id,
++      className = '',
++      style,
++      disabled,
++      required,
++      'data-action': dataAction,
++      'data-testid': dataTestId,
++      ...rest
++    },
++    ref
++  ) => {
++    const generatedId = useId();
++    const inputId = id ?? generatedId;
++    const errorId = `${inputId}-error`;
++    const hintId = `${inputId}-hint`;
++
++    const describedBy = [
++      error ? errorId : undefined,
++      hint && !error ? hintId : undefined,
++    ]
++      .filter(Boolean)
++      .join(' ') || undefined;
++
++    return (
++      <div
++        className={`w-field w-textfield ${className}`.trim()}
++        style={{
++          display: 'flex',
++          flexDirection: 'column',
++          gap: 'var(--w-space-1)',
++          fontFamily: 'var(--w-font-sans)',
++          ...style,
++        }}
++        data-action={dataAction}
++        data-testid={dataTestId}
++      >
++        <label
++          htmlFor={inputId}
++          className="w-field__label"
++          style={{
++            fontSize: 'var(--w-font-size-sm)',
++            fontWeight: 'var(--w-font-weight-medium)',
++            color: 'var(--w-text)',
++          }}
++        >
++          {label}
++          {required && (
++            <span aria-hidden="true" style={{ marginInlineStart: 'var(--w-space-1)', color: 'var(--w-danger)' }}>
++              *
++            </span>
++          )}
++        </label>
++
++        <div
++          className="w-field__control"
++          style={{
++            display: 'flex',
++            alignItems: 'center',
++            backgroundColor: 'var(--w-surface)',
++            border: `var(--w-border-width) solid ${error ? 'var(--w-danger)' : 'var(--w-line-strong)'}`,
++            borderRadius: 'var(--w-radius-sm)',
++            minHeight: 'var(--w-control-height)',
++            paddingInline: 'var(--w-space-3)',
++            boxSizing: 'border-box',
++          }}
++        >
++          {prefix && (
++            <span
++              className="w-field__prefix"
++              style={{
++                marginInlineEnd: 'var(--w-space-2)',
++                color: 'var(--w-text-muted)',
++                fontSize: 'var(--w-font-size-sm)',
++              }}
++            >
++              {prefix}
++            </span>
++          )}
++
++          <input
++            ref={ref}
++            id={inputId}
++            disabled={disabled}
++            required={required}
++            aria-invalid={error ? true : undefined}
++            aria-describedby={describedBy}
++            className="w-field__input"
++            style={{
++              flex: 1,
++              border: 'none',
++              outline: 'none',
++              background: 'transparent',
++              color: 'var(--w-text)',
++              fontSize: 'var(--w-font-size-md)',
++              lineHeight: 'var(--w-line-height-md)',
++              fontFamily: 'inherit',
++              paddingBlock: 'var(--w-space-2)',
++            }}
++            {...rest}
++          />
++
++          {suffix && (
++            <span
++              className="w-field__suffix"
++              style={{
++                marginInlineStart: 'var(--w-space-2)',
++                color: 'var(--w-text-muted)',
++                fontSize: 'var(--w-font-size-sm)',
++              }}
++            >
++              {suffix}
++            </span>
++          )}
++        </div>
++
++        {error && (
++          <span
++            id={errorId}
++            role="alert"
++            className="w-field__error"
++            style={{
++              fontSize: 'var(--w-font-size-xs)',
++              color: 'var(--w-danger)',
++            }}
++          >
++            {error}
++          </span>
++        )}
++
++        {hint && !error && (
++          <span
++            id={hintId}
++            className="w-field__hint"
++            style={{
++              fontSize: 'var(--w-font-size-xs)',
++              color: 'var(--w-text-muted)',
++            }}
++          >
++            {hint}
++          </span>
++        )}
++      </div>
++    );
++  }
++);
++
++TextField.displayName = 'TextField';
+diff --git a/packages/ui/src/v3/primitives/Tooltip.stories.tsx b/packages/ui/src/v3/primitives/Tooltip.stories.tsx
+new file mode 100644
+index 0000000..2aa8c64
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Tooltip.stories.tsx
+@@ -0,0 +1,19 @@
++import type { Meta, StoryObj } from '@storybook/react';
++import React from 'react';
++
++import { Tooltip } from './Tooltip';
++
++const meta = {
++  title: 'v3/Primitives/Tooltip',
++  component: Tooltip,
++  parameters: { layout: 'centered' },
++  args: {
++    content: 'تلميح توضيحي للأمر',
++    children: <button type="button" style={{ padding: 'var(--w-space-2)' }}>مرر المؤشر هنا</button>,
++  },
++} satisfies Meta<typeof Tooltip>;
++
++export default meta;
++type Story = StoryObj<typeof meta>;
++
++export const Default: Story = {};
+diff --git a/packages/ui/src/v3/primitives/Tooltip.test.tsx b/packages/ui/src/v3/primitives/Tooltip.test.tsx
+new file mode 100644
+index 0000000..ccff4ba
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Tooltip.test.tsx
+@@ -0,0 +1,67 @@
++import { act, fireEvent, render, screen } from '@testing-library/react';
++import React from 'react';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++
++import { Tooltip } from './Tooltip';
++
++describe('Tooltip primitive', () => {
++  beforeEach(() => {
++    vi.useFakeTimers();
++  });
++
++  afterEach(() => {
++    vi.useRealTimers();
++  });
++
++  it('shows tooltip content on hover after delay', () => {
++    render(
++      <Tooltip content="معلومات إضافية" delayMs={400}>
++        <button type="button">زر</button>
++      </Tooltip>
++    );
++
++    const button = screen.getByRole('button', { name: 'زر' });
++    fireEvent.mouseEnter(button);
++
++    // Not visible immediately
++    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
++
++    // Fast-forward past delay
++    act(() => {
++      vi.advanceTimersByTime(400);
++    });
++
++    const tooltip = screen.getByRole('tooltip');
++    expect(tooltip).toBeInTheDocument();
++    expect(tooltip).toHaveTextContent('معلومات إضافية');
++  });
++
++  it('closes on Escape key', () => {
++    render(
++      <Tooltip content="ملاحظة" delayMs={0}>
++        <button type="button">زر</button>
++      </Tooltip>
++    );
++
++    const button = screen.getByRole('button');
++    fireEvent.focus(button);
++
++    act(() => {
++      vi.advanceTimersByTime(10);
++    });
++
++    expect(screen.getByRole('tooltip')).toBeInTheDocument();
++
++    fireEvent.keyDown(window, { key: 'Escape' });
++    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
++  });
++
++  it('forwards data-action and data-testid', () => {
++    render(
++      <Tooltip content="ملاحظة" data-action="test.tooltip" data-testid="test-tt">
++        <button type="button">زر</button>
++      </Tooltip>
++    );
++    expect(screen.getByTestId('test-tt')).toHaveAttribute('data-action', 'test.tooltip');
++  });
++});
+diff --git a/packages/ui/src/v3/primitives/Tooltip.tsx b/packages/ui/src/v3/primitives/Tooltip.tsx
+new file mode 100644
+index 0000000..328a580
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/Tooltip.tsx
+@@ -0,0 +1,110 @@
++// packages/ui/src/v3/primitives/Tooltip.tsx — Design System v3 Tooltip (DS v3 §3.1)
++// Visible on hover + focus with 400ms delay; Esc closes; text-only content.
++
++import React, { useEffect, useId, useRef, useState } from 'react';
++
++export interface TooltipProps {
++  content: string;
++  children: React.ReactElement;
++  delayMs?: number;
++  className?: string;
++  'data-action'?: string;
++  'data-testid'?: string;
++}
++
++export const Tooltip: React.FC<TooltipProps> = ({
++  content,
++  children,
++  delayMs = 400,
++  className = '',
++  'data-action': dataAction,
++  'data-testid': dataTestId,
++}) => {
++  const [open, setOpen] = useState(false);
++  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
++  const tooltipId = useId();
++
++  const show = () => {
++    if (timerRef.current) clearTimeout(timerRef.current);
++    timerRef.current = setTimeout(() => setOpen(true), delayMs);
++  };
++
++  const hide = () => {
++    if (timerRef.current) {
++      clearTimeout(timerRef.current);
++      timerRef.current = null;
++    }
++    setOpen(false);
++  };
++
++  useEffect(() => {
++    const handleKeyDown = (e: KeyboardEvent) => {
++      if (e.key === 'Escape' && open) {
++        hide();
++      }
++    };
++    window.addEventListener('keydown', handleKeyDown);
++    return () => {
++      window.removeEventListener('keydown', handleKeyDown);
++      if (timerRef.current) clearTimeout(timerRef.current);
++    };
++  }, [open]);
++
++  const child = React.cloneElement(children, {
++    'aria-describedby': open ? tooltipId : children.props['aria-describedby'],
++    onMouseEnter: (e: React.MouseEvent) => {
++      children.props.onMouseEnter?.(e);
++      show();
++    },
++    onMouseLeave: (e: React.MouseEvent) => {
++      children.props.onMouseLeave?.(e);
++      hide();
++    },
++    onFocus: (e: React.FocusEvent) => {
++      children.props.onFocus?.(e);
++      show();
++    },
++    onBlur: (e: React.FocusEvent) => {
++      children.props.onBlur?.(e);
++      hide();
++    },
++  });
++
++  return (
++    <span
++      className={`w-tooltip-wrapper ${className}`.trim()}
++      style={{ display: 'inline-flex', position: 'relative' }}
++      data-action={dataAction}
++      data-testid={dataTestId}
++    >
++      {child}
++      {open && (
++        <span
++          id={tooltipId}
++          role="tooltip"
++          className="w-tooltip"
++          style={{
++            position: 'absolute',
++            insetBlockEnd: 'calc(100% + var(--w-space-2))',
++            insetInlineStart: '50%',
++            transform: 'translateX(-50%)',
++            backgroundColor: 'var(--w-text)',
++            color: 'var(--w-surface)',
++            paddingBlock: 'var(--w-space-1)',
++            paddingInline: 'var(--w-space-2)',
++            borderRadius: 'var(--w-radius-sm)',
++            fontSize: 'var(--w-font-size-xs)',
++            lineHeight: 'var(--w-line-height-xs)',
++            whiteSpace: 'nowrap',
++            zIndex: 'var(--w-layer-toast)',
++            pointerEvents: 'none',
++          }}
++        >
++          {content}
++        </span>
++      )}
++    </span>
++  );
++};
++
++Tooltip.displayName = 'Tooltip';
+diff --git a/packages/ui/src/v3/primitives/VisuallyHidden.tsx b/packages/ui/src/v3/primitives/VisuallyHidden.tsx
+new file mode 100644
+index 0000000..64fc9ef
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/VisuallyHidden.tsx
+@@ -0,0 +1,33 @@
++// packages/ui/src/v3/primitives/VisuallyHidden.tsx — Design System v3 VisuallyHidden (DS v3 §3.1)
++import React from 'react';
++
++export interface VisuallyHiddenProps extends React.HTMLAttributes<HTMLSpanElement> {
++  children: React.ReactNode;
++}
++
++export const VisuallyHidden: React.FC<VisuallyHiddenProps> = ({
++  children,
++  style,
++  ...rest
++}) => {
++  return (
++    <span
++      style={{
++        position: 'absolute',
++        width: 0,
++        height: 0,
++        padding: 0,
++        margin: 0,
++        overflow: 'hidden',
++        whiteSpace: 'nowrap',
++        border: 0,
++        ...style,
++      }}
++      {...rest}
++    >
++      {children}
++    </span>
++  );
++};
++
++VisuallyHidden.displayName = 'VisuallyHidden';
+diff --git a/packages/ui/src/v3/primitives/index.ts b/packages/ui/src/v3/primitives/index.ts
+new file mode 100644
+index 0000000..7547c84
+--- /dev/null
++++ b/packages/ui/src/v3/primitives/index.ts
+@@ -0,0 +1,24 @@
++// packages/ui/src/v3/primitives/index.ts — Design System v3 Primitives Exports (DS v3 §3.1)
++
++export * from './Button';
++export * from './IconButton';
++export * from './Link';
++export * from './TextField';
++export * from './TextArea';
++export * from './Select';
++export * from './Combobox';
++export * from './Checkbox';
++export * from './Radio';
++export * from './Switch';
++export * from './Segmented';
++export * from './Tabs';
++export * from './Tooltip';
++export * from './Badge';
++export * from './StatusPill';
++export * from './RoleMark';
++export * from './Spinner';
++export * from './Skeleton';
++export * from './ProgressBar';
++export * from './Kbd';
++export * from './Divider';
++export * from './VisuallyHidden';
+diff --git a/packages/ui/src/v3/tokens/color.ts b/packages/ui/src/v3/tokens/color.ts
+new file mode 100644
+index 0000000..3756c7b
+--- /dev/null
++++ b/packages/ui/src/v3/tokens/color.ts
+@@ -0,0 +1,91 @@
++// Design System v3 — Color Tokens (DESIGN_SYSTEM_V3.md §2.1)
++// Measured with bridge-io/policy/2026-11-09-ui-v3/tools/contrast.mjs; all 50 pairs pass WCAG.
++
++export type Theme = 'light' | 'dark';
++
++export interface ThemeColors {
++  bg: string;
++  surface: string;
++  sunken: string;
++  line: string;
++  lineStrong: string;
++  text: string;
++  textMuted: string;
++  textFaint: string;
++  primary: string;
++  primaryHover: string;
++  onPrimary: string;
++  primarySoft: string;
++  primaryText: string;
++  attention: string;
++  attentionSoft: string;
++  success: string;
++  successSoft: string;
++  danger: string;
++  dangerSoft: string;
++  info: string;
++  infoSoft: string;
++  focus: string;
++  scrim: string;
++}
++
++export const lightColors: ThemeColors = {
++  bg: '#F6F4EF',
++  surface: '#FFFFFF',
++  sunken: '#EFECE5',
++  line: '#E2DDD3',
++  lineStrong: '#8C877C',
++  text: '#1B1A17',
++  textMuted: '#5F5B53',
++  textFaint: '#7A756B',
++  primary: '#FFD400',
++  primaryHover: '#F2C600',
++  onPrimary: '#1B1A17',
++  primarySoft: '#FFF4C2',
++  primaryText: '#7A5C00',
++  attention: '#A8430A',
++  attentionSoft: '#FFEEDF',
++  success: '#1B6B39',
++  successSoft: '#E4F3E8',
++  danger: '#A8261D',
++  dangerSoft: '#FCE9E7',
++  info: '#1F55A0',
++  infoSoft: '#E7EFFA',
++  focus: '#7A5C00',
++  scrim: '#1B1A1766',
++};
++
++export const darkColors: ThemeColors = {
++  bg: '#131210',
++  surface: '#1B1A17',
++  sunken: '#24221E',
++  line: '#33302A',
++  lineStrong: '#7D776C',
++  text: '#F1EEE7',
++  textMuted: '#B3AEA3',
++  textFaint: '#948F84',
++  primary: '#FFD400',
++  primaryHover: '#FFE04A',
++  onPrimary: '#1B1A17',
++  primarySoft: '#3A3008',
++  primaryText: '#FFD84D',
++  attention: '#FF9D5C',
++  attentionSoft: '#3D2314',
++  success: '#5CC98A',
++  successSoft: '#15301F',
++  danger: '#F07A70',
++  dangerSoft: '#3A1714',
++  info: '#7DB0F5',
++  infoSoft: '#152842',
++  focus: '#FFD400',
++  scrim: '#000000A3',
++};
++
++export const colorTokens = {
++  light: lightColors,
++  dark: darkColors,
++} as const;
++
++export type ColorTokenName = keyof ThemeColors;
++
++export const colorNames: readonly ColorTokenName[] = Object.keys(lightColors) as ColorTokenName[];
+diff --git a/packages/ui/src/v3/tokens/contrast.test.ts b/packages/ui/src/v3/tokens/contrast.test.ts
+new file mode 100644
+index 0000000..5550ecc
+--- /dev/null
++++ b/packages/ui/src/v3/tokens/contrast.test.ts
+@@ -0,0 +1,82 @@
++// packages/ui/src/v3/tokens/contrast.test.ts — WCAG 2.x contrast verification (DS v3 §2.1)
++// Every pair in DESIGN_SYSTEM_V3.md §2.1 must meet or exceed its required minimum.
++
++import { describe, expect, it } from 'vitest';
++
++import { darkColors, lightColors, type ThemeColors } from './color';
++
++/** Relative luminance per WCAG 2.1 formula */
++function luminance(hex: string): number {
++  const clean = hex.replace('#', '').slice(0, 6);
++  const rgb = clean.match(/../g)!.map((h) => {
++    const v = parseInt(h, 16) / 255;
++    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
++  });
++  return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
++}
++
++/** Contrast ratio between two colours */
++function contrastRatio(hexA: string, hexB: string): number {
++  const l1 = luminance(hexA);
++  const l2 = luminance(hexB);
++  const [bright, dark] = [l1, l2].sort((a, b) => b - a);
++  return (bright + 0.05) / (dark + 0.05);
++}
++
++interface ContrastCheck {
++  fg: keyof ThemeColors;
++  bg: keyof ThemeColors;
++  min: number;
++}
++
++const CHECKS: ContrastCheck[] = [
++  { fg: 'text', bg: 'bg', min: 4.5 },
++  { fg: 'text', bg: 'surface', min: 4.5 },
++  { fg: 'text', bg: 'sunken', min: 4.5 },
++  { fg: 'textMuted', bg: 'bg', min: 4.5 },
++  { fg: 'textMuted', bg: 'surface', min: 4.5 },
++  { fg: 'textMuted', bg: 'sunken', min: 4.5 },
++  { fg: 'textFaint', bg: 'surface', min: 3.0 },
++  { fg: 'onPrimary', bg: 'primary', min: 4.5 },
++  { fg: 'onPrimary', bg: 'primaryHover', min: 4.5 },
++  { fg: 'text', bg: 'primarySoft', min: 4.5 },
++  { fg: 'primaryText', bg: 'surface', min: 4.5 },
++  { fg: 'primaryText', bg: 'bg', min: 4.5 },
++  { fg: 'primaryText', bg: 'sunken', min: 4.5 },
++  { fg: 'primaryText', bg: 'primarySoft', min: 4.5 },
++  { fg: 'attention', bg: 'attentionSoft', min: 4.5 },
++  { fg: 'attention', bg: 'surface', min: 4.5 },
++  { fg: 'attention', bg: 'bg', min: 4.5 },
++  { fg: 'success', bg: 'successSoft', min: 4.5 },
++  { fg: 'danger', bg: 'dangerSoft', min: 4.5 },
++  { fg: 'danger', bg: 'surface', min: 4.5 },
++  { fg: 'info', bg: 'infoSoft', min: 4.5 },
++  { fg: 'lineStrong', bg: 'surface', min: 3.0 },
++  { fg: 'lineStrong', bg: 'bg', min: 3.0 },
++  { fg: 'focus', bg: 'surface', min: 3.0 },
++  { fg: 'focus', bg: 'bg', min: 3.0 },
++];
++
++describe('DESIGN_SYSTEM_V3 §2.1 Color Contrast', () => {
++  describe('Light Theme Palette', () => {
++    for (const check of CHECKS) {
++      it(`light: ${String(check.fg)} on ${String(check.bg)} >= ${check.min}:1`, () => {
++        const fgColor = lightColors[check.fg];
++        const bgColor = lightColors[check.bg];
++        const cr = contrastRatio(fgColor, bgColor);
++        expect(cr).toBeGreaterThanOrEqual(check.min);
++      });
++    }
++  });
++
++  describe('Dark Theme Palette', () => {
++    for (const check of CHECKS) {
++      it(`dark: ${String(check.fg)} on ${String(check.bg)} >= ${check.min}:1`, () => {
++        const fgColor = darkColors[check.fg];
++        const bgColor = darkColors[check.bg];
++        const cr = contrastRatio(fgColor, bgColor);
++        expect(cr).toBeGreaterThanOrEqual(check.min);
++      });
++    }
++  });
++});
+diff --git a/packages/ui/src/v3/tokens/elevation.ts b/packages/ui/src/v3/tokens/elevation.ts
+new file mode 100644
+index 0000000..e83be6e
+--- /dev/null
++++ b/packages/ui/src/v3/tokens/elevation.ts
+@@ -0,0 +1,19 @@
++// Design System v3 — Elevation & Layer Tokens (DESIGN_SYSTEM_V3.md §2.4)
++
++export const shadowTokens = {
++  1: '0 1px 3px rgba(0, 0, 0, 0.08)',
++  2: '0 4px 12px rgba(0, 0, 0, 0.12)',
++  overlay: '0 12px 32px rgba(0, 0, 0, 0.20)',
++} as const;
++
++export const layerTokens = {
++  base: 0,
++  sticky: 10,
++  dropdown: 100,
++  overlay: 900,
++  modal: 1000,
++  toast: 1100,
++} as const;
++
++export type ShadowStep = keyof typeof shadowTokens;
++export type LayerStep = keyof typeof layerTokens;
+diff --git a/packages/ui/src/v3/tokens/index.ts b/packages/ui/src/v3/tokens/index.ts
+new file mode 100644
+index 0000000..dce0345
+--- /dev/null
++++ b/packages/ui/src/v3/tokens/index.ts
+@@ -0,0 +1,9 @@
++// Design System v3 — Token Exports (DESIGN_SYSTEM_V3.md §2)
++
++export * from './color';
++export * from './type';
++export * from './space';
++export * from './radius';
++export * from './elevation';
++export * from './motion';
++export * from './layout';
+diff --git a/packages/ui/src/v3/tokens/layout.ts b/packages/ui/src/v3/tokens/layout.ts
+new file mode 100644
+index 0000000..d6ede38
+--- /dev/null
++++ b/packages/ui/src/v3/tokens/layout.ts
+@@ -0,0 +1,25 @@
++// Design System v3 — Layout & Density Tokens (DESIGN_SYSTEM_V3.md §2.3)
++
++export const contentWidths = {
++  narrow: '720px',
++  normal: '1120px',
++  wide: '1440px',
++  nav: '264px',
++  rail: '300px',
++} as const;
++
++export const controlHeights = {
++  comfortable: '44px',
++  compact: '32px',
++} as const;
++
++export const breakpoints = {
++  sm: 640,
++  md: 960,
++  lg: 1280,
++  xl: 1600,
++} as const;
++
++export type ContentWidthStep = keyof typeof contentWidths;
++export type Density = 'comfortable' | 'compact';
++export type BreakpointStep = keyof typeof breakpoints;
+diff --git a/packages/ui/src/v3/tokens/motion.ts b/packages/ui/src/v3/tokens/motion.ts
+new file mode 100644
+index 0000000..6eb9fe3
+--- /dev/null
++++ b/packages/ui/src/v3/tokens/motion.ts
+@@ -0,0 +1,10 @@
++// Design System v3 — Motion Tokens (DESIGN_SYSTEM_V3.md §2.4)
++
++export const motionTokens = {
++  durFast: '120ms',
++  dur: '200ms',
++  durSlow: '320ms',
++  ease: 'cubic-bezier(.2, .8, .2, 1)',
++} as const;
++
++export type MotionStep = keyof typeof motionTokens;
+diff --git a/packages/ui/src/v3/tokens/radius.ts b/packages/ui/src/v3/tokens/radius.ts
+new file mode 100644
+index 0000000..98ca00b
+--- /dev/null
++++ b/packages/ui/src/v3/tokens/radius.ts
+@@ -0,0 +1,11 @@
++// Design System v3 — Radius Tokens (DESIGN_SYSTEM_V3.md §2.3)
++
++export const radiusTokens = {
++  sm: '6px',
++  md: '10px',
++  lg: '14px',
++  xl: '20px',
++  full: '9999px',
++} as const;
++
++export type RadiusStep = keyof typeof radiusTokens;
+diff --git a/packages/ui/src/v3/tokens/space.ts b/packages/ui/src/v3/tokens/space.ts
+new file mode 100644
+index 0000000..0d7a378
+--- /dev/null
++++ b/packages/ui/src/v3/tokens/space.ts
+@@ -0,0 +1,17 @@
++// Design System v3 — Spacing Tokens (DESIGN_SYSTEM_V3.md §2.3)
++// 4-based scale
++
++export const spaceTokens = {
++  1: '4px',
++  2: '8px',
++  3: '12px',
++  4: '16px',
++  5: '20px',
++  6: '24px',
++  7: '32px',
++  8: '40px',
++  9: '48px',
++  10: '64px',
++} as const;
++
++export type SpaceStep = keyof typeof spaceTokens;
+diff --git a/packages/ui/src/v3/tokens/tokens.css b/packages/ui/src/v3/tokens/tokens.css
+new file mode 100644
+index 0000000..42efe1d
+--- /dev/null
++++ b/packages/ui/src/v3/tokens/tokens.css
+@@ -0,0 +1,195 @@
++/**
++ * Warsha Design System v3 — «حِرفة»
++ * Semantic Design Tokens (DESIGN_SYSTEM_V3.md §2.1–2.4)
++ */
++
++:root {
++  /* Color Palette — Light Theme (default) */
++  --w-bg: #F6F4EF;
++  --w-surface: #FFFFFF;
++  --w-sunken: #EFECE5;
++  --w-line: #E2DDD3;
++  --w-line-strong: #8C877C;
++  --w-text: #1B1A17;
++  --w-text-muted: #5F5B53;
++  --w-text-faint: #7A756B;
++  --w-primary: #FFD400;
++  --w-primary-hover: #F2C600;
++  --w-on-primary: #1B1A17;
++  --w-primary-soft: #FFF4C2;
++  --w-primary-text: #7A5C00;
++  --w-attention: #A8430A;
++  --w-attention-soft: #FFEEDF;
++  --w-success: #1B6B39;
++  --w-success-soft: #E4F3E8;
++  --w-danger: #A8261D;
++  --w-danger-soft: #FCE9E7;
++  --w-info: #1F55A0;
++  --w-info-soft: #E7EFFA;
++  --w-focus: #7A5C00;
++  --w-scrim: #1B1A1766;
++
++  /* Typography */
++  --w-font-sans: "IBM Plex Sans Arabic", "Segoe UI", "Noto Sans Arabic", Tahoma, system-ui, sans-serif;
++  --w-font-mono: "IBM Plex Mono", Consolas, ui-monospace, monospace;
++
++  --w-font-size-xs: 12px;
++  --w-font-size-sm: 14px;
++  --w-font-size-md: 16px;
++  --w-font-size-lg: 18px;
++  --w-font-size-xl: 22px;
++  --w-font-size-2xl: 28px;
++  --w-font-size-3xl: 36px;
++
++  --w-line-height-xs: 18px;
++  --w-line-height-sm: 22px;
++  --w-line-height-md: 26px;
++  --w-line-height-lg: 28px;
++  --w-line-height-xl: 32px;
++  --w-line-height-2xl: 40px;
++  --w-line-height-3xl: 48px;
++
++  --w-font-weight-regular: 400;
++  --w-font-weight-medium: 500;
++  --w-font-weight-semibold: 600;
++  --w-font-weight-bold: 700;
++
++  --w-tracking-code: 0.01em;
++
++  /* Borders */
++  --w-border-width: 1px;
++  --w-border-width-strong: 2px;
++
++  /* Spacing */
++  --w-space-1: 4px;
++  --w-space-2: 8px;
++  --w-space-3: 12px;
++  --w-space-4: 16px;
++  --w-space-5: 20px;
++  --w-space-6: 24px;
++  --w-space-7: 32px;
++  --w-space-8: 40px;
++  --w-space-9: 48px;
++  --w-space-10: 64px;
++
++  /* Radius */
++  --w-radius-sm: 6px;
++  --w-radius-md: 10px;
++  --w-radius-lg: 14px;
++  --w-radius-xl: 20px;
++  --w-radius-full: 9999px;
++
++  /* Elevation */
++  --w-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.08);
++  --w-shadow-2: 0 4px 12px rgba(0, 0, 0, 0.12);
++  --w-shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.20);
++
++  /* Layers */
++  --w-layer-base: 0;
++  --w-layer-sticky: 10;
++  --w-layer-dropdown: 100;
++  --w-layer-overlay: 900;
++  --w-layer-modal: 1000;
++  --w-layer-toast: 1100;
++
++  /* Motion */
++  --w-dur-fast: 120ms;
++  --w-dur: 200ms;
++  --w-dur-slow: 320ms;
++  --w-ease: cubic-bezier(.2, .8, .2, 1);
++
++  /* Layout & Density Defaults (Comfortable) */
++  --w-content-narrow: 720px;
++  --w-content: 1120px;
++  --w-content-wide: 1440px;
++  --w-nav-width: 264px;
++  --w-rail-width: 300px;
++  --w-control-height: 44px;
++  --w-table-text-size: var(--w-font-size-md);
++  --w-table-line-height: var(--w-line-height-md);
++}
++
++/* Explicit Dark Theme */
++:root[data-theme="dark"] {
++  --w-bg: #131210;
++  --w-surface: #1B1A17;
++  --w-sunken: #24221E;
++  --w-line: #33302A;
++  --w-line-strong: #7D776C;
++  --w-text: #F1EEE7;
++  --w-text-muted: #B3AEA3;
++  --w-text-faint: #948F84;
++  --w-primary: #FFD400;
++  --w-primary-hover: #FFE04A;
++  --w-on-primary: #1B1A17;
++  --w-primary-soft: #3A3008;
++  --w-primary-text: #FFD84D;
++  --w-attention: #FF9D5C;
++  --w-attention-soft: #3D2314;
++  --w-success: #5CC98A;
++  --w-success-soft: #15301F;
++  --w-danger: #F07A70;
++  --w-danger-soft: #3A1714;
++  --w-info: #7DB0F5;
++  --w-info-soft: #152842;
++  --w-focus: #FFD400;
++  --w-scrim: #000000A3;
++
++  --w-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.40);
++  --w-shadow-2: 0 4px 12px rgba(0, 0, 0, 0.50);
++  --w-shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.60);
++}
++
++/* OS Dark Preference (unless overridden by data-theme="light") */
++@media (prefers-color-scheme: dark) {
++  :root:not([data-theme="light"]) {
++    --w-bg: #131210;
++    --w-surface: #1B1A17;
++    --w-sunken: #24221E;
++    --w-line: #33302A;
++    --w-line-strong: #7D776C;
++    --w-text: #F1EEE7;
++    --w-text-muted: #B3AEA3;
++    --w-text-faint: #948F84;
++    --w-primary: #FFD400;
++    --w-primary-hover: #FFE04A;
++    --w-on-primary: #1B1A17;
++    --w-primary-soft: #3A3008;
++    --w-primary-text: #FFD84D;
++    --w-attention: #FF9D5C;
++    --w-attention-soft: #3D2314;
++    --w-success: #5CC98A;
++    --w-success-soft: #15301F;
++    --w-danger: #F07A70;
++    --w-danger-soft: #3A1714;
++    --w-info: #7DB0F5;
++    --w-info-soft: #152842;
++    --w-focus: #FFD400;
++    --w-scrim: #000000A3;
++
++    --w-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.40);
++    --w-shadow-2: 0 4px 12px rgba(0, 0, 0, 0.50);
++    --w-shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.60);
++  }
++}
++
++/* Compact Density: switches control height 44 -> 32 and table text md -> sm */
++[data-density="compact"] {
++  --w-control-height: 32px;
++  --w-table-text-size: var(--w-font-size-sm);
++  --w-table-line-height: var(--w-line-height-sm);
++}
++
++/* Reduced Motion: motion durations collapse to 0 */
++@media (prefers-reduced-motion: reduce) {
++  :root {
++    --w-dur-fast: 0ms;
++    --w-dur: 0ms;
++    --w-dur-slow: 0ms;
++  }
++}
++
++/* RTL Icon Mirroring */
++[dir="rtl"] .w-icon--mirror {
++  transform: scaleX(-1);
++}
+diff --git a/packages/ui/src/v3/tokens/tokens.test.ts b/packages/ui/src/v3/tokens/tokens.test.ts
+new file mode 100644
+index 0000000..e5047a0
+--- /dev/null
++++ b/packages/ui/src/v3/tokens/tokens.test.ts
+@@ -0,0 +1,143 @@
++// packages/ui/src/v3/tokens/tokens.test.ts — Parity test: TS tokens == CSS tokens
++import fs from 'node:fs';
++import path from 'node:path';
++import { fileURLToPath } from 'node:url';
++
++import { describe, expect, it } from 'vitest';
++
++import { darkColors, lightColors } from './color';
++import { layerTokens, shadowTokens } from './elevation';
++import { contentWidths, controlHeights } from './layout';
++import { motionTokens } from './motion';
++import { radiusTokens } from './radius';
++import { spaceTokens } from './space';
++import { fontFamilies, fontSizes, fontWeights, lineHeights, tracking } from './type';
++
++const HERE = path.dirname(fileURLToPath(import.meta.url));
++const TOKENS_CSS = fs.readFileSync(path.join(HERE, 'tokens.css'), 'utf8');
++
++function cleanCss(css: string): string {
++  return css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ');
++}
++
++describe('Design System v3 Token Parity (TS <-> CSS)', () => {
++  const css = cleanCss(TOKENS_CSS);
++
++  it('declares all light theme color tokens', () => {
++    const cssNameMap: Record<string, string> = {
++      lineStrong: 'line-strong',
++      textMuted: 'text-muted',
++      textFaint: 'text-faint',
++      primaryHover: 'primary-hover',
++      onPrimary: 'on-primary',
++      primarySoft: 'primary-soft',
++      primaryText: 'primary-text',
++      attentionSoft: 'attention-soft',
++      successSoft: 'success-soft',
++      dangerSoft: 'danger-soft',
++      infoSoft: 'info-soft',
++    };
++
++    for (const [key, value] of Object.entries(lightColors)) {
++      const varName = `--w-${cssNameMap[key] ?? key}`;
++      expect(css.toLowerCase()).toContain(`${varName}: ${value.toLowerCase()}`);
++    }
++  });
++
++  it('declares all dark theme color tokens', () => {
++    const cssNameMap: Record<string, string> = {
++      lineStrong: 'line-strong',
++      textMuted: 'text-muted',
++      textFaint: 'text-faint',
++      primaryHover: 'primary-hover',
++      onPrimary: 'on-primary',
++      primarySoft: 'primary-soft',
++      primaryText: 'primary-text',
++      attentionSoft: 'attention-soft',
++      successSoft: 'success-soft',
++      dangerSoft: 'danger-soft',
++      infoSoft: 'info-soft',
++    };
++
++    for (const [key, value] of Object.entries(darkColors)) {
++      const varName = `--w-${cssNameMap[key] ?? key}`;
++      expect(css.toLowerCase()).toContain(`${varName}: ${value.toLowerCase()}`);
++    }
++  });
++
++  it('declares typography tokens matching TS', () => {
++    expect(css).toContain(`--w-font-sans: ${fontFamilies.sans}`);
++    expect(css).toContain(`--w-font-mono: ${fontFamilies.mono}`);
++
++    for (const [step, size] of Object.entries(fontSizes)) {
++      expect(css).toContain(`--w-font-size-${step}: ${size}`);
++    }
++
++    for (const [step, lh] of Object.entries(lineHeights)) {
++      expect(css).toContain(`--w-line-height-${step}: ${lh}`);
++    }
++
++    for (const [step, weight] of Object.entries(fontWeights)) {
++      expect(css).toContain(`--w-font-weight-${step}: ${weight}`);
++    }
++
++    expect(css).toContain(`--w-tracking-code: ${tracking.code}`);
++  });
++
++  it('declares spacing tokens 1-10 matching TS', () => {
++    for (const [step, val] of Object.entries(spaceTokens)) {
++      expect(css).toContain(`--w-space-${step}: ${val}`);
++    }
++  });
++
++  it('declares radius tokens matching TS', () => {
++    for (const [step, val] of Object.entries(radiusTokens)) {
++      expect(css).toContain(`--w-radius-${step}: ${val}`);
++    }
++  });
++
++  it('declares elevation and layer tokens matching TS', () => {
++    for (const [step, val] of Object.entries(shadowTokens)) {
++      expect(css).toContain(`--w-shadow-${step}: ${val}`);
++    }
++
++    for (const [step, val] of Object.entries(layerTokens)) {
++      expect(css).toContain(`--w-layer-${step}: ${val}`);
++    }
++  });
++
++  it('declares motion tokens matching TS', () => {
++    expect(css).toContain(`--w-dur-fast: ${motionTokens.durFast}`);
++    expect(css).toContain(`--w-dur: ${motionTokens.dur}`);
++    expect(css).toContain(`--w-dur-slow: ${motionTokens.durSlow}`);
++    expect(css).toContain(`--w-ease: ${motionTokens.ease}`);
++  });
++
++  it('declares layout tokens and density defaults', () => {
++    expect(css).toContain(`--w-content-narrow: ${contentWidths.narrow}`);
++    expect(css).toContain(`--w-content: ${contentWidths.normal}`);
++    expect(css).toContain(`--w-content-wide: ${contentWidths.wide}`);
++    expect(css).toContain(`--w-nav-width: ${contentWidths.nav}`);
++    expect(css).toContain(`--w-rail-width: ${contentWidths.rail}`);
++    expect(css).toContain(`--w-control-height: ${controlHeights.comfortable}`);
++  });
++
++  it('switches density to compact on [data-density="compact"]', () => {
++    expect(css).toContain('[data-density="compact"]');
++    expect(css).toContain(`--w-control-height: ${controlHeights.compact}`);
++    expect(css).toContain('--w-table-text-size: var(--w-font-size-sm)');
++    expect(css).toContain('--w-table-line-height: var(--w-line-height-sm)');
++  });
++
++  it('collapses motion under prefers-reduced-motion', () => {
++    expect(css).toContain('prefers-reduced-motion: reduce');
++    expect(css).toContain('--w-dur-fast: 0ms');
++    expect(css).toContain('--w-dur: 0ms');
++    expect(css).toContain('--w-dur-slow: 0ms');
++  });
++
++  it('includes RTL mirror transform for directional icons', () => {
++    expect(css).toContain('[dir="rtl"] .w-icon--mirror');
++    expect(css).toContain('transform: scaleX(-1)');
++  });
++});
+diff --git a/packages/ui/src/v3/tokens/type.ts b/packages/ui/src/v3/tokens/type.ts
+new file mode 100644
+index 0000000..165daa1
+--- /dev/null
++++ b/packages/ui/src/v3/tokens/type.ts
+@@ -0,0 +1,40 @@
++// Design System v3 — Typography Tokens (DESIGN_SYSTEM_V3.md §2.2, OD-U2 = C)
++
++export const fontFamilies = {
++  sans: '"IBM Plex Sans Arabic", "Segoe UI", "Noto Sans Arabic", Tahoma, system-ui, sans-serif',
++  mono: '"IBM Plex Mono", Consolas, ui-monospace, monospace',
++} as const;
++
++export const fontSizes = {
++  xs: '12px',
++  sm: '14px',
++  md: '16px',
++  lg: '18px',
++  xl: '22px',
++  '2xl': '28px',
++  '3xl': '36px',
++} as const;
++
++export const lineHeights = {
++  xs: '18px',
++  sm: '22px',
++  md: '26px',
++  lg: '28px',
++  xl: '32px',
++  '2xl': '40px',
++  '3xl': '48px',
++} as const;
++
++export const fontWeights = {
++  regular: 400,
++  medium: 500,
++  semibold: 600,
++  bold: 700,
++} as const;
++
++export const tracking = {
++  code: '0.01em',
++} as const;
++
++export type FontSizeStep = keyof typeof fontSizes;
++export type FontWeightStep = keyof typeof fontWeights;
+diff --git a/scripts/check-ds-v3.mjs b/scripts/check-ds-v3.mjs
+new file mode 100644
+index 0000000..124b282
+--- /dev/null
++++ b/scripts/check-ds-v3.mjs
+@@ -0,0 +1,245 @@
++#!/usr/bin/env node
++// scripts/check-ds-v3.mjs — lint Design System v3 rules (DS v3 §2.6, §7).
++//
++// Fails on:
++//   - hex colours (#[0-9a-fA-F]{3,8})
++//   - px/rem/em literals (\b\d+(?:\.\d+)?(?:px|rem|em)\b)
++//   - physical direction properties (left, right, margin-left, padding-right, text-align: left|right, ...)
++//   - numeric zIndex (zIndex: \d+)
++//   - !important
++//
++// in .ts/.tsx/.css under the given paths, EXCEPT packages/ui/src/v3/tokens/**.
++
++import fs from 'node:fs';
++import os from 'node:os';
++import path from 'node:path';
++
++const RULES = [
++  {
++    id: 'hex-colour',
++    name: 'hex colour',
++    pattern: /#[0-9a-fA-F]{3,8}\b/,
++    message: 'hex colour literal is forbidden in v3 (use semantic tokens --w-*)',
++  },
++  {
++    id: 'length-literal',
++    name: 'length literal',
++    pattern: /\b\d+(?:\.\d+)?(?:px|rem|em)\b/,
++    message: 'px/rem/em literal is forbidden in v3 (use semantic tokens --w-space-*, --w-font-size-*, etc.)',
++  },
++  {
++    id: 'physical-direction',
++    name: 'physical direction property',
++    pattern: /(?:\b(?:left|right)\s*:|\b(?:margin|padding|border)(?:-left|-right|Left|Right)\b|\bborder(?:Top|Bottom)(?:Left|Right)Radius\b|\bborder-(?:top|bottom)-(?:left|right)-radius\b|\btext-align\s*:\s*(?:left|right)\b|\btextAlign\s*:\s*['"]?(?:left|right)\b|\bfloat\s*:\s*(?:left|right)\b|\bclear\s*:\s*(?:left|right)\b)/,
++    message: 'physical direction is forbidden in v3 (use logical properties: inline-start, inline-end, margin-inline, padding-inline, etc.)',
++  },
++  {
++    id: 'numeric-zindex',
++    name: 'numeric zIndex',
++    pattern: /\b(?:zIndex|z-index)\s*:\s*\d+\b/,
++    message: 'numeric zIndex is forbidden in v3 (use layer tokens --w-layer-*)',
++  },
++  {
++    id: 'important',
++    name: '!important',
++    pattern: /!important\b/,
++    message: '!important is forbidden in v3',
++  },
++];
++
++function isExempt(filePath) {
++  const norm = filePath.replace(/\\/g, '/');
++  return norm.includes('packages/ui/src/v3/tokens');
++}
++
++function stripComments(source) {
++  return source
++    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
++    .replace(/(^|[^:])\/\/[^\n]*/g, (m, p) => p + ' '.repeat(m.length - p.length));
++}
++
++function scanFile(filePath) {
++  if (isExempt(filePath)) return [];
++
++  const ext = path.extname(filePath);
++  if (!['.ts', '.tsx', '.css'].includes(ext)) return [];
++
++  const raw = fs.readFileSync(filePath, 'utf8');
++  const stripped = stripComments(raw);
++  const lines = stripped.split(/\r?\n/);
++  const rawLines = raw.split(/\r?\n/);
++
++  const violations = [];
++
++  for (let i = 0; i < lines.length; i++) {
++    const line = lines[i];
++    const lineNum = i + 1;
++
++    for (const rule of RULES) {
++      if (rule.pattern.test(line)) {
++        violations.push({
++          file: filePath,
++          line: lineNum,
++          rule: rule.id,
++          name: rule.name,
++          message: rule.message,
++          offence: rawLines[i].trim(),
++        });
++      }
++    }
++  }
++
++  return violations;
++}
++
++function walkDir(dir) {
++  const files = [];
++  if (!fs.existsSync(dir)) return files;
++
++  const stat = fs.statSync(dir);
++  if (stat.isFile()) {
++    return [dir];
++  }
++
++  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
++    const full = path.join(dir, entry.name);
++    if (entry.isDirectory()) {
++      if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'dist' || entry.name === 'storybook-static') {
++        continue;
++      }
++      files.push(...walkDir(full));
++    } else if (entry.isFile()) {
++      const ext = path.extname(entry.name);
++      if (['.ts', '.tsx', '.css'].includes(ext)) {
++        files.push(full);
++      }
++    }
++  }
++  return files;
++}
++
++export function checkPaths(paths) {
++  const allViolations = [];
++  for (const p of paths) {
++    const files = walkDir(p);
++    for (const f of files) {
++      allViolations.push(...scanFile(f));
++    }
++  }
++  return allViolations;
++}
++
++export function selfTest() {
++  console.log('Running check-ds-v3 self-test...');
++  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ds-v3-selftest-'));
++
++  try {
++    const testCases = [
++      { id: 'hex-colour', file: 'bad-hex.css', content: '.card { color: #ff0000; }' },
++      { id: 'length-literal', file: 'bad-px.tsx', content: 'const style = { width: "16px" };' },
++      { id: 'length-literal', file: 'bad-rem.css', content: 'p { font-size: 1.5rem; }' },
++      { id: 'length-literal', file: 'bad-em.css', content: 'span { letter-spacing: 0.1em; }' },
++      { id: 'physical-direction', file: 'bad-margin.css', content: '.box { margin-left: 0; }' },
++      { id: 'physical-direction', file: 'bad-padding.tsx', content: 'const s = { paddingRight: "var(--w-space-2)" };' },
++      { id: 'physical-direction', file: 'bad-align.css', content: '.title { text-align: left; }' },
++      { id: 'physical-direction', file: 'bad-left.tsx', content: 'const s = { left: 0 };' },
++      { id: 'numeric-zindex', file: 'bad-zindex.tsx', content: 'const s = { zIndex: 10 };' },
++      { id: 'important', file: 'bad-important.css', content: '.hide { display: none !important; }' },
++    ];
++
++    for (const tc of testCases) {
++      fs.writeFileSync(path.join(tmpDir, tc.file), tc.content);
++    }
++
++    // Exempt directory should not trigger
++    const exemptDir = path.join(tmpDir, 'packages/ui/src/v3/tokens');
++    fs.mkdirSync(exemptDir, { recursive: true });
++    fs.writeFileSync(
++      path.join(exemptDir, 'tokens.css'),
++      ':root { --w-bg: #f6f4ef; --w-space-4: 16px; margin-left: 0; zIndex: 10; !important }'
++    );
++
++    // Clean file should not trigger
++    const cleanFile = path.join(tmpDir, 'clean.tsx');
++    fs.writeFileSync(
++      cleanFile,
++      `// Comments with #ffffff and 16px and margin-left should be ignored
++      export function Clean() {
++        return (
++          <div style={{
++            backgroundColor: "var(--w-bg)",
++            paddingInlineStart: "var(--w-space-4)",
++            textAlign: "start",
++            zIndex: "var(--w-layer-modal)"
++          }}>
++            Clean
++          </div>
++        );
++      }`
++    );
++
++    const violations = checkPaths([tmpDir]);
++
++    // Verify exempt files had 0 violations
++    const exemptViolations = violations.filter((v) => v.file.includes('tokens.css'));
++    if (exemptViolations.length > 0) {
++      console.error('self-test failed: exempt tokens directory triggered violations:', exemptViolations);
++      return 1;
++    }
++
++    // Verify clean file had 0 violations
++    const cleanViolations = violations.filter((v) => v.file.includes('clean.tsx'));
++    if (cleanViolations.length > 0) {
++      console.error('self-test failed: clean file triggered violations:', cleanViolations);
++      return 1;
++    }
++
++    // Verify each rule triggered
++    let failed = false;
++    for (const rule of RULES) {
++      const hits = violations.filter((v) => v.rule === rule.id);
++      if (hits.length === 0) {
++        console.error(`self-test failed: rule ${rule.id} (${rule.name}) was not triggered`);
++        failed = true;
++      } else {
++        console.log(`self-test rule ${rule.id}: OK (${hits.length} detected)`);
++      }
++    }
++
++    if (failed) return 1;
++
++    console.log('self-test: all checks passed cleanly');
++    return 0;
++  } finally {
++    fs.rmSync(tmpDir, { recursive: true, force: true });
++  }
++}
++
++function main() {
++  const argv = process.argv.slice(2);
++  if (argv.includes('--self-test')) {
++    process.exit(selfTest());
++  }
++
++  const paths = argv.filter((a) => !a.startsWith('--'));
++  if (paths.length === 0) {
++    console.error('Usage: node scripts/check-ds-v3.mjs <paths...> | --self-test');
++    process.exit(1);
++  }
++
++  const violations = checkPaths(paths);
++  if (violations.length > 0) {
++    console.error(`Found ${violations.length} Design System v3 violation(s):`);
++    for (const v of violations) {
++      console.error(`${v.file}:${v.line} [${v.rule}] ${v.message} -> ${v.offence}`);
++    }
++    process.exit(1);
++  }
++
++  console.log(`check-ds-v3: 0 violations in ${paths.join(', ')}`);
++  process.exit(0);
++}
++
++if (process.argv[1] && process.argv[1].endsWith('check-ds-v3.mjs')) {
++  main();
++}

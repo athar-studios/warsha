@@ -1,0 +1,16 @@
+start 2026-11-10T04:41:51Z
+TIP=7894d63c521d73d1e7d5c702200377d424f0031d
+F3=738aba6022c058e17eb81d7258977af653ab67a7
+Preparing worktree (detached HEAD 7894d63)
+HEAD is now at 7894d63 chore(integration): C2 merge F4
+Merge made by the 'ort' strategy.
+ apps/desktop/e2e/support/global-setup.ts | 62 ++++++++++++++++++++++++++++++++
+ playwright.config.ts                     |  1 +
+ 2 files changed, 63 insertions(+)
+ create mode 100644 apps/desktop/e2e/support/global-setup.ts
+scratch_head=1127257b144bb0be9193ff6cbde49805ed847d5a
+install_ok
+ports_free
+playwright_exit=0
+pwgate_exit=0
+end 2026-11-10T04:56:19Z

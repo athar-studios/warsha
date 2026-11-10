@@ -1,0 +1,55 @@
+Scope: all 8 workspace projects
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +805
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Progress: resolved 805, reused 509, downloaded 0, added 0
+
+   ╭───────────────────────────────────────────────────────────────────╮
+   │                                                                   │
+   │                Update available! 9.0.0 → 12.18.0.                 │
+   │   Changelog: https://github.com/pnpm/pnpm/releases/tag/v12.18.0   │
+   │                 Run "pnpm add -g pnpm" to update.                 │
+   │                                                                   │
+   │      Follow @pnpmjs for updates: https://twitter.com/pnpmjs       │
+   │                                                                   │
+   ╰───────────────────────────────────────────────────────────────────╯
+
+Progress: resolved 805, reused 804, downloaded 0, added 14
+Progress: resolved 805, reused 805, downloaded 0, added 112
+Progress: resolved 805, reused 805, downloaded 0, added 222
+Progress: resolved 805, reused 805, downloaded 0, added 278
+Progress: resolved 805, reused 805, downloaded 0, added 350
+Progress: resolved 805, reused 805, downloaded 0, added 405
+Progress: resolved 805, reused 805, downloaded 0, added 452
+Progress: resolved 805, reused 805, downloaded 0, added 580
+Progress: resolved 805, reused 805, downloaded 0, added 684
+Progress: resolved 805, reused 805, downloaded 0, added 716
+Progress: resolved 805, reused 805, downloaded 0, added 752
+Progress: resolved 805, reused 805, downloaded 0, added 802
+Progress: resolved 805, reused 805, downloaded 0, added 803
+Progress: resolved 805, reused 805, downloaded 0, added 804
+Progress: resolved 805, reused 805, downloaded 0, added 805
+Progress: resolved 805, reused 805, downloaded 0, added 805, done
+
+devDependencies:
++ @playwright/test 1.49.1
++ @typescript-eslint/eslint-plugin 8.72.1
++ @typescript-eslint/parser 8.72.1
++ axe-core 4.14.0
++ eslint 9.39.5
++ eslint-config-prettier 10.1.8
++ eslint-plugin-import 2.32.0
++ eslint-plugin-jsx-a11y 6.10.2
++ eslint-plugin-react 7.37.5
++ eslint-plugin-react-hooks 5.2.0
++ husky 9.1.7
++ prettier 3.9.10
++ typescript 5.9.3
++ vitest 2.1.9
+
+. prepare$ husky install
+. prepare: husky - install command is DEPRECATED
+. prepare: Done
+Done in 18.7s
+EXIT=0

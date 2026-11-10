@@ -1,0 +1,5 @@
+{
+  "targetMemberId": "ae32bb61-947c-4564-ac2e-5a0383675732",
+  "text": "F2 verification — run 2026-11-09-ui-v3 (verifier role; independent of the Coder implementer and the debugger reviewer).\n\nEV=C:/Users/Dragonfly/Downloads/Warsha/bridge-io/policy/2026-11-09-ui-v3. Read EV/packets/F2/gates.md VERBATIM and run gates F2.1-F2.6 exactly as written. BASE=4c65ead4f46cf97eecffd73149a57056e505568c, reviewed HEAD=a3d24a949e44951dbfc2671f62b1477f4d7ec276, worktree C:/Users/Dragonfly/Downloads/warsha-wt/v3/f2 (clean). All gates are Windows/any — no capture host, do not touch ports.\n\nRaw stdout/stderr to EV/gates/<id>.log; set verdict/exit_code/commit/timestamp(UTC)/log for F2.1-F2.6 in EV/acceptance.json (verdict fields only). base_counts in EV/state.json baseline.counts. Read log bodies, do not trust exit codes alone. Never fix anything; never edit gates, named sets, snapshots, state.json, PROGRESS.md, DECISIONS.md.\n\nDeliverables: logs + acceptance entries + EV/packets/F2/verify.md (per-gate table). Final answer UNDER 150 words: per-gate verdict + exit code + log path, blockers.",
+  "requestId": "00000000-0000-4000-8000-0000000000f2"
+}

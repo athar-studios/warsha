@@ -1,0 +1,22 @@
+# gate: G8.3
+# command: pnpm -r lint
+# commit: 0b8a7e89f987c1ffb6415110238e91514cd4aa9f
+# started_utc: 2026-11-08T08:55:18Z
+# worktree: C:/Users/Dragonfly/Downloads/warsha-wt/verify-w8
+
+Scope: 7 of 8 workspace projects
+packages/crypto lint$ eslint src --ext .ts
+packages/client lint$ eslint src --ext .ts
+packages/ui lint$ eslint src --ext .ts,.tsx
+packages/i18n lint$ eslint src --ext .ts,.tsx
+packages/crypto lint: Done
+packages/i18n lint: Done
+packages/client lint: Done
+packages/ui lint: Done
+apps/desktop lint$ eslint src --ext .ts,.tsx
+apps/remote lint$ eslint src --ext .ts,.tsx
+apps/remote lint: Done
+apps/desktop lint: Done
+
+# exit_code: 0
+# finished_utc: 2026-11-08T08:56:08Z

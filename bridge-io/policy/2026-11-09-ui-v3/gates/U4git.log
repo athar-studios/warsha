@@ -1,0 +1,34 @@
+6929f15 scratch: U4 capture
+ba5cd1e chore(integration): C3 merge U5 (support fix needed by U4 e2e; recorded reorder)
+7d4ceb9 test(settings): add 19 discriminating unit tests for settings sections and actions
+985907f fix(settings): ensure accessible color contrast for section scope badge
+41088e7 fix(e2e): support daemon config key queries in openV3 invoke stub
+===
+tip_is_ancestor
+u4_is_ancestor
+===
+commit ba5cd1efb09bc37724e8f64feba6ecb9a1265d51
+parents 6025715d881f80454286e35ed803d08f801a8c6c 7d4ceb9d589c23a139117ad98a977ff3a073ad9a
+subject chore(integration): C3 merge U5 (support fix needed by U4 e2e; recorded reorder)
+
+ apps/desktop/e2e/v3/settings.spec.ts               | 1126 ++++++++++++++++++++
+ apps/desktop/e2e/v3/support/index.ts               |    3 +
+ apps/desktop/src/v3/actions/registry/settings.ts   |  260 ++++-
+ .../src/v3/pages/settings/Settings.test.tsx        |  966 +++++++++++++++++
+ apps/desktop/src/v3/pages/settings/SettingsNav.tsx |  173 +++
+ apps/desktop/src/v3/pages/settings/index.tsx       |   95 +-
+ .../v3/pages/settings/sections/AboutSection.tsx    |  158 +++
+ .../v3/pages/settings/sections/BackendSection.tsx  |  344 ++++++
+ .../v3/pages/settings/sections/BudgetsSection.tsx  |  199 ++++
+ .../v3/pages/settings/sections/DevicesSection.tsx  |  273 +++++
+ .../v3/pages/settings/sections/GeneralSection.tsx  |  337 ++++++
+ .../settings/sections/IntegrationsSection.tsx      |  395 +++++++
+ .../v3/pages/settings/sections/ModelsSection.tsx   |  744 +++++++++++++
+ .../v3/pages/settings/sections/PluginsSection.tsx  |  382 +++++++
+ .../pages/settings/sections/PostLaunchSection.tsx  |  302 ++++++
+ .../v3/pages/settings/sections/RoutinesSection.tsx |  250 +++++
+ .../v3/pages/settings/sections/SkillsSection.tsx   |  269 +++++
+ .../pages/settings/sections/WorkflowsSection.tsx   |  325 ++++++
+ apps/desktop/src/v3/pages/settings/settings.css    |  287 +++++
+ apps/desktop/src/v3/pages/settings/types.ts        |  115 ++
+ packages/i18n/src/v3/ar/settings.ts                |  260 +++++

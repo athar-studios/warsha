@@ -1,0 +1,334 @@
+From ab3be906b3cf707eb70dd0ec617a04bdfa505b8c Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Mon, 9 Nov 2026 18:04:28 +0400
+Subject: [PATCH 06/12] feat(desktop): add useGates, useBudget, and
+ useProviders v3 hooks
+
+Add hooks for gates queue, project budget, and provider configs with
+four-state unit tests covering loading, empty, ready, and error states.
+---
+ apps/desktop/src/v3/data/useBudget.test.ts    | 75 +++++++++++++++++++
+ apps/desktop/src/v3/data/useBudget.ts         | 22 ++++++
+ apps/desktop/src/v3/data/useGates.test.ts     | 66 ++++++++++++++++
+ apps/desktop/src/v3/data/useGates.ts          | 22 ++++++
+ apps/desktop/src/v3/data/useProviders.test.ts | 66 ++++++++++++++++
+ apps/desktop/src/v3/data/useProviders.ts      | 21 ++++++
+ 6 files changed, 272 insertions(+)
+ create mode 100644 apps/desktop/src/v3/data/useBudget.test.ts
+ create mode 100644 apps/desktop/src/v3/data/useBudget.ts
+ create mode 100644 apps/desktop/src/v3/data/useGates.test.ts
+ create mode 100644 apps/desktop/src/v3/data/useGates.ts
+ create mode 100644 apps/desktop/src/v3/data/useProviders.test.ts
+ create mode 100644 apps/desktop/src/v3/data/useProviders.ts
+
+diff --git a/apps/desktop/src/v3/data/useBudget.test.ts b/apps/desktop/src/v3/data/useBudget.test.ts
+new file mode 100644
+index 0000000..179ba3d
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useBudget.test.ts
+@@ -0,0 +1,75 @@
++import { act, renderHook } from '@testing-library/react';
++import type { BudgetStatus, ProjectId, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useBudget } from './useBudget';
++
++describe('useBudget', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      getProjectBudget: () => new Promise<BudgetStatus>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useBudget('proj-1' as ProjectId, client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when budget is zero', async () => {
++    const emptyBudget: BudgetStatus = {
++      totalBudgetUsd: 0,
++      spentUsd: 0,
++      remainingUsd: 0,
++    };
++    const client = {
++      getProjectBudget: vi.fn().mockResolvedValue(emptyBudget),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useBudget('proj-1' as ProjectId, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual(emptyBudget);
++  });
++
++  it('handles ready state when budget has funds', async () => {
++    const budget: BudgetStatus = {
++      totalBudgetUsd: 50,
++      spentUsd: 10,
++      remainingUsd: 40,
++    };
++    const client = {
++      getProjectBudget: vi.fn().mockResolvedValue(budget),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useBudget('proj-1' as ProjectId, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(budget);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      getProjectBudget: vi.fn().mockRejectedValue(new Error('Budget fetch failed')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useBudget('proj-1' as ProjectId, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Budget fetch failed');
++
++    (client.getProjectBudget as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
++      totalBudgetUsd: 100,
++      spentUsd: 0,
++      remainingUsd: 100,
++    });
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useBudget.ts b/apps/desktop/src/v3/data/useBudget.ts
+new file mode 100644
+index 0000000..668573d
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useBudget.ts
+@@ -0,0 +1,22 @@
++import type { BudgetStatus, ProjectId, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useBudget(
++  projectId?: ProjectId | string | null,
++  overrideClient?: WarshaClient | null
++): HookResult<BudgetStatus> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<BudgetStatus>(
++    async () => {
++      if (!client || !projectId) return null;
++      return client.getProjectBudget(projectId as ProjectId);
++    },
++    (budget) => !budget || (budget.totalBudgetUsd === 0 && budget.spentUsd === 0 && budget.remainingUsd === 0),
++    [client, projectId]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useGates.test.ts b/apps/desktop/src/v3/data/useGates.test.ts
+new file mode 100644
+index 0000000..3d7cdcc
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useGates.test.ts
+@@ -0,0 +1,66 @@
++import { act, renderHook } from '@testing-library/react';
++import type { GateSummary, RunId, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useGates } from './useGates';
++
++describe('useGates', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      getGates: () => new Promise<GateSummary[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useGates('run-1' as RunId, client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when no gates exist', async () => {
++    const client = {
++      getGates: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useGates('run-1' as RunId, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when gates are returned', async () => {
++    const list: GateSummary[] = [
++      { stage: 'gate_a', state: 'pending' },
++    ];
++    const client = {
++      getGates: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useGates('run-1' as RunId, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      getGates: vi.fn().mockRejectedValue(new Error('Gates failed')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useGates('run-1' as RunId, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Gates failed');
++
++    (client.getGates as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      { stage: 'gate_b', state: 'approved' },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useGates.ts b/apps/desktop/src/v3/data/useGates.ts
+new file mode 100644
+index 0000000..52e23da
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useGates.ts
+@@ -0,0 +1,22 @@
++import type { GateSummary, RunId, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useGates(
++  runId?: RunId | string | null,
++  overrideClient?: WarshaClient | null
++): HookResult<GateSummary[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<GateSummary[]>(
++    async () => {
++      if (!client || !runId) return [];
++      return client.getGates(runId as RunId);
++    },
++    (list) => !list || list.length === 0,
++    [client, runId]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useProviders.test.ts b/apps/desktop/src/v3/data/useProviders.test.ts
+new file mode 100644
+index 0000000..76545f0
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useProviders.test.ts
+@@ -0,0 +1,66 @@
++import { act, renderHook } from '@testing-library/react';
++import type { ProviderConfig, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useProviders } from './useProviders';
++
++describe('useProviders', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      listProviders: () => new Promise<ProviderConfig[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProviders(client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when provider list is empty', async () => {
++    const client = {
++      listProviders: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProviders(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when providers exist', async () => {
++    const list: ProviderConfig[] = [
++      { name: 'mock-provider', kind: 'mock', enabled: true },
++    ];
++    const client = {
++      listProviders: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProviders(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      listProviders: vi.fn().mockRejectedValue(new Error('Providers failed')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProviders(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Providers failed');
++
++    (client.listProviders as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      { name: 'anthropic', kind: 'anthropic', enabled: true },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useProviders.ts b/apps/desktop/src/v3/data/useProviders.ts
+new file mode 100644
+index 0000000..4f89129
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useProviders.ts
+@@ -0,0 +1,21 @@
++import type { ProviderConfig, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useProviders(
++  overrideClient?: WarshaClient | null
++): HookResult<ProviderConfig[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<ProviderConfig[]>(
++    async () => {
++      if (!client) return [];
++      return client.listProviders();
++    },
++    (list) => !list || list.length === 0,
++    [client]
++  );
++}
+-- 
+2.55.0.windows.5
+

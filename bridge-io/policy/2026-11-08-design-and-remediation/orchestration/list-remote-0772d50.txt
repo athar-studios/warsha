@@ -1,0 +1,95 @@
+(node:16280) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+Listing tests:
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › needs-you 320x568 ar light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › needs-you 320x568 ar dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › needs-you 320x568 en light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › needs-you 320x568 en dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › needs-you 390x844 ar light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › needs-you 390x844 ar dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › needs-you 390x844 en light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › needs-you 390x844 en dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › needs-you 768x1024 ar light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › needs-you 768x1024 ar dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › needs-you 768x1024 en light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › needs-you 768x1024 en dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › gates 320x568 ar light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › gates 320x568 ar dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › gates 320x568 en light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › gates 320x568 en dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › gates 390x844 ar light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › gates 390x844 ar dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › gates 390x844 en light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › gates 390x844 en dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › gates 768x1024 ar light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › gates 768x1024 ar dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › gates 768x1024 en light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › gates 768x1024 en dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › run 320x568 ar light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › run 320x568 ar dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › run 320x568 en light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › run 320x568 en dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › run 390x844 ar light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › run 390x844 ar dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › run 390x844 en light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › run 390x844 en dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › run 768x1024 ar light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › run 768x1024 ar dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › run 768x1024 en light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › run 768x1024 en dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › projects 320x568 ar light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › projects 320x568 ar dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › projects 320x568 en light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › projects 320x568 en dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › projects 390x844 ar light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › projects 390x844 ar dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › projects 390x844 en light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › projects 390x844 en dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › settings 320x568 ar light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › settings 320x568 ar dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › settings 320x568 en light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › settings 320x568 en dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › settings 390x844 ar light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › settings 390x844 ar dark
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › settings 390x844 en light
+  [remote] › remote\e2e\bench.visual.spec.ts:58:9 › settings 390x844 en dark
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you unpaired 320x568 ar light
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you unpaired 320x568 ar dark
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you unpaired 320x568 en light
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you unpaired 320x568 en dark
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you empty 320x568 ar light
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you empty 320x568 ar dark
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you empty 320x568 en light
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you empty 320x568 en dark
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you error 320x568 ar light
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you error 320x568 ar dark
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you error 320x568 en light
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you error 320x568 en dark
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you offline 320x568 ar light
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you offline 320x568 ar dark
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you offline 320x568 en light
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you offline 320x568 en dark
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you permission 320x568 ar light
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you permission 320x568 ar dark
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you permission 320x568 en light
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you permission 320x568 en dark
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you dense 320x568 ar light
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you dense 320x568 ar dark
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you dense 320x568 en light
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › needs-you dense 320x568 en dark
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › gates empty 320x568 ar light
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › gates empty 320x568 ar dark
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › gates empty 320x568 en light
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › gates empty 320x568 en dark
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › gates dense 320x568 ar light
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › gates dense 320x568 ar dark
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › gates dense 320x568 en light
+  [remote] › remote\e2e\bench.visual.spec.ts:120:9 › gates dense 320x568 en dark
+  [remote] › remote\e2e\flows.spec.ts:45:1 › the language switch changes the catalog, the direction and the declared language
+  [remote] › remote\e2e\flows.spec.ts:69:1 › a pairing link typed by hand becomes a session, and leaves the address
+  [remote] › remote\e2e\flows.spec.ts:110:1 › the skip link is the first thing a keyboard finds on the phone
+  [remote] › remote\e2e\flows.spec.ts:120:1 › a gate is decided from the keyboard, and the decision reaches the daemon
+  [remote] › remote\e2e\flows.spec.ts:145:1 › a dropped feed says so and keeps the queue
+  [remote] › remote\e2e\flows.spec.ts:167:1 › the offline bench offers a retry rather than implying the work is gone
+  [remote] › remote\e2e\flows.spec.ts:187:1 › the phone and the desktop say the same thing about the same gate
+Total: 91 tests in 2 files

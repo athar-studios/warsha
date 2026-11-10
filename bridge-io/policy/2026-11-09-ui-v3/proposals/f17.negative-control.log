@@ -1,0 +1,12 @@
+DEFECT-STILL-PRESENT desktop › screens.visual.spec.ts › providers 390x844 ar light: Error: layout problems:
+DEFECT-STILL-PRESENT desktop › screens.visual.spec.ts › providers 390x844 ar light: Error: layout problems:
+DEFECT-STILL-PRESENT desktop › screens.visual.spec.ts › providers 390x844 ar light: Error: not drawn with the design's fonts:
+DEFECT-STILL-PRESENT desktop › screens.visual.spec.ts › providers 390x844 ar dark: Error: layout problems:
+DEFECT-STILL-PRESENT desktop › screens.visual.spec.ts › providers 390x844 ar dark: Error: layout problems:
+DEFECT-STILL-PRESENT desktop › screens.visual.spec.ts › providers 390x844 ar dark: Error: not drawn with the design's fonts:
+DEFECT-STILL-PRESENT desktop › screens.visual.spec.ts › providers 390x844 en light: Error: layout problems:
+DEFECT-STILL-PRESENT desktop › screens.visual.spec.ts › providers 390x844 en light: Error: layout problems:
+DEFECT-STILL-PRESENT desktop › screens.visual.spec.ts › providers 390x844 en dark: Error: layout problems:
+DEFECT-STILL-PRESENT desktop › screens.visual.spec.ts › providers 390x844 en dark: Error: layout problems:
+f17: cases=4 defect-errors=10
+NEG_EXIT=1 (1 expected: defects present at G0)

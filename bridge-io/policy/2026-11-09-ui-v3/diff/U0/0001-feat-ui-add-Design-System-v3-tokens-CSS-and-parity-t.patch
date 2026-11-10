@@ -1,0 +1,749 @@
+From ff9658eb2fa1d84bb553ba88c4b3c4e9bc7d16dc Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Mon, 9 Nov 2026 17:37:18 +0400
+Subject: [PATCH 1/5] feat(ui): add Design System v3 tokens, CSS and parity
+ tests
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Implements semantic color tokens for light and dark themes per DS §2.1,
+typography, space, radius, elevation, motion, and layout tokens with
+CSS custom property declarations and density switching. Includes TS/CSS
+parity and contrast tests.
+---
+ packages/ui/src/v3/tokens/color.ts         |  91 ++++++++++
+ packages/ui/src/v3/tokens/contrast.test.ts |  82 +++++++++
+ packages/ui/src/v3/tokens/elevation.ts     |  19 ++
+ packages/ui/src/v3/tokens/index.ts         |   9 +
+ packages/ui/src/v3/tokens/layout.ts        |  25 +++
+ packages/ui/src/v3/tokens/motion.ts        |  10 ++
+ packages/ui/src/v3/tokens/radius.ts        |  11 ++
+ packages/ui/src/v3/tokens/space.ts         |  17 ++
+ packages/ui/src/v3/tokens/tokens.css       | 195 +++++++++++++++++++++
+ packages/ui/src/v3/tokens/tokens.test.ts   | 143 +++++++++++++++
+ packages/ui/src/v3/tokens/type.ts          |  40 +++++
+ 11 files changed, 642 insertions(+)
+ create mode 100644 packages/ui/src/v3/tokens/color.ts
+ create mode 100644 packages/ui/src/v3/tokens/contrast.test.ts
+ create mode 100644 packages/ui/src/v3/tokens/elevation.ts
+ create mode 100644 packages/ui/src/v3/tokens/index.ts
+ create mode 100644 packages/ui/src/v3/tokens/layout.ts
+ create mode 100644 packages/ui/src/v3/tokens/motion.ts
+ create mode 100644 packages/ui/src/v3/tokens/radius.ts
+ create mode 100644 packages/ui/src/v3/tokens/space.ts
+ create mode 100644 packages/ui/src/v3/tokens/tokens.css
+ create mode 100644 packages/ui/src/v3/tokens/tokens.test.ts
+ create mode 100644 packages/ui/src/v3/tokens/type.ts
+
+diff --git a/packages/ui/src/v3/tokens/color.ts b/packages/ui/src/v3/tokens/color.ts
+new file mode 100644
+index 0000000..3756c7b
+--- /dev/null
++++ b/packages/ui/src/v3/tokens/color.ts
+@@ -0,0 +1,91 @@
++// Design System v3 — Color Tokens (DESIGN_SYSTEM_V3.md §2.1)
++// Measured with bridge-io/policy/2026-11-09-ui-v3/tools/contrast.mjs; all 50 pairs pass WCAG.
++
++export type Theme = 'light' | 'dark';
++
++export interface ThemeColors {
++  bg: string;
++  surface: string;
++  sunken: string;
++  line: string;
++  lineStrong: string;
++  text: string;
++  textMuted: string;
++  textFaint: string;
++  primary: string;
++  primaryHover: string;
++  onPrimary: string;
++  primarySoft: string;
++  primaryText: string;
++  attention: string;
++  attentionSoft: string;
++  success: string;
++  successSoft: string;
++  danger: string;
++  dangerSoft: string;
++  info: string;
++  infoSoft: string;
++  focus: string;
++  scrim: string;
++}
++
++export const lightColors: ThemeColors = {
++  bg: '#F6F4EF',
++  surface: '#FFFFFF',
++  sunken: '#EFECE5',
++  line: '#E2DDD3',
++  lineStrong: '#8C877C',
++  text: '#1B1A17',
++  textMuted: '#5F5B53',
++  textFaint: '#7A756B',
++  primary: '#FFD400',
++  primaryHover: '#F2C600',
++  onPrimary: '#1B1A17',
++  primarySoft: '#FFF4C2',
++  primaryText: '#7A5C00',
++  attention: '#A8430A',
++  attentionSoft: '#FFEEDF',
++  success: '#1B6B39',
++  successSoft: '#E4F3E8',
++  danger: '#A8261D',
++  dangerSoft: '#FCE9E7',
++  info: '#1F55A0',
++  infoSoft: '#E7EFFA',
++  focus: '#7A5C00',
++  scrim: '#1B1A1766',
++};
++
++export const darkColors: ThemeColors = {
++  bg: '#131210',
++  surface: '#1B1A17',
++  sunken: '#24221E',
++  line: '#33302A',
++  lineStrong: '#7D776C',
++  text: '#F1EEE7',
++  textMuted: '#B3AEA3',
++  textFaint: '#948F84',
++  primary: '#FFD400',
++  primaryHover: '#FFE04A',
++  onPrimary: '#1B1A17',
++  primarySoft: '#3A3008',
++  primaryText: '#FFD84D',
++  attention: '#FF9D5C',
++  attentionSoft: '#3D2314',
++  success: '#5CC98A',
++  successSoft: '#15301F',
++  danger: '#F07A70',
++  dangerSoft: '#3A1714',
++  info: '#7DB0F5',
++  infoSoft: '#152842',
++  focus: '#FFD400',
++  scrim: '#000000A3',
++};
++
++export const colorTokens = {
++  light: lightColors,
++  dark: darkColors,
++} as const;
++
++export type ColorTokenName = keyof ThemeColors;
++
++export const colorNames: readonly ColorTokenName[] = Object.keys(lightColors) as ColorTokenName[];
+diff --git a/packages/ui/src/v3/tokens/contrast.test.ts b/packages/ui/src/v3/tokens/contrast.test.ts
+new file mode 100644
+index 0000000..5550ecc
+--- /dev/null
++++ b/packages/ui/src/v3/tokens/contrast.test.ts
+@@ -0,0 +1,82 @@
++// packages/ui/src/v3/tokens/contrast.test.ts — WCAG 2.x contrast verification (DS v3 §2.1)
++// Every pair in DESIGN_SYSTEM_V3.md §2.1 must meet or exceed its required minimum.
++
++import { describe, expect, it } from 'vitest';
++
++import { darkColors, lightColors, type ThemeColors } from './color';
++
++/** Relative luminance per WCAG 2.1 formula */
++function luminance(hex: string): number {
++  const clean = hex.replace('#', '').slice(0, 6);
++  const rgb = clean.match(/../g)!.map((h) => {
++    const v = parseInt(h, 16) / 255;
++    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
++  });
++  return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
++}
++
++/** Contrast ratio between two colours */
++function contrastRatio(hexA: string, hexB: string): number {
++  const l1 = luminance(hexA);
++  const l2 = luminance(hexB);
++  const [bright, dark] = [l1, l2].sort((a, b) => b - a);
++  return (bright + 0.05) / (dark + 0.05);
++}
++
++interface ContrastCheck {
++  fg: keyof ThemeColors;
++  bg: keyof ThemeColors;
++  min: number;
++}
++
++const CHECKS: ContrastCheck[] = [
++  { fg: 'text', bg: 'bg', min: 4.5 },
++  { fg: 'text', bg: 'surface', min: 4.5 },
++  { fg: 'text', bg: 'sunken', min: 4.5 },
++  { fg: 'textMuted', bg: 'bg', min: 4.5 },
++  { fg: 'textMuted', bg: 'surface', min: 4.5 },
++  { fg: 'textMuted', bg: 'sunken', min: 4.5 },
++  { fg: 'textFaint', bg: 'surface', min: 3.0 },
++  { fg: 'onPrimary', bg: 'primary', min: 4.5 },
++  { fg: 'onPrimary', bg: 'primaryHover', min: 4.5 },
++  { fg: 'text', bg: 'primarySoft', min: 4.5 },
++  { fg: 'primaryText', bg: 'surface', min: 4.5 },
++  { fg: 'primaryText', bg: 'bg', min: 4.5 },
++  { fg: 'primaryText', bg: 'sunken', min: 4.5 },
++  { fg: 'primaryText', bg: 'primarySoft', min: 4.5 },
++  { fg: 'attention', bg: 'attentionSoft', min: 4.5 },
++  { fg: 'attention', bg: 'surface', min: 4.5 },
++  { fg: 'attention', bg: 'bg', min: 4.5 },
++  { fg: 'success', bg: 'successSoft', min: 4.5 },
++  { fg: 'danger', bg: 'dangerSoft', min: 4.5 },
++  { fg: 'danger', bg: 'surface', min: 4.5 },
++  { fg: 'info', bg: 'infoSoft', min: 4.5 },
++  { fg: 'lineStrong', bg: 'surface', min: 3.0 },
++  { fg: 'lineStrong', bg: 'bg', min: 3.0 },
++  { fg: 'focus', bg: 'surface', min: 3.0 },
++  { fg: 'focus', bg: 'bg', min: 3.0 },
++];
++
++describe('DESIGN_SYSTEM_V3 §2.1 Color Contrast', () => {
++  describe('Light Theme Palette', () => {
++    for (const check of CHECKS) {
++      it(`light: ${String(check.fg)} on ${String(check.bg)} >= ${check.min}:1`, () => {
++        const fgColor = lightColors[check.fg];
++        const bgColor = lightColors[check.bg];
++        const cr = contrastRatio(fgColor, bgColor);
++        expect(cr).toBeGreaterThanOrEqual(check.min);
++      });
++    }
++  });
++
++  describe('Dark Theme Palette', () => {
++    for (const check of CHECKS) {
++      it(`dark: ${String(check.fg)} on ${String(check.bg)} >= ${check.min}:1`, () => {
++        const fgColor = darkColors[check.fg];
++        const bgColor = darkColors[check.bg];
++        const cr = contrastRatio(fgColor, bgColor);
++        expect(cr).toBeGreaterThanOrEqual(check.min);
++      });
++    }
++  });
++});
+diff --git a/packages/ui/src/v3/tokens/elevation.ts b/packages/ui/src/v3/tokens/elevation.ts
+new file mode 100644
+index 0000000..e83be6e
+--- /dev/null
++++ b/packages/ui/src/v3/tokens/elevation.ts
+@@ -0,0 +1,19 @@
++// Design System v3 — Elevation & Layer Tokens (DESIGN_SYSTEM_V3.md §2.4)
++
++export const shadowTokens = {
++  1: '0 1px 3px rgba(0, 0, 0, 0.08)',
++  2: '0 4px 12px rgba(0, 0, 0, 0.12)',
++  overlay: '0 12px 32px rgba(0, 0, 0, 0.20)',
++} as const;
++
++export const layerTokens = {
++  base: 0,
++  sticky: 10,
++  dropdown: 100,
++  overlay: 900,
++  modal: 1000,
++  toast: 1100,
++} as const;
++
++export type ShadowStep = keyof typeof shadowTokens;
++export type LayerStep = keyof typeof layerTokens;
+diff --git a/packages/ui/src/v3/tokens/index.ts b/packages/ui/src/v3/tokens/index.ts
+new file mode 100644
+index 0000000..dce0345
+--- /dev/null
++++ b/packages/ui/src/v3/tokens/index.ts
+@@ -0,0 +1,9 @@
++// Design System v3 — Token Exports (DESIGN_SYSTEM_V3.md §2)
++
++export * from './color';
++export * from './type';
++export * from './space';
++export * from './radius';
++export * from './elevation';
++export * from './motion';
++export * from './layout';
+diff --git a/packages/ui/src/v3/tokens/layout.ts b/packages/ui/src/v3/tokens/layout.ts
+new file mode 100644
+index 0000000..d6ede38
+--- /dev/null
++++ b/packages/ui/src/v3/tokens/layout.ts
+@@ -0,0 +1,25 @@
++// Design System v3 — Layout & Density Tokens (DESIGN_SYSTEM_V3.md §2.3)
++
++export const contentWidths = {
++  narrow: '720px',
++  normal: '1120px',
++  wide: '1440px',
++  nav: '264px',
++  rail: '300px',
++} as const;
++
++export const controlHeights = {
++  comfortable: '44px',
++  compact: '32px',
++} as const;
++
++export const breakpoints = {
++  sm: 640,
++  md: 960,
++  lg: 1280,
++  xl: 1600,
++} as const;
++
++export type ContentWidthStep = keyof typeof contentWidths;
++export type Density = 'comfortable' | 'compact';
++export type BreakpointStep = keyof typeof breakpoints;
+diff --git a/packages/ui/src/v3/tokens/motion.ts b/packages/ui/src/v3/tokens/motion.ts
+new file mode 100644
+index 0000000..6eb9fe3
+--- /dev/null
++++ b/packages/ui/src/v3/tokens/motion.ts
+@@ -0,0 +1,10 @@
++// Design System v3 — Motion Tokens (DESIGN_SYSTEM_V3.md §2.4)
++
++export const motionTokens = {
++  durFast: '120ms',
++  dur: '200ms',
++  durSlow: '320ms',
++  ease: 'cubic-bezier(.2, .8, .2, 1)',
++} as const;
++
++export type MotionStep = keyof typeof motionTokens;
+diff --git a/packages/ui/src/v3/tokens/radius.ts b/packages/ui/src/v3/tokens/radius.ts
+new file mode 100644
+index 0000000..98ca00b
+--- /dev/null
++++ b/packages/ui/src/v3/tokens/radius.ts
+@@ -0,0 +1,11 @@
++// Design System v3 — Radius Tokens (DESIGN_SYSTEM_V3.md §2.3)
++
++export const radiusTokens = {
++  sm: '6px',
++  md: '10px',
++  lg: '14px',
++  xl: '20px',
++  full: '9999px',
++} as const;
++
++export type RadiusStep = keyof typeof radiusTokens;
+diff --git a/packages/ui/src/v3/tokens/space.ts b/packages/ui/src/v3/tokens/space.ts
+new file mode 100644
+index 0000000..0d7a378
+--- /dev/null
++++ b/packages/ui/src/v3/tokens/space.ts
+@@ -0,0 +1,17 @@
++// Design System v3 — Spacing Tokens (DESIGN_SYSTEM_V3.md §2.3)
++// 4-based scale
++
++export const spaceTokens = {
++  1: '4px',
++  2: '8px',
++  3: '12px',
++  4: '16px',
++  5: '20px',
++  6: '24px',
++  7: '32px',
++  8: '40px',
++  9: '48px',
++  10: '64px',
++} as const;
++
++export type SpaceStep = keyof typeof spaceTokens;
+diff --git a/packages/ui/src/v3/tokens/tokens.css b/packages/ui/src/v3/tokens/tokens.css
+new file mode 100644
+index 0000000..42efe1d
+--- /dev/null
++++ b/packages/ui/src/v3/tokens/tokens.css
+@@ -0,0 +1,195 @@
++/**
++ * Warsha Design System v3 — «حِرفة»
++ * Semantic Design Tokens (DESIGN_SYSTEM_V3.md §2.1–2.4)
++ */
++
++:root {
++  /* Color Palette — Light Theme (default) */
++  --w-bg: #F6F4EF;
++  --w-surface: #FFFFFF;
++  --w-sunken: #EFECE5;
++  --w-line: #E2DDD3;
++  --w-line-strong: #8C877C;
++  --w-text: #1B1A17;
++  --w-text-muted: #5F5B53;
++  --w-text-faint: #7A756B;
++  --w-primary: #FFD400;
++  --w-primary-hover: #F2C600;
++  --w-on-primary: #1B1A17;
++  --w-primary-soft: #FFF4C2;
++  --w-primary-text: #7A5C00;
++  --w-attention: #A8430A;
++  --w-attention-soft: #FFEEDF;
++  --w-success: #1B6B39;
++  --w-success-soft: #E4F3E8;
++  --w-danger: #A8261D;
++  --w-danger-soft: #FCE9E7;
++  --w-info: #1F55A0;
++  --w-info-soft: #E7EFFA;
++  --w-focus: #7A5C00;
++  --w-scrim: #1B1A1766;
++
++  /* Typography */
++  --w-font-sans: "IBM Plex Sans Arabic", "Segoe UI", "Noto Sans Arabic", Tahoma, system-ui, sans-serif;
++  --w-font-mono: "IBM Plex Mono", Consolas, ui-monospace, monospace;
++
++  --w-font-size-xs: 12px;
++  --w-font-size-sm: 14px;
++  --w-font-size-md: 16px;
++  --w-font-size-lg: 18px;
++  --w-font-size-xl: 22px;
++  --w-font-size-2xl: 28px;
++  --w-font-size-3xl: 36px;
++
++  --w-line-height-xs: 18px;
++  --w-line-height-sm: 22px;
++  --w-line-height-md: 26px;
++  --w-line-height-lg: 28px;
++  --w-line-height-xl: 32px;
++  --w-line-height-2xl: 40px;
++  --w-line-height-3xl: 48px;
++
++  --w-font-weight-regular: 400;
++  --w-font-weight-medium: 500;
++  --w-font-weight-semibold: 600;
++  --w-font-weight-bold: 700;
++
++  --w-tracking-code: 0.01em;
++
++  /* Borders */
++  --w-border-width: 1px;
++  --w-border-width-strong: 2px;
++
++  /* Spacing */
++  --w-space-1: 4px;
++  --w-space-2: 8px;
++  --w-space-3: 12px;
++  --w-space-4: 16px;
++  --w-space-5: 20px;
++  --w-space-6: 24px;
++  --w-space-7: 32px;
++  --w-space-8: 40px;
++  --w-space-9: 48px;
++  --w-space-10: 64px;
++
++  /* Radius */
++  --w-radius-sm: 6px;
++  --w-radius-md: 10px;
++  --w-radius-lg: 14px;
++  --w-radius-xl: 20px;
++  --w-radius-full: 9999px;
++
++  /* Elevation */
++  --w-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.08);
++  --w-shadow-2: 0 4px 12px rgba(0, 0, 0, 0.12);
++  --w-shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.20);
++
++  /* Layers */
++  --w-layer-base: 0;
++  --w-layer-sticky: 10;
++  --w-layer-dropdown: 100;
++  --w-layer-overlay: 900;
++  --w-layer-modal: 1000;
++  --w-layer-toast: 1100;
++
++  /* Motion */
++  --w-dur-fast: 120ms;
++  --w-dur: 200ms;
++  --w-dur-slow: 320ms;
++  --w-ease: cubic-bezier(.2, .8, .2, 1);
++
++  /* Layout & Density Defaults (Comfortable) */
++  --w-content-narrow: 720px;
++  --w-content: 1120px;
++  --w-content-wide: 1440px;
++  --w-nav-width: 264px;
++  --w-rail-width: 300px;
++  --w-control-height: 44px;
++  --w-table-text-size: var(--w-font-size-md);
++  --w-table-line-height: var(--w-line-height-md);
++}
++
++/* Explicit Dark Theme */
++:root[data-theme="dark"] {
++  --w-bg: #131210;
++  --w-surface: #1B1A17;
++  --w-sunken: #24221E;
++  --w-line: #33302A;
++  --w-line-strong: #7D776C;
++  --w-text: #F1EEE7;
++  --w-text-muted: #B3AEA3;
++  --w-text-faint: #948F84;
++  --w-primary: #FFD400;
++  --w-primary-hover: #FFE04A;
++  --w-on-primary: #1B1A17;
++  --w-primary-soft: #3A3008;
++  --w-primary-text: #FFD84D;
++  --w-attention: #FF9D5C;
++  --w-attention-soft: #3D2314;
++  --w-success: #5CC98A;
++  --w-success-soft: #15301F;
++  --w-danger: #F07A70;
++  --w-danger-soft: #3A1714;
++  --w-info: #7DB0F5;
++  --w-info-soft: #152842;
++  --w-focus: #FFD400;
++  --w-scrim: #000000A3;
++
++  --w-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.40);
++  --w-shadow-2: 0 4px 12px rgba(0, 0, 0, 0.50);
++  --w-shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.60);
++}
++
++/* OS Dark Preference (unless overridden by data-theme="light") */
++@media (prefers-color-scheme: dark) {
++  :root:not([data-theme="light"]) {
++    --w-bg: #131210;
++    --w-surface: #1B1A17;
++    --w-sunken: #24221E;
++    --w-line: #33302A;
++    --w-line-strong: #7D776C;
++    --w-text: #F1EEE7;
++    --w-text-muted: #B3AEA3;
++    --w-text-faint: #948F84;
++    --w-primary: #FFD400;
++    --w-primary-hover: #FFE04A;
++    --w-on-primary: #1B1A17;
++    --w-primary-soft: #3A3008;
++    --w-primary-text: #FFD84D;
++    --w-attention: #FF9D5C;
++    --w-attention-soft: #3D2314;
++    --w-success: #5CC98A;
++    --w-success-soft: #15301F;
++    --w-danger: #F07A70;
++    --w-danger-soft: #3A1714;
++    --w-info: #7DB0F5;
++    --w-info-soft: #152842;
++    --w-focus: #FFD400;
++    --w-scrim: #000000A3;
++
++    --w-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.40);
++    --w-shadow-2: 0 4px 12px rgba(0, 0, 0, 0.50);
++    --w-shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.60);
++  }
++}
++
++/* Compact Density: switches control height 44 -> 32 and table text md -> sm */
++[data-density="compact"] {
++  --w-control-height: 32px;
++  --w-table-text-size: var(--w-font-size-sm);
++  --w-table-line-height: var(--w-line-height-sm);
++}
++
++/* Reduced Motion: motion durations collapse to 0 */
++@media (prefers-reduced-motion: reduce) {
++  :root {
++    --w-dur-fast: 0ms;
++    --w-dur: 0ms;
++    --w-dur-slow: 0ms;
++  }
++}
++
++/* RTL Icon Mirroring */
++[dir="rtl"] .w-icon--mirror {
++  transform: scaleX(-1);
++}
+diff --git a/packages/ui/src/v3/tokens/tokens.test.ts b/packages/ui/src/v3/tokens/tokens.test.ts
+new file mode 100644
+index 0000000..e5047a0
+--- /dev/null
++++ b/packages/ui/src/v3/tokens/tokens.test.ts
+@@ -0,0 +1,143 @@
++// packages/ui/src/v3/tokens/tokens.test.ts — Parity test: TS tokens == CSS tokens
++import fs from 'node:fs';
++import path from 'node:path';
++import { fileURLToPath } from 'node:url';
++
++import { describe, expect, it } from 'vitest';
++
++import { darkColors, lightColors } from './color';
++import { layerTokens, shadowTokens } from './elevation';
++import { contentWidths, controlHeights } from './layout';
++import { motionTokens } from './motion';
++import { radiusTokens } from './radius';
++import { spaceTokens } from './space';
++import { fontFamilies, fontSizes, fontWeights, lineHeights, tracking } from './type';
++
++const HERE = path.dirname(fileURLToPath(import.meta.url));
++const TOKENS_CSS = fs.readFileSync(path.join(HERE, 'tokens.css'), 'utf8');
++
++function cleanCss(css: string): string {
++  return css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ');
++}
++
++describe('Design System v3 Token Parity (TS <-> CSS)', () => {
++  const css = cleanCss(TOKENS_CSS);
++
++  it('declares all light theme color tokens', () => {
++    const cssNameMap: Record<string, string> = {
++      lineStrong: 'line-strong',
++      textMuted: 'text-muted',
++      textFaint: 'text-faint',
++      primaryHover: 'primary-hover',
++      onPrimary: 'on-primary',
++      primarySoft: 'primary-soft',
++      primaryText: 'primary-text',
++      attentionSoft: 'attention-soft',
++      successSoft: 'success-soft',
++      dangerSoft: 'danger-soft',
++      infoSoft: 'info-soft',
++    };
++
++    for (const [key, value] of Object.entries(lightColors)) {
++      const varName = `--w-${cssNameMap[key] ?? key}`;
++      expect(css.toLowerCase()).toContain(`${varName}: ${value.toLowerCase()}`);
++    }
++  });
++
++  it('declares all dark theme color tokens', () => {
++    const cssNameMap: Record<string, string> = {
++      lineStrong: 'line-strong',
++      textMuted: 'text-muted',
++      textFaint: 'text-faint',
++      primaryHover: 'primary-hover',
++      onPrimary: 'on-primary',
++      primarySoft: 'primary-soft',
++      primaryText: 'primary-text',
++      attentionSoft: 'attention-soft',
++      successSoft: 'success-soft',
++      dangerSoft: 'danger-soft',
++      infoSoft: 'info-soft',
++    };
++
++    for (const [key, value] of Object.entries(darkColors)) {
++      const varName = `--w-${cssNameMap[key] ?? key}`;
++      expect(css.toLowerCase()).toContain(`${varName}: ${value.toLowerCase()}`);
++    }
++  });
++
++  it('declares typography tokens matching TS', () => {
++    expect(css).toContain(`--w-font-sans: ${fontFamilies.sans}`);
++    expect(css).toContain(`--w-font-mono: ${fontFamilies.mono}`);
++
++    for (const [step, size] of Object.entries(fontSizes)) {
++      expect(css).toContain(`--w-font-size-${step}: ${size}`);
++    }
++
++    for (const [step, lh] of Object.entries(lineHeights)) {
++      expect(css).toContain(`--w-line-height-${step}: ${lh}`);
++    }
++
++    for (const [step, weight] of Object.entries(fontWeights)) {
++      expect(css).toContain(`--w-font-weight-${step}: ${weight}`);
++    }
++
++    expect(css).toContain(`--w-tracking-code: ${tracking.code}`);
++  });
++
++  it('declares spacing tokens 1-10 matching TS', () => {
++    for (const [step, val] of Object.entries(spaceTokens)) {
++      expect(css).toContain(`--w-space-${step}: ${val}`);
++    }
++  });
++
++  it('declares radius tokens matching TS', () => {
++    for (const [step, val] of Object.entries(radiusTokens)) {
++      expect(css).toContain(`--w-radius-${step}: ${val}`);
++    }
++  });
++
++  it('declares elevation and layer tokens matching TS', () => {
++    for (const [step, val] of Object.entries(shadowTokens)) {
++      expect(css).toContain(`--w-shadow-${step}: ${val}`);
++    }
++
++    for (const [step, val] of Object.entries(layerTokens)) {
++      expect(css).toContain(`--w-layer-${step}: ${val}`);
++    }
++  });
++
++  it('declares motion tokens matching TS', () => {
++    expect(css).toContain(`--w-dur-fast: ${motionTokens.durFast}`);
++    expect(css).toContain(`--w-dur: ${motionTokens.dur}`);
++    expect(css).toContain(`--w-dur-slow: ${motionTokens.durSlow}`);
++    expect(css).toContain(`--w-ease: ${motionTokens.ease}`);
++  });
++
++  it('declares layout tokens and density defaults', () => {
++    expect(css).toContain(`--w-content-narrow: ${contentWidths.narrow}`);
++    expect(css).toContain(`--w-content: ${contentWidths.normal}`);
++    expect(css).toContain(`--w-content-wide: ${contentWidths.wide}`);
++    expect(css).toContain(`--w-nav-width: ${contentWidths.nav}`);
++    expect(css).toContain(`--w-rail-width: ${contentWidths.rail}`);
++    expect(css).toContain(`--w-control-height: ${controlHeights.comfortable}`);
++  });
++
++  it('switches density to compact on [data-density="compact"]', () => {
++    expect(css).toContain('[data-density="compact"]');
++    expect(css).toContain(`--w-control-height: ${controlHeights.compact}`);
++    expect(css).toContain('--w-table-text-size: var(--w-font-size-sm)');
++    expect(css).toContain('--w-table-line-height: var(--w-line-height-sm)');
++  });
++
++  it('collapses motion under prefers-reduced-motion', () => {
++    expect(css).toContain('prefers-reduced-motion: reduce');
++    expect(css).toContain('--w-dur-fast: 0ms');
++    expect(css).toContain('--w-dur: 0ms');
++    expect(css).toContain('--w-dur-slow: 0ms');
++  });
++
++  it('includes RTL mirror transform for directional icons', () => {
++    expect(css).toContain('[dir="rtl"] .w-icon--mirror');
++    expect(css).toContain('transform: scaleX(-1)');
++  });
++});
+diff --git a/packages/ui/src/v3/tokens/type.ts b/packages/ui/src/v3/tokens/type.ts
+new file mode 100644
+index 0000000..165daa1
+--- /dev/null
++++ b/packages/ui/src/v3/tokens/type.ts
+@@ -0,0 +1,40 @@
++// Design System v3 — Typography Tokens (DESIGN_SYSTEM_V3.md §2.2, OD-U2 = C)
++
++export const fontFamilies = {
++  sans: '"IBM Plex Sans Arabic", "Segoe UI", "Noto Sans Arabic", Tahoma, system-ui, sans-serif',
++  mono: '"IBM Plex Mono", Consolas, ui-monospace, monospace',
++} as const;
++
++export const fontSizes = {
++  xs: '12px',
++  sm: '14px',
++  md: '16px',
++  lg: '18px',
++  xl: '22px',
++  '2xl': '28px',
++  '3xl': '36px',
++} as const;
++
++export const lineHeights = {
++  xs: '18px',
++  sm: '22px',
++  md: '26px',
++  lg: '28px',
++  xl: '32px',
++  '2xl': '40px',
++  '3xl': '48px',
++} as const;
++
++export const fontWeights = {
++  regular: 400,
++  medium: 500,
++  semibold: 600,
++  bold: 700,
++} as const;
++
++export const tracking = {
++  code: '0.01em',
++} as const;
++
++export type FontSizeStep = keyof typeof fontSizes;
++export type FontWeightStep = keyof typeof fontWeights;
+-- 
+2.55.0.windows.5
+

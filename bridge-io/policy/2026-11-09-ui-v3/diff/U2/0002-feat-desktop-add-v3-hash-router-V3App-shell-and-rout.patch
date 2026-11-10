@@ -1,0 +1,1221 @@
+From 50a1c728cf8130cd591141edbbb15b941c7b13ef Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Mon, 9 Nov 2026 17:40:06 +0400
+Subject: [PATCH 02/12] feat(desktop): add v3 hash router, V3App shell, and
+ route placeholders
+
+Implement client-side hash router with route matching and navigation.
+Provide V3App shell with Client, Capabilities, I18n, Theme, Density,
+and DataReady providers wrapping Frame. Add startup route decision logic
+to route to onboarding only when incomplete, otherwise root. Wire ?ui=v3
+and ui_version flag in main.tsx without changing v2 defaults.
+---
+ apps/desktop/src/main.tsx                     |  45 +++++-
+ .../src/v3/app/CapabilitiesContext.tsx        |  67 ++++++++
+ apps/desktop/src/v3/app/ClientContext.tsx     |  39 +++++
+ apps/desktop/src/v3/app/DataReadyContext.tsx  |  23 +++
+ apps/desktop/src/v3/app/DensityContext.tsx    |  84 ++++++++++
+ apps/desktop/src/v3/app/ThemeContext.tsx      |  68 +++++++++
+ apps/desktop/src/v3/app/V3App.test.tsx        |  21 +++
+ apps/desktop/src/v3/app/V3App.tsx             |  86 +++++++++++
+ apps/desktop/src/v3/app/startup.test.ts       |  64 ++++++++
+ apps/desktop/src/v3/app/startup.ts            |  56 +++++++
+ apps/desktop/src/v3/app/toast.ts              |  38 +++++
+ apps/desktop/src/v3/pages/bench/index.tsx     |  12 ++
+ apps/desktop/src/v3/pages/frame/Frame.tsx     |  26 ++++
+ apps/desktop/src/v3/pages/frame/index.tsx     |   1 +
+ apps/desktop/src/v3/pages/home/index.tsx      |  12 ++
+ apps/desktop/src/v3/pages/inbox/index.tsx     |  12 ++
+ .../desktop/src/v3/pages/onboarding/index.tsx |  12 ++
+ apps/desktop/src/v3/pages/project/index.tsx   |  12 ++
+ apps/desktop/src/v3/pages/projects/index.tsx  |  12 ++
+ apps/desktop/src/v3/pages/settings/index.tsx  |  12 ++
+ apps/desktop/src/v3/router/Router.test.tsx    |  91 +++++++++++
+ apps/desktop/src/v3/router/Router.tsx         | 143 ++++++++++++++++++
+ apps/desktop/src/v3/router/index.ts           |   2 +
+ apps/desktop/src/v3/router/routes.ts          |  54 +++++++
+ 24 files changed, 987 insertions(+), 5 deletions(-)
+ create mode 100644 apps/desktop/src/v3/app/CapabilitiesContext.tsx
+ create mode 100644 apps/desktop/src/v3/app/ClientContext.tsx
+ create mode 100644 apps/desktop/src/v3/app/DataReadyContext.tsx
+ create mode 100644 apps/desktop/src/v3/app/DensityContext.tsx
+ create mode 100644 apps/desktop/src/v3/app/ThemeContext.tsx
+ create mode 100644 apps/desktop/src/v3/app/V3App.test.tsx
+ create mode 100644 apps/desktop/src/v3/app/V3App.tsx
+ create mode 100644 apps/desktop/src/v3/app/startup.test.ts
+ create mode 100644 apps/desktop/src/v3/app/startup.ts
+ create mode 100644 apps/desktop/src/v3/app/toast.ts
+ create mode 100644 apps/desktop/src/v3/pages/bench/index.tsx
+ create mode 100644 apps/desktop/src/v3/pages/frame/Frame.tsx
+ create mode 100644 apps/desktop/src/v3/pages/frame/index.tsx
+ create mode 100644 apps/desktop/src/v3/pages/home/index.tsx
+ create mode 100644 apps/desktop/src/v3/pages/inbox/index.tsx
+ create mode 100644 apps/desktop/src/v3/pages/onboarding/index.tsx
+ create mode 100644 apps/desktop/src/v3/pages/project/index.tsx
+ create mode 100644 apps/desktop/src/v3/pages/projects/index.tsx
+ create mode 100644 apps/desktop/src/v3/pages/settings/index.tsx
+ create mode 100644 apps/desktop/src/v3/router/Router.test.tsx
+ create mode 100644 apps/desktop/src/v3/router/Router.tsx
+ create mode 100644 apps/desktop/src/v3/router/index.ts
+ create mode 100644 apps/desktop/src/v3/router/routes.ts
+
+diff --git a/apps/desktop/src/main.tsx b/apps/desktop/src/main.tsx
+index 01d14c2..f97f9c2 100644
+--- a/apps/desktop/src/main.tsx
++++ b/apps/desktop/src/main.tsx
+@@ -1,3 +1,4 @@
++import { invoke } from '@tauri-apps/api/core';
+ import { LocaleProvider, applyLocale, readStoredLocale } from '@warsha/i18n';
+ import React from 'react';
+ import ReactDOM from 'react-dom/client';
+@@ -6,6 +7,7 @@ import { BrowserRouter } from 'react-router-dom';
+ import App from './App';
+ import { ErrorBoundary } from './components/ErrorBoundary';
+ import { applyStoredTheme } from './theme';
++import { V3App } from './v3/app/V3App';
+ import './index.css';
+ 
+ // Write `data-theme` before the first paint: the provider below keeps it in step afterwards, but
+@@ -19,16 +21,49 @@ applyStoredTheme();
+ const storedLocale = readStoredLocale();
+ applyLocale(storedLocale);
+ 
++// Check if ui=v3 query param is present (?ui=v3)
++function isV3Requested(): boolean {
++  if (typeof window === 'undefined') return false;
++  const params = new URLSearchParams(window.location.search);
++  return params.get('ui') === 'v3'; // ui=v3
++}
++
++function Root(): React.ReactElement {
++  const [useV3, setUseV3] = React.useState<boolean>(() => isV3Requested());
++
++  React.useEffect(() => {
++    if (!useV3) {
++      invoke<string>('get_config', { key: 'ui_version' })
++        .then((ver) => {
++          if (ver === 'v3') {
++            setUseV3(true);
++          }
++        })
++        .catch(() => {
++          // If invoke fails or ui_version not set, stay on v2 App
++        });
++    }
++  }, [useV3]);
++
++  if (useV3) {
++    return <V3App />;
++  }
++
++  return (
++    <LocaleProvider initialLocale={storedLocale}>
++      <BrowserRouter>
++        <App />
++      </BrowserRouter>
++    </LocaleProvider>
++  );
++}
++
+ // The boundary sits outermost on purpose: a throw anywhere inside — locale provider, router, a
+ // screen — lands on the recovery card instead of blacking the window with nothing to click.
+ ReactDOM.createRoot(document.getElementById('root')!).render(
+   <React.StrictMode>
+     <ErrorBoundary>
+-      <LocaleProvider initialLocale={storedLocale}>
+-        <BrowserRouter>
+-          <App />
+-        </BrowserRouter>
+-      </LocaleProvider>
++      <Root />
+     </ErrorBoundary>
+   </React.StrictMode>
+ );
+diff --git a/apps/desktop/src/v3/app/CapabilitiesContext.tsx b/apps/desktop/src/v3/app/CapabilitiesContext.tsx
+new file mode 100644
+index 0000000..3c345c1
+--- /dev/null
++++ b/apps/desktop/src/v3/app/CapabilitiesContext.tsx
+@@ -0,0 +1,67 @@
++import type { WarshaClient } from '@warsha/client';
++import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
++
++import {
++  DEFAULT_CAPABILITIES,
++  detectCapabilities,
++  type Capabilities,
++} from '../actions/capabilities';
++
++import { useClient } from './ClientContext';
++
++interface CapabilitiesContextValue {
++  capabilities: Capabilities;
++  reload: () => Promise<void>;
++}
++
++const CapabilitiesContext = createContext<CapabilitiesContextValue>({
++  capabilities: DEFAULT_CAPABILITIES,
++  reload: async () => {},
++});
++
++export interface CapabilitiesProviderProps {
++  initialCapabilities?: Capabilities;
++  client?: WarshaClient;
++  children: React.ReactNode;
++}
++
++export function CapabilitiesProvider({
++  initialCapabilities,
++  client: propClient,
++  children,
++}: CapabilitiesProviderProps): React.ReactElement {
++  const contextClient = useClient();
++  const client = propClient ?? contextClient;
++
++  const [capabilities, setCapabilities] = useState<Capabilities>(
++    () => initialCapabilities ?? DEFAULT_CAPABILITIES
++  );
++
++  const reload = useCallback(async (): Promise<void> => {
++    if (!client) return;
++    try {
++      const detected = await detectCapabilities(client);
++      setCapabilities(detected);
++    } catch {
++      // Keep existing capabilities on reload failure
++    }
++  }, [client]);
++
++  useEffect(() => {
++    if (client) {
++      void reload();
++    }
++  }, [client, reload]);
++
++  const value = useMemo(() => ({ capabilities, reload }), [capabilities, reload]);
++
++  return <CapabilitiesContext.Provider value={value}>{children}</CapabilitiesContext.Provider>;
++}
++
++export function useCapabilities(): Capabilities {
++  return useContext(CapabilitiesContext).capabilities;
++}
++
++export function useReloadCapabilities(): () => Promise<void> {
++  return useContext(CapabilitiesContext).reload;
++}
+diff --git a/apps/desktop/src/v3/app/ClientContext.tsx b/apps/desktop/src/v3/app/ClientContext.tsx
+new file mode 100644
+index 0000000..59bb4e7
+--- /dev/null
++++ b/apps/desktop/src/v3/app/ClientContext.tsx
+@@ -0,0 +1,39 @@
++import { invoke } from '@tauri-apps/api/core';
++import { createClient, type WarshaClient } from '@warsha/client';
++import React, { createContext, useContext, useEffect, useState } from 'react';
++
++import { readDaemonEndpoint } from '../../daemon';
++
++const ClientContext = createContext<WarshaClient | null>(null);
++
++export interface ClientProviderProps {
++  client?: WarshaClient;
++  children: React.ReactNode;
++}
++
++export function ClientProvider({ client: clientProp, children }: ClientProviderProps): React.ReactElement {
++  const [resolvedClient, setResolvedClient] = useState<WarshaClient | null>(() => clientProp ?? null);
++
++  useEffect(() => {
++    if (clientProp) {
++      setResolvedClient(clientProp);
++      return;
++    }
++
++    readDaemonEndpoint(invoke)
++      .then((endpoint) => {
++        if (endpoint.baseUrl) {
++          setResolvedClient(createClient(endpoint.baseUrl, endpoint.token));
++        }
++      })
++      .catch(() => {
++        // In plain browser / test environment, endpoint may not resolve
++      });
++  }, [clientProp]);
++
++  return <ClientContext.Provider value={resolvedClient}>{children}</ClientContext.Provider>;
++}
++
++export function useClient(): WarshaClient | null {
++  return useContext(ClientContext);
++}
+diff --git a/apps/desktop/src/v3/app/DataReadyContext.tsx b/apps/desktop/src/v3/app/DataReadyContext.tsx
+new file mode 100644
+index 0000000..1873403
+--- /dev/null
++++ b/apps/desktop/src/v3/app/DataReadyContext.tsx
+@@ -0,0 +1,23 @@
++import React, { createContext, useContext, useMemo, useState } from 'react';
++
++interface DataReadyContextValue {
++  isReady: boolean;
++  setReady: (ready: boolean) => void;
++}
++
++const DataReadyContext = createContext<DataReadyContextValue>({
++  isReady: true,
++  setReady: () => {},
++});
++
++export function DataReadyProvider({ children }: { children: React.ReactNode }): React.ReactElement {
++  const [isReady, setReady] = useState(true);
++
++  const value = useMemo(() => ({ isReady, setReady }), [isReady]);
++
++  return <DataReadyContext.Provider value={value}>{children}</DataReadyContext.Provider>;
++}
++
++export function useDataReady(): DataReadyContextValue {
++  return useContext(DataReadyContext);
++}
+diff --git a/apps/desktop/src/v3/app/DensityContext.tsx b/apps/desktop/src/v3/app/DensityContext.tsx
+new file mode 100644
+index 0000000..94530d0
+--- /dev/null
++++ b/apps/desktop/src/v3/app/DensityContext.tsx
+@@ -0,0 +1,84 @@
++import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
++
++export type AppMode = 'simple' | 'advanced';
++export type Density = 'comfortable' | 'compact';
++
++interface DensityContextValue {
++  mode: AppMode;
++  density: Density;
++  setMode: (mode: AppMode) => void;
++  setDensity: (density: Density) => void;
++}
++
++const DensityContext = createContext<DensityContextValue>({
++  mode: 'simple',
++  density: 'comfortable',
++  setMode: () => {},
++  setDensity: () => {},
++});
++
++export const APP_MODE_STORAGE_KEY = 'warsha.app_mode';
++
++export function readStoredAppMode(): AppMode {
++  if (typeof window === 'undefined') return 'simple';
++  try {
++    const val = window.localStorage.getItem(APP_MODE_STORAGE_KEY);
++    if (val === 'simple' || val === 'advanced') return val;
++  } catch {
++    // Ignore storage errors
++  }
++  return 'simple';
++}
++
++export interface DensityProviderProps {
++  initialMode?: AppMode;
++  initialDensity?: Density;
++  children: React.ReactNode;
++}
++
++export function DensityProvider({
++  initialMode,
++  initialDensity,
++  children,
++}: DensityProviderProps): React.ReactElement {
++  const [mode, setModeState] = useState<AppMode>(() => initialMode ?? readStoredAppMode());
++  const [density, setDensityState] = useState<Density>(() => {
++    if (initialDensity) return initialDensity;
++    return mode === 'advanced' ? 'compact' : 'comfortable';
++  });
++
++  useEffect(() => {
++    if (typeof document !== 'undefined') {
++      document.documentElement.setAttribute('data-mode', mode);
++      document.documentElement.setAttribute('data-density', density);
++    }
++    if (typeof window !== 'undefined') {
++      try {
++        window.localStorage.setItem(APP_MODE_STORAGE_KEY, mode);
++      } catch {
++        // Ignore storage errors
++      }
++    }
++  }, [mode, density]);
++
++  const setMode = (nextMode: AppMode): void => {
++    setModeState(nextMode);
++    setDensityState(nextMode === 'advanced' ? 'compact' : 'comfortable');
++  };
++
++  const value = useMemo<DensityContextValue>(
++    () => ({
++      mode,
++      density,
++      setMode,
++      setDensity: setDensityState,
++    }),
++    [mode, density]
++  );
++
++  return <DensityContext.Provider value={value}>{children}</DensityContext.Provider>;
++}
++
++export function useDensity(): DensityContextValue {
++  return useContext(DensityContext);
++}
+diff --git a/apps/desktop/src/v3/app/ThemeContext.tsx b/apps/desktop/src/v3/app/ThemeContext.tsx
+new file mode 100644
+index 0000000..54c931c
+--- /dev/null
++++ b/apps/desktop/src/v3/app/ThemeContext.tsx
+@@ -0,0 +1,68 @@
++import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
++
++export type ThemeMode = 'light' | 'dark' | 'system';
++
++interface ThemeContextValue {
++  theme: ThemeMode;
++  setTheme: (theme: ThemeMode) => void;
++}
++
++const ThemeContext = createContext<ThemeContextValue>({
++  theme: 'system',
++  setTheme: () => {},
++});
++
++export const THEME_STORAGE_KEY = 'warsha.theme';
++
++export function readStoredTheme(): ThemeMode {
++  if (typeof window === 'undefined') return 'system';
++  try {
++    const val = window.localStorage.getItem(THEME_STORAGE_KEY);
++    if (val === 'light' || val === 'dark' || val === 'system') return val;
++  } catch {
++    // Ignore storage errors
++  }
++  return 'system';
++}
++
++export function applyThemeToDom(theme: ThemeMode): void {
++  if (typeof document === 'undefined') return;
++  const root = document.documentElement;
++  if (theme === 'system') {
++    const prefersDark =
++      typeof window !== 'undefined' &&
++      window.matchMedia &&
++      window.matchMedia('(prefers-color-scheme: dark)').matches;
++    root.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
++  } else {
++    root.setAttribute('data-theme', theme);
++  }
++}
++
++export interface ThemeProviderProps {
++  initialTheme?: ThemeMode;
++  children: React.ReactNode;
++}
++
++export function ThemeProvider({ initialTheme, children }: ThemeProviderProps): React.ReactElement {
++  const [theme, setThemeState] = useState<ThemeMode>(() => initialTheme ?? readStoredTheme());
++
++  useEffect(() => {
++    applyThemeToDom(theme);
++    if (typeof window !== 'undefined') {
++      try {
++        window.localStorage.setItem(THEME_STORAGE_KEY, theme);
++      } catch {
++        // Ignore storage errors
++      }
++    }
++  }, [theme]);
++
++  const value = useMemo(() => ({ theme, setTheme: setThemeState }), [theme]);
++
++  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
++}
++
++export function useTheme(): ThemeContextValue {
++  return useContext(ThemeContext);
++}
+diff --git a/apps/desktop/src/v3/app/V3App.test.tsx b/apps/desktop/src/v3/app/V3App.test.tsx
+new file mode 100644
+index 0000000..3193c1e
+--- /dev/null
++++ b/apps/desktop/src/v3/app/V3App.test.tsx
+@@ -0,0 +1,21 @@
++import { render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it } from 'vitest';
++
++import { V3App } from './V3App';
++
++describe('V3App', () => {
++  it('renders Frame with route page and main data-ready="true"', () => {
++    const { container } = render(<V3App initialRoute="/projects" />);
++
++    expect(screen.getByRole('heading', { level: 1, name: /Projects|المشاريع/ })).toBeDefined();
++    const main = container.querySelector('main');
++    expect(main).not.toBeNull();
++    expect(main?.getAttribute('data-ready')).toBe('true');
++  });
++
++  it('renders Onboarding placeholder at /onboarding', () => {
++    render(<V3App initialRoute="/onboarding" />);
++    expect(screen.getByRole('heading', { level: 1, name: /Onboarding|التهيئة الأولى/ })).toBeDefined();
++  });
++});
+diff --git a/apps/desktop/src/v3/app/V3App.tsx b/apps/desktop/src/v3/app/V3App.tsx
+new file mode 100644
+index 0000000..40ff982
+--- /dev/null
++++ b/apps/desktop/src/v3/app/V3App.tsx
+@@ -0,0 +1,86 @@
++import { invoke } from '@tauri-apps/api/core';
++import type { WarshaClient } from '@warsha/client';
++// eslint-disable-next-line import/no-unresolved
++import { I18nProvider } from '@warsha/i18n/v3';
++import React, { useEffect, useState } from 'react';
++
++import { Frame } from '../pages/frame/Frame';
++import { RouteOutlet, RouterProvider } from '../router';
++
++import { CapabilitiesProvider } from './CapabilitiesContext';
++import { ClientProvider, useClient } from './ClientContext';
++import { DataReadyProvider } from './DataReadyContext';
++import { DensityProvider } from './DensityContext';
++import { ThemeProvider } from './ThemeContext';
++import { decideStartupRoute } from './startup';
++
++export interface V3AppProps {
++  client?: WarshaClient;
++  initialRoute?: string;
++}
++
++function V3AppInner({ initialRoute }: { initialRoute?: string }): React.ReactElement {
++  const client = useClient();
++  const [startupRoute, setStartupRoute] = useState<string | null>(initialRoute ?? null);
++  const [startupError, setStartupError] = useState<string | null>(null);
++
++  useEffect(() => {
++    if (initialRoute) {
++      setStartupRoute(initialRoute);
++      return;
++    }
++
++    const readConfig = async (key: string): Promise<string> => {
++      try {
++        return await invoke<string>('get_config', { key });
++      } catch {
++        return '';
++      }
++    };
++
++    decideStartupRoute({ readConfig, client: client ?? undefined })
++      .then((decision) => {
++        setStartupRoute(decision.route);
++        if (decision.error) {
++          setStartupError(decision.error);
++        }
++      })
++      .catch((err) => {
++        setStartupRoute('/');
++        setStartupError(err instanceof Error ? err.message : 'Startup failure');
++      });
++  }, [initialRoute, client]);
++
++  return (
++    <RouterProvider initialPath={startupRoute ?? '/'}>
++      <Frame>
++        {startupError && (
++          <div className="v3-danger-banner" role="alert">
++            {startupError}
++          </div>
++        )}
++        <RouteOutlet />
++      </Frame>
++    </RouterProvider>
++  );
++}
++
++export function V3App({ client, initialRoute }: V3AppProps): React.ReactElement {
++  return (
++    <ClientProvider client={client}>
++      <CapabilitiesProvider client={client}>
++        <I18nProvider>
++          <ThemeProvider>
++            <DensityProvider>
++              <DataReadyProvider>
++                <V3AppInner initialRoute={initialRoute} />
++              </DataReadyProvider>
++            </DensityProvider>
++          </ThemeProvider>
++        </I18nProvider>
++      </CapabilitiesProvider>
++    </ClientProvider>
++  );
++}
++
++export default V3App;
+diff --git a/apps/desktop/src/v3/app/startup.test.ts b/apps/desktop/src/v3/app/startup.test.ts
+new file mode 100644
+index 0000000..031afc2
+--- /dev/null
++++ b/apps/desktop/src/v3/app/startup.test.ts
+@@ -0,0 +1,64 @@
++import type { ProjectId, ProjectSummary } from '@warsha/client';
++import { describe, expect, it } from 'vitest';
++
++import { decideStartupRoute, type StartupOptions } from './startup';
++
++describe('decideStartupRoute', () => {
++  it('routes to /onboarding only when onboarding_complete is unset', async () => {
++    const opts: StartupOptions = {
++      readConfig: async () => '',
++    };
++    const decision = await decideStartupRoute(opts);
++    expect(decision.route).toBe('/onboarding');
++    expect(decision.error).toBeUndefined();
++  });
++
++  it('routes to / when onboarding is complete and daemon health succeeds', async () => {
++    const opts: StartupOptions = {
++      readConfig: async (key) => (key === 'onboarding_complete' ? 'true' : ''),
++      client: {
++        health: async () => ({ status: 'ok', version: '0.2.1' }),
++        listProjects: async () => [],
++      },
++    };
++    const decision = await decideStartupRoute(opts);
++    expect(decision.route).toBe('/');
++    expect(decision.error).toBeUndefined();
++  });
++
++  it('routes to Frame route with danger error when daemon or list call fails at startup, never onboarding', async () => {
++    const opts: StartupOptions = {
++      readConfig: async (key) => (key === 'onboarding_complete' ? 'true' : ''),
++      client: {
++        health: async () => {
++          throw new Error('Connection refused');
++        },
++        listProjects: async () => [],
++      },
++    };
++    const decision = await decideStartupRoute(opts);
++    expect(decision.route).toBe('/');
++    expect(decision.error).toBe('Connection refused');
++    expect(decision.route).not.toBe('/onboarding');
++  });
++
++  it('routes to last project when onboarded, daemon succeeds, and last project exists', async () => {
++    const proj: ProjectSummary = {
++      id: 'proj-123' as ProjectId,
++      name: 'Project Alpha',
++      createdAt: '2026-11-09T00:00:00Z',
++      updatedAt: '2026-11-09T00:00:00Z',
++    };
++    const opts: StartupOptions = {
++      readConfig: async (key) => (key === 'onboarding_complete' ? 'true' : ''),
++      client: {
++        health: async () => ({ status: 'ok', version: '0.2.1' }),
++        listProjects: async () => [proj],
++      },
++      lastProjectId: 'proj-123',
++    };
++    const decision = await decideStartupRoute(opts);
++    expect(decision.route).toBe('/p/proj-123');
++    expect(decision.error).toBeUndefined();
++  });
++});
+diff --git a/apps/desktop/src/v3/app/startup.ts b/apps/desktop/src/v3/app/startup.ts
+new file mode 100644
+index 0000000..f7e410c
+--- /dev/null
++++ b/apps/desktop/src/v3/app/startup.ts
+@@ -0,0 +1,56 @@
++import type { WarshaClient } from '@warsha/client';
++
++export interface StartupConfigReader {
++  (key: string): Promise<string>;
++}
++
++export interface StartupOptions {
++  readConfig: StartupConfigReader;
++  client?: Pick<WarshaClient, 'health' | 'listProjects'>;
++  lastProjectId?: string | null;
++}
++
++export interface StartupDecision {
++  route: string;
++  error?: string | null;
++}
++
++/**
++ * Decides the initial route for the v3 application:
++ * - /onboarding ONLY when the shell config `onboarding_complete` is unset (not 'true');
++ * - otherwise `/` (or `/p/:projectId` if a valid last project exists);
++ * - A daemon or project list failure at startup shows the Frame with a danger Banner and a retry,
++ *   and NEVER sends an onboarded owner back to onboarding.
++ */
++export async function decideStartupRoute(options: StartupOptions): Promise<StartupDecision> {
++  let onboarding = '';
++  try {
++    onboarding = await options.readConfig('onboarding_complete');
++  } catch {
++    onboarding = '';
++  }
++
++  if (onboarding !== 'true') {
++    return { route: '/onboarding' };
++  }
++
++  try {
++    if (options.client) {
++      await options.client.health();
++      const projects = await options.client.listProjects();
++      if (options.lastProjectId && Array.isArray(projects)) {
++        const match = projects.find((p) => String(p.id) === options.lastProjectId);
++        if (match) {
++          return { route: `/p/${match.id}` };
++        }
++      }
++    }
++    return { route: '/' };
++  } catch (err) {
++    const message = err instanceof Error ? err.message : String(err);
++    return {
++      route: '/',
++      error: message || 'Daemon connection failed',
++    };
++  }
++}
+diff --git a/apps/desktop/src/v3/app/toast.ts b/apps/desktop/src/v3/app/toast.ts
+new file mode 100644
+index 0000000..615c4ee
+--- /dev/null
++++ b/apps/desktop/src/v3/app/toast.ts
+@@ -0,0 +1,38 @@
++export interface ToastMessage {
++  id?: string;
++  type: 'error' | 'success' | 'info' | 'warning';
++  message: string;
++  actionId?: string;
++  timestamp?: number;
++}
++
++export type ToastListener = (toast: ToastMessage) => void;
++
++const listeners = new Set<ToastListener>();
++
++export function notify(toast: ToastMessage): void {
++  const payload: ToastMessage = {
++    ...toast,
++    id: toast.id ?? `toast-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
++    timestamp: toast.timestamp ?? Date.now(),
++  };
++
++  for (const listener of listeners) {
++    try {
++      listener(payload);
++    } catch {
++      // Listener failures must not propagate
++    }
++  }
++}
++
++export function subscribeToast(listener: ToastListener): () => void {
++  listeners.add(listener);
++  return () => {
++    listeners.delete(listener);
++  };
++}
++
++export function clearToastListeners(): void {
++  listeners.clear();
++}
+diff --git a/apps/desktop/src/v3/pages/bench/index.tsx b/apps/desktop/src/v3/pages/bench/index.tsx
+new file mode 100644
+index 0000000..3d2a3ee
+--- /dev/null
++++ b/apps/desktop/src/v3/pages/bench/index.tsx
+@@ -0,0 +1,12 @@
++// eslint-disable-next-line import/no-unresolved
++import { useT } from '@warsha/i18n/v3';
++import React from 'react';
++
++export default function BenchPage(): React.ReactElement {
++  const t = useT();
++  return (
++    <div>
++      <h1>{t('bench.title')}</h1>
++    </div>
++  );
++}
+diff --git a/apps/desktop/src/v3/pages/frame/Frame.tsx b/apps/desktop/src/v3/pages/frame/Frame.tsx
+new file mode 100644
+index 0000000..6e144a4
+--- /dev/null
++++ b/apps/desktop/src/v3/pages/frame/Frame.tsx
+@@ -0,0 +1,26 @@
++// eslint-disable-next-line import/no-unresolved
++import { useT } from '@warsha/i18n/v3';
++import React from 'react';
++
++import { useDataReady } from '../../app/DataReadyContext';
++
++export interface FrameProps {
++  children?: React.ReactNode;
++}
++
++export function Frame({ children }: FrameProps): React.ReactElement {
++  const { isReady } = useDataReady();
++  const t = useT();
++  return (
++    <div className="v3-frame-root">
++      <header className="v3-frame-topbar">
++        <h1>{t('common.app_name')}</h1>
++      </header>
++      <main data-ready={isReady ? 'true' : 'false'}>
++        {children}
++      </main>
++    </div>
++  );
++}
++
++export default Frame;
+diff --git a/apps/desktop/src/v3/pages/frame/index.tsx b/apps/desktop/src/v3/pages/frame/index.tsx
+new file mode 100644
+index 0000000..1d8acd8
+--- /dev/null
++++ b/apps/desktop/src/v3/pages/frame/index.tsx
+@@ -0,0 +1 @@
++export { Frame, default } from './Frame';
+diff --git a/apps/desktop/src/v3/pages/home/index.tsx b/apps/desktop/src/v3/pages/home/index.tsx
+new file mode 100644
+index 0000000..b4fd17d
+--- /dev/null
++++ b/apps/desktop/src/v3/pages/home/index.tsx
+@@ -0,0 +1,12 @@
++// eslint-disable-next-line import/no-unresolved
++import { useT } from '@warsha/i18n/v3';
++import React from 'react';
++
++export default function HomePage(): React.ReactElement {
++  const t = useT();
++  return (
++    <div>
++      <h1>{t('home.title')}</h1>
++    </div>
++  );
++}
+diff --git a/apps/desktop/src/v3/pages/inbox/index.tsx b/apps/desktop/src/v3/pages/inbox/index.tsx
+new file mode 100644
+index 0000000..864107b
+--- /dev/null
++++ b/apps/desktop/src/v3/pages/inbox/index.tsx
+@@ -0,0 +1,12 @@
++// eslint-disable-next-line import/no-unresolved
++import { useT } from '@warsha/i18n/v3';
++import React from 'react';
++
++export default function InboxPage(): React.ReactElement {
++  const t = useT();
++  return (
++    <div>
++      <h1>{t('inbox.title')}</h1>
++    </div>
++  );
++}
+diff --git a/apps/desktop/src/v3/pages/onboarding/index.tsx b/apps/desktop/src/v3/pages/onboarding/index.tsx
+new file mode 100644
+index 0000000..efeb12e
+--- /dev/null
++++ b/apps/desktop/src/v3/pages/onboarding/index.tsx
+@@ -0,0 +1,12 @@
++// eslint-disable-next-line import/no-unresolved
++import { useT } from '@warsha/i18n/v3';
++import React from 'react';
++
++export default function OnboardingPage(): React.ReactElement {
++  const t = useT();
++  return (
++    <div>
++      <h1>{t('onboarding.title')}</h1>
++    </div>
++  );
++}
+diff --git a/apps/desktop/src/v3/pages/project/index.tsx b/apps/desktop/src/v3/pages/project/index.tsx
+new file mode 100644
+index 0000000..e70e689
+--- /dev/null
++++ b/apps/desktop/src/v3/pages/project/index.tsx
+@@ -0,0 +1,12 @@
++// eslint-disable-next-line import/no-unresolved
++import { useT } from '@warsha/i18n/v3';
++import React from 'react';
++
++export default function ProjectPage(): React.ReactElement {
++  const t = useT();
++  return (
++    <div>
++      <h1>{t('project.title')}</h1>
++    </div>
++  );
++}
+diff --git a/apps/desktop/src/v3/pages/projects/index.tsx b/apps/desktop/src/v3/pages/projects/index.tsx
+new file mode 100644
+index 0000000..dede450
+--- /dev/null
++++ b/apps/desktop/src/v3/pages/projects/index.tsx
+@@ -0,0 +1,12 @@
++// eslint-disable-next-line import/no-unresolved
++import { useT } from '@warsha/i18n/v3';
++import React from 'react';
++
++export default function ProjectsPage(): React.ReactElement {
++  const t = useT();
++  return (
++    <div>
++      <h1>{t('projects.title')}</h1>
++    </div>
++  );
++}
+diff --git a/apps/desktop/src/v3/pages/settings/index.tsx b/apps/desktop/src/v3/pages/settings/index.tsx
+new file mode 100644
+index 0000000..3402283
+--- /dev/null
++++ b/apps/desktop/src/v3/pages/settings/index.tsx
+@@ -0,0 +1,12 @@
++// eslint-disable-next-line import/no-unresolved
++import { useT } from '@warsha/i18n/v3';
++import React from 'react';
++
++export default function SettingsPage(): React.ReactElement {
++  const t = useT();
++  return (
++    <div>
++      <h1>{t('settings.title')}</h1>
++    </div>
++  );
++}
+diff --git a/apps/desktop/src/v3/router/Router.test.tsx b/apps/desktop/src/v3/router/Router.test.tsx
+new file mode 100644
+index 0000000..a04e10b
+--- /dev/null
++++ b/apps/desktop/src/v3/router/Router.test.tsx
+@@ -0,0 +1,91 @@
++import { act, render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it } from 'vitest';
++
++import { matchRoute, normalizePath, RouteOutlet, RouterProvider, useNavigate, useRoute } from './index';
++
++describe('hash router', () => {
++  it('normalizes hashes and pathnames', () => {
++    expect(normalizePath('')).toBe('/');
++    expect(normalizePath('#')).toBe('/');
++    expect(normalizePath('#/onboarding')).toBe('/onboarding');
++    expect(normalizePath('/projects/')).toBe('/projects');
++    expect(normalizePath('#/p/proj-1?query=1')).toBe('/p/proj-1');
++  });
++
++  it('matches static routes', () => {
++    const onboarding = matchRoute('/onboarding');
++    expect(onboarding?.route.area).toBe('onboarding');
++
++    const home = matchRoute('/');
++    expect(home?.route.area).toBe('home');
++
++    const projects = matchRoute('/projects');
++    expect(projects?.route.area).toBe('projects');
++
++    const inbox = matchRoute('/inbox');
++    expect(inbox?.route.area).toBe('inbox');
++  });
++
++  it('matches parameterized routes and extracts params', () => {
++    const project = matchRoute('/p/my-project');
++    expect(project?.route.area).toBe('project');
++    expect(project?.params).toEqual({ projectId: 'my-project' });
++
++    const bench = matchRoute('/p/proj-42/r/run-99/files');
++    expect(bench?.route.area).toBe('bench');
++    expect(bench?.params).toEqual({
++      projectId: 'proj-42',
++      runId: 'run-99',
++      tab: 'files',
++    });
++
++    const settings = matchRoute('/settings/models');
++    expect(settings?.route.area).toBe('settings');
++    expect(settings?.params).toEqual({ section: 'models' });
++  });
++
++  it('renders matching route in RouterProvider and updates on navigate', () => {
++    function RouteInspector(): React.ReactElement {
++      const { pathname, params, area } = useRoute();
++      const navigate = useNavigate();
++      return (
++        <div>
++          <span data-testid="path">{pathname}</span>
++          <span data-testid="area">{area}</span>
++          <span data-testid="proj">{params.projectId ?? 'none'}</span>
++          <button data-action="test.go" onClick={() => navigate('/p/new-id')}>
++            navigate
++          </button>
++        </div>
++      );
++    }
++
++    render(
++      <RouterProvider initialPath="/projects">
++        <RouteInspector />
++      </RouterProvider>
++    );
++
++    expect(screen.getByTestId('path').textContent).toBe('/projects');
++    expect(screen.getByTestId('area').textContent).toBe('projects');
++
++    act(() => {
++      screen.getByText('navigate').click();
++    });
++
++    expect(screen.getByTestId('path').textContent).toBe('/p/new-id');
++    expect(screen.getByTestId('area').textContent).toBe('project');
++    expect(screen.getByTestId('proj').textContent).toBe('new-id');
++  });
++
++  it('renders RouteOutlet component for the active route', () => {
++    render(
++      <RouterProvider initialPath="/onboarding">
++        <RouteOutlet />
++      </RouterProvider>
++    );
++
++    expect(screen.getByRole('heading', { level: 1 }).textContent).toMatch(/Onboarding|التهيئة الأولى/);
++  });
++});
+diff --git a/apps/desktop/src/v3/router/Router.tsx b/apps/desktop/src/v3/router/Router.tsx
+new file mode 100644
+index 0000000..d76cf15
+--- /dev/null
++++ b/apps/desktop/src/v3/router/Router.tsx
+@@ -0,0 +1,143 @@
++// eslint-disable-next-line import/no-unresolved
++import { useT } from '@warsha/i18n/v3';
++import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
++
++import { ROUTES, type RouteArea, type RouteDefinition } from './routes';
++
++export interface RouteMatch {
++  route: RouteDefinition;
++  params: Record<string, string>;
++  pathname: string;
++}
++
++export function normalizePath(hashOrPath: string): string {
++  let cleaned = hashOrPath.trim();
++  if (cleaned.startsWith('#')) {
++    cleaned = cleaned.slice(1);
++  }
++  if (!cleaned.startsWith('/')) {
++    cleaned = '/' + cleaned;
++  }
++  // Strip query string if present in hash
++  const qIdx = cleaned.indexOf('?');
++  if (qIdx >= 0) {
++    cleaned = cleaned.slice(0, qIdx);
++  }
++  // Remove trailing slash if not root
++  if (cleaned.length > 1 && cleaned.endsWith('/')) {
++    cleaned = cleaned.slice(0, -1);
++  }
++  return cleaned || '/';
++}
++
++export function matchRoute(pathname: string, routes: readonly RouteDefinition[] = ROUTES): RouteMatch | null {
++  const norm = normalizePath(pathname);
++  for (const r of routes) {
++    const match = norm.match(r.regex);
++    if (match) {
++      const params: Record<string, string> = {};
++      for (let i = 0; i < r.paramNames.length; i++) {
++        params[r.paramNames[i]] = decodeURIComponent(match[i + 1] ?? '');
++      }
++      return {
++        route: r,
++        params,
++        pathname: norm,
++      };
++    }
++  }
++  return null;
++}
++
++interface RouterContextValue {
++  pathname: string;
++  params: Record<string, string>;
++  currentRoute: RouteDefinition | null;
++  area: RouteArea | null;
++  navigate: (to: string) => void;
++}
++
++const RouterContext = createContext<RouterContextValue | null>(null);
++
++export interface RouterProviderProps {
++  initialPath?: string;
++  children: React.ReactNode;
++}
++
++export function RouterProvider({ initialPath, children }: RouterProviderProps): React.ReactElement {
++  const [pathname, setPathname] = useState<string>(() => {
++    if (initialPath) return normalizePath(initialPath);
++    if (typeof window !== 'undefined' && window.location.hash) {
++      return normalizePath(window.location.hash);
++    }
++    return '/';
++  });
++
++  useEffect(() => {
++    if (typeof window === 'undefined') return;
++
++    const onHashChange = (): void => {
++      setPathname(normalizePath(window.location.hash));
++    };
++
++    window.addEventListener('hashchange', onHashChange);
++    return () => {
++      window.removeEventListener('hashchange', onHashChange);
++    };
++  }, []);
++
++  const navigate = (to: string): void => {
++    const norm = normalizePath(to);
++    setPathname(norm);
++    if (typeof window !== 'undefined') {
++      window.location.hash = `#${norm}`;
++    }
++  };
++
++  const match = useMemo(() => matchRoute(pathname), [pathname]);
++
++  const value = useMemo<RouterContextValue>(() => {
++    return {
++      pathname,
++      params: match ? match.params : {},
++      currentRoute: match ? match.route : null,
++      area: match ? match.route.area : null,
++      navigate,
++    };
++  }, [pathname, match]);
++
++  return <RouterContext.Provider value={value}>{children}</RouterContext.Provider>;
++}
++
++export function useRouter(): RouterContextValue {
++  const ctx = useContext(RouterContext);
++  if (!ctx) {
++    throw new Error('useRouter must be used within a RouterProvider');
++  }
++  return ctx;
++}
++
++export function useRoute(): {
++  pathname: string;
++  params: Record<string, string>;
++  route: RouteDefinition | null;
++  area: RouteArea | null;
++} {
++  const { pathname, params, currentRoute, area } = useRouter();
++  return { pathname, params, route: currentRoute, area };
++}
++
++export function useNavigate(): (to: string) => void {
++  const { navigate } = useRouter();
++  return navigate;
++}
++
++export function RouteOutlet(): React.ReactElement {
++  const { currentRoute } = useRouter();
++  const t = useT();
++  if (!currentRoute) {
++    return <div>{t('common.not_found')}</div>;
++  }
++  const Component = currentRoute.component;
++  return <Component />;
++}
+diff --git a/apps/desktop/src/v3/router/index.ts b/apps/desktop/src/v3/router/index.ts
+new file mode 100644
+index 0000000..721c39b
+--- /dev/null
++++ b/apps/desktop/src/v3/router/index.ts
+@@ -0,0 +1,2 @@
++export * from './routes';
++export * from './Router';
+diff --git a/apps/desktop/src/v3/router/routes.ts b/apps/desktop/src/v3/router/routes.ts
+new file mode 100644
+index 0000000..b19e6fb
+--- /dev/null
++++ b/apps/desktop/src/v3/router/routes.ts
+@@ -0,0 +1,54 @@
++import React from 'react';
++
++import BenchPage from '../pages/bench';
++import HomePage from '../pages/home';
++import InboxPage from '../pages/inbox';
++import OnboardingPage from '../pages/onboarding';
++import ProjectPage from '../pages/project';
++import ProjectsPage from '../pages/projects';
++import SettingsPage from '../pages/settings';
++
++export type RouteArea =
++  | 'onboarding'
++  | 'home'
++  | 'projects'
++  | 'project'
++  | 'bench'
++  | 'inbox'
++  | 'settings';
++
++export interface RouteDefinition {
++  path: string;
++  area: RouteArea;
++  component: React.ComponentType;
++  paramNames: string[];
++  regex: RegExp;
++}
++
++export function compileRoute(path: string, area: RouteArea, component: React.ComponentType): RouteDefinition {
++  const paramNames: string[] = [];
++  const regexPattern = path
++    .replace(/:([a-zA-Z0-9_]+)/g, (_, paramName: string) => {
++      paramNames.push(paramName);
++      return '([^/]+)';
++    })
++    .replace(/\//g, '\\/');
++
++  return {
++    path,
++    area,
++    component,
++    paramNames,
++    regex: new RegExp(`^${regexPattern}$`),
++  };
++}
++
++export const ROUTES: readonly RouteDefinition[] = [
++  compileRoute('/onboarding', 'onboarding', OnboardingPage),
++  compileRoute('/', 'home', HomePage),
++  compileRoute('/projects', 'projects', ProjectsPage),
++  compileRoute('/p/:projectId', 'project', ProjectPage),
++  compileRoute('/p/:projectId/r/:runId/:tab', 'bench', BenchPage),
++  compileRoute('/inbox', 'inbox', InboxPage),
++  compileRoute('/settings/:section', 'settings', SettingsPage),
++];
+-- 
+2.55.0.windows.5
+

@@ -1,0 +1,45 @@
+none on /lib/modules/6.18.54.1-microsoft-standard-WSL2 type overlay (rw,nosuid,nodev,noatime,lowerdir=/modules/6.18.54.1-microsoft-standard-WSL2/modules,upperdir=/lib/modules/6.18.54.1-microsoft-standard-WSL2/rw/upper,workdir=/lib/modules/6.18.54.1-microsoft-standard-WSL2/rw/work,uuid=on)
+/dev/sdb on /usr/src/linux-headers-6.18.54.1-microsoft-standard-WSL2 type ext4 (ro,relatime)
+/dev/sdb on /usr/lib/linux-tools/6.18.54.1-microsoft-standard-WSL2 type ext4 (ro,relatime)
+none on /mnt/host/wsl type tmpfs (rw,relatime)
+drivers on /usr/lib/wsl/drivers type 9p (ro,nosuid,nodev,noatime,aname=drivers;fmask=222;dmask=222,cache=0x5,access=client,msize=65536,trans=fd,rfd=8,wfd=8)
+/dev/sde on / type ext4 (rw,relatime,discard,errors=remount-ro,data=ordered)
+none on /mnt/host/wslg type tmpfs (rw,relatime)
+/dev/sde on /mnt/host/wslg/distro type ext4 (ro,relatime,discard,errors=remount-ro,data=ordered)
+none on /usr/lib/wsl/lib type overlay (rw,nosuid,nodev,noatime,lowerdir=/gpu_lib_packaged:/gpu_lib_inbox,upperdir=/gpu_lib/rw/upper,workdir=/gpu_lib/rw/work,uuid=on)
+rootfs on /init type rootfs (ro,size=8076680k,nr_inodes=2019170)
+none on /dev type devtmpfs (rw,nosuid,relatime,size=8076680k,nr_inodes=2019170,mode=755)
+sysfs on /sys type sysfs (rw,nosuid,nodev,noexec,noatime)
+proc on /proc type proc (rw,nosuid,nodev,noexec,noatime)
+devpts on /dev/pts type devpts (rw,nosuid,noexec,noatime,gid=5,mode=620,ptmxmode=000)
+none on /run type tmpfs (rw,nosuid,nodev,mode=755)
+none on /run/lock type tmpfs (rw,nosuid,nodev,noexec,noatime)
+none on /run/shm type tmpfs (rw,nosuid,nodev,noatime)
+none on /dev/shm type tmpfs (rw,nosuid,nodev,noatime)
+none on /run/user type tmpfs (rw,nosuid,nodev,noexec,noatime,mode=755)
+binfmt_misc on /proc/sys/fs/binfmt_misc type binfmt_misc (rw,relatime)
+---
+docker-desktop-disk
+host
+---
+bin
+dev
+disk-stats.json
+docker-desktop-user-distro
+etc
+home
+init
+lib
+lost+found
+media
+mnt
+opt
+proc
+root
+run
+sbin
+srv
+sys
+tmp
+usr
+var

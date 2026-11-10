@@ -1,0 +1,59 @@
+{
+  "schema": "warsha-run/v1",
+  "run_id": "2026-11-09-phase-b-visual-wave",
+  "task": "Execute DESIGN_SYSTEM_V2.md §9 Phase B (visual wave) plus the audit follow-ups of 2026-11-09 (daemon-true e2e stubs, v0.2.1 visual drift, Rust error hygiene, version alignment), refresh only owner-named baselines on the Linux x86_64 capture host, and stage a local, unpublished draft release bundle for the owner.",
+  "phase": "intake",
+  "seq": 1,
+  "updated_at": "2026-11-09T06:29:36Z",
+  "roles": {
+    "planner": "claude-opus-5-5 (planner only)",
+    "orchestrator": "UNASSIGNED (Qoder)",
+    "implementer": "per packet",
+    "reviewer": "per packet",
+    "verifier": "per packet"
+  },
+  "scope": {
+    "allowed_files": "per packet (packets[i].allowed)",
+    "out_of_scope": [
+      "**/*-snapshots/** for every implementer",
+      "PLAN.md, PROGRESS.md, DECISIONS.md (orchestrator only, at checkpoints)",
+      "dependencies (Cargo.toml deps, package.json deps)",
+      "publishing, tags, pushes, GitHub releases",
+      "Phase C fonts (OD-B5)",
+      "Tauri updater, code signing certificates (human-only)"
+    ]
+  },
+  "base": {
+    "branch": "dev",
+    "planner_commit": "dce77199527c87d0f7088c870c469e383ef76c43",
+    "integration_branch": "run/2026-11-09/integration",
+    "worktree_root": "C:/Users/Dragonfly/Downloads/warsha-wt/pb"
+  },
+  "plan": {
+    "steps": [
+      "intake: governance read + 4 Haiku audits, see EXECUTIVE_SUMMARY.md"
+    ]
+  },
+  "baseline": {
+    "counts": null,
+    "recorded_at": null,
+    "note": "G0 fills: ui, client, crypto, i18n, remote, warsha-desktop, rust, rust_ignored, playwright_listed"
+  },
+  "repair": {
+    "iteration": 0,
+    "max_repair_iterations": 3,
+    "open_findings": []
+  },
+  "blocker": null,
+  "owner_decisions": {
+    "file": "OWNER_DECISIONS.md",
+    "OD-B1": null,
+    "OD-B3": null,
+    "OD-B4": null
+  },
+  "evidence": {
+    "dir": "bridge-io/policy/2026-11-09-phase-b-visual-wave",
+    "gates": [],
+    "logs": []
+  }
+}

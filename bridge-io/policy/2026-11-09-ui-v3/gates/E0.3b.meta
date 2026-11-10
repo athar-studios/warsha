@@ -1,0 +1,22 @@
+start 2026-11-10T08:25:49Z
+fatal: couldn't find remote ref 82430c9
+tip=82430c901375bb4986b5c6103ac5ef05e1925f21
+e0=fcd7ae5a686fecaed4529998944d43b174dc11b5
+Preparing worktree (detached HEAD 82430c9)
+HEAD is now at 82430c9 chore(integration): C2 merge U1
+Merge made by the 'ort' strategy.
+ apps/desktop/e2e/v3/smoke.spec.ts    |  41 +++++++
+ apps/desktop/e2e/v3/support/index.ts | 227 +++++++++++++++++++++++++++++++++++
+ 2 files changed, 268 insertions(+)
+ create mode 100644 apps/desktop/e2e/v3/smoke.spec.ts
+ create mode 100644 apps/desktop/e2e/v3/support/index.ts
+merged_head=fe2e95b182e09f7b2121ccd76c077d08220c5ae7
+install_ok
+ports_free
+playwright_exit=0
+stats expected=14 unexpected=0 flaky=0 skipped=0 duration_ms=13623
+errors=0 suites=1
+threshold_expected_ge_14_unexpected_0_no_errors=MET
+pw_gate_exit=0
+pw_gate_out: unexpected=0 outside=0
+end 2026-11-10T08:26:10Z

@@ -1,0 +1,38 @@
+Scope: all 8 workspace projects
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +805
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Progress: resolved 805, reused 600, downloaded 0, added 0
+Progress: resolved 805, reused 805, downloaded 0, added 49
+Progress: resolved 805, reused 805, downloaded 0, added 201
+Progress: resolved 805, reused 805, downloaded 0, added 309
+Progress: resolved 805, reused 805, downloaded 0, added 404
+Progress: resolved 805, reused 805, downloaded 0, added 536
+Progress: resolved 805, reused 805, downloaded 0, added 697
+Progress: resolved 805, reused 805, downloaded 0, added 754
+Progress: resolved 805, reused 805, downloaded 0, added 803
+Progress: resolved 805, reused 805, downloaded 0, added 804
+Progress: resolved 805, reused 805, downloaded 0, added 805
+Progress: resolved 805, reused 805, downloaded 0, added 805, done
+
+devDependencies:
++ @playwright/test 1.49.1
++ @typescript-eslint/eslint-plugin 8.72.1
++ @typescript-eslint/parser 8.72.1
++ axe-core 4.14.0
++ eslint 9.39.5
++ eslint-config-prettier 10.1.8
++ eslint-plugin-import 2.32.0
++ eslint-plugin-jsx-a11y 6.10.2
++ eslint-plugin-react 7.37.5
++ eslint-plugin-react-hooks 5.2.0
++ husky 9.1.7
++ prettier 3.9.10
++ typescript 5.9.3
++ vitest 2.1.9
+
+. prepare$ husky install
+. prepare: husky - install command is DEPRECATED
+. prepare: Done
+Done in 14s

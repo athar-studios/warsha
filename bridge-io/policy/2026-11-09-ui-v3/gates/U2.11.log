@@ -1,0 +1,5 @@
+--- startup.ts exists ---
+TEST_F=0
+--- it/test count in startup.test.ts ---
+count=4
+GATE_EXIT=0 (count=4 >= 3)

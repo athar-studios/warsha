@@ -1,0 +1,8 @@
+# gate: G7.4 (web assets inside APK)
+# command: unzip -l "apps/mobile/android/app/build/outputs/apk/release/app-release.apk" | grep -cE 'assets/public/(index\.html|sw\.js)$'
+# cwd: /c/Users/Dragonfly/Downloads/warsha-wt/w7
+# commit: 7adbff4dd697e0dff7541a5200a5fcacca8fba6b
+# timestamp_utc: 2026-11-08T08:54:51Z
+# exit_code: 0
+--- output ---
+2

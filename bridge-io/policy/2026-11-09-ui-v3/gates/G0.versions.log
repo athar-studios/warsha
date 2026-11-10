@@ -1,0 +1,14 @@
+Cargo.toml [workspace.package]                    0.2.1
+apps/desktop/src-tauri/Cargo.toml                 0.2.1
+apps/desktop/src-tauri/tauri.conf.json            0.2.1
+package.json                                      0.1.0   <-- differs
+apps/desktop/package.json                         0.2.1
+apps/remote/package.json                          0.1.0   <-- differs
+packages/ui/package.json                          0.1.0   <-- differs
+packages/client/package.json                      0.1.0   <-- differs
+packages/i18n/package.json                        0.1.0   <-- differs
+packages/crypto/package.json                      0.1.0   <-- differs
+apps/mobile/android/app/build.gradle versionName  0.1.0   <-- differs
+docker/compose.yml warshad image tag              0.1.0   <-- differs
+apps/mobile versionCode                           1 (want 201)
+versions: NOT aligned

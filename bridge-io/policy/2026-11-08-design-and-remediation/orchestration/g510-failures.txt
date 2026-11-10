@@ -1,0 +1,12 @@
+CASE 1 >> [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 320x568 ar light ─────────────────
+CASE 2 >> [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 320x568 ar dark ──────────────────
+CASE 3 >> [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 320x568 en dark ──────────────────
+CASE 4 >> [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 320x568 en light ─────────────────
+CASE 5 >> [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 390x844 ar light ─────────────────
+CASE 6 >> [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 390x844 ar dark ──────────────────
+CASE 7 >> [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 390x844 en light ─────────────────
+CASE 8 >> [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 390x844 en dark ──────────────────
+CASE 9 >> [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 1440x900 ar light ────────────────
+CASE 10 >> [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 1440x900 ar dark ────────────────
+CASE 11 >> [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 1440x900 en light ───────────────
+CASE 12 >> [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 1440x900 en dark ────────────────

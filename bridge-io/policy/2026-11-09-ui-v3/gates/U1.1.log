@@ -1,0 +1,77 @@
+
+> @warsha/ui@0.2.1 test C:\Users\Dragonfly\Downloads\warsha-wt\v3\u1\packages\ui
+> vitest run
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mC:/Users/Dragonfly/Downloads/warsha-wt/v3/u1/packages/ui[39m
+
+ [32m✓[39m src/tokens/contrast.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 14[2mms[22m[39m
+ [32m✓[39m src/v3/tokens/tokens.test.ts [2m([22m[2m11 tests[22m[2m)[22m[90m 13[2mms[22m[39m
+ [32m✓[39m src/tokens/tokens.test.ts [2m([22m[2m26 tests[22m[2m)[22m[90m 28[2mms[22m[39m
+ [32m✓[39m src/components.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[33m 349[2mms[22m[39m
+ [32m✓[39m src/v3/composites/Toast.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 318[2mms[22m[39m
+ [32m✓[39m src/v3/composites/DecisionCard.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 451[2mms[22m[39m
+ [32m✓[39m src/tokens/tokenDrift.test.ts [2m([22m[2m35 tests[22m[2m)[22m[33m 1183[2mms[22m[39m
+   [33m[2m✓[22m[39m R6 app drift[2m > [22mfinds no colour, spacing or type literal in either app [33m546[2mms[22m[39m
+   [33m[2m✓[22m[39m R6 app length ratchet (R6.9/R6.10)[2m > [22mholds the live app length count to the ratchet budget [33m344[2mms[22m[39m
+ [32m✓[39m src/components/machine.test.tsx [2m([22m[2m11 tests[22m[2m)[22m[90m 273[2mms[22m[39m
+ [32m✓[39m src/components/compounds.v2.test.tsx [2m([22m[2m11 tests[22m[2m)[22m[33m 581[2mms[22m[39m
+ [32m✓[39m src/components/keyboard.test.tsx [2m([22m[2m18 tests[22m[2m)[22m[33m 963[2mms[22m[39m
+ [32m✓[39m src/components/compounds.test.tsx [2m([22m[2m58 tests[22m[2m)[22m[33m 1801[2mms[22m[39m
+ [32m✓[39m src/v3/tokens/contrast.test.ts [2m([22m[2m50 tests[22m[2m)[22m[90m 18[2mms[22m[39m
+ [32m✓[39m src/v3/composites/DataTable.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 596[2mms[22m[39m
+ [32m✓[39m src/v3/composites/ProjectSwitcher.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 394[2mms[22m[39m
+   [33m[2m✓[22m[39m ProjectSwitcher composite[2m > [22mrenders current project name and toggles dropdown list [33m350[2mms[22m[39m
+ [32m✓[39m src/v3/primitives/Tooltip.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 307[2mms[22m[39m
+ [32m✓[39m src/v3/composites/Dialog.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 312[2mms[22m[39m
+ [32m✓[39m src/v3/icons/icons.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[90m 200[2mms[22m[39m
+ [32m✓[39m src/v3/primitives/Button.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 543[2mms[22m[39m
+   [33m[2m✓[22m[39m Button primitive[2m > [22mrenders children with data-variant [33m304[2mms[22m[39m
+ [32m✓[39m src/v3/composites/Composer.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 122[2mms[22m[39m
+ [32m✓[39m src/v3/composites/ActivityFeed.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[90m 196[2mms[22m[39m
+ [32m✓[39m src/v3/composites/PreviewCard.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 139[2mms[22m[39m
+ [32m✓[39m src/v3/primitives/Combobox.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 333[2mms[22m[39m
+ [32m✓[39m src/v3/composites/AppFrame.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 209[2mms[22m[39m
+ [32m✓[39m src/v3/composites/ModelPicker.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[90m 280[2mms[22m[39m
+ [32m✓[39m src/v3/composites/TopBar.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 291[2mms[22m[39m
+ [32m✓[39m src/v3/composites/SideNav.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[90m 290[2mms[22m[39m
+ [32m✓[39m src/v3/composites/Sheet.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 281[2mms[22m[39m
+ [32m✓[39m src/v3/composites/ListRow.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 240[2mms[22m[39m
+ [32m✓[39m src/v3/composites/Menu.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 325[2mms[22m[39m
+ [32m✓[39m src/v3/primitives/Tabs.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 249[2mms[22m[39m
+ [32m✓[39m src/v3/primitives/Segmented.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 245[2mms[22m[39m
+ [32m✓[39m src/v3/primitives/TextField.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[90m 201[2mms[22m[39m
+ [32m✓[39m src/v3/composites/Banner.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 249[2mms[22m[39m
+ [32m✓[39m src/v3/composites/Card.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 244[2mms[22m[39m
+ [32m✓[39m src/v3/composites/BudgetField.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[90m 275[2mms[22m[39m
+ [32m✓[39m src/v3/primitives/TextArea.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 118[2mms[22m[39m
+ [32m✓[39m src/v3/composites/Transcript.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[90m 133[2mms[22m[39m
+ [32m✓[39m src/v3/composites/Stepper.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[90m 132[2mms[22m[39m
+ [32m✓[39m src/v3/primitives/Select.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 239[2mms[22m[39m
+ [32m✓[39m src/v3/primitives/ProgressBar.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 167[2mms[22m[39m
+ [32m✓[39m src/v3/composites/DiffView.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[90m 151[2mms[22m[39m
+ [32m✓[39m src/v3/composites/CodeView.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[90m 137[2mms[22m[39m
+ [32m✓[39m src/v3/primitives/IconButton.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 214[2mms[22m[39m
+ [32m✓[39m src/v3/primitives/Radio.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 121[2mms[22m[39m
+ [32m✓[39m src/v3/primitives/Checkbox.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 111[2mms[22m[39m
+ [32m✓[39m src/v3/primitives/Switch.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 212[2mms[22m[39m
+ [32m✓[39m src/v3/composites/QrCode.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 324[2mms[22m[39m
+ [32m✓[39m src/v3/primitives/StatusPill.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 92[2mms[22m[39m
+ [32m✓[39m src/v3/primitives/Link.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 184[2mms[22m[39m
+ [32m✓[39m src/v3/primitives/Skeleton.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 71[2mms[22m[39m
+ [32m✓[39m src/v3/primitives/RoleMark.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 82[2mms[22m[39m
+ [32m✓[39m src/v3/composites/SettingsSection.test.tsx [2m([22m[2m1 test[22m[2m)[22m[90m 71[2mms[22m[39m
+ [32m✓[39m src/v3/composites/KeyValue.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[90m 195[2mms[22m[39m
+ [32m✓[39m src/v3/primitives/Spinner.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 156[2mms[22m[39m
+ [32m✓[39m src/v3/composites/EmptyState.test.tsx [2m([22m[2m1 test[22m[2m)[22m[90m 110[2mms[22m[39m
+ [32m✓[39m src/v3/composites/CopyField.test.tsx [2m([22m[2m1 test[22m[2m)[22m[90m 53[2mms[22m[39m
+ [32m✓[39m src/v3/primitives/Badge.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 37[2mms[22m[39m
+ [32m✓[39m src/index.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 81[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m58 passed[39m[22m[90m (58)[39m
+[2m      Tests [22m [1m[32m373 passed[39m[22m[90m (373)[39m
+[2m   Start at [22m 09:26:29
+[2m   Duration [22m 48.06s[2m (transform 5.78s, setup 126.26s, collect 22.10s, tests 15.71s, environment 267.30s, prepare 31.84s)[22m
+
+EXIT=0

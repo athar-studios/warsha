@@ -1,0 +1,12 @@
+HEAD=2fbd620486ee9e08cc484e603aac19c6d2d2f1a7
+G2.S out-of-scope files: 0 (expect 0)
+planner-owned DESIGN_SYSTEM_V2.md touched: 0 (expect 0)
+G2.4 N=35 ok=true
+G2.4 exit=0
+G2.5 ok (string '9 checks' present in ARCH_RULES.md)
+G2.A: arch: 5 rules, 0 violations
+G2.P: policy: 8 checks, 0 failures
+G2.W: wire: 9 checks, 0 violations
+G2.1 mdbook build exit=0
+mdbook TEST exit=0 (the GC.4 repair target; expect 0)
+verify worktree removed

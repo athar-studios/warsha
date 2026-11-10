@@ -1,0 +1,2 @@
+f17: cases=4 defect-errors=0
+POS_EXIT=0 (0 expected: pixel drift only)

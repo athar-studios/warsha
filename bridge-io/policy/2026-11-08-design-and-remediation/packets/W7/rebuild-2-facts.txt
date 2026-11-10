@@ -1,0 +1,14 @@
+pnpm_exit_log:
+  • C:/Users/Dragonfly/Downloads/warsha-wt/w7/apps/remote/dist/workbox-146ffa86.js
+  • C:/Users/Dragonfly/Downloads/warsha-wt/w7/apps/remote/dist/workbox-146ffa86.js.map
+The service worker will precache 9 URLs, totaling 493 kB.
+gradle_tail:
+BUILD SUCCESSFUL in 15s
+46 actionable tasks: 20 executed, 23 from cache, 3 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.3.1/userguide/configuration_cache_enabling.html
+--- sw.js.map sources ---
+sources":["../../../../../../DRAGON~1/AppData/Local/Temp/ecc4453c8ebaab290e9f9fd9012a2995/sw.js"]
+--- facts ---
+ce60f2bd5183779de7fd6a3c7593e0a612e878c8a1c05960f308e06ea3ad01ff *apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+size=840513
+0

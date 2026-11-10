@@ -1,0 +1,8 @@
+gate: GC.8b
+command: node scripts/check-wire-contract.mjs
+commit: c27091696796805bbdf72848fbc93ff611866dcc
+host: Windows integration worktree
+timestamp: 2026-11-08T12:40:17Z
+---
+wire: 9 checks, 0 violations
+exit_code: 0

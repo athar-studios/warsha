@@ -1,0 +1,2 @@
+# P2 — daemon-true stubs (crash/reviews/backend/handoff) + 4 new Wave-2 screens (missing baselines)
+^desktop › (screens\.visual|states)\.spec\.ts › (crash-reports|store-reviews|backend-kit|harnesses|skills|plugins|models) 

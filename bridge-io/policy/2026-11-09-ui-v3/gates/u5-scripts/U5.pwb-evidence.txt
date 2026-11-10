@@ -1,0 +1,98 @@
+=== U5.pwb.meta (bytes 286)
+start 2026-11-10T16:37:41Z
+head=d6d77c8ec45b32ba849418ad4dc5626090d4ed9b
+head^1=6025715d881f80454286e35ed803d08f801a8c6c
+head^2=7d4ceb9d589c23a139117ad98a977ff3a073ad9a
+tree_clean_before
+ports_free
+playwright_exit=1
+pwgate_exit=1
+pwgate_u5_exit=0
+counts_exit=0
+end 2026-11-10T17:01:30Z
+
+=== U5.pwb.pw-gate.log (bytes 12795)
+unexpected=120 outside=120
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings general ready 1280x800 ar light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings general ready 1280x800 ar dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings general ready 1280x800 en light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings general ready 1280x800 en dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings general ready 390x844 ar light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings general ready 390x844 ar dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings general ready 390x844 en light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings general ready 390x844 en dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings models ready 1280x800 ar light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings models ready 1280x800 ar dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings models ready 1280x800 en light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings models ready 1280x800 en dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings models ready 390x844 ar light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings models ready 390x844 ar dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings models ready 390x844 en light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings models ready 390x844 en dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings devices ready 1280x800 ar light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings devices ready 1280x800 ar dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings devices ready 1280x800 en light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings devices ready 1280x800 en dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings devices ready 390x844 ar light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings devices ready 390x844 ar dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings devices ready 390x844 en light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings devices ready 390x844 en dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings about ready 1280x800 ar light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings about ready 1280x800 ar dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings about ready 1280x800 en light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings about ready 1280x800 en dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings about ready 390x844 ar light @visual
+OUTSIDE desktop › settings.spec
+...[TRUNC]...
+al baseline: settings backend ready 390x844 en dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings models empty 1280x800 ar light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings devices empty 1280x800 ar light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings general error 1280x800 ar light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings models empty 1280x800 ar dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings devices empty 1280x800 ar dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings general error 1280x800 ar dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings models empty 1280x800 en light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings devices empty 1280x800 en light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings general error 1280x800 en light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings models empty 1280x800 en dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings devices empty 1280x800 en dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings general error 1280x800 en dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings models empty 390x844 ar light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings devices empty 390x844 ar light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings general error 390x844 ar light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings models empty 390x844 ar dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings devices empty 390x844 ar dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings general error 390x844 ar dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings models empty 390x844 en light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings devices empty 390x844 en light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings general error 390x844 en light @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings models empty 390x844 en dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings devices empty 390x844 en dark @visual
+OUTSIDE desktop › settings.spec.ts › visual baseline: settings general error 390x844 en dark @visual
+
+=== U5.pwb.pw-gate-u5.log (bytes 25)
+unexpected=120 outside=0
+
+=== U5.pwb.counts.log (bytes 32)
+passed=969 failed=120 skipped=0
+
+=== U5.pwb.exit (bytes 2)
+1
+
+=== U5.pwb.done (bytes 5)
+done
+
+=== U5.pwb.dirty (bytes 51)
+?? apps/desktop/e2e/v3/settings.spec.ts-snapshots/
+
+=== U5.pwb.script.err (bytes 0)
+
+=== stats
+{"startTime":"2026-11-10T16:37:43.006Z","duration":1426927.7589999998,"expected":969,"skipped":0,"unexpected":120,"flaky":0}
+=== errors field
+[]
+=== breakdown: total=1089 bad=120 visual_bad=120 nonvisual_bad=0
+--- NON-VISUAL failures:
+--- visual failure count by spec:
+{"settings.spec.ts":120}
+bad_by_project={"desktop":120}

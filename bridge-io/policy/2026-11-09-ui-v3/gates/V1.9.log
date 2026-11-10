@@ -1,0 +1,2 @@
+84:LABEL org.opencontainers.image.version=$WARSHA_VERSION
+GATE_EXIT=0

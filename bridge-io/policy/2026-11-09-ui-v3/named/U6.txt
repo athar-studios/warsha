@@ -1,0 +1,2 @@
+# U6 — every remote screenshot (new look); remote flows must stay green
+^remote › bench\.visual\.spec\.ts › 

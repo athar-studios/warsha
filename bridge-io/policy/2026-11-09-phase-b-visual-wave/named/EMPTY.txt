@@ -1,0 +1,1 @@
+# EMPTY — pixel-neutral packets (P3, P4, P6, P7): no screenshot or behavioural failure is allowed

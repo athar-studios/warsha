@@ -1,0 +1,11 @@
+gate: G2.1
+command: mdbook build docs
+commit: e71567a499c435711899643bc676a004ac81eaa2
+timestamp: 2026-11-08T12:04:01Z
+worktree: C:/Users/Dragonfly/Downloads/warsha-wt/verify-w2
+exit: 0
+expected: 0
+--- output ---
+ INFO Book building has started
+ INFO Running the html backend
+ INFO HTML book written to `C:\Users\Dragonfly\Downloads\warsha-wt\verify-w2\docs\book`

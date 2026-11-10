@@ -1,0 +1,334 @@
+From e1b2364dcbebf0ba0b869cc111c420e5cdd9e5a7 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Mon, 9 Nov 2026 18:05:04 +0400
+Subject: [PATCH 07/12] feat(desktop): add useModels, useRoles, and
+ useHarnesses v3 hooks
+
+Add hooks for custom model records, role routings, and harness definitions
+with four-state unit tests covering loading, empty, ready, and error states.
+---
+ apps/desktop/src/v3/data/useHarnesses.test.ts | 66 ++++++++++++++++
+ apps/desktop/src/v3/data/useHarnesses.ts      | 21 +++++
+ apps/desktop/src/v3/data/useModels.test.ts    | 66 ++++++++++++++++
+ apps/desktop/src/v3/data/useModels.ts         | 22 ++++++
+ apps/desktop/src/v3/data/useRoles.test.ts     | 76 +++++++++++++++++++
+ apps/desktop/src/v3/data/useRoles.ts          | 21 +++++
+ 6 files changed, 272 insertions(+)
+ create mode 100644 apps/desktop/src/v3/data/useHarnesses.test.ts
+ create mode 100644 apps/desktop/src/v3/data/useHarnesses.ts
+ create mode 100644 apps/desktop/src/v3/data/useModels.test.ts
+ create mode 100644 apps/desktop/src/v3/data/useModels.ts
+ create mode 100644 apps/desktop/src/v3/data/useRoles.test.ts
+ create mode 100644 apps/desktop/src/v3/data/useRoles.ts
+
+diff --git a/apps/desktop/src/v3/data/useHarnesses.test.ts b/apps/desktop/src/v3/data/useHarnesses.test.ts
+new file mode 100644
+index 0000000..603b64f
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useHarnesses.test.ts
+@@ -0,0 +1,66 @@
++import { act, renderHook } from '@testing-library/react';
++import type { HarnessDefinition, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useHarnesses } from './useHarnesses';
++
++describe('useHarnesses', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      listHarnesses: () => new Promise<HarnessDefinition[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useHarnesses(client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when harnesses list is empty', async () => {
++    const client = {
++      listHarnesses: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useHarnesses(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when harnesses exist', async () => {
++    const list: HarnessDefinition[] = [
++      { id: 'h1', name: 'Standard Harness', path: '/harness/std' },
++    ];
++    const client = {
++      listHarnesses: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useHarnesses(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      listHarnesses: vi.fn().mockRejectedValue(new Error('Harness error')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useHarnesses(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Harness error');
++
++    (client.listHarnesses as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      { id: 'h2', name: 'Custom Harness', path: '/harness/custom' },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useHarnesses.ts b/apps/desktop/src/v3/data/useHarnesses.ts
+new file mode 100644
+index 0000000..bea0966
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useHarnesses.ts
+@@ -0,0 +1,21 @@
++import type { HarnessDefinition, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useHarnesses(
++  overrideClient?: WarshaClient | null
++): HookResult<HarnessDefinition[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<HarnessDefinition[]>(
++    async () => {
++      if (!client) return [];
++      return client.listHarnesses();
++    },
++    (list) => !list || list.length === 0,
++    [client]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useModels.test.ts b/apps/desktop/src/v3/data/useModels.test.ts
+new file mode 100644
+index 0000000..be9485d
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useModels.test.ts
+@@ -0,0 +1,66 @@
++import { act, renderHook } from '@testing-library/react';
++import type { CustomModelRecord, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useModels } from './useModels';
++
++describe('useModels', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      listCustomModels: () => new Promise<CustomModelRecord[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useModels(undefined, client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when custom models list is empty', async () => {
++    const client = {
++      listCustomModels: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useModels(undefined, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when custom models exist', async () => {
++    const list: CustomModelRecord[] = [
++      { provider: 'ollama', model_id: 'llama3:8b', display_name: 'Llama 3' },
++    ];
++    const client = {
++      listCustomModels: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useModels('ollama', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      listCustomModels: vi.fn().mockRejectedValue(new Error('Models error')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useModels('ollama', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Models error');
++
++    (client.listCustomModels as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      { provider: 'ollama', model_id: 'mistral:7b' },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useModels.ts b/apps/desktop/src/v3/data/useModels.ts
+new file mode 100644
+index 0000000..83133de
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useModels.ts
+@@ -0,0 +1,22 @@
++import type { CustomModelRecord, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useModels(
++  provider?: string | null,
++  overrideClient?: WarshaClient | null
++): HookResult<CustomModelRecord[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<CustomModelRecord[]>(
++    async () => {
++      if (!client) return [];
++      return client.listCustomModels(provider ?? undefined);
++    },
++    (list) => !list || list.length === 0,
++    [client, provider]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useRoles.test.ts b/apps/desktop/src/v3/data/useRoles.test.ts
+new file mode 100644
+index 0000000..6bd6591
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useRoles.test.ts
+@@ -0,0 +1,76 @@
++import { act, renderHook } from '@testing-library/react';
++import type { RoleRouting, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useRoles } from './useRoles';
++
++describe('useRoles', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      listRoleRoutings: () => new Promise<RoleRouting[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRoles(client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when role routings are empty', async () => {
++    const client = {
++      listRoleRoutings: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRoles(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when role routings exist', async () => {
++    const list: RoleRouting[] = [
++      {
++        role: 'coder',
++        targets: [{ provider_id: 'mock', model_id: 'default', weight: 1 }],
++        fallback_enabled: true,
++        budget_cents_per_run: 100,
++      },
++    ];
++    const client = {
++      listRoleRoutings: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRoles(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      listRoleRoutings: vi.fn().mockRejectedValue(new Error('Roles fetch failed')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRoles(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Roles fetch failed');
++
++    (client.listRoleRoutings as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      {
++        role: 'reviewer',
++        targets: [],
++        fallback_enabled: false,
++        budget_cents_per_run: null,
++      },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useRoles.ts b/apps/desktop/src/v3/data/useRoles.ts
+new file mode 100644
+index 0000000..e249997
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useRoles.ts
+@@ -0,0 +1,21 @@
++import type { RoleRouting, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useRoles(
++  overrideClient?: WarshaClient | null
++): HookResult<RoleRouting[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<RoleRouting[]>(
++    async () => {
++      if (!client) return [];
++      return client.listRoleRoutings();
++    },
++    (list) => !list || list.length === 0,
++    [client]
++  );
++}
+-- 
+2.55.0.windows.5
+

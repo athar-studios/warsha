@@ -1,0 +1,20 @@
+gate: G7.3
+command: "$BT"/apksigner verify --print-certs "$APK"   (Windows: apksigner.bat, sanctioned by prompt section 3)
+commit: e172caf238550bbe4c26d311ccd0f08a6ca964dd
+worktree: C:/Users/Dragonfly/Downloads/warsha-wt/integration
+build-tools: C:/Users/Dragonfly/AppData/Local/Android/Sdk/build-tools/36.0.0
+host: Windows integration worktree (re-derived by the orchestrator)
+timestamp: 2026-11-08T17:46:46Z
+note: the gate text names the Unix launcher; Windows ships only apksigner.bat, so the .bat is invoked
+note: with identical arguments. This is a documented platform difference (OD3), not a gate change.
+---
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::loadLibrary has been called by org.conscrypt.NativeLibraryUtil in an unnamed module (file:/C:/Users/Dragonfly/AppData/Local/Android/Sdk/build-tools/36.0.0/lib/apksigner.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+Signer #1 certificate DN: CN=Warsha Remote, OU=Engineering, O=Warsha, L=Riyadh, C=SA
+Signer #1 certificate SHA-256 digest: ad2708e486a68590db9b1ee54e7dfad547759b20f399c16cc6eaad059ce7f3c3
+Signer #1 certificate SHA-1 digest: d89f77bd5c2bda743015c55af81e4c5294e2fd25
+Signer #1 certificate MD5 digest: cf4cced779f3ca2efd6e19cd94f94366
+exit_code: 0

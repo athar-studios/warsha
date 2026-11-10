@@ -1,0 +1,7 @@
+gate: G3.A (architecture rules)
+command: node scripts/check-arch.mjs
+commit: 0f829731273d722ae21f25e26a54767bc852fe56
+utc: 2026-11-08T10:23:24Z
+--- output ---
+arch: 5 rules, 0 violations
+exit: 0

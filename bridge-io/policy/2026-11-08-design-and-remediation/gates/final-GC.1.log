@@ -1,0 +1,7 @@
+gate: GC.1
+command: cargo fmt --all --check
+commit: a643a536323b845fe7dec486a5d747f16653660d
+host: Windows integration worktree (FINAL tip)
+timestamp: 2026-11-08T15:40:58Z
+---
+exit_code: 0

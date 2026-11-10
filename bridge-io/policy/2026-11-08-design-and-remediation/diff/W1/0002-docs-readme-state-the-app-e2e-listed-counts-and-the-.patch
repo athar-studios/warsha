@@ -1,0 +1,218 @@
+From 260a013a2bb16740b6bf92fef09a413d16d87c1f Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 05:41:26 +0400
+Subject: [PATCH 2/5] docs(readme): state the app e2e listed counts and the
+ measured G0 baseline
+
+apps/desktop listed screens.a11y as 180 cases and omitted the 45 behavioural
+cases. The desktop project lists 793: a11y 188, states 252, visual 308, flows 30,
+layout 12, onboarding 3. Record what harness.ts stubs (the Tauri get_config edge
+and the RPC surface) against what real-acceptance.cjs proves (the built bundle
+on a live warshad with no RPC stub).
+
+The G0 baseline at 0772d50 is now recorded, so explain the 180-vs-188 gap from
+the artifact rather than leaving it open: 785 passed / 8 failed, all eight on
+the settings screen's a11y case. G0's verdict is fail, not pass.
+
+apps/remote described bench.tsx as layout. It is the data context
+(RemoteProvider/useRemote, stageQueue, gateWaitsOnOwner); the UI is the five
+screens plus chrome/GatePlate/pairing. Document the build-time dist/sw.js, the
+production-only registerShellWorker call, the absence of any push permission,
+and the 91 listed remote cases against G0's measured 51 passed / 40 failed.
+---
+ apps/desktop/README.md | 63 +++++++++++++++++++++++++++++-----
+ apps/remote/README.md  | 77 +++++++++++++++++++++++++++++++++---------
+ 2 files changed, 115 insertions(+), 25 deletions(-)
+
+diff --git a/apps/desktop/README.md b/apps/desktop/README.md
+index bb50362..1fee0c6 100644
+--- a/apps/desktop/README.md
++++ b/apps/desktop/README.md
+@@ -15,21 +15,61 @@ workbench, not two applications.
+   devices, providers, roles, harnesses, skills, plugins, models, routines, backend kit, crash
+   reports, store reviews, settings, artifacts, …).
+ - `src/components/` — shared plates (composer controls, routine/provider rows, backend kit panel).
+-- `e2e/` — Playwright harness and specs (`screens.a11y.spec.ts` 180 cases,
+-  `states.spec.ts` 252, `screens.visual.spec.ts` 308).
+ - `src-tauri/` — Tauri configuration and the desktop binary entry.
++- `e2e/harness.ts` — the browser harness. It stubs **exactly two edges**: the Tauri shell's
++  `invoke('get_config', …)` and the daemon's JSON-RPC surface (`RPC_METHODS`, `:100`). Nothing else
++  about the app is mocked, which is what makes the screenshots worth trusting. The invariants live
++  in `e2e/support/` — `layout.ts` (box geometry), `a11y.ts` (axe-core WCAG 2.1 AA, the keyboard
++  walk and the clip pass) and `fonts.ts` (proof chromium drew with the design's own faces).
++- `real-acceptance.cjs` — the opposite proof: the **built web bundle against a live `warshad`, with
++  no RPC stub at all**. It injects only the Tauri shell-config edge — a `window.__TAURI_INTERNALS__`
++  whose `invoke` answers `get_config` (and a no-op `set_config`) and rejects any other command.
++  It then records the RPC methods the page really called, the headings it rendered and a
++  screenshot.
++
++### The Playwright `desktop` project
++
++`pnpm exec playwright test --project=desktop --list` reports **793 tests in 6 files**:
++
++| Spec | Listed | What it covers |
++|---|---|---|
++| `screens.a11y.spec.ts` | **188** | axe AA, the keyboard walk and the clip pass per screen |
++| `states.spec.ts` | 252 | the §7 empty/loading/error/dense states |
++| `screens.visual.spec.ts` | 308 | the raster baselines |
++| `flows.spec.ts` | 30 | behaviour |
++| `layout.spec.ts` | 12 | behaviour |
++| `onboarding.spec.ts` | 3 | behaviour |
++
++The three behaviour specs total **45**. Every case is deterministic by construction:
++`fonts.googleapis.com` is aborted, theme and locale are written to `localStorage` before first
++paint, the clock is pinned, animations are zeroed twice, and the `/events` socket answers a fixed
++transcript.
++
++**Listed is not passed.** The run's G0 baseline, measured at commit `0772d50` on the Linux capture
++host, recorded **785 passed / 8 failed** for this project. The eight failures are all
++`screens.a11y.spec.ts:44` on the **`settings`** screen — 390x844 and 1440x900 × `ar`/`en` ×
++light/dark — so `screens.a11y.spec.ts` came back **180 passed of 188 listed**. That is the whole of
++the historical "180 vs 188" gap: eight real failing accessibility cases, not a listing discrepancy
++and not a raster diff. `states` 252/252, `screens.visual` 308/308, `flows` 30/30, `layout` 12/12 and
++`onboarding` 3/3 were green, so the desktop **pixel** baseline is clean. G0's verdict is `fail`, not
++pass; the eight `settings` a11y failures are an open item. Evidence:
++`bridge-io/policy/2026-11-08-design-and-remediation/gates/G0.log` and `acceptance.json`.
+ 
+ ## Invariants
+ 
+-- Every screen renders in both locales (`ar` RTL, `en` LTR) and both themes; the E2E matrix fails a
+-  case whose document `lang`/`dir` disagrees with the case.
++- Every screen renders in both locales (`ar` RTL, `en` LTR) and both themes. The visual suite
++  soft-asserts `html[lang]` and `html[dir]` against the case's locale
++  (`e2e/screens.visual.spec.ts:80-81`), so a disagreement is reported as that case failing.
+ - Copy comes from `@warsha/i18n`; a catalog key must never reach the screen as text.
+ - The renderer holds the daemon token, never a provider key; provider secrets stay in the daemon and
+   the OS keychain.
+ - Visual baselines are Linux chromium captures with pinned IBM Plex faces and the pinned AA config.
+-  They are not regenerated on Windows/macOS; a diff is a real signal.
+-- No screen may call an RPC the E2E harness does not stub — the visual suite asserts this so a case
+-  cannot pass while the screen never reached the daemon.
++  `e2e/support/fonts.ts` names `IBM Plex Sans Arabic` and `IBM Plex Mono` and verifies them by
++  *usage* — chromium's own platform-font report has to name Plex; a fallback face means Plex was not
++  there. They are not regenerated on Windows/macOS; a diff is a real signal.
++- No screen may call an RPC the E2E harness does not stub. `screens.visual.spec.ts:57` and
++  `onboarding.spec.ts:56` assert `stubs.unimplemented` is empty, so a case cannot pass while the
++  screen never reached the daemon.
+ 
+ ## Side Effects
+ 
+@@ -40,7 +80,12 @@ preferences through the client. No direct database or network access outside the
+ 
+ - Unit: `pnpm --filter warsha-desktop test`
+ - Types/lint: `pnpm --filter warsha-desktop typecheck` and `pnpm --filter warsha-desktop lint`
+-- E2E (Linux capture host): `pnpm exec playwright test apps/desktop/e2e/screens.a11y.spec.ts --project desktop`,
+-  then `states.spec.ts`, then `screens.visual.spec.ts` — run them serially; they share ports 5173/5174.
++- E2E (Linux capture host): `pnpm exec playwright test --project=desktop`. To run one spec,
++  `pnpm exec playwright test apps/desktop/e2e/screens.a11y.spec.ts --project desktop`, then
++  `states.spec.ts`, then `screens.visual.spec.ts` — run them serially; they share ports 5173/5174.
++- Real-daemon acceptance: build the web bundle, start a real `warshad` on `127.0.0.1:8766`,
++  serve the bundle on `localhost:4173` and run `node apps/desktop/real-acceptance.cjs` with
++  `WARSHA_TEST_TOKEN` set. It prints `HEADINGS`, `RPC_METHODS`, `HAS_CLI_PROJECT` and
++  `BODY_SNIPPET`, and writes `real-acceptance.png`.
+ - Visual updates require explicit approval naming the exact set: `pnpm visual:update` must never be
+   run wholesale.
+diff --git a/apps/remote/README.md b/apps/remote/README.md
+index 9fbce07..c5e1c0e 100644
+--- a/apps/remote/README.md
++++ b/apps/remote/README.md
+@@ -2,35 +2,80 @@
+ 
+ ## Overview
+ 
+-The browser/PWA client a paired phone or another machine uses to follow runs. It is a thin client of
+-the same daemon RPC surface: list runs, open one, follow stage progress, answer gates, start/cancel,
+-read artifacts and handle handoff. It never holds the daemon token; pairing gives it its own device
+-session.
++The browser/PWA client a paired phone or another machine uses to follow runs. It is a thin client
++of the same daemon RPC surface: list runs, open one, follow stage progress, answer gates,
++start/cancel, read artifacts and handle handoff. It never holds the daemon's owner token; the
++pairing link gives it its own device credential, which `Sessions::resolve`
++(`crates/warshad/src/auth.rs:171-184`) accepts in place of the owner token.
+ 
+ ## Interface
+ 
+-- `src/App.tsx` — connection state, pairing entry and run navigation.
+-- `src/bench.tsx`, `src/chrome.tsx` — the remote bench layout and chrome.
+-- `src/GatePlate.tsx` — the gate decision plate.
+-- `src/format.ts` — locale/format helpers.
+-- `scripts/verify-pwa.mjs` — production PWA proof (service worker registration) with a browser
+-  option.
++- `src/App.tsx` — the shell, and only the shell: it decides *which* screen is showing. The URL is
++  the record of that (`screen` by path, `project` and `run` as query), so a shared link opens the
++  same bench and the back button keeps working. It owns no daemon state.
++- `src/bench.tsx` — the **data context, not a layout**. `RemoteProvider` (`:320`) and `useRemote`
++  (`:1056`) sit over `RemoteContext` (`:317`); `BenchApi` (`:103`) is the daemon seam a test can
++  replace. `stageQueue` (`:170`) derives the gate queue from the run plus local decisions, and
++  `gateWaitsOnOwner` (`:205`) decides which gate is the owner's to answer. It also owns the
++  load/connection/stream state types, the daemon sequence cursor and `resyncFromCursor` (`:674`).
++- The UI is `src/screens/NeedsYouScreen.tsx`, `ProjectsScreen.tsx`, `RunScreen.tsx`,
++  `GatesScreen.tsx` and `SettingsScreen.tsx`, with `src/chrome.tsx` (`BenchNav`, `BenchStrip`,
++  `BenchTopbar`), `src/GatePlate.tsx` and `src/pairing.tsx`.
++- `src/session.ts` — `parsePairingLink`, which reads the session off the URL the daemon's QR plate
++  carries. `src/offline.ts` — service-worker registration. `src/format.ts`, `src/labels.ts`,
++  `src/pipeline.ts` and `src/theme.tsx` — formatting, copy keys, stage helpers and the theme.
++- `scripts/generate-service-worker.mjs` + `workbox-config.cjs` — emit `dist/sw.js` at build time.
++- `scripts/verify-pwa.mjs` — production PWA proof (manifest, icons, worker registration), with a
++  browser option.
++
++### The service worker
++
++`package.json` builds with `tsc && vite build && node scripts/generate-service-worker.mjs`. That
++script runs `workbox-cli generateSW workbox-config.cjs`, which writes **`dist/sw.js`**.
++`registerShellWorker` (`src/offline.ts:96`) registers it at `SERVICE_WORKER_PATH` = `/sw.js`
++(`:30`), and `src/main.tsx` calls it once, last, with `prod: import.meta.env.PROD` (`:13`, `:44`).
++So registration is a **production-build behaviour**: a dev server never runs the post-build step,
++its `/sw.js` is a 404, and the function answers `skipped-build` rather than erroring. A platform
++with no `navigator.serviceWorker` answers `skipped-platform`; a refusal is reported to the console
++and resolves `failed`, never to the owner's screen.
++
++**No push permission is requested.** Nothing in `src/`, `scripts/`, `public/` or
++`workbox-config.cjs` calls `Notification.requestPermission`, touches `pushManager` or subscribes
++to push. There are no phone notifications: nothing reaches the phone by itself.
++
++The worker precaches the **shell only** — hashed Vite assets plus `index.html` with its content
++hash as revision. There is no `runtimeCaching` block at all, so no daemon response is ever served
++from a cache. `navigateFallback: '/index.html'` makes deep links work offline, and its denylist
++(`/^\/api\//`, `/^\/events/`, `/^\/healthz`) keeps those paths reaching the daemon if a reverse
++proxy ever co-hosts the two on one origin.
+ 
+ ## Invariants
+ 
+ - Pairing happens through the QR deep link or manual entry; an unpaired client cannot reach the
+   daemon.
+-- A connection loss is shown as state (with reconnect and sequence-gap resync), never as silent
+-  stale data.
+-- The UI shows the no-LLM-keys notice rather than pretending a key exists.
+-- Copy is localized; the remote and desktop catalogs come from the same `@warsha/i18n` package.
++- A connection loss is shown as state, never as silent stale data: `ConnectionState` has an
++  `offline` value, the stream carries a sequence cursor, and a gap or a refused cursor triggers
++  `resyncFromCursor` — a full re-read of the run's current view rather than a guess.
++- The UI shows the no-LLM-keys notice (`remote.no_llm_keys`, rendered in `SettingsScreen.tsx`)
++  rather than pretending a key exists.
++- Copy is localized through `@warsha/i18n`, the same package the desktop uses; a missing key is a
++  failing catalog test, not English appearing inside Arabic.
+ 
+ ## Side Effects
+ 
+-Network calls to the paired daemon/relay only; the PWA caches its own shell assets.
++Network calls to the paired daemon only. The PWA caches its own shell assets and nothing of the
++daemon's. Theme and locale are written to `localStorage` under the shared keys `warsha.theme` and
++`warsha.locale`, before first paint, so a choice made on either surface is the same choice here.
+ 
+ ## Verification
+ 
+ - Unit/types/lint: `pnpm --filter warsha-remote test`, `typecheck`, `lint`
+-- Build: `pnpm --filter warsha-remote build`
++- Build: `pnpm --filter warsha-remote build` (emits `dist/sw.js`)
+ - PWA proof: `node apps/remote/scripts/verify-pwa.mjs --browser`
++- E2E: `apps/remote/e2e/bench.visual.spec.ts` (**84** listed cases) and `flows.spec.ts` (**7**),
++  91 listed in total for the Playwright `remote` project.
++- Measured, not assumed: the run's G0 baseline at commit `0772d50` recorded **51 passed / 40
++  failed** for this project — `flows.spec.ts` 7/7, `bench.visual.spec.ts` 44 of 84, with 40 real
++  visual diffs against the existing `-remote-linux.png` baselines. G0's verdict is `fail`; the
++  remote pixel baseline is **not** clean. Evidence:
++  `bridge-io/policy/2026-11-08-design-and-remediation/gates/G0.log` and `acceptance.json`.
+-- 
+2.55.0.windows.5
+

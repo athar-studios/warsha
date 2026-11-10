@@ -1,0 +1,18 @@
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mC:/Users/Dragonfly/Downloads/warsha-wt/w8/apps/desktop[39m
+
+ [32m✓[39m src/screens/SettingsScreenIntegrations.test.tsx[2m > [22mSettingsScreen live connectors[2m > [22mreplaces the local ledger with the daemon integration statuses
+ [32m✓[39m src/screens/SettingsScreenIntegrations.test.tsx[2m > [22mSettingsScreen live connectors[2m > [22mconnects GitHub with a PAT, writes once and never shows the token again
+ [32m✓[39m src/screens/SettingsScreenIntegrations.test.tsx[2m > [22mSettingsScreen live connectors[2m > [22mconnects a generic service with its API key
+ [32m✓[39m src/screens/SettingsScreenIntegrations.test.tsx[2m > [22mSettingsScreen live connectors[2m > [22mtests a connected integration and says what came back
+ [32m✓[39m src/screens/SettingsScreenIntegrations.test.tsx[2m > [22mSettingsScreen live connectors[2m > [22mdisconnects through the daemon and follows the answer
+ [32m✓[39m src/screens/SettingsScreenIntegrations.test.tsx[2m > [22mSettingsScreen live connectors[2m > [22mfalls back to the local subscriptions ledger when the daemon refuses the list
+ [32m✓[39m src/screens/SettingsScreenIntegrations.test.tsx[2m > [22mSettingsScreen ledger list semantics[2m > [22mrenders no list at all when the daemon reports zero integrations
+ [32m✓[39m src/screens/SettingsScreenIntegrations.test.tsx[2m > [22mSettingsScreen ledger list semantics[2m > [22mgives the populated ledger only list-item children, with the description outside it
+ [32m✓[39m src/screens/SettingsScreenIntegrations.test.tsx[2m > [22mSettingsScreen ledger list semantics[2m > [22mgives the fallback subscriptions ledger only list-item children
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m9 passed[39m[22m[90m (9)[39m
+[2m   Start at [22m 11:57:20
+[2m   Duration [22m 2.59s[2m (transform 324ms, setup 358ms, collect 573ms, tests 350ms, environment 854ms, prepare 161ms)[22m
+

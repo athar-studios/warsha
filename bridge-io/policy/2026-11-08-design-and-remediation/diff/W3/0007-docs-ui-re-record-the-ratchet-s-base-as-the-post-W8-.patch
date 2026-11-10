@@ -1,0 +1,55 @@
+From 0f829731273d722ae21f25e26a54767bc852fe56 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 13:08:25 +0400
+Subject: [PATCH 7/7] docs(ui): re-record the ratchet's base as the post-W8
+ integration tip
+
+W3 rebased onto 5abe5ef (W8's settings-screen repair). The R6.9/R6.10 offence
+count is unchanged at that base (142 lengths + 3 literal fallbacks = 145), so
+APP_LENGTH_BUDGET stays 145; only the cited measurement commit moves.
+---
+ packages/ui/README.md                     | 7 ++++---
+ packages/ui/src/tokens/tokenDrift.test.ts | 9 +++++----
+ 2 files changed, 9 insertions(+), 7 deletions(-)
+
+diff --git a/packages/ui/README.md b/packages/ui/README.md
+index c4037df..6b6d13b 100644
+--- a/packages/ui/README.md
++++ b/packages/ui/README.md
+@@ -122,9 +122,10 @@ Apps consume `var(--warsha-*)` directly (they have no typed helpers) and import
+   - R6.9 the **app length ratchet**: every `px`/`rem`/`em` length in `apps/{desktop,remote}/src/**`
+     `.ts/.tsx/.css` (tests and comments excluded) is an offence, except inside an `@media` prelude
+     whose value is one of `359, 767, 768, 1023, 1024, 1440`px. The live count may not exceed
+-    `APP_LENGTH_BUDGET`, measured at this packet's base (`0772d50`): **145** offences — 142 lengths
+-    plus 3 literal `var()` fallbacks. W5 drives the apps to zero; the integration step INT-2 sets
+-    the constant to `0`;
++    `APP_LENGTH_BUDGET`, measured at this packet's base (`5abe5ef`, the integration tip after W8
++    merged; identical at the original `0772d50` base): **145** offences — 142 lengths plus 3 literal
++    `var()` fallbacks. W5 drives the apps to zero; the integration step INT-2 sets the constant to
++    `0`;
+   - R6.10 a literal `var()` fallback (`var(--warsha-x, 4px)`) is an offence — the token is always
+     defined;
+   - R6.P parity: every TS token module and `tokens.css` declare exactly the same names with the same
+diff --git a/packages/ui/src/tokens/tokenDrift.test.ts b/packages/ui/src/tokens/tokenDrift.test.ts
+index c1b06a7..6eff81c 100644
+--- a/packages/ui/src/tokens/tokenDrift.test.ts
++++ b/packages/ui/src/tokens/tokenDrift.test.ts
+@@ -999,10 +999,11 @@ export function scanAppLengths(source: string): Offence[] {
+ 
+ describe('R6 app length ratchet (R6.9/R6.10)', () => {
+   /**
+-   * The live offence count measured at W3's base (0772d502002562505c6438ae712abca7a7328d84):
+-   * 142 R6.9 lengths + 3 R6.10 literal fallbacks. The full list is in the packet report. W5 drives
+-   * the apps to zero against `WARSHA_R6_APP_LENGTH_BUDGET=0`; INT-2 then pins this constant to 0.
+-   * The env var can only tighten the budget, never raise it (D3).
++   * The live offence count measured at W3's base (5abe5ef9cb4b107467155f8fb8bf61f086394ba4, the
++   * integration tip after W8 merged; identical at the original 0772d50 base): 142 R6.9 lengths +
++   * 3 R6.10 literal fallbacks. The full list is in the packet report. W5 drives the apps to zero
++   * against `WARSHA_R6_APP_LENGTH_BUDGET=0`; INT-2 then pins this constant to 0. The env var can
++   * only tighten the budget, never raise it (D3).
+    */
+   const APP_LENGTH_BUDGET = 145;
+ 
+-- 
+2.55.0.windows.5
+

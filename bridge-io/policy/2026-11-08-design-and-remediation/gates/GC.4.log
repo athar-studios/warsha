@@ -1,0 +1,6 @@
+gate: GC.4
+command: pnpm -r typecheck && pnpm -r lint && pnpm -r test && pnpm -r build
+commit: c27091696796805bbdf72848fbc93ff611866dcc
+host: Windows integration worktree
+timestamp: 2026-11-08T12:40:30Z
+---

@@ -1,0 +1,8 @@
+# Gate: G1.4
+# Command: ( for m in agent_loop agent_tools agent_workflow backend_kit build_cache evals guardrails handoff llm_cache observability orchestrator post_launch preferences process_spawn prompts provider_setup router_quality routines run_modes scale_standards scout skills work_protection mcp mcp_transport settings; do grep -q "\`$m\`" crates/warsha-pipeline/README.md || { echo "$m"; exit 1; }; done )
+# CWD: C:/Users/Dragonfly/Downloads/warsha-wt/verify-w1
+# Commit: 6d9728f52eb096199c4ace208435c8b8927e5140
+# UTC: 2026-11-08T09:09:02Z
+# --- output ---
+
+# Exit code: 0

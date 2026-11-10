@@ -1,0 +1,10 @@
+gate: U5.snap
+commit: 7d4ceb9d589c23a139117ad98a977ff3a073ad9a
+cwd: C:/Users/Dragonfly/Downloads/warsha-wt/v3/u5
+cmd: node 'C:/Users/Dragonfly/Downloads/Warsha/bridge-io/policy/2026-11-09-ui-v3/tools/pw-gate.mjs' snapshots 6025715 HEAD -
+started: 2026-11-10T16:04:57Z
+-----
+snapshot_changes=0 outside=0
+-----
+finished: 2026-11-10T16:04:57Z
+EXIT=0

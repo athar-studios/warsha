@@ -1,0 +1,11 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.22s
+     Running unittests src\lib.rs (target\debug\deps\warsha_store-547bec2aec8fb004.exe)
+
+running 4 tests
+test tests::cas::concurrent_update_with_stale_version_is_rejected ... ok
+test tests::cas::sequential_cas_updates_increment_version ... ok
+test tests::cas::recovering_interrupted_runs_bumps_version ... ok
+test tests::cas::reloading_run_version_reflects_version_bump ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 0.26s
+

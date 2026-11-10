@@ -1,0 +1,530 @@
+{
+  "config": {
+    "configFile": "/root/warsha-e0v2/playwright.config.ts",
+    "rootDir": "/root/warsha-e0v2/apps",
+    "forbidOnly": true,
+    "fullyParallel": true,
+    "globalSetup": "/root/warsha-e0v2/apps/desktop/e2e/support/global-setup.ts",
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 2
+    },
+    "preserveOutput": "always",
+    "reporter": [
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 15000
+    },
+    "quiet": false,
+    "projects": [
+      {
+        "outputDir": "/root/warsha-e0v2/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "desktop",
+        "name": "desktop",
+        "testDir": "/root/warsha-e0v2/apps/desktop/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/.*\\.spec\\.ts$/"
+        ],
+        "timeout": 120000
+      },
+      {
+        "outputDir": "/root/warsha-e0v2/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "remote",
+        "name": "remote",
+        "testDir": "/root/warsha-e0v2/apps/remote/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/.*\\.spec\\.ts$/"
+        ],
+        "timeout": 120000
+      }
+    ],
+    "shard": null,
+    "updateSnapshots": "missing",
+    "version": "1.49.1",
+    "workers": 2,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "desktop/e2e/v3/smoke.spec.ts",
+      "file": "desktop/e2e/v3/smoke.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "route /onboarding boots in ar with main[data-ready=\"true\"]",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "status": "passed",
+                  "duration": 967,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T08:26:03.402Z",
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "adec0c2de5e9fea50b65-c301e91e99b2f64ad72f",
+          "file": "desktop/e2e/v3/smoke.spec.ts",
+          "line": 32,
+          "column": 5
+        },
+        {
+          "title": "route / boots in ar with main[data-ready=\"true\"]",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "status": "passed",
+                  "duration": 1039,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T08:26:03.379Z",
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "adec0c2de5e9fea50b65-5eb40c782ca3a27dc9d7",
+          "file": "desktop/e2e/v3/smoke.spec.ts",
+          "line": 32,
+          "column": 5
+        },
+        {
+          "title": "route /projects boots in ar with main[data-ready=\"true\"]",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "status": "passed",
+                  "duration": 788,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T08:26:04.460Z",
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "adec0c2de5e9fea50b65-c7c0eaa96ed0ef88d842",
+          "file": "desktop/e2e/v3/smoke.spec.ts",
+          "line": 32,
+          "column": 5
+        },
+        {
+          "title": "route /p/:projectId boots in ar with main[data-ready=\"true\"]",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "status": "passed",
+                  "duration": 821,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T08:26:04.516Z",
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "adec0c2de5e9fea50b65-d40892fb4658ba7537ab",
+          "file": "desktop/e2e/v3/smoke.spec.ts",
+          "line": 32,
+          "column": 5
+        },
+        {
+          "title": "route /p/:projectId/r/:runId/:tab boots in ar with main[data-ready=\"true\"]",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "status": "passed",
+                  "duration": 840,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T08:26:05.257Z",
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "adec0c2de5e9fea50b65-542909c81bcee9669d04",
+          "file": "desktop/e2e/v3/smoke.spec.ts",
+          "line": 32,
+          "column": 5
+        },
+        {
+          "title": "route /inbox boots in ar with main[data-ready=\"true\"]",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "status": "passed",
+                  "duration": 872,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T08:26:05.346Z",
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "adec0c2de5e9fea50b65-cee3c7dea43159b35756",
+          "file": "desktop/e2e/v3/smoke.spec.ts",
+          "line": 32,
+          "column": 5
+        },
+        {
+          "title": "route /settings/:section boots in ar with main[data-ready=\"true\"]",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "status": "passed",
+                  "duration": 782,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T08:26:06.102Z",
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "adec0c2de5e9fea50b65-183faa6912c06e2b5da0",
+          "file": "desktop/e2e/v3/smoke.spec.ts",
+          "line": 32,
+          "column": 5
+        },
+        {
+          "title": "route /onboarding boots in en with main[data-ready=\"true\"]",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "status": "passed",
+                  "duration": 836,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T08:26:06.225Z",
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "adec0c2de5e9fea50b65-e22c991ab387b6a70d5f",
+          "file": "desktop/e2e/v3/smoke.spec.ts",
+          "line": 32,
+          "column": 5
+        },
+        {
+          "title": "route / boots in en with main[data-ready=\"true\"]",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "status": "passed",
+                  "duration": 787,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T08:26:06.894Z",
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "adec0c2de5e9fea50b65-c062417934a6b06d60dc",
+          "file": "desktop/e2e/v3/smoke.spec.ts",
+          "line": 32,
+          "column": 5
+        },
+        {
+          "title": "route /projects boots in en with main[data-ready=\"true\"]",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "status": "passed",
+                  "duration": 774,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T08:26:07.073Z",
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "adec0c2de5e9fea50b65-95d828f74ba60136c416",
+          "file": "desktop/e2e/v3/smoke.spec.ts",
+          "line": 32,
+          "column": 5
+        },
+        {
+          "title": "route /p/:projectId boots in en with main[data-ready=\"true\"]",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "status": "passed",
+                  "duration": 991,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T08:26:07.690Z",
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "adec0c2de5e9fea50b65-c6b3d2d7f9008510b043",
+          "file": "desktop/e2e/v3/smoke.spec.ts",
+          "line": 32,
+          "column": 5
+        },
+        {
+          "title": "route /p/:projectId/r/:runId/:tab boots in en with main[data-ready=\"true\"]",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "status": "passed",
+                  "duration": 998,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T08:26:07.857Z",
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "adec0c2de5e9fea50b65-13a27a1601d321970640",
+          "file": "desktop/e2e/v3/smoke.spec.ts",
+          "line": 32,
+          "column": 5
+        },
+        {
+          "title": "route /inbox boots in en with main[data-ready=\"true\"]",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "status": "passed",
+                  "duration": 1088,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T08:26:08.690Z",
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "adec0c2de5e9fea50b65-ade6b144c119f1e93c3d",
+          "file": "desktop/e2e/v3/smoke.spec.ts",
+          "line": 32,
+          "column": 5
+        },
+        {
+          "title": "route /settings/:section boots in en with main[data-ready=\"true\"]",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop",
+              "projectName": "desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "status": "passed",
+                  "duration": 1002,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-10T08:26:08.867Z",
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "adec0c2de5e9fea50b65-e1876a5f5589448e4a5e",
+          "file": "desktop/e2e/v3/smoke.spec.ts",
+          "line": 32,
+          "column": 5
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-11-10T08:25:56.330Z",
+    "duration": 13623.304,
+    "expected": 14,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

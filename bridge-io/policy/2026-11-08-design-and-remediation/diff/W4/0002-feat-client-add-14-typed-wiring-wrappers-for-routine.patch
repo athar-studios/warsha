@@ -1,0 +1,561 @@
+From 081ec5b7243d17dfd5ce063071b47b3292845890 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 05:40:06 +0400
+Subject: [PATCH 2/5] feat(client): add 14 typed wiring wrappers for routines,
+ backend kit, preview, run modes and preferences
+
+---
+ packages/client/src/index.ts | 513 ++++++++++++++++++++++++++++++++++-
+ 1 file changed, 508 insertions(+), 5 deletions(-)
+
+diff --git a/packages/client/src/index.ts b/packages/client/src/index.ts
+index 3ccb2a3..ad01fbe 100644
+--- a/packages/client/src/index.ts
++++ b/packages/client/src/index.ts
+@@ -1958,6 +1958,80 @@ export class WarshaClient implements WarshaWiringApi, WarshaWave2Api {
+     const row = await this.rpc<unknown>('files.read', { project_id: projectId, path });
+     return decodeFileContent(row);
+   }
++
++  // Wiring — the live records (PLAN.md M16/M19/M20): routines, the backend kit, the
++  // dev-server preview, run modes and taste preferences. Parameter names are the
++  // daemon's own snake_case argument names; every result is decoded strictly before it
++  // reaches a caller, and the three struct writes encode back to the daemon's shape.
++  async listRoutines(): Promise<Routine[]> {
++    const rows = await this.rpc<unknown>('routines.list');
++    return wiringList(rows, 'routines.list', decodeRoutine);
++  }
++
++  async getRoutine(id: string): Promise<Routine | null> {
++    const row = await this.rpc<unknown>('routines.get', { id });
++    return row === null ? null : decodeRoutine(row, 'routines.get');
++  }
++
++  async runRoutineNow(id: string): Promise<Routine> {
++    const row = await this.rpc<unknown>('routines.run_now', { id });
++    return decodeRoutine(row, 'routines.run_now');
++  }
++
++  async pauseRoutine(id: string): Promise<Routine> {
++    const row = await this.rpc<unknown>('routines.pause', { id });
++    return decodeRoutine(row, 'routines.pause');
++  }
++
++  async resumeRoutine(id: string): Promise<Routine> {
++    const row = await this.rpc<unknown>('routines.resume', { id });
++    return decodeRoutine(row, 'routines.resume');
++  }
++
++  async getBackendKit(runId: RunId): Promise<BackendKit | null> {
++    const row = await this.rpc<unknown>('backend.get', { run_id: runId });
++    return row === null ? null : decodeBackendKit(row, 'backend.get');
++  }
++
++  async setBackendKit(runId: RunId, kit: BackendKit): Promise<void> {
++    await this.rpc<unknown>('backend.set', { run_id: runId, kit: encodeBackendKit(kit) });
++  }
++
++  async startPreview(projectId: string, command: string): Promise<LivePreview> {
++    const row = await this.rpc<unknown>('preview.start', { project_id: projectId, command });
++    return decodeLivePreview(row, 'preview.start');
++  }
++
++  async stopPreview(projectId: string): Promise<void> {
++    await this.rpc<unknown>('preview.stop', { project_id: projectId });
++  }
++
++  async previewStatus(projectId: string): Promise<LivePreview> {
++    const row = await this.rpc<unknown>('preview.status', { project_id: projectId });
++    return decodeLivePreview(row, 'preview.status');
++  }
++
++  async listRunModes(): Promise<RunModeConfig[]> {
++    const rows = await this.rpc<unknown>('runmode.list');
++    return wiringList(rows, 'runmode.list', decodeRunModeConfig);
++  }
++
++  async setRunMode(config: RunModeConfig): Promise<RunModeConfig> {
++    const row = await this.rpc<unknown>('runmode.set', { config: encodeRunModeConfig(config) });
++    return decodeRunModeConfig(row, 'runmode.set');
++  }
++
++  async listPreferences(projectId: string): Promise<Preference[]> {
++    const rows = await this.rpc<unknown>('preferences.list', { project_id: projectId });
++    return wiringList(rows, 'preferences.list', decodePreference);
++  }
++
++  async recordPreference(signal: PreferenceSignal): Promise<Preference[]> {
++    const rows = await this.rpc<unknown>('preferences.record', {
++      signal: encodePreferenceSignal(signal),
++    });
++    return wiringList(rows, 'preferences.record', decodePreference);
++  }
+ }
+ 
+ /** One `warsha_pipeline::CrashReport` as the daemon serialises it (snake_case). */
+@@ -2002,14 +2076,139 @@ export interface HandoffApplySummary {
+   backup_dir?: string;
+ }
+ 
++/** When a routine comes due (`warsha_pipeline::RoutineSchedule`, externally tagged). */
++export type RoutineSchedule = { cron: string } | { intervalSeconds: number } | 'manual';
++
++/** Where a routine is in its lifecycle (`warsha_pipeline::RoutineState`). */
++export type RoutineState = 'idle' | 'running' | 'paused' | { failed: string };
++
+ /**
+- * Signatures for the daemon wiring batch (PLAN.md M20): backend kit export,
+- * continue-on-server handoff and the read half of post-launch care.
++ * One scheduled task (`warsha_pipeline::Routine`, snake_case on the wire). The
++ * screen reads camelCase; `decodeRoutine` maps the daemon's `last_run_unix` and the
++ * externally-tagged `schedule`/`state` enums into these shapes.
++ */
++export interface Routine {
++  id: string;
++  name: string;
++  description: string;
++  schedule: RoutineSchedule;
++  state: RoutineState;
++  lastRunUnix: number | null;
++}
++
++/** The open-source backend a project points at (`warsha_pipeline::BackendKind`). */
++export type BackendKind = 'pocket_base' | 'supabase';
++
++/** A backend service the owner turned on (`warsha_pipeline::BackendFeature`). */
++export type BackendFeature = 'auth' | 'postgres_rls' | 'storage' | 'push' | 'functions';
++
++/** The operation an RLS policy covers (`warsha_pipeline::RlsOperation`). */
++export type RlsOperation = 'select' | 'insert' | 'update' | 'delete' | 'all';
++
++/** The picked backend (`warsha_pipeline::BackendConfig`); `enabled_features` defaults to `[]`. */
++export interface BackendConfig {
++  kind: BackendKind;
++  url: string;
++  projectName: string;
++  enabledFeatures: BackendFeature[];
++}
++
++/** One column of a generated table (`warsha_pipeline::ColumnDef`). */
++export interface ColumnDef {
++  name: string;
++  colType: string;
++  nullable: boolean;
++}
++
++/** One table the agent created (`warsha_pipeline::TableDef`). */
++export interface TableDef {
++  name: string;
++  columns: ColumnDef[];
++}
++
++/** One row-level security policy (`warsha_pipeline::RlsPolicy`). */
++export interface RlsPolicy {
++  table: string;
++  policyName: string;
++  expression: string;
++  operation: RlsOperation;
++}
++
++/**
++ * The backend kit (`warsha_pipeline::BackendKit`, snake_case on the wire). The four
++ * list fields and `config.enabledFeatures` carry serde defaults, so they decode to
++ * `[]` when absent; `encodeBackendKit` writes the whole kit back to snake_case for
++ * `backend.set`.
++ */
++export interface BackendKit {
++  config: BackendConfig;
++  tables: TableDef[];
++  rlsPolicies: RlsPolicy[];
++  storageBuckets: string[];
++  functions: string[];
++}
++
++/** A managed process status (`warsha_pipeline::ProcessStatus`). */
++export type ProcessStatus = 'starting' | 'running' | 'stopped' | 'failed' | 'crashed';
++
++/** One project's dev server (`warsha_pipeline::LivePreview`, snake_case on the wire). */
++export interface LivePreview {
++  projectId: string;
++  processId: string;
++  command: string;
++  args: string[];
++  status: ProcessStatus;
++  url: string | null;
++}
++
++/** Where a Warsha daemon runs (`warsha_pipeline::RunMode`). */
++export type RunMode = 'local' | 'self_hosted' | 'hosted';
++
++/** Where the API binds and who may reach it (`warsha_pipeline::RunModeConfig`). */
++export interface RunModeConfig {
++  mode: RunMode;
++  bindHost: string;
++  allowedHosts: string[];
++  relayUrl: string | null;
++}
++
++/** What the owner did to a target (`warsha_pipeline::SignalKind`). */
++export type SignalKind = 'approve' | 'reject' | 'change_request' | 'edit';
++
++/** A decayed, weighted preference (`warsha_pipeline::Preference`, snake_case on the wire). */
++export interface Preference {
++  key: string;
++  score: number;
++  evidenceCount: number;
++  lastUpdated: number;
++}
++
++/**
++ * One recorded taste signal (`warsha_pipeline::PreferenceSignal`). Every field is
++ * required by the daemon; `encodePreferenceSignal` writes it back to snake_case for
++ * `preferences.record`.
++ */
++export interface PreferenceSignal {
++  id: string;
++  projectId: string;
++  ownerId: string;
++  kind: SignalKind;
++  target: string;
++  weight: number;
++  recordedAt: number;
++}
++
++/**
++ * Signatures for the daemon wiring batch (PLAN.md M16/M19/M20): backend kit export,
++ * continue-on-server handoff, the read half of post-launch care, and the live
++ * records — routines, the backend kit, the dev-server preview, run modes and taste
++ * preferences.
+  *
+  * `WarshaClient` implements this interface, so a screen written against these
+- * five methods calls the daemon's own RPC names (`backend.export`,
+- * `handoff.create`, `handoff.apply`, `postlaunch.crashes`,
+- * `postlaunch.reviews`) without knowing the wire shape.
++ * methods calls the daemon's own RPC names (`backend.export`, `handoff.create`,
++ * `handoff.apply`, `postlaunch.crashes`, `postlaunch.reviews`, `routines.*`,
++ * `backend.get`/`backend.set`, `preview.*`, `runmode.*`, `preferences.*`) without
++ * knowing the wire shape. Every result is decoded strictly before it reaches a caller.
+  */
+ export interface WarshaWiringApi {
+   /** `backend.export` — write `schema.sql` into `outputDir`; resolves to its path. */
+@@ -2026,6 +2225,48 @@ export interface WarshaWiringApi {
+ 
+   /** `postlaunch.reviews` — store reviews, optionally of one `store`. */
+   listStoreReviews(store?: string): Promise<StoreReview[]>;
++
++  /** `routines.list` — every registered routine. */
++  listRoutines(): Promise<Routine[]>;
++
++  /** `routines.get` — one routine, or `null` when no routine carries that id. */
++  getRoutine(id: string): Promise<Routine | null>;
++
++  /** `routines.run_now` — run the routine once now; resolves to its updated row. */
++  runRoutineNow(id: string): Promise<Routine>;
++
++  /** `routines.pause` — stop scheduling the routine; resolves to its updated row. */
++  pauseRoutine(id: string): Promise<Routine>;
++
++  /** `routines.resume` — let a paused or failed routine schedule again; resolves to its row. */
++  resumeRoutine(id: string): Promise<Routine>;
++
++  /** `backend.get` — the run's backend kit, or `null` when none is recorded. */
++  getBackendKit(runId: RunId): Promise<BackendKit | null>;
++
++  /** `backend.set` — record the run's backend kit, encoded to the daemon's snake_case. */
++  setBackendKit(runId: RunId, kit: BackendKit): Promise<void>;
++
++  /** `preview.start` — start the project's dev server; resolves to its live preview. */
++  startPreview(projectId: string, command: string): Promise<LivePreview>;
++
++  /** `preview.stop` — stop the project's dev server. */
++  stopPreview(projectId: string): Promise<void>;
++
++  /** `preview.status` — the project's live preview, observed now. */
++  previewStatus(projectId: string): Promise<LivePreview>;
++
++  /** `runmode.list` — the stored config for every run mode. */
++  listRunModes(): Promise<RunModeConfig[]>;
++
++  /** `runmode.set` — store one mode's config and resolve to the stored row. */
++  setRunMode(config: RunModeConfig): Promise<RunModeConfig>;
++
++  /** `preferences.list` — the project's derived preferences. */
++  listPreferences(projectId: string): Promise<Preference[]>;
++
++  /** `preferences.record` — record one taste signal; resolves to the updated preferences. */
++  recordPreference(signal: PreferenceSignal): Promise<Preference[]>;
+ }
+ 
+ const BACKEND_EXPORT_METHOD = 'backend.export';
+@@ -2157,6 +2398,268 @@ export function parseHandoffApplySummary(json: string): HandoffApplySummary {
+   return summary;
+ }
+ 
++/** A wiring list result, decoded row by row; a non-list is a named error. */
++function wiringList<T>(
++  value: unknown,
++  method: string,
++  decode: (row: unknown, method: string) => T
++): T[] {
++  if (!Array.isArray(value)) {
++    throw new Error(`${WIRING_RESULT_ERROR} from ${method}: expected a list`);
++  }
++  return value.map((row) => decode(row, method));
++}
++
++/** A number serde may omit or null: absent and `null` both read as `null`. */
++function wiringNullableNumber(value: unknown, method: string, name: string): number | null {
++  if (value === null || value === undefined) return null;
++  return wiringNumber(value, method, name);
++}
++
++/** A list field carrying a serde default: absent and `null` both read as `[]`. */
++function wiringDefaultArray(value: unknown, method: string, name: string): unknown[] {
++  if (value === null || value === undefined) return [];
++  return wiringArray(value, method, name);
++}
++
++/** A defaulted list of strings (`storage_buckets`, `functions`, `enabled_features`). */
++function wiringDefaultStringList(value: unknown, method: string, name: string): string[] {
++  return wiringDefaultArray(value, method, name).map((entry) => wiringString(entry, method, name));
++}
++
++function decodeRoutineSchedule(value: unknown, method: string): RoutineSchedule {
++  if (value === 'manual') return 'manual';
++  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
++    const source = value as Record<string, unknown>;
++    const cron = source['cron'];
++    if (typeof cron === 'string') return { cron };
++    const interval = source['interval_seconds'];
++    if (typeof interval === 'number' && Number.isFinite(interval)) {
++      return { intervalSeconds: interval };
++    }
++  }
++  throw new Error(
++    `${WIRING_RESULT_ERROR} from ${method}: "schedule" is not "manual", {cron} or {interval_seconds}`
++  );
++}
++
++function decodeRoutineState(value: unknown, method: string): RoutineState {
++  if (value === 'idle' || value === 'running' || value === 'paused') return value;
++  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
++    const failed = (value as Record<string, unknown>)['failed'];
++    if (typeof failed === 'string') return { failed };
++  }
++  throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "state" is not a known routine state`);
++}
++
++/** Decode one `warsha_pipeline::Routine` (snake_case) into the screen's camelCase row. */
++export function decodeRoutine(value: unknown, method: string): Routine {
++  const source = wiringObject(value, method);
++  return {
++    id: wiringString(source['id'], method, 'id'),
++    name: wiringString(source['name'], method, 'name'),
++    description: wiringString(source['description'], method, 'description'),
++    schedule: decodeRoutineSchedule(source['schedule'], method),
++    state: decodeRoutineState(source['state'], method),
++    lastRunUnix: wiringNullableNumber(source['last_run_unix'], method, 'last_run_unix'),
++  };
++}
++
++function decodeBackendKind(value: unknown, method: string): BackendKind {
++  if (value === 'pocket_base' || value === 'supabase') return value;
++  throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "kind" is not a known backend kind`);
++}
++
++function decodeBackendFeature(value: unknown, method: string): BackendFeature {
++  if (
++    value === 'auth' ||
++    value === 'postgres_rls' ||
++    value === 'storage' ||
++    value === 'push' ||
++    value === 'functions'
++  ) {
++    return value;
++  }
++  throw new Error(
++    `${WIRING_RESULT_ERROR} from ${method}: "enabled_features" carries an unknown backend feature`
++  );
++}
++
++function decodeColumnDef(value: unknown, method: string): ColumnDef {
++  const source = wiringObject(value, method);
++  return {
++    name: wiringString(source['name'], method, 'name'),
++    colType: wiringString(source['col_type'], method, 'col_type'),
++    nullable: wiringBoolean(source['nullable'], method, 'nullable'),
++  };
++}
++
++function decodeTableDef(value: unknown, method: string): TableDef {
++  const source = wiringObject(value, method);
++  return {
++    name: wiringString(source['name'], method, 'name'),
++    columns: wiringArray(source['columns'], method, 'columns').map((column) =>
++      decodeColumnDef(column, method)
++    ),
++  };
++}
++
++function decodeRlsOperation(value: unknown, method: string): RlsOperation {
++  if (
++    value === 'select' ||
++    value === 'insert' ||
++    value === 'update' ||
++    value === 'delete' ||
++    value === 'all'
++  ) {
++    return value;
++  }
++  throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "operation" is not a known RLS operation`);
++}
++
++function decodeRlsPolicy(value: unknown, method: string): RlsPolicy {
++  const source = wiringObject(value, method);
++  return {
++    table: wiringString(source['table'], method, 'table'),
++    policyName: wiringString(source['policy_name'], method, 'policy_name'),
++    expression: wiringString(source['expression'], method, 'expression'),
++    operation: decodeRlsOperation(source['operation'], method),
++  };
++}
++
++/**
++ * Decode one `warsha_pipeline::BackendKit` (snake_case) into the screen's camelCase
++ * kit. The four list fields and `config.enabled_features` carry serde defaults and
++ * read as `[]` when absent; `config`, its `kind`/`url`/`project_name` and each table's
++ * `columns` are required and a wrong shape is a named error.
++ */
++export function decodeBackendKit(value: unknown, method: string): BackendKit {
++  const source = wiringObject(value, method);
++  const config = wiringObject(source['config'], method);
++  return {
++    config: {
++      kind: decodeBackendKind(config['kind'], method),
++      url: wiringString(config['url'], method, 'url'),
++      projectName: wiringString(config['project_name'], method, 'project_name'),
++      enabledFeatures: wiringDefaultArray(config['enabled_features'], method, 'enabled_features').map(
++        (feature) => decodeBackendFeature(feature, method)
++      ),
++    },
++    tables: wiringDefaultArray(source['tables'], method, 'tables').map((table) =>
++      decodeTableDef(table, method)
++    ),
++    rlsPolicies: wiringDefaultArray(source['rls_policies'], method, 'rls_policies').map((policy) =>
++      decodeRlsPolicy(policy, method)
++    ),
++    storageBuckets: wiringDefaultStringList(source['storage_buckets'], method, 'storage_buckets'),
++    functions: wiringDefaultStringList(source['functions'], method, 'functions'),
++  };
++}
++
++/** Encode a `BackendKit` back to the daemon's snake_case shape for `backend.set`. */
++export function encodeBackendKit(kit: BackendKit): Record<string, unknown> {
++  return {
++    config: {
++      kind: kit.config.kind,
++      url: kit.config.url,
++      project_name: kit.config.projectName,
++      enabled_features: kit.config.enabledFeatures,
++    },
++    tables: kit.tables.map((table) => ({
++      name: table.name,
++      columns: table.columns.map((column) => ({
++        name: column.name,
++        col_type: column.colType,
++        nullable: column.nullable,
++      })),
++    })),
++    rls_policies: kit.rlsPolicies.map((policy) => ({
++      table: policy.table,
++      policy_name: policy.policyName,
++      expression: policy.expression,
++      operation: policy.operation,
++    })),
++    storage_buckets: kit.storageBuckets,
++    functions: kit.functions,
++  };
++}
++
++function decodeProcessStatus(value: unknown, method: string): ProcessStatus {
++  if (
++    value === 'starting' ||
++    value === 'running' ||
++    value === 'stopped' ||
++    value === 'failed' ||
++    value === 'crashed'
++  ) {
++    return value;
++  }
++  throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "status" is not a known process status`);
++}
++
++/** Decode one `warsha_pipeline::LivePreview` (snake_case) into the screen's row. */
++export function decodeLivePreview(value: unknown, method: string): LivePreview {
++  const source = wiringObject(value, method);
++  return {
++    projectId: wiringString(source['project_id'], method, 'project_id'),
++    processId: wiringString(source['process_id'], method, 'process_id'),
++    command: wiringString(source['command'], method, 'command'),
++    args: wiringStringList(source['args'], method, 'args'),
++    status: decodeProcessStatus(source['status'], method),
++    url: wiringNullableString(source['url'], method, 'url'),
++  };
++}
++
++function decodeRunMode(value: unknown, method: string): RunMode {
++  if (value === 'local' || value === 'self_hosted' || value === 'hosted') return value;
++  throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "mode" is not a known run mode`);
++}
++
++/** Decode one `warsha_pipeline::RunModeConfig` (snake_case) into the screen's row. */
++export function decodeRunModeConfig(value: unknown, method: string): RunModeConfig {
++  const source = wiringObject(value, method);
++  return {
++    mode: decodeRunMode(source['mode'], method),
++    bindHost: wiringString(source['bind_host'], method, 'bind_host'),
++    allowedHosts: wiringStringList(source['allowed_hosts'], method, 'allowed_hosts'),
++    relayUrl: wiringNullableString(source['relay_url'], method, 'relay_url'),
++  };
++}
++
++/** Encode a `RunModeConfig` back to the daemon's snake_case shape for `runmode.set`. */
++function encodeRunModeConfig(config: RunModeConfig): Record<string, unknown> {
++  return {
++    mode: config.mode,
++    bind_host: config.bindHost,
++    allowed_hosts: config.allowedHosts,
++    relay_url: config.relayUrl,
++  };
++}
++
++/** Decode one `warsha_pipeline::Preference` (snake_case) into the screen's row. */
++export function decodePreference(value: unknown, method: string): Preference {
++  const source = wiringObject(value, method);
++  return {
++    key: wiringString(source['key'], method, 'key'),
++    score: wiringNumber(source['score'], method, 'score'),
++    evidenceCount: wiringNumber(source['evidence_count'], method, 'evidence_count'),
++    lastUpdated: wiringNumber(source['last_updated'], method, 'last_updated'),
++  };
++}
++
++/** Encode a `PreferenceSignal` back to the daemon's snake_case shape for `preferences.record`. */
++function encodePreferenceSignal(signal: PreferenceSignal): Record<string, unknown> {
++  return {
++    id: signal.id,
++    project_id: signal.projectId,
++    owner_id: signal.ownerId,
++    kind: signal.kind,
++    target: signal.target,
++    weight: signal.weight,
++    recorded_at: signal.recordedAt,
++  };
++}
++
+ /** Handle returned by `subscribeEvents`; `close()` is idempotent. */
+ export interface EventSubscription {
+   close(): void;
+-- 
+2.55.0.windows.5
+

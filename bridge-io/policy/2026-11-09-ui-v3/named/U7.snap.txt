@@ -1,0 +1,2 @@
+# U7 — deletion of the v2 desktop baselines only
+^apps/desktop/e2e/(screens\.visual|states)\.spec\.ts-snapshots/

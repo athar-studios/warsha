@@ -1,0 +1,21 @@
+gate: G5.5
+command: pnpm -r lint
+commit: 10a181998af4d0ee79e2435fac2f3b9d217902d5
+worktree: C:/Users/Dragonfly/Downloads/warsha-wt/verify-w5
+utc_start: 2026-11-08T11:59:51Z
+--- output ---
+Scope: 7 of 8 workspace projects
+packages/ui lint$ eslint src --ext .ts,.tsx
+packages/i18n lint$ eslint src --ext .ts,.tsx
+packages/client lint$ eslint src --ext .ts
+packages/crypto lint$ eslint src --ext .ts
+packages/crypto lint: Done
+packages/i18n lint: Done
+packages/client lint: Done
+packages/ui lint: Done
+apps/remote lint$ eslint src --ext .ts,.tsx
+apps/desktop lint$ eslint src --ext .ts,.tsx
+apps/remote lint: Done
+apps/desktop lint: Done
+exit_code: 0
+utc_end: 2026-11-08T12:00:18Z

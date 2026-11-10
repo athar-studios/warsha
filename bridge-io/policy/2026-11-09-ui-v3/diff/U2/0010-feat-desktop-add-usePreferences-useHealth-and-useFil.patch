@@ -1,0 +1,366 @@
+From 9e2a5132182c9457d7082c7d8a66ef0d3ac8296b Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Mon, 9 Nov 2026 18:10:32 +0400
+Subject: [PATCH 10/12] feat(desktop): add usePreferences, useHealth, and
+ useFiles v3 hooks
+
+Add hooks for taste preferences, daemon health, and project files tree
+with four-state unit tests covering loading, empty, ready, and error states.
+---
+ apps/desktop/src/v3/data/useFiles.test.ts     | 82 +++++++++++++++++++
+ apps/desktop/src/v3/data/useFiles.ts          | 23 ++++++
+ apps/desktop/src/v3/data/useHealth.test.ts    | 75 +++++++++++++++++
+ apps/desktop/src/v3/data/useHealth.ts         | 26 ++++++
+ .../src/v3/data/usePreferences.test.ts        | 76 +++++++++++++++++
+ apps/desktop/src/v3/data/usePreferences.ts    | 22 +++++
+ 6 files changed, 304 insertions(+)
+ create mode 100644 apps/desktop/src/v3/data/useFiles.test.ts
+ create mode 100644 apps/desktop/src/v3/data/useFiles.ts
+ create mode 100644 apps/desktop/src/v3/data/useHealth.test.ts
+ create mode 100644 apps/desktop/src/v3/data/useHealth.ts
+ create mode 100644 apps/desktop/src/v3/data/usePreferences.test.ts
+ create mode 100644 apps/desktop/src/v3/data/usePreferences.ts
+
+diff --git a/apps/desktop/src/v3/data/useFiles.test.ts b/apps/desktop/src/v3/data/useFiles.test.ts
+new file mode 100644
+index 0000000..ca24172
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useFiles.test.ts
+@@ -0,0 +1,82 @@
++import { act, renderHook } from '@testing-library/react';
++import type { FileEntry, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useFiles } from './useFiles';
++
++describe('useFiles', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      getFilesTree: () => new Promise<FileEntry[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useFiles('proj-1', '', client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when files tree is empty', async () => {
++    const client = {
++      getFilesTree: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useFiles('proj-1', '', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when files exist', async () => {
++    const list: FileEntry[] = [
++      {
++        name: 'package.json',
++        path: 'package.json',
++        isDir: false,
++        sizeBytes: 1234,
++      },
++      {
++        name: 'src',
++        path: 'src',
++        isDir: true,
++        sizeBytes: 0,
++      },
++    ];
++    const client = {
++      getFilesTree: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useFiles('proj-1', '', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      getFilesTree: vi.fn().mockRejectedValue(new Error('Files error')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useFiles('proj-1', '', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Files error');
++
++    (client.getFilesTree as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      {
++        name: 'README.md',
++        path: 'README.md',
++        isDir: false,
++        sizeBytes: 500,
++      },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useFiles.ts b/apps/desktop/src/v3/data/useFiles.ts
+new file mode 100644
+index 0000000..b77dfac
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useFiles.ts
+@@ -0,0 +1,23 @@
++import type { FileEntry, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useFiles(
++  projectId?: string | null,
++  path?: string,
++  overrideClient?: WarshaClient | null
++): HookResult<FileEntry[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<FileEntry[]>(
++    async () => {
++      if (!client || !projectId) return [];
++      return client.getFilesTree(projectId, path);
++    },
++    (list) => !list || list.length === 0,
++    [client, projectId, path]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useHealth.test.ts b/apps/desktop/src/v3/data/useHealth.test.ts
+new file mode 100644
+index 0000000..51f45de
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useHealth.test.ts
+@@ -0,0 +1,75 @@
++import { act, renderHook } from '@testing-library/react';
++import type { WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import type { HealthInfo } from './useHealth';
++import { useHealth } from './useHealth';
++
++describe('useHealth', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      health: () => new Promise<HealthInfo>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useHealth(client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when health returns empty or missing status', async () => {
++    const emptyHealth: HealthInfo = {
++      status: '',
++      version: '',
++    };
++    const client = {
++      health: vi.fn().mockResolvedValue(emptyHealth),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useHealth(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual(emptyHealth);
++  });
++
++  it('handles ready state when health is ok', async () => {
++    const healthData: HealthInfo = {
++      status: 'ok',
++      version: '0.2.1',
++    };
++    const client = {
++      health: vi.fn().mockResolvedValue(healthData),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useHealth(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(healthData);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      health: vi.fn().mockRejectedValue(new Error('Daemon unreachable')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useHealth(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Daemon unreachable');
++
++    const recovered: HealthInfo = {
++      status: 'ok',
++      version: '0.2.1',
++    };
++    (client.health as ReturnType<typeof vi.fn>).mockResolvedValueOnce(recovered);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(recovered);
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useHealth.ts b/apps/desktop/src/v3/data/useHealth.ts
+new file mode 100644
+index 0000000..da06b5a
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useHealth.ts
+@@ -0,0 +1,26 @@
++import type { WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export interface HealthInfo {
++  status: string;
++  version: string;
++}
++
++export function useHealth(
++  overrideClient?: WarshaClient | null
++): HookResult<HealthInfo> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<HealthInfo>(
++    async () => {
++      if (!client) return null;
++      return client.health();
++    },
++    (health) => !health || !health.status,
++    [client]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/usePreferences.test.ts b/apps/desktop/src/v3/data/usePreferences.test.ts
+new file mode 100644
+index 0000000..bb426d9
+--- /dev/null
++++ b/apps/desktop/src/v3/data/usePreferences.test.ts
+@@ -0,0 +1,76 @@
++import { act, renderHook } from '@testing-library/react';
++import type { Preference, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { usePreferences } from './usePreferences';
++
++describe('usePreferences', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      listPreferences: () => new Promise<Preference[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePreferences('proj-1', client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when preferences list is empty', async () => {
++    const client = {
++      listPreferences: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePreferences('proj-1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when preferences exist', async () => {
++    const list: Preference[] = [
++      {
++        key: 'tone:concise',
++        score: 0.9,
++        evidenceCount: 5,
++        lastUpdated: 1700000000,
++      },
++    ];
++    const client = {
++      listPreferences: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePreferences('proj-1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      listPreferences: vi.fn().mockRejectedValue(new Error('Preferences error')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePreferences('proj-1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Preferences error');
++
++    (client.listPreferences as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      {
++        key: 'framework:react',
++        score: 0.8,
++        evidenceCount: 3,
++        lastUpdated: 1700000000,
++      },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/usePreferences.ts b/apps/desktop/src/v3/data/usePreferences.ts
+new file mode 100644
+index 0000000..245cb90
+--- /dev/null
++++ b/apps/desktop/src/v3/data/usePreferences.ts
+@@ -0,0 +1,22 @@
++import type { Preference, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function usePreferences(
++  projectId?: string | null,
++  overrideClient?: WarshaClient | null
++): HookResult<Preference[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<Preference[]>(
++    async () => {
++      if (!client || !projectId) return [];
++      return client.listPreferences(projectId);
++    },
++    (list) => !list || list.length === 0,
++    [client, projectId]
++  );
++}
+-- 
+2.55.0.windows.5
+

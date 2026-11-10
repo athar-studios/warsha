@@ -1,0 +1,9 @@
+gate: G1.S
+command: git diff --name-only 0772d502002562505c6438ae712abca7a7328d84..6d9728f52eb096199c4ace208435c8b8927e5140 | grep -vE '^(crates/warsha-(remote|git|pipeline)/README\.md|packages/crypto/README\.md|apps/(remote|desktop)/README\.md|templates/README\.md|README(\.ar)?\.md)$' | wc -l
+commit: 6d9728f52eb096199c4ace208435c8b8927e5140
+base: 0772d502002562505c6438ae712abca7a7328d84
+host: Windows throwaway worktree verify-w1b
+timestamp: 2026-11-08T13:33:42Z
+---
+0
+exit_code: 0

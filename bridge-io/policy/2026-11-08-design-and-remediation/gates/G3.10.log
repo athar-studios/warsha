@@ -1,0 +1,7 @@
+gate: G3.10 (no snapshot touched; run AFTER G3.3/G3.6/G3.7)
+command: git status --porcelain -- '*-snapshots/*' | wc -l
+commit: 0f829731273d722ae21f25e26a54767bc852fe56
+utc: 2026-11-08T10:26:30Z
+--- output ---
+0
+exit: 0

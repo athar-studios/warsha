@@ -1,0 +1,8 @@
+CASE 1  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 320x568 ar light ───────────────────
+CASE 2  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 320x568 ar dark ────────────────────
+CASE 3  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 320x568 en light ───────────────────
+CASE 4  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 320x568 en dark ────────────────────
+CASE 5  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 390x844 ar light ───────────────────
+CASE 6  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 390x844 ar dark ────────────────────
+CASE 7  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 390x844 en light ───────────────────
+CASE 8  [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 390x844 en dark ────────────────────

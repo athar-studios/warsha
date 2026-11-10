@@ -1,0 +1,4 @@
+
+> warsha-desktop@0.2.1 typecheck C:\Users\Dragonfly\Downloads\warsha-wt\v3\e0\apps\desktop
+> tsc --noEmit && tsc --noEmit -p tsconfig.e2e.json
+

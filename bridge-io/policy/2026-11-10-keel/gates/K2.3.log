@@ -1,0 +1,11 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.75s
+     Running unittests src\lib.rs (target\debug\deps\warshad-7b3880424b529e45.exe)
+
+running 4 tests
+test tests::runs_resume::runs_resume_requires_authorization_and_allows_session ... ok
+test tests::runs_resume::runs_resume_resumes_paused_run_after_change_request ... ok
+test tests::runs_resume::daemon_restart_recovers_interrupted_run_and_runs_resume_resumes_it ... ok
+test tests::runs_resume::runs_resume_budget_paused_run_succeeds_after_budget_set ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 110 filtered out; finished in 1.96s
+

@@ -1,0 +1,18 @@
+--- stale claims (must be none) ---
+STALE_GREP_EXIT=1
+stage ok: idea
+stage ok: gate_a
+stage ok: research
+stage ok: prd_spec
+stage ok: gate_b
+stage ok: design
+stage ok: plan_tasks
+stage ok: code
+stage ok: review_qa_security
+stage ok: gate_c
+stage ok: release
+stage ok: gate_d
+stage ok: launch_drafts
+stage ok: feedback
+ALL_14_STAGES_LISTED
+GATE_EXIT=0

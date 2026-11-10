@@ -1,0 +1,8 @@
+gate: G1.8
+command: grep -q flows.spec.ts apps/desktop/README.md && grep -q real-acceptance.cjs apps/desktop/README.md && grep -q 188 apps/desktop/README.md
+commit: 6d9728f52eb096199c4ace208435c8b8927e5140
+base: 0772d502002562505c6438ae712abca7a7328d84
+host: Windows throwaway worktree verify-w1b
+timestamp: 2026-11-08T13:33:48Z
+---
+exit_code: 0

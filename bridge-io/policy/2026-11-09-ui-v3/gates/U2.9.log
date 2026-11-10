@@ -1,0 +1,9 @@
+--- flag present ---
+24:// Check if ui=v3 query param is present (?ui=v3)
+28:  return params.get('ui') === 'v3'; // ui=v3
+36:      invoke<string>('get_config', { key: 'ui_version' })
+43:          // If invoke fails or ui_version not set, stay on v2 App
+GREP1=0
+--- v2 imports in v3 (want none) ---
+GREP2=1 (1=none)
+GATE_EXIT=0

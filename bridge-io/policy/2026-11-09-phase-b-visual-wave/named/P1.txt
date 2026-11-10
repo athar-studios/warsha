@@ -1,0 +1,3 @@
+# P1 — status tints in Chip are used across screens: every screenshot spec, desktop and remote. Behavioural specs never.
+^desktop › (screens\.visual|states)\.spec\.ts › 
+^remote › bench\.visual\.spec\.ts › 

@@ -1,0 +1,531 @@
+From f58427a7e329cbc3e43e5eddabad893b34cc1e86 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Mon, 9 Nov 2026 17:41:31 +0400
+Subject: [PATCH 05/12] feat(desktop): add initial v3 data hooks and resource
+ loader
+
+Introduce generic useResource hook returning 4-state results
+(loading, empty, ready, error with reload). Implement useProjects,
+useProject, useRuns, and useRun with four-state unit tests.
+---
+ apps/desktop/src/v3/data/types.ts            |  8 +++
+ apps/desktop/src/v3/data/useProject.test.ts  | 72 +++++++++++++++++++
+ apps/desktop/src/v3/data/useProject.ts       | 23 ++++++
+ apps/desktop/src/v3/data/useProjects.test.ts | 72 +++++++++++++++++++
+ apps/desktop/src/v3/data/useProjects.ts      | 20 ++++++
+ apps/desktop/src/v3/data/useResource.ts      | 49 +++++++++++++
+ apps/desktop/src/v3/data/useRun.test.ts      | 76 ++++++++++++++++++++
+ apps/desktop/src/v3/data/useRun.ts           | 23 ++++++
+ apps/desktop/src/v3/data/useRuns.test.ts     | 70 ++++++++++++++++++
+ apps/desktop/src/v3/data/useRuns.ts          | 23 ++++++
+ 10 files changed, 436 insertions(+)
+ create mode 100644 apps/desktop/src/v3/data/types.ts
+ create mode 100644 apps/desktop/src/v3/data/useProject.test.ts
+ create mode 100644 apps/desktop/src/v3/data/useProject.ts
+ create mode 100644 apps/desktop/src/v3/data/useProjects.test.ts
+ create mode 100644 apps/desktop/src/v3/data/useProjects.ts
+ create mode 100644 apps/desktop/src/v3/data/useResource.ts
+ create mode 100644 apps/desktop/src/v3/data/useRun.test.ts
+ create mode 100644 apps/desktop/src/v3/data/useRun.ts
+ create mode 100644 apps/desktop/src/v3/data/useRuns.test.ts
+ create mode 100644 apps/desktop/src/v3/data/useRuns.ts
+
+diff --git a/apps/desktop/src/v3/data/types.ts b/apps/desktop/src/v3/data/types.ts
+new file mode 100644
+index 0000000..fff9053
+--- /dev/null
++++ b/apps/desktop/src/v3/data/types.ts
+@@ -0,0 +1,8 @@
++export type HookStatus = 'loading' | 'empty' | 'error' | 'ready';
++
++export interface HookResult<T> {
++  status: HookStatus;
++  data: T | null;
++  error?: Error | null;
++  reload: () => void;
++}
+diff --git a/apps/desktop/src/v3/data/useProject.test.ts b/apps/desktop/src/v3/data/useProject.test.ts
+new file mode 100644
+index 0000000..6ad6689
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useProject.test.ts
+@@ -0,0 +1,72 @@
++import { act, renderHook } from '@testing-library/react';
++import type { ProjectId, ProjectSummary, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useProject } from './useProject';
++
++describe('useProject', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      getProject: () => new Promise<ProjectSummary>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProject('p1', client));
++    expect(result.current.status).toBe('loading');
++  });
++
++  it('handles empty state when project is not found or id is missing', async () => {
++    const client = {
++      getProject: vi.fn().mockResolvedValue(null),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProject(null, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles ready state when project exists', async () => {
++    const proj: ProjectSummary = {
++      id: 'p1' as ProjectId,
++      name: 'Alpha',
++      createdAt: '2026-11-09T00:00:00Z',
++      updatedAt: '2026-11-09T00:00:00Z',
++    };
++    const client = {
++      getProject: vi.fn().mockResolvedValue(proj),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProject('p1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(proj);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      getProject: vi.fn().mockRejectedValue(new Error('Project not found')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProject('p1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Project not found');
++
++    const proj: ProjectSummary = {
++      id: 'p1' as ProjectId,
++      name: 'Alpha',
++      createdAt: '',
++      updatedAt: '',
++    };
++    (client.getProject as ReturnType<typeof vi.fn>).mockResolvedValueOnce(proj);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useProject.ts b/apps/desktop/src/v3/data/useProject.ts
+new file mode 100644
+index 0000000..a644043
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useProject.ts
+@@ -0,0 +1,23 @@
++import type { ProjectId, ProjectSummary, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useProject(
++  projectId?: ProjectId | string | null,
++  overrideClient?: WarshaClient | null
++): HookResult<ProjectSummary> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<ProjectSummary>(
++    async () => {
++      if (!client || !projectId) return null;
++      return client.getProject(projectId as ProjectId);
++    },
++    (proj) => !proj || !proj.id,
++    [client, projectId]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useProjects.test.ts b/apps/desktop/src/v3/data/useProjects.test.ts
+new file mode 100644
+index 0000000..c78e73e
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useProjects.test.ts
+@@ -0,0 +1,72 @@
++import { act, renderHook } from '@testing-library/react';
++import type { ProjectId, ProjectSummary, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useProjects } from './useProjects';
++
++describe('useProjects', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      listProjects: () => new Promise<ProjectSummary[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProjects(client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when projects list is empty', async () => {
++    const client = {
++      listProjects: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProjects(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when projects exist', async () => {
++    const list: ProjectSummary[] = [
++      {
++        id: 'p1' as ProjectId,
++        name: 'Alpha',
++        createdAt: '2026-11-09T00:00:00Z',
++        updatedAt: '2026-11-09T00:00:00Z',
++      },
++    ];
++    const client = {
++      listProjects: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProjects(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      listProjects: vi.fn().mockRejectedValue(new Error('Fetch failed')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProjects(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Fetch failed');
++
++    // reload
++    (client.listProjects as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      { id: 'p2' as ProjectId, name: 'Beta', createdAt: '', updatedAt: '' },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useProjects.ts b/apps/desktop/src/v3/data/useProjects.ts
+new file mode 100644
+index 0000000..f761974
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useProjects.ts
+@@ -0,0 +1,20 @@
++import type { ProjectSummary, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useProjects(overrideClient?: WarshaClient | null): HookResult<ProjectSummary[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<ProjectSummary[]>(
++    async () => {
++      if (!client) return [];
++      return client.listProjects();
++    },
++    (list) => !list || list.length === 0,
++    [client]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useResource.ts b/apps/desktop/src/v3/data/useResource.ts
+new file mode 100644
+index 0000000..5369edf
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useResource.ts
+@@ -0,0 +1,49 @@
++import { useCallback, useEffect, useState } from 'react';
++
++import type { HookResult, HookStatus } from './types';
++
++export function useResource<T>(
++  fetcher: () => Promise<T | null | undefined>,
++  isEmpty: (data: T | null | undefined) => boolean,
++  deps: readonly unknown[] = []
++): HookResult<T> {
++  const [status, setStatus] = useState<HookStatus>('loading');
++  const [data, setData] = useState<T | null>(null);
++  const [error, setError] = useState<Error | null>(null);
++  const [nonce, setNonce] = useState(0);
++
++  const reload = useCallback(() => {
++    setNonce((n) => n + 1);
++  }, []);
++
++  useEffect(() => {
++    let active = true;
++    setStatus('loading');
++    setError(null);
++
++    Promise.resolve()
++      .then(() => fetcher())
++      .then((result) => {
++        if (!active) return;
++        if (isEmpty(result)) {
++          setStatus('empty');
++          setData((result as T) ?? null);
++        } else {
++          setStatus('ready');
++          setData(result as T);
++        }
++      })
++      .catch((err) => {
++        if (!active) return;
++        setStatus('error');
++        setData(null);
++        setError(err instanceof Error ? err : new Error(String(err)));
++      });
++
++    return () => {
++      active = false;
++    };
++  }, [...deps, nonce]);
++
++  return { status, data, error, reload };
++}
+diff --git a/apps/desktop/src/v3/data/useRun.test.ts b/apps/desktop/src/v3/data/useRun.test.ts
+new file mode 100644
+index 0000000..17d1a83
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useRun.test.ts
+@@ -0,0 +1,76 @@
++import { act, renderHook } from '@testing-library/react';
++import type { ProjectId, RunId, RunSummary, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useRun } from './useRun';
++
++describe('useRun', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      getRun: () => new Promise<RunSummary>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRun('r1', client));
++    expect(result.current.status).toBe('loading');
++  });
++
++  it('handles empty state when run is null or runId is missing', async () => {
++    const client = {
++      getRun: vi.fn().mockResolvedValue(null),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRun(null, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles ready state when run exists', async () => {
++    const run: RunSummary = {
++      id: 'r1' as RunId,
++      projectId: 'p1' as ProjectId,
++      stage: 'idea',
++      status: 'active',
++      startedAt: '2026-11-09T00:00:00Z',
++      updatedAt: '2026-11-09T00:00:00Z',
++    };
++    const client = {
++      getRun: vi.fn().mockResolvedValue(run),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRun('r1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(run);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      getRun: vi.fn().mockRejectedValue(new Error('Run not found')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRun('r1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Run not found');
++
++    const run: RunSummary = {
++      id: 'r1' as RunId,
++      projectId: 'p1' as ProjectId,
++      stage: 'idea',
++      status: 'active',
++      startedAt: '',
++      updatedAt: '',
++    };
++    (client.getRun as ReturnType<typeof vi.fn>).mockResolvedValueOnce(run);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useRun.ts b/apps/desktop/src/v3/data/useRun.ts
+new file mode 100644
+index 0000000..8073578
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useRun.ts
+@@ -0,0 +1,23 @@
++import type { RunId, RunSummary, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useRun(
++  runId?: RunId | string | null,
++  overrideClient?: WarshaClient | null
++): HookResult<RunSummary> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<RunSummary>(
++    async () => {
++      if (!client || !runId) return null;
++      return client.getRun(runId as RunId);
++    },
++    (run) => !run || !run.id,
++    [client, runId]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useRuns.test.ts b/apps/desktop/src/v3/data/useRuns.test.ts
+new file mode 100644
+index 0000000..048e86d
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useRuns.test.ts
+@@ -0,0 +1,70 @@
++import { act, renderHook } from '@testing-library/react';
++import type { ProjectId, RunId, RunSummary, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useRuns } from './useRuns';
++
++describe('useRuns', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      listRuns: () => new Promise<RunSummary[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRuns('p1', client));
++    expect(result.current.status).toBe('loading');
++  });
++
++  it('handles empty state when no runs or no projectId', async () => {
++    const client = {
++      listRuns: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRuns('p1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when runs exist', async () => {
++    const runs: RunSummary[] = [
++      {
++        id: 'r1' as RunId,
++        projectId: 'p1' as ProjectId,
++        stage: 'code',
++        status: 'running',
++        startedAt: '2026-11-09T00:00:00Z',
++        updatedAt: '2026-11-09T00:00:00Z',
++      },
++    ];
++    const client = {
++      listRuns: vi.fn().mockResolvedValue(runs),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRuns('p1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(runs);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      listRuns: vi.fn().mockRejectedValue(new Error('Failed to list runs')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRuns('p1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Failed to list runs');
++
++    (client.listRuns as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('empty');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useRuns.ts b/apps/desktop/src/v3/data/useRuns.ts
+new file mode 100644
+index 0000000..fe95ba9
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useRuns.ts
+@@ -0,0 +1,23 @@
++import type { ProjectId, RunSummary, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useRuns(
++  projectId?: ProjectId | string | null,
++  overrideClient?: WarshaClient | null
++): HookResult<RunSummary[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<RunSummary[]>(
++    async () => {
++      if (!client || !projectId) return [];
++      return client.listRuns(projectId as ProjectId);
++    },
++    (runs) => !runs || runs.length === 0,
++    [client, projectId]
++  );
++}
+-- 
+2.55.0.windows.5
+

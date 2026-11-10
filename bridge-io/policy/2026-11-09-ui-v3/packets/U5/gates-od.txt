@@ -1,0 +1,189 @@
+0000000   #       F   r   o   z   e   n       g   a   t   e   s     342
+0000020 200 224       U   5       s   e   t   t   i   n   g   s  \n  \n
+0000040   F   r   o   z   e   n       b   y       t   h   e       p   l
+0000060   a   n   n   e   r       (   2   0   2   6   -   1   1   -   0
+0000100   9   T   0   7   :   0   3   :   5   4   Z   )   .       T   h
+0000120   e       V   E   R   I   F   I   E   R       r   u   n   s    
+0000140   t   h   e   m       i   n       t   h   e       p   a   c   k
+0000160   e   t       w   o   r   k   t   r   e   e       a   t       t
+0000200   h   e       r   e   v   i   e   w   e   d       c   o   m   m
+0000220   i   t       w   i   t   h  \n   `   E   V   =   C   :   /   U
+0000240   s   e   r   s   /   D   r   a   g   o   n   f   l   y   /   D
+0000260   o   w   n   l   o   a   d   s   /   W   a   r   s   h   a   /
+0000300   b   r   i   d   g   e   -   i   o   /   p   o   l   i   c   y
+0000320   /   2   0   2   6   -   1   1   -   0   9   -   u   i   -   v
+0000340   3   `   ,       `   B   A   S   E   =   <   p   a   c   k   e
+0000360   t   s   [   U   5   ]   .   b   a   s   e   _   c   o   m   m
+0000400   i   t   >   `   ,       `   G   A   T   E   =   <   g   a   t
+0000420   e       i   d   >   `   ;       r   a   w       o   u   t   p
+0000440   u   t       -   >  \n   `   $   E   V   /   g   a   t   e   s
+0000460   /   <   g   a   t   e       i   d   >   .   l   o   g   `   .
+0000500       T   h   e       i   m   p   l   e   m   e   n   t   e   r
+0000520       m   u   s   t       n   o   t       e   d   i   t   ,    
+0000540   n   a   r   r   o   w       o   r       r   e   -   w   o   r
+0000560   d       a   n   y       o   f       t   h   e   m   .  \n  \n
+0000600   |       i   d       |       h   o   s   t       |       c   h
+0000620   e   c   k       |       e   x   p   e   c   t       |  \n   |
+0000640       -   -   -       |       -   -   -       |       -   -   -
+0000660       |       -   -   -       |  \n   |       `   U   5   .   1
+0000700   `       |       a   n   y       |       `   p   n   p   m    
+0000720   -   -   f   i   l   t   e   r       w   a   r   s   h   a   -
+0000740   d   e   s   k   t   o   p       t   e   s   t   `       |    
+0000760   e   x   i   t       0       a   n   d       "   T   e   s   t
+0001000   s       N       p   a   s   s   e   d   "       w   i   t   h
+0001020       N       >   =       b   a   s   e   _   c   o   u   n   t
+0001040   s   .   w   a   r   s   h   a   -   d   e   s   k   t   o   p
+0001060       +       3   0       |  \n   |       `   U   5   .   2   `
+0001100       |       a   n   y       |       `   p   n   p   m       -
+0001120   r       t   y   p   e   c   h   e   c   k       &   &       p
+0001140   n   p   m       -   -   f   i   l   t   e   r       w   a   r
+0001160   s   h   a   -   d   e   s   k   t   o   p       l   i   n   t
+0001200       &   &       n   o   d   e       s   c   r   i   p   t   s
+0001220   /   c   h   e   c   k   -   d   s   -   v   3   .   m   j   s
+0001240       a   p   p   s   /   d   e   s   k   t   o   p   /   s   r
+0001260   c   /   v   3   `       |       e   x   i   t       0       |
+0001300  \n   |       `   U   5   .   3   `       |       a   n   y    
+0001320   |       `   n   o   d   e       "   $   E   V   /   t   o   o
+0001340   l   s   "   /   i   1   8   n   -   g   a   t   e   .   m   j
+0001360   s       .   `       |       e   x   i   t       0       |  \n
+0001400   |       `   U   5   .   4   `       |       a   n   y       |
+0001420       `   n   o   d   e       "   $   E   V   /   t   o   o   l
+0001440   s   "   /   a   c   t   i   o   n   s   -   g   a   t   e   .
+0001460   m   j   s       .       -   -   o   n   l   y       s   e   t
+0001500   t   i   n   g   s   .   `       |       e   x   i   t       0
+0001520       (   e   v   e   r   y       a   c   t   i   o   n       o
+0001540   f       t   h   e   s   e       a   r   e   a   s       r   e
+0001560   g   i   s   t   e   r   e   d   ,       u   s   e   d   ,    
+0001600   w   i   r   e   d       t   o       a       s   e   r   v   e
+0001620   d       R   P   C       a   n   d       c   l   i   c   k   e
+0001640   d       b   y       a   n       e   2   e       c   a   s   e
+0001660   ;       n   o       f   a   k   e       n   a   m   e   s    
+0001700   a   n   y   w   h   e   r   e       i   n       v   3   )    
+0001720   |  \n   |       `   U   5   .   5   `       |       a   n   y
+0001740       |       `   f   o   r       a       i   n       s   e   t
+0001760   t   i   n   g   s   ;       d   o       t   e   s   t       -
+0002000   d       a   p   p   s   /   d   e   s   k   t   o   p   /   s
+0002020   r   c   /   v   3   /   p   a   g   e   s   /   $   a       &
+0002040   &       t   e   s   t       -   f       a   p   p   s   /   d
+0002060   e   s   k   t   o   p   /   s   r   c   /   v   3   /   a   c
+0002100   t   i   o   n   s   /   r   e   g   i   s   t   r   y   /   $
+0002120   a   .   t   s       &   &       t   e   s   t       -   f    
+0002140   p   a   c   k   a   g   e   s   /   i   1   8   n   /   s   r
+0002160   c   /   v   3   /   a   r   /   $   a   .   t   s       &   &
+0002200       t   e   s   t       -   f       p   a   c   k   a   g   e
+0002220   s   /   i   1   8   n   /   s   r   c   /   v   3   /   e   n
+0002240   /   $   a   .   t   s       &   &       t   e   s   t       -
+0002260   f       a   p   p   s   /   d   e   s   k   t   o   p   /   e
+0002300   2   e   /   v   3   /   $   a   .   s   p   e   c   .   t   s
+0002320       \   |   \   |       e   x   i   t       1   ;       d   o
+0002340   n   e   `       |       e   x   i   t       0       |  \n   |
+0002360       `   U   5   .   6   `       |       c   a   p   t   u   r
+0002400   e       |       `   p   n   p   m       e   x   e   c       p
+0002420   l   a   y   w   r   i   g   h   t       t   e   s   t       -
+0002440   -   p   r   o   j   e   c   t   =   d   e   s   k   t   o   p
+0002460       v   3   /   s   e   t   t   i   n   g   s   .   s   p   e
+0002500   c   .   t   s       -   -   g   r   e   p   -   i   n   v   e
+0002520   r   t       @   v   i   s   u   a   l       -   -   r   e   p
+0002540   o   r   t   e   r   =   j   s   o   n       >       "   $   E
+0002560   V   /   g   a   t   e   s   /   $   G   A   T   E   .   j   s
+0002600   o   n   "   ;       n   o   d   e       "   $   E   V   /   t
+0002620   o   o   l   s   "   /   p   w   -   g   a   t   e   .   m   j
+0002640   s       f   a   i   l   u   r   e   s       "   $   E   V   /
+0002660   g   a   t   e   s   /   $   G   A   T   E   .   j   s   o   n
+0002700   "       "   $   E   V   /   n   a   m   e   d   /   E   M   P
+0002720   T   Y   .   t   x   t   "   `       |       e   x   i   t    
+0002740   0       (   f   l   o   w   s   ,       a   c   t   i   o   n
+0002760       e   f   f   e   c   t   s   ,       a   x   e       +    
+0003000   k   e   y   b   o   a   r   d       i   n       a   r   /   e
+0003020   n       x       l   i   g   h   t   /   d   a   r   k   :    
+0003040   a   l   l       g   r   e   e   n   )       |  \n   |       `
+0003060   U   5   .   7   `       |       a   n   y       |       `   t
+0003100   e   s   t       -   z       "   $   (   g   i   t       d   i
+0003120   f   f       -   -   n   a   m   e   -   o   n   l   y       $
+0003140   B   A   S   E   .   .   H   E   A   D       \   |       g   r
+0003160   e   p       -   v   E       '   ^   (   a   p   p   s   /   d
+0003200   e   s   k   t   o   p   /   s   r   c   /   v   3   /   (   p
+0003220   a   g   e   s   /   (   s   e   t   t   i   n   g   s   )   /
+0003240   \   |   a   c   t   i   o   n   s   /   r   e   g   i   s   t
+0003260   r   y   /   (   s   e   t   t   i   n   g   s   )   \   .   t
+0003300   s   $   )   \   |   p   a   c   k   a   g   e   s   /   i   1
+0003320   8   n   /   s   r   c   /   v   3   /   (   a   r   \   |   e
+0003340   n   )   /   (   s   e   t   t   i   n   g   s   )   \   .   t
+0003360   s   $   \   |   a   p   p   s   /   d   e   s   k   t   o   p
+0003400   /   e   2   e   /   v   3   /   (   s   e   t   t   i   n   g
+0003420   s   )   \   .   s   p   e   c   \   .   t   s   $   \   |   a
+0003440   p   p   s   /   d   e   s   k   t   o   p   /   e   2   e   /
+0003460   v   3   /   s   u   p   p   o   r   t   /   i   n   d   e   x
+0003500   \   .   t   s   $   )   $   '   )   "   `       |       e   x
+0003520   i   t       0     342 200 224       *   *   a   m   e   n   d
+0003540   e   d       a   t       p   l   a   n   n   e   r       c   a
+0003560   p   a   c   i   t   y       2   0   2   6   -   1   1   -   1
+0003600   0   T   1   5   :   2   0   Z   *   *   :       t   h   e    
+0003620   v   e   r   i   f   i   e   d       r   e   p   a   i   r    
+0003640   4   1   0   8   8   e   7       f   i   x   e   s       t   h
+0003660   e       t   r   u   e       r   o   o   t       c   a   u   s
+0003700   e       (   t   h   e       e   2   e       s   u   p   p   o
+0003720   r   t       i   n   v   o   k   e       s   t   u   b       r
+0003740   e   f   u   s   e   d       d   a   e   m   o   n       c   o
+0003760   n   f   i   g   -   k   e   y       q   u   e   r   i   e   s
+0004000   ,       l   e   a   v   i   n   g       t   h   e       c   l
+0004020   i   e   n   t       n   u   l   l   )       a   n   d       t
+0004040   h   e       r   e   p   a   i   r       b   r   i   e   f    
+0004060   e   x   p   l   i   c   i   t   l   y       a   l   l   o   w
+0004100   e   d       `   a   p   p   s   /   d   e   s   k   t   o   p
+0004120   /   e   2   e   /   v   3   /   s   u   p   p   o   r   t   /
+0004140   *   *   `   ;       t   h   e       f   r   o   z   e   n    
+0004160   r   e   g   e   x       h   a   d       n   o   t       b   e
+0004200   e   n       u   p   d   a   t   e   d       |  \n   |       `
+0004220   U   5   .   d   e   p   s   `       |       a   n   y       |
+0004240       `   g   i   t       d   i   f   f       $   B   A   S   E
+0004260   .   .   H   E   A   D       -   -       '   *   p   a   c   k
+0004300   a   g   e   .   j   s   o   n   '       '   c   r   a   t   e
+0004320   s   /   *   /   C   a   r   g   o   .   t   o   m   l   '    
+0004340   '   a   p   p   s   /   *   /   s   r   c   -   t   a   u   r
+0004360   i   /   C   a   r   g   o   .   t   o   m   l   '       C   a
+0004400   r   g   o   .   t   o   m   l       \   |       g   r   e   p
+0004420       -   E       '   ^   \   +   \   s   *   "   ?   [   @   a
+0004440   -   z   A   -   Z   0   -   9   _   .   /   -   ]   +   "   ?
+0004460   \   s   *   [   :   =   ]   \   s   *   (   "   [   ~   ^   =
+0004500   ]   ?   [   0   -   9   ]   \   |   \   {   [   ^   }   ]   *
+0004520   v   e   r   s   i   o   n   )   '       \   |       g   r   e
+0004540   p       -   v   E       '   ^   \   +   \   s   *   "   ?   (
+0004560   v   e   r   s   i   o   n   \   |   r   u   s   t   -   v   e
+0004600   r   s   i   o   n   )   "   ?   \   s   *   [   :   =   ]   '
+0004620   `       |       e   x   i   t       1       (   n   o       d
+0004640   e   p   e   n   d   e   n   c   y       a   d   d   e   d    
+0004660   o   r       b   u   m   p   e   d   )       |  \n   |       `
+0004700   U   5   .   s   n   a   p   `       |       a   n   y       |
+0004720       `   n   o   d   e       "   $   E   V   /   t   o   o   l
+0004740   s   "   /   p   w   -   g   a   t   e   .   m   j   s       s
+0004760   n   a   p   s   h   o   t   s       $   B   A   S   E       H
+0005000   E   A   D       -   `       |       e   x   i   t       0   ,
+0005020       s   n   a   p   s   h   o   t   _   c   h   a   n   g   e
+0005040   s   =   0       |  \n   |       `   U   5   .   p   w   `    
+0005060   |       c   a   p   t   u   r   e       |       `   p   n   p
+0005100   m       e   x   e   c       p   l   a   y   w   r   i   g   h
+0005120   t       t   e   s   t       -   -   p   r   o   j   e   c   t
+0005140   =   d   e   s   k   t   o   p       -   -   p   r   o   j   e
+0005160   c   t   =   r   e   m   o   t   e       -   -   r   e   p   o
+0005200   r   t   e   r   =   j   s   o   n       >       "   $   E   V
+0005220   /   g   a   t   e   s   /   $   G   A   T   E   .   j   s   o
+0005240   n   "   ;       n   o   d   e       "   $   E   V   /   t   o
+0005260   o   l   s   "   /   p   w   -   g   a   t   e   .   m   j   s
+0005300       f   a   i   l   u   r   e   s       "   $   E   V   /   g
+0005320   a   t   e   s   /   $   G   A   T   E   .   j   s   o   n   "
+0005340       "   $   E   V   /   n   a   m   e   d   /   U   5   .   t
+0005360   x   t   "   `       |       p   w   -   g   a   t   e       e
+0005400   x   i   t       0       (   e   v   e   r   y       f   a   i
+0005420   l   u   r   e       i   n   s   i   d   e       n   a   m   e
+0005440   d   /   U   5   .   t   x   t   ;       v   2       s   u   i
+0005460   t   e   s       a   n   d       e   v   e   r   y       b   e
+0005500   h   a   v   i   o   u   r   a   l       s   p   e   c       1
+0005520   0   0   %       g   r   e   e   n   )   ;       p   a   c   k
+0005540   e   t       m   e   r   g   e   d       o   n   t   o       t
+0005560   h   e       i   n   t   e   g   r   a   t   i   o   n       t
+0005600   i   p       i   n       a       s   c   r   a   t   c   h    
+0005620   c   h   e   c   k   o   u   t   ;       n   o       -   -   u
+0005640   p   d   a   t   e   -   s   n   a   p   s   h   o   t   s    
+0005660   |  \n
+0005662

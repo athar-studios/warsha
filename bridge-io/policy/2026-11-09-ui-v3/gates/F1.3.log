@@ -1,0 +1,5 @@
+--- files changed ba90e713b2731870a7df3c1791bcbfe98e330717..HEAD ---
+apps/desktop/src/index.css
+apps/desktop/src/screens/ProvidersSettings.tsx
+--- F1.3 test -z gate ---
+F1_3_EXIT=0

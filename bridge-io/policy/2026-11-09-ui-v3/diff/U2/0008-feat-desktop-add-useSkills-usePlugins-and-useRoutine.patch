@@ -1,0 +1,337 @@
+From 90784c190fe5ccc4979f93475b5d458ab6ec22e3 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Mon, 9 Nov 2026 18:06:10 +0400
+Subject: [PATCH 08/12] feat(desktop): add useSkills, usePlugins, and
+ useRoutines v3 hooks
+
+Add hooks for skills catalog, plugin definitions, and scheduled routines
+with four-state unit tests covering loading, empty, ready, and error states.
+---
+ apps/desktop/src/v3/data/usePlugins.test.ts  | 66 ++++++++++++++++
+ apps/desktop/src/v3/data/usePlugins.ts       | 21 +++++
+ apps/desktop/src/v3/data/useRoutines.test.ts | 80 ++++++++++++++++++++
+ apps/desktop/src/v3/data/useRoutines.ts      | 21 +++++
+ apps/desktop/src/v3/data/useSkills.test.ts   | 66 ++++++++++++++++
+ apps/desktop/src/v3/data/useSkills.ts        | 21 +++++
+ 6 files changed, 275 insertions(+)
+ create mode 100644 apps/desktop/src/v3/data/usePlugins.test.ts
+ create mode 100644 apps/desktop/src/v3/data/usePlugins.ts
+ create mode 100644 apps/desktop/src/v3/data/useRoutines.test.ts
+ create mode 100644 apps/desktop/src/v3/data/useRoutines.ts
+ create mode 100644 apps/desktop/src/v3/data/useSkills.test.ts
+ create mode 100644 apps/desktop/src/v3/data/useSkills.ts
+
+diff --git a/apps/desktop/src/v3/data/usePlugins.test.ts b/apps/desktop/src/v3/data/usePlugins.test.ts
+new file mode 100644
+index 0000000..85b65a9
+--- /dev/null
++++ b/apps/desktop/src/v3/data/usePlugins.test.ts
+@@ -0,0 +1,66 @@
++import { act, renderHook } from '@testing-library/react';
++import type { PluginDefinition, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { usePlugins } from './usePlugins';
++
++describe('usePlugins', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      listPlugins: () => new Promise<PluginDefinition[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePlugins(client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when plugins list is empty', async () => {
++    const client = {
++      listPlugins: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePlugins(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when plugins exist', async () => {
++    const list: PluginDefinition[] = [
++      { id: 'plugin-1', name: 'github', enabled: true, tools: ['search_prs'] },
++    ];
++    const client = {
++      listPlugins: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePlugins(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      listPlugins: vi.fn().mockRejectedValue(new Error('Plugins error')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePlugins(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Plugins error');
++
++    (client.listPlugins as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      { id: 'plugin-2', name: 'filesystem', enabled: true, tools: [] },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/usePlugins.ts b/apps/desktop/src/v3/data/usePlugins.ts
+new file mode 100644
+index 0000000..732d88a
+--- /dev/null
++++ b/apps/desktop/src/v3/data/usePlugins.ts
+@@ -0,0 +1,21 @@
++import type { PluginDefinition, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function usePlugins(
++  overrideClient?: WarshaClient | null
++): HookResult<PluginDefinition[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<PluginDefinition[]>(
++    async () => {
++      if (!client) return [];
++      return client.listPlugins();
++    },
++    (list) => !list || list.length === 0,
++    [client]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useRoutines.test.ts b/apps/desktop/src/v3/data/useRoutines.test.ts
+new file mode 100644
+index 0000000..d82912d
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useRoutines.test.ts
+@@ -0,0 +1,80 @@
++import { act, renderHook } from '@testing-library/react';
++import type { Routine, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useRoutines } from './useRoutines';
++
++describe('useRoutines', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      listRoutines: () => new Promise<Routine[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRoutines(client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when routines list is empty', async () => {
++    const client = {
++      listRoutines: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRoutines(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when routines exist', async () => {
++    const list: Routine[] = [
++      {
++        id: 'r1',
++        name: 'Nightly build',
++        description: 'Runs daily',
++        schedule: 'daily',
++        state: 'idle',
++        lastRunUnix: 1700000000,
++      },
++    ];
++    const client = {
++      listRoutines: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRoutines(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      listRoutines: vi.fn().mockRejectedValue(new Error('Routines error')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRoutines(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Routines error');
++
++    (client.listRoutines as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      {
++        id: 'r2',
++        name: 'Hourly check',
++        description: 'Runs hourly',
++        schedule: 'hourly',
++        state: 'running',
++        lastRunUnix: null,
++      },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useRoutines.ts b/apps/desktop/src/v3/data/useRoutines.ts
+new file mode 100644
+index 0000000..6f0597c
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useRoutines.ts
+@@ -0,0 +1,21 @@
++import type { Routine, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useRoutines(
++  overrideClient?: WarshaClient | null
++): HookResult<Routine[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<Routine[]>(
++    async () => {
++      if (!client) return [];
++      return client.listRoutines();
++    },
++    (list) => !list || list.length === 0,
++    [client]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useSkills.test.ts b/apps/desktop/src/v3/data/useSkills.test.ts
+new file mode 100644
+index 0000000..2571825
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useSkills.test.ts
+@@ -0,0 +1,66 @@
++import { act, renderHook } from '@testing-library/react';
++import type { SkillDefinition, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useSkills } from './useSkills';
++
++describe('useSkills', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      listSkills: () => new Promise<SkillDefinition[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useSkills(client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when skills list is empty', async () => {
++    const client = {
++      listSkills: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useSkills(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when skills exist', async () => {
++    const list: SkillDefinition[] = [
++      { id: 'skill-1', name: 'commit', description: 'Make a git commit', enabled: true },
++    ];
++    const client = {
++      listSkills: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useSkills(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      listSkills: vi.fn().mockRejectedValue(new Error('Skills error')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useSkills(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Skills error');
++
++    (client.listSkills as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      { id: 'skill-2', name: 'search', description: 'Search codebase', enabled: true },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useSkills.ts b/apps/desktop/src/v3/data/useSkills.ts
+new file mode 100644
+index 0000000..a706a0e
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useSkills.ts
+@@ -0,0 +1,21 @@
++import type { SkillDefinition, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useSkills(
++  overrideClient?: WarshaClient | null
++): HookResult<SkillDefinition[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<SkillDefinition[]>(
++    async () => {
++      if (!client) return [];
++      return client.listSkills();
++    },
++    (list) => !list || list.length === 0,
++    [client]
++  );
++}
+-- 
+2.55.0.windows.5
+

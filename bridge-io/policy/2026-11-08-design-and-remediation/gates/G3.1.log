@@ -1,0 +1,10 @@
+gate: G3.1 (@warsha/ui typecheck)
+command: pnpm --filter @warsha/ui typecheck
+commit: 0f829731273d722ae21f25e26a54767bc852fe56
+utc: 2026-11-08T10:23:52Z
+--- output ---
+
+> @warsha/ui@0.1.0 typecheck C:\Users\Dragonfly\Downloads\warsha-wt\verify-w3\packages\ui
+> tsc --noEmit && tsc --noEmit -p tsconfig.storybook.json
+
+exit: 0

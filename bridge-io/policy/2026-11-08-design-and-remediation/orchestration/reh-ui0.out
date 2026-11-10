@@ -1,0 +1,23 @@
+
+> @warsha/ui@0.1.0 test C:\Users\Dragonfly\Downloads\warsha-wt\rehearsal\packages\ui
+> vitest run
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mC:/Users/Dragonfly/Downloads/warsha-wt/rehearsal/packages/ui[39m
+
+ [32m✓[39m src/tokens/contrast.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 23[2mms[22m[39m
+ [32m✓[39m src/tokens/tokens.test.ts [2m([22m[2m26 tests[22m[2m)[22m[90m 41[2mms[22m[39m
+ [32m✓[39m src/tokens/tokenDrift.test.ts [2m([22m[2m35 tests[22m[2m)[22m[33m 757[2mms[22m[39m
+ [32m✓[39m src/components.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[33m 355[2mms[22m[39m
+ [32m✓[39m src/index.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 244[2mms[22m[39m
+ [32m✓[39m src/components/machine.test.tsx [2m([22m[2m11 tests[22m[2m)[22m[33m 411[2mms[22m[39m
+ [32m✓[39m src/components/compounds.v2.test.tsx [2m([22m[2m11 tests[22m[2m)[22m[33m 620[2mms[22m[39m
+ [32m✓[39m src/components/keyboard.test.tsx [2m([22m[2m18 tests[22m[2m)[22m[33m 939[2mms[22m[39m
+ [32m✓[39m src/components/compounds.test.tsx [2m([22m[2m58 tests[22m[2m)[22m[33m 1407[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m9 passed[39m[22m[90m (9)[39m
+[2m      Tests [22m [1m[32m181 passed[39m[22m[90m (181)[39m
+[2m   Start at [22m 17:06:29
+[2m   Duration [22m 9.79s[2m (transform 1.62s, setup 18.43s, collect 7.39s, tests 4.80s, environment 32.78s, prepare 5.63s)[22m
+

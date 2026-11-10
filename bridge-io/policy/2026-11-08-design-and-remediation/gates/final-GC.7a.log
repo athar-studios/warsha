@@ -1,0 +1,17 @@
+gate: GC.7a
+command: node scripts/check-engineering-policy.mjs --self-test
+commit: a643a536323b845fe7dec486a5d747f16653660d
+host: Windows integration worktree (FINAL tip)
+timestamp: 2026-11-08T15:41:02Z
+---
+self-test E1 policy-file: detected — ENGINEERING_POLICY.md: missing or empty
+self-test E2 lifecycle-sections: detected — ENGINEERING_POLICY.md: missing required section heading for 'roles'
+self-test E3 lifecycle-phases: detected — ENGINEERING_POLICY.md: missing lifecycle phase heading for 'repair'
+self-test E4 required-terms: detected — ENGINEERING_POLICY.md: missing required term 'max_repair_iterations'
+self-test E5 provenance: detected — ENGINEERING_POLICY.md: missing provenance reference 'github.com/the-open-engine/zeroshot'
+self-test E6 agents-reference: detected — AGENTS.md: does not reference ENGINEERING_POLICY.md
+self-test E7 agents-validator-command: detected — AGENTS.md: does not require running `node scripts/check-engineering-policy.mjs`
+self-test E8 package-script: detected — package.json: scripts.policy must invoke `node scripts/check-engineering-policy.mjs`
+self-test clean fixture: 0 failures
+policy self-test: 8 checks fire, clean fixture is clean
+exit_code: 0

@@ -1,0 +1,2342 @@
+{
+  "schema": "warsha-run/v1",
+  "run_id": "2026-11-08-design-and-remediation",
+  "task": "Phase 1 intake + Phase 2 plan for the post-Qoder (08d61af..f7b8583) remediation and Design System v2: verify the owner brief against code, specify DS v2 (docs/designs/DESIGN_SYSTEM_V2.md), and split the remaining work into 7 file-isolated worker packets (W1-W7) with frozen machine-checkable gates; W3/W5 are pixel-neutral; no runtime code is written by the planner.",
+  "phase": "parked",
+  "seq": 39,
+  "updated_at": "2026-11-08T13:43:45Z",
+  "roles": {
+    "planner": "agent:opus-5.5 (Claude Code, planner only)",
+    "implementer": "per-packet - see plan.packets[].roles.implementer (5 separate worker sessions, Wave A)",
+    "reviewer": "unassigned - not yet reached",
+    "verifier": "unassigned - G0 dispatch outcome pending at seq 5",
+    "owner": "human: Mohamed Ashry"
+  },
+  "scope": {
+    "allowed_files": [
+      "crates/warsha-remote/README.md",
+      "packages/crypto/README.md",
+      "apps/remote/README.md",
+      "crates/warsha-git/README.md",
+      "templates/README.md",
+      "crates/warsha-pipeline/README.md",
+      "apps/desktop/README.md",
+      "README.md",
+      "README.ar.md",
+      "docs/ARCHITECTURE.md",
+      "docs/ARCH_RULES.md",
+      "docs/DEPLOY.md",
+      "docs/DEVELOPERS.md",
+      "docs/VERIFY.md",
+      "docs/src/architecture.md",
+      "docs/src/SUMMARY.md",
+      "docs/src/design-system-v2.md",
+      "docs/src/skills-and-harnesses.md",
+      "docs/src/install.md",
+      "docs/src/deploy.md",
+      "docs/src/verify.md",
+      "docs/designs/SITEMAP.md",
+      "_agents/skills/warsha_elephant/SKILL.md",
+      "SECURITY.md",
+      "packages/ui/src/**",
+      "packages/ui/.storybook/**",
+      "packages/ui/README.md",
+      "scripts/check-wire-contract.mjs",
+      "packages/client/src/index.ts",
+      "packages/client/src/index.test.ts",
+      "apps/desktop/e2e/harness.ts",
+      "apps/desktop/src/**",
+      "apps/desktop/real-acceptance.cjs",
+      "apps/remote/src/**",
+      "packages/i18n/src/**",
+      "crates/warsha-pipeline/src/process_spawn.rs",
+      "crates/warsha-pipeline/src/agent_tools.rs",
+      "crates/warsha-pipeline/src/agent_loop.rs",
+      "apps/mobile/**"
+    ],
+    "out_of_scope": [
+      "PLAN.md",
+      "PROGRESS.md",
+      "DECISIONS.md",
+      "**/*-snapshots/**",
+      "Cargo.toml / package.json / lockfiles (no dependency change)",
+      ".github/**",
+      "files owned by another packet"
+    ]
+  },
+  "worktree": {
+    "path": "C:/Users/Dragonfly/Downloads/Warsha",
+    "branch": "run/2026-11-08/integration",
+    "base_commit": "0772d502002562505c6438ae712abca7a7328d84",
+    "mode": "git-worktree",
+    "audited_head": "f7b8583"
+  },
+  "plan": {
+    "spec": "docs/designs/DESIGN_SYSTEM_V2.md",
+    "plan_doc": "PLAN.md#run-2026-11-08",
+    "decisions": "DECISIONS.md 2026-11-08 D1-D10",
+    "dag": [
+      "G0 (Linux capture-host baseline)",
+      "W8 prerequisite a11y repair -> C0 merge to integration -> Wave A Linux gates verified on the advanced base",
+      "Wave A parallel: W1 W3 W4 W6 W7",
+      "C1: owner merges accepted W3+W4 (+W1/W6/W7) into run/2026-11-08/integration --no-ff",
+      "Wave B parallel: W2 W5 (base = integration after C1)",
+      "C2: merge W2+W5; INT-2 sets APP_LENGTH_BUDGET=0",
+      "C3: GC.1-GC.12 on integration; owner acceptance; merge to dev"
+    ],
+    "steps": [
+      "G0",
+      "W1",
+      "W3",
+      "W4",
+      "W6",
+      "W7",
+      "C1",
+      "W2",
+      "W5",
+      "C2",
+      "INT-2",
+      "C3"
+    ],
+    "baselines": {
+      "vitest": {
+        "@warsha/ui": 151,
+        "@warsha/client": 112,
+        "@warsha/i18n": 52,
+        "warsha-desktop": 443,
+        "warsha-remote": 221
+      },
+      "cargo": {
+        "warsha-pipeline": 341,
+        "workspace": 725
+      },
+      "playwright_listed": {
+        "desktop": 793,
+        "a11y": 188,
+        "states": 252,
+        "visual": 308,
+        "flows": 30,
+        "layout": 12,
+        "onboarding": 3,
+        "remote": 91
+      }
+    },
+    "packets": [
+      {
+        "id": "W1",
+        "slug": "readme-truth",
+        "title": "README truth (docs only)",
+        "wave": "A",
+        "depends_on": [
+          "G0"
+        ],
+        "allowed_files": [
+          "crates/warsha-remote/README.md",
+          "packages/crypto/README.md",
+          "apps/remote/README.md",
+          "crates/warsha-git/README.md",
+          "templates/README.md",
+          "crates/warsha-pipeline/README.md",
+          "apps/desktop/README.md",
+          "README.md",
+          "README.ar.md"
+        ],
+        "branch": "run/2026-11-08/w1-readme-truth",
+        "worktree": {
+          "path": "C:/Users/Dragonfly/Downloads/warsha-wt/w1",
+          "base": "run/2026-11-08/integration",
+          "mode": "git-worktree"
+        },
+        "out_of_scope": [
+          "PLAN.md",
+          "PROGRESS.md",
+          "DECISIONS.md",
+          "**/*-snapshots/**",
+          "Cargo.toml / package.json / lockfiles (no dependency change)",
+          ".github/**",
+          "files owned by another packet"
+        ],
+        "prompt": "packets/W1/prompt.md",
+        "report": "packets/W1/report.md",
+        "status": "verified",
+        "acceptance_gates": [
+          {
+            "id": "G1.S",
+            "check": "git diff --name-only $BASE..HEAD | grep -vE '^(crates/warsha-(remote|git|pipeline)/README\\.md|packages/crypto/README\\.md|apps/(remote|desktop)/README\\.md|templates/README\\.md|README(\\.ar)?\\.md)$' | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.1",
+            "check": "grep -nE 'registers no service worker|لا يسجّل خدمة' README.md README.ar.md",
+            "expect": "expect exit 1 (no match)",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.2",
+            "check": "grep -nE '^(Planned:|المخطط له:)' README.md README.ar.md",
+            "expect": "expect exit 1 (no match)",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.3",
+            "check": "( for f in README.md README.ar.md; do for m in M10 M11 M12 M13 M14 M15 M16 M17 M18 M19 M20 'Wave 2'; do grep -qE \"^\\| $m \\|\" \"$f\" || { echo \"$f $m\"; exit 1; }; done; done )",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.4",
+            "check": "( for m in agent_loop agent_tools agent_workflow backend_kit build_cache evals guardrails handoff llm_cache observability orchestrator post_launch preferences process_spawn prompts provider_setup router_quality routines run_modes scale_standards scout skills work_protection mcp mcp_transport settings; do grep -q \"\\`$m\\`\" crates/warsha-pipeline/README.md || { echo \"$m\"; exit 1; }; done )",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.5",
+            "check": "grep -q process_handshake crates/warsha-remote/README.md && grep -qiE 'stub|not implemented' crates/warsha-remote/README.md",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.6",
+            "check": "( grep -q ProjectTemplate templates/README.md && for t in web cli desktop android; do grep -qw \"$t\" templates/README.md || exit 1; done )",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.7",
+            "check": "grep -q 'The pipeline asks this crate' crates/warsha-git/README.md",
+            "expect": "expect exit 1 (no match)",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.8",
+            "check": "grep -q flows.spec.ts apps/desktop/README.md && grep -q real-acceptance.cjs apps/desktop/README.md && grep -q 188 apps/desktop/README.md",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.9",
+            "check": "grep -q registerShellWorker apps/remote/README.md && grep -q RemoteProvider apps/remote/README.md",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.A",
+            "check": "node scripts/check-arch.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.P",
+            "check": "node scripts/check-engineering-policy.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G1.W",
+            "check": "node scripts/check-wire-contract.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          }
+        ],
+        "roles": {
+          "implementer": "agent:worker-session 55bcd7b2-0f05-5d4c-a4e9-20539b91eff4 (resumed from disk after the 02:40Z mass failure)",
+          "reviewer": "agent:worker-session 873b6235-2b37-5330-a808-52d8da54bf65 (independent of the implementer)",
+          "verifier": "unassigned - must differ from implementer and reviewer",
+          "previous_implementer_sessions": [
+            "agent:worker-session fe8cc9d5-db52-5728-af43-03c5f842838b (lost 02:40Z, work preserved on disk)"
+          ]
+        },
+        "assigned_at": "2026-11-08T01:25:31Z",
+        "head_under_review": "6d9728f52eb096199c4ace208435c8b8927e5140",
+        "review_verdict": "APPROVE",
+        "verification_verdict": "PASS (re-derived by the orchestrator)",
+        "verification": "13/13 gates pass with logs; two independent truth spot-checks confirmed the READMEs state the real 785/8 desktop and 51/40 remote baseline (not all-green) and that all 26 pipeline modules are listed",
+        "evidence_note": "The verifier session asserted 13/13 pass and listed log filenames, but NO G1.*.log existed on disk. The orchestrator re-ran all 13 gates at 6d9728f in throwaway worktrees and wrote real logs; all 13 reproduce their frozen expectation. G1.4 initially logged exit 1 due to an orchestrator quoting bug (backticks command-substituted by the outer shell), corrected and re-run to exit 0 with all 26 module names found."
+      },
+      {
+        "id": "W2",
+        "slug": "canonical-docs",
+        "title": "Canonical architecture, deployment, security and index docs (docs only)",
+        "wave": "B",
+        "depends_on": [
+          "C1"
+        ],
+        "allowed_files": [
+          "docs/ARCHITECTURE.md",
+          "docs/ARCH_RULES.md",
+          "docs/DEPLOY.md",
+          "docs/DEVELOPERS.md",
+          "docs/VERIFY.md",
+          "docs/src/architecture.md",
+          "docs/src/SUMMARY.md",
+          "docs/src/design-system-v2.md",
+          "docs/src/skills-and-harnesses.md",
+          "docs/src/install.md",
+          "docs/src/deploy.md",
+          "docs/src/verify.md",
+          "docs/designs/SITEMAP.md",
+          "_agents/skills/warsha_elephant/SKILL.md",
+          "SECURITY.md"
+        ],
+        "branch": "run/2026-11-08/w2-canonical-docs",
+        "worktree": {
+          "path": "C:/Users/Dragonfly/Downloads/warsha-wt/w2",
+          "base": "run/2026-11-08/integration",
+          "mode": "git-worktree"
+        },
+        "out_of_scope": [
+          "PLAN.md",
+          "PROGRESS.md",
+          "DECISIONS.md",
+          "**/*-snapshots/**",
+          "Cargo.toml / package.json / lockfiles (no dependency change)",
+          ".github/**",
+          "files owned by another packet"
+        ],
+        "prompt": "packets/W2/prompt.md",
+        "report": "packets/W2/report.md",
+        "status": "merged-at-C2b",
+        "acceptance_gates": [
+          {
+            "id": "G2.S",
+            "check": "git diff --name-only $BASE..HEAD | grep -vE '^(docs/(ARCHITECTURE|ARCH_RULES|DEPLOY|DEVELOPERS|VERIFY)\\.md|docs/src/(architecture|SUMMARY|design-system-v2|skills-and-harnesses|install|deploy|verify)\\.md|docs/designs/SITEMAP\\.md|_agents/skills/warsha_elephant/SKILL\\.md|SECURITY\\.md)$' | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G2.1",
+            "check": "mdbook build docs",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G2.2",
+            "check": "grep -nE 'Only `warsha-pipeline` and `warsha-providers`|~800 lines|does not yet mount|there is no offline service worker today|no `Dockerfile` or compose file exists|no `deny\\.toml` in the repository|There is no flag and no config key that binds another interface|octocrab|Noise XX|sixteen private modules|registers 60 methods|all 32 client call sites|open disagreement' docs/ARCHITECTURE.md docs/DEPLOY.md docs/src/architecture.md SECURITY.md docs/DEVELOPERS.md docs/ARCH_RULES.md docs/VERIFY.md",
+            "expect": "expect exit 1 (no match)",
+            "host": "worktree"
+          },
+          {
+            "id": "G2.3",
+            "check": "( for p in 'docs/ARCHITECTURE.md:apps/mobile' 'docs/ARCHITECTURE.md:docker/' 'docs/ARCHITECTURE.md:deploy/' 'docs/ARCHITECTURE.md:persistence.rs' 'docs/ARCHITECTURE.md:wave2' 'docs/DEPLOY.md:WARSHA_REMOTE_ASSETS_DIR' 'docs/src/architecture.md:bind_host' 'docs/src/architecture.md:advertised_host' 'docs/src/architecture.md:remote_assets_dir' 'docs/src/architecture.md:registerShellWorker' 'SECURITY.md:bind_host' 'SECURITY.md:advertised_host' 'SECURITY.md:deny.toml' 'docs/DEVELOPERS.md:apps/mobile' 'docs/DEVELOPERS.md:packages/crypto' 'docs/DEVELOPERS.md:reqwest' 'docs/ARCH_RULES.md:88' 'docs/VERIFY.md:294b8e259e88c804275154e8f3bd4ba4e957b15eb912cff3e7f2b9cbb4aabd99' 'docs/VERIFY.md:f3549485798919c9d81627d52e34c4a897483a3b4483fadfb0590ed45be0e7a9'; do f=${p%%:*}; t=${p#*:}; grep -qF -- \"$t\" \"$f\" || { echo \"missing $t in $f\"; exit 1; }; done )",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G2.4",
+            "check": "node -e \"const fs=require('fs');const n=(fs.readFileSync('packages/ui/src/tokens/tokenDrift.test.ts','utf8').match(/^\\s*it\\(/gm)||[]).length;const ok=fs.readFileSync('docs/ARCH_RULES.md','utf8').includes('tokenDrift.test.ts\\` ('+n+' tests)');console.log(n,ok);process.exit(ok?0:1)\"",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G2.5",
+            "check": "( n=$(node scripts/check-wire-contract.mjs | grep -oE '[0-9]+ checks' | head -1); echo \"$n\"; grep -qF \"$n\" docs/ARCH_RULES.md )",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G2.6",
+            "check": "( for t in DESIGN_SYSTEM_V2.md SKILLS_AND_HARNESSES.md UI.md INSTALL.md DEPLOY.md VERIFY.md; do grep -qF \"$t\" docs/designs/SITEMAP.md || { echo \"SITEMAP $t\"; exit 1; }; done; for t in design-system-v2.md skills-and-harnesses.md install.md deploy.md verify.md UI.md; do grep -qF \"$t\" docs/src/SUMMARY.md || { echo \"SUMMARY $t\"; exit 1; }; done; for t in DESIGN_SYSTEM_V2.md 188 252 308 apps/remote/e2e; do grep -qF \"$t\" _agents/skills/warsha_elephant/SKILL.md || { echo \"SKILL $t\"; exit 1; }; done )",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G2.A",
+            "check": "node scripts/check-arch.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G2.P",
+            "check": "node scripts/check-engineering-policy.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G2.W",
+            "check": "node scripts/check-wire-contract.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          }
+        ],
+        "roles": {
+          "implementer": "agent:worker-session b8cd650f-aa39-54aa-a844-7d5db3078faf"
+        },
+        "base": "99a7c03",
+        "note": "Still editing docs on the pre-C1.5 base 99a7c03 (10 files dirty); rebase notice queued so it re-measures the G2.4 tokenDrift count and documents W3 as merged rather than deferred.",
+        "repair_iteration": 2,
+        "review_verdict": "APPROVE (re-review after repair)",
+        "review_findings": "B1 blocker: G0/OD1 baseline absent from the canonical docs (the packet defining honesty requirement). M1: report.md missing entirely. M2: SECURITY.md:119-121 wrong code citations. Plus m1 internal.ts contradiction, m3 unverifiable 60/15 split, and 2 nits. All ten frozen gates passed at 97dc93a - so this is a case of gates passing on incomplete truth, exactly the failure mode the packet exists to prevent.",
+        "verification_verdict": "PASS (10/10 gates)",
+        "g2_4_n": 35,
+        "g2_5_string": "9 checks",
+        "merge_commit": "c2709169",
+        "integration_regression": "GC.4 pnpm -r test exits 101 at c2709169: @warsha/docs test script is `mdbook test`, which compiles unannotated code fences as Rust. 4 fences in files W2 CREATED fail: docs/src/design-system-v2.md (ASCII diagram at line 85) and docs/src/deploy.md lines 54, 167, 329. CONTROL: `mdbook test` exits 0 at 406240a (pre-W2), so W2 introduced it.",
+        "repair_scope_correction": "Of the four failing mdbook fences, THREE are in docs/DEPLOY.md (opening at lines 53, 166, 328; a network ASCII diagram, the first-start banner, a directory tree) and are W2-owned and fixable by annotating them text. The FOURTH (reported as design-system-v2.md line 85) is really docs/designs/DESIGN_SYSTEM_V2.md:76, a 1440px ASCII layout diagram in a PLANNER-OWNED file that W2 prompt lists as out_of_scope and that gate G2.S would reject; W2 docs/src/design-system-v2.md is only a one-line {{#include}} shim over it. The orchestrator first briefed W2 as if all four fences were W2 files - wrong for that one - and then sent a scope correction.",
+        "integration_regression_fixed": "mdbook test exit 0 at 2fbd620 / a9dad9a; control exit 0 at 406240a",
+        "repair_head": "2fbd620486ee9e08cc484e603aac19c6d2d2f1a7"
+      },
+      {
+        "id": "W3",
+        "slug": "ui-v2",
+        "title": "Design System v2 in packages/ui (tokens, R6 v2, compounds, README)",
+        "wave": "A",
+        "depends_on": [
+          "G0"
+        ],
+        "allowed_files": [
+          "packages/ui/src/**",
+          "packages/ui/.storybook/**",
+          "packages/ui/README.md"
+        ],
+        "branch": "run/2026-11-08/w3-ui-v2",
+        "worktree": {
+          "path": "C:/Users/Dragonfly/Downloads/warsha-wt/w3",
+          "base": "run/2026-11-08/integration",
+          "mode": "git-worktree"
+        },
+        "out_of_scope": [
+          "PLAN.md",
+          "PROGRESS.md",
+          "DECISIONS.md",
+          "**/*-snapshots/**",
+          "Cargo.toml / package.json / lockfiles (no dependency change)",
+          ".github/**",
+          "files owned by another packet"
+        ],
+        "prompt": "packets/W3/prompt.md",
+        "report": "packets/W3/report.md",
+        "status": "merged-at-C1_5",
+        "acceptance_gates": [
+          {
+            "id": "G3.S",
+            "check": "git diff --name-only $BASE..HEAD | grep -vE '^packages/ui/(src/|\\.storybook/|README\\.md$)' | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G3.1",
+            "check": "pnpm --filter @warsha/ui typecheck",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G3.2",
+            "check": "pnpm --filter @warsha/ui lint",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G3.3",
+            "check": "pnpm --filter @warsha/ui test",
+            "expect": "expect exit 0 and \"Tests  N passed\" with N >= 170, 0 failed",
+            "host": "worktree"
+          },
+          {
+            "id": "G3.4",
+            "check": "pnpm --filter @warsha/ui build-storybook",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G3.5",
+            "check": "pnpm -r typecheck",
+            "expect": "expect exit 0 (apps still compile against the changed package)",
+            "host": "worktree"
+          },
+          {
+            "id": "G3.6",
+            "check": "pnpm --filter warsha-desktop test",
+            "expect": "expect exit 0 with >= 443 and >= 221 passed, 0 failed",
+            "host": "worktree"
+          },
+          {
+            "id": "G3.7",
+            "check": "pnpm --filter warsha-remote test",
+            "expect": "expect exit 0 with >= 443 and >= 221 passed, 0 failed",
+            "host": "worktree"
+          },
+          {
+            "id": "G3.8",
+            "check": "pnpm exec playwright test --project=desktop --reporter=line",
+            "expect": "expect 793 passed, 0 failed, equal to the G0 baseline",
+            "host": "linux-capture-host"
+          },
+          {
+            "id": "G3.9",
+            "check": "pnpm exec playwright test --project=remote --reporter=line",
+            "expect": "expect 91 passed, 0 failed",
+            "host": "linux-capture-host"
+          },
+          {
+            "id": "G3.10",
+            "check": "git status --porcelain -- '*-snapshots/*' | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G3.A",
+            "check": "node scripts/check-arch.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G3.P",
+            "check": "node scripts/check-engineering-policy.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G3.W",
+            "check": "node scripts/check-wire-contract.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          }
+        ],
+        "roles": {
+          "implementer": "agent:worker-session dc6a0e20-4eec-550e-a8ad-aac7ce3d0461 (resumed from disk after the 02:40Z mass failure)",
+          "reviewer": "agent:worker-session ea2a135d-9faa-5894-a5ea-be27590722df (independent of the implementer)",
+          "verifier": "unassigned - must differ from implementer and reviewer",
+          "previous_implementer_sessions": [
+            "agent:worker-session 22daf01a-79e1-53da-ac0b-936bdc397d4b (lost 02:40Z, work preserved on disk)"
+          ]
+        },
+        "assigned_at": "2026-11-08T01:25:31Z",
+        "head_seen": "0f82973",
+        "rebased_onto": "5abe5ef",
+        "rebase_note": "W3 rebased cleanly onto the new integration tip (0 commits behind); 10 commits, clean tree. Report still pending.",
+        "report_bytes": 36781,
+        "review_verdict": "APPROVE",
+        "linux_gate": "G3.8 PASS on attempt 2: 793 passed / 0 failed / exit 0 / 0 snapshot writes (14.5m). Attempt 1 recorded 792 passed / 1 failed - flows.spec.ts:81 \"the mode group moves focus with the arrows and presses with Enter\" at 390x844 ar - and the same spec then passed 30/30 twice in isolation, so it is the known concurrency flow-closure flake class, not a W3 regression. BOTH attempts are preserved on disk.",
+        "note": "G3.9 (remote 91 passed / 0 failed) is NOT satisfiable: 40 remote baselines are stale product images. Blocked on OD1, not on W3.",
+        "verification_verdict": "12/12 worktree gates PASS + G3.8 PASS; G3.9 blocked-on-OD1",
+        "verification": "Independent verifier re-ran 12 worktree gates in a clean detached worktree at 0f82973 (all pass: ui 181 >= 170, desktop 446 >= 443, remote 221, storybook built, 0 snapshot changes, arch/policy/wire clean). G3.8 accepted from the orchestrator capture-host run at 793/0. G3.9 unsatisfiable pending OD1.",
+        "merge_commit": "406240a"
+      },
+      {
+        "id": "W4",
+        "slug": "wire-client-harness",
+        "title": "Wire-contract cleanup, WarshaClient expansion, e2e harness completion",
+        "wave": "A",
+        "depends_on": [
+          "G0"
+        ],
+        "allowed_files": [
+          "scripts/check-wire-contract.mjs",
+          "packages/client/src/index.ts",
+          "packages/client/src/index.test.ts",
+          "apps/desktop/e2e/harness.ts"
+        ],
+        "branch": "run/2026-11-08/w4-wire-client-harness",
+        "worktree": {
+          "path": "C:/Users/Dragonfly/Downloads/warsha-wt/w4",
+          "base": "run/2026-11-08/integration",
+          "mode": "git-worktree"
+        },
+        "out_of_scope": [
+          "PLAN.md",
+          "PROGRESS.md",
+          "DECISIONS.md",
+          "**/*-snapshots/**",
+          "Cargo.toml / package.json / lockfiles (no dependency change)",
+          ".github/**",
+          "files owned by another packet"
+        ],
+        "prompt": "packets/W4/prompt.md",
+        "report": "packets/W4/report.md",
+        "status": "verified",
+        "acceptance_gates": [
+          {
+            "id": "G4.S",
+            "check": "git diff --name-only $BASE..HEAD | grep -vE '^(scripts/check-wire-contract\\.mjs|packages/client/src/index(\\.test)?\\.ts|apps/desktop/e2e/harness\\.ts)$' | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G4.1",
+            "check": "pnpm --filter @warsha/client test",
+            "expect": "expect exit 0 and >= 140 passed, 0 failed",
+            "host": "worktree"
+          },
+          {
+            "id": "G4.2",
+            "check": "pnpm --filter @warsha/client typecheck",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G4.3",
+            "check": "pnpm --filter @warsha/client lint",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G4.4",
+            "check": "node scripts/check-wire-contract.mjs --self-test",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G4.5",
+            "check": "node scripts/check-wire-contract.mjs",
+            "expect": "expect exit 0 and output containing \"wire: 9 checks, 0 violations\"",
+            "host": "worktree"
+          },
+          {
+            "id": "G4.6",
+            "check": "pnpm --dir apps/desktop exec tsc --noEmit -p tsconfig.e2e.json",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G4.7",
+            "check": "node -e \"const h=require('fs').readFileSync('apps/desktop/e2e/harness.ts','utf8');const m=h.match(/RPC_METHODS\\s*=\\s*\\[([\\s\\S]*?)\\]\\s*as const/);const n=(m[1].match(/'[^']+'/g)||[]).length;console.log(n);process.exit(n===75?0:1)\"",
+            "expect": "expect exit 0 (prints 75)",
+            "host": "worktree"
+          },
+          {
+            "id": "G4.8",
+            "check": "grep -nE 'REQUIRE_NO_KNOWN_DRIFT is false|FALSE again|RE-OPENED for Wave 2|deferred in .KNOWN_UNREGISTERED_METHODS' scripts/check-wire-contract.mjs packages/client/src/index.ts",
+            "expect": "expect exit 1 (no match)",
+            "host": "worktree"
+          },
+          {
+            "id": "G4.9",
+            "check": "pnpm exec playwright test --project=desktop --reporter=line",
+            "expect": "expect 793 passed, 0 failed, equal to G0",
+            "host": "linux-capture-host"
+          },
+          {
+            "id": "G4.10",
+            "check": "git status --porcelain -- '*-snapshots/*' | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G4.A",
+            "check": "node scripts/check-arch.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G4.P",
+            "check": "node scripts/check-engineering-policy.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          }
+        ],
+        "roles": {
+          "implementer": "agent:worker-session 9a75b617-a937-55b7-a0a3-9b956e11dba9 (resumed from disk after the 02:40Z mass failure)",
+          "reviewer": "agent:worker-session 660f8ef3-e810-55ad-a9f8-4f28515fc9ea (independent of the implementer)",
+          "verifier": "agent:worker-session d1ed18b9-dfa4-5cb6-ae91-df211e6a3d01 (independent of implementer and reviewer)",
+          "previous_implementer_sessions": [
+            "agent:worker-session 8175c995-25f7-5131-a7c1-be3326ade25e (lost 02:40Z, work preserved on disk)"
+          ]
+        },
+        "assigned_at": "2026-11-08T01:25:31Z",
+        "head_under_review": "c83af5e948fd578d2a8ed1355c5a0a81f2ec01fe",
+        "repair_iteration": 1,
+        "head_seen": "2ce75f3",
+        "rebase_note": "W4 committed its repair (7 commits, clean tree) but is still 3 commits BEHIND the new tip 5abe5ef; the rebase is outstanding.",
+        "re_review_verdict": "APPROVE",
+        "linux_gate": "G4.9 PASS at 73b1331: 793 passed / 0 failed / exit 0 / 0 snapshot writes",
+        "n4_doc_nit": "Report has two sentences naming the pre-rebase HEAD 2ce75f3 (:293, :320) that contradict its own header and gate table; documentation-only, the reviewer said the integrator should correct them at merge.",
+        "verification_verdict": "PASS",
+        "verification": "13/13 gates pass at 73b1331: 12 re-executed by an independent verifier in a clean detached worktree (G4.S, G4.1-G4.8, G4.10, G4.A/G4.P) plus G4.9 pass-by-orchestrator from gates/G4.9.log"
+      },
+      {
+        "id": "W5",
+        "slug": "apps-adoption",
+        "title": "Apps adopt Design System v2 + live Routines/BackendKit wiring",
+        "wave": "B",
+        "depends_on": [
+          "C1"
+        ],
+        "allowed_files": [
+          "apps/desktop/src/**",
+          "apps/desktop/real-acceptance.cjs",
+          "apps/remote/src/**",
+          "packages/i18n/src/**"
+        ],
+        "branch": "run/2026-11-08/w5-apps-adoption",
+        "worktree": {
+          "path": "C:/Users/Dragonfly/Downloads/warsha-wt/w5",
+          "base": "run/2026-11-08/integration",
+          "mode": "git-worktree"
+        },
+        "out_of_scope": [
+          "PLAN.md",
+          "PROGRESS.md",
+          "DECISIONS.md",
+          "**/*-snapshots/**",
+          "Cargo.toml / package.json / lockfiles (no dependency change)",
+          ".github/**",
+          "files owned by another packet"
+        ],
+        "prompt": "packets/W5/prompt.md",
+        "report": "packets/W5/report.md",
+        "status": "blocked-on-OD4",
+        "acceptance_gates": [
+          {
+            "id": "G5.S",
+            "check": "git diff --name-only $BASE..HEAD | grep -vE '^(apps/desktop/src/|apps/desktop/real-acceptance\\.cjs$|apps/remote/src/|packages/i18n/src/)' | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.1",
+            "check": "pnpm --filter warsha-desktop test",
+            "expect": "expect exit 0 and >= 451 passed, 0 failed",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.2",
+            "check": "pnpm --filter warsha-remote test",
+            "expect": "expect exit 0 with >= 221 and >= 52 passed, 0 failed",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.3",
+            "check": "pnpm --filter @warsha/i18n test",
+            "expect": "expect exit 0 with >= 221 and >= 52 passed, 0 failed",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.4",
+            "check": "pnpm -r typecheck",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.5",
+            "check": "pnpm -r lint",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.6",
+            "check": "pnpm -r build",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.7",
+            "check": "WARSHA_R6_APP_LENGTH_BUDGET=0 pnpm --filter @warsha/ui test",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.8",
+            "check": "grep -n 'TODO(M20 wiring)' apps/desktop/src/App.tsx",
+            "expect": "expect exit 1 (no match)",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.9",
+            "check": "grep -q \"daemon_ws_url: 'ws://127.0.0.1:8765'\" apps/desktop/real-acceptance.cjs",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.10",
+            "check": "pnpm exec playwright test --project=desktop --reporter=line",
+            "expect": "expect 793 passed, 0 failed, equal to G0",
+            "host": "linux-capture-host"
+          },
+          {
+            "id": "G5.11",
+            "check": "pnpm exec playwright test --project=remote --reporter=line",
+            "expect": "expect 91 passed, 0 failed",
+            "host": "linux-capture-host"
+          },
+          {
+            "id": "G5.12",
+            "check": "git status --porcelain -- '*-snapshots/*' | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.A",
+            "check": "node scripts/check-arch.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.P",
+            "check": "node scripts/check-engineering-policy.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G5.W",
+            "check": "node scripts/check-wire-contract.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          }
+        ],
+        "roles": {
+          "implementer": "agent:worker-session 4245881d-1557-5c10-ab2d-dfeff4a08bf5"
+        },
+        "base": "406240a",
+        "blocker_cleared": "2026-11-08T10:53:01Z",
+        "note": "Correctly refused a vacuous G5.7 pass on the W3-less base and reported a precise blocker; unblocked by merging W3 (C1.5) and now implementing: ratchet confirmed live with 145 real offences at base.",
+        "head_seen": "c96bf7f",
+        "repair_iteration": 1,
+        "review_verdict": "APPROVE",
+        "verification_verdict": "14/14 worktree gates PASS",
+        "linux_gate": "G5.10 FAILED at 10a1819 (12 failed / 781 passed / 0 snapshot writes) - but the failure is a STRING-COUPLED ASSERTION, not a pixel change. See the correction finding.",
+        "diagnosis": "All 12 = states.spec.ts:289 \"gates success\" failing expectDecidedCardIsQuiet (states.spec.ts:132) which regex-matches the inline style TEXT /border-inline-start:s*3px solid var(--warsha-bench-edge)/. W5 changed QUIET_BAND (GatesInbox.tsx:65) from the literal \"3px solid var(--warsha-bench-edge)\" to \"var(--warsha-line-band)\"; tokens.css:99 defines that as \"var(--warsha-size-edge) solid var(--warsha-bench-edge)\" and :117 sets size-edge 3px, so the COMPUTED border is identical. 0 toHaveScreenshot failures, 0 pixel-ratio lines, 308 visual cases passed.",
+        "blocker": {
+          "kind": "out-of-scope",
+          "reason": "G5.7 and the e2e assertion at states.spec.ts:132 are mutually exclusive for one inline style (see OD4). Reproduced independently by the orchestrator.",
+          "needs": "Owner decision OD4: amend the assertion to accept the token reference, grant a reviewed exemption, or accept G5.10 as not fully green."
+        }
+      },
+      {
+        "id": "W6",
+        "slug": "pipeline-hardening",
+        "title": "Rust pipeline hardening (process_spawn, agent_tools, agent_loop)",
+        "wave": "A",
+        "depends_on": [
+          "G0"
+        ],
+        "allowed_files": [
+          "crates/warsha-pipeline/src/process_spawn.rs",
+          "crates/warsha-pipeline/src/agent_tools.rs",
+          "crates/warsha-pipeline/src/agent_loop.rs"
+        ],
+        "branch": "run/2026-11-08/w6-pipeline-hardening",
+        "worktree": {
+          "path": "C:/Users/Dragonfly/Downloads/warsha-wt/w6",
+          "base": "run/2026-11-08/integration",
+          "mode": "git-worktree",
+          "cargo_target_dir": "C:/Users/Dragonfly/Downloads/warsha-wt/target-w6"
+        },
+        "out_of_scope": [
+          "PLAN.md",
+          "PROGRESS.md",
+          "DECISIONS.md",
+          "**/*-snapshots/**",
+          "Cargo.toml / package.json / lockfiles (no dependency change)",
+          ".github/**",
+          "files owned by another packet"
+        ],
+        "prompt": "packets/W6/prompt.md",
+        "report": "packets/W6/report.md",
+        "status": "verified",
+        "acceptance_gates": [
+          {
+            "id": "G6.S",
+            "check": "git diff --name-only $BASE..HEAD | grep -vE '^crates/warsha-pipeline/src/(process_spawn|agent_tools|agent_loop)\\.rs$' | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G6.1",
+            "check": "cargo fmt --all --check",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G6.2",
+            "check": "cargo clippy --workspace --all-targets -- -D warnings",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G6.3",
+            "check": "cargo test -p warsha-pipeline --all-targets",
+            "expect": "expect exit 0 and >= 350 passed, 0 failed (sum of \"test result: ok. N passed\" lines)",
+            "host": "worktree"
+          },
+          {
+            "id": "G6.4",
+            "check": "cargo test --workspace --all-targets",
+            "expect": "expect exit 0 and >= 734 passed, 0 failed",
+            "host": "worktree"
+          },
+          {
+            "id": "G6.5",
+            "check": "grep -q 'pub fn with_read_before_write' crates/warsha-pipeline/src/agent_tools.rs && grep -q 'OutputCompressor::compress' crates/warsha-pipeline/src/agent_loop.rs",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G6.A",
+            "check": "node scripts/check-arch.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G6.P",
+            "check": "node scripts/check-engineering-policy.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G6.W",
+            "check": "node scripts/check-wire-contract.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          }
+        ],
+        "roles": {
+          "implementer": "agent:worker-session d9c706e3-ce07-5541-afec-cd1402e33d4e (resumed from disk after the 02:40Z mass failure)",
+          "reviewer": "agent:worker-session 02a7e3b3-75b0-5c7f-a89a-a9c01753c32c (independent of the implementer)",
+          "verifier": "agent:worker-session 3175c048-dafe-5df5-a28a-eb39be79c449 (independent of implementer and reviewer)",
+          "previous_implementer_sessions": [
+            "agent:worker-session 672991ad-3892-5d7e-aac5-24d69942e7d9 (lost 02:40Z, work preserved on disk)"
+          ]
+        },
+        "assigned_at": "2026-11-08T01:25:31Z",
+        "head_under_review": "a9edd90e92521c2c84da0b586f7191e5d52f45a5",
+        "review_verdict": "APPROVE",
+        "verification_verdict": "PASS",
+        "verification": "all 9 gates pass with logs; 352 passed vs >=350 and 743 vs >=734 recomputed by the orchestrator from the raw test-result lines"
+      },
+      {
+        "id": "W7",
+        "slug": "android-apk",
+        "title": "Android web-asset sync and signed APK",
+        "wave": "A",
+        "depends_on": [
+          "G0"
+        ],
+        "allowed_files": [
+          "apps/mobile/**"
+        ],
+        "branch": "run/2026-11-08/w7-android-apk",
+        "worktree": {
+          "path": "C:/Users/Dragonfly/Downloads/warsha-wt/w7",
+          "base": "run/2026-11-08/integration",
+          "mode": "git-worktree"
+        },
+        "out_of_scope": [
+          "PLAN.md",
+          "PROGRESS.md",
+          "DECISIONS.md",
+          "**/*-snapshots/**",
+          "Cargo.toml / package.json / lockfiles (no dependency change)",
+          ".github/**",
+          "files owned by another packet"
+        ],
+        "prompt": "packets/W7/prompt.md",
+        "report": "packets/W7/report.md",
+        "status": "verified",
+        "acceptance_gates": [
+          {
+            "id": "G7.S",
+            "check": "git diff --name-only $BASE..HEAD | grep -vE '^apps/mobile/' | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G7.1",
+            "check": "pnpm --filter warsha-remote build && test -f apps/remote/dist/sw.js && test -f apps/remote/dist/index.html",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G7.2",
+            "check": "( cd apps/mobile/android && ./gradlew assembleRelease --no-daemon )",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G7.3",
+            "check": "\"$(ls -d \"$ANDROID_HOME\"/build-tools/* | sort -V | tail -1)\"/apksigner verify --print-certs \"$APK\"",
+            "expect": "expect exit 0 (use the newest build-tools apksigner)",
+            "host": "worktree"
+          },
+          {
+            "id": "G7.4",
+            "check": "unzip -l \"$APK\" | grep -cE 'assets/public/(index\\.html|sw\\.js)$'",
+            "expect": "expect output: 2",
+            "host": "worktree"
+          },
+          {
+            "id": "G7.5",
+            "check": "grep -qF \"$(sha256sum \"$APK\" | cut -d' ' -f1)\" apps/mobile/README.md",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G7.6",
+            "check": "grep -rniE 'storePassword|keyPassword|WARSHA_KEYSTORE_PASSWORD=|WARSHA_KEY_PASSWORD=' C:/Users/Dragonfly/Downloads/Warsha/bridge-io/policy/2026-11-08-design-and-remediation/packets/W7",
+            "expect": "expect exit 1 (no match)",
+            "host": "worktree"
+          },
+          {
+            "id": "G7.7",
+            "check": "git ls-files apps/mobile/android/app/src/main/assets | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G7.A",
+            "check": "node scripts/check-arch.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          },
+          {
+            "id": "G7.P",
+            "check": "node scripts/check-engineering-policy.mjs",
+            "expect": "expect exit 0 each",
+            "host": "worktree"
+          }
+        ],
+        "roles": {
+          "implementer": "agent:worker-session 691ba20c-8683-5271-a42c-4ecb0163f78f (repair iteration 1; original session 07731194 was archived)",
+          "reviewer": "agent:worker-session 032ce410-d72b-531a-abbf-e0ae59b36b97 (independent of the implementer)",
+          "verifier": "unassigned - must differ from implementer and reviewer"
+        },
+        "assigned_at": "2026-11-08T01:25:31Z",
+        "repair_iteration": 1,
+        "head_under_review": "7adbff4",
+        "verification_verdict": "PASS"
+      },
+      {
+        "id": "W8",
+        "slug": "g0-a11y-repair",
+        "title": "G0 truth repair - settings-screen list semantics (pixel-neutral)",
+        "wave": "A-prerequisite",
+        "depends_on": [
+          "G0"
+        ],
+        "allowed_files": [
+          "apps/desktop/src/screens/SettingsScreen.tsx",
+          "apps/desktop/src/screens/SettingsScreenIntegrations.test.tsx"
+        ],
+        "branch": "run/2026-11-08/w8-g0-a11y-repair",
+        "worktree": {
+          "path": "C:/Users/Dragonfly/Downloads/warsha-wt/w8",
+          "base": "run/2026-11-08/integration",
+          "mode": "git-worktree"
+        },
+        "out_of_scope": [
+          "PLAN.md",
+          "PROGRESS.md",
+          "DECISIONS.md",
+          "**/*-snapshots/**",
+          "packages/ui/**",
+          "apps/desktop/e2e/**",
+          "apps/remote/**",
+          "dependencies / lockfiles",
+          ".github/**",
+          "files owned by another packet"
+        ],
+        "prompt": "packets/W8/prompt.md",
+        "report": "packets/W8/report.md",
+        "status": "merged-at-C0",
+        "acceptance_gates": [
+          {
+            "id": "G8.S",
+            "check": "git diff --name-only $BASE..HEAD | grep -vE '^apps/desktop/src/screens/SettingsScreen(Integrations\\.test)?\\.tsx$' | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G8.1",
+            "check": "pnpm --filter warsha-desktop test",
+            "expect": "expect exit 0 and >= 444 passed, 0 failed",
+            "host": "worktree"
+          },
+          {
+            "id": "G8.2",
+            "check": "pnpm -r typecheck",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G8.3",
+            "check": "pnpm -r lint",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G8.4",
+            "check": "pnpm exec playwright test --project=desktop --reporter=line",
+            "expect": "expect 793 passed, 0 failed (proves the 8 a11y cases fixed AND 308 visual unmoved)",
+            "host": "linux-capture-host"
+          },
+          {
+            "id": "G8.5",
+            "check": "git status --porcelain -- '*-snapshots/*' | wc -l",
+            "expect": "expect output: 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G8.A",
+            "check": "node scripts/check-arch.mjs",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G8.P",
+            "check": "node scripts/check-engineering-policy.mjs",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          },
+          {
+            "id": "G8.W",
+            "check": "node scripts/check-wire-contract.mjs",
+            "expect": "expect exit 0",
+            "host": "worktree"
+          }
+        ],
+        "roles": {
+          "implementer": "agent:worker-session cc06f2a5-f106-5265-a0aa-2efdeb815a07 (resumed from disk after the 02:40Z mass failure)",
+          "reviewer": "agent:worker-session a0041da1-c933-5d36-a2b3-a61f84d0654f (independent of the implementer)",
+          "verifier": "unassigned - must differ from both",
+          "previous_implementer_sessions": [
+            "agent:worker-session 88df3754-5680-5891-a86b-56323178746c (lost 02:40Z, work preserved on disk)"
+          ]
+        },
+        "added_at": "2026-11-08T01:49:52Z",
+        "added_by": "orchestrator acting as planner for this packet only; the orchestrator is not its implementer, reviewer or verifier",
+        "assigned_at": "2026-11-08T02:01:27Z",
+        "head_under_review": "0b8a7e89f987c1ffb6415110238e91514cd4aa9f",
+        "review_verdict": "APPROVE",
+        "linux_gate": "G8.4 PASS at 0b8a7e8: 793 passed / 0 failed / exit 0 / 0 snapshot writes",
+        "verification_verdict": "PASS",
+        "merge_commit": "5abe5ef"
+      }
+    ],
+    "acceptance_gates": [
+      {
+        "id": "G0",
+        "check": "pnpm exec playwright test --project=desktop --reporter=line ; pnpm exec playwright test --project=remote --reporter=line",
+        "expect": "record passed/failed per spec at the planner commit (listed: desktop 793 = a11y 188 + states 252 + visual 308 + flows 30 + layout 12 + onboarding 3; remote 91); this record is the pixel baseline every later Playwright gate must equal",
+        "host": "linux-capture-host"
+      },
+      {
+        "id": "G1.S",
+        "check": "git diff --name-only $BASE..HEAD | grep -vE '^(crates/warsha-(remote|git|pipeline)/README\\.md|packages/crypto/README\\.md|apps/(remote|desktop)/README\\.md|templates/README\\.md|README(\\.ar)?\\.md)$' | wc -l",
+        "expect": "expect output: 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.1",
+        "check": "grep -nE 'registers no service worker|لا يسجّل خدمة' README.md README.ar.md",
+        "expect": "expect exit 1 (no match)",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.2",
+        "check": "grep -nE '^(Planned:|المخطط له:)' README.md README.ar.md",
+        "expect": "expect exit 1 (no match)",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.3",
+        "check": "( for f in README.md README.ar.md; do for m in M10 M11 M12 M13 M14 M15 M16 M17 M18 M19 M20 'Wave 2'; do grep -qE \"^\\| $m \\|\" \"$f\" || { echo \"$f $m\"; exit 1; }; done; done )",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.4",
+        "check": "( for m in agent_loop agent_tools agent_workflow backend_kit build_cache evals guardrails handoff llm_cache observability orchestrator post_launch preferences process_spawn prompts provider_setup router_quality routines run_modes scale_standards scout skills work_protection mcp mcp_transport settings; do grep -q \"\\`$m\\`\" crates/warsha-pipeline/README.md || { echo \"$m\"; exit 1; }; done )",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.5",
+        "check": "grep -q process_handshake crates/warsha-remote/README.md && grep -qiE 'stub|not implemented' crates/warsha-remote/README.md",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.6",
+        "check": "( grep -q ProjectTemplate templates/README.md && for t in web cli desktop android; do grep -qw \"$t\" templates/README.md || exit 1; done )",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.7",
+        "check": "grep -q 'The pipeline asks this crate' crates/warsha-git/README.md",
+        "expect": "expect exit 1 (no match)",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.8",
+        "check": "grep -q flows.spec.ts apps/desktop/README.md && grep -q real-acceptance.cjs apps/desktop/README.md && grep -q 188 apps/desktop/README.md",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.9",
+        "check": "grep -q registerShellWorker apps/remote/README.md && grep -q RemoteProvider apps/remote/README.md",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.A",
+        "check": "node scripts/check-arch.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.P",
+        "check": "node scripts/check-engineering-policy.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G1.W",
+        "check": "node scripts/check-wire-contract.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G2.S",
+        "check": "git diff --name-only $BASE..HEAD | grep -vE '^(docs/(ARCHITECTURE|ARCH_RULES|DEPLOY|DEVELOPERS|VERIFY)\\.md|docs/src/(architecture|SUMMARY|design-system-v2|skills-and-harnesses|install|deploy|verify)\\.md|docs/designs/SITEMAP\\.md|_agents/skills/warsha_elephant/SKILL\\.md|SECURITY\\.md)$' | wc -l",
+        "expect": "expect output: 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G2.1",
+        "check": "mdbook build docs",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G2.2",
+        "check": "grep -nE 'Only `warsha-pipeline` and `warsha-providers`|~800 lines|does not yet mount|there is no offline service worker today|no `Dockerfile` or compose file exists|no `deny\\.toml` in the repository|There is no flag and no config key that binds another interface|octocrab|Noise XX|sixteen private modules|registers 60 methods|all 32 client call sites|open disagreement' docs/ARCHITECTURE.md docs/DEPLOY.md docs/src/architecture.md SECURITY.md docs/DEVELOPERS.md docs/ARCH_RULES.md docs/VERIFY.md",
+        "expect": "expect exit 1 (no match)",
+        "host": "worktree"
+      },
+      {
+        "id": "G2.3",
+        "check": "( for p in 'docs/ARCHITECTURE.md:apps/mobile' 'docs/ARCHITECTURE.md:docker/' 'docs/ARCHITECTURE.md:deploy/' 'docs/ARCHITECTURE.md:persistence.rs' 'docs/ARCHITECTURE.md:wave2' 'docs/DEPLOY.md:WARSHA_REMOTE_ASSETS_DIR' 'docs/src/architecture.md:bind_host' 'docs/src/architecture.md:advertised_host' 'docs/src/architecture.md:remote_assets_dir' 'docs/src/architecture.md:registerShellWorker' 'SECURITY.md:bind_host' 'SECURITY.md:advertised_host' 'SECURITY.md:deny.toml' 'docs/DEVELOPERS.md:apps/mobile' 'docs/DEVELOPERS.md:packages/crypto' 'docs/DEVELOPERS.md:reqwest' 'docs/ARCH_RULES.md:88' 'docs/VERIFY.md:294b8e259e88c804275154e8f3bd4ba4e957b15eb912cff3e7f2b9cbb4aabd99' 'docs/VERIFY.md:f3549485798919c9d81627d52e34c4a897483a3b4483fadfb0590ed45be0e7a9'; do f=${p%%:*}; t=${p#*:}; grep -qF -- \"$t\" \"$f\" || { echo \"missing $t in $f\"; exit 1; }; done )",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G2.4",
+        "check": "node -e \"const fs=require('fs');const n=(fs.readFileSync('packages/ui/src/tokens/tokenDrift.test.ts','utf8').match(/^\\s*it\\(/gm)||[]).length;const ok=fs.readFileSync('docs/ARCH_RULES.md','utf8').includes('tokenDrift.test.ts\\` ('+n+' tests)');console.log(n,ok);process.exit(ok?0:1)\"",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G2.5",
+        "check": "( n=$(node scripts/check-wire-contract.mjs | grep -oE '[0-9]+ checks' | head -1); echo \"$n\"; grep -qF \"$n\" docs/ARCH_RULES.md )",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G2.6",
+        "check": "( for t in DESIGN_SYSTEM_V2.md SKILLS_AND_HARNESSES.md UI.md INSTALL.md DEPLOY.md VERIFY.md; do grep -qF \"$t\" docs/designs/SITEMAP.md || { echo \"SITEMAP $t\"; exit 1; }; done; for t in design-system-v2.md skills-and-harnesses.md install.md deploy.md verify.md UI.md; do grep -qF \"$t\" docs/src/SUMMARY.md || { echo \"SUMMARY $t\"; exit 1; }; done; for t in DESIGN_SYSTEM_V2.md 188 252 308 apps/remote/e2e; do grep -qF \"$t\" _agents/skills/warsha_elephant/SKILL.md || { echo \"SKILL $t\"; exit 1; }; done )",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G2.A",
+        "check": "node scripts/check-arch.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G2.P",
+        "check": "node scripts/check-engineering-policy.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G2.W",
+        "check": "node scripts/check-wire-contract.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.S",
+        "check": "git diff --name-only $BASE..HEAD | grep -vE '^packages/ui/(src/|\\.storybook/|README\\.md$)' | wc -l",
+        "expect": "expect output: 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.1",
+        "check": "pnpm --filter @warsha/ui typecheck",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.2",
+        "check": "pnpm --filter @warsha/ui lint",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.3",
+        "check": "pnpm --filter @warsha/ui test",
+        "expect": "expect exit 0 and \"Tests  N passed\" with N >= 170, 0 failed",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.4",
+        "check": "pnpm --filter @warsha/ui build-storybook",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.5",
+        "check": "pnpm -r typecheck",
+        "expect": "expect exit 0 (apps still compile against the changed package)",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.6",
+        "check": "pnpm --filter warsha-desktop test",
+        "expect": "expect exit 0 with >= 443 and >= 221 passed, 0 failed",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.7",
+        "check": "pnpm --filter warsha-remote test",
+        "expect": "expect exit 0 with >= 443 and >= 221 passed, 0 failed",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.8",
+        "check": "pnpm exec playwright test --project=desktop --reporter=line",
+        "expect": "expect 793 passed, 0 failed, equal to the G0 baseline",
+        "host": "linux-capture-host"
+      },
+      {
+        "id": "G3.9",
+        "check": "pnpm exec playwright test --project=remote --reporter=line",
+        "expect": "expect 91 passed, 0 failed",
+        "host": "linux-capture-host"
+      },
+      {
+        "id": "G3.10",
+        "check": "git status --porcelain -- '*-snapshots/*' | wc -l",
+        "expect": "expect output: 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.A",
+        "check": "node scripts/check-arch.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.P",
+        "check": "node scripts/check-engineering-policy.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G3.W",
+        "check": "node scripts/check-wire-contract.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.S",
+        "check": "git diff --name-only $BASE..HEAD | grep -vE '^(scripts/check-wire-contract\\.mjs|packages/client/src/index(\\.test)?\\.ts|apps/desktop/e2e/harness\\.ts)$' | wc -l",
+        "expect": "expect output: 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.1",
+        "check": "pnpm --filter @warsha/client test",
+        "expect": "expect exit 0 and >= 140 passed, 0 failed",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.2",
+        "check": "pnpm --filter @warsha/client typecheck",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.3",
+        "check": "pnpm --filter @warsha/client lint",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.4",
+        "check": "node scripts/check-wire-contract.mjs --self-test",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.5",
+        "check": "node scripts/check-wire-contract.mjs",
+        "expect": "expect exit 0 and output containing \"wire: 9 checks, 0 violations\"",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.6",
+        "check": "pnpm --dir apps/desktop exec tsc --noEmit -p tsconfig.e2e.json",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.7",
+        "check": "node -e \"const h=require('fs').readFileSync('apps/desktop/e2e/harness.ts','utf8');const m=h.match(/RPC_METHODS\\s*=\\s*\\[([\\s\\S]*?)\\]\\s*as const/);const n=(m[1].match(/'[^']+'/g)||[]).length;console.log(n);process.exit(n===75?0:1)\"",
+        "expect": "expect exit 0 (prints 75)",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.8",
+        "check": "grep -nE 'REQUIRE_NO_KNOWN_DRIFT is false|FALSE again|RE-OPENED for Wave 2|deferred in .KNOWN_UNREGISTERED_METHODS' scripts/check-wire-contract.mjs packages/client/src/index.ts",
+        "expect": "expect exit 1 (no match)",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.9",
+        "check": "pnpm exec playwright test --project=desktop --reporter=line",
+        "expect": "expect 793 passed, 0 failed, equal to G0",
+        "host": "linux-capture-host"
+      },
+      {
+        "id": "G4.10",
+        "check": "git status --porcelain -- '*-snapshots/*' | wc -l",
+        "expect": "expect output: 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.A",
+        "check": "node scripts/check-arch.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G4.P",
+        "check": "node scripts/check-engineering-policy.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.S",
+        "check": "git diff --name-only $BASE..HEAD | grep -vE '^(apps/desktop/src/|apps/desktop/real-acceptance\\.cjs$|apps/remote/src/|packages/i18n/src/)' | wc -l",
+        "expect": "expect output: 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.1",
+        "check": "pnpm --filter warsha-desktop test",
+        "expect": "expect exit 0 and >= 451 passed, 0 failed",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.2",
+        "check": "pnpm --filter warsha-remote test",
+        "expect": "expect exit 0 with >= 221 and >= 52 passed, 0 failed",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.3",
+        "check": "pnpm --filter @warsha/i18n test",
+        "expect": "expect exit 0 with >= 221 and >= 52 passed, 0 failed",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.4",
+        "check": "pnpm -r typecheck",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.5",
+        "check": "pnpm -r lint",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.6",
+        "check": "pnpm -r build",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.7",
+        "check": "WARSHA_R6_APP_LENGTH_BUDGET=0 pnpm --filter @warsha/ui test",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.8",
+        "check": "grep -n 'TODO(M20 wiring)' apps/desktop/src/App.tsx",
+        "expect": "expect exit 1 (no match)",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.9",
+        "check": "grep -q \"daemon_ws_url: 'ws://127.0.0.1:8765'\" apps/desktop/real-acceptance.cjs",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.10",
+        "check": "pnpm exec playwright test --project=desktop --reporter=line",
+        "expect": "expect 793 passed, 0 failed, equal to G0",
+        "host": "linux-capture-host"
+      },
+      {
+        "id": "G5.11",
+        "check": "pnpm exec playwright test --project=remote --reporter=line",
+        "expect": "expect 91 passed, 0 failed",
+        "host": "linux-capture-host"
+      },
+      {
+        "id": "G5.12",
+        "check": "git status --porcelain -- '*-snapshots/*' | wc -l",
+        "expect": "expect output: 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.A",
+        "check": "node scripts/check-arch.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.P",
+        "check": "node scripts/check-engineering-policy.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G5.W",
+        "check": "node scripts/check-wire-contract.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G6.S",
+        "check": "git diff --name-only $BASE..HEAD | grep -vE '^crates/warsha-pipeline/src/(process_spawn|agent_tools|agent_loop)\\.rs$' | wc -l",
+        "expect": "expect output: 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G6.1",
+        "check": "cargo fmt --all --check",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G6.2",
+        "check": "cargo clippy --workspace --all-targets -- -D warnings",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G6.3",
+        "check": "cargo test -p warsha-pipeline --all-targets",
+        "expect": "expect exit 0 and >= 350 passed, 0 failed (sum of \"test result: ok. N passed\" lines)",
+        "host": "worktree"
+      },
+      {
+        "id": "G6.4",
+        "check": "cargo test --workspace --all-targets",
+        "expect": "expect exit 0 and >= 734 passed, 0 failed",
+        "host": "worktree"
+      },
+      {
+        "id": "G6.5",
+        "check": "grep -q 'pub fn with_read_before_write' crates/warsha-pipeline/src/agent_tools.rs && grep -q 'OutputCompressor::compress' crates/warsha-pipeline/src/agent_loop.rs",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G6.A",
+        "check": "node scripts/check-arch.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G6.P",
+        "check": "node scripts/check-engineering-policy.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G6.W",
+        "check": "node scripts/check-wire-contract.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G7.S",
+        "check": "git diff --name-only $BASE..HEAD | grep -vE '^apps/mobile/' | wc -l",
+        "expect": "expect output: 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G7.1",
+        "check": "pnpm --filter warsha-remote build && test -f apps/remote/dist/sw.js && test -f apps/remote/dist/index.html",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G7.2",
+        "check": "( cd apps/mobile/android && ./gradlew assembleRelease --no-daemon )",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G7.3",
+        "check": "\"$(ls -d \"$ANDROID_HOME\"/build-tools/* | sort -V | tail -1)\"/apksigner verify --print-certs \"$APK\"",
+        "expect": "expect exit 0 (use the newest build-tools apksigner)",
+        "host": "worktree"
+      },
+      {
+        "id": "G7.4",
+        "check": "unzip -l \"$APK\" | grep -cE 'assets/public/(index\\.html|sw\\.js)$'",
+        "expect": "expect output: 2",
+        "host": "worktree"
+      },
+      {
+        "id": "G7.5",
+        "check": "grep -qF \"$(sha256sum \"$APK\" | cut -d' ' -f1)\" apps/mobile/README.md",
+        "expect": "expect exit 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G7.6",
+        "check": "grep -rniE 'storePassword|keyPassword|WARSHA_KEYSTORE_PASSWORD=|WARSHA_KEY_PASSWORD=' C:/Users/Dragonfly/Downloads/Warsha/bridge-io/policy/2026-11-08-design-and-remediation/packets/W7",
+        "expect": "expect exit 1 (no match)",
+        "host": "worktree"
+      },
+      {
+        "id": "G7.7",
+        "check": "git ls-files apps/mobile/android/app/src/main/assets | wc -l",
+        "expect": "expect output: 0",
+        "host": "worktree"
+      },
+      {
+        "id": "G7.A",
+        "check": "node scripts/check-arch.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "G7.P",
+        "check": "node scripts/check-engineering-policy.mjs",
+        "expect": "expect exit 0 each",
+        "host": "worktree"
+      },
+      {
+        "id": "INT-2",
+        "check": "set `const APP_LENGTH_BUDGET = 0;` in packages/ui/src/tokens/tokenDrift.test.ts on run/2026-11-08/integration after W5 merges, then: pnpm --filter @warsha/ui test",
+        "expect": "exit 0 (planner-specified one-line tightening, reviewed like any diff)",
+        "host": "integration"
+      },
+      {
+        "id": "GC.1",
+        "check": "cargo fmt --all --check",
+        "expect": "exit 0",
+        "host": "integration"
+      },
+      {
+        "id": "GC.2",
+        "check": "cargo clippy --workspace --all-targets -- -D warnings",
+        "expect": "exit 0",
+        "host": "integration"
+      },
+      {
+        "id": "GC.3",
+        "check": "cargo test --workspace --all-targets",
+        "expect": "exit 0, >= 734 passed, 0 failed",
+        "host": "integration"
+      },
+      {
+        "id": "GC.4",
+        "check": "pnpm -r typecheck && pnpm -r lint && pnpm -r test && pnpm -r build",
+        "expect": "exit 0; vitest >= ui 170, client 140, i18n 52, desktop 451, remote 221",
+        "host": "integration"
+      },
+      {
+        "id": "GC.5",
+        "check": "pnpm --dir apps/desktop exec tsc --noEmit -p tsconfig.e2e.json",
+        "expect": "exit 0",
+        "host": "integration"
+      },
+      {
+        "id": "GC.6",
+        "check": "node scripts/check-arch.mjs --self-test && node scripts/check-arch.mjs",
+        "expect": "exit 0",
+        "host": "integration"
+      },
+      {
+        "id": "GC.7",
+        "check": "node scripts/check-engineering-policy.mjs --self-test && node scripts/check-engineering-policy.mjs",
+        "expect": "exit 0",
+        "host": "integration"
+      },
+      {
+        "id": "GC.8",
+        "check": "node scripts/check-wire-contract.mjs --self-test && node scripts/check-wire-contract.mjs",
+        "expect": "exit 0, \"wire: 9 checks, 0 violations\"",
+        "host": "integration"
+      },
+      {
+        "id": "GC.9",
+        "check": "mdbook build docs",
+        "expect": "exit 0",
+        "host": "integration"
+      },
+      {
+        "id": "GC.10",
+        "check": "pnpm exec playwright test --project=desktop --reporter=line ; pnpm exec playwright test --project=remote --reporter=line",
+        "expect": "desktop 793 + remote 91 passed, equal to G0, no snapshot file changed",
+        "host": "linux-capture-host"
+      },
+      {
+        "id": "GC.11",
+        "check": "gitleaks detect --source . --config .gitleaks.toml",
+        "expect": "exit 0, no leaks",
+        "host": "integration"
+      },
+      {
+        "id": "GC.12",
+        "check": "rerun W7 gates G7.1-G7.6 on the integration tree",
+        "expect": "all as specified in packets/W7/prompt.md",
+        "host": "integration"
+      }
+    ]
+  },
+  "repair": {
+    "iteration": 1,
+    "max_repair_iterations": 3,
+    "open_findings": [
+      "W7-R1: the report's G7.5 analysis is factually wrong (v2 signature is deterministic 0x0104, not randomized PSS); the observed drift is AGP dependency metadata + non-reproducible source maps. Repair: disable dependenciesInfo, exclude **/*.map from the packaged assets, then prove two consecutive rebuilds give an identical SHA-256 and record that hash."
+    ]
+  },
+  "blocker": null,
+  "evidence": {
+    "dir": "bridge-io/policy/2026-11-08-design-and-remediation",
+    "gates": [
+      "G0"
+    ],
+    "logs": [
+      "gates/G0.log",
+      "gates/G0.verifier-baseline.log"
+    ],
+    "handover": "HANDOVER.md"
+  },
+  "owner_approvals": [
+    {
+      "at": "2026-11-08T00:49:20Z",
+      "seq": 3,
+      "by": "human: Mohamed Ashry (owner)",
+      "asked": "How should checkpoint merges into run/2026-11-08/integration be authorized at C1/C2/C3?",
+      "verbatim_answer": "all approved by me",
+      "acting_interpretation": "Owner grants approval for the run checkpoint merges C1 and C2 into run/2026-11-08/integration (local, --no-ff, reversible). The wording does not unambiguously cover the final integration->dev merge, so that single step will be confirmed with the owner at C3 before it is executed. No push, no publish, no release, no force-push under any reading.",
+      "scope": [
+        "C1",
+        "C2"
+      ],
+      "explicitly_not_yet_authorized": [
+        "integration->dev merge at C3",
+        "any push",
+        "any release or publish"
+      ]
+    },
+    {
+      "at": "2026-11-08T00:49:20Z",
+      "seq": 3,
+      "by": "human: Mohamed Ashry (owner)",
+      "asked": "W7 may use only owner-scoped signing material (~/.warsha/signing/ or WARSHA_KEY*); if absent, what do you want?",
+      "verbatim_answer": "I will supply signing material",
+      "acting_interpretation": "Owner will supply the owner-scoped signing material for W7. W7 is dispatched, but if the material is still absent at build/verify time W7 is recorded blocked (out-of-scope) per D7 and is never faked. No secret value may enter state, checkpoints, logs, diffs or reports.",
+      "scope": [
+        "W7"
+      ]
+    }
+  ],
+  "orchestration_findings": [
+    {
+      "at": "2026-11-08T00:55:03Z",
+      "topic": "delegation failure",
+      "fact": "The prerequisite research subtask assigned to the Researcher returned only \"The delegated Agent could not complete this task.\" - no findings, no evidence, no reason. It was not re-issued. The orchestrator gathered the blocking facts directly with read-only commands instead. No packet implementation, review or gate verification was performed by the orchestrator."
+    },
+    {
+      "at": "2026-11-08T00:55:03Z",
+      "topic": "a11y 180-vs-188 SETTLED",
+      "fact": "pnpm exec playwright test --project=desktop --list at 0772d50 reports Total: 793 tests in 6 files; per-spec: screens.a11y 188, states 252, screens.visual 308, flows 30, layout 12, onboarding 3. --project=remote reports Total: 91 tests in 2 files (bench.visual 84, flows 7). This matches PLAN.md exactly; the 180 figure in the owner brief is not what the tree lists. Evidence: orchestration/list-desktop-0772d50.txt and orchestration/list-remote-0772d50.txt. NOTE: this is a LISTING, not gate G0 - G0 remains not-run and acceptance.json was not altered."
+    },
+    {
+      "at": "2026-11-08T00:55:03Z",
+      "topic": "W7 signing material PRESENT",
+      "fact": "C:/Users/Dragonfly/.warsha/signing/ exists and contains keystore.properties and warsha-release.jks (entry names only; no value, password or keystore content was read, printed or copied). No WARSHA_KEY* environment variable is set. W7 is therefore not blocked on missing material."
+    },
+    {
+      "at": "2026-11-08T00:55:03Z",
+      "topic": "capture-host assets present",
+      "fact": "On WSL Ubuntu as root: node v20.20.2 resolves, IBM Plex faces are installed (9 fc-list matches), Playwright browsers chromium-1148 / chromium_headless_shell-1148 / ffmpeg-1010 are cached, and scripts/ci/install-capture-fonts.sh + scripts/ci/capture-fontconfig.conf exist in the capture clone. The gap is the commit, the isolation and Linux pnpm - not the fonts or the browser."
+    },
+    {
+      "at": "2026-11-08T00:55:03Z",
+      "topic": "gate host inventory",
+      "fact": "85 packet gates + 14 top-level plan gates = 99. linux-capture-host packet gates are exactly 5: G3.8, G3.9 (W3), G4.9 (W4), G5.10, G5.11 (W5). W1 (13), W2 (10), W6 (9), W7 (10) are worktree-only."
+    },
+    {
+      "at": "2026-11-08T00:55:03Z",
+      "topic": "Windows worktree readiness",
+      "fact": "Windows host: node v26.8.1, pnpm 9.0.0, cargo/rustc 1.99.1, node_modules installed. C:/Users/Dragonfly/Downloads/warsha-wt does not exist yet. run/2026-11-08/integration resolves to 0772d502002562505c6438ae712abca7a7328d84. Seven pre-existing Qoder agent worktrees under .qoder/worktrees are present and were left untouched."
+    },
+    {
+      "at": "2026-11-08T00:55:03Z",
+      "topic": "secret-handling event",
+      "fact": "The owner pasted a live third-party provider API key into the task conversation. No part of that key was written to state.json, checkpoints, acceptance.json, logs, diffs, reports or any file, and no real model API call was made. Rotation/revocation was recommended to the owner. Real-model testing is outside this run: ENGINEERING_POLICY §6 forbids real model API calls in gates and permits a real-model run only behind the owner explicit WARSHA_E2E_REAL opt-in."
+    },
+    {
+      "at": "2026-11-08T00:58:36Z",
+      "topic": "dispatch attempt and clean failure",
+      "fact": "Wave A was dispatched to five separate local Coder specialists with file-isolated scopes and verbatim packet prompts, plus one general-purpose verifier for G0. All five Coder agents failed on expired authentication before executing a single tool. No code, branch, worktree, report or gate artifact was produced. Nothing was merged, pushed or published. acceptance.json untouched at 99/99 not-run."
+    },
+    {
+      "at": "2026-11-08T01:25:31Z",
+      "topic": "dispatch unblocked via a different execution path",
+      "fact": "The Agent-tool subagent path remains broken with expired authentication (re-probed once at 01:20, failed in 0.42s, 0 tool uses). A separate worker conversation created through the built-in conversation path DOES execute: the W6 worker was observed running with 4 completed Read tool calls. All five Wave A packets were therefore dispatched as five independent worker conversations, preserving one implementer per packet and file isolation. The orchestrator did not implement any packet itself."
+    },
+    {
+      "at": "2026-11-08T01:25:31Z",
+      "topic": "G0 attempt 1 failed and was preserved",
+      "fact": "First G0 launch died on SIGHUP (desktop exit 129, no test output) and left two orphaned vite dev servers on ports 5173/5174 belonging to /root/warsha-g0; the remote leg then failed with \"http://localhost:5173 is already used\". Evidence preserved immutably as gates/G0.attempt-01-sighup-portconflict.log and gates/G0.attempt-01.done. The two orphans (pids 755/756/780/830/831, all under /root/warsha-g0, ~58s old) were identified and stopped; ports verified free afterwards. No owner process was touched."
+    },
+    {
+      "at": "2026-11-08T01:25:31Z",
+      "topic": "G0 attempt 2 running",
+      "fact": "Capture host provisioned and REUSED rather than rebuilt: /root/warsha-g0 is a clean detached worktree at exactly 0772d502002562505c6438ae712abca7a7328d84, 0 dirty, node_modules and @playwright/test present, node v20.20.2, pnpm 9.0.0, 9 IBM Plex faces, chromium-1148 cached. Planner commit was fetched into the capture clone object store from the Windows checkout without pushing. /root/warsha-visual left untouched at beae601e with its 221 uncommitted entries intact (verified before and after). Relaunched with setsid; observed real progress [1/793]..[4/793] with headless chromium running. CI=true is set so a missing baseline FAILS instead of being silently written, protecting the pixel-neutral contract; the gate commands themselves are unmodified. Attempt 1 recorded snapshot_writes=0 and dirty_after=0."
+    },
+    {
+      "at": "2026-11-08T01:25:31Z",
+      "topic": "sequencing note",
+      "fact": "Wave A implementation was dispatched while G0 attempt 2 is still running, rather than waiting for G0 to conclude. Rationale: G0 is the pixel BASELINE consumed at verification time, not at implementation time; no implementer needs its result to write code. Every packet still depends on G0 for its verification, and no packet will be verified or merged before G0 is recorded. This is an ordering note, not a change to any depends_on entry or any gate."
+    },
+    {
+      "at": "2026-11-08T01:25:31Z",
+      "topic": "dev moved independently",
+      "fact": "The main checkout dev advanced from 0772d50 to 642ae95 (docs-only: PROGRESS.md + DECISIONS.md recording a Windows NTFS Low Mandatory Level remediation that fixed 0xC0000142 DLL-init failures; zero code files changed). run/2026-11-08/integration remains at 0772d50 and is still the base for every packet. Workers were explicitly told to branch from the integration branch, not dev."
+    },
+    {
+      "at": "2026-11-08T01:29:41Z",
+      "topic": "G0 BASELINE RECORDED - not all-green",
+      "fact": "The independent G0 verifier completed both frozen commands at 0772d502002562505c6438ae712abca7a7328d84 on WSL Ubuntu x86_64. Desktop exit 1: 793 listed / 785 passed / 8 failed (a11y 180/188, states 252/252, visual 308/308, flows 30/30, layout 12/12, onboarding 3/3). Remote exit 1: 91 listed / 51 passed / 40 failed (bench.visual 44/84, flows 7/7). acceptance.json G0 = fail, exit 1, log sha256 3c3ff82025edd17a895246f0a2d6e1d29c6b1bdfeb41e287eded3076aeaab72e. This settles the owner-flagged a11y 180-vs-188 question: 188 are LISTED, 180 PASS, and the 8 failures are all the settings screen failing axe aria-required-children [critical] (ul missing a listitem child). Nothing was fixed or refreshed to improve the number."
+    },
+    {
+      "at": "2026-11-08T01:29:41Z",
+      "topic": "orchestrator/verifier collision resolved and evidence relabeled",
+      "fact": "The orchestrator launched a redundant G0 attempt in the same /root/warsha-g0 worktree while the independent verifier was finishing, and mislabeled the verifier complete 266016-byte log as G0.attempt-01-sighup-portconflict.log. Corrected: that file is byte-identical (sha256 verified) to G0.verifier-baseline.log and is now named G0.verifier-baseline.archive-duplicate.log. The orchestrator partial attempt is preserved as G0.orchestrator-attempt-02-partial-aborted.log. gates/G0.log now holds the authoritative verifier bytes. The orchestrator redundant run and its orphaned vite/esbuild/playwright processes were stopped by explicit PID; ports 5173/5174 verified free. /root/warsha-visual verified unchanged at beae601e with 221 dirty entries; /root/warsha-g0 verified at 0772d50 and clean. The independent verifier run is authoritative; the orchestrator attempt is superseded and is NOT evidence."
+    },
+    {
+      "at": "2026-11-08T01:29:41Z",
+      "topic": "BLOCKING GATE CONFLICT - frozen gates assume an all-green baseline",
+      "fact": "Five frozen linux-capture-host gates cannot be satisfied as literally written against the measured baseline: W3 G3.8 and W4 G4.9 and W5 G5.10 expect \"793 passed, 0 failed, equal to G0\" but G0 desktop is 785 passed / 8 failed; W3 G3.9 and W5 G5.11 expect \"91 passed, 0 failed\" but G0 remote is 51 passed / 40 failed. Gates may never be edited, narrowed or re-worded (ENGINEERING_POLICY §1 Phase 6, §5). The only legitimate resolution is to FIX the 48 underlying defects so the gates pass as written. A read-only root-cause investigation was dispatched to determine the exact a11y culprit, whether its fix is pixel-neutral, and whether the 40 remote visual diffs are a product defect or stale remote baselines (commit 2b69429 refreshed 120 DESKTOP baselines only). No packet scope has been widened and no gate has been touched."
+    },
+    {
+      "at": "2026-11-08T01:33:21Z",
+      "topic": "full 99-gate audit - conflict is 6 gates, not 5",
+      "fact": "Audited every frozen gate. The all-green-baseline conflict affects SIX gates, not five: W3 G3.8, W3 G3.9, W4 G4.9, W5 G5.10, W5 G5.11, and integration GC.10 (expects \"desktop 793 + remote 91 passed, equal to G0, no snapshot file changed\"). G0 measured 785/8 and 51/40, so all six are unsatisfiable until the 48 real defects are fixed. No gate was edited. Also note G0 itself is a RECORD gate (its expect says record passed/failed), so G0 verdict=fail is the correct honest recording of a non-green baseline, not a repair-loop failure."
+    },
+    {
+      "at": "2026-11-08T01:33:21Z",
+      "topic": "integration gate tool readiness verified",
+      "fact": "Windows integration host has mdbook v0.5.4 at C:/Users/Dragonfly/.cargo/bin/mdbook (satisfies G2.1 and GC.9 mdbook build docs) and gitleaks 8.30.1 at C:/Users/Dragonfly/.cargo/bin/gitleaks (satisfies GC.11). .gitleaks.toml (8589 B) and docs/book.toml (707 B) both present. WSL capture host also has mdbook v0.5.4 but no gitleaks on PATH - GC.11 is host=integration so Windows is the correct host and no provisioning is needed. Android toolchain availability is being determined by the W7 implementer itself, not duplicated here."
+    },
+    {
+      "at": "2026-11-08T01:33:21Z",
+      "topic": "git content filter observation",
+      "fact": "The repo has Git content filters configured. A worktree file content hash can differ from git show <commit>:<path> because of the smudge filter, while git diff correctly normalizes via the clean filter and reports no change. Orchestrator verified this rather than misreading it as hidden worker edits. Worker progress is therefore judged from explicit git log/diff and report.md artifacts, not from raw file hashes."
+    },
+    {
+      "at": "2026-11-08T01:49:52Z",
+      "topic": "ROOT CAUSE of the 8 a11y failures - verified by independent investigation",
+      "fact": "apps/desktop/src/screens/SettingsScreen.tsx:318 renders Ledger (a ul role=list) whose direct child at :319 is Text (a span display:block), not an li. The e2e stub answers integrations.list with {ok:true,result:[]} (apps/desktop/e2e/harness.ts:1232) so integrations becomes [] not null (SettingsScreen.tsx:83-85), taking the live branch instead of the four-row SUBSCRIPTIONS branch at :275; integrations.map yields zero rows so the ul has no listitem child. Trigger (not the defect) was commit 08d61af adding integrations.list to the stub; the markup defect is older. Mechanism confirmed in axe-core source (node_modules/axe-core/axe.js:32152, :32138, :32089, :32118, :32128, :32213, :32131). Minimal fix: move the Text description out of Ledger to precede it in the Panel body, and render Ledger only when integrations.length > 0. The investigator argues pixel-neutrality (Panel body is a plain block div, ul has margin/padding 0 and border-block-start:none, .warsha-ledger scrollbar-gutter is inert with no overflow) but explicitly states the GATE must prove it, not the argument."
+    },
+    {
+      "at": "2026-11-08T01:49:52Z",
+      "topic": "ROOT CAUSE of the 40 remote failures - REAL PRODUCT CHANGE, owner decision required",
+      "fact": "Not host raster. Remote baselines were last refreshed at ddb8074 (2026-11-04T21:57Z) on the authoritative aarch64 host (84 files). Six commits since changed apps/remote/src (7ecb629 ded9241 462e117 9c674c5 b3dc490 8c881ef) and ZERO changed bench.visual.spec.ts, apps/remote/e2e/harness.ts or the snapshots. 2b69429 touched 122 files but a remote grep count is 0 (desktop only). b3dc490 added new visible UI: create-project and start-run panels in ProjectsScreen.tsx, run-controls/followup/artifacts in RunScreen.tsx. Selectivity disproves the aarch64-to-x86_64 raster theory: gates 20/20 PASS, settings 8/8 PASS, flows 7/7 PASS; only changed screens fail (run 12/12, projects 8/8, needs-you 20/36). Missing-snapshot count is 0. Secondary provenance defect confirmed: no snapshotPathTemplate or snapshotSuffix anywhere, so the default name is project+platform only (-remote-linux) with no architecture, and an aarch64 baseline is read on x86_64 under the same name. CORRECT REMEDY: an owner-named baseline refresh (Phase B per D1 and DESIGN_SYSTEM_V2.md:507), NOT a product revert - reverting would undo P0/P1 features from b3dc490. The orchestrator cannot authorize a baseline refresh; every packet lists **/*-snapshots/** as out_of_scope and D1 forbids a bulk refresh without the owner naming the set."
+    },
+    {
+      "at": "2026-11-08T01:49:52Z",
+      "topic": "CIRCULAR DEPENDENCY found and broken by new packet W8",
+      "fact": "G3.8 (W3) and G4.9 (W4) demand 793 passed/0 failed, but the only a11y fix is in apps/desktop/src which W5 owns; W5 depends_on C1, and C1 requires W3+W4 accepted. Verification runs in the isolated packet worktree at the reviewed commit (ENGINEERING_POLICY.md:56), which would not contain the W5 fix. Deadlock. Resolution: new prerequisite packet W8 (added at seq 9, 9 frozen gates authored by the orchestrator in a planner capacity, NOT by its implementer) fixes only SettingsScreen.tsx plus a new guarding unit test. W8 merges to integration at checkpoint C0 BEFORE Wave A Linux verification; Wave A worktrees then advance onto that base and re-record BASE so their scope gates still exclude W8 files. No existing gate was edited, narrowed or re-worded."
+    },
+    {
+      "at": "2026-11-08T07:41:34Z",
+      "topic": "MASS WORKER FAILURE at 02:40Z and recovery from disk",
+      "fact": "Every worker conversation (W1, W3, W4, W6, W7, W8) and the first W7 reviewer ended in failed state within about 26 seconds of each other (02:40:10Z to 02:40:37Z) while their revisions had been climbing normally; a first W7 reviewer created at 02:40:11Z failed immediately with an empty message. The cause is UNDETERMINED. No sleep, resume, boot or shutdown event exists in the host System log for the previous 14 hours and the last boot was 2026-11-01, so a host power event is ruled out. Simultaneity plus the earlier \"authentication expired\" failures of the Agent-tool path suggest a shared credential or service-side expiry, but that is a hypothesis only. Replacement sessions created at 07:3xZ DO execute (the W7 reviewer was observed running 18 tool calls), so the fault was not permanent. The owner returned at about 07:26Z and reported all subagents failed."
+    },
+    {
+      "at": "2026-11-08T07:41:34Z",
+      "topic": "work survived on disk - verified with explicit git commands at 07:27Z",
+      "fact": "Nothing was lost. W1: 3 commits (a9e5a4d 260a013 763f6ff) + 12/4 uncommitted README.md lines. W3: 1 commit f0a5e84 (16 files, +937/-118), clean tree. W4: 2 commits (d969e0e 081ec5b) + 356/4 uncommitted lines in packages/client/src/index.ts and index.test.ts. W6: 3 commits (44658b8 ef7471d a9edd90), clean tree. W7: 3 commits (b1d9368 d3256a8 5a18a14) and a 11334-byte report. W8: worktree at base with zero commits and zero edits (genuinely not started). Replacement implementers were told to RESUME from the observed state, not redo it, and to stop and report if commits or edits they did not make appear."
+    },
+    {
+      "at": "2026-11-08T07:41:34Z",
+      "topic": "DOUBLE-WRITER RISK from the lost sessions - open, mitigated, not eliminated",
+      "fact": "The five lost implementer sessions (W1 fe8cc9d5, W3 22daf01a, W4 8175c995, W6 672991ad, W8 88df3754) cannot be read, waited on or stopped: every call returns CHAT_SESSION_CONFLICT. The orchestrator had sent each of them a resume message BEFORE realising they were unrecoverable, so they sit in an opening state and could in principle start executing and write into the same worktree as the replacement. Mitigation: each replacement brief contains an explicit single-writer check (compare git log and git diff --stat before every edit and commit; stop and report a blocker on any foreign change). Residual risk is therefore detectable, not impossible. If a worktree shows commits or edits that no live session claims, treat that packet as contaminated and re-verify from the diff."
+    },
+    {
+      "at": "2026-11-08T07:41:34Z",
+      "topic": "keep-awake guard evaluated and not used",
+      "fact": "A SetThreadExecutionState keep-awake script was written (orchestration/keep-awake.ps1, non-persistent, 10 hour hard cap, changes no power setting) and started, then stopped, because the System log showed no sleep or restart event that could explain the failure. It remains available if a later failure does correlate with sleep."
+    },
+    {
+      "at": "2026-11-08T07:51:09Z",
+      "topic": "ROOT CAUSE of the 02:40Z mass failure: the conversations were ARCHIVED",
+      "fact": "Attempting to message the W7 implementer session returned CHAT_SESSION_CONFLICT with details.state = \"archived\". That explains every CHAT_SESSION_CONFLICT the orchestrator hit on the five lost implementer sessions: read, wait, message and stop all fail because the conversations are archived, not because they are wedged. So those sessions cannot wake up and cannot be a second writer - the earlier double-writer risk is CLOSED. The reason the sessions were archived at 02:40Z is still undetermined (no host power event; simultaneous across all sessions). Recovery is therefore by creating a new conversation that resumes from the worktree, which is what was done for W1, W3, W4, W6, W8 and now W7."
+    },
+    {
+      "at": "2026-11-08T07:51:09Z",
+      "topic": "W7 G7.5 CORRECTION - not a gate defect; it is an in-scope implementation fix",
+      "fact": "The orchestrator parsed the Apk Signing Block of the W7 artifact read-only. (1) Signer #1 uses signature algorithm id 0x0104 = RSASSA-PKCS1-v1_5 with SHA2-512, 512-byte signature: DETERMINISTIC, no PSS salt. The implementer report's randomization theory was wrong. (2) The block holds exactly three id-value pairs: v2 (2570 B value at offsets 1306136..1308706), AGP DEPENDENCY METADATA id 0x504b4453 (344 B value at 1308718..1309062), verity padding (1114 B). The implementer's measured differing range 1308724..1309062 lies entirely inside the AGP dependency-metadata value (its last 338 bytes), and the whole v2 signature block was byte-identical between builds. AGP encrypts that metadata block with a random session key per build - the real drift source. (3) A second drift source: three source maps ship inside the APK (index-*.js.map 1707300 B, sw.js.map 3599 B, workbox-*.js.map 147250 B); sw.js.map has a random per-build temp dir in sources and embeds absolute worktree paths, so the APK hash also depends on the worktree path - which would make GC.12 fail on the integration tree even with a deterministic signature. Both sources are packaging decisions inside W7 allowed scope apps/mobile/**: `dependenciesInfo { includeInApk = false; includeInBundle = false }` plus excluding **/*.map from the syncRemoteWebAssets task. Repair iteration 1 was dispatched to prove byte-identical rebuilds before recording any hash. Consequence: G7.5 is satisfiable without editing any gate, and the G7.5 item is removed from the owner-decision list."
+    },
+    {
+      "at": "2026-11-08T08:07:11Z",
+      "topic": "W6 and W8 implementation reported; independent reviews dispatched",
+      "fact": "W6 HEAD a9edd90: 3 files (+595/-18), 18 new tests (5+8+5) so warsha-pipeline 341 -> 359 which satisfies the >= 350 gate; the resumed session read the full diff, ran all 9 gates green on the first run and made NO code edits, so nothing was redone. W8 HEAD 0b8a7e8: 2 files (+178/-124) but the semantic diff with -w is only about +8/-1, the rest being re-indentation from wrapping the map body one JSX level deeper; the fix moves the connectors description outside the Ledger and renders the Ledger only when integrations.length > 0, so the empty catalogue renders no list element at all. W8 recorded four decisions, including that SettingsScreenIntegrations.test.tsx already existed at BASE and was extended append-only (no existing test weakened), and that the description must stay unconditional because gating it would delete visible text and move pixels. Two independent reviewer sessions were created (W6 02a7e3b3, W8 a0041da1)."
+    },
+    {
+      "at": "2026-11-08T08:07:11Z",
+      "topic": "Linux gate harness built and validated",
+      "fact": "orchestration/run-linux-gate.sh verifies one commit in a throwaway clean worktree at /root/verify-<label> on the authoritative WSL x86_64 host: it refuses to run while 5173/5174 already have a listener (both projects use reuseExistingServer:false so a concurrent run yields false failures and could orphan dev servers), fetches objects from the Windows checkout additively without pushing and without touching /root/warsha-visual, installs with --frozen-lockfile, runs the named Playwright project with the repo fontconfig pin, then records snapshot_writes and dirty_after. Validated end-to-end at the planner commit in --list-only mode: install exit 0, desktop \"Total: 793 tests in 6 files\", remote \"Total: 91 tests in 2 files\", snapshot_writes 0, dirty_after 0 - i.e. it reproduces the G0 listing exactly. Environment matches G0: CI unset, 3 workers."
+    },
+    {
+      "at": "2026-11-08T08:30:16Z",
+      "topic": "W7 repair PROVED byte-reproducibility - a gate the implementer had called impossible now passes",
+      "fact": "W7 HEAD is now 7adbff4 with two repair commits (e422ede fix(mobile) make the signed release APK byte-reproducible; 7adbff4 docs(mobile) record the reproducible hash and size). The fix is exactly the two in-scope packaging changes the orchestrator forensics indicated: `dependenciesInfo { includeInApk = false; includeInBundle = false }` in android {} removes the AGP dependency-metadata pair 0x504b4453 (the real randomized input), and `exclude **/*.map` in syncRemoteWebAssets removes the three source maps whose bytes embedded a random temp dir and absolute worktree paths. Two consecutive full clean cycles (pnpm --filter warsha-remote build; gradlew clean assembleRelease --no-daemon; sha256sum) produced the IDENTICAL SHA-256 ce60f2bd5183779de7fd6a3c7593e0a612e878c8a1c05960f308e06ea3ad01ff at 840,513 B (down from 1,312,517 B). The implementer verified the precache manifest in apps/remote/dist/sw.js lists 9 URLs and no .map entry, so precaching stays valid. INDEPENDENTLY RE-VERIFIED BY THE ORCHESTRATOR at 08:17Z: artifact size 840,513 B; sha256sum equals the recorded value exactly; apps/mobile/README.md contains that exact 64-hex token; the APK contains 0 *.map entries; the signing block now has exactly two pairs (0x7109871a v2 2570 B, 0x42726577 verity padding) with 0x504b4453 gone. 9 of 10 gates green; only G7.6 remains, which cannot pass by construction. The earlier PSS/randomized-signature conclusion was wrong and is retracted in the report."
+    },
+    {
+      "at": "2026-11-08T08:30:16Z",
+      "topic": "W6 APPROVED by independent review; verification dispatched",
+      "fact": "W6 review verdict APPROVE at 0772d50..a9edd90: 3 files +595/-18 matching the claim exactly, scope gate 0, no blockers, no majors. One MINOR product finding M1: the read-before-write guard ships unwired (FilesystemToolExecutor::new leaves read_guard None, agent_tools.rs:204-205, and warshad builds exactly that at crates/warshad/src/lib.rs:4865) while WorkProtectionPolicy::default() sets read_before_write: true (work_protection.rs:73) - so the product default policy is not honoured and wiring it as-is would block creating a brand-new file that can never have been read. Recorded as a follow-up, not a gate failure. An independent verifier was dispatched to re-run all 9 gates in its own clean detached worktree at a9edd90."
+    },
+    {
+      "at": "2026-11-08T08:30:16Z",
+      "topic": "W1 and W4 implementation complete",
+      "fact": "W1 HEAD 6d9728f, 5 commits, only the 9 allowed READMEs, +447/-99, all 13 gates reported green by the implementer. W4 HEAD c83af5e, 5 commits, 4 files +1241/-44, harness RPC_METHODS 44 -> 75, W9 client-subset-of-harness check added with a self-test mutant, client tests expanded; intake counts independently confirmed at BASE (88 daemon #[method] registrations, 17 client names with no harness stub, 44 pre-existing RPC_METHODS), and the report reconciles once-unstubbed-44 vs 31-stubs-added correctly (the harness answers every method the client SENDS, 61 client names). Independent reviews dispatched for both."
+    },
+    {
+      "at": "2026-11-08T08:42:25Z",
+      "topic": "W6 VERIFIED PASS - first packet through the full loop",
+      "fact": "An independent verifier re-ran all 9 W6 gates in its own clean detached worktree (C:/Users/Dragonfly/Downloads/warsha-wt/verify-w6) at a9edd90 and wrote gates/<gate-id>.log for each. Every gate exited 0. The orchestrator recomputed the thresholds from the raw \"test result: ok.\" lines rather than trusting prose: G6.3 = 352 passed / 0 failed / 7 ignored over 4 suites (threshold >= 350) and G6.4 = 743 passed / 0 failed / 10 ignored over 36 suites (threshold >= 734). G6.P printed \"policy: 8 checks, 0 failures\"; G6.W printed \"wire: 8 checks, 0 violations\", which is the correct count at this commit because the 9th check (W9) is added later by W4 - that is not a discrepancy. W6 is the first packet to complete implement -> independent review (APPROVE) -> independent verification (PASS)."
+    },
+    {
+      "at": "2026-11-08T09:02:38Z",
+      "topic": "G8.4 PASS - the a11y defect is fixed AND pixel-neutrality is now proven, not argued",
+      "fact": "The orchestrator ran the frozen gate `pnpm exec playwright test --project=desktop --reporter=line` against the reviewed W8 commit 0b8a7e89f987c1ffb6415110238e91514cd4aa9f on the authoritative WSL x86_64 capture host, in a throwaway clean worktree /root/verify-G8.4 created for exactly that commit. Result: 793 passed, 0 failed, exit 0, elapsed 11.4m, snapshot_writes 0, dirty_after 0, head_after unchanged. Compare with the recorded G0 baseline at the planner commit: 785 passed / 8 failed, the 8 being exactly the `settings` axe aria-required-children cases. So the 8 are fixed, and the full 308 visual + 252 states + 30 flows + 12 layout + 3 onboarding cases still pass with ZERO snapshot writes - which is the empirical proof that the fix is pixel-neutral, the claim the reviewer had only been able to argue from the code. Both Playwright ports were confirmed free before the run (the harness refuses to start otherwise, because reuseExistingServer:false would otherwise produce false failures and orphan dev servers). The gate commands were not modified."
+    },
+    {
+      "at": "2026-11-08T09:02:38Z",
+      "topic": "Magic-moment status of Wave A at this checkpoint",
+      "fact": "W6 is fully through the loop: implement -> independent review APPROVE -> independent verification PASS with 9 gate logs (352 >= 350, 743 >= 734). W8 is implemented, independently reviewed APPROVE, and its linux gate G8.4 now passes at 793/0 with zero snapshot writes; only its 8 worktree gates remain with the dispatched verifier. W7 was implemented, then its G7.5 analysis was forensically corrected and repaired into a byte-reproducible signed APK (identical sha256 across two clean rebuilds, 840,513 B), independently reviewed APPROVE, and its verification is running. W4 was implemented and independently reviewed REQUEST-CHANGES (one MAJOR: the report falsely claims no screen calls the stubbed methods - 13 of 31 have real call sites in 7 screens, though the reviewer independently confirmed the 308/252 pixel baseline is unaffected because no case triggers them; plus three minor stubs that are convenient fakes rather than daemon-true) and is back with its implementer for repair iteration 1. W1 is implemented at 6d9728f with 13 gates reported green and its review is being completed. W3 is still implementing (6 commits)."
+    },
+    {
+      "at": "2026-11-08T09:05:31Z",
+      "topic": "C0 CHECKPOINT - W8 merged into integration (5abe5ef)",
+      "fact": "W8 was merged with git merge --no-ff into run/2026-11-08/integration, taking the branch from 0772d50 to 5abe5ef. The integration worktree was created fresh at C:/Users/Dragonfly/Downloads/warsha-wt/integration so the dev checkout was never disturbed. Post-merge checks on the tip all pass: check-arch \"arch: 5 rules, 0 violations\", check-engineering-policy \"policy: 8 checks, 0 failures\", check-wire-contract \"wire: 8 checks, 0 violations\", and the tree is clean. This is the checkpoint that makes the frozen 793/0 linux gates satisfiable: W8 G8.4 already measured 793 passed / 0 failed / 0 snapshot writes at 0b8a7e8. W3 and W4 must now move onto this tip and re-record BASE before their own linux gates are run, because their branches otherwise do not contain the fix."
+    },
+    {
+      "at": "2026-11-08T09:05:31Z",
+      "topic": "W1 and W7 verification/review complete",
+      "fact": "W1 review verdict APPROVE (11657B) after the reviewer was chased to write its deliverable; W1 has 13 worktree-only gates and now needs independent verification. W7 verification PASS (9304B) covering the runnable gates, with G7.6 recorded as a gate defect rather than an implementation failure. W8 verification PASS (5304B): all 8 worktree gates exit 0, scope 0, desktop vitest 446 passed >= 444 threshold, typecheck and lint clean across 7 projects, 0 snapshot changes, arch/policy/wire clean."
+    },
+    {
+      "at": "2026-11-08T09:14:53Z",
+      "topic": "W1 VERIFIED PASS - 13/13 gates with independent truth spot-checks",
+      "fact": "An independent verifier ran all 13 W1 gates in its own clean detached worktree (verify-w1) at 6d9728f and every one produced exactly the frozen expected result: scope 0; G1.1/G1.2/G1.7 correctly exit 1 (no match is the expectation); the roadmap, 26-module, templates, desktop-spec and remote-composition greps exit 0; arch 5 rules 0 violations, policy 8 checks 0 failures, wire 8 checks 0 violations. It also spot-checked truth independently: apps/desktop/README.md states the recorded G0 baseline honestly as 793 listed / 785 passed / 8 failed with the eight being settings a11y at 2 viewports x 2 locales x 2 themes, apps/remote/README.md states 91 listed / 51 passed / 40 failed, and the G0 verdict is recorded as fail - no all-green claim anywhere. This matters because a docs gate that passes on a false sentence would be worthless."
+    },
+    {
+      "at": "2026-11-08T09:45:43Z",
+      "topic": "W4 REPAIR ACCEPTED and its linux gate passes",
+      "fact": "Repair iteration 1 ended REQUEST-CHANGES -> fix -> re-review APPROVE. The re-review independently proved the main concerns were resolved: the MAJOR report-truth error is corrected (report now states the 13 methods across 7 screens, the correct \"no e2e case reaches them\" reason, and the Wave B coverage requirement), all three minors plus n1 are fixed in code with daemon-true refusals and matching tests, and n2/n3 were soundly resolved without change. Crucially it also RESOLVED the earlier W9-mutant worry by proving both directions: neutering the W9 raise block makes --self-test exit 1, and a real-tree mutant removing routines.list is detected - so W9 is NOT vacuous. Frozen invariants at 73b1331 on BASE 5abe5ef: G4.S 0, RPC_METHODS 75 with an exact bijection to 75 rpcResult cases, harness diff pure insertion 305/0 (no pre-existing stub modified), wire \"9 checks, 0 violations\", self-test 9/9, stale phrases gone (exit 1), 147-148 client tests, hygiene clean, rebase proven content-preserving. The orchestrator then ran G4.9 on the capture host at 73b1331: 793 passed, 0 failed, exit 0, 0 snapshot writes. Only a documentation NIT remains (two stale pre-rebase hash sentences), which the integrator corrects at merge."
+    },
+    {
+      "at": "2026-11-08T10:17:18Z",
+      "topic": "C1 CHECKPOINT - four verified packets merged; integration at 99a7c03",
+      "fact": "Merged --no-ff into run/2026-11-08/integration: W1 (dfa11c1), W6 (9813708), W7 (655d3a1), W4 (99a7c03), on top of W8 from C0. Tree clean. Post-merge on the tip: check-arch 5 rules 0 violations, check-engineering-policy 8 checks 0 failures, check-wire-contract \"wire: 9 checks, 0 violations\" (confirming W4's W9 is live and that W7/W6/W1 did not perturb it), both self-tests fire (arch 5 rules, wire 9 checks), and RPC_METHODS is exactly 75. W3 was deliberately HELD BACK: its review is APPROVE and its G3.8 passes at 793/0, but its G3.9 requires remote 91 passed / 0 failed, which cannot happen until the 40 stale remote baselines are refreshed under owner decision OD1. Merging W3 now would put a packet into the integration branch whose gate set cannot be completed."
+    },
+    {
+      "at": "2026-11-08T10:17:18Z",
+      "topic": "G3.8 flake investigated and documented rather than papered over",
+      "fact": "The first full G3.8 run on the capture host at W3 head 0f82973 reported 792 passed / 1 failed / exit 1. The single failure was flows.spec.ts:81 \"the mode group moves focus with the arrows and presses with Enter\" at 390x844 ar only - its three sibling combinations passed. Rather than declaring a regression OR ignoring it, the orchestrator re-ran flows.spec.ts alone twice: 30/30 passed with exit 0 both times. That identifies the repo's documented concurrency flow-closure flake class, not a W3 defect. The full frozen gate was then re-run once, unchanged, giving 793 passed / 0 failed / exit 0 / 0 snapshot writes. Attempt 1 is preserved as gates/G3.8.attempt-01-1flowflake.log and its done marker is retained, so the evidence trail shows both runs. No gate was edited, narrowed or re-worded, and the flake was not silently discarded."
+    },
+    {
+      "at": "2026-11-08T10:19:21Z",
+      "topic": "WAVE B DISPATCHED - C1 satisfied the dependency",
+      "fact": "W2 (canonical docs) and W5 (apps adoption + live Routines/BackendKit wiring) were dispatched from the C1 tip 99a7c03 rather than the stale planner commit, because both depend on C1 and their gates assert numbers measured from the MERGED tree (wire 9 checks, RPC_METHODS 75, client 147-148, ui >=170, desktop 446 -> W5 must reach 451, pipeline 359, workspace 743). W5 was told explicitly that W8 already owns the SettingsScreen a11y fix in its base and must not be reverted, that W4 already provides the 14 client wrappers it may consume, and that its G5.7 must drive the app-length offence count to ZERO with WARSHA_R6_APP_LENGTH_BUDGET=0 while leaving APP_LENGTH_BUDGET for INT-2. Both were told G5.11/G3.9 (remote 91/0) cannot pass until OD1 and must not touch snapshots."
+    },
+    {
+      "at": "2026-11-08T10:20:35Z",
+      "topic": "W4 VERIFIED PASS - 13/13 gates, full repair loop closed",
+      "fact": "An independent verifier re-executed 12 of the 13 frozen W4 gates in its own clean detached worktree at 73b1331 (BASE 5abe5ef) with per-gate logs, and adopted G4.9 from the orchestrator capture-host run. Results: scope 0; client 148 passed (>=140); typecheck/lint/tsc-e2e clean; self-test fires all 9 checks including the new W9 case with both clean fixtures at 0 violations; wire prints exactly \"wire: 9 checks, 0 violations\"; RPC_METHODS prints 75; stale phrases absent (exit 1 as required); 0 snapshot changes; arch 5 rules 0 violations; policy 8 checks 0 failures. W4 therefore completed the FULL loop: implement -> review REQUEST-CHANGES -> repair -> re-review APPROVE -> independent verification PASS. It is merged at C1 (99a7c03)."
+    },
+    {
+      "at": "2026-11-08T10:32:00Z",
+      "topic": "W3 VERIFIED except the one gate that needs the owner",
+      "fact": "Independent verification at 0f82973 (BASE 5abe5ef): 12/12 worktree gates pass with logs; @warsha/ui 181 passed (floor 170), desktop 446 (floor 443), remote 221, build-storybook green, G3.10 deliberately run last and 0, arch/policy/wire clean. G3.8 accepted from the orchestrator Linux run (793/0, 0 snapshot writes). G3.9 is recorded as blocked-on-owner-decision, NOT as failed and NOT as passed, because the 40 remote baselines are stale product images and refreshing them is Phase B under D1 with an owner-named set. So W3 stands at 13 of 14 gates satisfied, with the single gap owned by the owner, not by the code."
+    },
+    {
+      "at": "2026-11-08T10:35:03Z",
+      "topic": "integration pre-checks green, including a clean secret scan",
+      "fact": "On the C1 tip 99a7c03 with a clean tree: GC.1 cargo fmt --all --check exit 0; GC.9 mdbook build docs exit 0 (docs/book is gitignored, tree stays clean); GC.11 gitleaks detect exit 0 - 120 commits, ~49.99 MB scanned, NO LEAKS FOUND. The gitleaks result matters specifically because the owner pasted a live third-party API key into the task conversation earlier; a direct search of every committed revision for that key prefix returned nothing, so no secret entered the repository, any state file, or any gate log. These are recorded as pre-checks only and must be re-run at the final C3 tip."
+    },
+    {
+      "at": "2026-11-08T10:53:01Z",
+      "topic": "ORCHESTRATOR ERROR found by a worker, corrected at C1.5 - W3 merged (406240a)",
+      "fact": "W5 refused to implement and instead proved a precise blocker: the base it was given (99a7c03, C0+C1) contained NONE of the DS v2 tokens, so its 145 literal-to-token migrations were impossible and its gate G5.7 (WARSHA_R6_APP_LENGTH_BUDGET=0) passed VACUOUSLY - 151 tests with zero ratchet references, a false green. The cause was an orchestrator sequencing error: W3 had been deliberately held back from C1 because its G3.9 needs OD1, but that reasoning was too strict since OD1 blocks G3.9, G5.11 and GC.10 identically across the run, and holding W3 starved W5 of its own prerequisite. W5 also independently confirmed W3 merges cleanly (merge-tree exit 0, only packages/ui files, no revert of W4/W6). W3 was therefore merged --no-ff at C1.5, taking integration to 406240a; on that tip the DS v2 line token is present, lines.ts/elevation.ts/breakpoints.ts exist, compounds.v2.test.tsx exists, the tree is clean, and arch/policy/wire are green (wire still 9 checks). This is the second time a worker caught an orchestrator mistake rather than silently working around it - the first was W8 correcting two bad citations in its own brief."
+    },
+    {
+      "at": "2026-11-08T11:17:21Z",
+      "topic": "W2 review caught a gate-passing-on-incomplete-truth case",
+      "fact": "W2 review returned REQUEST-CHANGES. All ten frozen gates passed at 97dc93a, yet the packet missing the ONE thing it exists for: the canonical docs never state the recorded G0 baseline (desktop 793 listed / 785 passed / 8 failed; remote 91 listed / 51 passed / 40 failed) nor that the 40 remote failures are OPEN and blocked on owner decision OD1. It also found packets/W2/report.md did not exist at all - a claim with no artifact, which ENGINEERING_POLICY section 4 treats as not-done - and wrong code-line citations in SECURITY.md:119-121. This is the clearest illustration so far of why the verifier and reviewer roles must judge INTENT and not only the literal grep: ten green greps coexisted with a missing honesty statement."
+    },
+    {
+      "at": "2026-11-08T12:18:18Z",
+      "topic": "G5.10 CAUGHT A REAL PIXEL REGRESSION that both the implementer and the reviewer missed",
+      "fact": "W5 passed all 14 of its own worktree gates and was APPROVED by an independent reviewer that spot-checked 10 risky substitutions. Then G5.10 on the authoritative capture host failed: 12 of 793 desktop cases, ALL of them states.spec.ts:289 \"gates success\" across three widths by two locales by two themes, with 781 passed and ZERO snapshot writes. So a specific substitution in the approved-gate rendering resolves to a different computed value than the literal it replaced, and neither the vitest suites nor a 10-substitution code-reading spot-check could see it - only the real browser render could. This is the strongest evidence in the whole run for why the frozen linux-capture-host gates exist and why a green worktree gate set plus a code-reading review is NOT a substitute for running the pixels. W5 was sent back with the exact case list; the repair must make the computed style byte-identical and must not touch any snapshot."
+    },
+    {
+      "at": "2026-11-08T12:18:18Z",
+      "topic": "W2 fully green through the loop",
+      "fact": "W2 completed the full loop: implement -> review REQUEST-CHANGES (blocker: the G0/OD1 honesty statement was absent despite all 10 gates passing; plus a missing report.md and wrong SECURITY.md citations) -> repair -> re-review APPROVE (docs/VERIFY.md:71-103 now carries 793/785/8 and 91/51/40, G0 verdict fail, W8 re-measurements, and the 40 marked OPEN under OD1 with the sentence \"no document may imply the remote suite is green\") -> independent verification PASS with all 10 gates, G2.4 deriving N=35 and G2.5 grepping \"9 checks\"."
+    },
+    {
+      "at": "2026-11-08T12:24:07Z",
+      "topic": "CORRECTION to checkpoint 027: G5.10 did NOT catch a pixel regression - it caught a string-coupled assertion",
+      "fact": "Checkpoint 027 recorded that G5.10 \"caught a real pixel regression that both the implementer and the reviewer missed\" and drew the conclusion that only a real browser render can see such defects. That was WRONG and is retracted. Forensics on gates/G5.10.log: the failed log contains 0 occurrences of toHaveScreenshot and 0 pixel-ratio lines; snapshot_writes is 0; all 308 visual cases passed. All 12 failures are one assertion - expectDecidedCardIsQuiet at apps/desktop/e2e/states.spec.ts:132, which getAttribute(\"style\") on .warsha-gate-card and regex-matches the literal inline-style text border-inline-start: 3px solid var(--warsha-bench-edge). W5 migrated GatesInbox.tsx QUIET_BAND to var(--warsha-line-band); the token resolves to var(--warsha-size-edge) solid var(--warsha-bench-edge) with size-edge 3px, so the computed border is byte-identical and no pixel moved. The failure is a test coupled to the SPELLING of the inline style, which the implementer's own vitest suites and the reviewer's value-comparison spot-check could not see because they judge computed values while this assertion judges source text. The lesson is narrower than I claimed: the capture-host gate caught a spelling-coupled e2e assertion, not a rendering defect. It still proves the e2e gates test things the unit suites do not, but it does not prove \"only pixels can reveal token-migration defects\". The earlier repair message to W5 told it to hunt a pixel regression; a corrected message was sent. A GENUINE CONFLICT is possible: the assertion lives in apps/desktop/e2e/** (out of every packet scope, gate-frozen) and demands the literal 3px, while W5 gate G5.7 (R6.9 ratchet at budget 0) may forbid that literal length. W5 was told to try an honest spelling that satisfies both, and otherwise to STOP and report a precise out-of-scope blocker rather than edit either gate or the ratchet."
+    },
+    {
+      "at": "2026-11-08T12:35:27Z",
+      "topic": "W5 stopped, correctly, at a genuine conflict between two frozen gates (OD4) - reproduced by the orchestrator",
+      "fact": "W5 followed the corrected instruction exactly: it tried the in-scope revert, recognised it would break G5.7, declined to game the scanner, and wrote a precise out-of-scope blocker (packets/W5/blocker.json and a repair section in report.md). The orchestrator independently reproduced the conflict with the two regexes: the literal spelling yields ratchet offences=1 and the e2e regex matches; the token spelling yields offences=0 and the e2e regex does NOT match. The computed border is identical either way (tokens.css:99/:117), so this is a gate-text coupling, not a rendering defect. Recorded as OD4 with a recommendation (amend the assertion) that the orchestrator did not act on because it would edit a frozen spec outside every packet scope. Net effect on the run: W5 is implemented, reviewed APPROVE and worktree-verified 14/14, but its G5.10 cannot be both honestly green and ratchet-zero until the owner picks."
+    },
+    {
+      "at": "2026-11-08T12:39:05Z",
+      "topic": "C2a - W2 merged; integration c2709169",
+      "fact": "W2 (docs only, review APPROVE after a REQUEST-CHANGES repair, 10/10 gates verified) was merged --no-ff into run/2026-11-08/integration, taking it from 406240a to c2709169. Post-merge on the tip: check-arch 5 rules 0 violations, check-engineering-policy 8 checks 0 failures, check-wire-contract 9 checks 0 violations, mdbook build docs succeeds and leaves the tree clean. W5 is deliberately held back pending OD4. OD4 was additionally exhausted: four plausible spellings of the decided-card band were evaluated against both frozen regexes and none satisfies both."
+    },
+    {
+      "at": "2026-11-08T12:45:54Z",
+      "topic": "GC.4 found an INTEGRATION-ONLY regression that W2 own gates could not see",
+      "fact": "On the C2a tip c2709169, pnpm -r typecheck, lint and build pass but pnpm -r test exits 101. The @warsha/docs package test script is `mdbook test`, which compiles every unannotated code fence as Rust. Four fences in files W2 itself created fail: an ASCII layout diagram in docs/src/design-system-v2.md (rustc: \"unknown start of token: U+00B7 / U+250C\") and three fences in docs/src/deploy.md (Backup/restore line 329, First start/bootstrap admin token line 167, Network/port architecture line 54). A CONTROL run proves causation: `mdbook test` exits 0 at 406240a, the integration tip immediately before W2 merged, with 0 FAILED lines. W2 own gate G2.1 is `mdbook build docs`, which does not compile fences, so ten green gates coexisted with a broken workspace test - a real gap in the frozen gate set, not a mistake by W2. W2 was sent a repair brief: annotate fences honestly (text/sh/toml), never delete content or hide lines, prove with `mdbook test docs` exit 0 and re-run its ten gates (G2.4 N=35 and G2.5 \"9 checks\" must not move), and add the fix as NEW commits without rebasing the merged ones."
+    },
+    {
+      "at": "2026-11-08T12:48:00Z",
+      "topic": "Rust integration gates GC.2 and GC.3 pass on the C2a tip",
+      "fact": "Run by a debugger-model agent in the integration worktree with its own CARGO_TARGET_DIR. GC.2 cargo clippy --workspace --all-targets -- -D warnings: exit 0, zero warning lines. GC.3 cargo test --workspace --all-targets: exit 0; the orchestrator recomputed the totals itself from the raw \"test result: ok.\" lines - 743 passed, 0 failed, 10 ignored across 36 suites, against a threshold of 734. A grep for FAILED/panicked matched exactly one line, which is the log own header comment (\"no FAILED/failed lines present\"), not a result. These are recorded pass-provisional because the final C3 verdict must be taken at the final tip after W5 and W2 repairs merge."
+    },
+    {
+      "at": "2026-11-08T12:55:16Z",
+      "topic": "Orchestrator mis-scoped one of four mdbook fences; corrected before W2 touched a planner-owned file",
+      "fact": "My GC.4 diagnosis said four unannotated fences in \"files W2 created\" (docs/src/design-system-v2.md and docs/src/deploy.md). I had read mdbook's chapter-relative line numbers as file lines. Tracing the {{#include}} shims shows: docs/src/deploy.md is a 2-line shim over docs/DEPLOY.md, where three bare fences open at lines 53 (network/port ASCII diagram), 166 (first-start banner) and 328 (directory tree) - W2-owned, fix = annotate as text. docs/src/design-system-v2.md is a 10-line shim whose last line is {{#include ../designs/DESIGN_SYSTEM_V2.md}}; the fourth failing fence is that included file at line 76 (the 1440px Simple-mode ASCII layout diagram that mdbook reports as line 85) and docs/designs/DESIGN_SYSTEM_V2.md was last touched by the planner commit 0772d50 and is explicitly out_of_scope in W2 prompt and would fail G2.S. Following my first brief literally would have pushed W2 toward an out-of-scope edit or a gate violation. A scope correction was sent giving three ordered options: change the shim, or stop including the file verbatim, or stop with a precise out-of-scope blocker naming docs/designs/DESIGN_SYSTEM_V2.md:76 and the one-word change (annotate the fence text). The planner-owned file must not be edited by W2 under any circumstances."
+    },
+    {
+      "at": "2026-11-08T13:01:17Z",
+      "topic": "W2 repair iteration 2 fixed the integration-only mdbook-test regression WITHOUT touching the planner-owned file",
+      "fact": "W2 added two commits on top of its merged work: 498405e annotated three bare fences in docs/DEPLOY.md (network diagram, first-start banner, directory tree) and one in docs/DEVELOPERS.md as text; 2fbd620 solved the fourth, which lives in the planner-owned docs/designs/DESIGN_SYSTEM_V2.md (line 76), by splitting its shim include into three ranges - {{#include ../designs/DESIGN_SYSTEM_V2.md:1:75}}, a ```text fence wrapping :77:102, and {{#include ...:104:}} - so the planner file is byte-untouched and the diagram is still rendered (the built page still contains the diagram text). This was option 1 of the three the orchestrator offered. The orchestrator independently confirmed: G2.S 0 out-of-scope files, planner file touched 0, G2.4 N=35 ok, G2.5 \"9 checks\" ok, arch/policy/wire clean, mdbook build exit 0 and mdbook TEST exit 0 at 2fbd620 (log orchestration/w2fix-mdbook-test.out has 0 FAILED and 0 ERROR lines). Merged --no-ff as C2b; tip a9dad9a. One residual: the splice boundary lines 76 and 103 (the fence markers) are deliberately omitted, so if the planner ever shifts the diagram the hard-coded ranges 1:75 / 77:102 / 104: will silently drift - a maintenance coupling worth a future gate."
+    },
+    {
+      "at": "2026-11-08T13:03:18Z",
+      "topic": "GC.4 re-run on the C2b tip: all commands pass, one stated count floor not yet reachable without W5",
+      "fact": "On a9dad9a (C2b) the full chain exits 0 at every stage: typecheck 0, lint 0, test 0 (mdbook test now passes, so the earlier 101 is fixed), build 0. The orchestrator then checked the gate's second clause - the per-package floors - against the raw vitest output: ui 181 (floor 170), client 148 (140), i18n 52 (52), remote 221 (221) are met, but desktop is 446 against the stated 451. I am deliberately NOT reporting GC.4 as a clean pass, because passing the commands while missing a stated count would be exactly the gate-passes-on-incomplete-truth pattern this run keeps catching in other packets. The cause is structural and benign: the 451 floor presumes W5, which takes desktop from 446 to 464 (+18 tests, 464/464 verified in isolation) and is held back on OD4. So the honest status is partial-pass-provisional, and it flips to a full pass the moment OD4 is resolved and W5 merges."
+    },
+    {
+      "at": "2026-11-08T13:28:02Z",
+      "topic": "GC.12 measured: W7 recorded APK facts are stale on the integrated tree - sequencing matters",
+      "fact": "I ran the cheap half of GC.12 on the integration tree a9dad9a. G7.7 holds (0 tracked assets). The APK does not exist there, which is correct because it is gitignored build output. But I found a genuine integration-only defect that no per-packet gate could see: the remote bundle the APK embeds has CHANGED - apps/remote/dist/index.html 5ce10767 -> 16a7bf9c and sw.js b100e927 -> 1a9fb2ca after rebuilding on the integrated tree (exit 0). That is legitimate (W3 tokens now feed apps/remote) but it means the SHA-256 recorded in apps/mobile/README.md at W7 base can no longer match an APK built on the integrated tree, so G7.5 and therefore GC.12 will fail until the artifact is rebuilt and the hash re-recorded on the final tip. Critically, doing that now would be premature: W5 is still unmerged and changes apps/remote/src, so the bundle would change again. Recorded as OD5 with that sequencing trap spelled out. Also corrected my own misreading: the \"57 out-of-scope files\" I first printed for G7.S was my misapplication of a per-packet gate to the integrated tree, not a failure."
+    },
+    {
+      "at": "2026-11-08T13:39:37Z",
+      "topic": "EVIDENCE AUDIT caught 13 verdicts with no backing log - mine included - and I re-derived them",
+      "fact": "An integrity audit of the evidence dir found 17 gates whose acceptance.json verdict referenced a log that did not exist. Three were checker artifacts (GC.6/GC.7/GC.8 legitimately use a/b log pairs) and one was correct (G3.9 is blocked-on-owner, so it has no log). But THIRTEEN were real: every G1.* gate. The W1 verifier session had reported 13/13 pass and its verification.md listed one log per gate, yet no G1.*.log file was ever written. That is precisely the \"a claim with no artifact is not done\" failure the policy names, and it applied to a verdict the orchestrator itself had recorded. Remedy: the orchestrator re-ran all 13 frozen G1 gates itself at 6d9728f in a throwaway detached worktree and wrote genuine logs. Result: all 13 reproduce their frozen expectation (G1.S 0, G1.1/1.2/1.7 exit 1 as required, the rest exit 0). One instructive failure on the way: G1.4 first logged exit 1 and the log showed \"process_spawn: command not found\" - the backticks in the grep pattern had been command-substituted by the outer shell, i.e. MY harness bug, not a W1 defect; a direct check showed all 26 modules present, and a corrected re-run exited 0. Lesson recorded: a harness that silently mangles the gate command can manufacture a false failure just as easily as a false pass, so the log body must be read, not just the exit code."
+    }
+  ],
+  "owner_decisions_required": [
+    {
+      "id": "OD1",
+      "at": "2026-11-08T02:01:27Z",
+      "topic": "Remote visual baseline refresh - 40 cases",
+      "blocking": [
+        "G3.9",
+        "G5.11",
+        "GC.10 (remote half)"
+      ],
+      "question": "Authorize an owner-named refresh of the 40 failing apps/remote/e2e bench.visual baselines on the authoritative capture host?",
+      "evidence": "Baselines last refreshed at ddb8074 on aarch64; six later commits changed apps/remote/src including b3dc490 which added new visible panels; zero commits touched the remote specs/harness/snapshots since. Failures are selective (run 12/12, projects 8/8, needs-you 20/36) while gates 20/20, settings 8/8 and flows 7/7 pass - which disproves host raster noise. No snapshotPathTemplate/snapshotSuffix exists, so aarch64 baselines are read on x86_64 under the same -remote-linux name.",
+      "named_set": "apps/remote/e2e/bench.visual.spec.ts-snapshots/**-remote-linux.png for screens needs-you (20 cases), run (12), projects (8) = 40 cases",
+      "why_owner": "D1 and DESIGN_SYSTEM_V2.md section 9 make a baseline refresh Phase B with an owner-named set; every packet lists **/*-snapshots/** as out_of_scope; ENGINEERING_POLICY forbids agents approving gates or quietly widening scope. Reverting the product instead would undo P0/P1 features from b3dc490 and is rejected.",
+      "orchestrator_action": "NOT performed. No snapshot was touched. Recorded for the owner to approve or reject."
+    },
+    {
+      "id": "OD2",
+      "at": "2026-11-08T07:51:09Z",
+      "topic": "W7 gate G7.6 is self-referential and can never pass",
+      "blocking": [
+        "W7 G7.6"
+      ],
+      "blocking_scope": "W7 acceptance only - W1/W3/W4/W6/W8 and the integration sweep are unaffected",
+      "question": "How should G7.6 be resolved?",
+      "evidence": "The frozen gate is: grep -rniE 'storePassword|keyPassword|WARSHA_KEYSTORE_PASSWORD=|WARSHA_KEY_PASSWORD=' <evidence>/packets/W7, expect exit 1. That directory contains prompt.md, whose own gate-definition line contains those exact tokens, so the grep always matches. Re-verified by the orchestrator at 07:27Z: the frozen command exits 0 and the only matching file is packets/W7/prompt.md; excluding prompt.md exits 1, i.e. no implementer-authored evidence contains any secret.",
+      "options_for_owner": [
+        "Amend the scan to exclude the brief itself (for example --exclude=prompt.md), which matches the gate intent.",
+        "Move the packet brief out of the scanned directory in a future run.",
+        "Accept the intent-check result (exit 1 with prompt.md excluded) as the verdict, recorded explicitly as a gate defect rather than a pass."
+      ],
+      "why_owner": "No agent may edit, narrow or re-word a frozen gate, and re-passing a gate by redefinition is not a repair (ENGINEERING_POLICY section 1 Phase 6 and section 5). The orchestrator recorded the defect instead of touching the gate.",
+      "orchestrator_action": "NOT performed - no gate edited, no prompt moved, no workaround applied."
+    },
+    {
+      "id": "OD3",
+      "at": "2026-11-08T07:51:09Z",
+      "topic": "W7 gate G7.3 names a launcher that does not exist on Windows",
+      "blocking": [],
+      "blocking_scope": "none - informational, the substantive check passes",
+      "question": "No action strictly required; recorded for the owner's visibility.",
+      "evidence": "G7.3 names the Unix `apksigner` script; Windows Android build-tools ship only apksigner.bat. The real .bat was run with the same arguments and verified the signature. packets/W7/prompt.md section 3 explicitly sanctions apksigner(.bat), so the gate text and the brief disagree. The gate text was not edited.",
+      "why_owner": "Recording only; a future planner should align the gate text with the brief.",
+      "orchestrator_action": "NOT performed - gate text untouched; the substantive verification is real."
+    },
+    {
+      "id": "OD4",
+      "at": "2026-11-08T12:35:27Z",
+      "topic": "W5: two frozen gates demand mutually exclusive spellings of ONE inline style",
+      "blocking": [
+        "G5.10 (desktop 793/0 - currently 12 failed) OR G5.7 (ratchet at budget 0) - one of the two cannot hold"
+      ],
+      "blocking_scope": "W5 acceptance, and therefore C2 / INT-2 / GC.10. W1/W2/W3/W4/W6/W7/W8 are unaffected.",
+      "question": "How should the conflict between G5.7 and the e2e assertion states.spec.ts:132 be resolved?",
+      "evidence": {
+        "assertion": "apps/desktop/e2e/states.spec.ts:132 expectDecidedCardIsQuiet does getAttribute(\"style\") on .warsha-gate-card and requires it to match /border-inline-start:s*3px solid var(--warsha-bench-edge)/ - i.e. it matches the LITERAL inline-style text including the length 3px.",
+        "ratchet": "packages/ui/src/tokens/tokenDrift.test.ts R6.9 (APP_LENGTH = /\bd*.?d+(?:px|rem|em)\b/g, scanAppLengths) counts every px/rem/em literal in app sources; G5.7 runs it at WARSHA_R6_APP_LENGTH_BUDGET=0 so a single \"3px\" in apps/desktop/src is an offence. The only exemptions are comments, @media preludes at breakpoint values, and a length that is part of a literal var() fallback (counted as R6.10 instead).",
+        "reproduced_by_orchestrator": "literal spelling \"3px solid var(--warsha-bench-edge)\": ratchet offences = 1 (\"3px\"), e2e regex = MATCH. token spelling \"var(--warsha-line-band)\": ratchet offences = 0, e2e regex = NO MATCH (the style text no longer contains 3px). There is no honest spelling that is both (a) free of a px length and (b) contains the text \"3px solid\".",
+        "pixel_impact": "NONE. tokens.css:99 defines --warsha-line-band as var(--warsha-size-edge) solid var(--warsha-bench-edge) and tokens.css:117 sets --warsha-size-edge to 3px, so the computed border is byte-identical either way. 0 toHaveScreenshot failures and 0 pixel-ratio lines in the failed log; 308 visual cases passed; snapshot_writes 0.",
+        "failing_cases": "12 of 793 - all states.spec.ts:289 \"gates success\" (3 widths x ar/en x light/dark)"
+      },
+      "options_for_owner": [
+        "Keep the token spelling and amend the e2e assertion at states.spec.ts:132 to accept the token reference (e.g. match either \"3px solid var(--warsha-bench-edge)\" or \"var(--warsha-line-band)\"). This is the semantically correct fix: the assertion intends \"the decided card still carries the quiet band\", not a particular source spelling. It requires editing a spec that no packet owns and that sits under a frozen gate.",
+        "Keep the literal at that ONE call site and add a narrow, reviewed exemption for it to the R6.9 scanner (or leave APP_LENGTH_BUDGET at 1 instead of 0 at INT-2). Weakens the \"zero\" ratchet by one site.",
+        "Accept W5 as not-fully-green on G5.10 until a planner re-words one of the two gates."
+      ],
+      "orchestrator_recommendation": "Option 1: the assertion is coupled to source text rather than to behaviour, the computed style is identical, and it keeps the ratchet at a true zero. I did NOT do it because ENGINEERING_POLICY forbids editing a frozen gate and the spec sits outside every packet allowed_files.",
+      "why_owner": "Re-passing a gate by redefinition is not a repair (section 5/6), no agent may edit, narrow or re-word a frozen gate, and both candidate fixes change what a frozen gate enforces.",
+      "orchestrator_action": "NOT performed - no spec edited, no scanner edited, no exemption added, no budget changed, no evasion spelling attempted.",
+      "exhaustive_spelling_check": {
+        "at": "2026-11-08T12:39:05Z",
+        "method": "Evaluated the e2e regex /border-inline-start:s*3px solid var(--warsha-bench-edge)/ and the ratchet length regex /\bd*.?d+(?:px|rem|em)\b/g against every plausible spelling of the inline style.",
+        "results": {
+          "literal 3px solid var(--warsha-bench-edge)": "e2e MATCH, ratchet offences 1",
+          "longhand width/style/color via tokens": "e2e no match, ratchet 0",
+          "shorthand with var(--warsha-size-edge) width": "e2e no match, ratchet 0",
+          "whole token var(--warsha-line-band) (W5 current)": "e2e no match, ratchet 0"
+        },
+        "conclusion": "The e2e regex requires the literal text \"3px solid\", and \"3px\" is exactly what the R6.9 ratchet counts. No spelling satisfies both, so there is no in-scope escape and no evasion is being attempted. TS helper path also checked: packages/ui/src/tokens/sizes.ts exports edge as a raw \"3px\" string but the app consumes var references via lineVar(), which would produce var(--warsha-line-band), i.e. still no match."
+      },
+      "rehearsal_evidence": "Measured on scratch/od4-rehearsal ffd19e7: desktop 793/0 with 0 snapshot writes; desktop unit 464 >= 451; ui 181 at budget constant 0; remote identical 51/40 to G0."
+    },
+    {
+      "id": "OD5",
+      "at": "2026-11-08T13:28:02Z",
+      "topic": "GC.12: the recorded APK facts go STALE on the integrated tree - the APK must be rebuilt and re-recorded on the FINAL tip",
+      "blocking": [
+        "GC.12",
+        "W7 G7.3/G7.4/G7.5 on the integration tree"
+      ],
+      "blocking_scope": "the W7 half of C3 only. Does not affect any other gate.",
+      "evidence": {
+        "measured": "On the integration tree a9dad9a the remote bundle is DIFFERENT from the one W7 hashed: index.html 5ce10767... -> 16a7bf9c..., sw.js b100e927... -> 1a9fb2ca... (rebuild exit 0, orchestration /tmp/reh-bundle.out). The cause is legitimate: W3 tokens (and later W5 apps/remote/src) change apps/remote, whose dist is synced into the Android assets.",
+        "consequence": "apps/mobile/README.md records the APK SHA-256 from W7 base. An APK built on the integrated tree will have a different hash, so `grep -qF \"$(sha256sum \"$APK\")\" apps/mobile/README.md` (G7.5) FAILS until the hash is re-recorded. G7.3/G7.4 also need the APK to exist: it does NOT exist on the integration tree (gitignored build output, and that is correct per G7.7 which reads 0).",
+        "sequencing_trap": "Re-recording the hash NOW would be wrong: W5 is still unmerged and W5 changes apps/remote/src, so the bundle (and therefore the APK bytes) will change AGAIN. The APK must be rebuilt and its hash re-recorded only AFTER W5 is merged, i.e. on the final C3 tip.",
+        "note_on_G7S": "My first reading printed \"57 out-of-scope files\" for G7.S - that was MY misapplication, not a gate failure. G7.S is a per-PACKET scope gate comparing the packet own delta against BASE; on the integrated tree every packet changes are present by definition, so the gate is not meaningful there. W7 own delta was already verified confined to apps/mobile at C1."
+      },
+      "options_for_owner": [
+        "Accept that GC.12 requires one rebuild-and-re-record step on the final tip as part of C3 (recommended - this is a normal artifact-refresh, docs-only, no gate change).",
+        "Alternatively plan a W7b micro-packet that owns that rebuild plus the README hash update, with its own frozen gates."
+      ],
+      "why_owner": "It is a plan-shaped decision (who owns the post-merge artifact re-record, and whether that counts as a W7 repair or a C3 integrator step). No gate needs editing either way; the recommended path changes no frozen text.",
+      "orchestrator_action": "NOT performed - I did not rebuild the APK on the integrated tree and did not touch apps/mobile/README.md, because doing it before W5 merges would immediately go stale again."
+    }
+  ],
+  "checkpoints": {
+    "C0": {
+      "at": "2026-11-08T09:05:31Z",
+      "branch": "run/2026-11-08/integration",
+      "merge_commit": "5abe5ef",
+      "merged": [
+        "W8 (0b8a7e8)"
+      ],
+      "merge_style": "git merge --no-ff",
+      "post_merge_checks": {
+        "check-arch": "arch: 5 rules, 0 violations",
+        "check-engineering-policy": "policy: 8 checks, 0 failures",
+        "check-wire-contract": "wire: 8 checks, 0 violations"
+      },
+      "tree_clean": true,
+      "authorization": "owner pre-authorised checkpoint merges into run/2026-11-08/integration (verbatim: \"all approved by me\", recorded at seq 3). C0 is the prerequisite checkpoint this run needed; it is local, --no-ff and reversible. It is NOT a merge to dev."
+    },
+    "C1": {
+      "at": "2026-11-08T10:17:18Z",
+      "branch": "run/2026-11-08/integration",
+      "tip": "99a7c03",
+      "merged": [
+        "W1 dfa11c1",
+        "W6 9813708",
+        "W7 655d3a1",
+        "W4 99a7c03"
+      ],
+      "held_back": [
+        "W3 - its G3.9 (remote 91/0) cannot pass until owner decision OD1 names the 40 stale remote baselines"
+      ],
+      "post_merge_checks": {
+        "check-arch": "arch: 5 rules, 0 violations (+ self-test: 5 rules fire)",
+        "check-engineering-policy": "policy: 8 checks, 0 failures",
+        "check-wire-contract": "wire: 9 checks, 0 violations (+ self-test: 9 checks fire) - W4 W9 is live on the tip",
+        "RPC_METHODS": "75 exactly"
+      },
+      "tree_clean": true,
+      "authorization": "owner pre-authorised checkpoint merges into run/2026-11-08/integration (\"all approved by me\"). Merging to dev remains owner-only and was NOT done."
+    },
+    "C1_5": {
+      "at": "2026-11-08T10:53:01Z",
+      "branch": "run/2026-11-08/integration",
+      "tip": "406240a",
+      "merged": [
+        "W3 (0f82973)"
+      ],
+      "merge_style": "git merge --no-ff",
+      "post_merge_checks": {
+        "check-arch": "arch: 5 rules, 0 violations",
+        "check-engineering-policy": "policy: 8 checks, 0 failures",
+        "check-wire-contract": "wire: 9 checks, 0 violations"
+      },
+      "tree_clean": true,
+      "why": "W5 proved that without W3 in the base its G5.7 would pass VACUOUSLY (151 tests, no ratchet present = false green) and its 145 literal-to-token migrations were impossible. Holding W3 back was an orchestrator sequencing error: only W3 G3.9 is unsatisfied and that is blocked on OD1, which blocks the run remote halves identically.",
+      "note": "dev was not touched."
+    },
+    "C2a": {
+      "at": "2026-11-08T12:39:05Z",
+      "branch": "run/2026-11-08/integration",
+      "tip": "c2709169",
+      "merged": [
+        "W2"
+      ],
+      "merge_style": "git merge --no-ff",
+      "post_merge_checks": {
+        "check-arch": "arch: 5 rules, 0 violations",
+        "check-engineering-policy": "policy: 8 checks, 0 failures",
+        "check-wire-contract": "wire: 9 checks, 0 violations",
+        "mdbook build docs": "HTML book written, tree stays clean (docs/book is gitignored)"
+      },
+      "tree_clean": true,
+      "held_back": [
+        "W5 - blocked on owner decision OD4 (G5.7 vs the e2e assertion at states.spec.ts:132)"
+      ],
+      "authorization": "owner pre-authorised checkpoint merges into run/2026-11-08/integration (\"all approved by me\"). dev not touched."
+    },
+    "C2b": {
+      "at": "2026-11-08T13:01:17Z",
+      "branch": "run/2026-11-08/integration",
+      "tip": "a9dad9a",
+      "full": "a9dad9aa8a0f6c3b74a8a2cb79cfa6f8ef61f7c9",
+      "merged": [
+        "W2 repair iteration 2 (498405e, 2fbd620)"
+      ],
+      "merge_style": "git merge --no-ff",
+      "post_merge_checks": {
+        "check-arch": "arch: 5 rules, 0 violations",
+        "check-engineering-policy": "policy: 8 checks, 0 failures",
+        "check-wire-contract": "wire: 9 checks, 0 violations",
+        "mdbook test": "exit 0 (was 101-causing at c2709169)"
+      },
+      "tree_clean": true,
+      "held_back": [
+        "W5 - blocked on OD4"
+      ],
+      "note": "dev not touched; planner-owned docs/designs/DESIGN_SYSTEM_V2.md untouched."
+    }
+  },
+  "integration_prechecks": {
+    "note": "Run on the C1 tip 99a7c03 as EARLY WARNINGS. They are NOT acceptance verdicts: GC.1/GC.9/GC.11 must be re-run on the final C3 tip after Wave B merges, because the tip will change. Logs are kept for comparison.",
+    "at": "2026-11-08T10:35:03Z",
+    "tip": "99a7c03",
+    "tree_clean": true,
+    "results": {
+      "GC.1": {
+        "exit": 0,
+        "log": "gates/GC.1.log",
+        "measured": "cargo fmt --all --check clean"
+      },
+      "GC.9": {
+        "exit": 0,
+        "log": "gates/GC.9.log",
+        "measured": "mdbook build docs wrote the HTML book"
+      },
+      "GC.11": {
+        "exit": 0,
+        "log": "gates/GC.11.log",
+        "measured": "gitleaks: 120 commits scanned, ~49.99 MB, no leaks found"
+      }
+    }
+  },
+  "integration_gate_results": {
+    "tip": "c27091696796805bbdf72848fbc93ff611866dcc",
+    "note": "Early C3-style sweep on the C2a tip. Not final: W5 is unmerged and W2 needs a repair, so the sweep must be re-run at the final tip.",
+    "pass": {
+      "GC.1": "cargo fmt --all --check exit 0",
+      "GC.5": "tsc -p tsconfig.e2e.json exit 0",
+      "GC.6a/6b": "arch self-test + arch exit 0",
+      "GC.7a/7b": "policy self-test + policy exit 0",
+      "GC.8a/8b": "wire self-test + \"wire: 9 checks, 0 violations\" exit 0",
+      "GC.9": "mdbook build docs exit 0",
+      "GC.11": "gitleaks no leaks (120 commits)",
+      "GC.4 stages": "typecheck/lint/test/build all exit 0 at a9dad9a (test includes mdbook test, repaired by W2 iteration 2)",
+      "GC.2": "clippy -D warnings exit 0, 0 warning lines",
+      "GC.3": "743 passed / 0 failed / 10 ignored / 36 suites (>= 734)"
+    },
+    "fail": {},
+    "pending": {
+      "GC.10": "blocked on OD1 + OD4",
+      "GC.12": "W7 gates re-run on the integrated tree - not yet run"
+    },
+    "partial": {
+      "GC.4": "commands pass; desktop 446 < stated floor 451 because W5 (+18 tests) is unmerged pending OD4"
+    }
+  },
+  "rehearsal": {
+    "at": "2026-11-08T13:20:55Z",
+    "branch": "scratch/od4-rehearsal",
+    "head": "ffd19e798992041aa77af069f2632672ee661b5d",
+    "what": "Throwaway branch from integration a9dad9a: merged W5, applied PROPOSED OD4 option 1 (states.spec.ts:132 regex accepts either the literal or var(--warsha-line-band)), applied INT-2 (APP_LENGTH_BUDGET 145 -> 0). NOT merged anywhere.",
+    "results": {
+      "desktop_playwright": "793 passed, 0 failed, exit 0, 0 snapshot writes (gates/REH-both.log)",
+      "remote_playwright": "51 passed, 40 failed (gates/REH-both.log) - the SAME 51/40 as the G0 baseline, so W5 adds no new remote failures",
+      "desktop_unit": "464 passed (floor 451)",
+      "remote_unit": "221 passed (floor 221)",
+      "ui_constant_zero": "181 passed exit 0 with APP_LENGTH_BUDGET=0",
+      "ui_env_zero": "181 passed exit 0 with WARSHA_R6_APP_LENGTH_BUDGET=0"
+    },
+    "conclusion": "OD4 option 1 is empirically validated: desktop goes from 781/12 to 793/0 with zero snapshot writes, which also proves W5 145-literal token migration is pixel-neutral on the capture host. The remote 40 are unchanged, i.e. OD1 is the only remote blocker.",
+    "provenance": "The rehearsal edits are PROPOSALS measured on a scratch branch. No frozen gate in the run was edited, and integration/dev are untouched (integration a9dad9a, dev 642ae95)."
+  },
+  "parked": {
+    "at": "2026-11-08T13:43:45Z",
+    "state": "Parked cleanly at the end of the working session. The run is NOT complete and NOT accepted.",
+    "refs": {
+      "dev": "642ae95 (untouched, checkout clean)",
+      "integration": "a9dad9a (6 packets merged)",
+      "rehearsal": "scratch/od4-rehearsal ffd19e7 (throwaway, unmerged)"
+    },
+    "unmerged_candidates": [
+      {
+        "what": "W2 follow-up commit 5a2834d \"docs(book): close the design-system wrapper on the source fence so drift fails loudly\"",
+        "scope": "docs/src/design-system-v2.md only, 1 file +1/-2",
+        "verified": "scope 0 out-of-scope; mdbook test exit 0; mdbook build exit 0 (orchestrator probe)",
+        "status": "NOT MERGED on purpose - it is unreviewed, and merging unreviewed work is not safe parking. It directly addresses the hard-coded include-range drift risk noted at C2b. Next session: have the W2 reviewer cover it, then merge."
+      },
+      {
+        "what": "W5 (all 5 commits, HEAD 10a1819)",
+        "status": "blocked on OD4; rehearsed and proven green when OD4 option 1 is applied (desktop 793/0)"
+      }
+    ],
+    "still_running_sessions": "Two implementer conversations (W2 5a2834d, W5 10a1819) may still be open. They work only inside their own worktrees, so integration and dev cannot be corrupted. W2 latest work is captured above; W5 is blocked on OD4 and cannot proceed without it.",
+    "no_work_in_flight_that_can_corrupt": "integration tree clean (0), dev checkout clean (0), 0 snapshot files touched anywhere in the run."
+  }
+}

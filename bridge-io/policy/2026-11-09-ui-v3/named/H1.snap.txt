@@ -1,0 +1,1 @@
+^apps/desktop/e2e/(screens\.visual|states)\.spec\.ts-snapshots/(crash-reports|store-reviews|backend-kit)-

@@ -1,0 +1,6 @@
+signing_block_start=834352
+signing_block_declared_size=4088
+pair#1 id=0x7109871a len=2574 offsets=834372..836942
+  v2_value_first_u32=0xa06
+  alg_id_candidate=0x104 at 834392
+pair#2 id=0x42726577 len=1474 offsets=836954..838424

@@ -1,0 +1,57 @@
+start 2026-11-10T18:00:22Z
+From /mnt/c/Users/Dragonfly/Downloads/warsha
+   ba5cd1e..14bea00  14bea00a4b11555370de252a1af4667dbe92f584 -> q/tip
+Preparing worktree (detached HEAD 14bea00)
+HEAD is now at 14bea00 test(e2e): refresh the U5 genesis baselines (owner OD-U1, RU5)
+Merge made by the 'ort' strategy.
+ apps/desktop/e2e/v3/bench.spec.ts                  | 568 +++++++++++++
+ apps/desktop/src/v3/actions/registry/bench.ts      |  34 +-
+ apps/desktop/src/v3/pages/bench/bench.css          |  21 +
+ apps/desktop/src/v3/pages/bench/bench.test.tsx     | 913 +++++++++++++++++++++
+ .../v3/pages/bench/components/AdvancedComposer.tsx | 222 +++++
+ .../pages/bench/components/BenchDecisionCard.tsx   | 273 ++++++
+ .../src/v3/pages/bench/components/BenchHeader.tsx  | 228 +++++
+ .../src/v3/pages/bench/components/BenchRail.tsx    | 187 +++++
+ .../src/v3/pages/bench/components/BenchTabs.tsx    | 114 +++
+ .../src/v3/pages/bench/components/StageStrip.tsx   |  85 ++
+ apps/desktop/src/v3/pages/bench/helpers.ts         | 143 ++++
+ apps/desktop/src/v3/pages/bench/index.tsx          | 510 +++++++++++-
+ .../src/v3/pages/bench/tabs/ArtifactsTab.tsx       | 138 ++++
+ .../src/v3/pages/bench/tabs/AssistantTab.tsx       | 337 ++++++++
+ .../desktop/src/v3/pages/bench/tabs/ChangesTab.tsx | 169 ++++
+ apps/desktop/src/v3/pages/bench/tabs/CostTab.tsx   | 243 ++++++
+ apps/desktop/src/v3/pages/bench/tabs/FilesTab.tsx  | 258 ++++++
+ .../src/v3/pages/bench/tabs/OverviewTab.tsx        | 168 ++++
+ apps/desktop/src/v3/pages/bench/tabs/PlanTab.tsx   |  69 ++
+ .../desktop/src/v3/pages/bench/tabs/PreviewTab.tsx | 161 ++++
+ apps/desktop/src/v3/pages/bench/tabs/TeamTab.tsx   | 299 +++++++
+ .../src/v3/pages/bench/tabs/TerminalTab.tsx        | 119 +++
+ apps/desktop/src/v3/pages/bench/types.ts           |  52 ++
+ packages/i18n/src/v3/ar/bench.ts                   | 166 ++++
+ packages/i18n/src/v3/en/bench.ts                   | 166 ++++
+ 25 files changed, 5639 insertions(+), 4 deletions(-)
+ create mode 100644 apps/desktop/e2e/v3/bench.spec.ts
+ create mode 100644 apps/desktop/src/v3/pages/bench/bench.css
+ create mode 100644 apps/desktop/src/v3/pages/bench/bench.test.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/components/AdvancedComposer.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/components/BenchDecisionCard.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/components/BenchHeader.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/components/BenchRail.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/components/BenchTabs.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/components/StageStrip.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/helpers.ts
+ create mode 100644 apps/desktop/src/v3/pages/bench/tabs/ArtifactsTab.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/tabs/AssistantTab.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/tabs/ChangesTab.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/tabs/CostTab.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/tabs/FilesTab.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/tabs/OverviewTab.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/tabs/PlanTab.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/tabs/PreviewTab.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/tabs/TeamTab.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/tabs/TerminalTab.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/types.ts
+install_ok
+u46_exit=0
+u4pw_exit=1
+end 2026-11-10T18:27:32Z

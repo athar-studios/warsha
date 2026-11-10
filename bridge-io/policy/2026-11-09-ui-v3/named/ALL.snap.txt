@@ -1,0 +1,8 @@
+# union of R0, H1, U3, U4, U5, U6, U7 — GC.8
+^apps/desktop/e2e/(screens\.visual|states)\.spec\.ts-snapshots/(onboarding-[a-z-]+|providers|settings-providers)-
+^apps/desktop/e2e/(screens\.visual|states)\.spec\.ts-snapshots/(crash-reports|store-reviews|backend-kit)-
+^apps/desktop/e2e/v3/(frame|onboarding|home|projects|project|inbox)\.spec\.ts-snapshots/
+^apps/desktop/e2e/v3/(bench)\.spec\.ts-snapshots/
+^apps/desktop/e2e/v3/(settings)\.spec\.ts-snapshots/
+^apps/remote/e2e/bench\.visual\.spec\.ts-snapshots/
+^apps/desktop/e2e/(screens\.visual|states)\.spec\.ts-snapshots/

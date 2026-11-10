@@ -1,0 +1,34 @@
+From 056282826792ef2ae54c37b5fa33afabcc10b012 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Mon, 9 Nov 2026 17:35:02 +0400
+Subject: [PATCH 2/6] fix(remote): use daemon snake_case fields for
+ runs.subscribe run fixture (H1)
+
+---
+ apps/remote/e2e/harness.ts | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/apps/remote/e2e/harness.ts b/apps/remote/e2e/harness.ts
+index 1d1c8d7..2448db5 100644
+--- a/apps/remote/e2e/harness.ts
++++ b/apps/remote/e2e/harness.ts
+@@ -203,11 +203,13 @@ export const RUN_STREAM_SYNC_FIXTURE: RunStreamSync = {
+   dropped_count: 0,
+   run: {
+     id: 'run-review',
+-    projectId: 'proj-store',
++    project_id: 'proj-store',
+     stage: 'review_qa_security',
++    current_stage: 'review_qa_security',
+     status: 'running',
+-    startedAt: '2026-10-05T07:15:00.000Z',
+-    updatedAt: '2026-10-05T09:20:00.000Z',
++    created_at: '2026-10-05T07:15:00.000Z',
++    started_at: '2026-10-05T07:15:00.000Z',
++    updated_at: '2026-10-05T09:20:00.000Z',
+   },
+   events: REMOTE_EVENT_FIXTURES as unknown as WarshaEvent[],
+ };
+-- 
+2.55.0.windows.5
+

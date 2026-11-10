@@ -1,0 +1,42 @@
+From 97dc93a835954031226688876d870786b88cecda Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 15:07:09 +0400
+Subject: [PATCH 10/13] docs(design-system): describe the merged W3 tokens and
+ R6 ratchet
+
+---
+ docs/designs/SITEMAP.md      | 2 +-
+ docs/src/design-system-v2.md | 8 ++++++++
+ 2 files changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/docs/designs/SITEMAP.md b/docs/designs/SITEMAP.md
+index b788975..fa75429 100644
+--- a/docs/designs/SITEMAP.md
++++ b/docs/designs/SITEMAP.md
+@@ -12,7 +12,7 @@ Elephant-Goldfish Model flow (`/egm-brainstorm` → `/egm-draft` →
+ | Design | Status | Path |
+ |---|---|---|
+ | Redesign baseline (S5/S6/§7/§10/§11) | Canonical reference | `../design/REDESIGN.md` |
+-| Design System v2 — tokens, R6 v2, compound contracts, screen architecture, adoption ladder | Implemented in part: W3 merged at `406240a`; W5 (app adoption) pending | [`./DESIGN_SYSTEM_V2.md`](./DESIGN_SYSTEM_V2.md) |
++| Design System v2 — `lines.ts`/`elevation.ts`/`breakpoints.ts`, R6.1–R6.10 with the `APP_LENGTH_BUDGET = 145` ratchet, compound contracts, screen architecture, adoption ladder | Implemented in part: W3 merged at `406240a`; W5 (app adoption) pending | [`./DESIGN_SYSTEM_V2.md`](./DESIGN_SYSTEM_V2.md) |
+ | Skills and harnesses policy | Canonical policy | [`../SKILLS_AND_HARNESSES.md`](../SKILLS_AND_HARNESSES.md) |
+ | Desktop UI reference | Canonical reference | [`../UI.md`](../UI.md) |
+ | Install manual (build, install, uninstall) | Canonical reference | [`../INSTALL.md`](../INSTALL.md) |
+diff --git a/docs/src/design-system-v2.md b/docs/src/design-system-v2.md
+index 5e369ea..b97ff2f 100644
+--- a/docs/src/design-system-v2.md
++++ b/docs/src/design-system-v2.md
+@@ -1,2 +1,10 @@
+ <!-- Source of truth: docs/designs/DESIGN_SYSTEM_V2.md (planner-owned design; this shim only publishes it in the book). -->
++> **Implementation status at `406240a`:** W3 is merged; W5 (app adoption) is not. The v2 token
++> modules `lines.ts`, `elevation.ts` and `breakpoints.ts` exist (`breakpoints.ts` is TypeScript-only,
++> because a media query cannot read a custom property), and `tokens.css` carries their properties —
++> including `--warsha-line-rule`. `tokenDrift.test.ts` enforces R6.1–R6.10; its app length ratchet has
++> `APP_LENGTH_BUDGET = 145` (142 lengths plus 3 literal `var()` fallbacks, measured at W3's base
++> `5abe5ef`), and `WARSHA_R6_APP_LENGTH_BUDGET` can only tighten it. The screen and adoption sections
++> below remain targets until W5 lands.
++
+ {{#include ../designs/DESIGN_SYSTEM_V2.md}}
+-- 
+2.55.0.windows.5
+

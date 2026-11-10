@@ -1,0 +1,13 @@
+845:  [32m✓[39m src/v3/app/V3App.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 347[2mms[22m[39m
+846:    [33m[2m✓[22m[39m V3App[2m > [22mrenders Frame with route page and main data-ready="true" [33m315[2mms[22m[39m
+847: 
+848: [31m⎯⎯⎯⎯⎯⎯⎯[1m[7m Failed Tests 1 [27m[22m⎯⎯⎯⎯⎯⎯⎯[39m
+849: 
+850: [31m[1m[7m FAIL [27m[22m[39m src/screens/ModelsSettings.test.tsx[2m > [22mModelsSettings[2m > [22mvalidates the add form and then writes the new row through the daemon
+851: [31m[1mError[22m: Test timed out in 5000ms.
+852: If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+853: [31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯[22m[39m
+854: 
+855: [2m Test Files [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m78 passed[39m[22m[90m (79)[39m
+856: [2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m589 passed[39m[22m[90m (590)[39m
+857: [2m   Start at [22m 06:58:09

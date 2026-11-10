@@ -1,0 +1,22 @@
+start 2026-11-10T07:35:21Z
+From /mnt/c/Users/Dragonfly/Downloads/warsha
+ * [new branch]      run/2026-11-09-ui-v3/e0-e2e-v3-support   -> q/e0
+   04ae669..82430c9  82430c901375bb4986b5c6103ac5ef05e1925f21 -> q/tip
+tip=82430c901375bb4986b5c6103ac5ef05e1925f21
+e0=bcb5c7a8290a2827cdc20e63832c4fb8960efc58
+Preparing worktree (detached HEAD 82430c9)
+HEAD is now at 82430c9 chore(integration): C2 merge U1
+Merge made by the 'ort' strategy.
+ apps/desktop/e2e/v3/smoke.spec.ts    |  32 +++++
+ apps/desktop/e2e/v3/support/index.ts | 227 +++++++++++++++++++++++++++++++++++
+ 2 files changed, 259 insertions(+)
+ create mode 100644 apps/desktop/e2e/v3/smoke.spec.ts
+ create mode 100644 apps/desktop/e2e/v3/support/index.ts
+merged_head=4e7b94b7d070bdea6d60a4f033ef9748ad24bdd5
+install_ok
+ports_free
+playwright_exit=1
+stats expected=0 unexpected=0 flaky=0 skipped=0 duration_ms=6380
+pw_gate_exit=0
+pw_gate_out: unexpected=0 outside=0
+end 2026-11-10T07:35:35Z

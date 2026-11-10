@@ -1,0 +1,22 @@
+# gate: G8.2
+# command: pnpm -r typecheck
+# commit: 0b8a7e89f987c1ffb6415110238e91514cd4aa9f
+# started_utc: 2026-11-08T08:54:33Z
+# worktree: C:/Users/Dragonfly/Downloads/warsha-wt/verify-w8
+
+Scope: 7 of 8 workspace projects
+packages/client typecheck$ tsc --noEmit
+packages/crypto typecheck$ tsc --noEmit
+packages/i18n typecheck$ tsc --noEmit
+packages/ui typecheck$ tsc --noEmit && tsc --noEmit -p tsconfig.storybook.json
+packages/crypto typecheck: Done
+packages/client typecheck: Done
+packages/i18n typecheck: Done
+packages/ui typecheck: Done
+apps/desktop typecheck$ tsc --noEmit && tsc --noEmit -p tsconfig.e2e.json
+apps/remote typecheck$ tsc --noEmit
+apps/remote typecheck: Done
+apps/desktop typecheck: Done
+
+# exit_code: 0
+# finished_utc: 2026-11-08T08:55:18Z

@@ -1,0 +1,170 @@
+From 8236a488c072938243fb0a8df782b7b510df45de Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 14:56:52 +0400
+Subject: [PATCH 07/10] docs(arch-rules): rewrite R6/R7 for the merged 25
+ tests, 88 methods and W9
+
+---
+ docs/ARCH_RULES.md | 89 ++++++++++++++++++++++++++++++----------------
+ 1 file changed, 59 insertions(+), 30 deletions(-)
+
+diff --git a/docs/ARCH_RULES.md b/docs/ARCH_RULES.md
+index 0caeac9..7238b98 100644
+--- a/docs/ARCH_RULES.md
++++ b/docs/ARCH_RULES.md
+@@ -38,8 +38,8 @@ R1–R5 are printed by `scripts/check-arch.mjs`, which exits `1` when at least o
+ and `0` with the summary line `arch: 5 rules, 0 violations` when the tree is clean. R6 is printed by
+ the UI package's test suite, so it fails the `Test` step of `pnpm -r test` instead — same id, same
+ shape, same "violations are never warnings" rule. R7 is printed by `scripts/check-wire-contract.mjs`
+-under its own stable check ids `W1`–`W8` (the eight checks of the one rule), which exit `1` on any
+-violation and `0` with the summary line `wire: 8 checks, 0 violations` when the tree is clean — same
++under its own stable check ids `W1`–`W9` (the nine checks of the one rule), which exit `1` on any
++violation and `0` with the summary line `wire: 9 checks, 0 violations` when the tree is clean — same
+ shape, same ids in the same positions, so a reviewer reading a build log sees one contract.
+ 
+ The ids are stable. Renaming a rule means changing this file, the implementation and CI in the same
+@@ -129,8 +129,9 @@ commit; the ids are what a failing build prints, so they are part of the interfa
+   not flagged.
+ - **Why**: the `pub use` block in a crate's `lib.rs` is the crate's public API. Reaching past it into
+   `mod handoff;` couples a caller to an internal layout that the owning crate must then freeze, and it
+-  silently breaks the moment that module is renamed or made private. `warsha-pipeline` keeps sixteen
+-  private modules precisely so it can rearrange them.
++  silently breaks the moment that module is renamed or made private. `warsha-pipeline` keeps
++  twenty-three private modules (twenty-six modules in total; `mcp`, `mcp_transport` and `settings`
++  are public) precisely so it can rearrange them.
+ - **Passes today**: every cross-crate path names a type that the owning crate re-exports.
+ - **Failure message**: `R4: <file>:<line> path warsha_<name>::<segment> (private module)`
+ 
+@@ -162,23 +163,24 @@ commit; the ids are what a failing build prints, so they are part of the interfa
+ 
+ - **Rule id**: `R6`
+ - **Name**: `no-token-drift`
+-- **Implemented by**: `packages/ui/src/tokens/tokenDrift.test.ts` (17 tests), run by `pnpm -r test`
++- **Implemented by**: `packages/ui/src/tokens/tokenDrift.test.ts` (25 tests), run by `pnpm -r test`
+   in CI and by the bridge. It is not in `scripts/check-arch.mjs` on purpose: R1–R5 read Rust
+   manifests and app imports, while R6 has to read the TypeScript token modules *and* `tokens.css` to
+-  compare them, which only the package that owns both can do.
++  compare them, which only the package that owns both can do. The 25 is measured from the merged
++  file at `99a7c03` (`grep -cE '^\s*it\('`), not copied from the design document.
+ - **Forbids**, in every file that renders UI in `packages/ui` — `src/components.tsx` and
+   `src/components/*.tsx`, excluding `*.stories.tsx` and `*.test.tsx`:
+-  1. a **colour literal** — `#rgb`, `#rrggbb`, `rgb(`, `rgba(`, `hsl(`, `hsla(`;
+-  2. a **length literal** — any `px`, `rem`, `em`, `pt`, `vh`, `vw`, `ms`, `s` value;
+-  3. a **physical direction property** — `marginLeft`, `paddingRight`, `borderLeft*`,
++  1. `R6.1` a **colour literal** — `#rgb`, `#rrggbb`, `rgb(`, `rgba(`, `hsl(`, `hsla(`;
++  2. `R6.2` a **length literal** — any `px`, `rem`, `em`, `pt`, `vh`, `vw`, `ms`, `s` value;
++  3. `R6.3` a **physical direction property** — `marginLeft`, `paddingRight`, `borderLeft*`,
+      `borderTopLeftRadius`, `left:`, `right:` … (the RTL rule in `eslint.config.js` already covers
+      the two apps, not this package);
+-  4. a **font stack written inline** instead of `fontFamily('sans')` / `fontFamily('mono')`. The CSS
+-     keywords `inherit`, `initial`, `unset` and `revert` are allowed, because they are not a choice
+-     of typeface;
+-  5. a **raw token name** — `--warsha-…`, whether bare or wrapped in `var()`;
+-  6. a `cssVar(` **call** — the untyped primitive is for the token modules and for Storybook; a
+-     component uses the typed helpers (`colorVar`, `space`, `radius`, `shadow`, `fontSize`,
++  4. `R6.4` a **font stack written inline** instead of `fontFamily('sans')` / `fontFamily('mono')`.
++     The CSS keywords `inherit`, `initial`, `unset` and `revert` are allowed, because they are not a
++     choice of typeface;
++  5. `R6.5` a **raw token name** — `--warsha-…`, whether bare or wrapped in `var()`;
++  6. `R6.6` a `cssVar(` **call** — the untyped primitive is for the token modules and for Storybook;
++     a component uses the typed helpers (`colorVar`, `space`, `radius`, `shadow`, `fontSize`,
+      `fontWeight`, `duration`, `easing`), each of which takes only a declared token name.
+ 
+   Comments are blanked before scanning, so documentation may describe a value ("half-steps of the
+@@ -199,12 +201,29 @@ commit; the ids are what a failing build prints, so they are part of the interfa
+   - the scan reads the *value* of a declaration, so `borderRadius: '8px'` beside
+     `padding: 'var(--warsha-space-4)'` is not mistaken for a spacing literal.
+ - **Also checks**, in the same file:
+-  - `tokens.css` and the six token modules declare **exactly the same names** — no extra property in
+-    the stylesheet, no token in TypeScript the CSS forgot;
++  - `R6.P` — `tokens.css` and the token modules declare **exactly the same names** — no extra
++    property in the stylesheet, no token in TypeScript the CSS forgot;
+   - every name carries the same **value**, compared separately for `:root` (light) and
+     `[data-theme='dark']`, so a dark-mode value cannot drift from its TypeScript twin;
+-  - every component exported by `components.tsx` has a `*.stories.tsx` (Storybook cannot silently
+-    lose a component).
++  - `R6.S` — every component exported by `components.tsx` (and by the compound modules) has a
++    `*.stories.tsx` (Storybook cannot silently lose a component).
++- **R6 v2 — specified in `docs/designs/DESIGN_SYSTEM_V2.md` §4.6, not merged at this BASE.** W3 owns
++  the extension and is held back from checkpoint C1 (`state.json` C1 `held_back`: the remote baseline
++  decision OD1). At `99a7c03` the rules above are what the 25 tests enforce; the v2 set adds:
++  - `R6.7` — a unitless `fontWeight: <n>` / `zIndex: <n>` in `packages/ui` (use `fontWeight()` /
++    `layer()`);
++  - `R6.8` — scan `compounds/internal.ts`; a raw colour is allowed only inside a block whose selector
++    list is exactly `:root, [data-theme='light']` or `[data-theme='dark']`, closing the
++    `:root :focus-visible` loophole;
++  - `R6.9` — the **app length ratchet**: every `px`/`rem`/`em` length in
++    `apps/{desktop,remote}/src/**/*.{ts,tsx,css}`, outside an `@media` prelude whose value is in the
++    breakpoint set, is an offence, and the live count may not exceed `APP_LENGTH_BUDGET`;
++  - `R6.10` — a literal `var()` fallback (`var(--warsha-x, 4px)`).
++
++  The ratchet's frozen mechanics: `APP_LENGTH_BUDGET` is the count measured at W3's base;
++  `WARSHA_R6_APP_LENGTH_BUDGET` can only **tighten** it (`Math.min(APP_LENGTH_BUDGET, env)`), and
++  INT-2 sets the constant to `0`. Every new rule ships with a planted-violation fixture that must
++  fire and a clean fixture that must stay clean.
+ - **Why**: the dark theme is only correct if a component asks for a *role* rather than a colour. A
+   literal is a value that cannot follow `[data-theme]`, it is invisible in review because it looks
+   like every other string, and it silently forks the palette — before this rule `components.tsx`
+@@ -216,11 +235,12 @@ commit; the ids are what a failing build prints, so they are part of the interfa
+   each fires, plus a clean fixture that must produce nothing — mirroring
+   `node scripts/check-arch.mjs --self-test`, so a rule that silently matches nothing fails instead of
+   passing.
+-- **Passes today**: `Box`, `Text`, `Button` and `Card` reference tokens only; `tokens.css` and the
+-  token modules agree name for name and value for value; five story files cover the four components
+-  plus the token layer; and both apps — 41 `.ts`/`.tsx` files (39 under `apps/desktop/src`, 2 under
+-  `apps/remote/src`) — render from `var(--warsha-*)` references with no colour, on-scale spacing or
+-  type literal left.
++- **Passes today**: the four primitives (`Box`, `Text`, `Button`, `Card`) and the compound components
++  reference tokens only; `tokens.css` and the token modules agree name for name and value for value;
++  28 story files cover the exported components and the token layer; and both apps — 68 non-test
++  `.ts`/`.tsx` files (50 under `apps/desktop/src`, 18 under `apps/remote/src`, measured at `99a7c03`)
++  — render from `var(--warsha-*)` references with no colour, on-scale spacing or type literal left.
++  The test file's measured `it(` count is 25.
+ - **Failure messages** (one per line, in the `ARCH_RULES` shape):
+   - ``R6: packages/ui/src/components.tsx:34 hardcoded colour `#2563eb` (use a colour token: …)``
+   - ``R6: packages/ui/src/components.tsx:52 hardcoded length `12px` (use a spacing or radius token: …)``
+@@ -310,6 +330,13 @@ commit; the ids are what a failing build prints, so they are part of the interfa
+     array is the one shape that is legal on the wire and still not name-checkable (jsonrpsee matches
+     it by position), and the finding text says so instead of accusing the call. `W8` has no
+     deferral set: a key no argument binds is a name one side or the other can be corrected to.
++  - `W9` client-method-without-harness-stub — every method the client can put on the wire has an
++    entry in the harness's `RPC_METHODS` table (`DECISIONS.md` 2026-11-08 D8). It is the other
++    direction from `W2`: a stub the daemon cannot serve is fiction, while a client call with no stub
++    renders the error state in every visual case that reaches it — the 2026-11-07 "32 visual
++    failures" class. Nothing is deferrable: a stub for a registered method is always the fix, and a
++    name the daemon does not serve is `W1`'s to delete. An unresolvable call site is `W1`'s finding
++    and is skipped here, so each broken call is reported once.
+ - **Known drift: there is none, and it can no longer be bought back**: `KNOWN_UNREGISTERED_METHODS`
+   and `KNOWN_PARAM_DRIFT_METHODS` are both empty since the #25/#40 client work landed — `budget.get`
+   became `budget.show` (cents→USD at the client edge), `devices.remove` became `devices.revoke`,
+@@ -348,12 +375,13 @@ commit; the ids are what a failing build prints, so they are part of the interfa
+   assertion reads the four shapes whose names can be (snake, alias, shorthand, quoted) straight off
+   `parseClient`, so the check is proven to parse and not merely to match — mirroring
+   `node scripts/check-arch.mjs --self-test`.
+-- **Passes today**: the daemon registers 60 methods and the policy table names 60, every method is
+-  declared `with_extensions`, every name the client puts on the wire and every harness stub is
+-  registered, every literal params object supplies each required bound argument **and names only
+-  spellings the generated decoder binds** (all 32 client call sites: 24 object literals, 8 with no
+-  params argument, zero unresolvable and zero positional), and both known sets are empty —
+-  `wire: 8 checks, 0 violations` with zero deferred items.
++- **Passes today** (measured at `99a7c03`): the daemon registers 88 methods and the policy table
++  names 88, the two daemon views agree, and every method is declared `with_extensions`. The client
++  has 75 call sites over 75 distinct methods — 60 with an object-literal params argument and 15 with
++  no params argument, zero unresolvable and zero positional — and every one is stubbed by the
++  harness's 75-entry `RPC_METHODS` table, so `W9` (client ⊆ harness) is clean. Every literal params
++  object supplies each required bound argument **and names only spellings the generated decoder
++  binds**. Both known sets are empty: `wire: 9 checks, 0 violations` with zero deferred items.
+ - **Failure messages** (one per line, in the `ARCH_RULES` shape; none of these fire on today's tree —
+   each is the offence the check prints when that drift is present, and the first two are the shapes
+   the client used to ship):
+@@ -366,6 +394,7 @@ commit; the ids are what a failing build prints, so they are part of the interfa
+   - ``W7: packages/client/src/index.ts:515 method "projects.create" sends 1 param entry but it requires 3 bound arguments {name, description, language} — the live daemon answered -32602 "missing field" for exactly this shape``
+   - ``W8: packages/client/src/index.ts:552 method "runs.get" sends param key "id", which is no accepted spelling of any bound argument of the daemon method (it binds {run_id} — accepted: run_id / runId); the live daemon skips it and answers -32602 "missing field 'run_id'"`` — printed by the copied-tree control that planted `{ id }` back into the shipped `{ run_id: id }` call, where `W7` stayed silent (1 entry, 1 required)
+   - ``W8: packages/client/src/index.ts:552 method "runs.get" sends params as the value of `this.runParams` — a variable, an expression or a call, not an object literal, so its param NAMES cannot be checked against the daemon's bound arguments here and the parser refuses to guess them``
++  - ``W9: packages/client/src/index.ts:1389 client method "projects.list" has no e2e harness stub (apps/desktop/e2e/harness.ts RPC_METHODS)`` — the shape a client lane shipping ahead of its harness update produces
+ 
+ ---
+ 
+-- 
+2.55.0.windows.5
+

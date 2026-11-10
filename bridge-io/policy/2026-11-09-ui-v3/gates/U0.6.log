@@ -1,0 +1,20 @@
+triple ok: Button
+triple ok: IconButton
+triple ok: Link
+triple ok: TextField
+triple ok: TextArea
+triple ok: Select
+triple ok: Combobox
+triple ok: Checkbox
+triple ok: Radio
+triple ok: Switch
+triple ok: Segmented
+triple ok: Tabs
+triple ok: Tooltip
+triple ok: Badge
+triple ok: StatusPill
+triple ok: RoleMark
+triple ok: Spinner
+triple ok: Skeleton
+triple ok: ProgressBar
+GATE_EXIT=0

@@ -1,0 +1,19 @@
+pgrep: unrecognized option: c
+BusyBox v1.37.0 (2025-12-16 14:19:28 UTC) multi-call binary.
+
+Usage: pgrep [-flanovx] [-s SID|-P PPID|PATTERN]
+
+Display process(es) selected by regex PATTERN
+
+	-l	Show command name too
+	-a	Show command line too
+	-f	Match against entire command line
+	-n	Show the newest process only
+	-o	Show the oldest process only
+	-v	Negate the match
+	-x	Match whole name (not substring)
+	-s	Match session ID (0 for current)
+	-P	Match parent process ID
+	-u EUID Match against effective UID
+	-U UID  Match against UID
+RC=1

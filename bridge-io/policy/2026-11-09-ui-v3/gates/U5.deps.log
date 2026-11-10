@@ -1,0 +1,9 @@
+gate: U5.deps
+commit: 7d4ceb9d589c23a139117ad98a977ff3a073ad9a
+cwd: C:/Users/Dragonfly/Downloads/warsha-wt/v3/u5
+cmd: git diff 6025715..HEAD -- "*package.json" "crates/*/Cargo.toml" "apps/*/src-tauri/Cargo.toml" Cargo.toml | grep -E "^\\+\\s*\"?[@a-zA-Z0-9_./-]+\"?\\s*[:=]\\s*(\"[~^=]?[0-9]|\\{[^}]*version)" | grep -vE "^\\+\\s*\"?(version|rust-version)\"?\\s*[:=]"
+started: 2026-11-10T16:04:56Z
+-----
+-----
+finished: 2026-11-10T16:04:57Z
+EXIT=1

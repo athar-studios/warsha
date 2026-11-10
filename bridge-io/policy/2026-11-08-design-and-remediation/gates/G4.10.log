@@ -1,0 +1,8 @@
+=== gate G4.10 (no snapshot touched) ===
+command: git status --porcelain -- '*-snapshots/*' | wc -l
+commit: 73b1331c76ccb7c6ea14e78ff4c874b8faf563c4
+utc: 2026-11-08T09:47:46Z
+worktree: /c/Users/Dragonfly/Downloads/warsha-wt/verify-w4
+--- output ---
+0
+--- [exit code: 0] ---

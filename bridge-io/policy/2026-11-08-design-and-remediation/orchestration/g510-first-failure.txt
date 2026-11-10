@@ -1,0 +1,26 @@
+  1) [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 320x568 ar light ─────────────────
+
+    Error: the decided card still carries the signal band
+
+    expect(received).toMatch(expected)
+
+    Expected pattern: /border-inline-start:\s*3px solid var\(--warsha-bench-edge\)/
+    Received string:  "background-color: var(--warsha-color-surface); border-radius: var(--warsha-radius-md); box-shadow: var(--warsha-shadow-md); padding: 0px; border: var(--warsha-line-edge); border-inline-start: var(--warsha-line-band); min-inline-size: 0px;"
+
+      130 |   await expectQuietLamp(page);
+      131 |   const band = await page.locator('.warsha-gate-card').first().getAttribute('style');
+    > 132 |   expect(band, 'the decided card still carries the signal band').toMatch(
+          |                                                                  ^
+      133 |     /border-inline-start:\s*3px solid var\(--warsha-bench-edge\)/
+      134 |   );
+      135 | }
+        at Object.expectDecidedCardIsQuiet (/root/verify-G5.10/apps/desktop/e2e/states.spec.ts:132:66)
+        at /root/verify-G5.10/apps/desktop/e2e/states.spec.ts:309:11
+
+
+[700/793] [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 320x568 en dark
+  2) [desktop] › desktop/e2e/states.spec.ts:289:9 › gates success 320x568 ar dark ──────────────────
+
+    Error: the decided card still carries the signal band
+
+    expect(received).toMatch(expected)

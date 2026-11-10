@@ -1,0 +1,13 @@
+# gate: G8.S
+# command: git diff --name-only 0772d502002562505c6438ae712abca7a7328d84..0b8a7e89f987c1ffb6415110238e91514cd4aa9f | grep -vE "^apps/desktop/src/screens/SettingsScreen(Integrations\.test)?\.tsx$" | wc -l
+# commit: 0b8a7e89f987c1ffb6415110238e91514cd4aa9f
+# utc: 2026-11-08T08:53:50Z
+# measured_out_of_scope_files: 0
+# exit_code: 0
+
+## changed files (BASE..HEAD):
+apps/desktop/src/screens/SettingsScreen.tsx
+apps/desktop/src/screens/SettingsScreenIntegrations.test.tsx
+
+## out-of-scope count output:
+0

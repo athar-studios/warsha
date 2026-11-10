@@ -1,0 +1,2 @@
+# P5a snapshot allowlist
+^apps/desktop/e2e/(screens\.visual|states)\.spec\.ts-snapshots/(simple|advanced|run|artifacts|settings|settings-providers|providers|roles|harnesses|skills|plugins|models|routines|crash-reports|store-reviews|backend-kit)-

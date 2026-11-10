@@ -1,0 +1,297 @@
+From 024d8a430650420902416b621eb2171c6ff66de4 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 11:58:10 +0400
+Subject: [PATCH 1/2] fix(desktop): take the connectors description out of the
+ ledger list
+
+The live connectors branch nested its description Text inside the Ledger
+ul role="list", so axe reported aria-required-children [critical] on all
+eight settings a11y cases when the daemon answered integrations.list with
+zero rows: the list held only a span.
+
+The description now precedes the list in the Panel body, and the ledger
+renders only when there is at least one integration - no announced empty
+list, and no non-listitem child. Geometry is unchanged: the ul is a zero
+box (margin/padding 0, no block-start border, transparent background) and
+its scrollbar-gutter is inert without overflow.
+---
+ apps/desktop/src/screens/SettingsScreen.tsx | 255 ++++++++++----------
+ 1 file changed, 131 insertions(+), 124 deletions(-)
+
+diff --git a/apps/desktop/src/screens/SettingsScreen.tsx b/apps/desktop/src/screens/SettingsScreen.tsx
+index 74d0bc4..bd1faeb 100644
+--- a/apps/desktop/src/screens/SettingsScreen.tsx
++++ b/apps/desktop/src/screens/SettingsScreen.tsx
+@@ -315,138 +315,145 @@ export function SettingsScreen({ client, onBack, project }: SettingsScreenProps)
+             })}
+           </Ledger>
+           ) : (
+-            <Ledger label={label('connectors.title')} style={{ borderBlockStart: 'none' }}>
++            <>
++              {/* The description answers "what is this ledger?" — it is prose, not a row, so it sits
++                  beside the list instead of inside it (axe `aria-required-children`: a `ul` may only
++                  hold `li`), and an empty catalogue draws no list at all rather than an empty one. */}
+               <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)', paddingInline: 'var(--warsha-space-4)', paddingBlockStart: 'var(--warsha-space-2)' }}>
+                 {label('connectors.desc')}
+               </Text>
+-              {integrations.map((integration) => {
+-                const formOpen = connectFor === integration.id;
+-                const isSlack = integration.id === 'slack';
+-                const canSubmit = isSlack
+-                  ? draft.webhookUrl.trim() !== '' || draft.botToken.trim() !== ''
+-                  : draft.token.trim() !== '';
+-                return (
+-                  <Ledger.Row
+-                    key={integration.id}
+-                    meta={
+-                      // The service names itself in its own letters, isolated LTR inside an Arabic line (§11).
+-                      <Chip label={integration.name}>
+-                        <span dir="ltr" translate="no" style={{ fontFamily: 'var(--warsha-font-mono)' }}>
+-                          {integration.name}
+-                        </span>
+-                      </Chip>
+-                    }
+-                    actions={
+-                      integration.connected ? (
+-                        <Box dir={dir} style={{ display: 'inline-flex', gap: 'var(--warsha-space-2)', flexWrap: 'wrap' }}>
+-                          <Button
+-                            variant="ghost"
+-                            size="sm"
+-                            dir={dir}
+-                            data-testid={`connector-test-${integration.id}`}
+-                            onClick={() => void testLive(integration)}
+-                          >
+-                            {label('connectors.test')}
+-                          </Button>
+-                          <Button variant="ghost" size="sm" dir={dir} onClick={() => void disconnectLive(integration)}>
+-                            {label('common.disconnect')}
+-                          </Button>
+-                        </Box>
+-                      ) : (
+-                        <Button
+-                          variant="secondary"
+-                          size="sm"
+-                          dir={dir}
+-                          aria-expanded={formOpen}
+-                          data-testid={`connector-connect-${integration.id}`}
+-                          onClick={() => openConnect(integration.id)}
+-                        >
+-                          {label('common.connect')}
+-                        </Button>
+-                      )
+-                    }
+-                  >
+-                    {/* A lit lamp is the owner's queue: an unconnected service is theirs to connect (§1). */}
+-                    {integration.connected ? (
+-                      <Lamp state="ok" size="sm">
+-                        {label('settings.subscription.connected')}
+-                      </Lamp>
+-                    ) : (
+-                      <Lamp state="waiting" size="sm">
+-                        {label('settings.subscription.disconnected')}
+-                      </Lamp>
+-                    )}
+-
+-                    {formOpen && (
+-                      <form
+-                        onSubmit={submitConnect}
+-                        data-testid={`connector-form-${integration.id}`}
+-                        style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)', marginBlockStart: 'var(--warsha-space-2)', minInlineSize: 0 }}
++              {integrations.length > 0 && (
++                <Ledger label={label('connectors.title')} style={{ borderBlockStart: 'none' }}>
++                  {integrations.map((integration) => {
++                    const formOpen = connectFor === integration.id;
++                    const isSlack = integration.id === 'slack';
++                    const canSubmit = isSlack
++                      ? draft.webhookUrl.trim() !== '' || draft.botToken.trim() !== ''
++                      : draft.token.trim() !== '';
++                    return (
++                      <Ledger.Row
++                        key={integration.id}
++                        meta={
++                          // The service names itself in its own letters, isolated LTR inside an Arabic line (§11).
++                          <Chip label={integration.name}>
++                            <span dir="ltr" translate="no" style={{ fontFamily: 'var(--warsha-font-mono)' }}>
++                              {integration.name}
++                            </span>
++                          </Chip>
++                        }
++                        actions={
++                          integration.connected ? (
++                            <Box dir={dir} style={{ display: 'inline-flex', gap: 'var(--warsha-space-2)', flexWrap: 'wrap' }}>
++                              <Button
++                                variant="ghost"
++                                size="sm"
++                                dir={dir}
++                                data-testid={`connector-test-${integration.id}`}
++                                onClick={() => void testLive(integration)}
++                              >
++                                {label('connectors.test')}
++                              </Button>
++                              <Button variant="ghost" size="sm" dir={dir} onClick={() => void disconnectLive(integration)}>
++                                {label('common.disconnect')}
++                              </Button>
++                            </Box>
++                          ) : (
++                            <Button
++                              variant="secondary"
++                              size="sm"
++                              dir={dir}
++                              aria-expanded={formOpen}
++                              data-testid={`connector-connect-${integration.id}`}
++                              onClick={() => openConnect(integration.id)}
++                            >
++                              {label('common.connect')}
++                            </Button>
++                          )
++                        }
+                       >
+-                        {!isSlack && (
+-                          <Field
+-                            id={`connector-token-${integration.id}`}
+-                            label={integration.id === 'github' ? label('connectors.github_token') : label('providers.api_key')}
+-                            hint={integration.id === 'github' ? label('connectors.github_token_hint') : undefined}
+-                            required
+-                          >
+-                            <input
+-                              {...fieldControl(
+-                                `connector-token-${integration.id}`,
+-                                integration.id === 'github' ? { hint: true, required: true } : { required: true }
+-                              )}
+-                              dir="ltr"
+-                              type="password"
+-                              autoComplete="off"
+-                              value={draft.token}
+-                              onChange={(event) => setDraft({ ...draft, token: event.target.value })}
+-                            />
+-                          </Field>
++                        {/* A lit lamp is the owner's queue: an unconnected service is theirs to connect (§1). */}
++                        {integration.connected ? (
++                          <Lamp state="ok" size="sm">
++                            {label('settings.subscription.connected')}
++                          </Lamp>
++                        ) : (
++                          <Lamp state="waiting" size="sm">
++                            {label('settings.subscription.disconnected')}
++                          </Lamp>
+                         )}
+ 
+-                        {isSlack && (
+-                          <>
+-                            <Field id={`connector-webhook-${integration.id}`} label={label('connectors.slack_webhook')} hint={label('connectors.slack_either')}>
+-                              <input
+-                                {...fieldControl(`connector-webhook-${integration.id}`, { hint: true })}
+-                                dir="ltr"
+-                                type="password"
+-                                autoComplete="off"
+-                                value={draft.webhookUrl}
+-                                onChange={(event) => setDraft({ ...draft, webhookUrl: event.target.value })}
+-                              />
+-                            </Field>
+-                            <Field id={`connector-bot-${integration.id}`} label={label('connectors.slack_bot')}>
+-                              <input
+-                                {...fieldControl(`connector-bot-${integration.id}`)}
+-                                dir="ltr"
+-                                type="password"
+-                                autoComplete="off"
+-                                value={draft.botToken}
+-                                onChange={(event) => setDraft({ ...draft, botToken: event.target.value })}
+-                              />
+-                            </Field>
+-                          </>
+-                        )}
++                        {formOpen && (
++                          <form
++                            onSubmit={submitConnect}
++                            data-testid={`connector-form-${integration.id}`}
++                            style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)', marginBlockStart: 'var(--warsha-space-2)', minInlineSize: 0 }}
++                          >
++                            {!isSlack && (
++                              <Field
++                                id={`connector-token-${integration.id}`}
++                                label={integration.id === 'github' ? label('connectors.github_token') : label('providers.api_key')}
++                                hint={integration.id === 'github' ? label('connectors.github_token_hint') : undefined}
++                                required
++                              >
++                                <input
++                                  {...fieldControl(
++                                    `connector-token-${integration.id}`,
++                                    integration.id === 'github' ? { hint: true, required: true } : { required: true }
++                                  )}
++                                  dir="ltr"
++                                  type="password"
++                                  autoComplete="off"
++                                  value={draft.token}
++                                  onChange={(event) => setDraft({ ...draft, token: event.target.value })}
++                                />
++                              </Field>
++                            )}
++
++                            {isSlack && (
++                              <>
++                                <Field id={`connector-webhook-${integration.id}`} label={label('connectors.slack_webhook')} hint={label('connectors.slack_either')}>
++                                  <input
++                                    {...fieldControl(`connector-webhook-${integration.id}`, { hint: true })}
++                                    dir="ltr"
++                                    type="password"
++                                    autoComplete="off"
++                                    value={draft.webhookUrl}
++                                    onChange={(event) => setDraft({ ...draft, webhookUrl: event.target.value })}
++                                  />
++                                </Field>
++                                <Field id={`connector-bot-${integration.id}`} label={label('connectors.slack_bot')}>
++                                  <input
++                                    {...fieldControl(`connector-bot-${integration.id}`)}
++                                    dir="ltr"
++                                    type="password"
++                                    autoComplete="off"
++                                    value={draft.botToken}
++                                    onChange={(event) => setDraft({ ...draft, botToken: event.target.value })}
++                                  />
++                                </Field>
++                              </>
++                            )}
+ 
+-                        <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
+-                          {label('connectors.secret_note')}
+-                        </Text>
++                            <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
++                              {label('connectors.secret_note')}
++                            </Text>
+ 
+-                        <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-3)', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+-                          <Button type="button" variant="secondary" size="sm" dir={dir} onClick={() => openConnect(integration.id)}>
+-                            {label('common.cancel')}
+-                          </Button>
+-                          <Button type="submit" variant="primary" size="sm" dir={dir} disabled={working || !canSubmit}>
+-                            {label('connectors.connect_submit')}
+-                          </Button>
+-                        </Box>
+-                      </form>
+-                    )}
+-                  </Ledger.Row>
+-                );
+-              })}
+-            </Ledger>
++                            <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-3)', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
++                              <Button type="button" variant="secondary" size="sm" dir={dir} onClick={() => openConnect(integration.id)}>
++                                {label('common.cancel')}
++                              </Button>
++                              <Button type="submit" variant="primary" size="sm" dir={dir} disabled={working || !canSubmit}>
++                                {label('connectors.connect_submit')}
++                              </Button>
++                            </Box>
++                          </form>
++                        )}
++                      </Ledger.Row>
++                    );
++                  })}
++                </Ledger>
++              )}
++            </>
+           )}
+ 
+           {intent && (
+-- 
+2.55.0.windows.5
+

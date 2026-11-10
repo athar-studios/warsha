@@ -1,0 +1,61 @@
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mC:/Users/Dragonfly/Downloads/warsha-wt/w8/apps/desktop[39m
+
+ [32m✓[39m src/screens/SettingsScreenIntegrations.test.tsx[2m > [22mSettingsScreen live connectors[2m > [22mreplaces the local ledger with the daemon integration statuses
+ [32m✓[39m src/screens/SettingsScreenIntegrations.test.tsx[2m > [22mSettingsScreen live connectors[2m > [22mconnects GitHub with a PAT, writes once and never shows the token again
+ [32m✓[39m src/screens/SettingsScreenIntegrations.test.tsx[2m > [22mSettingsScreen live connectors[2m > [22mconnects a generic service with its API key
+ [32m✓[39m src/screens/SettingsScreenIntegrations.test.tsx[2m > [22mSettingsScreen live connectors[2m > [22mtests a connected integration and says what came back
+ [32m✓[39m src/screens/SettingsScreenIntegrations.test.tsx[2m > [22mSettingsScreen live connectors[2m > [22mdisconnects through the daemon and follows the answer
+ [32m✓[39m src/screens/SettingsScreenIntegrations.test.tsx[2m > [22mSettingsScreen live connectors[2m > [22mfalls back to the local subscriptions ledger when the daemon refuses the list
+ [31m×[39m src/screens/SettingsScreenIntegrations.test.tsx[2m > [22mSettingsScreen ledger list semantics[2m > [22mrenders no list at all when the daemon reports zero integrations
+[31m   → expected [ <ul role="list" …(3)>…(1)</ul> ] to have a length of +0 but got 1[39m
+ [31m×[39m src/screens/SettingsScreenIntegrations.test.tsx[2m > [22mSettingsScreen ledger list semantics[2m > [22mgives the populated ledger only list-item children, with the description outside it
+[31m   → expected [ <li …(3)>…(2)</li>, …(1) ] to have a length of 3 but got 2[39m
+ [32m✓[39m src/screens/SettingsScreenIntegrations.test.tsx[2m > [22mSettingsScreen ledger list semantics[2m > [22mgives the fallback subscriptions ledger only list-item children
+
+[31m⎯⎯⎯⎯⎯⎯⎯[1m[7m Failed Tests 2 [27m[22m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[31m[1m[7m FAIL [27m[22m[39m src/screens/SettingsScreenIntegrations.test.tsx[2m > [22mSettingsScreen ledger list semantics[2m > [22mrenders no list at all when the daemon reports zero integrations
+[31m[1mAssertionError[22m: expected [ <ul role="list" …(3)>…(1)</ul> ] to have a length of +0 but got 1[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 0[39m
+[31m+ 1[39m
+
+[36m [2m❯[22m src/screens/SettingsScreenIntegrations.test.tsx:[2m153:43[22m[39m
+    [90m151| [39m    [90m// The panel keeps its description, and the empty catalogue draws [39m…
+    [90m152| [39m    [35mconst[39m description [33m=[39m [35mawait[39m screen[33m.[39m[34mfindByText[39m([34mar[39m([32m'connectors.desc'[39m))[33m;[39m
+    [90m153| [39m    [34mexpect[39m(screen[33m.[39m[34mqueryAllByRole[39m([32m'list'[39m))[33m.[39m[34mtoHaveLength[39m([34m0[39m)[33m;[39m
+    [90m   | [39m                                          [31m^[39m
+    [90m154| [39m    [34mexpect[39m(document[33m.[39m[34mquerySelector[39m([32m'ul'[39m))[33m.[39m[34mtoBeNull[39m()[33m;[39m
+    [90m155| [39m    [34mexpect[39m(description[33m.[39m[34mclosest[39m([32m'ul'[39m))[33m.[39m[34mtoBeNull[39m()[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯[22m[39m
+
+[31m[1m[7m FAIL [27m[22m[39m src/screens/SettingsScreenIntegrations.test.tsx[2m > [22mSettingsScreen ledger list semantics[2m > [22mgives the populated ledger only list-item children, with the description outside it
+[31m[1mAssertionError[22m: expected [ <li …(3)>…(2)</li>, …(1) ] to have a length of 3 but got 2[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 3[39m
+[31m+ 2[39m
+
+[36m [2m❯[22m expectEveryChildIsAListItem src/screens/SettingsScreenIntegrations.test.tsx:[2m138:17[22m[39m
+    [90m136| [39m  [34mexpect[39m(children[33m.[39mlength)[33m.[39m[34mtoBeGreaterThan[39m([34m0[39m)[33m;[39m
+    [90m137| [39m  [35mconst[39m items [33m=[39m [34mwithin[39m(ledger)[33m.[39m[34mgetAllByRole[39m([32m'listitem'[39m)[33m;[39m
+    [90m138| [39m  [34mexpect[39m(items)[33m.[39m[34mtoHaveLength[39m(children[33m.[39mlength)[33m;[39m
+    [90m   | [39m                [31m^[39m
+    [90m139| [39m  [35mfor[39m ([35mconst[39m child [35mof[39m children) {
+    [90m140| [39m    [34mexpect[39m(child[33m.[39mtagName)[33m.[39m[34mtoBe[39m([32m'LI'[39m)[33m;[39m
+[90m [2m❯[22m src/screens/SettingsScreenIntegrations.test.tsx:[2m162:5[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯[22m[39m
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m2 failed[39m[22m[2m | [22m[1m[32m7 passed[39m[22m[90m (9)[39m
+[2m   Start at [22m 11:56:48
+[2m   Duration [22m 2.99s[2m (transform 319ms, setup 509ms, collect 557ms, tests 374ms, environment 1.04s, prepare 158ms)[22m
+

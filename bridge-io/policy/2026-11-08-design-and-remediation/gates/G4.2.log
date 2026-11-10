@@ -1,0 +1,11 @@
+=== gate G4.2 (client typecheck) ===
+command: pnpm --filter @warsha/client typecheck
+commit: 73b1331c76ccb7c6ea14e78ff4c874b8faf563c4
+utc: 2026-11-08T09:48:33Z
+worktree: /c/Users/Dragonfly/Downloads/warsha-wt/verify-w4
+--- output ---
+
+> @warsha/client@0.1.0 typecheck C:\Users\Dragonfly\Downloads\warsha-wt\verify-w4\packages\client
+> tsc --noEmit
+
+--- [exit code: 0] ---

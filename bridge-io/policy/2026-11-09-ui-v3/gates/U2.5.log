@@ -1,0 +1,9 @@
+quadruple ok: frame
+quadruple ok: onboarding
+quadruple ok: home
+quadruple ok: projects
+quadruple ok: project
+quadruple ok: inbox
+quadruple ok: bench
+quadruple ok: settings
+GATE_EXIT=0

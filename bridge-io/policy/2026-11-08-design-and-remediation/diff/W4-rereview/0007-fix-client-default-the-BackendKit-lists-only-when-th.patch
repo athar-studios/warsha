@@ -1,0 +1,73 @@
+From 73b1331c76ccb7c6ea14e78ff4c874b8faf563c4 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 13:05:47 +0400
+Subject: [PATCH 7/7] fix(client): default the BackendKit lists only when the
+ field is absent
+
+Review n1. `#[serde(default)]` fills a missing field; serde refuses an explicit
+null for a Vec<T> (invalid type: null, expected a sequence), and a daemon
+serialising the struct never sends one. The decoder now reads an absent list as
+[] and refuses null with the same named error as any other non-list, with a test
+for each direction.
+---
+ packages/client/src/index.test.ts | 14 ++++++++++++++
+ packages/client/src/index.ts      | 12 +++++++++---
+ 2 files changed, 23 insertions(+), 3 deletions(-)
+
+diff --git a/packages/client/src/index.test.ts b/packages/client/src/index.test.ts
+index 38aa97a..98a1836 100644
+--- a/packages/client/src/index.test.ts
++++ b/packages/client/src/index.test.ts
+@@ -2291,4 +2291,18 @@ describe('wiring client methods (M16/M19/M20)', () => {
+       functions: [],
+     });
+   });
++
++  it('refuses an explicit null BackendKit list field (a serde default covers absence, not null)', () => {
++    const withNull = { ...BACKEND_KIT_ROW, tables: null };
++    expect(() => decodeBackendKit(withNull, 'backend.get')).toThrow(
++      'Malformed RPC result from backend.get: "tables" is not a list'
++    );
++    const configNull = {
++      ...BACKEND_KIT_ROW,
++      config: { ...BACKEND_KIT_ROW.config, enabled_features: null },
++    };
++    expect(() => decodeBackendKit(configNull, 'backend.get')).toThrow(
++      '"enabled_features" is not a list'
++    );
++  });
+ });
+diff --git a/packages/client/src/index.ts b/packages/client/src/index.ts
+index 00c58a2..f599b44 100644
+--- a/packages/client/src/index.ts
++++ b/packages/client/src/index.ts
+@@ -2137,7 +2137,8 @@ export interface RlsPolicy {
+ /**
+  * The backend kit (`warsha_pipeline::BackendKit`, snake_case on the wire). The four
+  * list fields and `config.enabledFeatures` carry serde defaults, so they decode to
+- * `[]` when absent; `encodeBackendKit` writes the whole kit back to snake_case for
++ * `[]` when absent (an explicit `null` is refused — a default covers absence, not
++ * `null`); `encodeBackendKit` writes the whole kit back to snake_case for
+  * `backend.set`.
+  */
+ export interface BackendKit {
+@@ -2416,9 +2417,14 @@ function wiringNullableNumber(value: unknown, method: string, name: string): num
+   return wiringNumber(value, method, name);
+ }
+ 
+-/** A list field carrying a serde default: absent and `null` both read as `[]`. */
++/**
++ * A list field carrying a serde default: an ABSENT field reads as `[]`, an explicit `null` is
++ * refused. `#[serde(default)]` fills a missing field only; serde refuses `null` for a `Vec<T>`
++ * (`invalid type: null, expected a sequence`), and a daemon that serialises the struct never sends
++ * one, so accepting it here would be a tolerance the wire does not have.
++ */
+ function wiringDefaultArray(value: unknown, method: string, name: string): unknown[] {
+-  if (value === null || value === undefined) return [];
++  if (value === undefined) return [];
+   return wiringArray(value, method, name);
+ }
+ 
+-- 
+2.55.0.windows.5
+

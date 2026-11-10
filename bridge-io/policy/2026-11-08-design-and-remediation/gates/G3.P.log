@@ -1,0 +1,7 @@
+gate: G3.P (engineering policy)
+command: node scripts/check-engineering-policy.mjs
+commit: 0f829731273d722ae21f25e26a54767bc852fe56
+utc: 2026-11-08T10:23:25Z
+--- output ---
+policy: 8 checks, 0 failures
+exit: 0

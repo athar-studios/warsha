@@ -1,0 +1,56 @@
+start 2026-11-10T16:29:57Z
+u5sha=7d4ceb9d589c23a139117ad98a977ff3a073ad9a basesha=6025715d881f80454286e35ed803d08f801a8c6c wt=/root/warsha-u5v2
+From /mnt/c/Users/Dragonfly/Downloads/warsha
+   ad58a66..7d4ceb9  run/2026-11-09-ui-v3/u5-settings -> q/u5
+base=6025715d881f80454286e35ed803d08f801a8c6c
+u5=7d4ceb9d589c23a139117ad98a977ff3a073ad9a
+Preparing worktree (detached HEAD 6025715)
+HEAD is now at 6025715 chore(integration): C2 merge E0
+Merge made by the 'ort' strategy.
+ apps/desktop/e2e/v3/settings.spec.ts               | 1126 ++++++++++++++++++++
+ apps/desktop/e2e/v3/support/index.ts               |    3 +
+ apps/desktop/src/v3/actions/registry/settings.ts   |  260 ++++-
+ .../src/v3/pages/settings/Settings.test.tsx        |  966 +++++++++++++++++
+ apps/desktop/src/v3/pages/settings/SettingsNav.tsx |  173 +++
+ apps/desktop/src/v3/pages/settings/index.tsx       |   95 +-
+ .../v3/pages/settings/sections/AboutSection.tsx    |  158 +++
+ .../v3/pages/settings/sections/BackendSection.tsx  |  344 ++++++
+ .../v3/pages/settings/sections/BudgetsSection.tsx  |  199 ++++
+ .../v3/pages/settings/sections/DevicesSection.tsx  |  273 +++++
+ .../v3/pages/settings/sections/GeneralSection.tsx  |  337 ++++++
+ .../settings/sections/IntegrationsSection.tsx      |  395 +++++++
+ .../v3/pages/settings/sections/ModelsSection.tsx   |  744 +++++++++++++
+ .../v3/pages/settings/sections/PluginsSection.tsx  |  382 +++++++
+ .../pages/settings/sections/PostLaunchSection.tsx  |  302 ++++++
+ .../v3/pages/settings/sections/RoutinesSection.tsx |  250 +++++
+ .../v3/pages/settings/sections/SkillsSection.tsx   |  269 +++++
+ .../pages/settings/sections/WorkflowsSection.tsx   |  325 ++++++
+ apps/desktop/src/v3/pages/settings/settings.css    |  287 +++++
+ apps/desktop/src/v3/pages/settings/types.ts        |  115 ++
+ packages/i18n/src/v3/ar/settings.ts                |  260 +++++
+ packages/i18n/src/v3/en/settings.ts                |  260 +++++
+ 22 files changed, 7516 insertions(+), 7 deletions(-)
+ create mode 100644 apps/desktop/e2e/v3/settings.spec.ts
+ create mode 100644 apps/desktop/src/v3/pages/settings/Settings.test.tsx
+ create mode 100644 apps/desktop/src/v3/pages/settings/SettingsNav.tsx
+ create mode 100644 apps/desktop/src/v3/pages/settings/sections/AboutSection.tsx
+ create mode 100644 apps/desktop/src/v3/pages/settings/sections/BackendSection.tsx
+ create mode 100644 apps/desktop/src/v3/pages/settings/sections/BudgetsSection.tsx
+ create mode 100644 apps/desktop/src/v3/pages/settings/sections/DevicesSection.tsx
+ create mode 100644 apps/desktop/src/v3/pages/settings/sections/GeneralSection.tsx
+ create mode 100644 apps/desktop/src/v3/pages/settings/sections/IntegrationsSection.tsx
+ create mode 100644 apps/desktop/src/v3/pages/settings/sections/ModelsSection.tsx
+ create mode 100644 apps/desktop/src/v3/pages/settings/sections/PluginsSection.tsx
+ create mode 100644 apps/desktop/src/v3/pages/settings/sections/PostLaunchSection.tsx
+ create mode 100644 apps/desktop/src/v3/pages/settings/sections/RoutinesSection.tsx
+ create mode 100644 apps/desktop/src/v3/pages/settings/sections/SkillsSection.tsx
+ create mode 100644 apps/desktop/src/v3/pages/settings/sections/WorkflowsSection.tsx
+ create mode 100644 apps/desktop/src/v3/pages/settings/settings.css
+ create mode 100644 apps/desktop/src/v3/pages/settings/types.ts
+merged_head=d6d77c8ec45b32ba849418ad4dc5626090d4ed9b
+install_ok
+ports_free
+playwright_exit=0
+pwgate_exit=0
+counts_exit=0
+end 2026-11-10T16:31:29Z

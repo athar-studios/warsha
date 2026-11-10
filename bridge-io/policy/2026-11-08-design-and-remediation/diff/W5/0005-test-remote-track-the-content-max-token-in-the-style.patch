@@ -1,0 +1,28 @@
+From 10a181998af4d0ee79e2435fac2f3b9d217902d5 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 15:17:36 +0400
+Subject: [PATCH 5/5] test(remote): track the content-max token in the styles
+ assertion
+
+---
+ apps/remote/src/styles.test.ts | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/apps/remote/src/styles.test.ts b/apps/remote/src/styles.test.ts
+index a4799d3..d839657 100644
+--- a/apps/remote/src/styles.test.ts
++++ b/apps/remote/src/styles.test.ts
+@@ -71,8 +71,8 @@ describe('the breakpoints (§10)', () => {
+     expect(CSS).toMatch(/@media \(min-width: 1440px\)/);
+   });
+ 
+-  it('gives the wide bench the 1100px document measure and the rails the token widths', () => {
+-    expect(CSS).toMatch(/max-inline-size:\s*1100px/);
++  it('gives the wide bench the content-max document measure and the rails the token widths', () => {
++    expect(CSS).toMatch(/max-inline-size:\s*var\(--warsha-size-content-max\)/);
+     expect(CSS).toMatch(/inline-size:\s*var\(--warsha-size-rail\)/);
+     expect(CSS).toMatch(/inline-size:\s*var\(--warsha-size-rail-compact\)/);
+   });
+-- 
+2.55.0.windows.5
+

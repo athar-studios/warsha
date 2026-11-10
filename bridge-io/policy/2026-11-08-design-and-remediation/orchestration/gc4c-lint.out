@@ -1,0 +1,13 @@
+Scope: 7 of 8 workspace projects
+packages/client lint$ eslint src --ext .ts
+packages/i18n lint$ eslint src --ext .ts,.tsx
+packages/ui lint$ eslint src --ext .ts,.tsx
+packages/crypto lint$ eslint src --ext .ts
+packages/crypto lint: Done
+packages/i18n lint: Done
+packages/client lint: Done
+packages/ui lint: Done
+apps/desktop lint$ eslint src --ext .ts,.tsx
+apps/remote lint$ eslint src --ext .ts,.tsx
+apps/remote lint: Done
+apps/desktop lint: Done

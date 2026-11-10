@@ -1,0 +1,7 @@
+# union of R0..R4 allowlists — GC.11
+^apps/desktop/e2e/(screens\.visual|states)\.spec\.ts-snapshots/(onboarding-[a-z-]+|providers|settings-providers)-
+^apps/desktop/e2e/(screens\.visual|states)\.spec\.ts-snapshots/(crash-reports|store-reviews|backend-kit|harnesses|skills|plugins|models)-
+^apps/desktop/e2e/(screens\.visual|states)\.spec\.ts-snapshots/
+^apps/remote/e2e/bench\.visual\.spec\.ts-snapshots/
+^apps/desktop/e2e/(screens\.visual|states)\.spec\.ts-snapshots/(simple|advanced|run|artifacts|settings|settings-providers|providers|roles|harnesses|skills|plugins|models|routines|crash-reports|store-reviews|backend-kit)-
+^apps/desktop/e2e/(screens\.visual|states)\.spec\.ts-snapshots/(settings|settings-providers|providers|roles|harnesses|skills|plugins|models|routines|crash-reports|store-reviews|backend-kit)-

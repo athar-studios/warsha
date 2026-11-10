@@ -1,0 +1,16 @@
+# W7 frozen gates — repair iteration 1 final run (2026-11-08)
+# worktree C:/Users/Dragonfly/Downloads/warsha-wt/w7 · HEAD 7adbff4
+G7.S value=0 (expect 0)                      -> PASS
+G7.1 exit=0 (expect 0)                       -> PASS
+G7.2 exit=0 (expect 0)                       -> PASS
+G7.3-literal exit=127 (Unix apksigner absent on Windows; platform note)
+G7.3 exit=0 (apksigner.bat)                  -> PASS via .bat
+G7.4 value=2 (expect 2)                      -> PASS
+G7.5 exit=0 (expect 0) apk_sha=ce60f2bd5183779de7fd6a3c7593e0a612e878c8a1c05960f308e06ea3ad01ff -> PASS
+G7.6 exit=0 (expect 1) — only match is prompt.md:78; excluding prompt.md exit=1 -> literal FAIL (self-reference)
+G7.7 value=0 (expect 0)                      -> PASS
+G7.A exit=0 (arch: 5 rules, 0 violations)    -> PASS
+G7.P exit=0 (policy: 8 checks, 0 failures)   -> PASS
+# note: an earlier G7.6 invocation in this iteration redirected stdout into this dir
+# (grep exit 2, "input file is also the output"); that log was replaced by a redacted
+# summary and the gate re-run; the exit code above is from the clean re-run.

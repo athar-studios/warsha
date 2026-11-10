@@ -1,0 +1,2 @@
+# P5a — Tabs (advanced, run, settings strip on every settings tab), Composer (simple), ModelPicker strings, ArtifactViewer + RunView wiring
+^desktop › (screens\.visual|states)\.spec\.ts › (simple|advanced|run|artifacts|settings|settings-providers|providers|roles|harnesses|skills|plugins|models|routines|crash-reports|store-reviews|backend-kit) 

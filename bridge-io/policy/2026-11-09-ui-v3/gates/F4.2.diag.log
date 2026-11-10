@@ -1,0 +1,21 @@
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mC:/Users/Dragonfly/Downloads/warsha-wt/v3/f4/apps/desktop[39m
+
+ [32m✓[39m src/screens/ModelsSettings.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 3722[2mms[22m[39m
+   [33m[2m✓[22m[39m ModelsSettings[2m > [22mrules the custom catalogue with the daemon facts and the known capability card [33m934[2mms[22m[39m
+   [33m[2m✓[22m[39m ModelsSettings[2m > [22mvalidates the add form and then writes the new row through the daemon [33m994[2mms[22m[39m
+   [33m[2m✓[22m[39m ModelsSettings[2m > [22mfetches the provider’s live models and fills the form from one [33m357[2mms[22m[39m
+   [33m[2m✓[22m[39m ModelsSettings[2m > [22mshows the reported routing and assigns a role with a single weighted target [33m364[2mms[22m[39m
+   [33m[2m✓[22m[39m ModelsSettings[2m > [22msurfaces the daemon refusal on assignment [33m332[2mms[22m[39m
+   [33m[2m✓[22m[39m ModelsSettings[2m > [22msays when the daemon does not answer the catalogue, with an honest empty ledger [33m327[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m8 passed[39m[22m[90m (8)[39m
+[2m   Start at [22m 07:06:32
+[2m   Duration [22m 37.36s[2m (transform 6.95s, setup 4.28s, collect 9.00s, tests 3.72s, environment 17.89s, prepare 1.12s)[22m
+
+npm notice
+npm notice New major version of npm available! 11.19.0 -> 12.2.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.2
+npm notice To update run: npm install -g npm@12.2.2
+npm notice

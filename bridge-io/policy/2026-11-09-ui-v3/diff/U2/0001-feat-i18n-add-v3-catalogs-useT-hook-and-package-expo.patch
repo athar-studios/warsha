@@ -1,0 +1,586 @@
+From 862e7939183d3672ecfd81d1c1a8f5f4fae12f9f Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Mon, 9 Nov 2026 17:39:41 +0400
+Subject: [PATCH 01/12] feat(i18n): add v3 catalogs, useT hook, and package
+ exports
+
+Add Arabic and English v3 translation catalogs for common, frame,
+onboarding, home, projects, project, inbox, bench, and settings areas.
+Provide useT hook with variable interpolation and wire exports["./v3"]
+in package.json.
+---
+ packages/i18n/package.json            |  10 ++
+ packages/i18n/src/v3/ar/bench.ts      |   4 +
+ packages/i18n/src/v3/ar/common.ts     |  35 +++++
+ packages/i18n/src/v3/ar/frame.ts      |   7 +
+ packages/i18n/src/v3/ar/home.ts       |   5 +
+ packages/i18n/src/v3/ar/inbox.ts      |   4 +
+ packages/i18n/src/v3/ar/onboarding.ts |   6 +
+ packages/i18n/src/v3/ar/project.ts    |   4 +
+ packages/i18n/src/v3/ar/projects.ts   |   4 +
+ packages/i18n/src/v3/ar/settings.ts   |   4 +
+ packages/i18n/src/v3/en/bench.ts      |   4 +
+ packages/i18n/src/v3/en/common.ts     |  35 +++++
+ packages/i18n/src/v3/en/frame.ts      |   7 +
+ packages/i18n/src/v3/en/home.ts       |   5 +
+ packages/i18n/src/v3/en/inbox.ts      |   4 +
+ packages/i18n/src/v3/en/onboarding.ts |   6 +
+ packages/i18n/src/v3/en/project.ts    |   4 +
+ packages/i18n/src/v3/en/projects.ts   |   4 +
+ packages/i18n/src/v3/en/settings.ts   |   4 +
+ packages/i18n/src/v3/index.test.ts    |  57 ++++++++
+ packages/i18n/src/v3/index.ts         | 185 ++++++++++++++++++++++++++
+ 21 files changed, 398 insertions(+)
+ create mode 100644 packages/i18n/src/v3/ar/bench.ts
+ create mode 100644 packages/i18n/src/v3/ar/common.ts
+ create mode 100644 packages/i18n/src/v3/ar/frame.ts
+ create mode 100644 packages/i18n/src/v3/ar/home.ts
+ create mode 100644 packages/i18n/src/v3/ar/inbox.ts
+ create mode 100644 packages/i18n/src/v3/ar/onboarding.ts
+ create mode 100644 packages/i18n/src/v3/ar/project.ts
+ create mode 100644 packages/i18n/src/v3/ar/projects.ts
+ create mode 100644 packages/i18n/src/v3/ar/settings.ts
+ create mode 100644 packages/i18n/src/v3/en/bench.ts
+ create mode 100644 packages/i18n/src/v3/en/common.ts
+ create mode 100644 packages/i18n/src/v3/en/frame.ts
+ create mode 100644 packages/i18n/src/v3/en/home.ts
+ create mode 100644 packages/i18n/src/v3/en/inbox.ts
+ create mode 100644 packages/i18n/src/v3/en/onboarding.ts
+ create mode 100644 packages/i18n/src/v3/en/project.ts
+ create mode 100644 packages/i18n/src/v3/en/projects.ts
+ create mode 100644 packages/i18n/src/v3/en/settings.ts
+ create mode 100644 packages/i18n/src/v3/index.test.ts
+ create mode 100644 packages/i18n/src/v3/index.ts
+
+diff --git a/packages/i18n/package.json b/packages/i18n/package.json
+index 262f010..d3cb962 100644
+--- a/packages/i18n/package.json
++++ b/packages/i18n/package.json
+@@ -4,6 +4,16 @@
+   "private": true,
+   "main": "./src/index.tsx",
+   "types": "./src/index.tsx",
++  "exports": {
++    ".": {
++      "types": "./src/index.tsx",
++      "default": "./src/index.tsx"
++    },
++    "./v3": {
++      "types": "./src/v3/index.ts",
++      "default": "./src/v3/index.ts"
++    }
++  },
+   "scripts": {
+     "build": "tsc --noEmit",
+     "lint": "eslint src --ext .ts,.tsx",
+diff --git a/packages/i18n/src/v3/ar/bench.ts b/packages/i18n/src/v3/ar/bench.ts
+new file mode 100644
+index 0000000..df25897
+--- /dev/null
++++ b/packages/i18n/src/v3/ar/bench.ts
+@@ -0,0 +1,4 @@
++export default {
++  'bench.title': 'منصة العمل المتقدمة',
++  'bench.empty': 'لا توجد بيانات تشغيل',
++};
+diff --git a/packages/i18n/src/v3/ar/common.ts b/packages/i18n/src/v3/ar/common.ts
+new file mode 100644
+index 0000000..5b0011b
+--- /dev/null
++++ b/packages/i18n/src/v3/ar/common.ts
+@@ -0,0 +1,35 @@
++export default {
++  'common.app_name': 'ورشة',
++  'common.loading': 'جارٍ التحميل',
++  'common.error': 'حدث خطأ غير متوقع',
++  'common.retry': 'إعادة المحاولة',
++  'common.empty': 'لا توجد بيانات',
++  'common.cancel': 'إلغاء',
++  'common.confirm': 'تأكيد',
++  'common.save': 'حفظ',
++  'common.close': 'إغلاق',
++  'common.not_found': 'الصفحة غير موجودة',
++  'common.welcome': 'أهلًا بك {name}',
++  'stages.idea': 'الفكرة',
++  'stages.plan': 'الخطة',
++  'stages.build': 'البناء',
++  'stages.qa': 'الفحص',
++  'stages.delivery': 'التسليم',
++  'gate.question.a': 'هل نعتمد الفكرة والموجز؟',
++  'gate.question.b': 'هل نعتمد المواصفات؟',
++  'gate.question.c': 'هل ندمج التغييرات؟',
++  'gate.question.d': 'هل ننشر؟',
++  'events.stage_started': 'بدأت المرحلة',
++  'events.stage_completed': 'اكتملت المرحلة',
++  'events.gate_decision': 'صدر قرار البوابة',
++  'events.agent_step': 'خطوة الوكيل',
++  'events.tool_call': 'استدعاء أداة',
++  'events.artifact_created': 'تم إنشاء مخرج جديد',
++  'events.artifact_updated': 'تم تحديث المخرج',
++  'events.cost_recorded': 'تم تسجيل التكلفة',
++  'events.error': 'حدث خطأ',
++  'events.fallback': 'استخدام البديل',
++  'events.budget_warning': 'تحذير الميزانية',
++  'events.budget_exceeded': 'تجاوز الميزانية',
++  'events.unknown': 'حدث غير معروف',
++};
+diff --git a/packages/i18n/src/v3/ar/frame.ts b/packages/i18n/src/v3/ar/frame.ts
+new file mode 100644
+index 0000000..e3e79bb
+--- /dev/null
++++ b/packages/i18n/src/v3/ar/frame.ts
+@@ -0,0 +1,7 @@
++export default {
++  'frame.title': 'الإطار الرئيسي',
++  'frame.daemon_offline': 'لا يمكن الوصول إلى خادم ورشة — إعادة المحاولة',
++  'frame.mode_simple': 'بسيط',
++  'frame.mode_advanced': 'متقدّم',
++  'frame.anonymous_project': 'مشروع بلا اسم',
++};
+diff --git a/packages/i18n/src/v3/ar/home.ts b/packages/i18n/src/v3/ar/home.ts
+new file mode 100644
+index 0000000..2982d7f
+--- /dev/null
++++ b/packages/i18n/src/v3/ar/home.ts
+@@ -0,0 +1,5 @@
++export default {
++  'home.title': 'الرئيسية',
++  'home.greeting': 'أهلًا، ماذا نبني اليوم؟',
++  'home.start': 'ابدأ المشروع',
++};
+diff --git a/packages/i18n/src/v3/ar/inbox.ts b/packages/i18n/src/v3/ar/inbox.ts
+new file mode 100644
+index 0000000..e0d9ffe
+--- /dev/null
++++ b/packages/i18n/src/v3/ar/inbox.ts
+@@ -0,0 +1,4 @@
++export default {
++  'inbox.title': 'صندوق القرارات',
++  'inbox.empty': 'لا شيء ينتظرك الآن',
++};
+diff --git a/packages/i18n/src/v3/ar/onboarding.ts b/packages/i18n/src/v3/ar/onboarding.ts
+new file mode 100644
+index 0000000..6d17262
+--- /dev/null
++++ b/packages/i18n/src/v3/ar/onboarding.ts
+@@ -0,0 +1,6 @@
++export default {
++  'onboarding.title': 'التهيئة الأولى',
++  'onboarding.step_language': 'اللغة',
++  'onboarding.step_provider': 'اربط ذكاء اصطناعيا',
++  'onboarding.step_idea': 'فكرتك الأولى',
++};
+diff --git a/packages/i18n/src/v3/ar/project.ts b/packages/i18n/src/v3/ar/project.ts
+new file mode 100644
+index 0000000..c579445
+--- /dev/null
++++ b/packages/i18n/src/v3/ar/project.ts
+@@ -0,0 +1,4 @@
++export default {
++  'project.title': 'المشروع',
++  'project.empty': 'المشروع غير موجود',
++};
+diff --git a/packages/i18n/src/v3/ar/projects.ts b/packages/i18n/src/v3/ar/projects.ts
+new file mode 100644
+index 0000000..b041d28
+--- /dev/null
++++ b/packages/i18n/src/v3/ar/projects.ts
+@@ -0,0 +1,4 @@
++export default {
++  'projects.title': 'المشاريع',
++  'projects.empty': 'لا توجد مشاريع حتى الآن',
++};
+diff --git a/packages/i18n/src/v3/ar/settings.ts b/packages/i18n/src/v3/ar/settings.ts
+new file mode 100644
+index 0000000..3059e6a
+--- /dev/null
++++ b/packages/i18n/src/v3/ar/settings.ts
+@@ -0,0 +1,4 @@
++export default {
++  'settings.title': 'الإعدادات',
++  'settings.general': 'عام',
++};
+diff --git a/packages/i18n/src/v3/en/bench.ts b/packages/i18n/src/v3/en/bench.ts
+new file mode 100644
+index 0000000..057ba6b
+--- /dev/null
++++ b/packages/i18n/src/v3/en/bench.ts
+@@ -0,0 +1,4 @@
++export default {
++  'bench.title': 'Advanced Workbench',
++  'bench.empty': 'No run data available',
++};
+diff --git a/packages/i18n/src/v3/en/common.ts b/packages/i18n/src/v3/en/common.ts
+new file mode 100644
+index 0000000..395c0d6
+--- /dev/null
++++ b/packages/i18n/src/v3/en/common.ts
+@@ -0,0 +1,35 @@
++export default {
++  'common.app_name': 'Warsha',
++  'common.loading': 'Loading',
++  'common.error': 'An unexpected error occurred',
++  'common.retry': 'Retry',
++  'common.empty': 'No data available',
++  'common.cancel': 'Cancel',
++  'common.confirm': 'Confirm',
++  'common.save': 'Save',
++  'common.close': 'Close',
++  'common.not_found': 'Page not found',
++  'common.welcome': 'Welcome {name}',
++  'stages.idea': 'Idea',
++  'stages.plan': 'Plan',
++  'stages.build': 'Build',
++  'stages.qa': 'Review',
++  'stages.delivery': 'Delivery',
++  'gate.question.a': 'Do we approve the idea and brief?',
++  'gate.question.b': 'Do we approve the specification?',
++  'gate.question.c': 'Do we merge the changes?',
++  'gate.question.d': 'Do we release?',
++  'events.stage_started': 'Stage started',
++  'events.stage_completed': 'Stage completed',
++  'events.gate_decision': 'Gate decision recorded',
++  'events.agent_step': 'Agent step',
++  'events.tool_call': 'Tool call',
++  'events.artifact_created': 'Artifact created',
++  'events.artifact_updated': 'Artifact updated',
++  'events.cost_recorded': 'Cost recorded',
++  'events.error': 'An error occurred',
++  'events.fallback': 'Fallback used',
++  'events.budget_warning': 'Budget warning',
++  'events.budget_exceeded': 'Budget exceeded',
++  'events.unknown': 'Unknown event',
++};
+diff --git a/packages/i18n/src/v3/en/frame.ts b/packages/i18n/src/v3/en/frame.ts
+new file mode 100644
+index 0000000..9b5d204
+--- /dev/null
++++ b/packages/i18n/src/v3/en/frame.ts
+@@ -0,0 +1,7 @@
++export default {
++  'frame.title': 'Main Frame',
++  'frame.daemon_offline': 'Cannot reach Warsha daemon — retry',
++  'frame.mode_simple': 'Simple',
++  'frame.mode_advanced': 'Advanced',
++  'frame.anonymous_project': 'Unnamed project',
++};
+diff --git a/packages/i18n/src/v3/en/home.ts b/packages/i18n/src/v3/en/home.ts
+new file mode 100644
+index 0000000..047fa61
+--- /dev/null
++++ b/packages/i18n/src/v3/en/home.ts
+@@ -0,0 +1,5 @@
++export default {
++  'home.title': 'Home',
++  'home.greeting': 'Hello, what are we building today?',
++  'home.start': 'Start project',
++};
+diff --git a/packages/i18n/src/v3/en/inbox.ts b/packages/i18n/src/v3/en/inbox.ts
+new file mode 100644
+index 0000000..a8b099e
+--- /dev/null
++++ b/packages/i18n/src/v3/en/inbox.ts
+@@ -0,0 +1,4 @@
++export default {
++  'inbox.title': 'Decisions Inbox',
++  'inbox.empty': 'Nothing is waiting for you right now',
++};
+diff --git a/packages/i18n/src/v3/en/onboarding.ts b/packages/i18n/src/v3/en/onboarding.ts
+new file mode 100644
+index 0000000..8711df9
+--- /dev/null
++++ b/packages/i18n/src/v3/en/onboarding.ts
+@@ -0,0 +1,6 @@
++export default {
++  'onboarding.title': 'First-time setup',
++  'onboarding.step_language': 'Language',
++  'onboarding.step_provider': 'Connect AI model',
++  'onboarding.step_idea': 'Your first idea',
++};
+diff --git a/packages/i18n/src/v3/en/project.ts b/packages/i18n/src/v3/en/project.ts
+new file mode 100644
+index 0000000..ea8a1c6
+--- /dev/null
++++ b/packages/i18n/src/v3/en/project.ts
+@@ -0,0 +1,4 @@
++export default {
++  'project.title': 'Project',
++  'project.empty': 'Project not found',
++};
+diff --git a/packages/i18n/src/v3/en/projects.ts b/packages/i18n/src/v3/en/projects.ts
+new file mode 100644
+index 0000000..b58eaf1
+--- /dev/null
++++ b/packages/i18n/src/v3/en/projects.ts
+@@ -0,0 +1,4 @@
++export default {
++  'projects.title': 'Projects',
++  'projects.empty': 'No projects yet',
++};
+diff --git a/packages/i18n/src/v3/en/settings.ts b/packages/i18n/src/v3/en/settings.ts
+new file mode 100644
+index 0000000..108694d
+--- /dev/null
++++ b/packages/i18n/src/v3/en/settings.ts
+@@ -0,0 +1,4 @@
++export default {
++  'settings.title': 'Settings',
++  'settings.general': 'General',
++};
+diff --git a/packages/i18n/src/v3/index.test.ts b/packages/i18n/src/v3/index.test.ts
+new file mode 100644
+index 0000000..eb75b74
+--- /dev/null
++++ b/packages/i18n/src/v3/index.test.ts
+@@ -0,0 +1,57 @@
++import { describe, expect, it } from 'vitest';
++
++import {
++  catalogs,
++  interpolate,
++  isLocale,
++  readStoredLocale,
++  translate,
++  writeStoredLocale,
++} from './index';
++
++describe('i18n v3', () => {
++  it('identifies valid locales', () => {
++    expect(isLocale('ar')).toBe(true);
++    expect(isLocale('en')).toBe(true);
++    expect(isLocale('fr')).toBe(false);
++    expect(isLocale(null)).toBe(false);
++  });
++
++  it('interpolates placeholders with provided variables', () => {
++    expect(interpolate('Hello {name}', { name: 'World' })).toBe('Hello World');
++    expect(interpolate('Count: {count}', { count: 42 })).toBe('Count: 42');
++    expect(interpolate('Missing {foo}')).toBe('Missing {foo}');
++  });
++
++  it('translates keys in Arabic and English', () => {
++    expect(translate('ar', 'common.app_name')).toBe('ورشة');
++    expect(translate('en', 'common.app_name')).toBe('Warsha');
++    expect(translate('ar', 'common.welcome', { name: 'علي' })).toBe('أهلًا بك علي');
++    expect(translate('en', 'common.welcome', { name: 'Ali' })).toBe('Welcome Ali');
++  });
++
++  it('falls back to key name when translation is missing', () => {
++    expect(translate('ar', 'non.existent.key')).toBe('non.existent.key');
++  });
++
++  it('stores and reads locale from localStorage', () => {
++    const memory = new Map<string, string>();
++    const storage = {
++      getItem: (k: string) => memory.get(k) ?? null,
++      setItem: (k: string, v: string) => {
++        memory.set(k, v);
++      },
++    };
++    writeStoredLocale('en', storage);
++    expect(readStoredLocale(storage)).toBe('en');
++    writeStoredLocale('ar', storage);
++    expect(readStoredLocale(storage)).toBe('ar');
++  });
++
++  it('has identical keys across Arabic and English catalogs', () => {
++    const arKeys = Object.keys(catalogs.ar).sort();
++    const enKeys = Object.keys(catalogs.en).sort();
++    expect(arKeys).toEqual(enKeys);
++    expect(arKeys.length).toBeGreaterThan(0);
++  });
++});
+diff --git a/packages/i18n/src/v3/index.ts b/packages/i18n/src/v3/index.ts
+new file mode 100644
+index 0000000..613b6b8
+--- /dev/null
++++ b/packages/i18n/src/v3/index.ts
+@@ -0,0 +1,185 @@
++import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
++
++import arBench from './ar/bench';
++import arCommon from './ar/common';
++import arFrame from './ar/frame';
++import arHome from './ar/home';
++import arInbox from './ar/inbox';
++import arOnboarding from './ar/onboarding';
++import arProject from './ar/project';
++import arProjects from './ar/projects';
++import arSettings from './ar/settings';
++
++import enBench from './en/bench';
++import enCommon from './en/common';
++import enFrame from './en/frame';
++import enHome from './en/home';
++import enInbox from './en/inbox';
++import enOnboarding from './en/onboarding';
++import enProject from './en/project';
++import enProjects from './en/projects';
++import enSettings from './en/settings';
++
++export type Locale = 'ar' | 'en';
++export type Direction = 'rtl' | 'ltr';
++
++export const LOCALE_STORAGE_KEY = 'warsha.locale';
++
++export const arCatalog: Record<string, string> = {
++  ...arCommon,
++  ...arFrame,
++  ...arOnboarding,
++  ...arHome,
++  ...arProjects,
++  ...arProject,
++  ...arInbox,
++  ...arBench,
++  ...arSettings,
++};
++
++export const enCatalog: Record<string, string> = {
++  ...enCommon,
++  ...enFrame,
++  ...enOnboarding,
++  ...enHome,
++  ...enProjects,
++  ...enProject,
++  ...enInbox,
++  ...enBench,
++  ...enSettings,
++};
++
++export const catalogs: Record<Locale, Record<string, string>> = {
++  ar: arCatalog,
++  en: enCatalog,
++};
++
++export function isLocale(value: unknown): value is Locale {
++  return value === 'ar' || value === 'en';
++}
++
++export interface LocaleStorage {
++  getItem(key: string): string | null;
++  setItem(key: string, value: string): void;
++}
++
++let mockStorage: LocaleStorage | null = null;
++
++export function setLocaleStorageForTesting(storage: LocaleStorage | null): void {
++  mockStorage = storage;
++}
++
++export function readStoredLocale(storage?: LocaleStorage | null): Locale {
++  const s = storage ?? mockStorage ?? (typeof window !== 'undefined' ? window.localStorage : null);
++  if (!s) return 'ar';
++  try {
++    const stored = s.getItem(LOCALE_STORAGE_KEY);
++    return isLocale(stored) ? stored : 'ar';
++  } catch {
++    return 'ar';
++  }
++}
++
++export function writeStoredLocale(locale: Locale, storage?: LocaleStorage | null): void {
++  const s = storage ?? mockStorage ?? (typeof window !== 'undefined' ? window.localStorage : null);
++  if (!s) return;
++  try {
++    s.setItem(LOCALE_STORAGE_KEY, locale);
++  } catch {
++    // Ignore storage failure
++  }
++}
++
++export function interpolate(pattern: string, vars?: Record<string, string | number>): string {
++  if (!vars) return pattern;
++  return pattern.replace(/\{(\w+)\}/g, (_, key: string) => {
++    return key in vars ? String(vars[key]) : `{${key}}`;
++  });
++}
++
++export function translate(
++  locale: Locale,
++  key: string,
++  vars?: Record<string, string | number>
++): string {
++  const catalog = catalogs[locale] ?? catalogs.ar;
++  const raw = catalog[key];
++  if (raw === undefined) {
++    return key;
++  }
++  return interpolate(raw, vars);
++}
++
++interface I18nContextValue {
++  locale: Locale;
++  dir: Direction;
++  setLocale: (locale: Locale) => void;
++  t: (key: string, vars?: Record<string, string | number>) => string;
++}
++
++const I18nContext = createContext<I18nContextValue | null>(null);
++
++export interface I18nProviderProps {
++  initialLocale?: Locale;
++  children: React.ReactNode;
++}
++
++export function I18nProvider({ initialLocale, children }: I18nProviderProps): React.ReactElement {
++  const [locale, setLocaleState] = useState<Locale>(() => initialLocale ?? readStoredLocale());
++
++  const dir: Direction = locale === 'ar' ? 'rtl' : 'ltr';
++
++  useEffect(() => {
++    writeStoredLocale(locale);
++    if (typeof document !== 'undefined') {
++      document.documentElement.lang = locale;
++      document.documentElement.dir = dir;
++    }
++  }, [locale, dir]);
++
++  const value = useMemo<I18nContextValue>(() => {
++    return {
++      locale,
++      dir,
++      setLocale: (next: Locale) => setLocaleState(next),
++      t: (key: string, vars?: Record<string, string | number>) => translate(locale, key, vars),
++    };
++  }, [locale, dir]);
++
++  return React.createElement(I18nContext.Provider, { value }, children);
++}
++
++export function useI18n(): I18nContextValue {
++  const ctx = useContext(I18nContext);
++  if (!ctx) {
++    // Fallback if rendered outside provider
++    const locale = readStoredLocale();
++    const dir: Direction = locale === 'ar' ? 'rtl' : 'ltr';
++    return {
++      locale,
++      dir,
++      setLocale: () => {},
++      t: (key: string, vars?: Record<string, string | number>) => translate(locale, key, vars),
++    };
++  }
++  return ctx;
++}
++
++export function useT(): (key: string, vars?: Record<string, string | number>) => string {
++  const { t } = useI18n();
++  return t;
++}
++
++export function useLocale(): {
++  locale: Locale;
++  setLocale: (loc: Locale) => void;
++  dir: Direction;
++} {
++  const { locale, setLocale, dir } = useI18n();
++  return { locale, setLocale, dir };
++}
++
++export function useDirection(): Direction {
++  const { dir } = useI18n();
++  return dir;
++}
+-- 
+2.55.0.windows.5
+

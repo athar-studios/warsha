@@ -1,0 +1,84 @@
+From fbc6351478fd5e97d07883d5b0df89aeeec6f9cb Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Mon, 9 Nov 2026 14:33:19 +0400
+Subject: [PATCH] fix(desktop): fix mobile providers ledger wrap and default
+ endpoint font (F1)
+
+Scoped waiver OD-F1: fix the two v0.2.1 v2 mobile-providers defects:
+1. Stack .providers-settings .warsha-ledger-row in column at <=767px so actions sit below and Lamp status span does not collapse to zero width.
+2. Render default endpoint label with sans Arabic stack (var(--warsha-font-sans)) with dir={dir} and translate="yes", keeping mono/LTR/translate="no" for real api_base URLs.
+---
+ apps/desktop/src/index.css                    |  5 +++
+ .../desktop/src/screens/ProvidersSettings.tsx | 40 +++++++++++++------
+ 2 files changed, 32 insertions(+), 13 deletions(-)
+
+diff --git a/apps/desktop/src/index.css b/apps/desktop/src/index.css
+index ba49b14..f2bbce3 100644
+--- a/apps/desktop/src/index.css
++++ b/apps/desktop/src/index.css
+@@ -462,6 +462,11 @@ html {
+   .bench-rail > * {
+     flex: 0 0 min(var(--warsha-size-strip-item), 70vw);
+   }
++
++  .providers-settings .warsha-ledger-row {
++    flex-direction: column;
++    row-gap: var(--warsha-space-1);
++  }
+ }
+ 
+ /* 768 — two columns where a rail exists; the rail is 224px and the bar stops wrapping. */
+diff --git a/apps/desktop/src/screens/ProvidersSettings.tsx b/apps/desktop/src/screens/ProvidersSettings.tsx
+index 89f6a27..1327792 100644
+--- a/apps/desktop/src/screens/ProvidersSettings.tsx
++++ b/apps/desktop/src/screens/ProvidersSettings.tsx
+@@ -604,19 +604,33 @@ export function ProvidersSettings({ client, onBack, project }: ProvidersSettings
+                     <Text size="xs" dir={dir}>
+                       {kindWord(provider.kind)}
+                     </Text>
+-                    <span
+-                      dir="ltr"
+-                      translate="no"
+-                      style={{
+-                        fontFamily: 'var(--warsha-font-mono)',
+-                        fontVariantNumeric: 'tabular-nums',
+-                        unicodeBidi: 'isolate',
+-                        fontSize: 'var(--warsha-font-size-xs)',
+-                        color: 'var(--warsha-color-text)',
+-                      }}
+-                    >
+-                      {provider.api_base ?? label('providers.endpoint.default')}
+-                    </span>
++                    {provider.api_base ? (
++                      <span
++                        dir="ltr"
++                        translate="no"
++                        style={{
++                          fontFamily: 'var(--warsha-font-mono)',
++                          fontVariantNumeric: 'tabular-nums',
++                          unicodeBidi: 'isolate',
++                          fontSize: 'var(--warsha-font-size-xs)',
++                          color: 'var(--warsha-color-text)',
++                        }}
++                      >
++                        {provider.api_base}
++                      </span>
++                    ) : (
++                      <span
++                        dir={dir}
++                        translate="yes"
++                        style={{
++                          fontFamily: 'var(--warsha-font-sans)',
++                          fontSize: 'var(--warsha-font-size-xs)',
++                          color: 'var(--warsha-color-text)',
++                        }}
++                      >
++                        {label('providers.endpoint.default')}
++                      </span>
++                    )}
+                   </Box>
+ 
+                   {state.detail && (
+-- 
+2.55.0.windows.5
+

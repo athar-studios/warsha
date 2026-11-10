@@ -1,0 +1,28 @@
+From 9d7d7c911d49c7618348538c36e0af3f552a77e1 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Mon, 9 Nov 2026 19:15:29 +0400
+Subject: [PATCH 6/6] fix(desktop): return bare arrays for postlaunch empty
+ stubs (H1 repair)
+
+---
+ apps/desktop/e2e/harness.ts | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/apps/desktop/e2e/harness.ts b/apps/desktop/e2e/harness.ts
+index f03a6b0..7aa1d2b 100644
+--- a/apps/desktop/e2e/harness.ts
++++ b/apps/desktop/e2e/harness.ts
+@@ -2161,8 +2161,8 @@ export const SCENARIOS: readonly Scenario[] = [
+       'providers.list': { result: [] },
+       'roles.list': { result: [] },
+       'devices.list': { result: [] },
+-      'postlaunch.crashes': { result: { crashes: [] } },
+-      'postlaunch.reviews': { result: { reviews: [] } },
++      'postlaunch.crashes': { result: [] },
++      'postlaunch.reviews': { result: [] },
+     },
+     settle: 'settled',
+   },
+-- 
+2.55.0.windows.5
+

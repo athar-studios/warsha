@@ -1,0 +1,10 @@
+2026-11-10T17:41:01Z
+count=17
+1775 node /root/.nvm/versions/node/v20.20.2/bin/pnpm exec playwright test --project=desktop --project=remote --reporter=json
+13879 bash -c date -u +%FT%TZ; echo count=17; pgrep -af "playwright test" | cut -c1-130; echo ---ports; ss -ltn | grep -E ":(5173|
+---ports
+LISTEN 0      511         127.0.0.1:5173       0.0.0.0:*   
+LISTEN 0      511         127.0.0.1:5174       0.0.0.0:*   
+---git
+HEAD=6929f1558d726b39749bdaac846ee9435d71dd9a P1=ba5cd1efb09bc37724e8f64feba6ecb9a1265d51 4300d93f5dff2ea791b2056a7451cddf2c878e9a
+dirty=420

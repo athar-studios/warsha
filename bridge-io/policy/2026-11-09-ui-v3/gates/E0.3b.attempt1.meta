@@ -1,0 +1,17 @@
+start 2026-11-10T08:17:22Z
+fatal: couldn't find remote ref 82430c9
+From /mnt/c/Users/Dragonfly/Downloads/warsha
+   bcb5c7a..fcd7ae5  run/2026-11-09-ui-v3/e0-e2e-v3-support -> q/e0
+tip=82430c901375bb4986b5c6103ac5ef05e1925f21
+e0=fcd7ae5a686fecaed4529998944d43b174dc11b5
+Preparing worktree (detached HEAD 82430c9)
+HEAD is now at 82430c9 chore(integration): C2 merge U1
+Merge made by the 'ort' strategy.
+ apps/desktop/e2e/v3/smoke.spec.ts    |  41 +++++++
+ apps/desktop/e2e/v3/support/index.ts | 227 +++++++++++++++++++++++++++++++++++
+ 2 files changed, 268 insertions(+)
+ create mode 100644 apps/desktop/e2e/v3/smoke.spec.ts
+ create mode 100644 apps/desktop/e2e/v3/support/index.ts
+merged_head=c582e5cd261cf88a02fd807eb1628027e876a080
+install_ok
+ports_free

@@ -1,0 +1,10 @@
+gate: G6.S
+command: git diff --name-only 0772d502002562505c6438ae712abca7a7328d84..a9edd90e92521c2c84da0b586f7191e5d52f45a5 | grep -vE '^crates/warsha-pipeline/src/(process_spawn|agent_tools|agent_loop)\.rs$' | wc -l
+worktree: C:/Users/Dragonfly/Downloads/warsha-wt/verify-w6
+commit: a9edd90e92521c2c84da0b586f7191e5d52f45a5
+cargo_target_dir: C:/Users/Dragonfly/Downloads/warsha-wt/target-verify-w6
+start_utc: 2026-11-08T08:31:26Z
+end_utc: 2026-11-08T08:31:26Z
+exit_code: 0
+--- raw combined stdout+stderr ---
+0

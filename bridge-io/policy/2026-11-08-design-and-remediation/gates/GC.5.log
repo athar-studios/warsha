@@ -1,0 +1,7 @@
+gate: GC.5
+command: pnpm --dir apps/desktop exec tsc --noEmit -p tsconfig.e2e.json
+commit: c27091696796805bbdf72848fbc93ff611866dcc
+host: Windows integration worktree
+timestamp: 2026-11-08T12:39:57Z
+---
+exit_code: 0

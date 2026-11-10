@@ -1,0 +1,26 @@
+From 71d65db1014a08f4ff380aaec3144273078282bd Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 15:05:18 +0400
+Subject: [PATCH 3/5] fix(acceptance): point daemon_ws_url at the events
+ listener
+
+---
+ apps/desktop/real-acceptance.cjs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/apps/desktop/real-acceptance.cjs b/apps/desktop/real-acceptance.cjs
+index 0ba5036..aefa53e 100644
+--- a/apps/desktop/real-acceptance.cjs
++++ b/apps/desktop/real-acceptance.cjs
+@@ -33,7 +33,7 @@ const { chromium } = require('@playwright/test');
+       window.localStorage.setItem('warsha.locale', 'en');
+       const config = {
+         daemon_url: 'http://127.0.0.1:8766',
+-        daemon_ws_url: 'ws://127.0.0.1:8766',
++        daemon_ws_url: 'ws://127.0.0.1:8765',
+         daemon_token: token,
+         onboarding_complete: 'true',
+         app_mode: 'simple',
+-- 
+2.55.0.windows.5
+

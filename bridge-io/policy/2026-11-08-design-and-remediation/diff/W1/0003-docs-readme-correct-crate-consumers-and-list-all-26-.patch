@@ -1,0 +1,297 @@
+From 763f6ff7cffb56381366c6c5f8fd41c79e0eb279 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 06:37:48 +0400
+Subject: [PATCH 3/5] docs(readme): correct crate consumers and list all 26
+ pipeline modules
+
+warsha-git claimed the pipeline asks it to prepare worktrees and open PRs.
+warsha-pipeline has no dependency on it: only warshad does, and it builds a
+GitHubClient into DaemonState.github at start-up and never reads the field.
+Record that, name reqwest as the HTTP client (octocrab is a declared but unused
+workspace dependency), and replace the false "a path outside the project is
+rejected" invariant with what the code actually refuses.
+
+templates claimed the directory is empty and find returns nothing. It holds this
+README; the four scaffolds are embedded in warsha-git as ProjectTemplate and
+nothing outside that crate calls them.
+
+warsha-pipeline listed 11 of its modules. List all 26 declared at lib.rs:18-50
+(23 private, 3 public) one line each from the module's own header doc, plus the
+cfg(test) test_util. Correct "nine-stage" to the 14 Stage variants and the
+claim that caches live under the daemon data directory: both implementations
+are in-memory and the traits are the persistence seam.
+---
+ crates/warsha-git/README.md      |  48 +++++++++++---
+ crates/warsha-pipeline/README.md | 106 ++++++++++++++++++++++++++-----
+ templates/README.md              |  44 ++++++++++---
+ 3 files changed, 162 insertions(+), 36 deletions(-)
+
+diff --git a/crates/warsha-git/README.md b/crates/warsha-git/README.md
+index dc9e969..5bea34c 100644
+--- a/crates/warsha-git/README.md
++++ b/crates/warsha-git/README.md
+@@ -2,26 +2,54 @@
+ 
+ ## Overview
+ 
+-Git and GitHub integration for runs: repositories, branches, issues, pull requests and checks. The
+-pipeline asks this crate to prepare a worktree, open a PR or read CI state rather than shelling out
+-from UI code.
++Git and GitHub integration: repositories, branches, commits, pushes, issues, pull requests and
++checks, plus the embedded project templates a new project can be scaffolded from.
++
++**Only `warshad` depends on this crate** (`crates/warshad/Cargo.toml:14`). It imports `GitHubClient`
++(`crates/warshad/src/lib.rs:38`), keeps one as `DaemonState.github` (`:1031`) and constructs it at
++start-up from the keychain token (`:5415-5416`, stored at `:5500`) — **and never reads that field
++afterwards**. So no screen, command or pipeline stage creates a repository, opens an issue or opens
++a pull request today. `warsha-pipeline` has no dependency on this crate at all.
+ 
+ ## Interface
+ 
+-- `src/lib.rs` — repository operations, branch/worktree helpers and the GitHub client surface.
++- `src/lib.rs` — `GitRepo` (`open`, `init`, `status`, `create_branch`, `checkout`, `commit`,
++  `push`), `GitHubClient` (`create_repo`, `create_issue`, `create_pr`, `get_pr`, `get_pr_checks`,
++  `merge_pr`), `slugify_branch_name` / `branch_name_for_run`, and `ProjectTemplate`.
++- `ProjectTemplate` (`src/lib.rs:629`, implemented at `:950-1049`) — the four embedded scaffolds:
++  `web` (`:952`, React + TypeScript + Vite), `cli` (`:971`, Rust), `desktop` (`:986`, Tauri + React)
++  and `android` (`:1004`, Kotlin + Jetpack Compose), with `all()` (`:1023`), `by_name()` (`:1028`)
++  and `scaffold()` (`:1033`). Each carries its own CI workflow and a `factory/README.md`. Nothing
++  outside this crate calls `ProjectTemplate` yet — its only callers are this file's own tests.
++- HTTP is **`reqwest`** (`src/lib.rs:409`), not `octocrab`. `octocrab` is declared as a workspace
++  dependency in the root `Cargo.toml:66` but no crate in the workspace lists or uses it.
+ 
+ ## Invariants
+ 
+-- Repository operations are scoped to the run's project directory; a path outside it is rejected.
+-- A GitHub token is read from the configured secret source, used for the request, and never logged
+-  or embedded in an error message.
+-- Destructive git operations are not performed as a side effect of a read (status, log, diff).
++- `GitRepo` is scoped by construction, not by a path check: every command runs `git -C <path>`
++  against the path the instance was opened with (`src/lib.rs:200-221`), with
++  `GIT_TERMINAL_PROMPT=0` so a credential prompt can never hang a run. The caller chooses that
++  path; there is no separate rule that rejects a path outside a project directory.
++- What *is* refused: a branch, base or remote name that is empty, starts with `-`, contains `..`
++  or contains whitespace (`validate_ref_arg`, `:63`), so `git` cannot read it as an option; and a
++  template file path that is not a plain relative path (`is_relative_file_path`, `:653`), so
++  `scaffold` cannot write outside the root it was given.
++- A GitHub token is attached as a bearer header per request (`authorized`, `:572-577`).
++  `GitHubClient::new` refuses an empty token with `AuthRequired`, and error text carries the HTTP
++  status plus a 300-character truncation of the response body — never the token. The daemon reads
++  it from the OS keychain (`get_github_token`, `crates/warshad/src/lib.rs:6062`).
++- `status` is the only read and runs `git status --porcelain`. The mutating operations are each
++  their own explicit call. Two of them are worth knowing: `commit` stages everything with
++  `git add -A` and commits with `commit.gpgsign=false`, and `push` is a real network write.
+ 
+ ## Side Effects
+ 
+-Runs `git` against the project working tree, and performs HTTPS requests to GitHub when a token and
+-remote are configured.
++Runs `git` as a subprocess against the chosen working tree, and performs HTTPS requests to GitHub
++through `reqwest` when a `GitHubClient` is constructed and called. `scaffold` writes template files
++to disk. Because `DaemonState.github` is never read, the daemon issues no GitHub request today.
+ 
+ ## Verification
+ 
+ - Run: `cargo test -p warsha-git`
++- Consumer: `crates/warshad` only. Re-check `grep -rn warsha-git --include=Cargo.toml crates/`
++  before claiming another crate drives it.
+diff --git a/crates/warsha-pipeline/README.md b/crates/warsha-pipeline/README.md
+index 09de5ef..71f6989 100644
+--- a/crates/warsha-pipeline/README.md
++++ b/crates/warsha-pipeline/README.md
+@@ -2,37 +2,109 @@
+ 
+ ## Overview
+ 
+-The stage engine. It owns the nine-stage run lifecycle, agent roles and prompts, the gate state
+-machine, the backend-kit record, routines, handoff bundles, guardrails, evals and the LLM/build
+-caches. `warshad` drives it; this crate decides what may happen next.
++The stage engine. It owns the run lifecycle (`warsha_core::Stage` — 14 variants, four of them
++gates), agent roles and prompts, the gate state machine, the backend-kit record, routines, handoff
++bundles, guardrails, evals and the LLM/build caches. `warshad` drives it; this crate decides what
++may happen next.
+ 
+ ## Interface
+ 
+-- `src/lib.rs` — stage definitions, pipeline driver and gate transitions.
+-- `src/agent_loop.rs`, `src/agent_tools.rs`, `src/agent_workflow.rs` — provider/tool loop.
+-- `src/backend_kit.rs` — backend kind, services, tables and export gate.
+-- `src/routines.rs` — `RoutineRegistry`, `RoutineScheduler` and the routine schema.
+-- `src/handoff.rs` — continue-on-server bundle create/apply.
+-- `src/guardrails.rs`, `src/evals.rs` — policy checks and evaluation helpers.
+-- `src/llm_cache.rs`, `src/build_cache.rs` — cache layers.
++`src/lib.rs` carries the stage definitions, the pipeline driver and the gate transitions, and
++declares **26 modules** at `:18-50` — 23 private, 3 public — plus one test-only module. Each line
++below is that module's own header doc:
++
++### Private modules (23)
++
++- `agent_loop` — one turn of the conversation on top of `agent_workflow`; `AgentLoop::run_turn` is
++  the caller the M18 stores and rules were waiting for.
++- `agent_tools` — the file and command layer Agent mode drives: one `AgentTool` is one call (read a
++  text file, write a text file, run a program) behind the `ToolExecutor` seam.
++- `agent_workflow` — the state-and-rules layer: Plan/Agent modes, the todo tool, `ask_user`,
++  `send_message`, mentions, slash commands, context compaction and output compression. It owns no
++  model call, no RPC and no socket.
++- `backend_kit` — the definition layer of the backend milestone: records what the owner picked and
++  what the agent built on top of it, and turns that record into a standard SQL dump.
++- `build_cache` — content-addressed reuse of stage outputs, keyed on inputs, prompt, model and skill
++  versions, so an unchanged stage is not paid for twice.
++- `evals` — a fixed, offline regression suite per role; `run_suite` takes the responder as a
++  closure, so the suite never calls a provider.
++- `guardrails` — untrusted-content envelopes, prompt-injection heuristics, owner-approval
++  classification and secret/PII masking. Deterministic and offline: no network, no model calls.
++- `handoff` — continue on server: hand a run to a remote `warshad`, watch it from the phone, then
++  bring the changes back file by file. Both halves are side-effect free.
++- `llm_cache` — exact-match and normalized reuse of model responses, sitting behind the router's own
++  `ResponseCache` on a miss.
++- `observability` — an in-tree, OpenTelemetry-shaped tracer for the Advanced-mode timeline. Spans
++  carry a kind, parent, attributes and status but live in memory: no exporter, no extra dependency,
++  and every attribute value passes through `guardrails::mask_secrets`.
++- `orchestrator` — the Orchestrator Agent: leads the team and conducts the discovery interview.
++- `post_launch` — post-launch care: crash reports, store reviews, the daily owner summary and
++  plain-language change requests. Bookkeeping only — no transport, no store client, no publisher.
++- `preferences` — the taste-learning store: approve/reject/change-request/edit signals folded into a
++  weighted, decaying, explainable preference per project and per owner.
++- `process_spawn` — the real child processes behind `process.*` and the live-preview dev server,
++  started through `tokio::process`.
++- `prompts` — the role prompt templates.
++- `provider_setup` — re-exports `warsha-providers`' one-click wizard and its network-free connection
++  test, so there is exactly one copy of the validation rules.
++- `router_quality` — difficulty classification, model-tier choice, a response cache and a cost sink
++  feeding the existing cost accounting. Nothing here talks to a provider, and `ResponseCache` is
++  deliberately not wired into the engine yet.
++- `routines` — the scheduled-task abstraction for Simple-mode automations, modelled in-house behind
++  the `RoutineRunner` trait; Goose is not a dependency of this repository.
++- `run_modes` — where `warshad` listens and who may reach it: Local, SelfHosted and Hosted, with the
++  validation rules and the phone-pairing store.
++- `scale_standards` — the baseline every generated app must meet: foreign-key indexes, pagination,
++  no N+1, connection pooling, request size limits, timeout budgets, structured logs and a health
++  endpoint.
++- `scout` — the Skill/MCP Scout: discovers and proposes skills and MCP servers per agent.
++- `skills` — the Skills System: loads Agent Skills from `SKILL.md` folders with license compliance.
++- `work_protection` — snapshots, undo, worktree isolation, read-before-write and per-session
++  permission modes. The policy and bookkeeping layer, not a git wrapper.
++
++### Public modules (3)
++
++- `mcp` — MCP (Model Context Protocol) support: MCP servers per project/agent, the M12 registry.
++- `mcp_transport` — the connection layer behind `mcp.*` (M20). Public as a module because
++  `McpTransport` and `McpServerConfig` already name the M12 registry types at the crate root, and a
++  flat re-export would collide. The M12 record is a registry row; this one is a live session.
++- `settings` — a thin async wrapper around the daemon's `SettingsStore` so the pipeline can reach
++  the active harness, skills and plugins.
++
++### Test-only
++
++- `test_util` — `#[cfg(test)] pub(crate) mod test_util` (`src/lib.rs:47-49`): helpers shared by this
++  crate's test modules. Not part of the public surface and not compiled into a normal build.
++
++### Tests
++
+ - `tests/` — `fake_e2e.rs`, `harness_skills_wiring.rs`, `real_llm_failure.rs`.
+ 
+ ## Invariants
+ 
+-- A run advances only through `advance_to_next_gate`; a gate decision is recorded before the next
+-  stage begins, and reaching the final `Feedback` stage completes the run.
++- A run advances only through `advance_to_next_gate` (`src/lib.rs:740`); a gate decision is recorded
++  before the next stage begins, and reaching the final `Feedback` stage completes the run.
+ - An unrouted pipeline role is answered by the deterministic fake provider, so a fresh daemon can
+-  walk Idea → GateA → Research → PrdSpec with no key and no network.
+-- Routines execute only through the configured `RoutineRunner`; the registry starts empty and is
+-  not populated by this crate's runtime on a fresh daemon.
++  walk Idea → GateA → Research → PrdSpec with no key and no network. `dispatch_chat`
++  (`src/lib.rs:640-667`) tries the router first, then a `WARSHA_LLM_*`-configured OpenAI-compatible
++  endpoint when a key is present and `WARSHA_LLM_PROVIDER` is not `fake`, then `FakeProvider`.
++- Routines execute only through the configured `RoutineRunner`; `RoutineRegistry::new()` is an empty
++  registry and is not populated by this crate's runtime on a fresh daemon.
+ 
+ ## Side Effects
+ 
+-Reads/writes artifacts through the store, invokes providers and agent tools, and may spawn backend
+-child processes. Caches live under the daemon data directory.
++Reads/writes artifacts through the store, invokes providers and agent tools, and spawns real child
++processes through `process_spawn`. The two cache implementations in this crate are **in-memory**
++(`InMemoryBuildCache`, `InMemoryLlmCache`); the `BuildCache`/`LlmCache` traits are the persistence
++seam, and no disk-backed implementation exists yet, so nothing here writes a cache under the daemon
++data directory.
+ 
+ ## Verification
+ 
+ - Run: `cargo test -p warsha-pipeline`
+ - Zero-key end-to-end: `cargo test -p warsha-pipeline --test fake_e2e`
+ - Harness/skill wiring: `cargo test -p warsha-pipeline --test harness_skills_wiring`
++- Real-LLM failure path: `cargo test -p warsha-pipeline --test real_llm_failure` — a refused model
++  call ends the run `Failed` with a credential-scrubbed event. The endpoint is a loopback stub, not
++  the Internet: no test here calls a real model API.
++- Module list: `grep -nE '^(pub )?mod ' crates/warsha-pipeline/src/lib.rs`
+diff --git a/templates/README.md b/templates/README.md
+index 7022c50..a4f90b2 100644
+--- a/templates/README.md
++++ b/templates/README.md
+@@ -2,20 +2,42 @@
+ 
+ ## Overview
+ 
+-Reserved directory for project templates that a new Warsha project may start from. It is currently
+-empty: no template is shipped, and no code path reads from this directory yet. The README records
+-that fact so a later contributor does not mistake the empty folder for a broken install.
++This directory holds **only this README**. The project templates a new Warsha project can start
++from are not files here: all four are embedded as Rust constants in
++`crates/warsha-git/src/lib.rs` and exposed as `ProjectTemplate` (`:629`, implemented at
++`:950-1049`):
++
++| Template | Constructor | Stack |
++|---|---|---|
++| `web` | `ProjectTemplate::web()` (`:952`) | React + TypeScript + Vite |
++| `cli` | `ProjectTemplate::cli()` (`:971`) | Rust |
++| `desktop` | `ProjectTemplate::desktop()` (`:986`) | Tauri + React |
++| `android` | `ProjectTemplate::android()` (`:1004`) | Kotlin + Jetpack Compose |
++
++`ProjectTemplate::all()` (`:1023`) returns the four in that order, `by_name()` (`:1028`) looks one
++up, and `scaffold()` (`:1033`) writes its files under a root. Each template carries its own
++`.github/workflows/ci.yml` and a `factory/README.md`.
++
++The folder is kept so the location is not mistaken for a broken install. It is not a loader input:
++no code path reads from `templates/`, and nothing in `crates/` or `apps/` references the directory.
+ 
+ ## Interface
+ 
+-- No exported interface. Nothing in `crates/` or `apps/` references this directory today.
++- No exported interface. The template surface lives in `crates/warsha-git` — see
++  [`crates/warsha-git/README.md`](../crates/warsha-git/README.md).
++- **Nothing outside `warsha-git` calls `ProjectTemplate` yet.** Its only callers are that crate's
++  own tests, so no screen, command or RPC scaffolds a project from a template today.
+ 
+ ## Invariants
+ 
+-- A template added here must be self-contained and must not carry secrets, tokens or machine-specific
+-  paths.
++- A template added here must be self-contained and must not carry secrets, tokens or
++  machine-specific paths.
++- `scaffold` refuses any template file path that is not a plain relative path
++  (`is_relative_file_path`, `crates/warsha-git/src/lib.rs:653`), so a scaffold cannot escape the
++  root it was given. A new template must keep that property.
+ - Adding a template is a product decision: the loader and the UI affordance must land with it, not
+-  before it.
++  before it. Moving a scaffold out of the Rust constants into this directory is that decision, and
++  it needs the reader that does not exist yet.
+ 
+ ## Side Effects
+ 
+@@ -23,5 +45,9 @@ None. Files only.
+ 
+ ## Verification
+ 
+-- Current state: `find templates -type f` returns nothing.
+-- When a template is added, extend this file with its name, purpose and the command that consumes it.
++- Current state: `find templates -type f` returns exactly one path, `templates/README.md`.
++- Where the templates really are: `grep -n "impl ProjectTemplate" crates/warsha-git/src/lib.rs`.
++- Who calls them: `grep -rn ProjectTemplate --include=*.rs crates/` — every hit is in
++  `crates/warsha-git/src/lib.rs`.
++- When a template is added, extend this file with its name, purpose and the command that consumes
++  it.
+-- 
+2.55.0.windows.5
+

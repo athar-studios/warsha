@@ -1,0 +1,9 @@
+gate: G5.S
+command: git diff --name-only 406240a..HEAD | grep -vE '^(apps/desktop/src/|apps/desktop/real-acceptance.cjs$|apps/remote/src/|packages/i18n/src/)' | wc -l
+commit: 10a181998af4d0ee79e2435fac2f3b9d217902d5
+worktree: C:/Users/Dragonfly/Downloads/warsha-wt/verify-w5
+utc_start: 2026-11-08T11:58:26Z
+--- output ---
+0
+exit_code: 0
+utc_end: 2026-11-08T11:58:26Z

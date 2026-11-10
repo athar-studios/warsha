@@ -1,0 +1,254 @@
+
+Running 58 tests using 3 workers
+
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-390x844-ar-dark-desktop-linux.png is re-generated, writing actual.
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-390x844-en-light-desktop-linux.png is re-generated, writing actual.
+  ✘  2 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 390x844 ar dark (3.8s)
+  ✘  1 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 390x844 en light (3.8s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-390x844-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✘  3 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 390x844 ar light (3.9s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-390x844-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✘  4 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 390x844 en dark (2.8s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-768x1024-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  5 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 768x1024 ar light (3.0s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-768x1024-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  6 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 768x1024 ar dark (2.9s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-768x1024-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  7 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 768x1024 en dark (2.6s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-1440x900-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  8 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 1440x900 ar light (3.0s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-768x1024-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  9 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 768x1024 en light (2.8s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-1440x900-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  10 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 1440x900 ar dark (2.9s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-1440x900-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  11 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 1440x900 en light (3.1s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/providers-1440x900-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  12 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 1440x900 en dark (3.0s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-390x844-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  13 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 390x844 ar light (2.3s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-390x844-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  14 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 390x844 ar dark (2.3s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-390x844-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  15 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 390x844 en light (2.2s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-390x844-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  16 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 390x844 en dark (2.6s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-768x1024-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  17 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 768x1024 ar light (2.7s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-768x1024-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  18 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 768x1024 ar dark (2.9s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-768x1024-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  19 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 768x1024 en light (2.6s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-768x1024-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  20 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 768x1024 en dark (2.5s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-1440x900-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  21 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 1440x900 ar light (2.7s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-1440x900-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  22 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 1440x900 ar dark (2.6s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-1440x900-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  23 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 1440x900 en light (2.8s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/settings-providers-1440x900-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  24 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › settings-providers 1440x900 en dark (2.5s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-390x844-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  25 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 390x844 ar light (2.1s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-390x844-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  26 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 390x844 ar dark (2.0s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-390x844-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  27 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 390x844 en light (2.1s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-390x844-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  28 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 390x844 en dark (2.1s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-768x1024-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  29 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 768x1024 ar light (2.5s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-768x1024-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  30 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 768x1024 ar dark (2.1s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-768x1024-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  31 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 768x1024 en light (2.3s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-768x1024-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  32 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 768x1024 en dark (2.3s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-1440x900-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  33 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 1440x900 ar light (2.8s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-1440x900-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  34 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 1440x900 ar dark (2.5s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-1440x900-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  35 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 1440x900 en light (2.6s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-1440x900-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  36 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider 1440x900 en dark (2.7s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-first-run-390x844-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  37 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 390x844 ar light (2.4s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-first-run-390x844-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  38 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 390x844 ar dark (2.2s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-first-run-768x1024-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  39 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 768x1024 ar light (2.4s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-first-run-768x1024-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  40 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 768x1024 ar dark (2.5s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-first-run-768x1024-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  41 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 768x1024 en light (2.3s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-first-run-768x1024-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  42 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 768x1024 en dark (2.1s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-first-run-1440x900-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  43 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 1440x900 ar light (2.6s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-first-run-1440x900-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  44 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 1440x900 ar dark (2.4s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-first-run-1440x900-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  45 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 1440x900 en light (2.3s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-provider-first-run-1440x900-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  46 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-provider-first-run 1440x900 en dark (2.5s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-390x844-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  47 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 390x844 ar light (2.0s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-390x844-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  48 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 390x844 ar dark (2.0s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-390x844-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  49 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 390x844 en light (2.2s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-390x844-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  50 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 390x844 en dark (2.2s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-768x1024-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  51 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 768x1024 ar light (2.3s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-768x1024-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  53 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 768x1024 en light (2.4s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-768x1024-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  52 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 768x1024 ar dark (2.5s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-768x1024-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  54 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 768x1024 en dark (2.4s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-1440x900-ar-light-desktop-linux.png is re-generated, writing actual.
+  ✓  55 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 1440x900 ar light (2.5s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-1440x900-ar-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  56 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 1440x900 ar dark (2.6s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-1440x900-en-light-desktop-linux.png is re-generated, writing actual.
+  ✓  57 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 1440x900 en light (2.4s)
+/root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts-snapshots/onboarding-key-1440x900-en-dark-desktop-linux.png is re-generated, writing actual.
+  ✓  58 [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › onboarding-key 1440x900 en dark (2.4s)
+
+
+  1) [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 390x844 ar light ──────────────
+
+    Error: layout problems:
+    emptyBoxes: <span> "لم يُختبر بعد" holds text but is 0×63
+    emptyBoxes: <span> "لم يُختبر بعد" holds text but is 0×63
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32mtrue[39m
+    Received: [31mfalse[39m
+
+      64 |           // 2. The box geometry.
+      65 |           const layout = await auditLayout(page, screen.root, theme);
+    > 66 |           expect.soft(auditIsClean(layout), `layout problems:\n${describeAudit(layout)}`).toBe(true);
+         |                                                                                           ^
+      67 |
+      68 |           // 3. Nothing cut off with no way to read it.
+      69 |           const clips = await auditClipping(page, screen.root);
+        at /root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts:66:91
+
+    Error: not drawn with the design's fonts:
+    mono probe "العنوان الافتراضي لهذا النوع" ([data-warsha-font-probe="mono"]) asked for "IBM Plex Mono" and was drawn with a fallback from the token stack: DejaVu Sans Mono ×24
+    the capture host must have IBM Plex Sans Arabic and IBM Plex Mono installed (official OFL 1.1 sources: google/fonts `ofl/ibmplexsansarabic` and `ofl/ibmplexmono`, Regular/Medium/SemiBold/Bold). On a Debian-family host: put the .ttf files in /usr/local/share/fonts/warsha-capture and run `fc-cache -f`; verify with `fc-list | grep -i plex`. The fonts are not vendored into the app, and vendoring them would need a license review that updates THIRD_PARTY_NOTICES.md first.
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoEqual[2m([22m[32mexpected[39m[2m) // deep equality[22m
+
+    [32m- Expected  - 1[39m
+    [31m+ Received  + 3[39m
+
+    [32m- Array [][39m
+    [31m+ Array [[39m
+    [31m+   "mono probe \"العنوان الافتراضي لهذا النوع\" ([data-warsha-font-probe=\"mono\"]) asked for \"IBM Plex Mono\" and was drawn with a fallback from the token stack: DejaVu Sans Mono ×24",[39m
+    [31m+ ][39m
+
+      72 |           // 4. The pixels are the design's own metrics.
+      73 |           const fonts = await auditUsedFonts(page, screen.root);
+    > 74 |           expect.soft(fonts.problems, `not drawn with the design's fonts:\n${describeFonts(fonts)}\n${FONT_INSTALL_HINT}`).toEqual(
+         |                                                                                                                            ^
+      75 |             []
+      76 |           );
+      77 |
+        at /root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts:74:124
+
+  2) [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 390x844 ar dark ───────────────
+
+    Error: layout problems:
+    emptyBoxes: <span> "لم يُختبر بعد" holds text but is 0×63
+    emptyBoxes: <span> "لم يُختبر بعد" holds text but is 0×63
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32mtrue[39m
+    Received: [31mfalse[39m
+
+      64 |           // 2. The box geometry.
+      65 |           const layout = await auditLayout(page, screen.root, theme);
+    > 66 |           expect.soft(auditIsClean(layout), `layout problems:\n${describeAudit(layout)}`).toBe(true);
+         |                                                                                           ^
+      67 |
+      68 |           // 3. Nothing cut off with no way to read it.
+      69 |           const clips = await auditClipping(page, screen.root);
+        at /root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts:66:91
+
+    Error: not drawn with the design's fonts:
+    mono probe "العنوان الافتراضي لهذا النوع" ([data-warsha-font-probe="mono"]) asked for "IBM Plex Mono" and was drawn with a fallback from the token stack: DejaVu Sans Mono ×24
+    the capture host must have IBM Plex Sans Arabic and IBM Plex Mono installed (official OFL 1.1 sources: google/fonts `ofl/ibmplexsansarabic` and `ofl/ibmplexmono`, Regular/Medium/SemiBold/Bold). On a Debian-family host: put the .ttf files in /usr/local/share/fonts/warsha-capture and run `fc-cache -f`; verify with `fc-list | grep -i plex`. The fonts are not vendored into the app, and vendoring them would need a license review that updates THIRD_PARTY_NOTICES.md first.
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoEqual[2m([22m[32mexpected[39m[2m) // deep equality[22m
+
+    [32m- Expected  - 1[39m
+    [31m+ Received  + 3[39m
+
+    [32m- Array [][39m
+    [31m+ Array [[39m
+    [31m+   "mono probe \"العنوان الافتراضي لهذا النوع\" ([data-warsha-font-probe=\"mono\"]) asked for \"IBM Plex Mono\" and was drawn with a fallback from the token stack: DejaVu Sans Mono ×24",[39m
+    [31m+ ][39m
+
+      72 |           // 4. The pixels are the design's own metrics.
+      73 |           const fonts = await auditUsedFonts(page, screen.root);
+    > 74 |           expect.soft(fonts.problems, `not drawn with the design's fonts:\n${describeFonts(fonts)}\n${FONT_INSTALL_HINT}`).toEqual(
+         |                                                                                                                            ^
+      75 |             []
+      76 |           );
+      77 |
+        at /root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts:74:124
+
+  3) [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 390x844 en light ──────────────
+
+    Error: layout problems:
+    emptyBoxes: <span> "not tested yet" holds text but is 0×54
+    emptyBoxes: <span> "not tested yet" holds text but is 0×54
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32mtrue[39m
+    Received: [31mfalse[39m
+
+      64 |           // 2. The box geometry.
+      65 |           const layout = await auditLayout(page, screen.root, theme);
+    > 66 |           expect.soft(auditIsClean(layout), `layout problems:\n${describeAudit(layout)}`).toBe(true);
+         |                                                                                           ^
+      67 |
+      68 |           // 3. Nothing cut off with no way to read it.
+      69 |           const clips = await auditClipping(page, screen.root);
+        at /root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts:66:91
+
+  4) [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 390x844 en dark ───────────────
+
+    Error: layout problems:
+    emptyBoxes: <span> "not tested yet" holds text but is 0×54
+    emptyBoxes: <span> "not tested yet" holds text but is 0×54
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoBe[2m([22m[32mexpected[39m[2m) // Object.is equality[22m
+
+    Expected: [32mtrue[39m
+    Received: [31mfalse[39m
+
+      64 |           // 2. The box geometry.
+      65 |           const layout = await auditLayout(page, screen.root, theme);
+    > 66 |           expect.soft(auditIsClean(layout), `layout problems:\n${describeAudit(layout)}`).toBe(true);
+         |                                                                                           ^
+      67 |
+      68 |           // 3. Nothing cut off with no way to read it.
+      69 |           const clips = await auditClipping(page, screen.root);
+        at /root/warsha-g0-v3/apps/desktop/e2e/screens.visual.spec.ts:66:91
+
+  4 failed
+    [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 390x844 ar light ───────────────
+    [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 390x844 ar dark ────────────────
+    [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 390x844 en light ───────────────
+    [desktop] › desktop/e2e/screens.visual.spec.ts:51:9 › providers 390x844 en dark ────────────────
+  54 passed (58.6s)
+UPDATE_EXIT=0

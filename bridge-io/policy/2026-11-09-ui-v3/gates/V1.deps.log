@@ -1,0 +1,2 @@
+$ git diff \..HEAD -- <manifests> | grep -E <added-dep-line> | grep -vE <version-keys>
+PIPESTATUS(git,grep1,grep2)=0,0,1 GATE_EXIT=1

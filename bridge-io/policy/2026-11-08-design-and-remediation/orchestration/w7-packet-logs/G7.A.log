@@ -1,0 +1,8 @@
+# gate: G7.A (architecture check)
+# command: node scripts/check-arch.mjs
+# cwd: /c/Users/Dragonfly/Downloads/warsha-wt/w7
+# commit: 7adbff4dd697e0dff7541a5200a5fcacca8fba6b
+# timestamp_utc: 2026-11-08T08:55:00Z
+# exit_code: 0
+--- output ---
+arch: 5 rules, 0 violations

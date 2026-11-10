@@ -1,0 +1,11 @@
+gate: U5.7
+commit: 7d4ceb9d589c23a139117ad98a977ff3a073ad9a
+cwd: C:/Users/Dragonfly/Downloads/warsha-wt/v3/u5
+cmd: test -z "$(git diff --name-only 6025715..HEAD | grep -vE '^(apps/desktop/src/v3/(pages/(settings)/|actions/registry/(settings)\.ts$)|packages/i18n/src/v3/(ar|en)/(settings)\.ts$|apps/desktop/e2e/v3/(settings)\.spec\.ts$)')"
+started: 2026-11-10T16:04:56Z
+-----
+-----
+finished: 2026-11-10T16:04:56Z
+EXIT=1
+apps/desktop/e2e/v3/support/index.ts
+diagnostic: grep alone (same pipeline as gate) -> outside-set file shown above; gate exit is from test -z on that output.

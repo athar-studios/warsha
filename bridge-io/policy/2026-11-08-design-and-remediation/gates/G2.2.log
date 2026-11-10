@@ -1,0 +1,9 @@
+gate: G2.2
+command: grep -nE 'Only `warsha-pipeline` and `warsha-providers`|~800 lines|does not yet mount|there is no offline service worker today|no `Dockerfile` or compose file exists|no `deny\.toml` in the repository|There is no flag and no config key that binds another interface|octocrab|Noise XX|sixteen private modules|registers 60 methods|all 32 client call sites|open disagreement' docs/ARCHITECTURE.md docs/DEPLOY.md docs/src/architecture.md SECURITY.md docs/DEVELOPERS.md docs/ARCH_RULES.md docs/VERIFY.md
+commit: e71567a499c435711899643bc676a004ac81eaa2
+timestamp: 2026-11-08T12:04:02Z
+worktree: C:/Users/Dragonfly/Downloads/warsha-wt/verify-w2
+exit: 1
+expected: 1
+--- output ---
+

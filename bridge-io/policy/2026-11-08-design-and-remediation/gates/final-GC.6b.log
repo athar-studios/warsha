@@ -1,0 +1,8 @@
+gate: GC.6b
+command: node scripts/check-arch.mjs
+commit: a643a536323b845fe7dec486a5d747f16653660d
+host: Windows integration worktree (FINAL tip)
+timestamp: 2026-11-08T15:41:02Z
+---
+arch: 5 rules, 0 violations
+exit_code: 0

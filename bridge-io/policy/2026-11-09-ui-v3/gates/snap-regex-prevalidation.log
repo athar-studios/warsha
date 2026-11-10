@@ -1,0 +1,10 @@
+snap-regex prevalidation at 2026-11-09T11:22:26.819Z against 763 committed baselines
+R0: regexes=1 matching_committed=132
+H1: regexes=1 matching_committed=180
+U3: regexes=1 matching_committed=0
+U4: regexes=1 matching_committed=0
+U5: regexes=1 matching_committed=0
+U6: regexes=1 matching_committed=0
+U7: regexes=1 matching_committed=763
+ALL: regexes=7 matching_committed=763
+note: U3-U6 match 0 committed baselines by design (genesis refreshes create them); R0 failing-path check earlier: 58/58 match, 0 mismatch

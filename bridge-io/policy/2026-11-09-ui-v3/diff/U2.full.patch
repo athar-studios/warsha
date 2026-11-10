@@ -1,0 +1,5030 @@
+diff --git a/apps/desktop/src/main.tsx b/apps/desktop/src/main.tsx
+index 01d14c2..f97f9c2 100644
+--- a/apps/desktop/src/main.tsx
++++ b/apps/desktop/src/main.tsx
+@@ -1,3 +1,4 @@
++import { invoke } from '@tauri-apps/api/core';
+ import { LocaleProvider, applyLocale, readStoredLocale } from '@warsha/i18n';
+ import React from 'react';
+ import ReactDOM from 'react-dom/client';
+@@ -6,6 +7,7 @@ import { BrowserRouter } from 'react-router-dom';
+ import App from './App';
+ import { ErrorBoundary } from './components/ErrorBoundary';
+ import { applyStoredTheme } from './theme';
++import { V3App } from './v3/app/V3App';
+ import './index.css';
+ 
+ // Write `data-theme` before the first paint: the provider below keeps it in step afterwards, but
+@@ -19,16 +21,49 @@ applyStoredTheme();
+ const storedLocale = readStoredLocale();
+ applyLocale(storedLocale);
+ 
++// Check if ui=v3 query param is present (?ui=v3)
++function isV3Requested(): boolean {
++  if (typeof window === 'undefined') return false;
++  const params = new URLSearchParams(window.location.search);
++  return params.get('ui') === 'v3'; // ui=v3
++}
++
++function Root(): React.ReactElement {
++  const [useV3, setUseV3] = React.useState<boolean>(() => isV3Requested());
++
++  React.useEffect(() => {
++    if (!useV3) {
++      invoke<string>('get_config', { key: 'ui_version' })
++        .then((ver) => {
++          if (ver === 'v3') {
++            setUseV3(true);
++          }
++        })
++        .catch(() => {
++          // If invoke fails or ui_version not set, stay on v2 App
++        });
++    }
++  }, [useV3]);
++
++  if (useV3) {
++    return <V3App />;
++  }
++
++  return (
++    <LocaleProvider initialLocale={storedLocale}>
++      <BrowserRouter>
++        <App />
++      </BrowserRouter>
++    </LocaleProvider>
++  );
++}
++
+ // The boundary sits outermost on purpose: a throw anywhere inside — locale provider, router, a
+ // screen — lands on the recovery card instead of blacking the window with nothing to click.
+ ReactDOM.createRoot(document.getElementById('root')!).render(
+   <React.StrictMode>
+     <ErrorBoundary>
+-      <LocaleProvider initialLocale={storedLocale}>
+-        <BrowserRouter>
+-          <App />
+-        </BrowserRouter>
+-      </LocaleProvider>
++      <Root />
+     </ErrorBoundary>
+   </React.StrictMode>
+ );
+diff --git a/apps/desktop/src/v3/actions/capabilities.test.ts b/apps/desktop/src/v3/actions/capabilities.test.ts
+new file mode 100644
+index 0000000..98f62de
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/capabilities.test.ts
+@@ -0,0 +1,43 @@
++import { describe, expect, it } from 'vitest';
++
++import { detectCapabilities, type Capabilities } from './capabilities';
++
++describe('capabilities detection', () => {
++  it('detects daemon online and provider present when client calls succeed', async () => {
++    const mockClient = {
++      health: async () => ({ status: 'ok', version: '0.2.1' }),
++      listProviders: async () => [
++        { name: 'deepseek', kind: 'openai_compatible', endpoint: 'https://api.deepseek.com' },
++      ],
++    } as unknown;
++
++    const caps: Capabilities = await detectCapabilities(mockClient as never);
++    expect(caps.daemon).toBe(true);
++    expect(caps.provider).toBe(true);
++    expect(caps.devices).toBe(true);
++  });
++
++  it('detects daemon online but no provider when providers list is empty', async () => {
++    const mockClient = {
++      health: async () => ({ status: 'ok', version: '0.2.1' }),
++      listProviders: async () => [],
++    } as unknown;
++
++    const caps: Capabilities = await detectCapabilities(mockClient as never);
++    expect(caps.daemon).toBe(true);
++    expect(caps.provider).toBe(false);
++  });
++
++  it('detects daemon offline when health fails', async () => {
++    const mockClient = {
++      health: async () => {
++        throw new Error('Connection refused');
++      },
++      listProviders: async () => [],
++    } as unknown;
++
++    const caps: Capabilities = await detectCapabilities(mockClient as never);
++    expect(caps.daemon).toBe(false);
++    expect(caps.provider).toBe(false);
++  });
++});
+diff --git a/apps/desktop/src/v3/actions/capabilities.ts b/apps/desktop/src/v3/actions/capabilities.ts
+new file mode 100644
+index 0000000..5f7bd54
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/capabilities.ts
+@@ -0,0 +1,64 @@
++import type { WarshaClient } from '@warsha/client';
++
++export interface Capabilities {
++  daemon: boolean;
++  provider: boolean;
++  devices: boolean;
++  integrations: boolean;
++  plugins: boolean;
++  skills: boolean;
++  harnesses: boolean;
++  routines: boolean;
++  preview: boolean;
++  backend: boolean;
++}
++
++export const DEFAULT_CAPABILITIES: Capabilities = {
++  daemon: false,
++  provider: false,
++  devices: true,
++  integrations: true,
++  plugins: true,
++  skills: true,
++  harnesses: true,
++  routines: true,
++  preview: true,
++  backend: true,
++};
++
++export async function detectCapabilities(client: WarshaClient): Promise<Capabilities> {
++  let daemon = false;
++  let provider = false;
++
++  try {
++    const health = await client.health();
++    if (health && typeof health.status === 'string') {
++      daemon = true;
++    }
++  } catch {
++    daemon = false;
++  }
++
++  if (daemon) {
++    try {
++      const providers = await client.listProviders();
++      // provider = at least one provider configured / tested OK
++      provider = Array.isArray(providers) && providers.length > 0;
++    } catch {
++      provider = false;
++    }
++  }
++
++  return {
++    daemon,
++    provider,
++    devices: true,
++    integrations: true,
++    plugins: true,
++    skills: true,
++    harnesses: true,
++    routines: true,
++    preview: true,
++    backend: true,
++  };
++}
+diff --git a/apps/desktop/src/v3/actions/index.test.ts b/apps/desktop/src/v3/actions/index.test.ts
+new file mode 100644
+index 0000000..7bb033a
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/index.test.ts
+@@ -0,0 +1,67 @@
++import { act, renderHook } from '@testing-library/react';
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++
++import { clearToastListeners, subscribeToast, type ToastMessage } from '../app/toast';
++
++import { ALL_ACTIONS, getAction, useAction, validateActionRegistry, type ActionDef } from './index';
++
++describe('action registry and useAction', () => {
++  beforeEach(() => {
++    clearToastListeners();
++  });
++
++  it('validates action registry without throwing on clean unique actions', () => {
++    expect(() => validateActionRegistry(ALL_ACTIONS)).not.toThrow();
++  });
++
++  it('throws in dev/test when duplicate action ids exist', () => {
++    const dupes: ActionDef[] = [
++      { id: 'home.start', labelKey: 'home.start', effect: 'rpc' },
++      { id: 'home.start', labelKey: 'home.start_again', effect: 'nav' },
++    ];
++    expect(() => validateActionRegistry(dupes)).toThrow('Duplicate action id registered: "home.start"');
++  });
++
++  it('retrieves an action definition by id', () => {
++    expect(getAction('non.existent')).toBeUndefined();
++  });
++
++  it('executes useAction successfully and manages pending state', async () => {
++    const fn = vi.fn().mockResolvedValue('ok');
++    const { result } = renderHook(() => useAction<[], string>('test.action', fn));
++
++    expect(result.current.pending).toBe(false);
++    expect(result.current.error).toBeNull();
++
++    let output: string | undefined;
++    await act(async () => {
++      output = await result.current.run();
++    });
++
++    expect(output).toBe('ok');
++    expect(fn).toHaveBeenCalledTimes(1);
++    expect(result.current.pending).toBe(false);
++    expect(result.current.error).toBeNull();
++  });
++
++  it('routes action failure to toast notification and updates error state', async () => {
++    const toasts: ToastMessage[] = [];
++    const unsubscribe = subscribeToast((t) => toasts.push(t));
++
++    const fn = vi.fn().mockRejectedValue(new Error('RPC call failed'));
++    const { result } = renderHook(() => useAction('test.failing', fn));
++
++    await act(async () => {
++      await result.current.run();
++    });
++
++    expect(result.current.pending).toBe(false);
++    expect(result.current.error?.message).toBe('RPC call failed');
++    expect(toasts.length).toBe(1);
++    expect(toasts[0].type).toBe('error');
++    expect(toasts[0].message).toBe('RPC call failed');
++    expect(toasts[0].actionId).toBe('test.failing');
++
++    unsubscribe();
++  });
++});
+diff --git a/apps/desktop/src/v3/actions/index.ts b/apps/desktop/src/v3/actions/index.ts
+new file mode 100644
+index 0000000..f1481f9
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/index.ts
+@@ -0,0 +1,88 @@
++import { useCallback, useState } from 'react';
++
++import { notify } from '../app/toast';
++
++import { ACTIONS as benchActions } from './registry/bench';
++import { ACTIONS as frameActions } from './registry/frame';
++import { ACTIONS as homeActions } from './registry/home';
++import { ACTIONS as inboxActions } from './registry/inbox';
++import { ACTIONS as onboardingActions } from './registry/onboarding';
++import { ACTIONS as projectActions } from './registry/project';
++import { ACTIONS as projectsActions } from './registry/projects';
++import { ACTIONS as settingsActions } from './registry/settings';
++import type { ActionDef } from './types';
++
++export * from './capabilities';
++export type { ActionDef } from './types';
++
++export const ALL_ACTIONS: readonly ActionDef[] = [
++  ...frameActions,
++  ...onboardingActions,
++  ...homeActions,
++  ...projectsActions,
++  ...projectActions,
++  ...inboxActions,
++  ...benchActions,
++  ...settingsActions,
++];
++
++export function validateActionRegistry(actions: readonly ActionDef[]): void {
++  const seen = new Set<string>();
++  for (const action of actions) {
++    if (seen.has(action.id)) {
++      throw new Error(`Duplicate action id registered: "${action.id}"`);
++    }
++    seen.add(action.id);
++  }
++}
++
++if (process.env.NODE_ENV !== 'production') {
++  validateActionRegistry(ALL_ACTIONS);
++}
++
++export function getAction(id: string): ActionDef | undefined {
++  return ALL_ACTIONS.find((action) => action.id === id);
++}
++
++export interface UseActionResult<TArgs extends unknown[], TResult> {
++  run: (...args: TArgs) => Promise<TResult | undefined>;
++  pending: boolean;
++  error: Error | null;
++}
++
++export function useAction<TArgs extends unknown[] = unknown[], TResult = unknown>(
++  id: string,
++  fn?: (...args: TArgs) => Promise<TResult>
++): UseActionResult<TArgs, TResult> {
++  const [pending, setPending] = useState(false);
++  const [error, setError] = useState<Error | null>(null);
++
++  const run = useCallback(
++    async (...args: TArgs): Promise<TResult | undefined> => {
++      setPending(true);
++      setError(null);
++      try {
++        if (!fn) {
++          setPending(false);
++          return undefined;
++        }
++        const result = await fn(...args);
++        setPending(false);
++        return result;
++      } catch (err) {
++        const failure = err instanceof Error ? err : new Error(String(err));
++        setError(failure);
++        setPending(false);
++        notify({
++          type: 'error',
++          message: failure.message,
++          actionId: id,
++        });
++        return undefined;
++      }
++    },
++    [id, fn]
++  );
++
++  return { run, pending, error };
++}
+diff --git a/apps/desktop/src/v3/actions/registry/bench.ts b/apps/desktop/src/v3/actions/registry/bench.ts
+new file mode 100644
+index 0000000..a669424
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/registry/bench.ts
+@@ -0,0 +1,3 @@
++import type { ActionDef } from '../types';
++
++export const ACTIONS: readonly ActionDef[] = [];
+diff --git a/apps/desktop/src/v3/actions/registry/frame.ts b/apps/desktop/src/v3/actions/registry/frame.ts
+new file mode 100644
+index 0000000..a669424
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/registry/frame.ts
+@@ -0,0 +1,3 @@
++import type { ActionDef } from '../types';
++
++export const ACTIONS: readonly ActionDef[] = [];
+diff --git a/apps/desktop/src/v3/actions/registry/home.ts b/apps/desktop/src/v3/actions/registry/home.ts
+new file mode 100644
+index 0000000..a669424
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/registry/home.ts
+@@ -0,0 +1,3 @@
++import type { ActionDef } from '../types';
++
++export const ACTIONS: readonly ActionDef[] = [];
+diff --git a/apps/desktop/src/v3/actions/registry/inbox.ts b/apps/desktop/src/v3/actions/registry/inbox.ts
+new file mode 100644
+index 0000000..a669424
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/registry/inbox.ts
+@@ -0,0 +1,3 @@
++import type { ActionDef } from '../types';
++
++export const ACTIONS: readonly ActionDef[] = [];
+diff --git a/apps/desktop/src/v3/actions/registry/onboarding.ts b/apps/desktop/src/v3/actions/registry/onboarding.ts
+new file mode 100644
+index 0000000..a669424
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/registry/onboarding.ts
+@@ -0,0 +1,3 @@
++import type { ActionDef } from '../types';
++
++export const ACTIONS: readonly ActionDef[] = [];
+diff --git a/apps/desktop/src/v3/actions/registry/project.ts b/apps/desktop/src/v3/actions/registry/project.ts
+new file mode 100644
+index 0000000..a669424
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/registry/project.ts
+@@ -0,0 +1,3 @@
++import type { ActionDef } from '../types';
++
++export const ACTIONS: readonly ActionDef[] = [];
+diff --git a/apps/desktop/src/v3/actions/registry/projects.ts b/apps/desktop/src/v3/actions/registry/projects.ts
+new file mode 100644
+index 0000000..a669424
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/registry/projects.ts
+@@ -0,0 +1,3 @@
++import type { ActionDef } from '../types';
++
++export const ACTIONS: readonly ActionDef[] = [];
+diff --git a/apps/desktop/src/v3/actions/registry/settings.ts b/apps/desktop/src/v3/actions/registry/settings.ts
+new file mode 100644
+index 0000000..a669424
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/registry/settings.ts
+@@ -0,0 +1,3 @@
++import type { ActionDef } from '../types';
++
++export const ACTIONS: readonly ActionDef[] = [];
+diff --git a/apps/desktop/src/v3/actions/types.ts b/apps/desktop/src/v3/actions/types.ts
+new file mode 100644
+index 0000000..0694b85
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/types.ts
+@@ -0,0 +1,8 @@
++export interface ActionDef {
++  id: string;
++  labelKey: string;
++  effect: 'rpc' | 'nav' | 'state';
++  rpc?: string[];
++  route?: string;
++  capability?: string;
++}
+diff --git a/apps/desktop/src/v3/app/CapabilitiesContext.tsx b/apps/desktop/src/v3/app/CapabilitiesContext.tsx
+new file mode 100644
+index 0000000..3c345c1
+--- /dev/null
++++ b/apps/desktop/src/v3/app/CapabilitiesContext.tsx
+@@ -0,0 +1,67 @@
++import type { WarshaClient } from '@warsha/client';
++import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
++
++import {
++  DEFAULT_CAPABILITIES,
++  detectCapabilities,
++  type Capabilities,
++} from '../actions/capabilities';
++
++import { useClient } from './ClientContext';
++
++interface CapabilitiesContextValue {
++  capabilities: Capabilities;
++  reload: () => Promise<void>;
++}
++
++const CapabilitiesContext = createContext<CapabilitiesContextValue>({
++  capabilities: DEFAULT_CAPABILITIES,
++  reload: async () => {},
++});
++
++export interface CapabilitiesProviderProps {
++  initialCapabilities?: Capabilities;
++  client?: WarshaClient;
++  children: React.ReactNode;
++}
++
++export function CapabilitiesProvider({
++  initialCapabilities,
++  client: propClient,
++  children,
++}: CapabilitiesProviderProps): React.ReactElement {
++  const contextClient = useClient();
++  const client = propClient ?? contextClient;
++
++  const [capabilities, setCapabilities] = useState<Capabilities>(
++    () => initialCapabilities ?? DEFAULT_CAPABILITIES
++  );
++
++  const reload = useCallback(async (): Promise<void> => {
++    if (!client) return;
++    try {
++      const detected = await detectCapabilities(client);
++      setCapabilities(detected);
++    } catch {
++      // Keep existing capabilities on reload failure
++    }
++  }, [client]);
++
++  useEffect(() => {
++    if (client) {
++      void reload();
++    }
++  }, [client, reload]);
++
++  const value = useMemo(() => ({ capabilities, reload }), [capabilities, reload]);
++
++  return <CapabilitiesContext.Provider value={value}>{children}</CapabilitiesContext.Provider>;
++}
++
++export function useCapabilities(): Capabilities {
++  return useContext(CapabilitiesContext).capabilities;
++}
++
++export function useReloadCapabilities(): () => Promise<void> {
++  return useContext(CapabilitiesContext).reload;
++}
+diff --git a/apps/desktop/src/v3/app/ClientContext.tsx b/apps/desktop/src/v3/app/ClientContext.tsx
+new file mode 100644
+index 0000000..59bb4e7
+--- /dev/null
++++ b/apps/desktop/src/v3/app/ClientContext.tsx
+@@ -0,0 +1,39 @@
++import { invoke } from '@tauri-apps/api/core';
++import { createClient, type WarshaClient } from '@warsha/client';
++import React, { createContext, useContext, useEffect, useState } from 'react';
++
++import { readDaemonEndpoint } from '../../daemon';
++
++const ClientContext = createContext<WarshaClient | null>(null);
++
++export interface ClientProviderProps {
++  client?: WarshaClient;
++  children: React.ReactNode;
++}
++
++export function ClientProvider({ client: clientProp, children }: ClientProviderProps): React.ReactElement {
++  const [resolvedClient, setResolvedClient] = useState<WarshaClient | null>(() => clientProp ?? null);
++
++  useEffect(() => {
++    if (clientProp) {
++      setResolvedClient(clientProp);
++      return;
++    }
++
++    readDaemonEndpoint(invoke)
++      .then((endpoint) => {
++        if (endpoint.baseUrl) {
++          setResolvedClient(createClient(endpoint.baseUrl, endpoint.token));
++        }
++      })
++      .catch(() => {
++        // In plain browser / test environment, endpoint may not resolve
++      });
++  }, [clientProp]);
++
++  return <ClientContext.Provider value={resolvedClient}>{children}</ClientContext.Provider>;
++}
++
++export function useClient(): WarshaClient | null {
++  return useContext(ClientContext);
++}
+diff --git a/apps/desktop/src/v3/app/DataReadyContext.tsx b/apps/desktop/src/v3/app/DataReadyContext.tsx
+new file mode 100644
+index 0000000..1873403
+--- /dev/null
++++ b/apps/desktop/src/v3/app/DataReadyContext.tsx
+@@ -0,0 +1,23 @@
++import React, { createContext, useContext, useMemo, useState } from 'react';
++
++interface DataReadyContextValue {
++  isReady: boolean;
++  setReady: (ready: boolean) => void;
++}
++
++const DataReadyContext = createContext<DataReadyContextValue>({
++  isReady: true,
++  setReady: () => {},
++});
++
++export function DataReadyProvider({ children }: { children: React.ReactNode }): React.ReactElement {
++  const [isReady, setReady] = useState(true);
++
++  const value = useMemo(() => ({ isReady, setReady }), [isReady]);
++
++  return <DataReadyContext.Provider value={value}>{children}</DataReadyContext.Provider>;
++}
++
++export function useDataReady(): DataReadyContextValue {
++  return useContext(DataReadyContext);
++}
+diff --git a/apps/desktop/src/v3/app/DensityContext.tsx b/apps/desktop/src/v3/app/DensityContext.tsx
+new file mode 100644
+index 0000000..94530d0
+--- /dev/null
++++ b/apps/desktop/src/v3/app/DensityContext.tsx
+@@ -0,0 +1,84 @@
++import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
++
++export type AppMode = 'simple' | 'advanced';
++export type Density = 'comfortable' | 'compact';
++
++interface DensityContextValue {
++  mode: AppMode;
++  density: Density;
++  setMode: (mode: AppMode) => void;
++  setDensity: (density: Density) => void;
++}
++
++const DensityContext = createContext<DensityContextValue>({
++  mode: 'simple',
++  density: 'comfortable',
++  setMode: () => {},
++  setDensity: () => {},
++});
++
++export const APP_MODE_STORAGE_KEY = 'warsha.app_mode';
++
++export function readStoredAppMode(): AppMode {
++  if (typeof window === 'undefined') return 'simple';
++  try {
++    const val = window.localStorage.getItem(APP_MODE_STORAGE_KEY);
++    if (val === 'simple' || val === 'advanced') return val;
++  } catch {
++    // Ignore storage errors
++  }
++  return 'simple';
++}
++
++export interface DensityProviderProps {
++  initialMode?: AppMode;
++  initialDensity?: Density;
++  children: React.ReactNode;
++}
++
++export function DensityProvider({
++  initialMode,
++  initialDensity,
++  children,
++}: DensityProviderProps): React.ReactElement {
++  const [mode, setModeState] = useState<AppMode>(() => initialMode ?? readStoredAppMode());
++  const [density, setDensityState] = useState<Density>(() => {
++    if (initialDensity) return initialDensity;
++    return mode === 'advanced' ? 'compact' : 'comfortable';
++  });
++
++  useEffect(() => {
++    if (typeof document !== 'undefined') {
++      document.documentElement.setAttribute('data-mode', mode);
++      document.documentElement.setAttribute('data-density', density);
++    }
++    if (typeof window !== 'undefined') {
++      try {
++        window.localStorage.setItem(APP_MODE_STORAGE_KEY, mode);
++      } catch {
++        // Ignore storage errors
++      }
++    }
++  }, [mode, density]);
++
++  const setMode = (nextMode: AppMode): void => {
++    setModeState(nextMode);
++    setDensityState(nextMode === 'advanced' ? 'compact' : 'comfortable');
++  };
++
++  const value = useMemo<DensityContextValue>(
++    () => ({
++      mode,
++      density,
++      setMode,
++      setDensity: setDensityState,
++    }),
++    [mode, density]
++  );
++
++  return <DensityContext.Provider value={value}>{children}</DensityContext.Provider>;
++}
++
++export function useDensity(): DensityContextValue {
++  return useContext(DensityContext);
++}
+diff --git a/apps/desktop/src/v3/app/ThemeContext.tsx b/apps/desktop/src/v3/app/ThemeContext.tsx
+new file mode 100644
+index 0000000..54c931c
+--- /dev/null
++++ b/apps/desktop/src/v3/app/ThemeContext.tsx
+@@ -0,0 +1,68 @@
++import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
++
++export type ThemeMode = 'light' | 'dark' | 'system';
++
++interface ThemeContextValue {
++  theme: ThemeMode;
++  setTheme: (theme: ThemeMode) => void;
++}
++
++const ThemeContext = createContext<ThemeContextValue>({
++  theme: 'system',
++  setTheme: () => {},
++});
++
++export const THEME_STORAGE_KEY = 'warsha.theme';
++
++export function readStoredTheme(): ThemeMode {
++  if (typeof window === 'undefined') return 'system';
++  try {
++    const val = window.localStorage.getItem(THEME_STORAGE_KEY);
++    if (val === 'light' || val === 'dark' || val === 'system') return val;
++  } catch {
++    // Ignore storage errors
++  }
++  return 'system';
++}
++
++export function applyThemeToDom(theme: ThemeMode): void {
++  if (typeof document === 'undefined') return;
++  const root = document.documentElement;
++  if (theme === 'system') {
++    const prefersDark =
++      typeof window !== 'undefined' &&
++      window.matchMedia &&
++      window.matchMedia('(prefers-color-scheme: dark)').matches;
++    root.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
++  } else {
++    root.setAttribute('data-theme', theme);
++  }
++}
++
++export interface ThemeProviderProps {
++  initialTheme?: ThemeMode;
++  children: React.ReactNode;
++}
++
++export function ThemeProvider({ initialTheme, children }: ThemeProviderProps): React.ReactElement {
++  const [theme, setThemeState] = useState<ThemeMode>(() => initialTheme ?? readStoredTheme());
++
++  useEffect(() => {
++    applyThemeToDom(theme);
++    if (typeof window !== 'undefined') {
++      try {
++        window.localStorage.setItem(THEME_STORAGE_KEY, theme);
++      } catch {
++        // Ignore storage errors
++      }
++    }
++  }, [theme]);
++
++  const value = useMemo(() => ({ theme, setTheme: setThemeState }), [theme]);
++
++  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
++}
++
++export function useTheme(): ThemeContextValue {
++  return useContext(ThemeContext);
++}
+diff --git a/apps/desktop/src/v3/app/V3App.test.tsx b/apps/desktop/src/v3/app/V3App.test.tsx
+new file mode 100644
+index 0000000..3193c1e
+--- /dev/null
++++ b/apps/desktop/src/v3/app/V3App.test.tsx
+@@ -0,0 +1,21 @@
++import { render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it } from 'vitest';
++
++import { V3App } from './V3App';
++
++describe('V3App', () => {
++  it('renders Frame with route page and main data-ready="true"', () => {
++    const { container } = render(<V3App initialRoute="/projects" />);
++
++    expect(screen.getByRole('heading', { level: 1, name: /Projects|المشاريع/ })).toBeDefined();
++    const main = container.querySelector('main');
++    expect(main).not.toBeNull();
++    expect(main?.getAttribute('data-ready')).toBe('true');
++  });
++
++  it('renders Onboarding placeholder at /onboarding', () => {
++    render(<V3App initialRoute="/onboarding" />);
++    expect(screen.getByRole('heading', { level: 1, name: /Onboarding|التهيئة الأولى/ })).toBeDefined();
++  });
++});
+diff --git a/apps/desktop/src/v3/app/V3App.tsx b/apps/desktop/src/v3/app/V3App.tsx
+new file mode 100644
+index 0000000..40ff982
+--- /dev/null
++++ b/apps/desktop/src/v3/app/V3App.tsx
+@@ -0,0 +1,86 @@
++import { invoke } from '@tauri-apps/api/core';
++import type { WarshaClient } from '@warsha/client';
++// eslint-disable-next-line import/no-unresolved
++import { I18nProvider } from '@warsha/i18n/v3';
++import React, { useEffect, useState } from 'react';
++
++import { Frame } from '../pages/frame/Frame';
++import { RouteOutlet, RouterProvider } from '../router';
++
++import { CapabilitiesProvider } from './CapabilitiesContext';
++import { ClientProvider, useClient } from './ClientContext';
++import { DataReadyProvider } from './DataReadyContext';
++import { DensityProvider } from './DensityContext';
++import { ThemeProvider } from './ThemeContext';
++import { decideStartupRoute } from './startup';
++
++export interface V3AppProps {
++  client?: WarshaClient;
++  initialRoute?: string;
++}
++
++function V3AppInner({ initialRoute }: { initialRoute?: string }): React.ReactElement {
++  const client = useClient();
++  const [startupRoute, setStartupRoute] = useState<string | null>(initialRoute ?? null);
++  const [startupError, setStartupError] = useState<string | null>(null);
++
++  useEffect(() => {
++    if (initialRoute) {
++      setStartupRoute(initialRoute);
++      return;
++    }
++
++    const readConfig = async (key: string): Promise<string> => {
++      try {
++        return await invoke<string>('get_config', { key });
++      } catch {
++        return '';
++      }
++    };
++
++    decideStartupRoute({ readConfig, client: client ?? undefined })
++      .then((decision) => {
++        setStartupRoute(decision.route);
++        if (decision.error) {
++          setStartupError(decision.error);
++        }
++      })
++      .catch((err) => {
++        setStartupRoute('/');
++        setStartupError(err instanceof Error ? err.message : 'Startup failure');
++      });
++  }, [initialRoute, client]);
++
++  return (
++    <RouterProvider initialPath={startupRoute ?? '/'}>
++      <Frame>
++        {startupError && (
++          <div className="v3-danger-banner" role="alert">
++            {startupError}
++          </div>
++        )}
++        <RouteOutlet />
++      </Frame>
++    </RouterProvider>
++  );
++}
++
++export function V3App({ client, initialRoute }: V3AppProps): React.ReactElement {
++  return (
++    <ClientProvider client={client}>
++      <CapabilitiesProvider client={client}>
++        <I18nProvider>
++          <ThemeProvider>
++            <DensityProvider>
++              <DataReadyProvider>
++                <V3AppInner initialRoute={initialRoute} />
++              </DataReadyProvider>
++            </DensityProvider>
++          </ThemeProvider>
++        </I18nProvider>
++      </CapabilitiesProvider>
++    </ClientProvider>
++  );
++}
++
++export default V3App;
+diff --git a/apps/desktop/src/v3/app/startup.test.ts b/apps/desktop/src/v3/app/startup.test.ts
+new file mode 100644
+index 0000000..031afc2
+--- /dev/null
++++ b/apps/desktop/src/v3/app/startup.test.ts
+@@ -0,0 +1,64 @@
++import type { ProjectId, ProjectSummary } from '@warsha/client';
++import { describe, expect, it } from 'vitest';
++
++import { decideStartupRoute, type StartupOptions } from './startup';
++
++describe('decideStartupRoute', () => {
++  it('routes to /onboarding only when onboarding_complete is unset', async () => {
++    const opts: StartupOptions = {
++      readConfig: async () => '',
++    };
++    const decision = await decideStartupRoute(opts);
++    expect(decision.route).toBe('/onboarding');
++    expect(decision.error).toBeUndefined();
++  });
++
++  it('routes to / when onboarding is complete and daemon health succeeds', async () => {
++    const opts: StartupOptions = {
++      readConfig: async (key) => (key === 'onboarding_complete' ? 'true' : ''),
++      client: {
++        health: async () => ({ status: 'ok', version: '0.2.1' }),
++        listProjects: async () => [],
++      },
++    };
++    const decision = await decideStartupRoute(opts);
++    expect(decision.route).toBe('/');
++    expect(decision.error).toBeUndefined();
++  });
++
++  it('routes to Frame route with danger error when daemon or list call fails at startup, never onboarding', async () => {
++    const opts: StartupOptions = {
++      readConfig: async (key) => (key === 'onboarding_complete' ? 'true' : ''),
++      client: {
++        health: async () => {
++          throw new Error('Connection refused');
++        },
++        listProjects: async () => [],
++      },
++    };
++    const decision = await decideStartupRoute(opts);
++    expect(decision.route).toBe('/');
++    expect(decision.error).toBe('Connection refused');
++    expect(decision.route).not.toBe('/onboarding');
++  });
++
++  it('routes to last project when onboarded, daemon succeeds, and last project exists', async () => {
++    const proj: ProjectSummary = {
++      id: 'proj-123' as ProjectId,
++      name: 'Project Alpha',
++      createdAt: '2026-11-09T00:00:00Z',
++      updatedAt: '2026-11-09T00:00:00Z',
++    };
++    const opts: StartupOptions = {
++      readConfig: async (key) => (key === 'onboarding_complete' ? 'true' : ''),
++      client: {
++        health: async () => ({ status: 'ok', version: '0.2.1' }),
++        listProjects: async () => [proj],
++      },
++      lastProjectId: 'proj-123',
++    };
++    const decision = await decideStartupRoute(opts);
++    expect(decision.route).toBe('/p/proj-123');
++    expect(decision.error).toBeUndefined();
++  });
++});
+diff --git a/apps/desktop/src/v3/app/startup.ts b/apps/desktop/src/v3/app/startup.ts
+new file mode 100644
+index 0000000..f7e410c
+--- /dev/null
++++ b/apps/desktop/src/v3/app/startup.ts
+@@ -0,0 +1,56 @@
++import type { WarshaClient } from '@warsha/client';
++
++export interface StartupConfigReader {
++  (key: string): Promise<string>;
++}
++
++export interface StartupOptions {
++  readConfig: StartupConfigReader;
++  client?: Pick<WarshaClient, 'health' | 'listProjects'>;
++  lastProjectId?: string | null;
++}
++
++export interface StartupDecision {
++  route: string;
++  error?: string | null;
++}
++
++/**
++ * Decides the initial route for the v3 application:
++ * - /onboarding ONLY when the shell config `onboarding_complete` is unset (not 'true');
++ * - otherwise `/` (or `/p/:projectId` if a valid last project exists);
++ * - A daemon or project list failure at startup shows the Frame with a danger Banner and a retry,
++ *   and NEVER sends an onboarded owner back to onboarding.
++ */
++export async function decideStartupRoute(options: StartupOptions): Promise<StartupDecision> {
++  let onboarding = '';
++  try {
++    onboarding = await options.readConfig('onboarding_complete');
++  } catch {
++    onboarding = '';
++  }
++
++  if (onboarding !== 'true') {
++    return { route: '/onboarding' };
++  }
++
++  try {
++    if (options.client) {
++      await options.client.health();
++      const projects = await options.client.listProjects();
++      if (options.lastProjectId && Array.isArray(projects)) {
++        const match = projects.find((p) => String(p.id) === options.lastProjectId);
++        if (match) {
++          return { route: `/p/${match.id}` };
++        }
++      }
++    }
++    return { route: '/' };
++  } catch (err) {
++    const message = err instanceof Error ? err.message : String(err);
++    return {
++      route: '/',
++      error: message || 'Daemon connection failed',
++    };
++  }
++}
+diff --git a/apps/desktop/src/v3/app/toast.ts b/apps/desktop/src/v3/app/toast.ts
+new file mode 100644
+index 0000000..615c4ee
+--- /dev/null
++++ b/apps/desktop/src/v3/app/toast.ts
+@@ -0,0 +1,38 @@
++export interface ToastMessage {
++  id?: string;
++  type: 'error' | 'success' | 'info' | 'warning';
++  message: string;
++  actionId?: string;
++  timestamp?: number;
++}
++
++export type ToastListener = (toast: ToastMessage) => void;
++
++const listeners = new Set<ToastListener>();
++
++export function notify(toast: ToastMessage): void {
++  const payload: ToastMessage = {
++    ...toast,
++    id: toast.id ?? `toast-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
++    timestamp: toast.timestamp ?? Date.now(),
++  };
++
++  for (const listener of listeners) {
++    try {
++      listener(payload);
++    } catch {
++      // Listener failures must not propagate
++    }
++  }
++}
++
++export function subscribeToast(listener: ToastListener): () => void {
++  listeners.add(listener);
++  return () => {
++    listeners.delete(listener);
++  };
++}
++
++export function clearToastListeners(): void {
++  listeners.clear();
++}
+diff --git a/apps/desktop/src/v3/copy/events.test.ts b/apps/desktop/src/v3/copy/events.test.ts
+new file mode 100644
+index 0000000..92750c6
+--- /dev/null
++++ b/apps/desktop/src/v3/copy/events.test.ts
+@@ -0,0 +1,31 @@
++import { describe, expect, it } from 'vitest';
++
++import { EVENT_KIND_TO_KEY, getEventKey } from './events';
++
++describe('events copy mapping', () => {
++  const allKinds = [
++    'stage_started',
++    'stage_completed',
++    'gate_decision',
++    'agent_step',
++    'tool_call',
++    'artifact_created',
++    'artifact_updated',
++    'cost_recorded',
++    'error',
++    'fallback',
++    'budget_warning',
++    'budget_exceeded',
++  ];
++
++  it('maps every EventKind to a catalog key', () => {
++    for (const kind of allKinds) {
++      expect(EVENT_KIND_TO_KEY[kind]).toBe(`events.${kind}`);
++      expect(getEventKey(kind)).toBe(`events.${kind}`);
++    }
++  });
++
++  it('falls back to events.unknown for unrecognized kinds', () => {
++    expect(getEventKey('unexpected_event_kind')).toBe('events.unknown');
++  });
++});
+diff --git a/apps/desktop/src/v3/copy/events.ts b/apps/desktop/src/v3/copy/events.ts
+new file mode 100644
+index 0000000..0cdf7f3
+--- /dev/null
++++ b/apps/desktop/src/v3/copy/events.ts
+@@ -0,0 +1,23 @@
++/**
++ * Plain-language event map (UI_V3_PLAN §4).
++ * Every EventKind -> a catalog key.
++ */
++
++export const EVENT_KIND_TO_KEY: Record<string, string> = {
++  stage_started: 'events.stage_started',
++  stage_completed: 'events.stage_completed',
++  gate_decision: 'events.gate_decision',
++  agent_step: 'events.agent_step',
++  tool_call: 'events.tool_call',
++  artifact_created: 'events.artifact_created',
++  artifact_updated: 'events.artifact_updated',
++  cost_recorded: 'events.cost_recorded',
++  error: 'events.error',
++  fallback: 'events.fallback',
++  budget_warning: 'events.budget_warning',
++  budget_exceeded: 'events.budget_exceeded',
++};
++
++export function getEventKey(kind: string): string {
++  return EVENT_KIND_TO_KEY[kind] ?? 'events.unknown';
++}
+diff --git a/apps/desktop/src/v3/copy/stages.test.ts b/apps/desktop/src/v3/copy/stages.test.ts
+new file mode 100644
+index 0000000..dd758c2
+--- /dev/null
++++ b/apps/desktop/src/v3/copy/stages.test.ts
+@@ -0,0 +1,84 @@
++import { describe, expect, it } from 'vitest';
++
++import {
++  DAEMON_TO_SIMPLE_STAGE,
++  GATE_QUESTIONS,
++  getGateQuestionKey,
++  getSimpleStageLabelKey,
++  toSimpleStage,
++  type DaemonStage,
++} from './stages';
++
++describe('stages copy mapping', () => {
++  const allDaemonStages: DaemonStage[] = [
++    'idea',
++    'gate_a',
++    'research',
++    'prd_spec',
++    'gate_b',
++    'design',
++    'plan_tasks',
++    'code',
++    'review_qa_security',
++    'gate_c',
++    'release',
++    'gate_d',
++    'launch_drafts',
++    'feedback',
++  ];
++
++  it('maps all 14 daemon stages to the 5 simple stages', () => {
++    for (const stage of allDaemonStages) {
++      const simple = toSimpleStage(stage);
++      expect(['idea', 'plan', 'build', 'qa', 'delivery']).toContain(simple);
++      expect(DAEMON_TO_SIMPLE_STAGE[stage]).toBe(simple);
++    }
++  });
++
++  it('maps idea and gate_a to idea', () => {
++    expect(toSimpleStage('idea')).toBe('idea');
++    expect(toSimpleStage('gate_a')).toBe('idea');
++    expect(getSimpleStageLabelKey('idea')).toBe('stages.idea');
++  });
++
++  it('maps research, prd_spec, gate_b, design, plan_tasks to plan', () => {
++    expect(toSimpleStage('research')).toBe('plan');
++    expect(toSimpleStage('prd_spec')).toBe('plan');
++    expect(toSimpleStage('gate_b')).toBe('plan');
++    expect(toSimpleStage('design')).toBe('plan');
++    expect(toSimpleStage('plan_tasks')).toBe('plan');
++    expect(getSimpleStageLabelKey('plan_tasks')).toBe('stages.plan');
++  });
++
++  it('maps code to build', () => {
++    expect(toSimpleStage('code')).toBe('build');
++    expect(getSimpleStageLabelKey('code')).toBe('stages.build');
++  });
++
++  it('maps review_qa_security and gate_c to qa', () => {
++    expect(toSimpleStage('review_qa_security')).toBe('qa');
++    expect(toSimpleStage('gate_c')).toBe('qa');
++    expect(getSimpleStageLabelKey('gate_c')).toBe('stages.qa');
++  });
++
++  it('maps release, gate_d, launch_drafts, feedback to delivery', () => {
++    expect(toSimpleStage('release')).toBe('delivery');
++    expect(toSimpleStage('gate_d')).toBe('delivery');
++    expect(toSimpleStage('launch_drafts')).toBe('delivery');
++    expect(toSimpleStage('feedback')).toBe('delivery');
++    expect(getSimpleStageLabelKey('feedback')).toBe('stages.delivery');
++  });
++
++  it('falls back safely for unknown stage', () => {
++    expect(toSimpleStage('unknown_stage')).toBe('idea');
++  });
++
++  it('provides catalog keys for the 4 gate questions', () => {
++    expect(getGateQuestionKey('a')).toBe('gate.question.a');
++    expect(getGateQuestionKey('b')).toBe('gate.question.b');
++    expect(getGateQuestionKey('c')).toBe('gate.question.c');
++    expect(getGateQuestionKey('d')).toBe('gate.question.d');
++    expect(getGateQuestionKey('A')).toBe('gate.question.a');
++    expect(GATE_QUESTIONS.a).toBe('gate.question.a');
++  });
++});
+diff --git a/apps/desktop/src/v3/copy/stages.ts b/apps/desktop/src/v3/copy/stages.ts
+new file mode 100644
+index 0000000..2c1572b
+--- /dev/null
++++ b/apps/desktop/src/v3/copy/stages.ts
+@@ -0,0 +1,74 @@
++/**
++ * Plain-language stages map and gate questions (UI_V3_PLAN §4).
++ *
++ * Maps all 14 daemon stages into 5 Simple stages:
++ * - idea, gate_a -> idea
++ * - research, prd_spec, gate_b, design, plan_tasks -> plan
++ * - code -> build
++ * - review_qa_security, gate_c -> qa
++ * - release, gate_d, launch_drafts, feedback -> delivery
++ */
++
++export type DaemonStage =
++  | 'idea'
++  | 'gate_a'
++  | 'research'
++  | 'prd_spec'
++  | 'gate_b'
++  | 'design'
++  | 'plan_tasks'
++  | 'code'
++  | 'review_qa_security'
++  | 'gate_c'
++  | 'release'
++  | 'gate_d'
++  | 'launch_drafts'
++  | 'feedback';
++
++export type SimpleStage = 'idea' | 'plan' | 'build' | 'qa' | 'delivery';
++
++export const DAEMON_TO_SIMPLE_STAGE: Record<DaemonStage, SimpleStage> = {
++  idea: 'idea',
++  gate_a: 'idea',
++  research: 'plan',
++  prd_spec: 'plan',
++  gate_b: 'plan',
++  design: 'plan',
++  plan_tasks: 'plan',
++  code: 'build',
++  review_qa_security: 'qa',
++  gate_c: 'qa',
++  release: 'delivery',
++  gate_d: 'delivery',
++  launch_drafts: 'delivery',
++  feedback: 'delivery',
++};
++
++export const SIMPLE_STAGE_LABEL_KEYS: Record<SimpleStage, string> = {
++  idea: 'stages.idea',
++  plan: 'stages.plan',
++  build: 'stages.build',
++  qa: 'stages.qa',
++  delivery: 'stages.delivery',
++};
++
++export const GATE_QUESTIONS: Record<'a' | 'b' | 'c' | 'd', string> = {
++  a: 'gate.question.a',
++  b: 'gate.question.b',
++  c: 'gate.question.c',
++  d: 'gate.question.d',
++};
++
++export function toSimpleStage(stage: DaemonStage | string): SimpleStage {
++  return (DAEMON_TO_SIMPLE_STAGE as Record<string, SimpleStage>)[stage] ?? 'idea';
++}
++
++export function getSimpleStageLabelKey(stage: DaemonStage | string): string {
++  const simple = toSimpleStage(stage);
++  return SIMPLE_STAGE_LABEL_KEYS[simple];
++}
++
++export function getGateQuestionKey(gate: 'a' | 'b' | 'c' | 'd' | string): string {
++  const normalized = gate.toLowerCase();
++  return (GATE_QUESTIONS as Record<string, string>)[normalized] ?? 'gate.question.a';
++}
+diff --git a/apps/desktop/src/v3/data/index.ts b/apps/desktop/src/v3/data/index.ts
+new file mode 100644
+index 0000000..3a1101b
+--- /dev/null
++++ b/apps/desktop/src/v3/data/index.ts
+@@ -0,0 +1,23 @@
++export * from './types';
++export * from './useResource';
++export * from './useProjects';
++export * from './useProject';
++export * from './useRuns';
++export * from './useRun';
++export * from './useRunEvents';
++export * from './useGates';
++export * from './useBudget';
++export * from './useProviders';
++export * from './useModels';
++export * from './useRoles';
++export * from './useHarnesses';
++export * from './useSkills';
++export * from './usePlugins';
++export * from './useRoutines';
++export * from './useDevices';
++export * from './usePreview';
++export * from './useArtifacts';
++export * from './usePreferences';
++export * from './useHealth';
++export * from './useFiles';
++export * from './useAgent';
+diff --git a/apps/desktop/src/v3/data/types.ts b/apps/desktop/src/v3/data/types.ts
+new file mode 100644
+index 0000000..fff9053
+--- /dev/null
++++ b/apps/desktop/src/v3/data/types.ts
+@@ -0,0 +1,8 @@
++export type HookStatus = 'loading' | 'empty' | 'error' | 'ready';
++
++export interface HookResult<T> {
++  status: HookStatus;
++  data: T | null;
++  error?: Error | null;
++  reload: () => void;
++}
+diff --git a/apps/desktop/src/v3/data/useAgent.test.ts b/apps/desktop/src/v3/data/useAgent.test.ts
+new file mode 100644
+index 0000000..94d3e51
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useAgent.test.ts
+@@ -0,0 +1,99 @@
++import { act, renderHook } from '@testing-library/react';
++import type { AgentState, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useAgent } from './useAgent';
++
++describe('useAgent', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      agentState: () => new Promise<AgentState>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useAgent(client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when agent has no todos and no approvals', async () => {
++    const emptyState: AgentState = {
++      mode: 'plan',
++      approvals: [],
++      todos: [],
++      model_wired: false,
++    };
++    const client = {
++      agentState: vi.fn().mockResolvedValue(emptyState),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useAgent(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual(emptyState);
++  });
++
++  it('handles ready state when agent has todos or approvals', async () => {
++    const activeState: AgentState = {
++      mode: 'agent',
++      approvals: [
++        {
++          from: 'plan',
++          to: 'agent',
++          approved_by: 'dev-1',
++          approved_at: 1700000000,
++        },
++      ],
++      todos: [
++        {
++          id: 'todo-1',
++          description: 'Implement v3 hooks',
++          status: 'in_progress',
++        },
++      ],
++      model_wired: true,
++    };
++    const client = {
++      agentState: vi.fn().mockResolvedValue(activeState),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useAgent(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(activeState);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      agentState: vi.fn().mockRejectedValue(new Error('Agent error')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useAgent(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Agent error');
++
++    const recovered: AgentState = {
++      mode: 'plan',
++      approvals: [],
++      todos: [
++        {
++          id: 'todo-2',
++          description: 'Review gates',
++          status: 'pending',
++        },
++      ],
++      model_wired: true,
++    };
++    (client.agentState as ReturnType<typeof vi.fn>).mockResolvedValueOnce(recovered);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(recovered);
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useAgent.ts b/apps/desktop/src/v3/data/useAgent.ts
+new file mode 100644
+index 0000000..2a1ba69
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useAgent.ts
+@@ -0,0 +1,22 @@
++import type { AgentState, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useAgent(
++  overrideClient?: WarshaClient | null
++): HookResult<AgentState> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<AgentState>(
++    async () => {
++      if (!client) return null;
++      return client.agentState();
++    },
++    (state) => !state || (state.todos.length === 0 && state.approvals.length === 0),
++    [client]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useArtifacts.test.ts b/apps/desktop/src/v3/data/useArtifacts.test.ts
+new file mode 100644
+index 0000000..d0f8d90
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useArtifacts.test.ts
+@@ -0,0 +1,82 @@
++import { act, renderHook } from '@testing-library/react';
++import type { RunArtifact, RunId, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useArtifacts } from './useArtifacts';
++
++describe('useArtifacts', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      getRunArtifacts: () => new Promise<RunArtifact[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useArtifacts('run-1' as RunId, client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when artifacts list is empty', async () => {
++    const client = {
++      getRunArtifacts: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useArtifacts('run-1' as RunId, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when artifacts exist', async () => {
++    const list: RunArtifact[] = [
++      {
++        name: 'spec.md',
++        content: '# Spec',
++        stage: 'prd_spec',
++        role: 'pm',
++        created_at: '2026-11-09T00:00:00Z',
++        updated_at: '2026-11-09T00:00:00Z',
++        version: 1,
++      },
++    ];
++    const client = {
++      getRunArtifacts: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useArtifacts('run-1' as RunId, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      getRunArtifacts: vi.fn().mockRejectedValue(new Error('Artifacts error')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useArtifacts('run-1' as RunId, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Artifacts error');
++
++    (client.getRunArtifacts as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      {
++        name: 'arch.md',
++        content: '# Architecture',
++        stage: 'design',
++        role: 'architect',
++        created_at: '2026-11-09T01:00:00Z',
++        updated_at: '2026-11-09T01:00:00Z',
++        version: 1,
++      },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useArtifacts.ts b/apps/desktop/src/v3/data/useArtifacts.ts
+new file mode 100644
+index 0000000..a015a28
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useArtifacts.ts
+@@ -0,0 +1,23 @@
++import type { RunArtifact, RunId, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useArtifacts(
++  runId?: RunId | string | null,
++  overrideClient?: WarshaClient | null
++): HookResult<RunArtifact[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<RunArtifact[]>(
++    async () => {
++      if (!client || !runId) return [];
++      return client.getRunArtifacts(runId as RunId);
++    },
++    (list) => !list || list.length === 0,
++    [client, runId]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useBudget.test.ts b/apps/desktop/src/v3/data/useBudget.test.ts
+new file mode 100644
+index 0000000..179ba3d
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useBudget.test.ts
+@@ -0,0 +1,75 @@
++import { act, renderHook } from '@testing-library/react';
++import type { BudgetStatus, ProjectId, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useBudget } from './useBudget';
++
++describe('useBudget', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      getProjectBudget: () => new Promise<BudgetStatus>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useBudget('proj-1' as ProjectId, client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when budget is zero', async () => {
++    const emptyBudget: BudgetStatus = {
++      totalBudgetUsd: 0,
++      spentUsd: 0,
++      remainingUsd: 0,
++    };
++    const client = {
++      getProjectBudget: vi.fn().mockResolvedValue(emptyBudget),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useBudget('proj-1' as ProjectId, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual(emptyBudget);
++  });
++
++  it('handles ready state when budget has funds', async () => {
++    const budget: BudgetStatus = {
++      totalBudgetUsd: 50,
++      spentUsd: 10,
++      remainingUsd: 40,
++    };
++    const client = {
++      getProjectBudget: vi.fn().mockResolvedValue(budget),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useBudget('proj-1' as ProjectId, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(budget);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      getProjectBudget: vi.fn().mockRejectedValue(new Error('Budget fetch failed')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useBudget('proj-1' as ProjectId, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Budget fetch failed');
++
++    (client.getProjectBudget as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
++      totalBudgetUsd: 100,
++      spentUsd: 0,
++      remainingUsd: 100,
++    });
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useBudget.ts b/apps/desktop/src/v3/data/useBudget.ts
+new file mode 100644
+index 0000000..43c44c6
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useBudget.ts
+@@ -0,0 +1,23 @@
++import type { BudgetStatus, ProjectId, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useBudget(
++  projectId?: ProjectId | string | null,
++  overrideClient?: WarshaClient | null
++): HookResult<BudgetStatus> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<BudgetStatus>(
++    async () => {
++      if (!client || !projectId) return null;
++      return client.getProjectBudget(projectId as ProjectId);
++    },
++    (budget) => !budget || (budget.totalBudgetUsd === 0 && budget.spentUsd === 0 && budget.remainingUsd === 0),
++    [client, projectId]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useDevices.test.ts b/apps/desktop/src/v3/data/useDevices.test.ts
+new file mode 100644
+index 0000000..26ba2e4
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useDevices.test.ts
+@@ -0,0 +1,76 @@
++import { act, renderHook } from '@testing-library/react';
++import type { DeviceId, DeviceSummary, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useDevices } from './useDevices';
++
++describe('useDevices', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      listDevices: () => new Promise<DeviceSummary[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useDevices(client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when devices list is empty', async () => {
++    const client = {
++      listDevices: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useDevices(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when devices exist', async () => {
++    const list: DeviceSummary[] = [
++      {
++        id: 'dev-1' as DeviceId,
++        name: 'Pixel 8',
++        pairedAt: '2026-11-09T00:00:00Z',
++        revoked: false,
++      },
++    ];
++    const client = {
++      listDevices: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useDevices(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      listDevices: vi.fn().mockRejectedValue(new Error('Devices error')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useDevices(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Devices error');
++
++    (client.listDevices as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      {
++        id: 'dev-2' as DeviceId,
++        name: 'iPhone 15',
++        pairedAt: '2026-11-09T01:00:00Z',
++        revoked: false,
++      },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useDevices.ts b/apps/desktop/src/v3/data/useDevices.ts
+new file mode 100644
+index 0000000..6b30dde
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useDevices.ts
+@@ -0,0 +1,22 @@
++import type { DeviceSummary, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useDevices(
++  overrideClient?: WarshaClient | null
++): HookResult<DeviceSummary[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<DeviceSummary[]>(
++    async () => {
++      if (!client) return [];
++      return client.listDevices();
++    },
++    (list) => !list || list.length === 0,
++    [client]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useFiles.test.ts b/apps/desktop/src/v3/data/useFiles.test.ts
+new file mode 100644
+index 0000000..ca24172
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useFiles.test.ts
+@@ -0,0 +1,82 @@
++import { act, renderHook } from '@testing-library/react';
++import type { FileEntry, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useFiles } from './useFiles';
++
++describe('useFiles', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      getFilesTree: () => new Promise<FileEntry[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useFiles('proj-1', '', client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when files tree is empty', async () => {
++    const client = {
++      getFilesTree: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useFiles('proj-1', '', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when files exist', async () => {
++    const list: FileEntry[] = [
++      {
++        name: 'package.json',
++        path: 'package.json',
++        isDir: false,
++        sizeBytes: 1234,
++      },
++      {
++        name: 'src',
++        path: 'src',
++        isDir: true,
++        sizeBytes: 0,
++      },
++    ];
++    const client = {
++      getFilesTree: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useFiles('proj-1', '', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      getFilesTree: vi.fn().mockRejectedValue(new Error('Files error')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useFiles('proj-1', '', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Files error');
++
++    (client.getFilesTree as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      {
++        name: 'README.md',
++        path: 'README.md',
++        isDir: false,
++        sizeBytes: 500,
++      },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useFiles.ts b/apps/desktop/src/v3/data/useFiles.ts
+new file mode 100644
+index 0000000..580fef7
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useFiles.ts
+@@ -0,0 +1,24 @@
++import type { FileEntry, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useFiles(
++  projectId?: string | null,
++  path?: string,
++  overrideClient?: WarshaClient | null
++): HookResult<FileEntry[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<FileEntry[]>(
++    async () => {
++      if (!client || !projectId) return [];
++      return client.getFilesTree(projectId, path);
++    },
++    (list) => !list || list.length === 0,
++    [client, projectId, path]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useGates.test.ts b/apps/desktop/src/v3/data/useGates.test.ts
+new file mode 100644
+index 0000000..3869522
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useGates.test.ts
+@@ -0,0 +1,69 @@
++import { act, renderHook } from '@testing-library/react';
++import type { DeviceId, GateSummary, RunId, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useGates } from './useGates';
++
++describe('useGates', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      getGates: () => new Promise<GateSummary[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useGates('run-1' as RunId, client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when no gates exist', async () => {
++    const client = {
++      getGates: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useGates('run-1' as RunId, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when gates are returned', async () => {
++    const list: GateSummary[] = [
++      { stage: 'gate_a', state: { state: 'pending' } },
++    ];
++    const client = {
++      getGates: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useGates('run-1' as RunId, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      getGates: vi.fn().mockRejectedValue(new Error('Gates failed')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useGates('run-1' as RunId, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Gates failed');
++
++    (client.getGates as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      {
++        stage: 'gate_b',
++        state: { state: 'approved', by: 'dev-1' as DeviceId, at: '2026-11-09T00:00:00Z' },
++      },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useGates.ts b/apps/desktop/src/v3/data/useGates.ts
+new file mode 100644
+index 0000000..68fdeab
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useGates.ts
+@@ -0,0 +1,23 @@
++import type { GateSummary, RunId, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useGates(
++  runId?: RunId | string | null,
++  overrideClient?: WarshaClient | null
++): HookResult<GateSummary[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<GateSummary[]>(
++    async () => {
++      if (!client || !runId) return [];
++      return client.getGates(runId as RunId);
++    },
++    (list) => !list || list.length === 0,
++    [client, runId]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useHarnesses.test.ts b/apps/desktop/src/v3/data/useHarnesses.test.ts
+new file mode 100644
+index 0000000..74eb8c7
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useHarnesses.test.ts
+@@ -0,0 +1,96 @@
++import { act, renderHook } from '@testing-library/react';
++import type { HarnessDefinition, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useHarnesses } from './useHarnesses';
++
++describe('useHarnesses', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      listHarnesses: () => new Promise<HarnessDefinition[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useHarnesses(client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when harnesses list is empty', async () => {
++    const client = {
++      listHarnesses: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useHarnesses(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when harnesses exist', async () => {
++    const list: HarnessDefinition[] = [
++      {
++        id: 'h1',
++        version: '1.0',
++        name: 'Standard Harness',
++        description: 'Standard factory flow',
++        stages: [],
++        rules: {
++          maxRepairIterations: 3,
++          budgetCapCents: 500,
++          allowParallelSubagents: false,
++          requireVerificationReceipt: true,
++        },
++        preset: true,
++        active: true,
++        createdAt: '2026-11-09T00:00:00Z',
++      },
++    ];
++    const client = {
++      listHarnesses: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useHarnesses(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      listHarnesses: vi.fn().mockRejectedValue(new Error('Harness error')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useHarnesses(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Harness error');
++
++    (client.listHarnesses as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      {
++        id: 'h2',
++        version: '1.0',
++        name: 'Custom Harness',
++        description: 'Custom flow',
++        stages: [],
++        rules: {
++          maxRepairIterations: 1,
++          budgetCapCents: null,
++          allowParallelSubagents: false,
++          requireVerificationReceipt: false,
++        },
++        preset: false,
++        active: true,
++        createdAt: '2026-11-09T00:00:00Z',
++      },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useHarnesses.ts b/apps/desktop/src/v3/data/useHarnesses.ts
+new file mode 100644
+index 0000000..78b43fe
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useHarnesses.ts
+@@ -0,0 +1,22 @@
++import type { HarnessDefinition, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useHarnesses(
++  overrideClient?: WarshaClient | null
++): HookResult<HarnessDefinition[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<HarnessDefinition[]>(
++    async () => {
++      if (!client) return [];
++      return client.listHarnesses();
++    },
++    (list) => !list || list.length === 0,
++    [client]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useHealth.test.ts b/apps/desktop/src/v3/data/useHealth.test.ts
+new file mode 100644
+index 0000000..51f45de
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useHealth.test.ts
+@@ -0,0 +1,75 @@
++import { act, renderHook } from '@testing-library/react';
++import type { WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import type { HealthInfo } from './useHealth';
++import { useHealth } from './useHealth';
++
++describe('useHealth', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      health: () => new Promise<HealthInfo>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useHealth(client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when health returns empty or missing status', async () => {
++    const emptyHealth: HealthInfo = {
++      status: '',
++      version: '',
++    };
++    const client = {
++      health: vi.fn().mockResolvedValue(emptyHealth),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useHealth(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual(emptyHealth);
++  });
++
++  it('handles ready state when health is ok', async () => {
++    const healthData: HealthInfo = {
++      status: 'ok',
++      version: '0.2.1',
++    };
++    const client = {
++      health: vi.fn().mockResolvedValue(healthData),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useHealth(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(healthData);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      health: vi.fn().mockRejectedValue(new Error('Daemon unreachable')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useHealth(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Daemon unreachable');
++
++    const recovered: HealthInfo = {
++      status: 'ok',
++      version: '0.2.1',
++    };
++    (client.health as ReturnType<typeof vi.fn>).mockResolvedValueOnce(recovered);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(recovered);
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useHealth.ts b/apps/desktop/src/v3/data/useHealth.ts
+new file mode 100644
+index 0000000..a79747f
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useHealth.ts
+@@ -0,0 +1,27 @@
++import type { WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export interface HealthInfo {
++  status: string;
++  version: string;
++}
++
++export function useHealth(
++  overrideClient?: WarshaClient | null
++): HookResult<HealthInfo> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<HealthInfo>(
++    async () => {
++      if (!client) return null;
++      return client.health();
++    },
++    (health) => !health || !health.status,
++    [client]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useModels.test.ts b/apps/desktop/src/v3/data/useModels.test.ts
+new file mode 100644
+index 0000000..73dc290
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useModels.test.ts
+@@ -0,0 +1,78 @@
++import { act, renderHook } from '@testing-library/react';
++import type { CustomModelRecord, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useModels } from './useModels';
++
++describe('useModels', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      listCustomModels: () => new Promise<CustomModelRecord[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useModels(undefined, client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when custom models list is empty', async () => {
++    const client = {
++      listCustomModels: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useModels(undefined, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when custom models exist', async () => {
++    const list: CustomModelRecord[] = [
++      {
++        provider: 'ollama',
++        modelId: 'llama3:8b',
++        displayName: 'Llama 3',
++        contextWindow: 8192,
++        enabled: true,
++      },
++    ];
++    const client = {
++      listCustomModels: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useModels('ollama', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      listCustomModels: vi.fn().mockRejectedValue(new Error('Models error')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useModels('ollama', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Models error');
++
++    (client.listCustomModels as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      {
++        provider: 'ollama',
++        modelId: 'mistral:7b',
++        displayName: 'Mistral 7B',
++        contextWindow: 8192,
++        enabled: true,
++      },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useModels.ts b/apps/desktop/src/v3/data/useModels.ts
+new file mode 100644
+index 0000000..e9c2372
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useModels.ts
+@@ -0,0 +1,23 @@
++import type { CustomModelRecord, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useModels(
++  provider?: string | null,
++  overrideClient?: WarshaClient | null
++): HookResult<CustomModelRecord[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<CustomModelRecord[]>(
++    async () => {
++      if (!client) return [];
++      return client.listCustomModels(provider ?? undefined);
++    },
++    (list) => !list || list.length === 0,
++    [client, provider]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/usePlugins.test.ts b/apps/desktop/src/v3/data/usePlugins.test.ts
+new file mode 100644
+index 0000000..6b63e94
+--- /dev/null
++++ b/apps/desktop/src/v3/data/usePlugins.test.ts
+@@ -0,0 +1,88 @@
++import { act, renderHook } from '@testing-library/react';
++import type { PluginDefinition, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { usePlugins } from './usePlugins';
++
++describe('usePlugins', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      listPlugins: () => new Promise<PluginDefinition[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePlugins(client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when plugins list is empty', async () => {
++    const client = {
++      listPlugins: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePlugins(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when plugins exist', async () => {
++    const list: PluginDefinition[] = [
++      {
++        id: 'plugin-1',
++        name: 'github',
++        description: 'GitHub integration',
++        transport: 'stdio',
++        command: 'npx',
++        args: ['-y', '@modelcontextprotocol/server-github'],
++        env: {},
++        enabled: true,
++        tools: [{ name: 'search_prs', description: 'Search pull requests', parametersJson: null }],
++        source: 'registry',
++      },
++    ];
++    const client = {
++      listPlugins: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePlugins(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      listPlugins: vi.fn().mockRejectedValue(new Error('Plugins error')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePlugins(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Plugins error');
++
++    (client.listPlugins as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      {
++        id: 'plugin-2',
++        name: 'filesystem',
++        description: 'Filesystem integration',
++        transport: 'stdio',
++        command: null,
++        args: [],
++        env: {},
++        enabled: true,
++        tools: [],
++        source: 'builtin',
++      },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/usePlugins.ts b/apps/desktop/src/v3/data/usePlugins.ts
+new file mode 100644
+index 0000000..632e5e5
+--- /dev/null
++++ b/apps/desktop/src/v3/data/usePlugins.ts
+@@ -0,0 +1,22 @@
++import type { PluginDefinition, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function usePlugins(
++  overrideClient?: WarshaClient | null
++): HookResult<PluginDefinition[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<PluginDefinition[]>(
++    async () => {
++      if (!client) return [];
++      return client.listPlugins();
++    },
++    (list) => !list || list.length === 0,
++    [client]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/usePreferences.test.ts b/apps/desktop/src/v3/data/usePreferences.test.ts
+new file mode 100644
+index 0000000..bb426d9
+--- /dev/null
++++ b/apps/desktop/src/v3/data/usePreferences.test.ts
+@@ -0,0 +1,76 @@
++import { act, renderHook } from '@testing-library/react';
++import type { Preference, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { usePreferences } from './usePreferences';
++
++describe('usePreferences', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      listPreferences: () => new Promise<Preference[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePreferences('proj-1', client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when preferences list is empty', async () => {
++    const client = {
++      listPreferences: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePreferences('proj-1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when preferences exist', async () => {
++    const list: Preference[] = [
++      {
++        key: 'tone:concise',
++        score: 0.9,
++        evidenceCount: 5,
++        lastUpdated: 1700000000,
++      },
++    ];
++    const client = {
++      listPreferences: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePreferences('proj-1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      listPreferences: vi.fn().mockRejectedValue(new Error('Preferences error')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePreferences('proj-1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Preferences error');
++
++    (client.listPreferences as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      {
++        key: 'framework:react',
++        score: 0.8,
++        evidenceCount: 3,
++        lastUpdated: 1700000000,
++      },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/usePreferences.ts b/apps/desktop/src/v3/data/usePreferences.ts
+new file mode 100644
+index 0000000..ca110e6
+--- /dev/null
++++ b/apps/desktop/src/v3/data/usePreferences.ts
+@@ -0,0 +1,23 @@
++import type { Preference, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function usePreferences(
++  projectId?: string | null,
++  overrideClient?: WarshaClient | null
++): HookResult<Preference[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<Preference[]>(
++    async () => {
++      if (!client || !projectId) return [];
++      return client.listPreferences(projectId);
++    },
++    (list) => !list || list.length === 0,
++    [client, projectId]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/usePreview.test.ts b/apps/desktop/src/v3/data/usePreview.test.ts
+new file mode 100644
+index 0000000..2fa17ee
+--- /dev/null
++++ b/apps/desktop/src/v3/data/usePreview.test.ts
+@@ -0,0 +1,85 @@
++import { act, renderHook } from '@testing-library/react';
++import type { LivePreview, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { usePreview } from './usePreview';
++
++describe('usePreview', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      previewStatus: () => new Promise<LivePreview>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePreview('proj-1', client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when preview is stopped or missing', async () => {
++    const emptyPreview: LivePreview = {
++      projectId: 'proj-1',
++      processId: '',
++      command: 'npm run dev',
++      args: [],
++      status: 'stopped',
++      url: null,
++    };
++    const client = {
++      previewStatus: vi.fn().mockResolvedValue(emptyPreview),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePreview('proj-1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual(emptyPreview);
++  });
++
++  it('handles ready state when preview is running', async () => {
++    const runningPreview: LivePreview = {
++      projectId: 'proj-1',
++      processId: 'proc-101',
++      command: 'npm run dev',
++      args: [],
++      status: 'running',
++      url: 'http://localhost:3000',
++    };
++    const client = {
++      previewStatus: vi.fn().mockResolvedValue(runningPreview),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePreview('proj-1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(runningPreview);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      previewStatus: vi.fn().mockRejectedValue(new Error('Preview error')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePreview('proj-1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Preview error');
++
++    const runningPreview: LivePreview = {
++      projectId: 'proj-1',
++      processId: 'proc-102',
++      command: 'npm run dev',
++      args: [],
++      status: 'running',
++      url: 'http://localhost:3000',
++    };
++    (client.previewStatus as ReturnType<typeof vi.fn>).mockResolvedValueOnce(runningPreview);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/usePreview.ts b/apps/desktop/src/v3/data/usePreview.ts
+new file mode 100644
+index 0000000..6073ccd
+--- /dev/null
++++ b/apps/desktop/src/v3/data/usePreview.ts
+@@ -0,0 +1,23 @@
++import type { LivePreview, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function usePreview(
++  projectId?: string | null,
++  overrideClient?: WarshaClient | null
++): HookResult<LivePreview> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<LivePreview>(
++    async () => {
++      if (!client || !projectId) return null;
++      return client.previewStatus(projectId);
++    },
++    (preview) => !preview || !preview.processId || preview.status === 'stopped',
++    [client, projectId]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useProject.test.ts b/apps/desktop/src/v3/data/useProject.test.ts
+new file mode 100644
+index 0000000..6ad6689
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useProject.test.ts
+@@ -0,0 +1,72 @@
++import { act, renderHook } from '@testing-library/react';
++import type { ProjectId, ProjectSummary, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useProject } from './useProject';
++
++describe('useProject', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      getProject: () => new Promise<ProjectSummary>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProject('p1', client));
++    expect(result.current.status).toBe('loading');
++  });
++
++  it('handles empty state when project is not found or id is missing', async () => {
++    const client = {
++      getProject: vi.fn().mockResolvedValue(null),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProject(null, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles ready state when project exists', async () => {
++    const proj: ProjectSummary = {
++      id: 'p1' as ProjectId,
++      name: 'Alpha',
++      createdAt: '2026-11-09T00:00:00Z',
++      updatedAt: '2026-11-09T00:00:00Z',
++    };
++    const client = {
++      getProject: vi.fn().mockResolvedValue(proj),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProject('p1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(proj);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      getProject: vi.fn().mockRejectedValue(new Error('Project not found')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProject('p1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Project not found');
++
++    const proj: ProjectSummary = {
++      id: 'p1' as ProjectId,
++      name: 'Alpha',
++      createdAt: '',
++      updatedAt: '',
++    };
++    (client.getProject as ReturnType<typeof vi.fn>).mockResolvedValueOnce(proj);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useProject.ts b/apps/desktop/src/v3/data/useProject.ts
+new file mode 100644
+index 0000000..a644043
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useProject.ts
+@@ -0,0 +1,23 @@
++import type { ProjectId, ProjectSummary, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useProject(
++  projectId?: ProjectId | string | null,
++  overrideClient?: WarshaClient | null
++): HookResult<ProjectSummary> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<ProjectSummary>(
++    async () => {
++      if (!client || !projectId) return null;
++      return client.getProject(projectId as ProjectId);
++    },
++    (proj) => !proj || !proj.id,
++    [client, projectId]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useProjects.test.ts b/apps/desktop/src/v3/data/useProjects.test.ts
+new file mode 100644
+index 0000000..c78e73e
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useProjects.test.ts
+@@ -0,0 +1,72 @@
++import { act, renderHook } from '@testing-library/react';
++import type { ProjectId, ProjectSummary, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useProjects } from './useProjects';
++
++describe('useProjects', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      listProjects: () => new Promise<ProjectSummary[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProjects(client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when projects list is empty', async () => {
++    const client = {
++      listProjects: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProjects(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when projects exist', async () => {
++    const list: ProjectSummary[] = [
++      {
++        id: 'p1' as ProjectId,
++        name: 'Alpha',
++        createdAt: '2026-11-09T00:00:00Z',
++        updatedAt: '2026-11-09T00:00:00Z',
++      },
++    ];
++    const client = {
++      listProjects: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProjects(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      listProjects: vi.fn().mockRejectedValue(new Error('Fetch failed')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProjects(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Fetch failed');
++
++    // reload
++    (client.listProjects as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      { id: 'p2' as ProjectId, name: 'Beta', createdAt: '', updatedAt: '' },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useProjects.ts b/apps/desktop/src/v3/data/useProjects.ts
+new file mode 100644
+index 0000000..f761974
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useProjects.ts
+@@ -0,0 +1,20 @@
++import type { ProjectSummary, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useProjects(overrideClient?: WarshaClient | null): HookResult<ProjectSummary[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<ProjectSummary[]>(
++    async () => {
++      if (!client) return [];
++      return client.listProjects();
++    },
++    (list) => !list || list.length === 0,
++    [client]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useProviders.test.ts b/apps/desktop/src/v3/data/useProviders.test.ts
+new file mode 100644
+index 0000000..76545f0
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useProviders.test.ts
+@@ -0,0 +1,66 @@
++import { act, renderHook } from '@testing-library/react';
++import type { ProviderConfig, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useProviders } from './useProviders';
++
++describe('useProviders', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      listProviders: () => new Promise<ProviderConfig[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProviders(client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when provider list is empty', async () => {
++    const client = {
++      listProviders: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProviders(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when providers exist', async () => {
++    const list: ProviderConfig[] = [
++      { name: 'mock-provider', kind: 'mock', enabled: true },
++    ];
++    const client = {
++      listProviders: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProviders(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      listProviders: vi.fn().mockRejectedValue(new Error('Providers failed')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useProviders(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Providers failed');
++
++    (client.listProviders as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      { name: 'anthropic', kind: 'anthropic', enabled: true },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useProviders.ts b/apps/desktop/src/v3/data/useProviders.ts
+new file mode 100644
+index 0000000..b80d9d3
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useProviders.ts
+@@ -0,0 +1,22 @@
++import type { ProviderConfig, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useProviders(
++  overrideClient?: WarshaClient | null
++): HookResult<ProviderConfig[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<ProviderConfig[]>(
++    async () => {
++      if (!client) return [];
++      return client.listProviders();
++    },
++    (list) => !list || list.length === 0,
++    [client]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useResource.ts b/apps/desktop/src/v3/data/useResource.ts
+new file mode 100644
+index 0000000..5369edf
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useResource.ts
+@@ -0,0 +1,49 @@
++import { useCallback, useEffect, useState } from 'react';
++
++import type { HookResult, HookStatus } from './types';
++
++export function useResource<T>(
++  fetcher: () => Promise<T | null | undefined>,
++  isEmpty: (data: T | null | undefined) => boolean,
++  deps: readonly unknown[] = []
++): HookResult<T> {
++  const [status, setStatus] = useState<HookStatus>('loading');
++  const [data, setData] = useState<T | null>(null);
++  const [error, setError] = useState<Error | null>(null);
++  const [nonce, setNonce] = useState(0);
++
++  const reload = useCallback(() => {
++    setNonce((n) => n + 1);
++  }, []);
++
++  useEffect(() => {
++    let active = true;
++    setStatus('loading');
++    setError(null);
++
++    Promise.resolve()
++      .then(() => fetcher())
++      .then((result) => {
++        if (!active) return;
++        if (isEmpty(result)) {
++          setStatus('empty');
++          setData((result as T) ?? null);
++        } else {
++          setStatus('ready');
++          setData(result as T);
++        }
++      })
++      .catch((err) => {
++        if (!active) return;
++        setStatus('error');
++        setData(null);
++        setError(err instanceof Error ? err : new Error(String(err)));
++      });
++
++    return () => {
++      active = false;
++    };
++  }, [...deps, nonce]);
++
++  return { status, data, error, reload };
++}
+diff --git a/apps/desktop/src/v3/data/useRoles.test.ts b/apps/desktop/src/v3/data/useRoles.test.ts
+new file mode 100644
+index 0000000..6bd6591
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useRoles.test.ts
+@@ -0,0 +1,76 @@
++import { act, renderHook } from '@testing-library/react';
++import type { RoleRouting, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useRoles } from './useRoles';
++
++describe('useRoles', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      listRoleRoutings: () => new Promise<RoleRouting[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRoles(client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when role routings are empty', async () => {
++    const client = {
++      listRoleRoutings: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRoles(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when role routings exist', async () => {
++    const list: RoleRouting[] = [
++      {
++        role: 'coder',
++        targets: [{ provider_id: 'mock', model_id: 'default', weight: 1 }],
++        fallback_enabled: true,
++        budget_cents_per_run: 100,
++      },
++    ];
++    const client = {
++      listRoleRoutings: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRoles(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      listRoleRoutings: vi.fn().mockRejectedValue(new Error('Roles fetch failed')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRoles(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Roles fetch failed');
++
++    (client.listRoleRoutings as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      {
++        role: 'reviewer',
++        targets: [],
++        fallback_enabled: false,
++        budget_cents_per_run: null,
++      },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useRoles.ts b/apps/desktop/src/v3/data/useRoles.ts
+new file mode 100644
+index 0000000..635de21
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useRoles.ts
+@@ -0,0 +1,22 @@
++import type { RoleRouting, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useRoles(
++  overrideClient?: WarshaClient | null
++): HookResult<RoleRouting[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<RoleRouting[]>(
++    async () => {
++      if (!client) return [];
++      return client.listRoleRoutings();
++    },
++    (list) => !list || list.length === 0,
++    [client]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useRoutines.test.ts b/apps/desktop/src/v3/data/useRoutines.test.ts
+new file mode 100644
+index 0000000..d5c79ff
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useRoutines.test.ts
+@@ -0,0 +1,80 @@
++import { act, renderHook } from '@testing-library/react';
++import type { Routine, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useRoutines } from './useRoutines';
++
++describe('useRoutines', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      listRoutines: () => new Promise<Routine[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRoutines(client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when routines list is empty', async () => {
++    const client = {
++      listRoutines: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRoutines(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when routines exist', async () => {
++    const list: Routine[] = [
++      {
++        id: 'r1',
++        name: 'Nightly build',
++        description: 'Runs daily',
++        schedule: { cron: '0 0 * * *' },
++        state: 'idle',
++        lastRunUnix: 1700000000,
++      },
++    ];
++    const client = {
++      listRoutines: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRoutines(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      listRoutines: vi.fn().mockRejectedValue(new Error('Routines error')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRoutines(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Routines error');
++
++    (client.listRoutines as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      {
++        id: 'r2',
++        name: 'Hourly check',
++        description: 'Runs hourly',
++        schedule: { intervalSeconds: 3600 },
++        state: 'running',
++        lastRunUnix: null,
++      },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useRoutines.ts b/apps/desktop/src/v3/data/useRoutines.ts
+new file mode 100644
+index 0000000..0684584
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useRoutines.ts
+@@ -0,0 +1,22 @@
++import type { Routine, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useRoutines(
++  overrideClient?: WarshaClient | null
++): HookResult<Routine[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<Routine[]>(
++    async () => {
++      if (!client) return [];
++      return client.listRoutines();
++    },
++    (list) => !list || list.length === 0,
++    [client]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useRun.test.ts b/apps/desktop/src/v3/data/useRun.test.ts
+new file mode 100644
+index 0000000..17d1a83
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useRun.test.ts
+@@ -0,0 +1,76 @@
++import { act, renderHook } from '@testing-library/react';
++import type { ProjectId, RunId, RunSummary, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useRun } from './useRun';
++
++describe('useRun', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      getRun: () => new Promise<RunSummary>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRun('r1', client));
++    expect(result.current.status).toBe('loading');
++  });
++
++  it('handles empty state when run is null or runId is missing', async () => {
++    const client = {
++      getRun: vi.fn().mockResolvedValue(null),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRun(null, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles ready state when run exists', async () => {
++    const run: RunSummary = {
++      id: 'r1' as RunId,
++      projectId: 'p1' as ProjectId,
++      stage: 'idea',
++      status: 'active',
++      startedAt: '2026-11-09T00:00:00Z',
++      updatedAt: '2026-11-09T00:00:00Z',
++    };
++    const client = {
++      getRun: vi.fn().mockResolvedValue(run),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRun('r1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(run);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      getRun: vi.fn().mockRejectedValue(new Error('Run not found')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRun('r1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Run not found');
++
++    const run: RunSummary = {
++      id: 'r1' as RunId,
++      projectId: 'p1' as ProjectId,
++      stage: 'idea',
++      status: 'active',
++      startedAt: '',
++      updatedAt: '',
++    };
++    (client.getRun as ReturnType<typeof vi.fn>).mockResolvedValueOnce(run);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useRun.ts b/apps/desktop/src/v3/data/useRun.ts
+new file mode 100644
+index 0000000..8073578
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useRun.ts
+@@ -0,0 +1,23 @@
++import type { RunId, RunSummary, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useRun(
++  runId?: RunId | string | null,
++  overrideClient?: WarshaClient | null
++): HookResult<RunSummary> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<RunSummary>(
++    async () => {
++      if (!client || !runId) return null;
++      return client.getRun(runId as RunId);
++    },
++    (run) => !run || !run.id,
++    [client, runId]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useRunEvents.test.ts b/apps/desktop/src/v3/data/useRunEvents.test.ts
+new file mode 100644
+index 0000000..7fffa86
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useRunEvents.test.ts
+@@ -0,0 +1,244 @@
++import { act, renderHook } from '@testing-library/react';
++import type { RunId, RunStreamSync, WarshaClient, WarshaEvent } from '@warsha/client';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++
++import { useRunEvents } from './useRunEvents';
++
++describe('useRunEvents', () => {
++  beforeEach(() => {
++    vi.useFakeTimers();
++  });
++
++  afterEach(() => {
++    vi.useRealTimers();
++  });
++
++  it('handles loading state initially', () => {
++    const client = {
++      subscribeRun: () => new Promise<RunStreamSync>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRunEvents('run-1' as RunId, {}, client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when no events exist in stream', async () => {
++    const emptySync: RunStreamSync = {
++      seq: 0,
++      gap_detected: false,
++      resync_required: false,
++      dropped_count: 0,
++      run: null,
++      events: [],
++    };
++    const client = {
++      subscribeRun: vi.fn().mockResolvedValue(emptySync),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRunEvents('run-1' as RunId, {}, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when stream returns events', async () => {
++    const event1: WarshaEvent = {
++      id: 'e1',
++      runId: 'run-1' as RunId,
++      stage: 'idea',
++      role: 'intake',
++      kind: 'run_started',
++      payload: null,
++      costCents: null,
++      createdAt: '2026-11-09T00:00:00Z',
++      deviceId: null,
++      seq: 1,
++    };
++    const sync: RunStreamSync = {
++      seq: 1,
++      gap_detected: false,
++      resync_required: false,
++      dropped_count: 0,
++      run: null,
++      events: [event1],
++    };
++    const client = {
++      subscribeRun: vi.fn().mockResolvedValue(sync),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRunEvents('run-1' as RunId, {}, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual([event1]);
++  });
++
++  it('handles error state and reloads manually', async () => {
++    const client = {
++      subscribeRun: vi.fn().mockRejectedValue(new Error('Connection lost')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRunEvents('run-1' as RunId, {}, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Connection lost');
++
++    const recoveredEvent: WarshaEvent = {
++      id: 'e2',
++      runId: 'run-1' as RunId,
++      stage: 'code',
++      role: 'coder',
++      kind: 'file_written',
++      payload: null,
++      costCents: null,
++      createdAt: '2026-11-09T01:00:00Z',
++      deviceId: null,
++      seq: 2,
++    };
++    (client.subscribeRun as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
++      seq: 2,
++      gap_detected: false,
++      resync_required: false,
++      dropped_count: 0,
++      run: null,
++      events: [recoveredEvent],
++    });
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual([recoveredEvent]);
++  });
++
++  it('handles reconnect with backoff after connection failure', async () => {
++    const client = {
++      subscribeRun: vi
++        .fn()
++        .mockRejectedValueOnce(new Error('Failed once'))
++        .mockResolvedValueOnce({
++          seq: 5,
++          gap_detected: false,
++          resync_required: false,
++          dropped_count: 0,
++          run: null,
++          events: [
++            {
++              id: 'e3',
++              runId: 'run-1' as RunId,
++              stage: 'design',
++              role: 'designer',
++              kind: 'spec_ready',
++              payload: null,
++              costCents: null,
++              createdAt: '2026-11-09T02:00:00Z',
++              deviceId: null,
++              seq: 5,
++            },
++          ],
++        }),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() =>
++      useRunEvents('run-1' as RunId, { initialBackoffMs: 50, maxBackoffMs: 500 }, client)
++    );
++
++    await act(async () => {});
++    expect(result.current.status).toBe('error');
++
++    // Advance time for backoff reconnect timer
++    await act(async () => {
++      vi.advanceTimersByTime(100);
++    });
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toHaveLength(1);
++    expect(client.subscribeRun).toHaveBeenCalledTimes(2);
++  });
++
++  it('handles resync when resync_required or gap is flagged', async () => {
++    const staleEvent: WarshaEvent = {
++      id: 'stale-1',
++      runId: 'run-1' as RunId,
++      stage: 'idea',
++      role: 'intake',
++      kind: 'stale',
++      payload: null,
++      costCents: null,
++      createdAt: '2026-11-09T00:00:00Z',
++      deviceId: null,
++      seq: 1,
++    };
++    const freshEvent: WarshaEvent = {
++      id: 'fresh-1',
++      runId: 'run-1' as RunId,
++      stage: 'prd_spec',
++      role: 'pm',
++      kind: 'resynced',
++      payload: null,
++      costCents: null,
++      createdAt: '2026-11-09T03:00:00Z',
++      deviceId: null,
++      seq: 10,
++    };
++
++    const client = {
++      subscribeRun: vi
++        .fn()
++        .mockResolvedValueOnce({
++          seq: 1,
++          gap_detected: false,
++          resync_required: false,
++          dropped_count: 0,
++          run: null,
++          events: [staleEvent],
++        })
++        .mockResolvedValueOnce({
++          seq: 10,
++          gap_detected: true,
++          resync_required: true,
++          dropped_count: 8,
++          run: null,
++          events: [freshEvent],
++        }),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRunEvents('run-1' as RunId, {}, client));
++    await act(async () => {});
++
++    expect(result.current.data).toEqual([staleEvent]);
++
++    // Trigger reload/update to simulate resync
++    await act(async () => {
++      result.current.reload();
++    });
++
++    // Stale event replaced by resynced events
++    expect(result.current.data).toEqual([freshEvent]);
++  });
++
++  it('unsubscribes on unmount', async () => {
++    const unsubscribeRun = vi.fn();
++    const client = {
++      subscribeRun: vi.fn().mockResolvedValue({
++        seq: 1,
++        gap_detected: false,
++        resync_required: false,
++        dropped_count: 0,
++        run: null,
++        events: [],
++      }),
++      unsubscribeRun,
++    } as unknown as WarshaClient;
++
++    const { unmount } = renderHook(() => useRunEvents('run-1' as RunId, {}, client));
++    await act(async () => {});
++
++    unmount();
++    expect(unsubscribeRun).toHaveBeenCalledWith('run-1');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useRunEvents.ts b/apps/desktop/src/v3/data/useRunEvents.ts
+new file mode 100644
+index 0000000..0a74ebf
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useRunEvents.ts
+@@ -0,0 +1,111 @@
++import type { RunId, RunStreamSync, WarshaClient, WarshaEvent } from '@warsha/client';
++import { useCallback, useEffect, useRef, useState } from 'react';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult, HookStatus } from './types';
++
++export interface UseRunEventsOptions {
++  sinceSeq?: number;
++  initialBackoffMs?: number;
++  maxBackoffMs?: number;
++}
++
++export function useRunEvents(
++  runId?: RunId | string | null,
++  options?: UseRunEventsOptions,
++  overrideClient?: WarshaClient | null
++): HookResult<WarshaEvent[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  const [status, setStatus] = useState<HookStatus>('loading');
++  const [data, setData] = useState<WarshaEvent[] | null>(null);
++  const [error, setError] = useState<Error | null>(null);
++  const [nonce, setNonce] = useState(0);
++
++  const initialBackoff = options?.initialBackoffMs ?? 100;
++  const maxBackoff = options?.maxBackoffMs ?? 2000;
++
++  const reload = useCallback(() => {
++    setNonce((n) => n + 1);
++  }, []);
++
++  const cursorRef = useRef<number | undefined>(options?.sinceSeq);
++  const backoffRef = useRef<number>(initialBackoff);
++  const eventsRef = useRef<WarshaEvent[]>([]);
++
++  useEffect(() => {
++    cursorRef.current = options?.sinceSeq;
++  }, [options?.sinceSeq]);
++
++  useEffect(() => {
++    if (!client || !runId) {
++      setStatus('empty');
++      setData([]);
++      return undefined;
++    }
++
++    let active = true;
++    let timerId: ReturnType<typeof setTimeout> | null = null;
++    setStatus('loading');
++    setError(null);
++    backoffRef.current = initialBackoff;
++    eventsRef.current = [];
++
++    const pollOrSubscribe = async () => {
++      try {
++        const sync: RunStreamSync = await client.subscribeRun(
++          runId as RunId,
++          cursorRef.current
++        );
++
++        if (!active) return;
++
++        cursorRef.current = sync.seq;
++        backoffRef.current = initialBackoff;
++
++        if (sync.resync_required || sync.gap_detected) {
++          // Resync: replace events on resync_required or gap
++          eventsRef.current = sync.events;
++        } else if (sync.events.length > 0) {
++          eventsRef.current = [...eventsRef.current, ...sync.events];
++        }
++
++        const currentEvents = eventsRef.current;
++        setData(currentEvents);
++        setStatus(currentEvents.length === 0 ? 'empty' : 'ready');
++      } catch (err) {
++        if (!active) return;
++        const errObj = err instanceof Error ? err : new Error(String(err));
++        setError(errObj);
++        setStatus('error');
++
++        // Reconnect with backoff
++        const nextBackoff = Math.min(backoffRef.current * 2, maxBackoff);
++        backoffRef.current = nextBackoff;
++        timerId = setTimeout(() => {
++          if (active) {
++            void pollOrSubscribe();
++          }
++        }, nextBackoff);
++      }
++    };
++
++    void pollOrSubscribe();
++
++    return () => {
++      active = false;
++      if (timerId !== null) {
++        clearTimeout(timerId);
++      }
++      // Unsubscribe on unmount
++      const clientWithUnsub = client as unknown as { unsubscribeRun?: (id: RunId) => void };
++      if (typeof clientWithUnsub.unsubscribeRun === 'function') {
++        clientWithUnsub.unsubscribeRun(runId as RunId);
++      }
++    };
++  }, [client, runId, initialBackoff, maxBackoff, nonce]);
++
++  return { status, data, error, reload };
++}
+diff --git a/apps/desktop/src/v3/data/useRuns.test.ts b/apps/desktop/src/v3/data/useRuns.test.ts
+new file mode 100644
+index 0000000..048e86d
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useRuns.test.ts
+@@ -0,0 +1,70 @@
++import { act, renderHook } from '@testing-library/react';
++import type { ProjectId, RunId, RunSummary, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useRuns } from './useRuns';
++
++describe('useRuns', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      listRuns: () => new Promise<RunSummary[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRuns('p1', client));
++    expect(result.current.status).toBe('loading');
++  });
++
++  it('handles empty state when no runs or no projectId', async () => {
++    const client = {
++      listRuns: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRuns('p1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when runs exist', async () => {
++    const runs: RunSummary[] = [
++      {
++        id: 'r1' as RunId,
++        projectId: 'p1' as ProjectId,
++        stage: 'code',
++        status: 'running',
++        startedAt: '2026-11-09T00:00:00Z',
++        updatedAt: '2026-11-09T00:00:00Z',
++      },
++    ];
++    const client = {
++      listRuns: vi.fn().mockResolvedValue(runs),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRuns('p1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(runs);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      listRuns: vi.fn().mockRejectedValue(new Error('Failed to list runs')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useRuns('p1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Failed to list runs');
++
++    (client.listRuns as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('empty');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useRuns.ts b/apps/desktop/src/v3/data/useRuns.ts
+new file mode 100644
+index 0000000..fe95ba9
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useRuns.ts
+@@ -0,0 +1,23 @@
++import type { ProjectId, RunSummary, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useRuns(
++  projectId?: ProjectId | string | null,
++  overrideClient?: WarshaClient | null
++): HookResult<RunSummary[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<RunSummary[]>(
++    async () => {
++      if (!client || !projectId) return [];
++      return client.listRuns(projectId as ProjectId);
++    },
++    (runs) => !runs || runs.length === 0,
++    [client, projectId]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useSkills.test.ts b/apps/desktop/src/v3/data/useSkills.test.ts
+new file mode 100644
+index 0000000..6e811ca
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useSkills.test.ts
+@@ -0,0 +1,84 @@
++import { act, renderHook } from '@testing-library/react';
++import type { SkillDefinition, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useSkills } from './useSkills';
++
++describe('useSkills', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      listSkills: () => new Promise<SkillDefinition[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useSkills(client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when skills list is empty', async () => {
++    const client = {
++      listSkills: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useSkills(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when skills exist', async () => {
++    const list: SkillDefinition[] = [
++      {
++        id: 'skill-1',
++        name: 'commit',
++        description: 'Make a git commit',
++        source: 'builtin',
++        license: 'MIT',
++        content: '# Commit skill',
++        enabled: true,
++        tags: ['git'],
++      },
++    ];
++    const client = {
++      listSkills: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useSkills(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      listSkills: vi.fn().mockRejectedValue(new Error('Skills error')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useSkills(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Skills error');
++
++    (client.listSkills as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      {
++        id: 'skill-2',
++        name: 'search',
++        description: 'Search codebase',
++        source: 'builtin',
++        license: 'MIT',
++        content: '# Search skill',
++        enabled: true,
++        tags: ['code'],
++      },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useSkills.ts b/apps/desktop/src/v3/data/useSkills.ts
+new file mode 100644
+index 0000000..450878a
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useSkills.ts
+@@ -0,0 +1,22 @@
++import type { SkillDefinition, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useSkills(
++  overrideClient?: WarshaClient | null
++): HookResult<SkillDefinition[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<SkillDefinition[]>(
++    async () => {
++      if (!client) return [];
++      return client.listSkills();
++    },
++    (list) => !list || list.length === 0,
++    [client]
++  );
++}
+diff --git a/apps/desktop/src/v3/pages/bench/index.tsx b/apps/desktop/src/v3/pages/bench/index.tsx
+new file mode 100644
+index 0000000..3d2a3ee
+--- /dev/null
++++ b/apps/desktop/src/v3/pages/bench/index.tsx
+@@ -0,0 +1,12 @@
++// eslint-disable-next-line import/no-unresolved
++import { useT } from '@warsha/i18n/v3';
++import React from 'react';
++
++export default function BenchPage(): React.ReactElement {
++  const t = useT();
++  return (
++    <div>
++      <h1>{t('bench.title')}</h1>
++    </div>
++  );
++}
+diff --git a/apps/desktop/src/v3/pages/frame/Frame.tsx b/apps/desktop/src/v3/pages/frame/Frame.tsx
+new file mode 100644
+index 0000000..6e144a4
+--- /dev/null
++++ b/apps/desktop/src/v3/pages/frame/Frame.tsx
+@@ -0,0 +1,26 @@
++// eslint-disable-next-line import/no-unresolved
++import { useT } from '@warsha/i18n/v3';
++import React from 'react';
++
++import { useDataReady } from '../../app/DataReadyContext';
++
++export interface FrameProps {
++  children?: React.ReactNode;
++}
++
++export function Frame({ children }: FrameProps): React.ReactElement {
++  const { isReady } = useDataReady();
++  const t = useT();
++  return (
++    <div className="v3-frame-root">
++      <header className="v3-frame-topbar">
++        <h1>{t('common.app_name')}</h1>
++      </header>
++      <main data-ready={isReady ? 'true' : 'false'}>
++        {children}
++      </main>
++    </div>
++  );
++}
++
++export default Frame;
+diff --git a/apps/desktop/src/v3/pages/frame/index.tsx b/apps/desktop/src/v3/pages/frame/index.tsx
+new file mode 100644
+index 0000000..1d8acd8
+--- /dev/null
++++ b/apps/desktop/src/v3/pages/frame/index.tsx
+@@ -0,0 +1 @@
++export { Frame, default } from './Frame';
+diff --git a/apps/desktop/src/v3/pages/home/index.tsx b/apps/desktop/src/v3/pages/home/index.tsx
+new file mode 100644
+index 0000000..b4fd17d
+--- /dev/null
++++ b/apps/desktop/src/v3/pages/home/index.tsx
+@@ -0,0 +1,12 @@
++// eslint-disable-next-line import/no-unresolved
++import { useT } from '@warsha/i18n/v3';
++import React from 'react';
++
++export default function HomePage(): React.ReactElement {
++  const t = useT();
++  return (
++    <div>
++      <h1>{t('home.title')}</h1>
++    </div>
++  );
++}
+diff --git a/apps/desktop/src/v3/pages/inbox/index.tsx b/apps/desktop/src/v3/pages/inbox/index.tsx
+new file mode 100644
+index 0000000..864107b
+--- /dev/null
++++ b/apps/desktop/src/v3/pages/inbox/index.tsx
+@@ -0,0 +1,12 @@
++// eslint-disable-next-line import/no-unresolved
++import { useT } from '@warsha/i18n/v3';
++import React from 'react';
++
++export default function InboxPage(): React.ReactElement {
++  const t = useT();
++  return (
++    <div>
++      <h1>{t('inbox.title')}</h1>
++    </div>
++  );
++}
+diff --git a/apps/desktop/src/v3/pages/onboarding/index.tsx b/apps/desktop/src/v3/pages/onboarding/index.tsx
+new file mode 100644
+index 0000000..efeb12e
+--- /dev/null
++++ b/apps/desktop/src/v3/pages/onboarding/index.tsx
+@@ -0,0 +1,12 @@
++// eslint-disable-next-line import/no-unresolved
++import { useT } from '@warsha/i18n/v3';
++import React from 'react';
++
++export default function OnboardingPage(): React.ReactElement {
++  const t = useT();
++  return (
++    <div>
++      <h1>{t('onboarding.title')}</h1>
++    </div>
++  );
++}
+diff --git a/apps/desktop/src/v3/pages/project/index.tsx b/apps/desktop/src/v3/pages/project/index.tsx
+new file mode 100644
+index 0000000..e70e689
+--- /dev/null
++++ b/apps/desktop/src/v3/pages/project/index.tsx
+@@ -0,0 +1,12 @@
++// eslint-disable-next-line import/no-unresolved
++import { useT } from '@warsha/i18n/v3';
++import React from 'react';
++
++export default function ProjectPage(): React.ReactElement {
++  const t = useT();
++  return (
++    <div>
++      <h1>{t('project.title')}</h1>
++    </div>
++  );
++}
+diff --git a/apps/desktop/src/v3/pages/projects/index.tsx b/apps/desktop/src/v3/pages/projects/index.tsx
+new file mode 100644
+index 0000000..dede450
+--- /dev/null
++++ b/apps/desktop/src/v3/pages/projects/index.tsx
+@@ -0,0 +1,12 @@
++// eslint-disable-next-line import/no-unresolved
++import { useT } from '@warsha/i18n/v3';
++import React from 'react';
++
++export default function ProjectsPage(): React.ReactElement {
++  const t = useT();
++  return (
++    <div>
++      <h1>{t('projects.title')}</h1>
++    </div>
++  );
++}
+diff --git a/apps/desktop/src/v3/pages/settings/index.tsx b/apps/desktop/src/v3/pages/settings/index.tsx
+new file mode 100644
+index 0000000..3402283
+--- /dev/null
++++ b/apps/desktop/src/v3/pages/settings/index.tsx
+@@ -0,0 +1,12 @@
++// eslint-disable-next-line import/no-unresolved
++import { useT } from '@warsha/i18n/v3';
++import React from 'react';
++
++export default function SettingsPage(): React.ReactElement {
++  const t = useT();
++  return (
++    <div>
++      <h1>{t('settings.title')}</h1>
++    </div>
++  );
++}
+diff --git a/apps/desktop/src/v3/router/Router.test.tsx b/apps/desktop/src/v3/router/Router.test.tsx
+new file mode 100644
+index 0000000..a04e10b
+--- /dev/null
++++ b/apps/desktop/src/v3/router/Router.test.tsx
+@@ -0,0 +1,91 @@
++import { act, render, screen } from '@testing-library/react';
++import React from 'react';
++import { describe, expect, it } from 'vitest';
++
++import { matchRoute, normalizePath, RouteOutlet, RouterProvider, useNavigate, useRoute } from './index';
++
++describe('hash router', () => {
++  it('normalizes hashes and pathnames', () => {
++    expect(normalizePath('')).toBe('/');
++    expect(normalizePath('#')).toBe('/');
++    expect(normalizePath('#/onboarding')).toBe('/onboarding');
++    expect(normalizePath('/projects/')).toBe('/projects');
++    expect(normalizePath('#/p/proj-1?query=1')).toBe('/p/proj-1');
++  });
++
++  it('matches static routes', () => {
++    const onboarding = matchRoute('/onboarding');
++    expect(onboarding?.route.area).toBe('onboarding');
++
++    const home = matchRoute('/');
++    expect(home?.route.area).toBe('home');
++
++    const projects = matchRoute('/projects');
++    expect(projects?.route.area).toBe('projects');
++
++    const inbox = matchRoute('/inbox');
++    expect(inbox?.route.area).toBe('inbox');
++  });
++
++  it('matches parameterized routes and extracts params', () => {
++    const project = matchRoute('/p/my-project');
++    expect(project?.route.area).toBe('project');
++    expect(project?.params).toEqual({ projectId: 'my-project' });
++
++    const bench = matchRoute('/p/proj-42/r/run-99/files');
++    expect(bench?.route.area).toBe('bench');
++    expect(bench?.params).toEqual({
++      projectId: 'proj-42',
++      runId: 'run-99',
++      tab: 'files',
++    });
++
++    const settings = matchRoute('/settings/models');
++    expect(settings?.route.area).toBe('settings');
++    expect(settings?.params).toEqual({ section: 'models' });
++  });
++
++  it('renders matching route in RouterProvider and updates on navigate', () => {
++    function RouteInspector(): React.ReactElement {
++      const { pathname, params, area } = useRoute();
++      const navigate = useNavigate();
++      return (
++        <div>
++          <span data-testid="path">{pathname}</span>
++          <span data-testid="area">{area}</span>
++          <span data-testid="proj">{params.projectId ?? 'none'}</span>
++          <button data-action="test.go" onClick={() => navigate('/p/new-id')}>
++            navigate
++          </button>
++        </div>
++      );
++    }
++
++    render(
++      <RouterProvider initialPath="/projects">
++        <RouteInspector />
++      </RouterProvider>
++    );
++
++    expect(screen.getByTestId('path').textContent).toBe('/projects');
++    expect(screen.getByTestId('area').textContent).toBe('projects');
++
++    act(() => {
++      screen.getByText('navigate').click();
++    });
++
++    expect(screen.getByTestId('path').textContent).toBe('/p/new-id');
++    expect(screen.getByTestId('area').textContent).toBe('project');
++    expect(screen.getByTestId('proj').textContent).toBe('new-id');
++  });
++
++  it('renders RouteOutlet component for the active route', () => {
++    render(
++      <RouterProvider initialPath="/onboarding">
++        <RouteOutlet />
++      </RouterProvider>
++    );
++
++    expect(screen.getByRole('heading', { level: 1 }).textContent).toMatch(/Onboarding|التهيئة الأولى/);
++  });
++});
+diff --git a/apps/desktop/src/v3/router/Router.tsx b/apps/desktop/src/v3/router/Router.tsx
+new file mode 100644
+index 0000000..d76cf15
+--- /dev/null
++++ b/apps/desktop/src/v3/router/Router.tsx
+@@ -0,0 +1,143 @@
++// eslint-disable-next-line import/no-unresolved
++import { useT } from '@warsha/i18n/v3';
++import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
++
++import { ROUTES, type RouteArea, type RouteDefinition } from './routes';
++
++export interface RouteMatch {
++  route: RouteDefinition;
++  params: Record<string, string>;
++  pathname: string;
++}
++
++export function normalizePath(hashOrPath: string): string {
++  let cleaned = hashOrPath.trim();
++  if (cleaned.startsWith('#')) {
++    cleaned = cleaned.slice(1);
++  }
++  if (!cleaned.startsWith('/')) {
++    cleaned = '/' + cleaned;
++  }
++  // Strip query string if present in hash
++  const qIdx = cleaned.indexOf('?');
++  if (qIdx >= 0) {
++    cleaned = cleaned.slice(0, qIdx);
++  }
++  // Remove trailing slash if not root
++  if (cleaned.length > 1 && cleaned.endsWith('/')) {
++    cleaned = cleaned.slice(0, -1);
++  }
++  return cleaned || '/';
++}
++
++export function matchRoute(pathname: string, routes: readonly RouteDefinition[] = ROUTES): RouteMatch | null {
++  const norm = normalizePath(pathname);
++  for (const r of routes) {
++    const match = norm.match(r.regex);
++    if (match) {
++      const params: Record<string, string> = {};
++      for (let i = 0; i < r.paramNames.length; i++) {
++        params[r.paramNames[i]] = decodeURIComponent(match[i + 1] ?? '');
++      }
++      return {
++        route: r,
++        params,
++        pathname: norm,
++      };
++    }
++  }
++  return null;
++}
++
++interface RouterContextValue {
++  pathname: string;
++  params: Record<string, string>;
++  currentRoute: RouteDefinition | null;
++  area: RouteArea | null;
++  navigate: (to: string) => void;
++}
++
++const RouterContext = createContext<RouterContextValue | null>(null);
++
++export interface RouterProviderProps {
++  initialPath?: string;
++  children: React.ReactNode;
++}
++
++export function RouterProvider({ initialPath, children }: RouterProviderProps): React.ReactElement {
++  const [pathname, setPathname] = useState<string>(() => {
++    if (initialPath) return normalizePath(initialPath);
++    if (typeof window !== 'undefined' && window.location.hash) {
++      return normalizePath(window.location.hash);
++    }
++    return '/';
++  });
++
++  useEffect(() => {
++    if (typeof window === 'undefined') return;
++
++    const onHashChange = (): void => {
++      setPathname(normalizePath(window.location.hash));
++    };
++
++    window.addEventListener('hashchange', onHashChange);
++    return () => {
++      window.removeEventListener('hashchange', onHashChange);
++    };
++  }, []);
++
++  const navigate = (to: string): void => {
++    const norm = normalizePath(to);
++    setPathname(norm);
++    if (typeof window !== 'undefined') {
++      window.location.hash = `#${norm}`;
++    }
++  };
++
++  const match = useMemo(() => matchRoute(pathname), [pathname]);
++
++  const value = useMemo<RouterContextValue>(() => {
++    return {
++      pathname,
++      params: match ? match.params : {},
++      currentRoute: match ? match.route : null,
++      area: match ? match.route.area : null,
++      navigate,
++    };
++  }, [pathname, match]);
++
++  return <RouterContext.Provider value={value}>{children}</RouterContext.Provider>;
++}
++
++export function useRouter(): RouterContextValue {
++  const ctx = useContext(RouterContext);
++  if (!ctx) {
++    throw new Error('useRouter must be used within a RouterProvider');
++  }
++  return ctx;
++}
++
++export function useRoute(): {
++  pathname: string;
++  params: Record<string, string>;
++  route: RouteDefinition | null;
++  area: RouteArea | null;
++} {
++  const { pathname, params, currentRoute, area } = useRouter();
++  return { pathname, params, route: currentRoute, area };
++}
++
++export function useNavigate(): (to: string) => void {
++  const { navigate } = useRouter();
++  return navigate;
++}
++
++export function RouteOutlet(): React.ReactElement {
++  const { currentRoute } = useRouter();
++  const t = useT();
++  if (!currentRoute) {
++    return <div>{t('common.not_found')}</div>;
++  }
++  const Component = currentRoute.component;
++  return <Component />;
++}
+diff --git a/apps/desktop/src/v3/router/index.ts b/apps/desktop/src/v3/router/index.ts
+new file mode 100644
+index 0000000..721c39b
+--- /dev/null
++++ b/apps/desktop/src/v3/router/index.ts
+@@ -0,0 +1,2 @@
++export * from './routes';
++export * from './Router';
+diff --git a/apps/desktop/src/v3/router/routes.ts b/apps/desktop/src/v3/router/routes.ts
+new file mode 100644
+index 0000000..b19e6fb
+--- /dev/null
++++ b/apps/desktop/src/v3/router/routes.ts
+@@ -0,0 +1,54 @@
++import React from 'react';
++
++import BenchPage from '../pages/bench';
++import HomePage from '../pages/home';
++import InboxPage from '../pages/inbox';
++import OnboardingPage from '../pages/onboarding';
++import ProjectPage from '../pages/project';
++import ProjectsPage from '../pages/projects';
++import SettingsPage from '../pages/settings';
++
++export type RouteArea =
++  | 'onboarding'
++  | 'home'
++  | 'projects'
++  | 'project'
++  | 'bench'
++  | 'inbox'
++  | 'settings';
++
++export interface RouteDefinition {
++  path: string;
++  area: RouteArea;
++  component: React.ComponentType;
++  paramNames: string[];
++  regex: RegExp;
++}
++
++export function compileRoute(path: string, area: RouteArea, component: React.ComponentType): RouteDefinition {
++  const paramNames: string[] = [];
++  const regexPattern = path
++    .replace(/:([a-zA-Z0-9_]+)/g, (_, paramName: string) => {
++      paramNames.push(paramName);
++      return '([^/]+)';
++    })
++    .replace(/\//g, '\\/');
++
++  return {
++    path,
++    area,
++    component,
++    paramNames,
++    regex: new RegExp(`^${regexPattern}$`),
++  };
++}
++
++export const ROUTES: readonly RouteDefinition[] = [
++  compileRoute('/onboarding', 'onboarding', OnboardingPage),
++  compileRoute('/', 'home', HomePage),
++  compileRoute('/projects', 'projects', ProjectsPage),
++  compileRoute('/p/:projectId', 'project', ProjectPage),
++  compileRoute('/p/:projectId/r/:runId/:tab', 'bench', BenchPage),
++  compileRoute('/inbox', 'inbox', InboxPage),
++  compileRoute('/settings/:section', 'settings', SettingsPage),
++];
+diff --git a/packages/i18n/package.json b/packages/i18n/package.json
+index 262f010..d3cb962 100644
+--- a/packages/i18n/package.json
++++ b/packages/i18n/package.json
+@@ -4,6 +4,16 @@
+   "private": true,
+   "main": "./src/index.tsx",
+   "types": "./src/index.tsx",
++  "exports": {
++    ".": {
++      "types": "./src/index.tsx",
++      "default": "./src/index.tsx"
++    },
++    "./v3": {
++      "types": "./src/v3/index.ts",
++      "default": "./src/v3/index.ts"
++    }
++  },
+   "scripts": {
+     "build": "tsc --noEmit",
+     "lint": "eslint src --ext .ts,.tsx",
+diff --git a/packages/i18n/src/v3/ar/bench.ts b/packages/i18n/src/v3/ar/bench.ts
+new file mode 100644
+index 0000000..df25897
+--- /dev/null
++++ b/packages/i18n/src/v3/ar/bench.ts
+@@ -0,0 +1,4 @@
++export default {
++  'bench.title': 'منصة العمل المتقدمة',
++  'bench.empty': 'لا توجد بيانات تشغيل',
++};
+diff --git a/packages/i18n/src/v3/ar/common.ts b/packages/i18n/src/v3/ar/common.ts
+new file mode 100644
+index 0000000..5b0011b
+--- /dev/null
++++ b/packages/i18n/src/v3/ar/common.ts
+@@ -0,0 +1,35 @@
++export default {
++  'common.app_name': 'ورشة',
++  'common.loading': 'جارٍ التحميل',
++  'common.error': 'حدث خطأ غير متوقع',
++  'common.retry': 'إعادة المحاولة',
++  'common.empty': 'لا توجد بيانات',
++  'common.cancel': 'إلغاء',
++  'common.confirm': 'تأكيد',
++  'common.save': 'حفظ',
++  'common.close': 'إغلاق',
++  'common.not_found': 'الصفحة غير موجودة',
++  'common.welcome': 'أهلًا بك {name}',
++  'stages.idea': 'الفكرة',
++  'stages.plan': 'الخطة',
++  'stages.build': 'البناء',
++  'stages.qa': 'الفحص',
++  'stages.delivery': 'التسليم',
++  'gate.question.a': 'هل نعتمد الفكرة والموجز؟',
++  'gate.question.b': 'هل نعتمد المواصفات؟',
++  'gate.question.c': 'هل ندمج التغييرات؟',
++  'gate.question.d': 'هل ننشر؟',
++  'events.stage_started': 'بدأت المرحلة',
++  'events.stage_completed': 'اكتملت المرحلة',
++  'events.gate_decision': 'صدر قرار البوابة',
++  'events.agent_step': 'خطوة الوكيل',
++  'events.tool_call': 'استدعاء أداة',
++  'events.artifact_created': 'تم إنشاء مخرج جديد',
++  'events.artifact_updated': 'تم تحديث المخرج',
++  'events.cost_recorded': 'تم تسجيل التكلفة',
++  'events.error': 'حدث خطأ',
++  'events.fallback': 'استخدام البديل',
++  'events.budget_warning': 'تحذير الميزانية',
++  'events.budget_exceeded': 'تجاوز الميزانية',
++  'events.unknown': 'حدث غير معروف',
++};
+diff --git a/packages/i18n/src/v3/ar/frame.ts b/packages/i18n/src/v3/ar/frame.ts
+new file mode 100644
+index 0000000..e3e79bb
+--- /dev/null
++++ b/packages/i18n/src/v3/ar/frame.ts
+@@ -0,0 +1,7 @@
++export default {
++  'frame.title': 'الإطار الرئيسي',
++  'frame.daemon_offline': 'لا يمكن الوصول إلى خادم ورشة — إعادة المحاولة',
++  'frame.mode_simple': 'بسيط',
++  'frame.mode_advanced': 'متقدّم',
++  'frame.anonymous_project': 'مشروع بلا اسم',
++};
+diff --git a/packages/i18n/src/v3/ar/home.ts b/packages/i18n/src/v3/ar/home.ts
+new file mode 100644
+index 0000000..2982d7f
+--- /dev/null
++++ b/packages/i18n/src/v3/ar/home.ts
+@@ -0,0 +1,5 @@
++export default {
++  'home.title': 'الرئيسية',
++  'home.greeting': 'أهلًا، ماذا نبني اليوم؟',
++  'home.start': 'ابدأ المشروع',
++};
+diff --git a/packages/i18n/src/v3/ar/inbox.ts b/packages/i18n/src/v3/ar/inbox.ts
+new file mode 100644
+index 0000000..e0d9ffe
+--- /dev/null
++++ b/packages/i18n/src/v3/ar/inbox.ts
+@@ -0,0 +1,4 @@
++export default {
++  'inbox.title': 'صندوق القرارات',
++  'inbox.empty': 'لا شيء ينتظرك الآن',
++};
+diff --git a/packages/i18n/src/v3/ar/onboarding.ts b/packages/i18n/src/v3/ar/onboarding.ts
+new file mode 100644
+index 0000000..6d17262
+--- /dev/null
++++ b/packages/i18n/src/v3/ar/onboarding.ts
+@@ -0,0 +1,6 @@
++export default {
++  'onboarding.title': 'التهيئة الأولى',
++  'onboarding.step_language': 'اللغة',
++  'onboarding.step_provider': 'اربط ذكاء اصطناعيا',
++  'onboarding.step_idea': 'فكرتك الأولى',
++};
+diff --git a/packages/i18n/src/v3/ar/project.ts b/packages/i18n/src/v3/ar/project.ts
+new file mode 100644
+index 0000000..c579445
+--- /dev/null
++++ b/packages/i18n/src/v3/ar/project.ts
+@@ -0,0 +1,4 @@
++export default {
++  'project.title': 'المشروع',
++  'project.empty': 'المشروع غير موجود',
++};
+diff --git a/packages/i18n/src/v3/ar/projects.ts b/packages/i18n/src/v3/ar/projects.ts
+new file mode 100644
+index 0000000..b041d28
+--- /dev/null
++++ b/packages/i18n/src/v3/ar/projects.ts
+@@ -0,0 +1,4 @@
++export default {
++  'projects.title': 'المشاريع',
++  'projects.empty': 'لا توجد مشاريع حتى الآن',
++};
+diff --git a/packages/i18n/src/v3/ar/settings.ts b/packages/i18n/src/v3/ar/settings.ts
+new file mode 100644
+index 0000000..3059e6a
+--- /dev/null
++++ b/packages/i18n/src/v3/ar/settings.ts
+@@ -0,0 +1,4 @@
++export default {
++  'settings.title': 'الإعدادات',
++  'settings.general': 'عام',
++};
+diff --git a/packages/i18n/src/v3/en/bench.ts b/packages/i18n/src/v3/en/bench.ts
+new file mode 100644
+index 0000000..057ba6b
+--- /dev/null
++++ b/packages/i18n/src/v3/en/bench.ts
+@@ -0,0 +1,4 @@
++export default {
++  'bench.title': 'Advanced Workbench',
++  'bench.empty': 'No run data available',
++};
+diff --git a/packages/i18n/src/v3/en/common.ts b/packages/i18n/src/v3/en/common.ts
+new file mode 100644
+index 0000000..395c0d6
+--- /dev/null
++++ b/packages/i18n/src/v3/en/common.ts
+@@ -0,0 +1,35 @@
++export default {
++  'common.app_name': 'Warsha',
++  'common.loading': 'Loading',
++  'common.error': 'An unexpected error occurred',
++  'common.retry': 'Retry',
++  'common.empty': 'No data available',
++  'common.cancel': 'Cancel',
++  'common.confirm': 'Confirm',
++  'common.save': 'Save',
++  'common.close': 'Close',
++  'common.not_found': 'Page not found',
++  'common.welcome': 'Welcome {name}',
++  'stages.idea': 'Idea',
++  'stages.plan': 'Plan',
++  'stages.build': 'Build',
++  'stages.qa': 'Review',
++  'stages.delivery': 'Delivery',
++  'gate.question.a': 'Do we approve the idea and brief?',
++  'gate.question.b': 'Do we approve the specification?',
++  'gate.question.c': 'Do we merge the changes?',
++  'gate.question.d': 'Do we release?',
++  'events.stage_started': 'Stage started',
++  'events.stage_completed': 'Stage completed',
++  'events.gate_decision': 'Gate decision recorded',
++  'events.agent_step': 'Agent step',
++  'events.tool_call': 'Tool call',
++  'events.artifact_created': 'Artifact created',
++  'events.artifact_updated': 'Artifact updated',
++  'events.cost_recorded': 'Cost recorded',
++  'events.error': 'An error occurred',
++  'events.fallback': 'Fallback used',
++  'events.budget_warning': 'Budget warning',
++  'events.budget_exceeded': 'Budget exceeded',
++  'events.unknown': 'Unknown event',
++};
+diff --git a/packages/i18n/src/v3/en/frame.ts b/packages/i18n/src/v3/en/frame.ts
+new file mode 100644
+index 0000000..9b5d204
+--- /dev/null
++++ b/packages/i18n/src/v3/en/frame.ts
+@@ -0,0 +1,7 @@
++export default {
++  'frame.title': 'Main Frame',
++  'frame.daemon_offline': 'Cannot reach Warsha daemon — retry',
++  'frame.mode_simple': 'Simple',
++  'frame.mode_advanced': 'Advanced',
++  'frame.anonymous_project': 'Unnamed project',
++};
+diff --git a/packages/i18n/src/v3/en/home.ts b/packages/i18n/src/v3/en/home.ts
+new file mode 100644
+index 0000000..047fa61
+--- /dev/null
++++ b/packages/i18n/src/v3/en/home.ts
+@@ -0,0 +1,5 @@
++export default {
++  'home.title': 'Home',
++  'home.greeting': 'Hello, what are we building today?',
++  'home.start': 'Start project',
++};
+diff --git a/packages/i18n/src/v3/en/inbox.ts b/packages/i18n/src/v3/en/inbox.ts
+new file mode 100644
+index 0000000..a8b099e
+--- /dev/null
++++ b/packages/i18n/src/v3/en/inbox.ts
+@@ -0,0 +1,4 @@
++export default {
++  'inbox.title': 'Decisions Inbox',
++  'inbox.empty': 'Nothing is waiting for you right now',
++};
+diff --git a/packages/i18n/src/v3/en/onboarding.ts b/packages/i18n/src/v3/en/onboarding.ts
+new file mode 100644
+index 0000000..8711df9
+--- /dev/null
++++ b/packages/i18n/src/v3/en/onboarding.ts
+@@ -0,0 +1,6 @@
++export default {
++  'onboarding.title': 'First-time setup',
++  'onboarding.step_language': 'Language',
++  'onboarding.step_provider': 'Connect AI model',
++  'onboarding.step_idea': 'Your first idea',
++};
+diff --git a/packages/i18n/src/v3/en/project.ts b/packages/i18n/src/v3/en/project.ts
+new file mode 100644
+index 0000000..ea8a1c6
+--- /dev/null
++++ b/packages/i18n/src/v3/en/project.ts
+@@ -0,0 +1,4 @@
++export default {
++  'project.title': 'Project',
++  'project.empty': 'Project not found',
++};
+diff --git a/packages/i18n/src/v3/en/projects.ts b/packages/i18n/src/v3/en/projects.ts
+new file mode 100644
+index 0000000..b58eaf1
+--- /dev/null
++++ b/packages/i18n/src/v3/en/projects.ts
+@@ -0,0 +1,4 @@
++export default {
++  'projects.title': 'Projects',
++  'projects.empty': 'No projects yet',
++};
+diff --git a/packages/i18n/src/v3/en/settings.ts b/packages/i18n/src/v3/en/settings.ts
+new file mode 100644
+index 0000000..108694d
+--- /dev/null
++++ b/packages/i18n/src/v3/en/settings.ts
+@@ -0,0 +1,4 @@
++export default {
++  'settings.title': 'Settings',
++  'settings.general': 'General',
++};
+diff --git a/packages/i18n/src/v3/index.test.ts b/packages/i18n/src/v3/index.test.ts
+new file mode 100644
+index 0000000..eb75b74
+--- /dev/null
++++ b/packages/i18n/src/v3/index.test.ts
+@@ -0,0 +1,57 @@
++import { describe, expect, it } from 'vitest';
++
++import {
++  catalogs,
++  interpolate,
++  isLocale,
++  readStoredLocale,
++  translate,
++  writeStoredLocale,
++} from './index';
++
++describe('i18n v3', () => {
++  it('identifies valid locales', () => {
++    expect(isLocale('ar')).toBe(true);
++    expect(isLocale('en')).toBe(true);
++    expect(isLocale('fr')).toBe(false);
++    expect(isLocale(null)).toBe(false);
++  });
++
++  it('interpolates placeholders with provided variables', () => {
++    expect(interpolate('Hello {name}', { name: 'World' })).toBe('Hello World');
++    expect(interpolate('Count: {count}', { count: 42 })).toBe('Count: 42');
++    expect(interpolate('Missing {foo}')).toBe('Missing {foo}');
++  });
++
++  it('translates keys in Arabic and English', () => {
++    expect(translate('ar', 'common.app_name')).toBe('ورشة');
++    expect(translate('en', 'common.app_name')).toBe('Warsha');
++    expect(translate('ar', 'common.welcome', { name: 'علي' })).toBe('أهلًا بك علي');
++    expect(translate('en', 'common.welcome', { name: 'Ali' })).toBe('Welcome Ali');
++  });
++
++  it('falls back to key name when translation is missing', () => {
++    expect(translate('ar', 'non.existent.key')).toBe('non.existent.key');
++  });
++
++  it('stores and reads locale from localStorage', () => {
++    const memory = new Map<string, string>();
++    const storage = {
++      getItem: (k: string) => memory.get(k) ?? null,
++      setItem: (k: string, v: string) => {
++        memory.set(k, v);
++      },
++    };
++    writeStoredLocale('en', storage);
++    expect(readStoredLocale(storage)).toBe('en');
++    writeStoredLocale('ar', storage);
++    expect(readStoredLocale(storage)).toBe('ar');
++  });
++
++  it('has identical keys across Arabic and English catalogs', () => {
++    const arKeys = Object.keys(catalogs.ar).sort();
++    const enKeys = Object.keys(catalogs.en).sort();
++    expect(arKeys).toEqual(enKeys);
++    expect(arKeys.length).toBeGreaterThan(0);
++  });
++});
+diff --git a/packages/i18n/src/v3/index.ts b/packages/i18n/src/v3/index.ts
+new file mode 100644
+index 0000000..613b6b8
+--- /dev/null
++++ b/packages/i18n/src/v3/index.ts
+@@ -0,0 +1,185 @@
++import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
++
++import arBench from './ar/bench';
++import arCommon from './ar/common';
++import arFrame from './ar/frame';
++import arHome from './ar/home';
++import arInbox from './ar/inbox';
++import arOnboarding from './ar/onboarding';
++import arProject from './ar/project';
++import arProjects from './ar/projects';
++import arSettings from './ar/settings';
++
++import enBench from './en/bench';
++import enCommon from './en/common';
++import enFrame from './en/frame';
++import enHome from './en/home';
++import enInbox from './en/inbox';
++import enOnboarding from './en/onboarding';
++import enProject from './en/project';
++import enProjects from './en/projects';
++import enSettings from './en/settings';
++
++export type Locale = 'ar' | 'en';
++export type Direction = 'rtl' | 'ltr';
++
++export const LOCALE_STORAGE_KEY = 'warsha.locale';
++
++export const arCatalog: Record<string, string> = {
++  ...arCommon,
++  ...arFrame,
++  ...arOnboarding,
++  ...arHome,
++  ...arProjects,
++  ...arProject,
++  ...arInbox,
++  ...arBench,
++  ...arSettings,
++};
++
++export const enCatalog: Record<string, string> = {
++  ...enCommon,
++  ...enFrame,
++  ...enOnboarding,
++  ...enHome,
++  ...enProjects,
++  ...enProject,
++  ...enInbox,
++  ...enBench,
++  ...enSettings,
++};
++
++export const catalogs: Record<Locale, Record<string, string>> = {
++  ar: arCatalog,
++  en: enCatalog,
++};
++
++export function isLocale(value: unknown): value is Locale {
++  return value === 'ar' || value === 'en';
++}
++
++export interface LocaleStorage {
++  getItem(key: string): string | null;
++  setItem(key: string, value: string): void;
++}
++
++let mockStorage: LocaleStorage | null = null;
++
++export function setLocaleStorageForTesting(storage: LocaleStorage | null): void {
++  mockStorage = storage;
++}
++
++export function readStoredLocale(storage?: LocaleStorage | null): Locale {
++  const s = storage ?? mockStorage ?? (typeof window !== 'undefined' ? window.localStorage : null);
++  if (!s) return 'ar';
++  try {
++    const stored = s.getItem(LOCALE_STORAGE_KEY);
++    return isLocale(stored) ? stored : 'ar';
++  } catch {
++    return 'ar';
++  }
++}
++
++export function writeStoredLocale(locale: Locale, storage?: LocaleStorage | null): void {
++  const s = storage ?? mockStorage ?? (typeof window !== 'undefined' ? window.localStorage : null);
++  if (!s) return;
++  try {
++    s.setItem(LOCALE_STORAGE_KEY, locale);
++  } catch {
++    // Ignore storage failure
++  }
++}
++
++export function interpolate(pattern: string, vars?: Record<string, string | number>): string {
++  if (!vars) return pattern;
++  return pattern.replace(/\{(\w+)\}/g, (_, key: string) => {
++    return key in vars ? String(vars[key]) : `{${key}}`;
++  });
++}
++
++export function translate(
++  locale: Locale,
++  key: string,
++  vars?: Record<string, string | number>
++): string {
++  const catalog = catalogs[locale] ?? catalogs.ar;
++  const raw = catalog[key];
++  if (raw === undefined) {
++    return key;
++  }
++  return interpolate(raw, vars);
++}
++
++interface I18nContextValue {
++  locale: Locale;
++  dir: Direction;
++  setLocale: (locale: Locale) => void;
++  t: (key: string, vars?: Record<string, string | number>) => string;
++}
++
++const I18nContext = createContext<I18nContextValue | null>(null);
++
++export interface I18nProviderProps {
++  initialLocale?: Locale;
++  children: React.ReactNode;
++}
++
++export function I18nProvider({ initialLocale, children }: I18nProviderProps): React.ReactElement {
++  const [locale, setLocaleState] = useState<Locale>(() => initialLocale ?? readStoredLocale());
++
++  const dir: Direction = locale === 'ar' ? 'rtl' : 'ltr';
++
++  useEffect(() => {
++    writeStoredLocale(locale);
++    if (typeof document !== 'undefined') {
++      document.documentElement.lang = locale;
++      document.documentElement.dir = dir;
++    }
++  }, [locale, dir]);
++
++  const value = useMemo<I18nContextValue>(() => {
++    return {
++      locale,
++      dir,
++      setLocale: (next: Locale) => setLocaleState(next),
++      t: (key: string, vars?: Record<string, string | number>) => translate(locale, key, vars),
++    };
++  }, [locale, dir]);
++
++  return React.createElement(I18nContext.Provider, { value }, children);
++}
++
++export function useI18n(): I18nContextValue {
++  const ctx = useContext(I18nContext);
++  if (!ctx) {
++    // Fallback if rendered outside provider
++    const locale = readStoredLocale();
++    const dir: Direction = locale === 'ar' ? 'rtl' : 'ltr';
++    return {
++      locale,
++      dir,
++      setLocale: () => {},
++      t: (key: string, vars?: Record<string, string | number>) => translate(locale, key, vars),
++    };
++  }
++  return ctx;
++}
++
++export function useT(): (key: string, vars?: Record<string, string | number>) => string {
++  const { t } = useI18n();
++  return t;
++}
++
++export function useLocale(): {
++  locale: Locale;
++  setLocale: (loc: Locale) => void;
++  dir: Direction;
++} {
++  const { locale, setLocale, dir } = useI18n();
++  return { locale, setLocale, dir };
++}
++
++export function useDirection(): Direction {
++  const { dir } = useI18n();
++  return dir;
++}

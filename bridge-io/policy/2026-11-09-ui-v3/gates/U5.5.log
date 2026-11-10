@@ -1,0 +1,9 @@
+gate: U5.5
+commit: 7d4ceb9d589c23a139117ad98a977ff3a073ad9a
+cwd: C:/Users/Dragonfly/Downloads/warsha-wt/v3/u5
+cmd: for a in settings; do test -d apps/desktop/src/v3/pages/$a && test -f apps/desktop/src/v3/actions/registry/$a.ts && test -f packages/i18n/src/v3/ar/$a.ts && test -f packages/i18n/src/v3/en/$a.ts && test -f apps/desktop/e2e/v3/$a.spec.ts || exit 1; done
+started: 2026-11-10T16:04:56Z
+-----
+-----
+finished: 2026-11-10T16:04:56Z
+EXIT=0

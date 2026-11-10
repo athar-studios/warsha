@@ -1,0 +1,8 @@
+# gate: G7.7 (assets untracked)
+# command: git ls-files apps/mobile/android/app/src/main/assets | wc -l
+# cwd: /c/Users/Dragonfly/Downloads/warsha-wt/w7
+# commit: 7adbff4dd697e0dff7541a5200a5fcacca8fba6b
+# timestamp_utc: 2026-11-08T08:54:50Z
+# exit_code: 0
+--- output ---
+0

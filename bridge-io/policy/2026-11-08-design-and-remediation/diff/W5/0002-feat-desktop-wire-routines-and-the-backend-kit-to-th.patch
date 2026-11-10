@@ -1,0 +1,913 @@
+From 55aa585c754d9ddd0d7f830104d0eb5640f1c9ce Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 15:05:17 +0400
+Subject: [PATCH 2/5] feat(desktop): wire routines and the backend kit to the
+ daemon
+
+---
+ apps/desktop/src/App.tsx                      | 165 ++++++--
+ apps/desktop/src/AppWiring.test.tsx           | 358 ++++++++++++++++++
+ apps/desktop/src/backendKit.test.ts           |  32 ++
+ apps/desktop/src/backendKit.ts                |  14 +
+ .../src/components/BackendKitPanel.tsx        |  12 +-
+ apps/desktop/src/components/RoutineRow.tsx    |   3 +
+ apps/desktop/src/routines.test.ts             |  47 +++
+ apps/desktop/src/routines.ts                  |  39 ++
+ apps/desktop/src/screens/Routines.tsx         |   7 +-
+ 9 files changed, 641 insertions(+), 36 deletions(-)
+ create mode 100644 apps/desktop/src/AppWiring.test.tsx
+ create mode 100644 apps/desktop/src/backendKit.test.ts
+ create mode 100644 apps/desktop/src/backendKit.ts
+ create mode 100644 apps/desktop/src/routines.test.ts
+ create mode 100644 apps/desktop/src/routines.ts
+
+diff --git a/apps/desktop/src/App.tsx b/apps/desktop/src/App.tsx
+index 04818cd..e8af085 100644
+--- a/apps/desktop/src/App.tsx
++++ b/apps/desktop/src/App.tsx
+@@ -20,22 +20,24 @@
+ import { invoke } from '@tauri-apps/api/core';
+ import {
+   createClient,
++  type BackendKit as WireBackendKit,
+   type CrashReport as WireCrashReport,
+   type GateSummary,
+   type ProjectSummary,
++  type Routine as WireRoutine,
+   type RunSummary,
+   type StoreReview as WireStoreReview,
+   type WarshaClient,
+ } from '@warsha/client';
+ import { t, useDirection, useLocale, type Locale } from '@warsha/i18n';
+-import { Box, Button, Skeleton, tabPanelProps, type WorkbenchMode } from '@warsha/ui';
++import { Banner, Box, Button, Skeleton, tabPanelProps, type WorkbenchMode } from '@warsha/ui';
+ import React, { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+ 
++import { deriveBackendOutputDir } from './backendKit';
+ import {
+   BackendKitPanel,
+   type BackendFeature,
+   type BackendKind,
+-  type BackendTable,
+   type PaymentsGateStatus,
+ } from './components/BackendKitPanel';
+ import { BenchTopbar } from './components/BenchTopbar';
+@@ -46,6 +48,7 @@ import {
+   UNRESOLVED_ENDPOINT,
+   type DaemonEndpoint,
+ } from './daemon';
++import { toRoutineRow } from './routines';
+ import { AdvancedMode } from './screens/AdvancedMode';
+ import { ArtifactViewer } from './screens/ArtifactViewer';
+ import { Budgets } from './screens/Budgets';
+@@ -59,7 +62,7 @@ import { PluginsSettings } from './screens/PluginsSettings';
+ import { ProjectsBoard } from './screens/ProjectsBoard';
+ import { ProvidersSettings } from './screens/ProvidersSettings';
+ import { RolesSettings } from './screens/RolesSettings';
+-import { Routines, type Routine } from './screens/Routines';
++import { Routines } from './screens/Routines';
+ import { RunView } from './screens/RunView';
+ import {
+   SettingsProviders,
+@@ -315,6 +318,9 @@ function toStoreReview(review: WireStoreReview): StoreReview {
+ /** What a list the shell reads can be doing. §7: each of these has its own words on screen. */
+ type LoadState = 'idle' | 'loading' | 'ready' | 'failed';
+ 
++/** The payments gate is shut until an owner approval names who approved it and when (M19). */
++const SHUT_PAYMENTS_GATE: PaymentsGateStatus = { enabled: false };
++
+ function AppContent() {
+   const dir = useDirection();
+   const locale = useLocale();
+@@ -338,16 +344,16 @@ function AppContent() {
+   const [crashState, setCrashState] = useState<LoadState>('idle');
+   const [storeReviews, setStoreReviews] = useState<StoreReview[]>([]);
+   const [reviewsState, setReviewsState] = useState<LoadState>('idle');
+-  // Settings → Routines / Providers (M8b): `warshad` has no routines.* or provider listing RPC on this
+-  // branch, so both lists start empty and the handlers are the seams a later RPC plugs into.
+-  const [routines] = useState<Routine[]>([]);
++  // Settings → Routines / Providers (M8b): the routines are the daemon's live registry
++  // (`routines.list`), read when the screen mounts; the provider list is still the local seam M16
++  // left it as.
++  const [routineRecords, setRoutineRecords] = useState<WireRoutine[]>([]);
++  const [routinesError, setRoutinesError] = useState<string | null>(null);
+   const [providers, setProviders] = useState<ProviderEntry[]>([]);
+-  // Backend kit (M19): the backend kind, the enabled services, the tables the agent created and the
+-  // payments gate (shut until the owner approves it).
+-  const [backendKind, setBackendKind] = useState<BackendKind>('pocket_base');
+-  const [backendFeatures, setBackendFeatures] = useState<BackendFeature[]>([]);
+-  const [backendTables] = useState<BackendTable[]>([]);
+-  const [paymentsGate] = useState<PaymentsGateStatus>({ enabled: false });
++  // Backend kit (M19): the kit the daemon holds for the selected run, or `null` for the local
++  // defaults. The payments gate stays shut until the owner approves it.
++  const [backendKit, setBackendKit] = useState<WireBackendKit | null>(null);
++  const [backendError, setBackendError] = useState<string | null>(null);
+   const tablistRef = useRef<HTMLDivElement>(null);
+ 
+   // ------------------------------------------------------------------ start-up: client, mode, screen
+@@ -505,6 +511,49 @@ function AppContent() {
+     if (screen === 'store-reviews' && reviewsState === 'idle') loadStoreReviews();
+   }, [crashState, loadCrashReports, loadStoreReviews, reviewsState, screen]);
+ 
++  // Routines are read when their screen mounts, so a session that never opens Settings → Routines
++  // asks the daemon for nothing it did not need. A failed read keeps the last list and says why.
++  useEffect(() => {
++    if (screen !== 'routines' || client === null) return;
++    let cancelled = false;
++    client
++      .listRoutines()
++      .then((rows) => {
++        if (cancelled) return;
++        setRoutineRecords(rows);
++        setRoutinesError(null);
++      })
++      .catch(() => {
++        if (cancelled) return;
++        setRoutinesError('routines.error.load');
++      });
++    return () => {
++      cancelled = true;
++    };
++  }, [client, screen]);
++
++  // The backend kit belongs to the selected run. No run (or a daemon answering `null`) keeps the
++  // local defaults, so the no-run render is the one the bench always drew.
++  useEffect(() => {
++    setBackendKit(null);
++    setBackendError(null);
++    if (client === null || selectedRun === null) return;
++    let cancelled = false;
++    client
++      .getBackendKit(selectedRun.id)
++      .then((kit) => {
++        if (cancelled) return;
++        setBackendKit(kit);
++      })
++      .catch(() => {
++        if (cancelled) return;
++        setBackendError('backend.error.load');
++      });
++    return () => {
++      cancelled = true;
++    };
++  }, [client, selectedRun]);
++
+   /**
+    * Leave the first-run wizard.
+    *
+@@ -529,17 +578,28 @@ function AppContent() {
+ 
+   const openScreen = (target: Screen) => () => setScreen(target);
+ 
+-  // Routines: the registry and its runner live in `warsha-pipeline`, but the daemon exposes no
+-  // routines.* method yet, so these three only record the seam. Nothing is scheduled or executed here.
+-  const handleRoutineRun = (_id: string) => {
+-    // TODO(M20 wiring): call the daemon's routines.run-now RPC once it exists.
+-  };
+-  const handleRoutinePause = (_id: string) => {
+-    // TODO(M20 wiring): call the daemon's routines.pause RPC once it exists.
+-  };
+-  const handleRoutineResume = (_id: string) => {
+-    // TODO(M20 wiring): call the daemon's routines.resume RPC once it exists.
++  // Routines: every action calls the daemon and replaces that row with the record it returns, so the
++  // lamp on screen is the state the daemon now holds. A failed action says so and keeps the list.
++  const routineAction = (action: 'run' | 'pause' | 'resume', id: string): void => {
++    if (client === null) return;
++    const call =
++      action === 'run'
++        ? client.runRoutineNow(id)
++        : action === 'pause'
++          ? client.pauseRoutine(id)
++          : client.resumeRoutine(id);
++    call
++      .then((next) => {
++        setRoutineRecords((current) =>
++          current.map((entry) => (entry.id === next.id ? next : entry))
++        );
++        setRoutinesError(null);
++      })
++      .catch(() => setRoutinesError(`routines.error.${action}`));
+   };
++  const handleRoutineRun = (id: string) => routineAction('run', id);
++  const handleRoutinePause = (id: string) => routineAction('pause', id);
++  const handleRoutineResume = (id: string) => routineAction('resume', id);
+ 
+   // Settings → Providers (M16): every provider is off by default, so the row edits only touch the list
+   // this shell holds; persisting them needs the settings RPC.
+@@ -559,22 +619,58 @@ function AppContent() {
+     );
+   };
+ 
+-  // Backend kit (M19): the panel's edits are local; the MCP client that creates the tables, policies and
+-  // buckets, and the export that writes the SQL dump, are not wired.
++  // Backend kit (M19): the panel's edits update the kit the panel shows and are written back to the
++  // daemon when a run is selected. A failed write keeps the local edit and says why.
++  const defaultBackendKit = (): WireBackendKit => ({
++    config: {
++      kind: 'pocket_base',
++      url: '',
++      projectName: selectedProject?.name ?? '',
++      enabledFeatures: [],
++    },
++    tables: [],
++    rlsPolicies: [],
++    storageBuckets: [],
++    functions: [],
++  });
++  const persistBackendKit = (next: WireBackendKit) => {
++    setBackendKit(next);
++    if (client === null || selectedRun === null) return;
++    client.setBackendKit(selectedRun.id, next).catch(() => setBackendError('backend.error.save'));
++  };
+   const handleBackendKind = (kind: BackendKind) => {
+-    setBackendKind(kind);
++    const current = backendKit ?? defaultBackendKit();
++    persistBackendKit({ ...current, config: { ...current.config, kind } });
+   };
+   const handleBackendFeature = (feature: BackendFeature, enabled: boolean) => {
+-    setBackendFeatures((current) =>
+-      enabled
+-        ? [...current.filter((entry) => entry !== feature), feature]
+-        : current.filter((entry) => entry !== feature)
+-    );
++    const current = backendKit ?? defaultBackendKit();
++    const enabledFeatures = enabled
++      ? [...current.config.enabledFeatures.filter((entry) => entry !== feature), feature]
++      : current.config.enabledFeatures.filter((entry) => entry !== feature);
++    persistBackendKit({ ...current, config: { ...current.config, enabledFeatures } });
+   };
++  // The export needs a run and a directory the app already holds. Neither decoded record carries one
++  // (see `deriveBackendOutputDir`), so the control is disabled with the catalog's reason instead of
++  // guessing a path or adding a file-dialog plugin.
++  const backendOutputDir = deriveBackendOutputDir(selectedProject, selectedRun);
++  const backendExportReason =
++    selectedRun === null
++      ? t('backend.export.no_run', {}, locale)
++      : backendOutputDir === null
++        ? t('backend.export.unavailable', {}, locale)
++        : null;
+   const handleBackendExport = () => {
+-    // TODO(M20 wiring): call the daemon's backend-kit export RPC once it exists.
++    if (client === null || selectedRun === null || backendOutputDir === null) return;
++    client
++      .exportBackend(selectedRun.id, backendOutputDir)
++      .then(() => setBackendError(null))
++      .catch(() => setBackendError('backend.error.export'));
+   };
+ 
++  const backendKind = backendKit?.config.kind ?? 'pocket_base';
++  const backendFeatures = backendKit?.config.enabledFeatures ?? [];
++  const backendTables = backendKit?.tables ?? [];
++
+   // ------------------------------------------------------------------- the settings tab strip (§9)
+   const onTabsKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+     const nodes = tablistRef.current?.querySelectorAll<HTMLButtonElement>('button[role="tab"]');
+@@ -739,7 +835,8 @@ function AppContent() {
+       case 'routines':
+         return settingsScreen(
+           <Routines
+-            routines={routines}
++            routines={routineRecords.map((routine) => toRoutineRow(routine, locale))}
++            error={routinesError ? t(routinesError, {}, locale) : null}
+             onRun={handleRoutineRun}
+             onPause={handleRoutinePause}
+             onResume={handleRoutineResume}
+@@ -800,11 +897,13 @@ function AppContent() {
+         return settingsScreen(
+           // The measure is `.bench-main--document`'s (§10), so the plate only needs its own padding.
+           <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', inlineSize: '100%', minInlineSize: 0 }}>
++            {backendError ? <Banner tone="error">{t(backendError, {}, locale)}</Banner> : null}
+             <BackendKitPanel
+               kind={backendKind}
+               features={backendFeatures}
+               tables={backendTables}
+-              payments={paymentsGate}
++              payments={SHUT_PAYMENTS_GATE}
++              exportBlockedReason={backendExportReason}
+               onKindChange={handleBackendKind}
+               onToggleFeature={handleBackendFeature}
+               onExport={handleBackendExport}
+diff --git a/apps/desktop/src/AppWiring.test.tsx b/apps/desktop/src/AppWiring.test.tsx
+new file mode 100644
+index 0000000..708bede
+--- /dev/null
++++ b/apps/desktop/src/AppWiring.test.tsx
+@@ -0,0 +1,358 @@
++import { fireEvent, render, screen, waitFor } from '@testing-library/react';
++import '@testing-library/jest-dom';
++import {
++  type ProjectId,
++  type ProjectSummary,
++  type RunId,
++  type RunSummary,
++} from '@warsha/client';
++import { LocaleProvider } from '@warsha/i18n';
++import React from 'react';
++import { BrowserRouter } from 'react-router-dom';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++
++import App from './App';
++
++// The two list reads the shell makes at start-up; a test sets them before rendering so the deep link
++// can resolve a project and a run without a socket.
++const wiring = vi.hoisted(() => ({ projects: [] as unknown[], runs: [] as unknown[] }));
++
++vi.mock('@tauri-apps/api/core', () => {
++  const configAnswers: Record<string, string> = {
++    onboarding_complete: 'true',
++    app_mode: 'simple',
++    daemon_url: 'http://127.0.0.1:8766',
++    daemon_ws_url: 'ws://127.0.0.1:8765',
++    daemon_token: 'real-session-token',
++  };
++  return {
++    invoke: vi.fn((command: string, args?: { key?: string }) =>
++      command === 'get_config'
++        ? Promise.resolve(configAnswers[args?.key ?? ''] ?? '')
++        : Promise.resolve(undefined)
++    ),
++  };
++});
++
++vi.mock('@warsha/client', async (importOriginal) => {
++  const actual = await importOriginal<typeof import('@warsha/client')>();
++  return {
++    ...actual,
++    createClient: (baseUrl: string, token: string) => {
++      const client = actual.createClient(baseUrl, token);
++      client.listProjects = () => Promise.resolve(wiring.projects as ProjectSummary[]);
++      client.listRuns = () => Promise.resolve(wiring.runs as RunSummary[]);
++      return client;
++    },
++  };
++});
++
++const project: ProjectSummary = {
++  id: 'proj-1' as ProjectId,
++  name: 'shop',
++  createdAt: '2026-10-31T10:00:00.000Z',
++  updatedAt: '2026-10-31T10:00:00.000Z',
++};
++
++const run: RunSummary = {
++  id: 'run-1' as RunId,
++  projectId: 'proj-1' as ProjectId,
++  stage: 'code',
++  status: 'running',
++  startedAt: '2026-10-31T10:00:00.000Z',
++  updatedAt: '2026-10-31T10:00:00.000Z',
++};
++
++type Handler = (params: Record<string, unknown> | undefined) => unknown;
++
++function rpcResponse(result: unknown) {
++  return { json: () => Promise.resolve({ jsonrpc: '2.0', id: 1, result }) };
++}
++
++function rpcError(message: string) {
++  return {
++    json: () => Promise.resolve({ jsonrpc: '2.0', id: 1, error: { code: -32000, message } }),
++  };
++}
++
++/** One fetch stub that routes by JSON-RPC method; an unregistered method is a daemon refusal. */
++function stubRpc(handlers: Record<string, Handler>) {
++  const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
++    const body = JSON.parse(String(init.body)) as {
++      method: string;
++      params?: Record<string, unknown>;
++    };
++    const handler = handlers[body.method];
++    if (handler === undefined) return rpcError(`no stub for ${body.method}`);
++    try {
++      return rpcResponse(handler(body.params));
++    } catch (error) {
++      return rpcError(error instanceof Error ? error.message : String(error));
++    }
++  });
++  vi.stubGlobal('fetch', fetchMock);
++  return fetchMock;
++}
++
++function callsFor(fetchMock: ReturnType<typeof vi.fn>, method: string) {
++  return fetchMock.mock.calls
++    .map(
++      (call) =>
++        JSON.parse(String((call[1] as RequestInit).body)) as {
++          method: string;
++          params?: Record<string, unknown>;
++        }
++    )
++    .filter((body) => body.method === method);
++}
++
++function renderApp(search = '') {
++  window.history.pushState({}, '', `/${search}`);
++  return render(
++    <BrowserRouter>
++      <LocaleProvider initialLocale="en">
++        <App />
++      </LocaleProvider>
++    </BrowserRouter>
++  );
++}
++
++function routineWire(overrides: Record<string, unknown> = {}) {
++  return {
++    id: 'routine-1',
++    name: 'Nightly build',
++    description: 'Run the build every night',
++    schedule: { cron: '0 2 * * *' },
++    state: 'idle',
++    last_run_unix: null,
++    ...overrides,
++  };
++}
++
++const backendKitWire = {
++  config: {
++    kind: 'supabase',
++    url: 'https://shop.supabase.co',
++    project_name: 'shop',
++    enabled_features: ['auth'],
++  },
++  tables: [{ name: 'users', columns: [{ name: 'id', col_type: 'uuid', nullable: false }] }],
++  rls_policies: [],
++  storage_buckets: [],
++  functions: [],
++};
++
++beforeEach(() => {
++  wiring.projects = [];
++  wiring.runs = [];
++});
++
++afterEach(() => {
++  vi.unstubAllGlobals();
++  window.history.pushState({}, '', '/');
++});
++
++describe('routines wiring', () => {
++  it('lists the daemon routines when the screen mounts', async () => {
++    stubRpc({
++      'routines.list': () => [
++        routineWire(),
++        routineWire({
++          id: 'routine-2',
++          name: 'Poll',
++          schedule: { interval_seconds: 30 },
++          state: 'paused',
++        }),
++      ],
++    });
++
++    renderApp('?screen=routines');
++
++    await screen.findByTestId('routine-row-routine-1');
++    expect(screen.getByTestId('routine-row-routine-1-schedule')).toHaveTextContent('0 2 * * *');
++    expect(screen.getByTestId('routine-row-routine-2-schedule')).toHaveTextContent('Every 30s');
++    expect(screen.getByTestId('routines-count')).toHaveTextContent('2 routines');
++  });
++
++  it('runs a routine now with the daemon id and replaces the row with its answer', async () => {
++    const fetchMock = stubRpc({
++      'routines.list': () => [routineWire()],
++      'routines.run_now': () => routineWire({ state: 'running' }),
++    });
++
++    renderApp('?screen=routines');
++    fireEvent.click(await screen.findByTestId('routine-row-routine-1-run'));
++
++    await waitFor(() =>
++      expect(screen.getByTestId('routine-row-routine-1')).toHaveAttribute('data-state', 'running')
++    );
++    expect(callsFor(fetchMock, 'routines.run_now')).toHaveLength(1);
++    expect(callsFor(fetchMock, 'routines.run_now')[0].params).toEqual({ id: 'routine-1' });
++    expect(screen.getByTestId('routine-row-routine-1-pause')).toBeInTheDocument();
++  });
++
++  it('pauses a running routine and replaces the row with its answer', async () => {
++    const fetchMock = stubRpc({
++      'routines.list': () => [routineWire({ state: 'running' })],
++      'routines.pause': () => routineWire({ state: 'paused' }),
++    });
++
++    renderApp('?screen=routines');
++    fireEvent.click(await screen.findByTestId('routine-row-routine-1-pause'));
++
++    await waitFor(() =>
++      expect(screen.getByTestId('routine-row-routine-1')).toHaveAttribute('data-state', 'paused')
++    );
++    expect(callsFor(fetchMock, 'routines.pause')[0].params).toEqual({ id: 'routine-1' });
++  });
++
++  it('resumes a paused routine and replaces the row with its answer', async () => {
++    const fetchMock = stubRpc({
++      'routines.list': () => [routineWire({ state: 'paused' })],
++      'routines.resume': () => routineWire({ state: 'running' }),
++    });
++
++    renderApp('?screen=routines');
++    fireEvent.click(await screen.findByTestId('routine-row-routine-1-resume'));
++
++    await waitFor(() =>
++      expect(screen.getByTestId('routine-row-routine-1')).toHaveAttribute('data-state', 'running')
++    );
++    expect(callsFor(fetchMock, 'routines.resume')[0].params).toEqual({ id: 'routine-1' });
++  });
++
++  it('shows the catalog error and keeps the list when an action fails', async () => {
++    stubRpc({
++      'routines.list': () => [routineWire({ state: 'running' })],
++      'routines.pause': () => {
++        throw new Error('daemon said no');
++      },
++    });
++
++    renderApp('?screen=routines');
++    fireEvent.click(await screen.findByTestId('routine-row-routine-1-pause'));
++
++    expect(await screen.findByRole('alert')).toHaveTextContent(
++      'The daemon could not pause the routine.'
++    );
++    expect(screen.getByTestId('routine-row-routine-1')).toHaveAttribute(
++      'data-state',
++      'running'
++    );
++  });
++
++  it('shows the catalog error and the empty state when the read fails', async () => {
++    stubRpc({
++      'routines.list': () => {
++        throw new Error('down');
++      },
++    });
++
++    renderApp('?screen=routines');
++
++    expect(await screen.findByRole('alert')).toHaveTextContent(
++      'The daemon could not read the routines.'
++    );
++    expect(screen.getByTestId('routines-empty')).toBeInTheDocument();
++  });
++});
++
++async function openBackendKit() {
++  fireEvent.click(await screen.findByTestId('settings-open'));
++  fireEvent.click(await screen.findByTestId('settings-tab-backend-kit'));
++  return screen.findByTestId('backend-kit-panel');
++}
++
++describe('backend kit wiring', () => {
++  beforeEach(() => {
++    wiring.projects = [project];
++    wiring.runs = [run];
++  });
++
++  it('reads the kit of the selected run', async () => {
++    stubRpc({ 'backend.get': () => backendKitWire });
++
++    renderApp('?screen=run');
++    await screen.findByTestId('run-view-tabs');
++    await openBackendKit();
++
++    await waitFor(() =>
++      expect(screen.getByRole('radio', { name: 'Supabase' })).toHaveAttribute(
++        'aria-checked',
++        'true'
++      )
++    );
++    expect(screen.getByRole('checkbox', { name: 'Auth' })).toBeChecked();
++    expect(screen.getByText('users')).toBeInTheDocument();
++  });
++
++  it('keeps the local defaults when the daemon answers null', async () => {
++    stubRpc({ 'backend.get': () => null });
++
++    renderApp('?screen=run');
++    await screen.findByTestId('run-view-tabs');
++    await openBackendKit();
++
++    expect(screen.getByRole('radio', { name: 'PocketBase' })).toHaveAttribute(
++      'aria-checked',
++      'true'
++    );
++    expect(screen.getByRole('checkbox', { name: 'Auth' })).not.toBeChecked();
++    expect(screen.getByText('No tables yet')).toBeInTheDocument();
++  });
++
++  it('writes the kit back when the kind changes', async () => {
++    const fetchMock = stubRpc({ 'backend.get': () => null, 'backend.set': () => null });
++
++    renderApp('?screen=run');
++    await screen.findByTestId('run-view-tabs');
++    await openBackendKit();
++    fireEvent.click(screen.getByRole('radio', { name: 'Supabase' }));
++
++    await waitFor(() => expect(callsFor(fetchMock, 'backend.set')).toHaveLength(1));
++    const call = callsFor(fetchMock, 'backend.set')[0];
++    expect(call.params?.run_id).toBe('run-1');
++    expect((call.params?.kit as { config: { kind: string } }).config.kind).toBe('supabase');
++    expect(screen.getByRole('radio', { name: 'Supabase' })).toHaveAttribute(
++      'aria-checked',
++      'true'
++    );
++  });
++
++  it('disables export with the catalog reason when no directory is derivable', async () => {
++    stubRpc({ 'backend.get': () => backendKitWire });
++
++    renderApp('?screen=run');
++    await screen.findByTestId('run-view-tabs');
++    await openBackendKit();
++
++    const button = screen.getByRole('button', { name: 'Export' });
++    expect(button).toBeDisabled();
++    expect(button).toHaveAttribute(
++      'title',
++      'Export needs a workspace folder the daemon has not reported.'
++    );
++  });
++
++  it('shows the catalog error and keeps the local edit when the write fails', async () => {
++    stubRpc({
++      'backend.get': () => null,
++      'backend.set': () => {
++        throw new Error('refused');
++      },
++    });
++
++    renderApp('?screen=run');
++    await screen.findByTestId('run-view-tabs');
++    await openBackendKit();
++    fireEvent.click(screen.getByRole('radio', { name: 'Supabase' }));
++
++    expect(await screen.findByRole('alert')).toHaveTextContent(
++      'The daemon did not save the backend kit.'
++    );
++    expect(screen.getByRole('radio', { name: 'Supabase' })).toHaveAttribute(
++      'aria-checked',
++      'true'
++    );
++  });
++});
+diff --git a/apps/desktop/src/backendKit.test.ts b/apps/desktop/src/backendKit.test.ts
+new file mode 100644
+index 0000000..bb2fb81
+--- /dev/null
++++ b/apps/desktop/src/backendKit.test.ts
+@@ -0,0 +1,32 @@
++import type { ProjectId, ProjectSummary, RunId, RunSummary } from '@warsha/client';
++import { describe, expect, it } from 'vitest';
++
++import { deriveBackendOutputDir } from './backendKit';
++
++const project: ProjectSummary = {
++  id: 'proj-1' as ProjectId,
++  name: 'shop',
++  createdAt: '2026-10-31T10:00:00.000Z',
++  updatedAt: '2026-10-31T10:00:00.000Z',
++};
++
++const run: RunSummary = {
++  id: 'run-1' as RunId,
++  projectId: 'proj-1' as ProjectId,
++  stage: 'code',
++  status: 'running',
++  startedAt: '2026-10-31T10:00:00.000Z',
++  updatedAt: '2026-10-31T10:00:00.000Z',
++};
++
++describe('deriveBackendOutputDir', () => {
++  it('returns nothing without a project or without a run', () => {
++    expect(deriveBackendOutputDir(null, run)).toBeNull();
++    expect(deriveBackendOutputDir(project, null)).toBeNull();
++    expect(deriveBackendOutputDir(null, null)).toBeNull();
++  });
++
++  it('returns nothing even with both records: neither decoded summary carries a directory', () => {
++    expect(deriveBackendOutputDir(project, run)).toBeNull();
++  });
++});
+diff --git a/apps/desktop/src/backendKit.ts b/apps/desktop/src/backendKit.ts
+new file mode 100644
+index 0000000..9aee01b
+--- /dev/null
++++ b/apps/desktop/src/backendKit.ts
+@@ -0,0 +1,14 @@
++// The directory `backend.export` may write into, derived only from records the app already holds.
++//
++// There is none today: `@warsha/client` deliberately decodes `warsha_core::Project` down to its
++// summary (no `repo_path`), and `Run` carries no path at all. The brief forbids adding a file-dialog
++// plugin, so the honest answer is `null` and the panel states why instead of guessing a path.
++import type { ProjectSummary, RunSummary } from '@warsha/client';
++
++export function deriveBackendOutputDir(
++  project: ProjectSummary | null,
++  run: RunSummary | null
++): string | null {
++  if (project === null || run === null) return null;
++  return null;
++}
+diff --git a/apps/desktop/src/components/BackendKitPanel.tsx b/apps/desktop/src/components/BackendKitPanel.tsx
+index 6208af7..80012c2 100644
+--- a/apps/desktop/src/components/BackendKitPanel.tsx
++++ b/apps/desktop/src/components/BackendKitPanel.tsx
+@@ -119,6 +119,8 @@ export interface BackendKitPanelProps {
+   onKindChange: (kind: BackendKind) => void;
+   /** Called with the service and its next state. */
+   onToggleFeature: (feature: BackendFeature, enabled: boolean) => void;
++  /** Why the export cannot run even with tables, e.g. no run or no output directory. */
++  exportBlockedReason?: string | null;
+   /** Called when the owner asks for the standard export. */
+   onExport: () => void;
+ }
+@@ -173,13 +175,14 @@ export function BackendKitPanel({
+   payments,
+   onKindChange,
+   onToggleFeature,
++  exportBlockedReason,
+   onExport,
+ }: BackendKitPanelProps) {
+   const dir = useDirection();
+   const locale = useLocale();
+ 
+   const title = t('backend_kit.title', {}, locale);
+-  const exportable = canExport(tables);
++  const exportable = canExport(tables) && !exportBlockedReason;
+   const gateOpen = paymentsGateEnabled(payments);
+   const shownUrl = typeof url === 'string' && url.trim().length > 0 ? url : null;
+ 
+@@ -376,7 +379,12 @@ export function BackendKitPanel({
+           dir={dir}
+           onClick={onExport}
+           disabled={!exportable}
+-          title={exportable ? t('backend_kit.export', {}, locale) : t('backend_kit.export.blocked', {}, locale)}
++          title={
++            exportBlockedReason ??
++            (exportable
++              ? t('backend_kit.export', {}, locale)
++              : t('backend_kit.export.blocked', {}, locale))
++          }
+         >
+           {t('backend_kit.export', {}, locale)}
+         </Button>
+diff --git a/apps/desktop/src/components/RoutineRow.tsx b/apps/desktop/src/components/RoutineRow.tsx
+index 374ef16..84049a2 100644
+--- a/apps/desktop/src/components/RoutineRow.tsx
++++ b/apps/desktop/src/components/RoutineRow.tsx
+@@ -29,6 +29,8 @@ export interface Routine {
+   /** Plain-language "what it does", never code. */
+   description: string;
+   state: RoutineState;
++  /** Why the last attempt failed, when the daemon reported it; shown as the row's tooltip. */
++  reason?: string;
+ }
+ 
+ export type RoutineAction = 'run' | 'pause' | 'resume';
+@@ -98,6 +100,7 @@ export function RoutineRow({ routine, onRun, onPause, onResume }: RoutineRowProp
+       dir={dir}
+       data-testid={`routine-row-${routine.id}`}
+       data-state={routine.state}
++      title={routine.reason}
+       style={{
+         display: 'flex',
+         flexDirection: 'column',
+diff --git a/apps/desktop/src/routines.test.ts b/apps/desktop/src/routines.test.ts
+new file mode 100644
+index 0000000..f3a2767
+--- /dev/null
++++ b/apps/desktop/src/routines.test.ts
+@@ -0,0 +1,47 @@
++import type { Routine as DaemonRoutine } from '@warsha/client';
++import { describe, expect, it } from 'vitest';
++
++import { routineScheduleText, toRoutineRow } from './routines';
++
++const base: DaemonRoutine = {
++  id: 'routine-1',
++  name: 'Nightly build',
++  description: 'Run the build every night',
++  schedule: { cron: '0 2 * * *' },
++  state: 'idle',
++  lastRunUnix: null,
++};
++
++describe('toRoutineRow', () => {
++  it('shows a cron schedule as the expression the daemon reported', () => {
++    const row = toRoutineRow(base, 'en');
++    expect(row.schedule).toBe('0 2 * * *');
++    expect(row.name).toBe('Nightly build');
++    expect(row.description).toBe('Run the build every night');
++  });
++
++  it('renders an interval in the catalog, in both locales', () => {
++    const schedule = { intervalSeconds: 30 } as const;
++    expect(routineScheduleText(schedule, 'en')).toBe('Every 30s');
++    expect(routineScheduleText(schedule, 'ar')).toBe('كل 30 ثانية');
++  });
++
++  it('renders a manual schedule in the catalog, in both locales', () => {
++    expect(routineScheduleText('manual', 'en')).toBe('Manual');
++    expect(routineScheduleText('manual', 'ar')).toBe('يدوي');
++  });
++
++  it('maps a failed state to failed and keeps the daemon reason', () => {
++    const row = toRoutineRow({ ...base, state: { failed: 'exit code 1' } }, 'en');
++    expect(row.state).toBe('failed');
++    expect(row.reason).toBe('exit code 1');
++  });
++
++  it('passes the live states through without a reason', () => {
++    for (const state of ['idle', 'running', 'paused'] as const) {
++      const row = toRoutineRow({ ...base, state }, 'en');
++      expect(row.state).toBe(state);
++      expect(row.reason).toBeUndefined();
++    }
++  });
++});
+diff --git a/apps/desktop/src/routines.ts b/apps/desktop/src/routines.ts
+new file mode 100644
+index 0000000..37d0770
+--- /dev/null
++++ b/apps/desktop/src/routines.ts
+@@ -0,0 +1,39 @@
++// The daemon's routine record → the row the Routines screen draws.
++//
++// `@warsha/client` speaks the daemon's shape (externally tagged `schedule`/`state` enums); the screen
++// speaks display strings. This adapter is the only place the two meet, so the mapping is pure and
++// testable without a socket. The schedule line stays machine text (the row renders it mono), and a
++// failed state's reason rides along as the row's tooltip instead of being thrown away.
++import type { Routine as DaemonRoutine } from '@warsha/client';
++import { t, type Locale } from '@warsha/i18n';
++
++import type { Routine as RoutineRowData } from './components/RoutineRow';
++
++/** The display line for one schedule: the cron expression, an interval, or "manual". */
++export function routineScheduleText(schedule: DaemonRoutine['schedule'], locale: Locale): string {
++  if (schedule === 'manual') return t('routines.manual', {}, locale);
++  if ('cron' in schedule) return schedule.cron;
++  return t('routines.every_seconds', { count: schedule.intervalSeconds }, locale);
++}
++
++/** One routine as the screen's row, with the failure reason kept for the row's title. */
++export function toRoutineRow(routine: DaemonRoutine, locale: Locale): RoutineRowData {
++  const schedule = routineScheduleText(routine.schedule, locale);
++  if (typeof routine.state === 'object') {
++    return {
++      id: routine.id,
++      name: routine.name,
++      description: routine.description,
++      schedule,
++      state: 'failed',
++      reason: routine.state.failed,
++    };
++  }
++  return {
++    id: routine.id,
++    name: routine.name,
++    description: routine.description,
++    schedule,
++    state: routine.state,
++  };
++}
+diff --git a/apps/desktop/src/screens/Routines.tsx b/apps/desktop/src/screens/Routines.tsx
+index f613199..01a04aa 100644
+--- a/apps/desktop/src/screens/Routines.tsx
++++ b/apps/desktop/src/screens/Routines.tsx
+@@ -11,6 +11,7 @@
+ // Every word comes from `@warsha/i18n` (`routines.*`): the `{ ar, en }` table, the per-locale count
+ // branch and the `translated === key ? fallback` shim are gone.
+ import { t, useDirection, useLocale } from '@warsha/i18n';
++import { Banner } from '@warsha/ui';
+ 
+ import { RoutineRow, type Routine } from '../components/RoutineRow';
+ 
+@@ -18,12 +19,14 @@ export type { Routine, RoutineState } from '../components/RoutineRow';
+ 
+ export interface RoutinesProps {
+   routines: Routine[];
++  /** Why the last daemon read or action failed; the list itself is kept. */
++  error?: string | null;
+   onRun: (id: string) => void;
+   onPause: (id: string) => void;
+   onResume: (id: string) => void;
+ }
+ 
+-export function Routines({ routines, onRun, onPause, onResume }: RoutinesProps) {
++export function Routines({ routines, error, onRun, onPause, onResume }: RoutinesProps) {
+   const dir = useDirection();
+   const locale = useLocale();
+ 
+@@ -86,6 +89,8 @@ export function Routines({ routines, onRun, onPause, onResume }: RoutinesProps)
+         </span>
+       </header>
+ 
++      {error ? <Banner tone="error">{error}</Banner> : null}
++
+       {routines.length === 0 ? (
+         // The next step is said in words on the plate the ledger would occupy (§7). The `data-testid` is
+         // what `App.test.tsx` and `Routines.test.tsx` assert, so this stays a screen-local node.
+-- 
+2.55.0.windows.5
+

@@ -1,0 +1,13 @@
+Scope: 7 of 8 workspace projects
+packages/crypto typecheck$ tsc --noEmit
+packages/client typecheck$ tsc --noEmit
+packages/i18n typecheck$ tsc --noEmit
+packages/ui typecheck$ tsc --noEmit && tsc --noEmit -p tsconfig.storybook.json
+packages/crypto typecheck: Done
+packages/i18n typecheck: Done
+packages/client typecheck: Done
+packages/ui typecheck: Done
+apps/desktop typecheck$ tsc --noEmit && tsc --noEmit -p tsconfig.e2e.json
+apps/remote typecheck$ tsc --noEmit
+apps/remote typecheck: Done
+apps/desktop typecheck: Done

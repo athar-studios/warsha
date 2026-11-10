@@ -1,0 +1,11 @@
+start 2026-11-10T07:55:54Z
+head=4e7b94b7d070bdea6d60a4f033ef9748ad24bdd5
+head^1=82430c901375bb4986b5c6103ac5ef05e1925f21
+head^2=bcb5c7a8290a2827cdc20e63832c4fb8960efc58
+tree_clean_before
+ports_free
+playwright_exit=1
+stats expected=0 unexpected=0 flaky=0 skipped=0 duration_ms=7440
+pw_gate_exit=0
+pw_gate_out: unexpected=0 outside=0
+end 2026-11-10T07:56:03Z

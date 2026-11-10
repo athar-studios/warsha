@@ -1,0 +1,2 @@
+EXIT=0
+outside_scope_files=0 (git diff 128b59c08cbf5ddbe4de002528a50f451ea74296..1762caa972f1bca55721dc17ed8794125db61bc2 fully inside allowlist)

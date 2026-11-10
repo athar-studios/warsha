@@ -1,0 +1,22 @@
+# Frozen gates — U2 app-infra
+
+Frozen by the planner (2026-11-09T07:03:54Z). The VERIFIER runs them in the packet worktree at the reviewed commit with
+`EV=C:/Users/Dragonfly/Downloads/Warsha/bridge-io/policy/2026-11-09-ui-v3`, `BASE=<packets[U2].base_commit>`, `GATE=<gate id>`; raw output ->
+`$EV/gates/<gate id>.log`. The implementer must not edit, narrow or re-word any of them.
+
+| id | host | check | expect |
+| --- | --- | --- | --- |
+| `U2.1` | any | `pnpm --filter warsha-desktop test` | exit 0 and "Tests N passed" with N >= base_counts.warsha-desktop + 25 |
+| `U2.2` | any | `pnpm -r typecheck && pnpm --filter warsha-desktop lint` | exit 0 |
+| `U2.3` | any | `node "$EV/tools"/i18n-gate.mjs .` | exit 0 |
+| `U2.4` | any | `node "$EV/tools"/actions-gate.mjs .` | exit 0 |
+| `U2.5` | any | `for a in frame onboarding home projects project inbox bench settings; do test -f apps/desktop/src/v3/actions/registry/$a.ts && test -f packages/i18n/src/v3/ar/$a.ts && test -f packages/i18n/src/v3/en/$a.ts && test -d apps/desktop/src/v3/pages/$a \|\| { echo "missing $a"; exit 1; }; done` | exit 0 |
+| `U2.6` | any | `for s in idea gate_a research prd_spec gate_b design plan_tasks code review_qa_security gate_c release gate_d launch_drafts feedback; do grep -q "\b$s\b" apps/desktop/src/v3/copy/stages.ts \|\| { echo "missing $s"; exit 1; }; done` | exit 0 (all 14 daemon stages mapped) |
+| `U2.7` | any | `cd apps/desktop/src/v3/data && for h in useProjects useProject useRuns useRun useRunEvents useGates useBudget useProviders useModels useRoles useHarnesses useSkills usePlugins useRoutines useDevices usePreview useArtifacts usePreferences useHealth useFiles useAgent; do ls $h.ts* >/dev/null 2>&1 && ls $h.test.ts* >/dev/null 2>&1 \|\| { echo "missing $h"; exit 1; }; done` | exit 0 |
+| `U2.8` | any | `grep -lE "reconnect\|resync" apps/desktop/src/v3/data/useRunEvents.test.ts*` | exit 0 |
+| `U2.9` | any | `grep -nE "ui=v3\|ui_version" apps/desktop/src/main.tsx && ! grep -rnE "from '@warsha/ui'\|from '(\.\./)+(screens\|components)/" apps/desktop/src/v3` | exit 0 (flag present; v3 imports only @warsha/ui/v3 and nothing from v2 screens/components) |
+| `U2.10` | any | `test -z "$(git diff --name-only $BASE..HEAD \| grep -vE '^(apps/desktop/src/(v3/\|main\.tsx$)\|packages/i18n/(src/v3/\|package\.json$))')"` | exit 0 |
+| `U2.11` | any | `test -f apps/desktop/src/v3/app/startup.ts && grep -cE "\b(it\|test)\(" apps/desktop/src/v3/app/startup.test.ts` | exit 0 and count >= 3 (onboarding only when onboarding is not complete; a daemon/list failure at startup shows the frame with an error, never onboarding) |
+| `U2.deps` | any | `git diff $BASE..HEAD -- '*package.json' 'crates/*/Cargo.toml' 'apps/*/src-tauri/Cargo.toml' Cargo.toml \| grep -E '^\+\s*"?[@a-zA-Z0-9_./-]+"?\s*[:=]\s*("[~^=]?[0-9]\|\{[^}]*version)' \| grep -vE '^\+\s*"?(version\|rust-version)"?\s*[:=]'` | exit 1 (no dependency added or bumped) |
+| `U2.snap` | any | `node "$EV/tools"/pw-gate.mjs snapshots $BASE HEAD -` | exit 0, snapshot_changes=0 |
+| `U2.pw` | capture | `pnpm exec playwright test --project=desktop --project=remote --reporter=json > "$EV/gates/$GATE.json"; node "$EV/tools"/pw-gate.mjs failures "$EV/gates/$GATE.json" "$EV/named/EMPTY.txt"` | pw-gate exit 0 (every failure inside named/EMPTY.txt; v2 suites and every behavioural spec 100% green) — v2 is still the default; packet merged onto the integration tip in a scratch checkout; no --update-snapshots |

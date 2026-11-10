@@ -1,0 +1,5 @@
+Merge made by the 'ort' strategy.
+ apps/desktop/src/index.css                     |  5 ++++
+ apps/desktop/src/screens/ProvidersSettings.tsx | 40 +++++++++++++++++---------
+ 2 files changed, 32 insertions(+), 13 deletions(-)
+merge_exit=0

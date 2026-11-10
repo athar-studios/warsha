@@ -1,0 +1,10 @@
+unexpected=96 judged=96 genesis_only=88 defective=8
+DEFECTIVE desktop › bench.spec.ts › @visual bench-assistant-390x844-ar-light :: Error: emptyBoxes: <div> "وضع الخطة: يقترح المساعد الخطوات" holds text but is 0×198
+DEFECTIVE desktop › bench.spec.ts › @visual bench-gate-waiting-390x844-ar-light :: Error: emptyBoxes: <li> "عند الموافقة، ينتقل الفريق تلقائ" holds text but is 0×176
+DEFECTIVE desktop › bench.spec.ts › @visual bench-assistant-390x844-ar-dark :: Error: emptyBoxes: <div> "وضع الخطة: يقترح المساعد الخطوات" holds text but is 0×198
+DEFECTIVE desktop › bench.spec.ts › @visual bench-gate-waiting-390x844-ar-dark :: Error: emptyBoxes: <li> "عند الموافقة، ينتقل الفريق تلقائ" holds text but is 0×176
+DEFECTIVE desktop › bench.spec.ts › @visual bench-assistant-390x844-en-light :: Error: emptyBoxes: <div> "Plan mode: The assistant propose" holds text but is 0×220
+DEFECTIVE desktop › bench.spec.ts › @visual bench-gate-waiting-390x844-en-light :: Error: emptyBoxes: <li> "Upon approval, the team automati" holds text but is 0×220
+DEFECTIVE desktop › bench.spec.ts › @visual bench-assistant-390x844-en-dark :: Error: emptyBoxes: <div> "Plan mode: The assistant propose" holds text but is 0×220
+DEFECTIVE desktop › bench.spec.ts › @visual bench-gate-waiting-390x844-en-dark :: Error: emptyBoxes: <li> "Upon approval, the team automati" holds text but is 0×220
+exit=1

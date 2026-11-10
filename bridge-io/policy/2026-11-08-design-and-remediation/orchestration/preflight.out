@@ -1,0 +1,14 @@
+=== PRE-RELEASE PREFLIGHT @ 282bcd67e34b433fb1059c82c0598a3f956b414b ===
+--- cargo fmt --all --check ---
+fmt exit=0
+--- node scripts/check-arch.mjs ---
+arch: 5 rules, 0 violations
+arch exit=0
+--- node scripts/check-wire-contract.mjs ---
+wire: 9 checks, 0 violations
+wire exit=0
+--- pnpm -r build ---
+build exit=0
+--- pnpm -r test ---
+test exit=0
+DONE

@@ -1,0 +1,196 @@
+From 44658b889f57682ea82dfe0f2d23172637b122e8 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 05:43:41 +0400
+Subject: [PATCH 1/3] fix(pipeline): make split_command quote-aware and quote
+ the preview probe path
+
+split_command now honours single (literal) and double (\" and \ escapes)
+quotes, joins adjacent quoted/unquoted parts, and returns a new
+ProcessError::UnterminatedQuote for an unclosed quote; empty input stays
+EmptyCommand. probe_line_for quotes the test executable so a binary under a
+path with spaces survives the split.
+---
+ crates/warsha-pipeline/src/process_spawn.rs | 143 +++++++++++++++++++-
+ 1 file changed, 136 insertions(+), 7 deletions(-)
+
+diff --git a/crates/warsha-pipeline/src/process_spawn.rs b/crates/warsha-pipeline/src/process_spawn.rs
+index a0ef6b7..48fe266 100644
+--- a/crates/warsha-pipeline/src/process_spawn.rs
++++ b/crates/warsha-pipeline/src/process_spawn.rs
+@@ -242,6 +242,12 @@ pub enum ProcessError {
+     /// A process needs a program to run.
+     #[error("empty command: a process needs a program to run")]
+     EmptyCommand,
++    /// A single- or double-quoted argument was never closed.
++    #[error("unterminated {quote} quote in command")]
++    UnterminatedQuote {
++        /// The quote character left open (`'` or `"`).
++        quote: char,
++    },
+     /// A preview needs a project to belong to.
+     #[error("empty project id: a preview needs a project")]
+     EmptyProjectId,
+@@ -695,13 +701,72 @@ impl LivePreviewManager {
+ 
+     /// Split `"npm run dev"` into the program and its arguments.
+     ///
+-    /// Whitespace only: no shell, no quoting, no expansion, so a command with a
+-    /// pipe, a glob or a quoted argument is a script the caller writes rather than
+-    /// a string that gets parsed differently on two hosts.
++    /// Whitespace separates arguments, with no shell and no expansion. Quoting is
++    /// honoured so a program or argument that contains a space survives as one
++    /// token: `'…'` is literal, `"…"` groups with `\"` and `\\` escapes, and
++    /// adjacent quoted/unquoted parts join (`a"b c"d` is the single token `ab cd`).
++    /// An unterminated quote is [`ProcessError::UnterminatedQuote`]; empty or
++    /// whitespace-only input is [`ProcessError::EmptyCommand`].
+     pub fn split_command(command: &str) -> Result<(String, Vec<String>), ProcessError> {
+-        let mut parts = command.split_whitespace();
+-        let program = parts.next().ok_or(ProcessError::EmptyCommand)?;
+-        Ok((program.to_string(), parts.map(str::to_string).collect()))
++        let mut tokens = Self::split_quoted(command)?.into_iter();
++        let program = tokens.next().ok_or(ProcessError::EmptyCommand)?;
++        Ok((program, tokens.collect()))
++    }
++
++    /// Tokenize a command line, honouring single and double quotes.
++    ///
++    /// Returns every argument in order; an empty or whitespace-only line yields no
++    /// tokens. Only an unclosed quote is an error here — the "no program" case is
++    /// left to [`LivePreviewManager::split_command`]. A backslash is an escape only
++    /// inside double quotes and only before `"` or `\`; elsewhere (including before
++    /// any other character in a Windows path) it is literal.
++    fn split_quoted(command: &str) -> Result<Vec<String>, ProcessError> {
++        let mut tokens = Vec::new();
++        let mut current = String::new();
++        // An empty quoted string (`""`) is a real, empty token; this flag tells a
++        // started token apart from no token at all.
++        let mut in_token = false;
++        let mut chars = command.chars().peekable();
++
++        while let Some(ch) = chars.next() {
++            if ch.is_whitespace() {
++                if in_token {
++                    tokens.push(std::mem::take(&mut current));
++                    in_token = false;
++                }
++                continue;
++            }
++            in_token = true;
++            match ch {
++                '\'' => loop {
++                    match chars.next() {
++                        Some('\'') => break,
++                        Some(literal) => current.push(literal),
++                        None => return Err(ProcessError::UnterminatedQuote { quote: '\'' }),
++                    }
++                },
++                '"' => loop {
++                    match chars.next() {
++                        Some('"') => break,
++                        Some('\\') => match chars.peek().copied() {
++                            Some('"') | Some('\\') => {
++                                if let Some(escaped) = chars.next() {
++                                    current.push(escaped);
++                                }
++                            }
++                            _ => current.push('\\'),
++                        },
++                        Some(literal) => current.push(literal),
++                        None => return Err(ProcessError::UnterminatedQuote { quote: '"' }),
++                    }
++                },
++                literal => current.push(literal),
++            }
++        }
++        if in_token {
++            tokens.push(current);
++        }
++        Ok(tokens)
+     }
+ 
+     /// Start `command` as `project_id`'s dev server.
+@@ -919,9 +984,12 @@ mod tests {
+     }
+ 
+     /// The command line that spawns one probe of this test binary.
++    ///
++    /// The executable is quoted so a test binary under a path with spaces survives
++    /// [`LivePreviewManager::split_command`]'s quote-aware split.
+     fn probe_line_for(test: &str) -> String {
+         let exe = std::env::current_exe().expect("the test binary names itself");
+-        format!("{} --exact {test} --ignored --nocapture", exe.display())
++        format!("\"{}\" --exact {test} --ignored --nocapture", exe.display())
+     }
+ 
+     /// Poll the manager until the process has printed at least one line.
+@@ -1301,6 +1369,67 @@ mod tests {
+         ));
+     }
+ 
++    #[test]
++    fn split_command_keeps_a_quoted_program_path_with_spaces() {
++        let (program, args) =
++            LivePreviewManager::split_command("\"C:/Program Files/x/node.exe\" run dev")
++                .expect("the quoted line splits");
++
++        assert_eq!(program, "C:/Program Files/x/node.exe");
++        assert_eq!(args, vec!["run".to_string(), "dev".to_string()]);
++    }
++
++    #[test]
++    fn split_command_single_quotes_are_literal() {
++        let (program, args) = LivePreviewManager::split_command("echo 'hello world' 'a\"b'")
++            .expect("the line splits");
++
++        assert_eq!(program, "echo");
++        // Inside single quotes nothing is an escape: the space and the double
++        // quote are both literal.
++        assert_eq!(args, vec!["hello world".to_string(), "a\"b".to_string()]);
++    }
++
++    #[test]
++    fn split_command_double_quote_escapes_and_adjacent_joining() {
++        // `\"` and `\\` are the only double-quote escapes.
++        let (program, args) =
++            LivePreviewManager::split_command("echo \"say \\\"hi\\\" now\" \"a\\\\b\"")
++                .expect("the line splits");
++        assert_eq!(program, "echo");
++        assert_eq!(args, vec!["say \"hi\" now".to_string(), "a\\b".to_string()]);
++
++        // Adjacent quoted and unquoted parts join into one token.
++        let (joined, rest) =
++            LivePreviewManager::split_command("a\"b c\"d").expect("the line splits");
++        assert_eq!(joined, "ab cd");
++        assert!(rest.is_empty());
++    }
++
++    #[test]
++    fn split_command_windows_backslash_path_survives_double_quotes() {
++        // A backslash before any character but `"` or `\` stays literal, which is
++        // what lets a quoted Windows executable path keep its separators.
++        let (program, args) =
++            LivePreviewManager::split_command("\"C:\\Program Files\\x\\node.exe\" run dev")
++                .expect("the quoted line splits");
++
++        assert_eq!(program, "C:\\Program Files\\x\\node.exe");
++        assert_eq!(args, vec!["run".to_string(), "dev".to_string()]);
++    }
++
++    #[test]
++    fn split_command_unterminated_quote_is_an_error() {
++        assert!(matches!(
++            LivePreviewManager::split_command("echo \"unclosed"),
++            Err(ProcessError::UnterminatedQuote { quote: '"' })
++        ));
++        assert!(matches!(
++            LivePreviewManager::split_command("echo 'unclosed"),
++            Err(ProcessError::UnterminatedQuote { quote: '\'' })
++        ));
++    }
++
+     #[test]
+     fn discover_url_reads_the_first_address_a_transcript_carries() {
+         let banner = vec!["  ➜  Local:   http://localhost:5173/".to_string()];
+-- 
+2.55.0.windows.5
+

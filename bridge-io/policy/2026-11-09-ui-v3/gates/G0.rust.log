@@ -1,0 +1,1311 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.27
+   Compiling quote v1.0.47
+   Compiling cfg-if v1.0.5
+   Compiling windows-link v0.2.1
+   Compiling pin-project-lite v0.2.17
+   Compiling version_check v0.9.5
+   Compiling once_cell v1.21.4
+   Compiling scopeguard v1.2.0
+   Compiling bytes v1.12.1
+   Compiling serde_core v1.0.229
+   Compiling itoa v1.0.18
+   Compiling getrandom v0.2.17
+   Compiling windows-sys v0.61.2
+   Compiling lock_api v0.4.14
+   Compiling parking_lot_core v0.9.12
+   Compiling typenum v1.20.1
+   Compiling memchr v2.8.3
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.15
+   Compiling generic-array v0.14.7
+   Compiling smallvec v1.16.4
+   Compiling futures-core v0.3.34
+   Compiling serde v1.0.229
+   Compiling cc v1.10.0
+   Compiling subtle v2.6.1
+   Compiling log v0.4.34
+   Compiling stable_deref_trait v1.2.1
+   Compiling rand_core v0.6.4
+   Compiling futures-sink v0.3.34
+   Compiling tracing-core v0.1.36
+   Compiling cpufeatures v0.2.17
+   Compiling parking_lot v0.12.5
+   Compiling futures-io v0.3.34
+   Compiling zerocopy v0.8.63
+   Compiling equivalent v1.0.3
+   Compiling zmij v1.0.23
+   Compiling slab v0.4.12
+   Compiling litemap v0.8.3
+   Compiling writeable v0.6.4
+   Compiling crypto-common v0.1.7
+   Compiling autocfg v1.5.1
+   Compiling futures-channel v0.3.34
+   Compiling icu_normalizer_data v2.4.0
+   Compiling untrusted v0.9.0
+   Compiling syn v3.0.9
+   Compiling syn v2.0.119
+   Compiling utf8_iter v1.0.4
+   Compiling hashbrown v0.17.1
+   Compiling percent-encoding v2.3.2
+   Compiling icu_properties_data v2.4.0
+   Compiling futures-task v0.3.34
+   Compiling block-buffer v0.10.4
+   Compiling http v1.5.0
+   Compiling serde_json v1.0.154
+   Compiling indexmap v2.14.2
+   Compiling ring v0.17.14
+   Compiling form_urlencoded v1.2.2
+   Compiling getrandom v0.3.4
+   Compiling num-traits v0.2.19
+   Compiling httparse v1.10.1
+   Compiling digest v0.10.7
+   Compiling http-body v1.1.0
+   Compiling tower-service v0.3.3
+   Compiling rand_core v0.9.5
+   Compiling base64 v0.22.1
+   Compiling semver v1.0.28
+   Compiling getrandom v0.4.3
+   Compiling synstructure v0.14.0
+   Compiling rand_core v0.10.1
+   Compiling rustls v0.23.46
+   Compiling cpufeatures v0.3.1
+   Compiling tower-layer v0.3.3
+   Compiling http-body-util v0.1.5
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.4
+   Compiling chacha20 v0.10.2
+   Compiling sync_wrapper v1.0.2
+   Compiling ppv-lite86 v0.2.21
+   Compiling thiserror v1.0.69
+   Compiling httpdate v1.0.3
+   Compiling fnv v1.0.7
+   Compiling rand v0.10.3
+   Compiling ryu v1.0.23
+   Compiling rand_chacha v0.9.0
+   Compiling atomic-waker v1.1.2
+   Compiling try-lock v0.2.5
+   Compiling bitflags v2.13.2
+   Compiling libc v0.2.191
+   Compiling windows-result v0.4.1
+   Compiling rand v0.9.5
+   Compiling want v0.3.2
+   Compiling windows-strings v0.5.1
+   Compiling uuid v1.29.0
+   Compiling thiserror v2.0.21
+   Compiling rustversion v1.0.23
+   Compiling windows-registry v0.6.1
+   Compiling base64 v0.23.1
+   Compiling ipnet v2.12.2
+   Compiling anyhow v1.0.104
+   Compiling tracing-attributes v0.1.31
+   Compiling serde_derive v1.0.229
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling zerovec-derive v0.11.7
+   Compiling zeroize_derive v1.5.0
+   Compiling displaydoc v0.2.7
+   Compiling tokio-macros v2.7.2
+   Compiling futures-macro v0.3.34
+   Compiling thiserror-impl v1.0.69
+   Compiling zeroize v1.9.1
+   Compiling thiserror-impl v2.0.21
+   Compiling tokio v1.54.1
+   Compiling rustls-pki-types v1.15.1
+   Compiling async-trait v0.1.92
+   Compiling tracing v0.1.44
+   Compiling futures-util v0.3.34
+   Compiling webpki-roots v1.0.11
+   Compiling zerofrom v0.1.8
+   Compiling yoke v0.8.4
+   Compiling rustls-webpki v0.103.16
+   Compiling mime v0.3.17
+   Compiling zerovec v0.11.9
+   Compiling zerotrie v0.2.5
+   Compiling vcpkg v0.2.15
+   Compiling unicase v2.10.0
+   Compiling pkg-config v0.3.34
+   Compiling heck v0.5.0
+   Compiling tinystr v0.8.5
+   Compiling potential_utf v0.1.6
+   Compiling mime_guess v2.0.5
+   Compiling sha2 v0.10.9
+   Compiling icu_collections v2.4.0
+   Compiling icu_locale_core v2.4.0
+   Compiling native-tls v0.2.18
+   Compiling crossbeam-utils v0.8.23
+   Compiling schannel v0.1.30
+   Compiling chrono v0.4.45
+   Compiling serde_urlencoded v0.7.1
+   Compiling ulid v1.2.1
+   Compiling foldhash v0.1.5
+   Compiling http-range-header v0.4.2
+   Compiling icu_provider v2.4.0
+   Compiling futures-executor v0.3.34
+   Compiling byteorder v1.5.0
+   Compiling winapi v0.3.9
+   Compiling allocator-api2 v0.2.21
+   Compiling icu_properties v2.4.0
+   Compiling icu_normalizer v2.4.0
+   Compiling futures v0.3.34
+   Compiling warsha-core v0.2.1 (C:\Users\Dragonfly\Downloads\warsha-wt\v3\g0\crates\warsha-core)
+   Compiling hashbrown v0.15.5
+   Compiling tokio-util v0.7.20
+   Compiling tower v0.5.3
+   Compiling either v1.19.0
+   Compiling tokio-rustls v0.26.6
+   Compiling encoding_rs v0.8.42
+   Compiling anstyle v1.0.14
+   Compiling idna_adapter v1.2.2
+   Compiling crc-catalog v2.5.0
+   Compiling parking v2.2.1
+   Compiling idna v1.1.0
+   Compiling h2 v0.4.20
+   Compiling tokio-stream v0.1.19
+   Compiling event-listener v5.4.2
+   Compiling crc v3.4.0
+   Compiling tokio-native-tls v0.3.1
+   Compiling url v2.5.8
+   Compiling hashlink v0.10.0
+   Compiling crossbeam-queue v0.3.14
+   Compiling tower-http v0.6.11
+   Compiling spin v0.9.9
+   Compiling simdutf8 v0.1.5
+   Compiling multiversion_no_op v1.0.0
+   Compiling core_detect v1.0.0
+   Compiling libsqlite3-sys v0.30.1
+   Compiling windows_x86_64_msvc v0.48.5
+   Compiling webpki-roots v0.26.11
+   Compiling hyper v1.12.0
+   Compiling futures-intrusive v0.5.0
+   Compiling keyring v1.2.1
+   Compiling rand_chacha v0.3.1
+   Compiling hyper-util v0.1.21
+   Compiling rustc_version v0.4.1
+   Compiling inout v0.1.4
+   Compiling ahash v0.8.12
+   Compiling simd-adler32 v0.3.10
+   Compiling cipher v0.4.4
+   Compiling rand v0.8.8
+   Compiling flume v0.11.1
+   Compiling atoi v2.0.0
+   Compiling sha1 v0.10.7
+   Compiling universal-hash v0.5.1
+   Compiling sqlx-core v0.8.6
+   Compiling hyper-rustls v0.27.10
+   Compiling hyper-tls v0.6.0
+   Compiling opaque-debug v0.3.1
+   Compiling crc32fast v1.5.3
+   Compiling adler2 v2.0.1
+   Compiling windows-targets v0.48.5
+   Compiling dotenvy v0.15.7
+   Compiling hex v0.4.3
+   Compiling hashbrown v0.14.5
+   Compiling reqwest v0.12.28
+   Compiling miniz_oxide v0.9.1
+   Compiling windows-sys v0.48.0
+   Compiling curve25519-dalek v4.1.3
+   Compiling option-ext v0.2.0
+   Compiling hashlink v0.9.1
+   Compiling miniz_oxide v0.8.9
+   Compiling flate2 v1.1.10
+   Compiling polyval v0.6.2
+   Compiling fdeflate v0.3.7
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling aead v0.5.2
+   Compiling fallible-iterator v0.3.0
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling pxfm v0.1.30
+   Compiling dirs-sys v0.4.1
+   Compiling png v0.18.1
+   Compiling ghash v0.5.1
+   Compiling poly1305 v0.8.0
+   Compiling dirs v5.0.1
+   Compiling rusqlite v0.32.1
+   Compiling snow v0.9.6
+   Compiling aes v0.8.4
+   Compiling ctr v0.9.2
+   Compiling chacha20 v0.9.1
+   Compiling sqlx-sqlite v0.8.6
+   Compiling byteorder-lite v0.1.0
+   Compiling fastrand v2.5.0
+   Compiling utf8parse v0.2.2
+   Compiling yansi v1.0.1
+   Compiling bytemuck v1.25.2
+   Compiling windows_x86_64_msvc v0.52.6
+   Compiling once_cell_polyfill v1.70.2
+   Compiling diff v0.1.13
+   Compiling anstyle-wincon v3.0.11
+   Compiling pretty_assertions v1.4.1
+   Compiling tempfile v3.27.0
+   Compiling anstyle-parse v1.0.0
+   Compiling aes-gcm v0.10.3
+   Compiling chacha20poly1305 v0.10.1
+   Compiling anstyle-query v1.1.5
+   Compiling moxcms v0.8.1
+   Compiling blake2 v0.10.6
+   Compiling utf-8 v0.7.6
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling sqlx-macros-core v0.8.6
+   Compiling colorchoice v1.0.5
+   Compiling data-encoding v2.11.1
+   Compiling regex-syntax v0.8.11
+   Compiling anstream v1.0.0
+   Compiling tungstenite v0.24.0
+   Compiling x25519-dalek v2.0.1
+   Compiling warsha-providers v0.2.1 (C:\Users\Dragonfly\Downloads\warsha-wt\v3\g0\crates\warsha-providers)
+   Compiling pin-project-internal v1.1.13
+   Compiling regex-automata v0.4.18
+   Compiling lazy_static v1.5.1
+   Compiling strsim v0.11.1
+   Compiling clap_lex v1.1.1
+   Compiling sharded-slab v0.1.7
+   Compiling clap_builder v4.6.7
+   Compiling tokio-tungstenite v0.24.0
+   Compiling windows-targets v0.52.6
+   Compiling sqlx-macros v0.8.6
+   Compiling axum-core v0.4.5
+   Compiling pin-project v1.1.13
+   Compiling image v0.25.10
+   Compiling matchers v0.2.0
+   Compiling tracing-serde v0.2.0
+   Compiling jsonrpsee-types v0.26.1
+   Compiling clap_derive v4.6.7
+   Compiling nu-ansi-term v0.50.3
+   Compiling serde_path_to_error v0.1.20
+   Compiling tracing-log v0.2.0
+   Compiling thread_local v1.1.10
+   Compiling futures-timer v3.0.4
+   Compiling rustc-hash v2.1.3
+   Compiling matchit v0.7.3
+   Compiling tracing-subscriber v0.3.23
+   Compiling sqlx v0.8.6
+   Compiling axum v0.7.9
+   Compiling jsonrpsee-core v0.26.1
+   Compiling qrcode v0.14.1
+   Compiling windows-sys v0.59.0
+   Compiling warsha-store v0.2.1 (C:\Users\Dragonfly\Downloads\warsha-wt\v3\g0\crates\warsha-store)
+   Compiling clap v4.6.7
+   Compiling warsha-remote v0.2.1 (C:\Users\Dragonfly\Downloads\warsha-wt\v3\g0\crates\warsha-remote)
+   Compiling winnow v1.0.4
+   Compiling windows_x86_64_msvc v0.53.1
+   Compiling soketto v0.8.1
+   Compiling warsha-pipeline v0.2.1 (C:\Users\Dragonfly\Downloads\warsha-wt\v3\g0\crates\warsha-pipeline)
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling rustls-platform-verifier v0.5.3
+   Compiling windows-link v0.1.3
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling home v0.5.12
+   Compiling toml_edit v0.25.17+spec-1.1.0
+   Compiling winsafe v0.0.19
+   Compiling windows-targets v0.53.5
+   Compiling windows-result v0.3.4
+   Compiling windows-strings v0.3.1
+   Compiling jsonrpsee-client-transport v0.26.1
+   Compiling proc-macro-crate v3.5.0
+   Compiling serde_spanned v0.6.9
+   Compiling toml_datetime v0.6.11
+   Compiling windows-interface v0.59.3
+   Compiling windows-implement v0.59.0
+   Compiling route-recognizer v0.3.1
+   Compiling toml_write v0.1.2
+   Compiling winnow v0.7.15
+   Compiling jsonrpsee-proc-macros v0.26.1
+   Compiling jsonrpsee-server v0.26.1
+   Compiling jsonrpsee-ws-client v0.26.1
+   Compiling jsonrpsee-http-client v0.26.1
+   Compiling warsha-git v0.2.1 (C:\Users\Dragonfly\Downloads\warsha-wt\v3\g0\crates\warsha-git)
+   Compiling fs2 v0.4.3
+   Compiling predicates-core v1.0.10
+   Compiling windows-core v0.59.0
+   Compiling mockall_derive v0.13.1
+   Compiling termtree v0.5.1
+   Compiling predicates v3.1.4
+   Compiling fragile v2.1.0
+   Compiling predicates-tree v1.0.13
+   Compiling downcast v0.11.0
+   Compiling tower v0.4.13
+   Compiling which v6.0.3
+   Compiling toml_edit v0.22.27
+   Compiling windows v0.59.0
+   Compiling warsha-relay v0.2.1 (C:\Users\Dragonfly\Downloads\warsha-wt\v3\g0\crates\warsha-relay)
+   Compiling jsonrpsee v0.26.1
+   Compiling toml v0.8.23
+   Compiling warsha-backends v0.2.1 (C:\Users\Dragonfly\Downloads\warsha-wt\v3\g0\crates\warsha-backends)
+   Compiling mockall v0.13.1
+   Compiling warshad v0.2.1 (C:\Users\Dragonfly\Downloads\warsha-wt\v3\g0\crates\warshad)
+   Compiling warsha-cli v0.2.1 (C:\Users\Dragonfly\Downloads\warsha-wt\v3\g0\crates\warsha-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4m 10s
+     Running unittests src\lib.rs (target\debug\deps\warsha_backends-38b47f68b63f066b.exe)
+
+running 2 tests
+test tests::test_builtin_backend ... ok
+test tests::test_cli_backend_check ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running unittests src\lib.rs (target\debug\deps\warsha_cli-452da01fe12c24af.exe)
+
+running 10 tests
+test tests::a_credential_kind_without_a_key_names_the_kind_and_the_keychain ... ok
+test tests::a_key_less_kind_is_asked_for_no_key_and_never_sends_one ... ok
+test tests::the_refusal_follows_the_locale_and_json_output_does_not ... ok
+test tests::only_a_hosted_kind_is_called_with_a_key ... ok
+test tests::test_parse_gate_stage ... ok
+test tests::every_human_message_has_two_wordings ... ok
+test tests::the_arabic_wordings_print_as_they_are_written ... ok
+test tests::the_arabic_refusals_print_as_they_are_written ... ok
+test tests::the_english_wordings_stay_the_machine_contract_sentences ... ok
+test tests::no_human_word_reaches_output_without_a_language_choice ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\main.rs (target\debug\deps\warsha-31d11666ae9b9225.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\cli_rpc.rs (target\debug\deps\cli_rpc-c14c5fcf0b5f853f.exe)
+
+running 4 tests
+test a_token_that_cannot_form_a_header_value_is_rejected_at_construction ... ok
+test status_and_providers_list_succeed_over_the_authenticated_rpc_path ... ok
+test a_wrong_token_is_refused_by_the_daemon_not_reported_as_offline ... ok
+test no_daemon_listening_reports_not_connected ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.03s
+
+     Running tests\cli_rpc_auth.rs (target\debug\deps\cli_rpc_auth-c257bc69c6b67c8b.exe)
+
+running 7 tests
+test providers_list_with_no_token_is_refused_too ... ok
+test providers_list_carries_the_bearer_token_to_the_rpc ... ok
+test status_reaches_a_running_daemon ... ok
+test the_rpc_listener_the_cli_is_given_cannot_answer_a_health_get ... ok
+test providers_list_is_refused_with_the_wrong_token ... ok
+test status_reports_not_connected_when_nothing_listens ... ok
+test new_goes_through_the_liveness_check ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.04s
+
+     Running unittests src\lib.rs (target\debug\deps\warsha_core-68ba8d2b3ca394b9.exe)
+
+running 25 tests
+test config::tests::integration_config_defaults_to_all_empty ... ok
+test harness::tests::graph_gated_caps_repair_at_three_cycles ... ok
+test config::tests::custom_model_round_trips_through_json ... ok
+test harness::tests::autonomous_factory_is_the_nine_stage_preset ... ok
+test harness::tests::bundled_harnesses_have_the_seven_presets ... ok
+test config::tests::file_shapes_round_trip ... ok
+test config::tests::integration_status_round_trips_with_details ... ok
+test plugin::tests::every_enabled_stdio_pack_has_a_command ... ok
+test plugin::tests::plugin_envs_hold_references_not_secrets ... ok
+test plugin::tests::bundled_plugins_ship_the_seven_packs ... ok
+test redaction::tests::redacts_url_query_parameters ... ok
+test harness::tests::harness_definitions_round_trip_through_json ... ok
+test skill::tests::bundled_skills_ship_eight_superpowers_and_four_anthropic ... ok
+test skill::tests::every_skill_has_real_content ... ok
+test skill::tests::licenses_match_sources ... ok
+test plugin::tests::plugins_round_trip_through_json ... ok
+test tests::test_gate_state_default ... ok
+test tests::test_gate_wire_names_round_trip ... ok
+test tests::test_is_gate ... ok
+test skill::tests::skills_round_trip_through_json ... ok
+test tests::test_project_id_unique ... ok
+test tests::test_stage_all_matches_next_chain ... ok
+test tests::test_run_id_unique ... ok
+test tests::test_stage_order ... ok
+test tests::test_token_usage ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\debug\deps\warsha_git-7e218c393ebbc127.exe)
+
+running 13 tests
+test tests::github_client_requires_a_token ... ok
+test tests::project_templates_are_complete ... ok
+test tests::run_branch_names_use_the_run_id ... ok
+test tests::merge_methods_map_to_api_values ... ok
+test tests::slugify_branch_name_normalizes_titles ... ok
+test tests::split_template_understands_owner_repo_references ... ok
+test tests::github_requests_carry_required_headers ... ok
+test tests::scaffold_rejects_paths_that_escape_the_root ... ok
+test tests::scaffold_writes_template_files ... ok
+test tests::open_rejects_a_missing_directory ... ok
+test tests::create_branch_rejects_invalid_names ... ok
+test tests::commit_rejects_an_empty_message ... ok
+test tests::init_creates_repository_in_temp_dir ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running unittests src\lib.rs (target\debug\deps\warsha_pipeline-c6e3edad2bc20011.exe)
+
+running 351 tests
+test agent_loop::tests::a_new_loop_starts_in_plan_mode_with_empty_stores ... ok
+test agent_loop::tests::a_tool_request_is_read_from_the_turns_first_line ... ok
+test agent_loop::tests::agent_mode_needs_an_owner_approval ... ok
+test agent_loop::tests::a_router_failure_is_reported_in_the_summary ... ok
+test agent_loop::tests::a_turn_result_uses_snake_case_on_the_wire ... ok
+test agent_loop::tests::a_known_slash_command_is_detected ... ok
+test agent_loop::tests::a_tool_request_with_no_executor_wired_reports_that_nothing_ran ... ok
+test agent_loop::tests::agent_mode_asks_the_router_and_uses_its_answer ... ok
+test agent_loop::tests::agent_loop_executes_call_tool_and_mutates_backend_kit ... ok
+test agent_loop::tests::agent_mode_without_a_router_says_no_model_is_wired ... ok
+test agent_loop::tests::an_empty_input_still_produces_a_turn ... ok
+test agent_loop::tests::an_unknown_slash_command_is_none_and_says_so ... ok
+test agent_loop::tests::mentions_are_parsed_from_the_input ... ok
+test agent_loop::tests::only_a_turn_that_starts_with_a_verb_is_a_tool_request ... ok
+test agent_loop::tests::parse_call_tool_and_call_mcp ... ok
+test agent_loop::tests::plan_mode_returns_a_plan_and_executes_nothing ... ok
+test agent_loop::tests::the_context_is_compacted_when_it_passes_the_budget ... ok
+test agent_loop::tests::the_loop_owns_the_ask_user_queue_and_the_message_bus ... ok
+test agent_loop::tests::the_provider_router_adapter_reaches_the_real_router ... ok
+test agent_loop::tests::the_provider_router_adapter_reports_a_role_with_no_route ... ok
+test agent_loop::tests::a_missing_file_mention_notes_the_failure_and_completes_the_turn ... ok
+test agent_loop::tests::the_todo_list_records_one_item_per_turn ... ok
+test agent_loop::tests::non_file_mentions_keep_the_attached_line_without_a_read ... ok
+test agent_loop::tests::plan_mode_never_runs_a_tool ... ok
+test agent_loop::tests::a_tool_turn_names_its_call_on_the_wire ... ok
+test agent_tools::tests::a_blank_path_and_a_blank_command_are_refused ... ok
+test agent_tools::tests::a_dotted_path_resolves_inside_the_working_directory ... ok
+test agent_tools::tests::a_path_outside_the_working_directory_is_refused ... ok
+test agent_loop::tests::agent_mode_reads_a_file_through_the_tool_layer ... ok
+test agent_tools::tests::a_read_of_a_missing_file_is_a_failed_result ... ok
+test agent_tools::tests::a_missing_program_is_a_refusal ... ok
+test agent_loop::tests::a_file_mentions_content_reaches_the_model_prompt ... ok
+test agent_tools::tests::a_tool_and_a_result_use_snake_case_on_the_wire ... ok
+test agent_loop::tests::a_long_file_mention_is_compressed_in_the_prompt ... ok
+test agent_loop::tests::agent_mode_writes_a_file_through_the_tool_layer ... ok
+test agent_tools::tests::a_poisoned_guard_fails_the_call_instead_of_panicking ... ok
+test agent_tools::tests::a_read_file_tool_returns_the_file_content ... ok
+test agent_tools::tests::a_write_file_tool_writes_the_content ... ok
+test agent_loop::tests::a_file_mention_is_recorded_as_read_for_the_guard ... ok
+test agent_tools::tests::an_enforced_executor_refuses_an_unread_overwrite_via_the_dotted_path ... ok
+test agent_tools::tests::executor_equality_compares_the_working_dir_and_enforcement ... ok
+test agent_tools::tests::an_enforced_executor_refuses_an_unread_write_and_writes_nothing ... ok
+test agent_tools::tests::the_no_tool_executor_refuses_every_tool ... ok
+test agent_tools::tests::a_disabled_executor_overwrites_an_unread_file ... ok
+test agent_tools::tests::the_default_executor_writes_without_a_prior_read ... ok
+test agent_workflow::tests::agent_to_plan_is_always_allowed ... ok
+test agent_workflow::tests::ask_user_answers_a_question_once ... ok
+test agent_workflow::tests::ask_user_blocks_the_run_only_for_a_blocking_question ... ok
+test agent_workflow::tests::ask_user_rejects_a_blank_question_or_answer ... ok
+test agent_workflow::tests::compactor_drops_the_summary_before_the_recent_messages ... ok
+test agent_workflow::tests::compactor_keeps_everything_that_fits ... ok
+test agent_workflow::tests::compactor_never_splits_the_newest_message ... ok
+test agent_tools::tests::a_write_file_tool_creates_the_parent_directories ... ok
+test agent_workflow::tests::compactor_summarizes_the_older_messages ... ok
+test agent_workflow::tests::compressor_counts_lines_of_an_empty_output ... ok
+test agent_workflow::tests::compressor_handles_tiny_and_zero_ceilings ... ok
+test agent_workflow::tests::compressor_keeps_output_that_already_fits ... ok
+test agent_tools::tests::turning_enforcement_off_restores_unrestricted_writes ... ok
+test agent_workflow::tests::mention_kinds_round_trip_through_names_and_serde ... ok
+test agent_workflow::tests::compressor_keeps_the_head_and_the_tail ... ok
+test agent_workflow::tests::mention_parser_accepts_the_colon_form_and_dedupes ... ok
+test agent_workflow::tests::mention_parser_ignores_addresses_unknown_kinds_and_bare_kinds ... ok
+test agent_tools::tests::the_guard_normalises_paths_relative_to_the_working_dir ... ok
+test agent_workflow::tests::mention_parser_reads_every_kind ... ok
+test agent_workflow::tests::message_bus_rejects_an_incomplete_message ... ok
+test agent_workflow::tests::mode_and_transition_use_snake_case_on_the_wire ... ok
+test agent_workflow::tests::same_mode_is_refused_and_keeps_the_history ... ok
+test agent_workflow::tests::plan_to_agent_records_the_approval ... ok
+test agent_workflow::tests::message_bus_tracks_unread_messages ... ok
+test agent_workflow::tests::plan_to_agent_needs_an_approver ... ok
+test agent_workflow::tests::skills_round_trip_through_a_registry_without_failing ... ok
+test agent_workflow::tests::slash_commands_filter_for_autocomplete ... ok
+test agent_workflow::tests::slash_commands_register_lookup_and_list_in_order ... ok
+test agent_workflow::tests::slash_commands_reject_bad_names_and_duplicates ... ok
+test agent_workflow::tests::todo_list_pending_counts_open_items_only ... ok
+test agent_workflow::tests::todos_add_update_remove_and_report_their_errors ... ok
+test agent_workflow::tests::token_estimate_is_chars_over_four ... ok
+test backend_kit::tests::add_function_stores_names_and_refuses_repeats ... ok
+test backend_kit::tests::add_rls_policy_refuses_a_blank_or_multi_statement_expression ... ok
+test backend_kit::tests::add_rls_policy_requires_a_table_and_a_unique_name ... ok
+test backend_kit::tests::add_storage_bucket_stores_names_and_refuses_repeats ... ok
+test backend_kit::tests::add_table_refuses_bad_input ... ok
+test backend_kit::tests::add_table_stores_columns_in_order ... ok
+test backend_kit::tests::backend_kind_and_feature_serde_use_snake_case ... ok
+test backend_kit::tests::config_creation_records_kind_url_and_project ... ok
+test backend_kit::tests::config_and_kit_round_trip_through_serde ... ok
+test backend_kit::tests::export_generates_create_table_and_rls_statements ... ok
+test backend_kit::tests::export_never_lets_a_project_name_end_the_comment ... ok
+test backend_kit::tests::export_of_an_empty_kit_is_a_header_without_storage ... ok
+test backend_kit::tests::export_to_dir_refuses_a_blank_directory ... ok
+test backend_kit::tests::feature_list_is_ordered_and_never_empty ... ok
+test backend_kit::tests::from_project_builds_a_valid_empty_kit ... ok
+test backend_kit::tests::identifier_and_type_screens_are_one_table ... ok
+test backend_kit::tests::payments_gate_enable_records_the_owner_and_can_be_closed ... ok
+test backend_kit::tests::payments_gate_requires_an_explicit_approval ... ok
+test backend_kit::tests::test_apply_tool_call_mutations ... ok
+test backend_kit::tests::test_backend_mcp_tools_definitions ... ok
+test agent_tools::tests::an_enforced_executor_allows_a_read_then_write ... ok
+test build_cache::tests::a_cold_store_misses_and_counts_it ... ok
+test build_cache::tests::a_key_is_complete_only_with_every_scalar ... ok
+test build_cache::tests::a_rebuild_replaces_the_entry_and_resets_its_hits ... ok
+test build_cache::tests::clearing_drops_entries_and_counters ... ok
+test build_cache::tests::field_boundaries_do_not_blur ... ok
+test build_cache::tests::key_and_entry_serde_round_trip ... ok
+test build_cache::tests::invalidate_drops_only_the_named_stage ... ok
+test build_cache::tests::put_then_get_counts_one_hit ... ok
+test agent_tools::tests::clones_share_the_read_before_write_guard ... ok
+test build_cache::tests::repeated_hits_accumulate_on_the_entry_and_the_stats ... ok
+test build_cache::tests::the_hash_is_stable_and_covers_every_field ... ok
+test evals::tests::default_suite_covers_every_role_with_unique_ids ... ok
+test evals::tests::a_bad_responder_fails_and_blocks_the_change ... ok
+test evals::tests::a_good_responder_passes_the_whole_suite ... ok
+test evals::tests::forbidden_text_fails_the_case ... ok
+test evals::tests::duplicate_case_ids_are_rejected ... ok
+test guardrails::tests::arabic_injection_phrases_are_detected ... ok
+test guardrails::tests::every_sensitive_action_requires_owner_approval ... ok
+test guardrails::tests::injections_are_detected_in_untrusted_content ... ok
+test guardrails::tests::mask_secrets_handles_empty_and_arabic_without_panicking ... ok
+test guardrails::tests::mask_secrets_leaves_ordinary_text_and_dates_alone ... ok
+test guardrails::tests::mask_secrets_redacts_keys_tokens_and_pii ... ok
+test guardrails::tests::trusted_origins_are_not_scanned ... ok
+test guardrails::tests::wrap_untrusted_envelope_is_explicit_and_cannot_be_closed_early ... ok
+test handoff::tests::an_illegal_transition_is_rejected_and_failure_is_reachable_from_anywhere ... ok
+test handoff::tests::apply_conflict_remote_wins_overwrites_and_keeps_the_conflict_on_record ... ok
+test handoff::tests::apply_conflict_owner_wins_keeps_the_local_file_and_records_it ... ok
+test handoff::tests::apply_honours_the_selected_paths ... ok
+test handoff::tests::apply_refuses_a_bundle_whose_checksum_no_longer_matches ... ok
+test handoff::tests::apply_of_an_empty_bundle_decides_nothing ... ok
+test handoff::tests::apply_rejects_malformed_bundles ... ok
+test agent_tools::tests::an_enforced_executor_creates_a_missing_file_without_a_prior_read ... ok
+test agent_loop::tests::agent_mode_runs_a_command_through_the_tool_layer ... ok
+test handoff::tests::apply_to_disk_refuses_a_bundle_whose_checksum_no_longer_matches ... ok
+test handoff::tests::apply_to_disk_refuses_a_path_that_leaves_the_working_tree ... ok
+test backend_kit::tests::export_to_dir_writes_the_dump_to_schema_sql ... ok
+test handoff::tests::apply_without_conflicts_writes_new_files_and_leaves_identical_ones ... ok
+test handoff::tests::create_bundle_captures_content_and_checksums ... ok
+test handoff::tests::the_state_and_bundle_survive_serde ... ok
+test handoff::tests::the_state_machine_follows_the_handoff_flow ... ok
+test handoff::tests::write_bundle_refuses_a_run_id_that_is_not_a_file_name ... ok
+test handoff::tests::apply_to_disk_writes_new_files_and_leaves_an_agreed_one_alone ... ok
+test llm_cache::tests::a_miss_is_counted ... ok
+test handoff::tests::apply_to_disk_owner_wins_keeps_the_local_file_and_still_backs_it_up ... ok
+test llm_cache::tests::a_normalized_lookup_matches_a_differently_spaced_prompt ... ok
+test llm_cache::tests::a_normalized_lookup_never_returns_an_expired_entry ... ok
+test llm_cache::tests::a_zero_capacity_cache_stores_nothing ... ok
+test llm_cache::tests::an_exact_lookup_is_whitespace_sensitive ... ok
+test llm_cache::tests::an_expired_entry_is_not_returned_and_counts_as_a_miss ... ok
+test llm_cache::tests::canonical_prompt_follows_the_flag ... ok
+test llm_cache::tests::capacity_evicts_the_least_recently_used_entry ... ok
+test llm_cache::tests::clearing_drops_entries_pointers_and_counters ... ok
+test handoff::tests::write_bundle_writes_one_json_file_named_after_the_run ... ok
+test llm_cache::tests::eviction_drops_the_normalized_pointer_with_its_owner ... ok
+test llm_cache::tests::exact_round_trip_hits_and_bumps_the_count ... ok
+test llm_cache::tests::from_env_falls_back_to_the_documented_defaults ... ok
+test llm_cache::tests::hits_accumulate_and_the_rate_follows_the_counters ... ok
+test agent_tools::tests::a_run_command_tool_runs_the_command_in_the_working_directory ... ok
+test llm_cache::tests::invalidate_drops_the_exact_entry_and_its_normalized_pointer ... ok
+test handoff::tests::apply_to_disk_writes_the_other_files_around_a_conflict ... ok
+test llm_cache::tests::invalidate_through_a_normalized_key_drops_the_raw_entry ... ok
+test llm_cache::tests::key_and_entry_serde_round_trip ... ok
+test llm_cache::tests::normalize_trims_collapses_and_lowercases ... ok
+test llm_cache::tests::putting_sweeps_expired_entries_under_the_bound ... ok
+test llm_cache::tests::the_first_raw_prompt_owns_the_normalized_pointer ... ok
+test llm_cache::tests::re_putting_the_same_prompt_replaces_the_response ... ok
+test llm_cache::tests::ttl_of_max_never_expires_by_age ... ok
+test llm_cache::tests::the_model_is_part_of_the_key ... ok
+test mcp::tests::test_permission_flow ... ok
+test mcp::tests::test_mcp_client_call_tool_with_backend_kit ... ok
+test mcp::tests::test_mcp_server_config ... ok
+test mcp::tests::test_mcp_registry ... ok
+test mcp_transport::tests::a_blank_or_duplicate_name_is_refused ... ok
+test mcp_transport::tests::connect_http_is_recorded_and_not_dialled ... ok
+test handoff::tests::apply_to_disk_remote_wins_overwrites_a_local_edit_and_keeps_it_as_a_backup ... ok
+test mcp_transport::tests::connect_websocket_is_recorded_and_not_dialled ... ok
+test mcp_transport::tests::connect_stdio_without_a_command_is_an_error ... ok
+test agent_tools::tests::a_run_command_tool_reports_a_non_zero_exit_as_a_failed_result ... ok
+test mcp_transport::tests::disconnect_of_an_unknown_or_repeated_server ... ok
+test mcp_transport::tests::mcp_server_call_error_probe ... ignored, a child process, not a test
+test mcp_transport::tests::mcp_server_call_timeout_probe ... ignored, a child process, not a test
+test mcp_transport::tests::mcp_server_error_probe ... ignored, a child process, not a test
+test mcp_transport::tests::mcp_server_probe ... ignored, a child process, not a test
+test mcp_transport::tests::mcp_server_silent_probe ... ignored, a child process, not a test
+test mcp_transport::tests::connect_stdio_that_cannot_spawn_is_reported_as_an_error ... ok
+test handoff::tests::apply_to_disk_gives_each_apply_its_own_backup_directory ... ok
+test backend_kit::tests::the_stored_kit_mirrors_its_kind_and_url_into_columns ... ok
+test backend_kit::tests::kit_round_trips_through_the_sqlite_store ... ok
+test backend_kit::tests::saving_a_kit_twice_replaces_it ... ok
+test observability::tests::attributes_are_masked_before_storage ... ok
+test mcp_transport::tests::a_server_that_answers_with_an_error_is_reported ... ok
+test observability::tests::span_kinds_have_stable_tags ... ok
+test observability::tests::ending_a_span_sets_status_and_duration ... ok
+test orchestrator::tests::test_answer_question ... ok
+test observability::tests::spans_are_returned_in_start_order_with_parents ... ok
+test orchestrator::tests::test_brief_sign_off ... ok
+test orchestrator::tests::test_discovery_start ... ok
+test orchestrator::tests::test_brief_to_markdown ... ok
+test orchestrator::tests::test_orchestrator_creation ... ok
+test post_launch::tests::a_refused_transition_reports_both_sides ... ok
+test post_launch::tests::change_request_status_flow_refuses_illegal_steps ... ok
+test post_launch::tests::change_request_store_rejects_duplicates_and_blank_fields ... ok
+test post_launch::tests::change_requests_start_pending_and_follow_the_status_flow ... ok
+test post_launch::tests::crash_report_mark_sent_flips_the_flag_once ... ok
+test post_launch::tests::crash_report_serde_roundtrips_without_a_stack_trace ... ok
+test post_launch::tests::crash_report_store_rejects_duplicates_and_blank_fields ... ok
+test post_launch::tests::crash_reports_are_listed_in_arrival_order ... ok
+test post_launch::tests::daily_summary_builder_honours_the_language ... ok
+test post_launch::tests::daily_summary_carries_todays_numbers_and_arabic_steps ... ok
+test post_launch::tests::daily_summary_never_has_zero_steps_and_marks_a_quiet_day ... ok
+test post_launch::tests::statuses_serialize_as_snake_case_names ... ok
+test post_launch::tests::store_review_keeps_an_out_of_range_rating_but_flags_it ... ok
+test post_launch::tests::store_review_store_rejects_duplicates_and_blank_ids ... ok
+test post_launch::tests::store_reviews_can_be_filtered_by_store ... ok
+test post_launch::tests::the_crash_report_store_is_bounded_and_retires_a_sent_report_first ... ok
+test post_launch::tests::the_crash_report_bound_holds_even_when_nothing_has_been_sent ... ok
+test post_launch::tests::the_store_review_store_keeps_a_bounded_recent_window ... ok
+test preferences::tests::a_signal_needs_a_meaning_and_a_unique_id ... ok
+test preferences::tests::approvals_and_rejections_net_out ... ok
+test preferences::tests::clearing_drops_the_signals_and_the_clock ... ok
+test preferences::tests::decay_halves_a_signal_after_thirty_days ... ok
+test preferences::tests::decay_never_amplifies_and_never_rewinds ... ok
+test preferences::tests::explain_counts_twice_and_marks_decay ... ok
+test preferences::tests::explain_says_what_the_score_is_built_from ... ok
+test preferences::tests::one_approval_makes_one_preference ... ok
+test preferences::tests::preferences_are_sorted_by_score_then_key ... ok
+test mcp_transport::tests::disconnect_stops_the_process_and_clears_the_connection ... ok
+test preferences::tests::projects_and_owners_do_not_see_each_other ... ok
+test mcp_transport::tests::connect_stdio_handshakes_and_reports_the_servers_tools ... ok
+test preferences::tests::signal_kinds_have_one_direction_and_one_phrase_each ... ok
+test preferences::tests::weight_scales_the_contribution ... ok
+test preferences::tests::signal_serde_is_snake_case_and_round_trips ... ok
+test mcp_transport::tests::send_writes_the_frame_to_a_connected_server ... ok
+test mcp_transport::tests::list_reports_a_server_whose_process_has_gone_as_an_error ... ok
+test mcp_transport::tests::send_to_a_disconnected_or_unwired_server_is_refused ... ok
+test mcp_transport::tests::test_mcp_call_tool_protocol_error ... ok
+test process_spawn::tests::an_empty_command_is_refused ... ok
+test process_spawn::tests::discover_url_reads_the_first_address_a_transcript_carries ... ok
+test process_spawn::tests::preview_silent_probe ... ignored, a child process, not a test
+test preferences::tests::a_second_save_replaces_the_stored_score ... ok
+test process_spawn::tests::preview_status_and_stop_of_an_unknown_project_are_not_found ... ok
+test process_spawn::tests::preview_url_probe ... ignored, a child process, not a test
+test process_spawn::tests::a_finished_process_reports_its_exit_code ... ok
+test preferences::tests::preferences_round_trip_through_the_sqlite_store ... ok
+test process_spawn::tests::list_reports_every_process_without_its_child_handle ... ok
+test process_spawn::tests::a_second_start_for_the_same_project_is_refused ... ok
+test process_spawn::tests::restarting_an_unknown_process_is_not_found ... ok
+test mcp_transport::tests::test_mcp_call_tool_success ... ok
+test process_spawn::tests::preview_reports_the_url_the_dev_server_printed ... ok
+test process_spawn::tests::preview_starts_reports_and_stops_its_dev_server ... ok
+test process_spawn::tests::split_command_double_quote_escapes_and_adjacent_joining ... ok
+test process_spawn::tests::split_command_keeps_a_quoted_program_path_with_spaces ... ok
+test process_spawn::tests::split_command_keeps_the_program_and_its_arguments ... ok
+test process_spawn::tests::split_command_single_quotes_are_literal ... ok
+test process_spawn::tests::split_command_unterminated_quote_is_an_error ... ok
+test process_spawn::tests::split_command_windows_backslash_path_survives_double_quotes ... ok
+test process_spawn::tests::spawn_starts_a_process_and_status_reports_it_running ... ok
+test process_spawn::tests::status_of_an_unknown_id_is_not_found ... ok
+test process_spawn::tests::spawning_a_missing_binary_is_an_error ... ok
+test process_spawn::tests::restart_keeps_the_id_and_starts_a_new_child ... ok
+test process_spawn::tests::restart_replays_the_environment_it_was_spawned_with ... ok
+test prompts::tests::test_all_prompts_load ... ok
+test prompts::tests::test_role_for_stage ... ok
+test provider_setup::tests::pipeline_reaches_the_provider_setup_wizard ... ok
+test router_quality::tests::classifies_prompt_difficulty ... ok
+test router_quality::tests::cost_sink_accumulates_totals ... ok
+test router_quality::tests::difficulty_maps_to_tiers ... ok
+test router_quality::tests::eco_mode_decides_local_vs_cloud ... ok
+test router_quality::tests::eco_mode_defaults_are_off ... ok
+test router_quality::tests::eco_mode_respects_disabled_local_fallback_and_off_switch ... ok
+test router_quality::tests::local_fallback_policy_matches_network_errors ... ok
+test router_quality::tests::owner_override_wins_over_difficulty ... ok
+test router_quality::tests::per_task_defaults_override_the_role_default ... ok
+test router_quality::tests::response_cache_capacity_evicts_the_least_recently_used ... ok
+test router_quality::tests::response_cache_counts_hits_and_misses ... ok
+test router_quality::tests::response_cache_from_env_uses_the_shared_defaults ... ok
+test router_quality::tests::response_cache_insert_sweeps_expired_under_the_bound ... ok
+test router_quality::tests::response_cache_invalidate_and_clear_drop_entries ... ok
+test process_spawn::tests::read_stdout_reports_what_a_child_printed_and_advances_a_cursor ... ok
+test router_quality::tests::target_kind_serialises_and_badges ... ok
+test router_quality::tests::response_cache_never_returns_an_expired_entry ... ok
+test routines::tests::a_failing_runner_parks_the_routine ... ok
+test routines::tests::applying_an_unknown_routine_is_not_found ... ok
+test process_spawn::tests::stop_kills_the_process_and_marks_it_stopped ... ok
+test routines::tests::cron_parser_accepts_the_documented_forms ... ok
+test routines::tests::daily_cron_comes_due_once_per_day ... ok
+test routines::tests::pause_and_resume_drive_the_runner_and_the_state ... ok
+test routines::tests::manual_run_ignores_the_schedule_and_records_the_time ... ok
+test routines::tests::registers_lists_and_removes ... ok
+test process_spawn::tests::spawn_hands_out_a_distinct_id_per_process ... ok
+test routines::tests::rejects_duplicate_bad_id_and_bad_schedule ... ok
+test routines::tests::scheduler_immediate_execution_via_run_now ... ok
+test routines::tests::scheduler_interval_ticking ... ok
+test routines::tests::tick_returns_due_routines_once ... ok
+test routines::tests::scheduler_pausing_and_resuming ... ok
+test routines::tests::tick_skips_manual_paused_and_failed ... ok
+test run_modes::tests::a_blank_bind_host_is_refused_in_every_mode ... ok
+test run_modes::tests::every_mode_requires_pairing_for_remote_devices ... ok
+test run_modes::tests::debug_never_prints_the_pairing_secret ... ok
+test run_modes::tests::for_mode_hosted_is_loopback_and_refused_until_a_relay_is_set ... ok
+test run_modes::tests::for_mode_local_binds_loopback_and_carries_nothing_else ... ok
+test run_modes::tests::for_mode_self_hosted_binds_every_interface_but_needs_an_allow_list ... ok
+test run_modes::tests::hosted_refuses_a_non_loopback_bind_and_a_blank_relay ... ok
+test run_modes::tests::is_loopback_only_reads_the_bind_host_only ... ok
+test run_modes::tests::local_accepts_both_loopback_spellings_and_refuses_everything_else ... ok
+test run_modes::tests::local_refuses_an_allow_list_and_a_relay ... ok
+test run_modes::tests::pairing_create_list_and_revoke_round_trip ... ok
+test run_modes::tests::pairing_refuses_blank_ids_blank_secrets_and_a_second_record ... ok
+test run_modes::tests::revoking_is_idempotent_and_an_unknown_device_is_an_error ... ok
+test process_spawn::tests::write_stdin_reaches_the_child_and_an_unknown_id_is_refused ... ok
+test run_modes::tests::self_hosted_refuses_loopback_and_malformed_allow_list_entries ... ok
+test run_modes::tests::self_hosted_validates_with_an_explicit_bind_and_allow_list ... ok
+test run_modes::tests::the_three_modes_have_stable_tags_labels_and_serde ... ok
+test scale_standards::tests::categories_have_stable_names_and_serde ... ok
+test scale_standards::tests::every_category_has_at_least_one_standard ... ok
+test scale_standards::tests::the_checklist_has_one_reviewable_line_per_standard ... ok
+test scale_standards::tests::the_table_carries_every_required_standard_with_a_unique_namespaced_id ... ok
+test scout::tests::test_license_filtering ... ok
+test scout::tests::test_scout_config_default ... ok
+test scout::tests::test_scout_proposal_creation ... ok
+test skills::tests::test_copyleft_rejected ... ok
+test skills::tests::test_default_role_packs ... ok
+test skills::tests::test_parse_skill_manifest_frontmatter ... ok
+test skills::tests::test_parse_skill_manifest_rejects_bad_frontmatter ... ok
+test skills::tests::test_skill_registry ... ok
+test skills::tests::test_skills_lockfile ... ok
+test routines::tests::scheduler_graceful_stop ... ok
+test process_spawn::tests::stop_on_a_finished_process_is_not_running ... ok
+test process_spawn::tests::stopping_a_preview_twice_is_not_an_error ... ok
+test mcp_transport::tests::test_mcp_call_tool_timeout ... ok
+test run_modes::tests::run_mode_config_round_trips_through_the_sqlite_store ... ok
+test run_modes::tests::pairings_round_trip_through_the_sqlite_store ... ok
+test work_protection::tests::default_policy_matches_the_shipped_settings ... ok
+test work_protection::tests::permission_mode_and_policy_serde_roundtrip ... ok
+test work_protection::tests::read_before_write_blocks_unread_files ... ok
+test work_protection::tests::read_before_write_disabled_allows_every_write ... ok
+test work_protection::tests::snapshot_create_and_restore_roundtrip ... ok
+test work_protection::tests::snapshot_list_is_scoped_to_one_run_and_ordered ... ok
+test work_protection::tests::snapshot_store_rejects_duplicate_and_unknown_ids ... ok
+test work_protection::tests::undo_entry_serde_roundtrip ... ok
+test work_protection::tests::undo_stack_honours_an_explicit_limit ... ok
+test work_protection::tests::undo_stack_is_lifo_and_capped ... ok
+test run_modes::tests::run_mode_config_saves_replace_the_row_for_that_mode ... ok
+test agent_loop::tests::an_agent_turn_backing_off_holds_no_router_lock ... ok
+test tests::a_gate_decision_is_recorded_against_the_device_that_made_it ... ok
+test tests::test_gate_approval ... ok
+test tests::a_gate_that_was_already_decided_is_not_decided_twice ... ok
+test tests::test_gate_rejection ... ok
+test tests::test_pipeline_start_run ... ok
+test tests::test_gate_b_blocks_advance_to_design ... ok
+test process_spawn::tests::preview_url_stays_none_when_the_server_prints_no_address ... ok
+test mcp_transport::tests::a_server_that_never_answers_is_a_clean_error ... ok
+test process_spawn::tests::kill_all_kills_and_reaps_every_live_child ... ok
+
+test result: ok. 344 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 29.64s
+
+     Running tests\fake_e2e.rs (target\debug\deps\fake_e2e-8e61248f79faef34.exe)
+
+running 6 tests
+test the_fake_is_registered_on_every_router_by_default ... ok
+test cancel_run_marks_the_run_cancelled_with_its_reason_on_the_log ... ok
+test a_walk_without_an_approval_stops_at_the_pending_gate ... ok
+test followup_run_records_a_deterministic_answer_without_moving_the_stage ... ok
+test a_routed_role_still_answers_from_its_routed_provider ... ok
+test a_zero_config_run_walks_every_gate_to_feedback_completed ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s
+
+     Running tests\harness_skills_wiring.rs (target\debug\deps\harness_skills_wiring-8207a915effa9891.exe)
+
+running 4 tests
+test execute_stage_uses_default_prompt_when_no_harness_template ... ok
+test execute_stage_combines_harness_template_and_skills ... ok
+test execute_stage_prepends_enabled_skills_to_prompt ... ok
+test execute_stage_uses_harness_prompt_template_when_available ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+     Running tests\real_llm_failure.rs (target\debug\deps\real_llm_failure-4e8e7f210b117dd6.exe)
+
+running 1 test
+test a_refused_real_llm_call_fails_the_run_records_it_and_scrubs_the_key ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running unittests src\lib.rs (target\debug\deps\warsha_providers-11d2b53ac13fcbb7.exe)
+
+running 58 tests
+test env_llm::tests::unset_env_falls_back_to_the_documented_defaults ... ok
+test env_llm::tests::blank_values_count_as_unset ... ok
+test env_llm::tests::set_values_are_trimmed_and_kept ... ok
+test env_llm::tests::from_env_reads_the_process_environment_without_panicking ... ok
+test env_llm::tests::the_key_is_never_printed_by_debug ... ok
+test openai::tests::from_env_config_without_a_key_is_an_auth_error_that_leaks_nothing ... ok
+test fake::tests::models_health_and_cost_are_the_documented_constants ... ok
+test fake::tests::streaming_is_the_same_deterministic_answer_in_one_chunk ... ok
+test fake::tests::a_followup_prompt_answers_as_general_and_is_stable ... ok
+test fake::tests::the_same_prompt_answers_identically_twice ... ok
+test fake::tests::fake_answers_through_a_router_with_no_routing_configured ... ok
+test fake::tests::every_stage_prompt_gets_a_distinct_non_empty_artifact ... ok
+test fake::tests::different_prompts_produce_different_artifacts_for_one_stage ... ok
+test provider_setup::tests::a_reason_is_one_sentence_and_none_when_everything_passed ... ok
+test provider_setup::tests::connection_test_passes_when_all_three_inputs_are_valid ... ok
+test provider_setup::tests::connection_test_rejects_a_bad_key ... ok
+test provider_setup::tests::connection_test_rejects_a_bad_model ... ok
+test provider_setup::tests::connection_test_rejects_a_bad_url ... ok
+test provider_setup::tests::connection_test_reports_all_three_failures_at_once ... ok
+test provider_setup::tests::one_click_providers_carry_default_urls ... ok
+test provider_setup::tests::one_click_provider_tags_round_trip_through_serde ... ok
+test provider_setup::tests::tags_identify_variants_and_carry_a_default_model ... ok
+test openai::tests::from_env_config_uses_the_env_defaults_when_the_lookup_is_empty ... ok
+test provider_update::tests::a_skipped_version_is_never_installed ... ok
+test provider_update::tests::a_pinned_version_holds_the_provider ... ok
+test openai::tests::from_env_config_builds_without_keychain_or_network ... ok
+test provider_update::tests::an_active_run_skips_every_provider ... ok
+test provider_update::tests::an_unknown_channel_is_skipped ... ok
+test provider_update::tests::check_provider_model_updates_discovers_from_provider ... ok
+test provider_update::tests::mocks_report_detection_and_channels ... ok
+test provider_update::tests::auto_install_requires_the_per_provider_toggle ... ok
+test provider_update::tests::notify_only_reports_the_new_version ... ok
+test provider_update::tests::off_mode_plans_nothing ... ok
+test provider_update::tests::reconcile_model_catalog_appends_new_models_without_overwriting ... ok
+test secrets::tests::a_re_store_replaces_the_previous_key ... ok
+test secrets::tests::debug_prints_accounts_and_not_keys ... ok
+test secrets::tests::store_load_and_delete_round_trip ... ok
+test secrets::tests::the_keychain_store_names_the_service_and_the_account ... ok
+test secrets::tests::two_providers_do_not_share_one_entry ... ok
+test tests::a_non_retryable_error_is_not_retried_and_does_not_fall_back ... ok
+test tests::a_router_handle_shares_its_ledger_and_its_adapters ... ok
+test tests::budget_guard_blocks_before_any_spend ... ok
+test tests::backoff_grows_exponentially_and_is_capped ... ok
+test tests::jittered_backoff_stays_within_the_cap ... ok
+test tests::retry_policy_defaults_are_bounded ... ok
+test tests::retryable_and_non_retryable_errors_are_distinguished ... ok
+test tests::test_budget_enforcement ... ok
+test tests::test_mock_provider ... ok
+test tests::test_mock_provider_failure ... ok
+test tests::test_router_fallback ... ok
+test tests::total_attempts_are_capped_across_the_walk ... ok
+test tests::two_integrated_paid_calls_reach_the_provider_at_the_same_time ... ok
+test provider_setup::tests::a_probe_that_gets_a_model_list_is_healthy_and_carries_the_key ... ok
+test provider_setup::tests::a_probe_refused_by_the_key_says_the_key_was_refused ... ok
+test tests::spend_aware_concurrency_caps_in_flight_calls ... ok
+test tests::a_backoff_sleep_holds_no_router_lock ... ok
+test provider_setup::tests::a_probe_of_an_unreachable_endpoint_reports_that_it_could_not_be_reached ... ok
+test provider_setup::tests::a_wrong_key_and_an_unreachable_endpoint_are_different_answers ... ok
+
+test result: ok. 58 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.06s
+
+     Running unittests src\lib.rs (target\debug\deps\warsha_relay-4096c14afdbaba0b.exe)
+
+running 17 tests
+test tests::a_credential_comes_from_the_header_or_the_query_and_never_from_an_identity_field ... ok
+test tests::a_relay_with_no_credentials_trusts_nothing ... ok
+test tests::a_named_device_with_no_readable_record_stops_the_start ... ok
+test tests::a_record_from_the_secret_store_authenticates_the_device_it_names ... ok
+test tests::a_frame_for_a_device_with_no_channel_is_dropped_not_delivered_widely ... ok
+test tests::a_registered_device_receives_a_frame_it_authenticated ... ok
+test tests::an_unreadable_record_is_refused_rather_than_skipped ... ok
+test tests::a_frame_claiming_another_device_is_refused_in_both_directions ... ok
+test tests::an_unreadable_or_absent_credential_authenticates_nothing ... ok
+test tests::authentication_attempts_are_bounded_per_peer_and_answer_429 ... ok
+test tests::every_refusal_carries_the_status_a_client_can_act_on ... ok
+test tests::no_relay_type_prints_a_credential ... ok
+test tests::saving_trust_records_writes_to_the_secret_store_and_serves_nothing ... ok
+test tests::the_device_map_is_bounded_and_refuses_more_channels ... ok
+test tests::a_plaintext_pairing_file_is_refused_and_never_opened ... ok
+test tests::ephemeral_startup_records_are_read_from_a_pipe_and_nothing_is_written ... ok
+test tests::a_flood_of_relay_refusals_is_counted_and_not_written_per_request ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src\main.rs (target\debug\deps\warsha_relay-32d5fe83343be9d2.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\relay_endpoints.rs (target\debug\deps\relay_endpoints-a28a8015ac62cecb.exe)
+
+running 8 tests
+test a_relay_without_pairings_authenticates_no_channel ... ok
+test a_query_credential_authenticates_the_same_device_as_a_header ... ok
+test the_health_endpoint_is_bounded_per_peer ... ok
+test an_oversized_frame_is_refused_with_413 ... ok
+test an_open_channel_delivers_to_its_owner_and_refuses_another_identity ... ok
+test a_channel_without_a_credential_or_with_a_claimed_identity_is_refused ... ok
+test a_caller_past_its_ceiling_is_answered_429_with_a_retry_after ... ok
+test an_unauthenticated_or_mismatched_submission_is_refused ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src\lib.rs (target\debug\deps\warsha_remote-5105d2ef14c49bcf.exe)
+
+running 35 tests
+test rate_limit::tests::a_zero_window_is_not_a_division_by_zero ... ok
+test rate_limit::tests::a_bucket_that_has_refilled_to_full_is_pruned_and_its_slot_reused ... ok
+test rate_limit::tests::a_pure_burst_quota_never_refills ... ok
+test rate_limit::tests::a_refusal_names_a_retry_after_and_an_allowed_request_does_not ... ok
+test rate_limit::tests::a_caller_is_served_up_to_its_burst_and_then_refused ... ok
+test rate_limit::tests::a_refusal_line_prints_counts_and_a_digest_and_never_the_caller_s_credential ... ok
+test rate_limit::tests::an_authenticated_identity_keys_the_bucket_and_a_peer_is_the_fallback ... ok
+test rate_limit::tests::clearing_forgets_the_history_of_a_changed_policy ... ok
+test rate_limit::tests::a_pair_speaks_when_it_starts_being_refused_and_then_once_per_interval ... ok
+test rate_limit::tests::peek_reports_the_bucket_without_spending_a_token ... ok
+test rate_limit::tests::one_key_exhaustion_does_not_answer_for_another ... ok
+test rate_limit::tests::the_key_map_is_bounded_and_a_new_key_fails_closed_when_it_is_full ... ok
+test rate_limit::tests::the_strictest_of_two_quotas_wins ... ok
+test rate_limit::tests::the_sustained_ceiling_refills_the_bucket_over_the_window ... ok
+test tests::a_blank_pairing_origin_is_refused_without_repeating_a_credential ... ok
+test tests::a_bearer_token_round_trips_and_authenticates_the_same_device ... ok
+test tests::a_pairing_origin_escapes_exactly_as_encodeuri_component_does ... ok
+test tests::a_pairing_link_names_the_daemon_to_dial_and_the_token_to_present ... ok
+test tests::a_trust_entry_built_from_a_stored_token_authenticates_the_same_device ... ok
+test tests::a_relay_client_carries_the_credential_its_own_pairing_names ... ok
+test tests::a_trusted_pairing_authenticates_its_secret_and_binds_the_device_id ... ok
+test tests::an_expired_pairing_authenticates_no_device ... ok
+test tests::an_unknown_mismatched_or_short_secret_authenticates_no_device ... ok
+test tests::no_printable_form_of_a_pairing_or_a_trust_list_carries_its_secret ... ok
+test tests::re_pairing_a_device_retires_its_previous_secret ... ok
+test tests::test_device_identity_generation ... ok
+test tests::test_pairing_data ... ok
+test tests::test_encrypted_channel_creation ... ok
+test tests::test_device_registry ... ok
+test rate_limit::tests::the_meter_is_bounded_and_folds_extra_callers_into_one_aggregate ... ok
+test tests::a_serialized_offer_carries_the_link_and_the_plate_it_was_minted_with ... ok
+test tests::no_printable_form_of_a_pairing_offer_carries_its_link_or_its_secret ... ok
+test tests::an_offer_advertises_the_origin_it_was_minted_at_and_a_plate_that_matches ... ok
+test tests::a_qr_plate_is_a_decodable_png_of_the_text_it_was_handed ... ok
+test rate_limit::tests::a_flood_of_refusals_writes_one_line_and_not_one_line_per_refusal ... ok
+
+test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.38s
+
+     Running unittests src\lib.rs (target\debug\deps\warsha_store-1304a44214d38599.exe)
+
+running 35 tests
+test persistence::tests::open_refuses_a_blank_path ... ok
+test persistence::tests::debug_redacts_the_pairing_secret ... ok
+test persistence::tests::open_creates_the_database_file_in_wal_mode ... ok
+test persistence::tests::migrate_creates_the_settings_tables_and_is_idempotent ... ok
+test persistence::tests::save_and_load_a_preference_round_trip ... ok
+test persistence::tests::save_and_load_a_backend_kit_round_trip ... ok
+test persistence::tests::plugin_crud_and_toggle_round_trip ... ok
+test persistence::tests::save_and_load_pairings_keeps_revoked_rows ... ok
+test persistence::tests::provider_crud_round_trips_through_the_store ... ok
+test persistence::tests::preferences_load_by_score_then_key ... ok
+test persistence::tests::custom_model_crud_and_toggle_round_trip ... ok
+test persistence::tests::save_and_load_a_run_mode_round_trip ... ok
+test tests::embedded_migrator_versions_are_lf_only ... ok
+test tests::migration_sql_files_contain_no_cr_bytes ... ok
+test persistence::tests::integration_crud_round_trip ... ok
+test persistence::tests::saving_the_same_preference_replaces_the_row ... ok
+test persistence::tests::harness_crud_and_active_selection_round_trip ... ok
+test persistence::tests::wal_mode_survives_a_reopen ... ok
+test persistence::tests::skill_crud_and_toggle_round_trip ... ok
+test tests::creates_database_and_migrates ... ok
+test tests::missing_project_is_reported ... ok
+test tests::appends_and_reads_events ... ok
+test tests::lists_gates_in_creation_order ... ok
+test tests::lists_artifacts_in_creation_order ... ok
+test tests::round_trips_a_gate ... ok
+test tests::appending_an_event_publishes_it_on_the_stores_bus ... ok
+test tests::persists_a_gate_state_transition ... ok
+test tests::deleting_a_run_cascades_to_children ... ok
+test tests::reads_an_event_whose_device_id_is_set ... ok
+test tests::round_trips_a_project ... ok
+test tests::round_trips_a_run ... ok
+test tests::updates_a_missing_gate_is_reported ... ok
+test tests::round_trips_an_artifact_record ... ok
+test tests::sums_recorded_costs ... ok
+test tests::writes_and_reads_artifacts ... ok
+
+test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
+
+     Running unittests src\lib.rs (target\debug\deps\warshad-7b3880424b529e45.exe)
+
+running 98 tests
+test auth::tests::a_role_covers_only_what_it_carries ... ok
+test auth::tests::a_paired_device_with_a_non_device_id_has_no_approver_to_record ... ok
+test auth::tests::a_program_name_is_the_last_segment_without_an_extension ... ok
+test auth::tests::a_transport_is_restricted_to_tls_or_loopback ... ok
+test auth::tests::a_rooted_path_without_a_drive_prefix_is_in_scope_on_windows ... ok
+test auth::tests::a_command_is_allowed_only_by_the_policy_and_no_shell_syntax_passes ... ok
+test auth::tests::a_caller_past_a_ceiling_is_measured_per_identity_and_per_tier ... ok
+test auth::tests::a_path_inside_the_daemon_s_own_data_dir_is_in_scope ... ok
+test auth::tests::a_pairing_secret_authenticates_its_device_and_a_revoked_one_does_not ... ok
+test auth::tests::an_environment_variable_that_hijacks_execution_is_refused ... ok
+test auth::tests::an_expired_pairing_is_not_a_session ... ok
+test auth::tests::an_unrooted_data_dir_grants_no_scope ... ok
+test auth::tests::every_privileged_mutation_names_the_owner_and_a_session_does_not_reach_it ... ok
+test auth::tests::the_owner_credential_wins_over_a_pairing_holding_the_same_secret ... ok
+test auth::tests::the_owner_token_authenticates_the_owner_and_nothing_else_does ... ok
+test auth::tests::the_rpc_refusal_codes_are_distinct_from_the_servers_generic_error ... ok
+test auth::tests::the_scope_test_compares_components_and_never_a_string_prefix ... ok
+test auth::tests::the_strictest_ceilings_are_on_credentials_and_spend ... ok
+test auth::tests::the_transport_ceiling_is_the_widest_and_is_measured_before_a_credential ... ok
+test auth::tests::the_windows_spelling_of_a_component_reduces_to_the_plain_form ... ok
+test providers::tests::the_keychain_address_is_the_one_the_daemon_stores_the_key_under ... ok
+test providers::tests::a_tag_is_normalised_the_way_the_wizard_normalises_it ... ok
+test providers::tests::the_reported_kind_follows_the_adapter_choice ... ok
+test providers::tests::the_two_named_protocols_are_matched_and_everything_else_is_openai_compatible ... ok
+test providers::tests::the_mock_factory_answers_under_the_providers_own_name ... ok
+test providers::tests::a_removed_provider_refuses_every_call_under_its_id ... ok
+test providers::tests::a_row_with_no_endpoint_is_refused_before_anything_is_called ... ok
+test providers::tests::a_deferred_provider_builds_once_and_keeps_the_adapter ... ok
+test providers::tests::a_deferred_provider_that_cannot_be_built_says_why_and_builds_nothing_else ... ok
+test auth::tests::a_sibling_of_the_data_dir_is_out_of_scope_in_a_real_tree ... ok
+test auth::tests::case_is_not_part_of_a_directory_name_on_windows ... ok
+test auth::tests::an_absolute_path_that_climbs_out_of_the_data_dir_is_not_in_scope ... ok
+test tests::a_providers_endpoint_falls_back_to_its_kinds_default ... ok
+test tests::a_providers_model_comes_from_its_kind_and_blank_input_is_no_input ... ok
+test auth::tests::a_verbatim_or_mixed_case_form_of_the_data_dir_is_in_scope_on_windows ... ok
+test settings::tests::a_document_written_by_one_daemon_is_read_by_the_next ... ok
+test settings::tests::a_document_that_does_not_parse_is_an_error_and_not_an_empty_one ... ok
+test settings::tests::a_name_that_could_escape_the_data_directory_is_refused ... ok
+test settings::tests::rewriting_a_document_replaces_it_whole ... ok
+test settings::tests::open_creates_the_file_and_applies_the_schema ... ok
+test settings::tests::a_provider_round_trips_through_the_settings_store ... ok
+test settings::tests::a_run_mode_and_a_backend_kit_round_trip_through_the_store ... ok
+test settings::tests::wave_two_rows_round_trip_through_the_settings_store ... ok
+test tests::a_flood_of_refusals_is_counted_and_earns_one_line ... ok
+test tests::a_session_with_no_device_id_cannot_be_recorded_as_an_approver ... ok
+test tests::agent_turn_runs_a_tool_inside_the_agent_workspace ... ok
+test tests::a_read_is_measured_by_its_own_tier_and_not_only_by_the_transport ... ok
+test tests::a_gate_decision_refuses_a_device_id_that_is_not_the_session ... ok
+test tests::agent_turn_plans_first_and_executes_after_the_owner_approves ... ok
+test tests::mcp_probe_server ... ignored, a child process, not a test
+test tests::every_registered_method_has_a_policy_and_no_policy_names_a_missing_one ... ok
+test tests::preview_probe ... ignored, a child process, not a test
+test tests::apply_handoff_writes_the_files_and_reports_the_conflict_and_backup ... ok
+test tests::apply_handoff_refuses_a_run_with_no_project_repo ... ok
+test tests::export_backend_names_the_dump_after_the_run_project ... ok
+test tests::an_authorized_method_refuses_no_session_and_a_paired_device_differently ... ok
+test tests::gates_list_answers_every_gate_stage_in_pipeline_order ... ok
+test tests::gates_list_answers_the_flat_state_shape_the_client_declares ... ok
+test tests::gates_list_is_registered_and_policied_as_one_method ... ok
+test tests::test_config_generation ... ok
+test tests::the_default_backend_kit_comes_from_the_run_project ... ok
+test tests::mcp_connect_records_an_http_transport_without_dialling_it ... ok
+test tests::gates_list_refuses_a_run_the_store_does_not_have ... ok
+test tests::process_and_mcp_control_refuse_an_unlisted_program_and_a_remote_transport ... ok
+test wave2::tests::a_directory_key_cannot_name_a_parent ... ok
+test wave2::tests::a_directory_lists_and_a_file_reads_with_its_type ... ok
+test wave2::tests::a_harness_import_refuses_nothing_at_all_and_a_format_it_cannot_read ... ok
+test wave2::tests::a_harness_row_round_trips_and_a_broken_one_reads_from_the_columns ... ok
+test wave2::tests::a_model_record_round_trips ... ok
+test wave2::tests::a_named_skill_import_adopts_the_name_the_owner_typed ... ok
+test wave2::tests::a_path_that_climbs_or_starts_elsewhere_is_refused ... ok
+test wave2::tests::a_plain_env_value_becomes_a_keychain_write_and_a_reference_in_the_row ... ok
+test wave2::tests::a_plugin_manifest_is_read_and_its_transport_is_checked ... ok
+test wave2::tests::a_plugin_row_round_trips_through_its_json_columns ... ok
+test wave2::tests::a_skill_pack_reads_its_front_matter_and_keeps_its_body ... ok
+test wave2::tests::a_skill_url_is_refused_and_a_json_row_is_read ... ok
+test wave2::tests::a_skill_without_front_matter_is_still_a_skill ... ok
+test wave2::tests::a_slug_folds_punctuation_and_never_comes_back_empty ... ok
+test wave2::tests::a_symlink_in_the_tree_is_not_offered ... ok
+test wave2::tests::an_imported_harness_keeps_its_stages_and_becomes_user_authored ... ok
+test wave2::tests::an_imported_harness_names_itself_when_the_file_gave_no_id ... ok
+test wave2::tests::an_integration_row_carries_no_token_and_its_status_says_what_is_on_file ... ok
+test wave2::tests::an_unclosed_front_matter_is_read_as_body_not_lost ... ok
+test wave2::tests::mime_types_come_from_the_extension_and_unknown_is_text ... ok
+test tests::mcp_rpcs_connect_send_and_disconnect_a_stdio_server ... ok
+test wave2::tests::resolve_inside_follows_the_filesystem_and_refuses_a_link_that_escapes ... ok
+test wave2::tests::the_files_root_is_the_repository_when_there_is_one_and_a_named_folder_when_there_is_not ... ok
+test tests::process_rpcs_spawn_list_report_and_stop_a_real_process ... ok
+test tests::preview_rpcs_start_report_and_stop_one_dev_server_per_project ... ok
+test tests::providers_check_models_rpc ... ok
+test tests::skills_list_reports_the_slash_command_catalog ... ok
+test tests::routines_rpcs_list_get_run_now_pause_and_resume ... ok
+test tests::the_pipeline_refuses_a_gate_decision_for_no_device ... ok
+test tests::the_gates_queue_reads_on_any_verified_session_and_refuses_without_one ... ok
+test tests::the_startup_listener_lines_are_written_once ... ok
+test tests::recording_a_preference_is_a_write_with_a_ceiling_and_an_actor ... ok
+test wave2::tests::seeding_fills_an_empty_catalog_and_leaves_an_edited_one_alone ... ok
+test tests::every_read_method_refuses_a_caller_with_no_session ... ok
+
+test result: ok. 96 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 7.05s
+
+     Running unittests src\main.rs (target\debug\deps\warshad-23cacead6bd93efc.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\agent_provider.rs (target\debug\deps\agent_provider-71a06495855d77a4.exe)
+
+running 8 tests
+test the_reserved_mock_provider_name_cannot_be_configured ... ok
+test an_unauthorized_caller_changes_no_routing ... ok
+test roles_set_refuses_a_routing_it_could_not_honour ... ok
+test agent_mode_reaches_the_provider_the_owner_configured_and_routed ... ok
+test the_budget_in_the_routing_caps_the_agents_spend_and_comes_back_after_a_restart ... ok
+test a_restart_keeps_the_routing_the_approval_history_and_the_todos ... ok
+test removing_a_provider_removes_the_routings_that_named_it ... ok
+test returning_to_plan_mode_is_recorded_and_stored ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.26s
+
+     Running tests\child_reaping.rs (target\debug\deps\child_reaping-1ae90f64955144be.exe)
+
+running 5 tests
+test reap_probe_child ... ignored, a child process, not a test
+test a_restart_takes_the_data_directory_back_and_the_lock_file_stays ... ok
+test a_child_that_already_exited_does_not_stop_a_shutdown ... ok
+test a_handle_dropped_without_a_shutdown_still_reaps_its_children ... ok
+test shutting_the_daemon_down_kills_and_reaps_every_child ... ok
+
+test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 3.20s
+
+     Running tests\devices_pair.rs (target\debug\deps\devices_pair-8be5e8ac562f1fd3.exe)
+
+running 4 tests
+test a_minted_pairing_authenticates_the_session_and_dies_on_revoke ... ok
+test a_qr_payload_walks_both_ends_of_the_pairing_round_trip ... ok
+test a_string_payload_is_still_refused_in_serdes_own_words ... ok
+test a_pairing_struct_is_accepted_in_the_shape_the_client_now_sends ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.88s
+
+     Running tests\e2e_real_arabic_request.rs (target\debug\deps\e2e_real_arabic_request-0ac1fe0c12209ba5.exe)
+
+running 2 tests
+test test_real_mode_fails_cleanly_without_key ... ok
+test e2e_real_arabic_request_clinic_flow ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.45s
+
+     Running tests\e2e_request_to_artifact.rs (target\debug\deps\e2e_request_to_artifact-3f6ea10b828c91af.exe)
+
+running 1 test
+test e2e_request_to_artifact ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.74s
+
+     Running tests\events_stream_sync.rs (target\debug\deps\events_stream_sync-ea7aa7ecd50e2f20.exe)
+
+running 6 tests
+test windows_firewall_command_names_netsh_and_both_ports ... ok
+test scrub_event_payload_redacts_tokens_keys_and_bearer_credentials ... ok
+test a_cursor_the_ring_cannot_honour_answers_gap_and_resync ... ok
+test reconnecting_with_last_event_id_header_replays_later_frames_too ... ok
+test reconnecting_with_since_seq_replays_later_frames_in_exact_order ... ok
+test seq_is_monotonic_across_start_advance_approve_followup_cancel_artifacts ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.23s
+
+     Running tests\events_ws_auth.rs (target\debug\deps\events_ws_auth-14fa076d7477105c.exe)
+
+running 9 tests
+test a_credential_carried_only_in_the_subprotocol_opens_the_events_socket ... ok
+test a_caller_with_no_credential_gets_no_socket_and_so_no_stream ... ok
+test every_refused_events_credential_is_refused_the_same_way ... ok
+test the_authorization_header_still_opens_the_events_socket_unchanged ... ok
+test the_subprotocol_credential_is_read_on_events_only ... ok
+test the_credential_never_reaches_the_wire_or_the_logs ... ok
+test a_paired_phone_secret_opens_the_events_socket_through_the_subprotocol ... ok
+test a_token_in_the_url_is_not_a_credential_and_is_not_echoed ... ok
+test the_handshake_selects_the_data_plane_protocol_the_client_offered ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.96s
+
+     Running tests\events_ws_live.rs (target\debug\deps\events_ws_live-d25f3cb36a6a9f95.exe)
+
+running 2 tests
+test a_run_start_with_no_socket_attached_is_persisted_and_readable_afterwards ... ok
+test an_open_events_socket_receives_the_events_a_run_start_and_a_gate_decision_produce ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.76s
+
+     Running tests\gates_list.rs (target\debug\deps\gates_list-e73111ce08d19204.exe)
+
+running 5 tests
+test the_gates_queue_refuses_an_unknown_run_and_a_caller_with_no_credential ... ok
+test named_keys_that_are_not_a_casing_of_the_argument_are_refused_as_invalid_params ... ok
+test a_paired_phone_reads_the_queue_it_is_asked_to_decide ... ok
+test the_gates_queue_is_served_over_the_wire_in_the_flat_shape ... ok
+test a_required_param_binds_from_a_positional_array_and_from_either_casing_of_its_name ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.14s
+
+     Running tests\m1_daemon.rs (target\debug\deps\m1_daemon-2c3ac66a243d536f.exe)
+
+running 3 tests
+test second_instance_is_locked_out ... ok
+test unauthenticated_calls_are_rejected ... ok
+test restart_survives_with_state_intact ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+     Running tests\process_path_scope.rs (target\debug\deps\process_path_scope-f1743a3ed7854cbc.exe)
+
+running 4 tests
+test a_data_dir_that_names_no_root_grants_nothing ... ok
+test a_sibling_of_the_data_dir_is_out_of_scope_however_it_is_named ... ok
+test a_program_the_daemon_owns_is_in_scope_under_every_spelling ... ok
+test a_windows_spelling_of_an_in_scope_path_is_still_in_scope ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\provider_persistence.rs (target\debug\deps\provider_persistence-19b187148a6e3de8.exe)
+
+running 6 tests
+test adding_a_provider_refuses_input_it_cannot_use ... ok
+test removing_a_provider_removes_its_row_and_its_key ... ok
+test a_key_pasted_with_surrounding_whitespace_is_stored_trimmed ... ok
+test a_provider_added_over_rpc_survives_a_restart_and_leaves_no_key_on_disk ... ok
+test a_provider_whose_key_the_keychain_lost_is_refused ... ok
+test a_wrong_key_an_unreachable_endpoint_and_a_good_key_are_three_answers ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.30s
+
+     Running tests\security_identity.rs (target\debug\deps\security_identity-81b04e9c12af04db.exe)
+
+running 5 tests
+test a_pairing_that_names_no_device_id_cannot_decide_a_gate ... ok
+test no_credential_and_a_near_miss_reach_no_authorized_method ... ok
+test process_and_mcp_control_are_owner_only_and_bounded_by_configuration ... ok
+test a_gate_decision_records_the_session_and_refuses_a_claimed_device ... ok
+test a_paired_device_is_a_session_but_not_the_owner ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+     Running tests\security_rate_limits.rs (target\debug\deps\security_rate_limits-1ded944ef2b7b4cd.exe)
+
+running 9 tests
+test a_read_is_refused_by_the_method_tier_while_the_transport_still_answers ... ok
+test the_events_socket_is_bounded_per_caller ... ok
+test pairing_is_bounded_before_anything_else ... ok
+test a_flood_of_bad_credentials_is_bounded_at_the_transport ... ok
+test the_http_listener_answers_429_with_a_retry_after ... ok
+test a_read_without_a_credential_is_refused_before_it_reads ... ok
+test paid_work_is_bounded_before_it_can_spend ... ok
+test the_default_ceilings_do_not_interrupt_a_working_session ... ok
+test a_ceiling_belongs_to_the_identity_that_earned_it ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.46s
+
+     Running tests\settings_persistence.rs (target\debug\deps\settings_persistence-e80f9f0618c20b3e.exe)
+
+running 2 tests
+test every_stored_setting_comes_back_after_a_restart ... ok
+test a_revoked_pairing_stays_revoked_and_a_refused_setting_is_not_stored ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.27s
+
+     Running tests\static_serving.rs (target\debug\deps\static_serving-05ebfd99fe23fd6c.exe)
+
+running 6 tests
+test the_root_serves_index_html_unauthenticated_and_no_cache ... ok
+test every_traversal_spelling_is_refused_and_reads_nothing ... ok
+test without_a_bundle_configured_the_root_still_404s ... ok
+test the_reserved_daemon_routes_are_never_served_from_the_bundle ... ok
+test a_client_route_falls_back_to_the_shell_and_a_missing_file_does_not ... ok
+test a_hashed_asset_is_typed_and_served_immutable ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+     Running tests\wave2_rpc.rs (target\debug\deps\wave2_rpc-579b45be380fa194.exe)
+
+running 5 tests
+test test_wave2_harness_rpc_lifecycle ... ok
+test test_wave2_files_rpc_tree_read_and_traversal_rejection ... ok
+test test_wave2_models_and_providers_test_rpc ... ok
+test test_wave2_integrations_rpc_and_credential_validation ... ok
+test test_wave2_skills_and_plugins_rpc_lifecycle ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+EXIT=0

@@ -1,0 +1,7 @@
+gate: G3.S (scope vs BASE 5abe5ef)
+command: git diff --name-only 5abe5ef..HEAD | grep -vE '^packages/ui/(src/|\.storybook/|README\.md$)' | wc -l
+commit: 0f829731273d722ae21f25e26a54767bc852fe56
+utc: 2026-11-08T10:23:39Z
+--- output ---
+0
+exit: 0

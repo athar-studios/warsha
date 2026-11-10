@@ -1,0 +1,14 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.91s
+     Running unittests src\lib.rs (target\debug\deps\warsha_pipeline-214fd92e5d6adae7.exe)
+
+running 7 tests
+test run_integrity::tests::interrupted_run_marked_paused_and_resumable ... ok
+test run_integrity::tests::concurrent_advances_execute_each_stage_only_once ... ok
+test run_integrity::tests::change_request_reopens_gate_and_reruns_stage_with_feedback ... ok
+test run_integrity::tests::budget_exceeded_pauses_and_resumes_after_budget_increase ... ok
+test run_integrity::tests::cancel_during_stage_aborts_worker_and_leaves_no_artifact ... ok
+test run_integrity::tests::stale_stage_write_cannot_overwrite_cancelled_status ... ok
+test run_integrity::tests::two_different_runs_can_advance_concurrently ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 357 filtered out; finished in 0.91s
+

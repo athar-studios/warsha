@@ -1,0 +1,268 @@
+From bae6c0bbb056dccffc78f561b572bb21398a8db3 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Mon, 9 Nov 2026 17:39:12 +0400
+Subject: [PATCH 5/5] ci(lint): add check-ds-v3 linter and self-test suite
+
+Lints Design System v3 constraints: forbids hex color literals,
+length literals (px/rem/em), physical direction properties, numeric
+z-index values, and !important outside the tokens directory.
+Includes --self-test suite.
+---
+ scripts/check-ds-v3.mjs | 245 ++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 245 insertions(+)
+ create mode 100644 scripts/check-ds-v3.mjs
+
+diff --git a/scripts/check-ds-v3.mjs b/scripts/check-ds-v3.mjs
+new file mode 100644
+index 0000000..124b282
+--- /dev/null
++++ b/scripts/check-ds-v3.mjs
+@@ -0,0 +1,245 @@
++#!/usr/bin/env node
++// scripts/check-ds-v3.mjs — lint Design System v3 rules (DS v3 §2.6, §7).
++//
++// Fails on:
++//   - hex colours (#[0-9a-fA-F]{3,8})
++//   - px/rem/em literals (\b\d+(?:\.\d+)?(?:px|rem|em)\b)
++//   - physical direction properties (left, right, margin-left, padding-right, text-align: left|right, ...)
++//   - numeric zIndex (zIndex: \d+)
++//   - !important
++//
++// in .ts/.tsx/.css under the given paths, EXCEPT packages/ui/src/v3/tokens/**.
++
++import fs from 'node:fs';
++import os from 'node:os';
++import path from 'node:path';
++
++const RULES = [
++  {
++    id: 'hex-colour',
++    name: 'hex colour',
++    pattern: /#[0-9a-fA-F]{3,8}\b/,
++    message: 'hex colour literal is forbidden in v3 (use semantic tokens --w-*)',
++  },
++  {
++    id: 'length-literal',
++    name: 'length literal',
++    pattern: /\b\d+(?:\.\d+)?(?:px|rem|em)\b/,
++    message: 'px/rem/em literal is forbidden in v3 (use semantic tokens --w-space-*, --w-font-size-*, etc.)',
++  },
++  {
++    id: 'physical-direction',
++    name: 'physical direction property',
++    pattern: /(?:\b(?:left|right)\s*:|\b(?:margin|padding|border)(?:-left|-right|Left|Right)\b|\bborder(?:Top|Bottom)(?:Left|Right)Radius\b|\bborder-(?:top|bottom)-(?:left|right)-radius\b|\btext-align\s*:\s*(?:left|right)\b|\btextAlign\s*:\s*['"]?(?:left|right)\b|\bfloat\s*:\s*(?:left|right)\b|\bclear\s*:\s*(?:left|right)\b)/,
++    message: 'physical direction is forbidden in v3 (use logical properties: inline-start, inline-end, margin-inline, padding-inline, etc.)',
++  },
++  {
++    id: 'numeric-zindex',
++    name: 'numeric zIndex',
++    pattern: /\b(?:zIndex|z-index)\s*:\s*\d+\b/,
++    message: 'numeric zIndex is forbidden in v3 (use layer tokens --w-layer-*)',
++  },
++  {
++    id: 'important',
++    name: '!important',
++    pattern: /!important\b/,
++    message: '!important is forbidden in v3',
++  },
++];
++
++function isExempt(filePath) {
++  const norm = filePath.replace(/\\/g, '/');
++  return norm.includes('packages/ui/src/v3/tokens');
++}
++
++function stripComments(source) {
++  return source
++    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
++    .replace(/(^|[^:])\/\/[^\n]*/g, (m, p) => p + ' '.repeat(m.length - p.length));
++}
++
++function scanFile(filePath) {
++  if (isExempt(filePath)) return [];
++
++  const ext = path.extname(filePath);
++  if (!['.ts', '.tsx', '.css'].includes(ext)) return [];
++
++  const raw = fs.readFileSync(filePath, 'utf8');
++  const stripped = stripComments(raw);
++  const lines = stripped.split(/\r?\n/);
++  const rawLines = raw.split(/\r?\n/);
++
++  const violations = [];
++
++  for (let i = 0; i < lines.length; i++) {
++    const line = lines[i];
++    const lineNum = i + 1;
++
++    for (const rule of RULES) {
++      if (rule.pattern.test(line)) {
++        violations.push({
++          file: filePath,
++          line: lineNum,
++          rule: rule.id,
++          name: rule.name,
++          message: rule.message,
++          offence: rawLines[i].trim(),
++        });
++      }
++    }
++  }
++
++  return violations;
++}
++
++function walkDir(dir) {
++  const files = [];
++  if (!fs.existsSync(dir)) return files;
++
++  const stat = fs.statSync(dir);
++  if (stat.isFile()) {
++    return [dir];
++  }
++
++  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
++    const full = path.join(dir, entry.name);
++    if (entry.isDirectory()) {
++      if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'dist' || entry.name === 'storybook-static') {
++        continue;
++      }
++      files.push(...walkDir(full));
++    } else if (entry.isFile()) {
++      const ext = path.extname(entry.name);
++      if (['.ts', '.tsx', '.css'].includes(ext)) {
++        files.push(full);
++      }
++    }
++  }
++  return files;
++}
++
++export function checkPaths(paths) {
++  const allViolations = [];
++  for (const p of paths) {
++    const files = walkDir(p);
++    for (const f of files) {
++      allViolations.push(...scanFile(f));
++    }
++  }
++  return allViolations;
++}
++
++export function selfTest() {
++  console.log('Running check-ds-v3 self-test...');
++  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ds-v3-selftest-'));
++
++  try {
++    const testCases = [
++      { id: 'hex-colour', file: 'bad-hex.css', content: '.card { color: #ff0000; }' },
++      { id: 'length-literal', file: 'bad-px.tsx', content: 'const style = { width: "16px" };' },
++      { id: 'length-literal', file: 'bad-rem.css', content: 'p { font-size: 1.5rem; }' },
++      { id: 'length-literal', file: 'bad-em.css', content: 'span { letter-spacing: 0.1em; }' },
++      { id: 'physical-direction', file: 'bad-margin.css', content: '.box { margin-left: 0; }' },
++      { id: 'physical-direction', file: 'bad-padding.tsx', content: 'const s = { paddingRight: "var(--w-space-2)" };' },
++      { id: 'physical-direction', file: 'bad-align.css', content: '.title { text-align: left; }' },
++      { id: 'physical-direction', file: 'bad-left.tsx', content: 'const s = { left: 0 };' },
++      { id: 'numeric-zindex', file: 'bad-zindex.tsx', content: 'const s = { zIndex: 10 };' },
++      { id: 'important', file: 'bad-important.css', content: '.hide { display: none !important; }' },
++    ];
++
++    for (const tc of testCases) {
++      fs.writeFileSync(path.join(tmpDir, tc.file), tc.content);
++    }
++
++    // Exempt directory should not trigger
++    const exemptDir = path.join(tmpDir, 'packages/ui/src/v3/tokens');
++    fs.mkdirSync(exemptDir, { recursive: true });
++    fs.writeFileSync(
++      path.join(exemptDir, 'tokens.css'),
++      ':root { --w-bg: #f6f4ef; --w-space-4: 16px; margin-left: 0; zIndex: 10; !important }'
++    );
++
++    // Clean file should not trigger
++    const cleanFile = path.join(tmpDir, 'clean.tsx');
++    fs.writeFileSync(
++      cleanFile,
++      `// Comments with #ffffff and 16px and margin-left should be ignored
++      export function Clean() {
++        return (
++          <div style={{
++            backgroundColor: "var(--w-bg)",
++            paddingInlineStart: "var(--w-space-4)",
++            textAlign: "start",
++            zIndex: "var(--w-layer-modal)"
++          }}>
++            Clean
++          </div>
++        );
++      }`
++    );
++
++    const violations = checkPaths([tmpDir]);
++
++    // Verify exempt files had 0 violations
++    const exemptViolations = violations.filter((v) => v.file.includes('tokens.css'));
++    if (exemptViolations.length > 0) {
++      console.error('self-test failed: exempt tokens directory triggered violations:', exemptViolations);
++      return 1;
++    }
++
++    // Verify clean file had 0 violations
++    const cleanViolations = violations.filter((v) => v.file.includes('clean.tsx'));
++    if (cleanViolations.length > 0) {
++      console.error('self-test failed: clean file triggered violations:', cleanViolations);
++      return 1;
++    }
++
++    // Verify each rule triggered
++    let failed = false;
++    for (const rule of RULES) {
++      const hits = violations.filter((v) => v.rule === rule.id);
++      if (hits.length === 0) {
++        console.error(`self-test failed: rule ${rule.id} (${rule.name}) was not triggered`);
++        failed = true;
++      } else {
++        console.log(`self-test rule ${rule.id}: OK (${hits.length} detected)`);
++      }
++    }
++
++    if (failed) return 1;
++
++    console.log('self-test: all checks passed cleanly');
++    return 0;
++  } finally {
++    fs.rmSync(tmpDir, { recursive: true, force: true });
++  }
++}
++
++function main() {
++  const argv = process.argv.slice(2);
++  if (argv.includes('--self-test')) {
++    process.exit(selfTest());
++  }
++
++  const paths = argv.filter((a) => !a.startsWith('--'));
++  if (paths.length === 0) {
++    console.error('Usage: node scripts/check-ds-v3.mjs <paths...> | --self-test');
++    process.exit(1);
++  }
++
++  const violations = checkPaths(paths);
++  if (violations.length > 0) {
++    console.error(`Found ${violations.length} Design System v3 violation(s):`);
++    for (const v of violations) {
++      console.error(`${v.file}:${v.line} [${v.rule}] ${v.message} -> ${v.offence}`);
++    }
++    process.exit(1);
++  }
++
++  console.log(`check-ds-v3: 0 violations in ${paths.join(', ')}`);
++  process.exit(0);
++}
++
++if (process.argv[1] && process.argv[1].endsWith('check-ds-v3.mjs')) {
++  main();
++}
+-- 
+2.55.0.windows.5
+

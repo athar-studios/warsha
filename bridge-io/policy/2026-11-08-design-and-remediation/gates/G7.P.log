@@ -1,0 +1,11 @@
+gate: G7.P
+command: node scripts/check-engineering-policy.mjs
+commit: e172caf238550bbe4c26d311ccd0f08a6ca964dd
+worktree: C:/Users/Dragonfly/Downloads/warsha-wt/integration
+host: Windows integration worktree (re-derived by the orchestrator)
+timestamp: 2026-11-08T17:28:00Z
+---
+policy: 8 checks, 0 failures
+
+[exit 0]
+exit_code: 0

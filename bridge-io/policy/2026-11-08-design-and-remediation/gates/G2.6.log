@@ -1,0 +1,8 @@
+gate: G2.6
+command: ( for t in DESIGN_SYSTEM_V2.md SKILLS_AND_HARNESSES.md UI.md INSTALL.md DEPLOY.md VERIFY.md; do grep -qF "$t" docs/designs/SITEMAP.md || { echo "SITEMAP $t"; exit 1; }; done; for t in design-system-v2.md skills-and-harnesses.md install.md deploy.md verify.md UI.md; do grep -qF "$t" docs/src/SUMMARY.md || { echo "SUMMARY $t"; exit 1; }; done; for t in DESIGN_SYSTEM_V2.md 188 252 308 apps/remote/e2e; do grep -qF "$t" _agents/skills/warsha_elephant/SKILL.md || { echo "SKILL $t"; exit 1; }; done )
+commit: e71567a499c435711899643bc676a004ac81eaa2
+timestamp: 2026-11-08T12:04:31Z
+exit: 0
+expected: 0
+--- output ---
+

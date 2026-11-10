@@ -1,0 +1,41 @@
+From 6ab07fbbfc9b6e57f20a576f870c3cd7d80ff5c6 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 15:26:26 +0400
+Subject: [PATCH 11/13] docs(security): point the E2E handshake citations at
+ the real code
+
+---
+ SECURITY.md | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/SECURITY.md b/SECURITY.md
+index 05bec54..28e5cd2 100644
+--- a/SECURITY.md
++++ b/SECURITY.md
+@@ -111,16 +111,16 @@ Subscriptions are supported **only** by:
+ 
+ - **Pairing**: QR code with a one-time pairing secret — **built**. `PairingData` carries an X25519 static
+   public key, a one-time secret and a 10-minute expiry that is genuinely checked on use
+-  (`crates/warsha-remote/src/lib.rs:152`, `:184-191`, `:290-296`).
++  (`crates/warsha-remote/src/lib.rs:121-128` for the struct; `:150-161` mints the 32-byte secret and
++  `expires_at`; `:197-200` checks expiry).
+ - **Identity**: long-term device keypair with a revocable device list — **built** on the daemon side; a
+   revoked pairing resolves no session even when it presents the right secret
+-  (`crates/warshad/src/auth.rs:1049-1068`), and the registry keeps the revoked row with `revoked_at`
+-  (`crates/warsha-store/src/persistence.rs:366`).
++  (`crates/warshad/src/auth.rs:169-171`), and the registry keeps the revoked row with
++  `revoked = true` (`crates/warsha-store/src/persistence.rs:194-195`, `:526-540`).
+ - **Handshake**: a Noise-style handshake over the `snow` crate — **not built**. `EncryptedChannel` is annotated
+-  `#[allow(dead_code)]`, and `process_handshake` is a stub that returns `Ok(false)` without running a
+-  handshake (`crates/warsha-remote/src/lib.rs:424-434`, `:493-496`). No session keys are derived today, so
+-  nothing is encrypted end-to-end, and the replay cache is a field nothing reads
+-  (`crates/warsha-remote/src/lib.rs:432`, `:516-519`).
++  `#[allow(dead_code)]` at `crates/warsha-remote/src/lib.rs:587-588`, and `process_handshake` is a stub
++  that returns `Ok(false)` without running a handshake (`:656-659`). No session keys are derived today,
++  so nothing is encrypted end-to-end, and the replay cache is a field nothing reads (`:594`).
+ - **Relay**: **built as a forwarder** — `warsha-relay` checks the frame size and routes on the `to` device id,
+   and has no key to decrypt with (`crates/warsha-relay/src/lib.rs:747`). Because no handshake exists, "the
+   relay sees only ciphertext" is a property of the frame layout, not a proof about the traffic.
+-- 
+2.55.0.windows.5
+

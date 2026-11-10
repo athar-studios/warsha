@@ -1,0 +1,1431 @@
+{
+  "config": {
+    "configFile": "/root/warsha-u4v/playwright.config.ts",
+    "rootDir": "/root/warsha-u4v/apps",
+    "forbidOnly": true,
+    "fullyParallel": true,
+    "globalSetup": "/root/warsha-u4v/apps/desktop/e2e/support/global-setup.ts",
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 2
+    },
+    "preserveOutput": "always",
+    "reporter": [
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 15000
+    },
+    "quiet": false,
+    "projects": [
+      {
+        "outputDir": "/root/warsha-u4v/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "desktop",
+        "name": "desktop",
+        "testDir": "/root/warsha-u4v/apps/desktop/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/.*\\.spec\\.ts$/"
+        ],
+        "timeout": 120000
+      },
+      {
+        "outputDir": "/root/warsha-u4v/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "remote",
+        "name": "remote",
+        "testDir": "/root/warsha-u4v/apps/remote/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/.*\\.spec\\.ts$/"
+        ],
+        "timeout": 120000
+      }
+    ],
+    "shard": null,
+    "updateSnapshots": "missing",
+    "version": "1.49.1",
+    "workers": 2,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "desktop/e2e/v3/bench.spec.ts",
+      "file": "desktop/e2e/v3/bench.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Workbench (U4) — Journeys & Amendments",
+          "file": "desktop/e2e/v3/bench.spec.ts",
+          "line": 36,
+          "column": 6,
+          "specs": [
+            {
+              "title": "renders rail, header, 14-stage strip, all 10 tabs, and advanced composer without fake controls",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "status": "passed",
+                      "duration": 2120,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:00:41.467Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-6f1001920061611ac968",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 37,
+              "column": 3
+            },
+            {
+              "title": "Amendment (a): hides request-changes and reject behind capability flag OFF",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "status": "passed",
+                      "duration": 2076,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:00:41.468Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-ba5a7e0eafda5d2ec919",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 57,
+              "column": 3
+            },
+            {
+              "title": "Amendment (b): counts/shows gate pill and DecisionCard ONLY for current-stage gate",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "status": "passed",
+                      "duration": 2387,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:00:43.651Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-d87d2df4cd5a5edfd03f",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 68,
+              "column": 3
+            },
+            {
+              "title": "Amendment (c): Plan, Files, Changes show honest EmptyState when daemon returns no fixtures",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "status": "passed",
+                      "duration": 2239,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:00:43.692Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-d223136a681de999b2cc",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 82,
+              "column": 3
+            },
+            {
+              "title": "Terminal tab is read-only and has no input controls",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "status": "passed",
+                      "duration": 1861,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:00:45.943Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-19fe444c2d7d447903b9",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 104,
+              "column": 3
+            },
+            {
+              "title": "Assistant tab runs real Plan <-> Agent conversation via agent.* RPCs",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "status": "passed",
+                      "duration": 2077,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:00:46.050Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-fe5e7557759f887a32c4",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 111,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Workbench (U4) — Action ID contracts",
+          "file": "desktop/e2e/v3/bench.spec.ts",
+          "line": 142,
+          "column": 6,
+          "specs": [
+            {
+              "title": "action: bench.project.new navigates to Home",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "status": "passed",
+                      "duration": 1931,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:00:47.812Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-8b384cf487dbdd3bf874",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 143,
+              "column": 3
+            },
+            {
+              "title": "action: bench.run.select switches active run",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "status": "passed",
+                      "duration": 1953,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:00:48.137Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-3559b5a2c5daca2cbcf1",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 149,
+              "column": 3
+            },
+            {
+              "title": "action: bench.run.start calls runs.start",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "status": "passed",
+                      "duration": 1790,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:00:49.753Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-cd990fb3b186126288a9",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 155,
+              "column": 3
+            },
+            {
+              "title": "action: bench.run.advance calls runs.advance",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "status": "passed",
+                      "duration": 1740,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:00:50.101Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-29653a3cbdca8556bdac",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 161,
+              "column": 3
+            },
+            {
+              "title": "action: bench.run.cancel.open opens cancel confirmation dialog",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "status": "passed",
+                      "duration": 1741,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:00:51.551Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-332252748486e6f25250",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 167,
+              "column": 3
+            },
+            {
+              "title": "action: bench.run.cancel.confirm calls runs.cancel",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "status": "passed",
+                      "duration": 1793,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:00:51.855Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-2da17ddfeaf100236235",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 173,
+              "column": 3
+            },
+            {
+              "title": "action: bench.tab.select navigates across tabs",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "status": "passed",
+                      "duration": 1986,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:00:53.300Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-6ac6c83684278388a7ec",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 180,
+              "column": 3
+            },
+            {
+              "title": "action: bench.gate.approve calls gates.approve and runs.advance",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "status": "passed",
+                      "duration": 1977,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:00:53.660Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-22339e79548fbe7ff91c",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 187,
+              "column": 3
+            },
+            {
+              "title": "action: bench.gate.changes.send calls gates.changes when capability is enabled",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "status": "passed",
+                      "duration": 1811,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:00:55.294Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-e068764ce6cee705891a",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 194,
+              "column": 3
+            },
+            {
+              "title": "action: bench.gate.reject.confirm calls gates.reject when capability is enabled",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "status": "passed",
+                      "duration": 1766,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:00:55.648Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-1705523bba590f5f0093",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 214,
+              "column": 3
+            },
+            {
+              "title": "action: bench.files.expand expands directory via files.tree",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "status": "passed",
+                      "duration": 1784,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:00:57.111Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-3630c0520f69896e61e6",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 234,
+              "column": 3
+            },
+            {
+              "title": "action: bench.files.open reads file via files.read",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "status": "passed",
+                      "duration": 1790,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:00:57.423Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-96ee583d8cfb67480357",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 247,
+              "column": 3
+            },
+            {
+              "title": "action: bench.code.copy copies displayed file code",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "status": "passed",
+                      "duration": 1824,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:00:58.902Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-0869f67fa35644e45c1e",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 264,
+              "column": 3
+            },
+            {
+              "title": "action: bench.handoff.create calls handoff.create",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "status": "passed",
+                      "duration": 1759,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:00:59.225Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-1fecb664aaaed105267b",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 281,
+              "column": 3
+            },
+            {
+              "title": "action: bench.handoff.apply calls handoff.apply",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "status": "passed",
+                      "duration": 1740,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:01:00.733Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-1e4b77f051091e928265",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 288,
+              "column": 3
+            },
+            {
+              "title": "action: bench.terminal.follow toggles terminal stream follow state",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "status": "passed",
+                      "duration": 1813,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:01:00.995Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-f19965ac9c5b1274cda9",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 298,
+              "column": 3
+            },
+            {
+              "title": "action: bench.terminal.copy copies terminal transcript",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "status": "passed",
+                      "duration": 2194,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:01:02.481Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-1df17e1a97982b796372",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 306,
+              "column": 3
+            },
+            {
+              "title": "action: bench.team.model.set calls roles.set",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "status": "passed",
+                      "duration": 2079,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:01:02.832Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-e4a3c83d9668c76b6891",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 312,
+              "column": 3
+            },
+            {
+              "title": "action: bench.assistant.send calls agent.turn",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "status": "passed",
+                      "duration": 2560,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:01:04.683Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-b7500dcbf7d0a588a122",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 318,
+              "column": 3
+            },
+            {
+              "title": "action: bench.assistant.mode.plan calls agent.plan_mode",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "status": "passed",
+                      "duration": 2562,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:01:04.925Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-2413d57c260f888e7ce2",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 328,
+              "column": 3
+            },
+            {
+              "title": "action: bench.assistant.mode.agent calls agent.approve_mode",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "status": "passed",
+                      "duration": 2131,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:01:07.252Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-fb0cbe58f561982d3f3a",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 334,
+              "column": 3
+            },
+            {
+              "title": "action: bench.budget.save calls budget.set",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "status": "passed",
+                      "duration": 2218,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:01:07.500Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-dc65c062de738b241060",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 340,
+              "column": 3
+            },
+            {
+              "title": "action: bench.artifact.open opens artifact sheet",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "status": "passed",
+                      "duration": 2316,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:01:09.388Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-01b444189d1a9be897c0",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 347,
+              "column": 3
+            },
+            {
+              "title": "action: bench.artifact.copy-path copies artifact path",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "status": "passed",
+                      "duration": 2284,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:01:09.726Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-2854fba30879b98e87ac",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 353,
+              "column": 3
+            },
+            {
+              "title": "action: bench.preview.start calls preview.start",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "status": "passed",
+                      "duration": 2098,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:01:11.713Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-c5ee35912c543e5b98c7",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 359,
+              "column": 3
+            },
+            {
+              "title": "action: bench.preview.stop calls preview.stop",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "status": "passed",
+                      "duration": 2059,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:01:12.024Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-0a8c2a19ef6cc12921d8",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 365,
+              "column": 3
+            },
+            {
+              "title": "action: bench.preview.open opens preview URL in browser",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "status": "passed",
+                      "duration": 2041,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:01:13.820Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-a3c3ca72169ad3016103",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 385,
+              "column": 3
+            },
+            {
+              "title": "action: bench.followup.send calls runs.followup",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "status": "passed",
+                      "duration": 2117,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:01:14.093Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-64898fe91b74bb5d4943",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 416,
+              "column": 3
+            },
+            {
+              "title": "action: bench.harness.select calls harness.select",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "status": "passed",
+                      "duration": 1887,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:01:15.867Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-6fa65e6bbf41b01be886",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 426,
+              "column": 3
+            },
+            {
+              "title": "action: bench.runmode.set calls runmode.set",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "status": "passed",
+                      "duration": 1799,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:01:16.220Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-201652c7cacdc75c2533",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 456,
+              "column": 3
+            },
+            {
+              "title": "action: bench.stream.reconnect reloads stream via runs.subscribe",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "status": "passed",
+                      "duration": 1914,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:01:17.761Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-0ec299b6a3407976a4d9",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 469,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "@a11y Workbench axe and keyboard",
+          "file": "desktop/e2e/v3/bench.spec.ts",
+          "line": 476,
+          "column": 6,
+          "specs": [
+            {
+              "title": "@a11y bench overview passes axe AA and keyboard walk (ar light)",
+              "ok": true,
+              "tags": [
+                "a11y",
+                "a11y"
+              ],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "status": "passed",
+                      "duration": 2889,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:01:18.029Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-0fc6fc2c7557cd882d22",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 479,
+              "column": 7
+            },
+            {
+              "title": "@a11y bench overview passes axe AA and keyboard walk (ar dark)",
+              "ok": true,
+              "tags": [
+                "a11y",
+                "a11y"
+              ],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "status": "passed",
+                      "duration": 2585,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:01:19.683Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-0fe7b6223e1907b8eeaa",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 479,
+              "column": 7
+            },
+            {
+              "title": "@a11y bench overview passes axe AA and keyboard walk (en light)",
+              "ok": true,
+              "tags": [
+                "a11y",
+                "a11y"
+              ],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "status": "passed",
+                      "duration": 2619,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:01:20.928Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-37f468b8f689a3821ca0",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 479,
+              "column": 7
+            },
+            {
+              "title": "@a11y bench overview passes axe AA and keyboard walk (en dark)",
+              "ok": true,
+              "tags": [
+                "a11y",
+                "a11y"
+              ],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "desktop",
+                  "projectName": "desktop",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "status": "passed",
+                      "duration": 2311,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-10T18:01:22.275Z",
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "18edaf96c1ff5e9f3c20-56ab6b4e352ed5b424d6",
+              "file": "desktop/e2e/v3/bench.spec.ts",
+              "line": 479,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-11-10T18:00:33.275Z",
+    "duration": 51399.702,
+    "expected": 41,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

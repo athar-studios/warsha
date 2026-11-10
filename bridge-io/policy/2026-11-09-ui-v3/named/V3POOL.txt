@@ -1,0 +1,6 @@
+# V3POOL — planner, 2026-11-10 (PLANNER_RESPONSE_2 §4). The v3 page specs whose @visual cases have NO
+# committed baseline between the provisional-baseline removal and the consolidated genesis refresh RG.
+# Use: pw-gate.mjs failures <report> named/V3POOL.txt   (which cases may fail)
+#  and pw-genesis.mjs check <report> named/V3POOL.txt   (they may fail ONLY on a missing snapshot)
+^desktop › (frame|onboarding|home|projects|project|inbox)\.spec\.ts › .*@visual
+^desktop › (bench|settings)\.spec\.ts › .*@visual

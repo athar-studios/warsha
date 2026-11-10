@@ -1,0 +1,8 @@
+gate: G5.8
+command: grep -n 'TODO(M20 wiring)' apps/desktop/src/App.tsx
+commit: 10a181998af4d0ee79e2435fac2f3b9d217902d5
+worktree: C:/Users/Dragonfly/Downloads/warsha-wt/verify-w5
+utc_start: 2026-11-08T11:58:26Z
+--- output ---
+exit_code: 1
+utc_end: 2026-11-08T11:58:27Z

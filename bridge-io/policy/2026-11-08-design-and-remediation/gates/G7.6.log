@@ -1,0 +1,11 @@
+gate: G7.6 (OWNER-AMENDED, value-anchored)
+command: grep -rniE '(storePassword|keyPassword)[[:space:]]*[=:][[:space:]]*[A-Za-z0-9\'']|WARSHA_KEYSTORE_PASSWORD=[A-Za-z0-9\'']|WARSHA_KEY_PASSWORD=[A-Za-z0-9\'']' C:/Users/Dragonfly/Downloads/Warsha/bridge-io/policy/2026-11-08-design-and-remediation/packets/W7
+commit: 75d1e3baecf21d7d77a6700c74152f271b25a13a
+shell: Git Bash
+timestamp: 2026-11-09T00:59:27Z
+note: negative proof - real evidence dir exit 1 (expect 1)
+note: positive proof - planted "storePassword = <value>" exit 0 (expect 0, i.e. a match)
+note: after removing the probe exit 1 (expect 1)
+---
+negative output: (none)
+exit_code: 1

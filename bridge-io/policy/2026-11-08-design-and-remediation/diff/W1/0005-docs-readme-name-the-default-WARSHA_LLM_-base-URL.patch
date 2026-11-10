@@ -1,0 +1,42 @@
+From 6d9728f52eb096199c4ace208435c8b8927e5140 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 12:15:57 +0400
+Subject: [PATCH 5/5] docs(readme): name the default WARSHA_LLM_* base URL
+
+The environment path falls back to https://router.sayl.site/v1 when
+WARSHA_LLM_BASE_URL is unset, so an exported key would be sent to a host the
+reader did not choose. Say so beside the path that reads it.
+---
+ README.ar.md | 2 +-
+ README.md    | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/README.ar.md b/README.ar.md
+index bed1203..0638c6a 100644
+--- a/README.ar.md
++++ b/README.ar.md
+@@ -168,7 +168,7 @@ git ولا إصدار منشور لأيٍّ منهما.
+ 
+ - **أي وجهة متوافقة مع OpenAI وبمفتاح API.** يأخذ المحوّل رابط أساس (base URL) ويرسل إلى `{base}/chat/completions` برمز Bearer. ويأتي معالج الإعداد برابط ونموذج افتراضيين لـ **OpenRouter وDeepSeek وKimi (Moonshot) وGLM (Zhipu) وQwen (DashScope)**، إضافة إلى صف `custom` لأي رابط آخر — وبذلك يُوصل OpenAI نفسه وأي بوابة متوافقة.
+ - **Anthropic (Claude)** عبر واجهة messages الخاصة به، و**خادم Ollama أو LM Studio محلي** لا يحتاج مفتاحًا حقيقيًا — محوّله يتجاهل حقل المفتاح، لكن نموذج الإضافة يطلبه مع ذلك.
+-- **مسار البيئة `WARSHA_LLM_*`** لوجهة متوافقة مع OpenAI، يُستخدم عندما لا يكون للدور توجيه. وبلا مفتاح يعمل مزوّد افتراضي حتمي فيشغّل المسار كاملًا دون اتصال. هذا المسار يقرأ مفتاحه من متغيّرات البيئة، فهو الاتصال الوحيد الذي لا يكون مفتاحه في الخزنة.
++- **مسار البيئة `WARSHA_LLM_*`** لوجهة متوافقة مع OpenAI، يُستخدم عندما لا يكون للدور توجيه. وبلا مفتاح يعمل مزوّد افتراضي حتمي فيشغّل المسار كاملًا دون اتصال. هذا المسار يقرأ مفتاحه من متغيّرات البيئة، فهو الاتصال الوحيد الذي لا يكون مفتاحه في الخزنة؛ وبلا `WARSHA_LLM_BASE_URL` يستخدم `https://router.sayl.site/v1` افتراضيًا، فاضبط رابط الأساس صراحةً قبل تصدير مفتاح.
+ - **أدوات البرمجة الرسمية كواجهات خلفية منفصلة**، لا كمزوّدي محادثة: Claude Code وCodex CLI وGemini CLI وCursor CLI وopencode وOpenHands. يتعرّف الخادم على كل أداة موجودة على `PATH` عند الإقلاع، لكن محوّلاتها ما زالت قيد البناء: يُسجَّل التثبيت ولا يُسلَّم العمل البرمجي بعد.
+ 
+ وما لا يعمل: **لا محوّل أصلي لـ Google Gemini.** يعرف المصنع الحي ثلاث بروتوكولات — المتوافق مع OpenAI وAnthropic وOllama — فيُعامَل صف `gemini` كوجهة مخصّصة متوافقة مع OpenAI ويحتاج رابطًا يتكلم ذلك البروتوكول؛ أما واجهة Gemini نفسها فغير منفَّذة. و**Azure OpenAI** لا محوّل أصلي له كذلك: يُوصل بالطريقة نفسها، فيعمل فقط حيث تقبل الوجهة رمز Bearer على `{base}/chat/completions`، لا عبر صيغة `api-key` الخاصة بنشر Azure. وورشة تتصل فقط بالطرق الرسمية المسموح بها، وكل مفتاح تضيفه في التطبيق يبقى في خزنة نظام التشغيل.
+diff --git a/README.md b/README.md
+index c744984..a560033 100644
+--- a/README.md
++++ b/README.md
+@@ -168,7 +168,7 @@ What works today, from `crates/warsha-providers/src/` and the daemon's provider
+ 
+ - **Any OpenAI-compatible endpoint with an API key.** The adapter takes a base URL and posts to `{base}/chat/completions` with a bearer token. The setup wizard ships a default URL and model for **OpenRouter, DeepSeek, Kimi (Moonshot), GLM (Zhipu) and Qwen (DashScope)**, plus a `custom` row for any other URL — which is how OpenAI itself and any compatible gateway are reached.
+ - **Anthropic (Claude)** through its own messages API, and **a local Ollama or LM Studio server**, which needs no real key — its adapter ignores the key field, though the add form still asks for one.
+-- **The `WARSHA_LLM_*` environment path** for an OpenAI-compatible endpoint, used when a role has no routing. With no key, a deterministic fake provider runs the whole pipeline offline. This path reads its key from the environment, so it is the one connection whose key is not in the keychain.
++- **The `WARSHA_LLM_*` environment path** for an OpenAI-compatible endpoint, used when a role has no routing. With no key, a deterministic fake provider runs the whole pipeline offline. This path reads its key from the environment, so it is the one connection whose key is not in the keychain; with no `WARSHA_LLM_BASE_URL` it defaults to `https://router.sayl.site/v1`, so set the base URL explicitly before exporting a key.
+ - **Official coding tools as separate backends**, not chat providers: Claude Code, Codex CLI, Gemini CLI, Cursor CLI, opencode and OpenHands. The daemon detects each one on your PATH at start-up, but their adapters are still being built: an install is recorded, not yet handed coding work.
+ 
+ What does not: **Google Gemini has no native adapter.** The live factory recognises three protocols — OpenAI-compatible, Anthropic and Ollama — so a `gemini` row is treated as a custom OpenAI-compatible endpoint and needs a URL that speaks that protocol; Gemini's own API is not implemented. **Azure OpenAI** has no native adapter either: it is reached the same way, so it works only where the endpoint accepts a bearer token at `{base}/chat/completions`, not through Azure's deployment-scoped `api-key` form. Warsha only uses official, permitted ways to connect, and every key you add in the app stays in your system keychain.
+-- 
+2.55.0.windows.5
+

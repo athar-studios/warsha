@@ -1,0 +1,8 @@
+gate: G2.4
+command: node -e "const fs=require('fs');const n=(fs.readFileSync('packages/ui/src/tokens/tokenDrift.test.ts','utf8').match(/^\s*it\(/gm)||[]).length;const ok=fs.readFileSync('docs/ARCH_RULES.md','utf8').includes('tokenDrift.test.ts\` ('+n+' tests)');console.log(n,ok);process.exit(ok?0:1)"
+commit: e71567a499c435711899643bc676a004ac81eaa2
+timestamp: 2026-11-08T12:04:24Z
+exit: 0
+expected: 0
+--- output ---
+35 true

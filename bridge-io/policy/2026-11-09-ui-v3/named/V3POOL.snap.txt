@@ -1,0 +1,4 @@
+# V3POOL.snap — planner, 2026-11-10. Snapshot paths the removal commit and the consolidated genesis
+# refresh RG may touch (the union of U3.snap, U4.snap and U5.snap). Nothing else.
+^apps/desktop/e2e/v3/(frame|onboarding|home|projects|project|inbox)\.spec\.ts-snapshots/
+^apps/desktop/e2e/v3/(bench|settings)\.spec\.ts-snapshots/

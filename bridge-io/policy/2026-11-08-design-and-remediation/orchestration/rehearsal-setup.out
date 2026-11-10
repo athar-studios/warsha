@@ -1,0 +1,15 @@
+base (integration tip) = a9dad9a
+--- step 1: merge W5 (held back on OD4) ---
+ create mode 100644 apps/desktop/src/routines.test.ts
+ create mode 100644 apps/desktop/src/routines.ts
+after merge = bfcbe3e; conflicts: 0
+--- step 2: PROPOSED OD4 option 1 - let the assertion accept the token reference ---
+assertion regex updated (1 occurrence)
+committed proposal edit
+--- step 3: INT-2 - APP_LENGTH_BUDGET to 0 (planner-specified one-line tightening) ---
+was: const APP_LENGTH_BUDGET = 145;
+committed INT-2
+rehearsal head = ffd19e798992041aa77af069f2632672ee661b5d
+touched by the two rehearsal commits:
+apps/desktop/e2e/states.spec.ts
+packages/ui/src/tokens/tokenDrift.test.ts

@@ -1,0 +1,35 @@
+{
+  "packet": "W5",
+  "run_id": "2026-11-08-design-and-remediation",
+  "status": "repair-iteration-2-resolved",
+  "recorded_at": "2026-11-08",
+  "base": "406240a5eebf07b7e627859fccce2ef564946c91",
+  "head": "77a02c1c08e2b2c97c828738ac95b64073d42d3b",
+  "commits": 6,
+  "blocker": null,
+  "resolution": "OD4 conflict withdrawn: sizeTokens.edge used in GatesInbox.tsx satisfies both G5.10 states.spec.ts inline style assertion and G5.7 R6.9 length ratchet at budget 0 without modifying states.spec.ts.",
+  "gates": {
+    "G5.S": "0 out-of-scope files",
+    "G5.1": "exit 0, 464/464 desktop tests",
+    "G5.2": "exit 0, 221/221 remote tests",
+    "G5.3": "exit 0, 52/52 i18n tests",
+    "G5.4": "exit 0",
+    "G5.5": "exit 0",
+    "G5.6": "exit 0",
+    "G5.7": "exit 0, 181/181; ratchet measured 0 offences (budget 0)",
+    "G5.8": "exit 1 (no TODO markers)",
+    "G5.9": "exit 0",
+    "G5.10": "resolved via sizeTokens.edge; states.spec.ts untouched",
+    "G5.11": "blocked on OD1",
+    "G5.12": "0 snapshots touched",
+    "G5.A": "arch: 5 rules, 0 violations",
+    "G5.P": "policy: 8 checks, 0 failures",
+    "G5.W": "wire: 9 checks, 0 violations"
+  },
+  "open_issues": [
+    "OD4 resolved: gate conflict withdrawn via sizeTokens.edge.",
+    "G5.11 remains blocked on owner decision OD1 (40 stale remote baselines).",
+    "HandoffDialog scrim adoption changes its mix colour from muted 55% to the scrim's bg 55% (spec-sanctioned, not captured open by any spec).",
+    "Backend export stays disabled until the daemon reports a workspace directory the app can hold."
+  ]
+}

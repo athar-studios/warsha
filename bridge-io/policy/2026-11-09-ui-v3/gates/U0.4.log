@@ -1,0 +1,12 @@
+$ node scripts/check-ds-v3.mjs packages/ui/src/v3 && node scripts/check-ds-v3.mjs --self-test
+check-ds-v3: 0 violations in packages/ui/src/v3
+CHECK_EXIT=0
+Running check-ds-v3 self-test...
+self-test rule hex-colour: OK (1 detected)
+self-test rule length-literal: OK (3 detected)
+self-test rule physical-direction: OK (4 detected)
+self-test rule numeric-zindex: OK (1 detected)
+self-test rule important: OK (1 detected)
+self-test: all checks passed cleanly
+SELFTEST_EXIT=0
+GATE_EXIT=0

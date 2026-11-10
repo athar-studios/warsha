@@ -1,0 +1,11 @@
+gate: G7.4
+command: unzip -l apps/mobile/android/app/build/outputs/apk/release/app-release.apk | grep -cE "assets/public/(index\.html|sw\.js)$"
+commit: e172caf238550bbe4c26d311ccd0f08a6ca964dd
+worktree: C:/Users/Dragonfly/Downloads/warsha-wt/integration
+host: Windows integration worktree (re-derived by the orchestrator)
+timestamp: 2026-11-08T17:28:00Z
+---
+2
+
+[exit 0]
+exit_code: 0

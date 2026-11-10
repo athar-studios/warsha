@@ -1,0 +1,5 @@
+ignored: a/x.jks
+ignored: a/x.keystore
+ignored: a/keystore.properties
+ignored: a/x.p12
+GATE_EXIT=0

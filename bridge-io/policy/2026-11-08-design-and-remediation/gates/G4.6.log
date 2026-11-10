@@ -1,0 +1,7 @@
+=== gate G4.6 (e2e tsconfig typecheck) ===
+command: pnpm --dir apps/desktop exec tsc --noEmit -p tsconfig.e2e.json
+commit: 73b1331c76ccb7c6ea14e78ff4c874b8faf563c4
+utc: 2026-11-08T09:48:55Z
+worktree: /c/Users/Dragonfly/Downloads/warsha-wt/verify-w4
+--- output ---
+--- [exit code: 0] ---

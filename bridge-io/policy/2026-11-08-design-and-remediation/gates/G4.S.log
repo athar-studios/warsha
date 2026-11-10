@@ -1,0 +1,9 @@
+=== gate G4.S (scope, BASE=5abe5ef) ===
+command: git diff --name-only 5abe5ef..HEAD | grep -vE '^(scripts/check-wire-contract\.mjs|packages/client/src/index(\.test)?\.ts|apps/desktop/e2e/harness\.ts)$' | wc -l
+commit: 73b1331c76ccb7c6ea14e78ff4c874b8faf563c4
+utc: 2026-11-08T09:47:44Z
+worktree: /c/Users/Dragonfly/Downloads/warsha-wt/verify-w4
+--- output ---
+0
+--- [pipeline exit code: 0] ---
+[out-of-scope files listed above; expected 0]

@@ -1,0 +1,142 @@
+From d969e0e873feac6fb997c088efa20462d5110d4c Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 05:35:14 +0400
+Subject: [PATCH 1/5] docs(wire): correct stale Wave 2 deferral comments to the
+ closed-drift state
+
+---
+ packages/client/src/index.ts    | 24 +++++++++--------
+ scripts/check-wire-contract.mjs | 47 +++++++++++++++------------------
+ 2 files changed, 35 insertions(+), 36 deletions(-)
+
+diff --git a/packages/client/src/index.ts b/packages/client/src/index.ts
+index 44a0939..3ccb2a3 100644
+--- a/packages/client/src/index.ts
++++ b/packages/client/src/index.ts
+@@ -858,10 +858,10 @@ export function pairingDataFromQrPayload(payload: string): PairingData {
+ // an older stub (camelCase) decode alike, and a missing field falls back to the
+ // empty/zero form a screen can render rather than an `undefined` that throws.
+ //
+-// The client lane lands ahead of the daemon lane (PLAN.md tasks #6–#8): the wire
+-// names these methods dial are deferred in `scripts/check-wire-contract.mjs`'s
+-// `KNOWN_UNREGISTERED_METHODS` until `warshad` registers them — a visible,
+-// one-set deferral with a documented removal, not a silent ghost.
++// The Wave 2 client lane (PLAN.md task #9) landed ahead of its daemon lane (tasks #6–#8);
++// those daemon lanes have since registered every wire name these methods dial, so
++// `scripts/check-wire-contract.mjs` checks them strictly against an empty
++// `KNOWN_UNREGISTERED_METHODS` — no deferral — and W9 holds every name to an e2e harness stub.
+ 
+ const WAVE2_ERROR = 'Malformed Wave 2 payload';
+ 
+@@ -997,9 +997,10 @@ export interface HarnessDefinition {
+ 
+ /**
+  * One installable markdown skill pack (`warsha_core::SkillDefinition`).
+- * `skills.list` answers the daemon's older `SlashCommand` catalog today —
+- * `{ name, description }` with no `id` — so the id falls back to the command
+- * name rather than refusing a shape the current daemon really sends.
++ * `skills.list` answers the installed `SkillDefinition` catalog today; the decoder
++ * still tolerates the daemon's older `SlashCommand` row — `{ name, description }`
++ * with no `id` — so the id falls back to the command name rather than refusing a
++ * shape an older daemon really sent.
+  */
+ export interface SkillDefinition {
+   id: string;
+@@ -1832,10 +1833,11 @@ export class WarshaClient implements WarshaWiringApi, WarshaWave2Api {
+     await this.rpc<unknown>('harness.delete', { id });
+   }
+ 
+-  // Wave 2 — skills. `skills.list` is daemon-registered today and answers the
+-  // `SlashCommand` catalog; `decodeSkillDefinition` reads that shape (its `name`
+-  // doubles as the id), so this method works against the current daemon and the
+-  // full Wave 2 row alike. The three writes join the deferred set.
++  // Wave 2 — skills. `skills.list` is daemon-registered and answers the installed
++  // `SkillDefinition` catalog (`crates/warshad/src/lib.rs:1399-1400`, `list_skills`
++  // returns `Vec<SkillDefinition>`); `decodeSkillDefinition` reads that row and still
++  // tolerates the older `SlashCommand` shape (its `name` doubles as the id). The three
++  // writes (`skills.import|toggle|delete`) are registered too — nothing is deferred.
+   async listSkills(): Promise<SkillDefinition[]> {
+     const rows = await this.rpc<unknown>('skills.list');
+     return wave2List(rows, 'skills.list', decodeSkillDefinition);
+diff --git a/scripts/check-wire-contract.mjs b/scripts/check-wire-contract.mjs
+index e2480ac..e9214eb 100644
+--- a/scripts/check-wire-contract.mjs
++++ b/scripts/check-wire-contract.mjs
+@@ -23,10 +23,10 @@
+ //                                                         reported clean in both modes
+ //   node scripts/check-wire-contract.mjs --report-only-known
+ //                                                         run the strict checks and additionally
+-//                                                         print the known #25/#40 drift items
+-//                                                         (client-side names and the required-field
+-//                                                         break the TypeScript lane is landing)
+-//                                                         without letting them change the exit code
++//                                                         print any deferred drift items (both
++//                                                         KNOWN_* sets are empty today, so this
++//                                                         prints nothing) without letting them
++//                                                         change the exit code
+ //
+ // Output contract (see docs/ARCH_RULES.md):
+ //   `<CHECK-ID>: <file>:<line> <offence>` on stdout, one line per violation, exit 1;
+@@ -67,17 +67,15 @@
+ // text parser and is the domain of the boot-the-daemon and drive-it test that DECISIONS.md names as
+ // the permanent guard.
+ //
+-// Known drift (DECISIONS.md 2026-11-03, #25 and #40): CLOSED for the M20 batch, RE-OPENED for
+-// Wave 2. The TypeScript client lane that closed #25/#40 renamed or deleted every drifted name,
+-// shipped `projects.create`'s three required fields and moved the harness stub table with them.
+-// The Wave 2 client lane (task #9) now lands AHEAD of its daemon lane (tasks #6–#8): the
+-// `harness.*`, `skills.import|toggle|delete`, `plugins.*`, `models.*`, `integrations.*` and
+-// `files.*` names below are the client's claim about registrations `warshad` has not grown yet.
+-// This is exactly the one-edit escape hatch the header documents: REQUIRE_NO_KNOWN_DRIFT is
+-// false and the deferred names sit in KNOWN_UNREGISTERED_METHODS, so `--report-only-known`
+-// prints them and everything else stays strict. When the daemon lane registers the names and
+-// the harness stubs follow, flip the flag back to true and empty the set — that removal is the
+-// done-signal for the Wave 2 wire.
++// Known drift (DECISIONS.md 2026-11-03, #25 and #40; 2026-11-06 Wave 2): CLOSED. The TypeScript
++// client lane that closed #25/#40 renamed or deleted every drifted name, shipped
++// `projects.create`'s three required fields and moved the harness stub table with them. The
++// Wave 2 client lane (task #9) then landed AHEAD of its daemon lane (tasks #6–#8) and deferred
++// the `harness.*`, `skills.import|toggle|delete`, `plugins.*`, `models.*`, `integrations.*` and
++// `files.*` names in KNOWN_UNREGISTERED_METHODS. Those daemon lanes have since registered every
++// name, so the deferral was removed: REQUIRE_NO_KNOWN_DRIFT is true and both KNOWN_* sets are
++// empty. That removal was the done-signal for the Wave 2 wire — every name and every params
++// object is now checked strictly, with nothing deferred.
+ //
+ // The machinery is kept on purpose: the sets and the flag are the documented one-edit escape hatch
+ // if a future drift must ship deferred, and the self-test asserts in both modes that nothing is
+@@ -131,15 +129,14 @@ const CHECK_IDS = [
+ ];
+ 
+ // The one-edit flip: when true, the KNOWN_* sets below are ignored and every parsed name and
+-// params object is checked strictly. It was TRUE since the TypeScript #25/#40 client lane landed
+-// (the renames, the deletions, `projects.create`'s three required fields and the harness stub
+-// table); it is FALSE again while the Wave 2 client lane (task #9) ships AHEAD of its daemon
+-// lane (tasks #6–#8). Only the Wave 2 names in KNOWN_UNREGISTERED_METHODS below are deferred —
+-// every other name and every params object stays strictly checked, and the self-test's
+-// `enforcedInBothModes` mutants assert that a drift shape OUTSIDE the deferred set fires in the
+-// shipped mode as well with nothing deferred. Flipping this back to true with the set empty is
+-// the done-signal for the Wave 2 wire; re-populating the whitelist beyond those names remains a
+-// visible decision, not a silent one.
++// params object is checked strictly. It has been TRUE since the TypeScript #25/#40 client lane
++// landed (the renames, the deletions, `projects.create`'s three required fields and the harness
++// stub table), was flipped to false while the Wave 2 client lane (task #9) shipped AHEAD of its
++// daemon lane (tasks #6–#8), and is TRUE again now that those daemon lanes registered every
++// Wave 2 name and both KNOWN_* sets are empty. Nothing is deferred: every name and every params
++// object is strictly checked, and the self-test's `enforcedInBothModes` mutants assert that a
++// drift shape fires in the shipped mode as well with nothing deferred. Re-populating the
++// whitelist remains a visible decision, not a silent one.
+ const REQUIRE_NO_KNOWN_DRIFT = true;
+ 
+ // Names `packages/client` puts on the wire that `warshad` does not register. EMPTY since the Wave 2
+@@ -1461,7 +1458,7 @@ function main(argv) {
+   process.stdout.write(`wire: ${CHECK_IDS.length} checks, 0 violations\n`);
+   if (reportKnown && knowns.length > 0) {
+     process.stdout.write(
+-      `wire: ${knowns.length} known drift item(s) listed above; flip REQUIRE_NO_KNOWN_DRIFT when the client lane lands\n`
++      `wire: ${knowns.length} known drift item(s) listed above; remove the deferral when the daemon registers the name\n`
+     );
+   }
+   return 0;
+-- 
+2.55.0.windows.5
+

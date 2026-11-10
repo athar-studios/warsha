@@ -1,0 +1,9 @@
+gate: G2.3
+command: ( for p in 'docs/ARCHITECTURE.md:apps/mobile' 'docs/ARCHITECTURE.md:docker/' 'docs/ARCHITECTURE.md:deploy/' 'docs/ARCHITECTURE.md:persistence.rs' 'docs/ARCHITECTURE.md:wave2' 'docs/DEPLOY.md:WARSHA_REMOTE_ASSETS_DIR' 'docs/src/architecture.md:bind_host' 'docs/src/architecture.md:advertised_host' 'docs/src/architecture.md:remote_assets_dir' 'docs/src/architecture.md:registerShellWorker' 'SECURITY.md:bind_host' 'SECURITY.md:advertised_host' 'SECURITY.md:deny.toml' 'docs/DEVELOPERS.md:apps/mobile' 'docs/DEVELOPERS.md:packages/crypto' 'docs/DEVELOPERS.md:reqwest' 'docs/ARCH_RULES.md:88' 'docs/VERIFY.md:294b8e259e88c804275154e8f3bd4ba4e957b15eb912cff3e7f2b9cbb4aabd99' 'docs/VERIFY.md:f3549485798919c9d81627d52e34c4a897483a3b4483fadfb0590ed45be0e7a9'; do f=${p%%:*}; t=${p#*:}; grep -qF -- "$t" "$f" || { echo "missing $t in $f"; exit 1; }; done )
+commit: e71567a499c435711899643bc676a004ac81eaa2
+timestamp: 2026-11-08T12:04:02Z
+worktree: C:/Users/Dragonfly/Downloads/warsha-wt/verify-w2
+exit: 0
+expected: 0
+--- output ---
+

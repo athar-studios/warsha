@@ -1,0 +1,65 @@
+From 7adbff4dd697e0dff7541a5200a5fcacca8fba6b Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 12:01:46 +0400
+Subject: [PATCH 5/5] docs(mobile): record the reproducible release APK hash
+ and size
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Two identical clean rebuilds produce ce60f2bd…/840,513 B; replace the wrong
+RSA-PSS reproducibility caveat with the verified signing/packaging facts.
+---
+ apps/mobile/README.md | 23 +++++++++++++----------
+ 1 file changed, 13 insertions(+), 10 deletions(-)
+
+diff --git a/apps/mobile/README.md b/apps/mobile/README.md
+index 895678d..36d9735 100644
+--- a/apps/mobile/README.md
++++ b/apps/mobile/README.md
+@@ -82,22 +82,25 @@ or in this file.
+   — `renameReleaseApk` now **copies** rather than moves, so both names exist; the
+   copy is the artifact `docs/VERIFY.md` and `docs/INSTALL.md` reference, while
+   `app-release.apk` is the path the W7 release gates verify.
+-- File size: **1,312,517 bytes**
+-- Build date (UTC): **2026-11-08T02:01:43Z**
++- File size: **840,513 bytes**
++- Build date (UTC): **2026-11-08T07:56:11Z**
+ - Base commit: `0772d502002562505c6438ae712abca7a7328d84` (`run/2026-11-08/integration`)
+ 
+ SHA-256 (`app-release.apk`; identical for `warsha-remote-release.apk`):
+ 
+ ```text
+-8d83fcb05a745e59d0de9d402fbd73f6e6514c5a6238164dbe207d279e7db02d
++ce60f2bd5183779de7fd6a3c7593e0a612e878c8a1c05960f308e06ea3ad01ff
+ ```
+ 
+-> Reproducibility caveat: the signed APK is **not** byte-reproducible. The v2
+-> signature uses a randomized RSA-PSS salt and the workbox-generated `sw.js.map`
+-> varies between builds, so a clean rebuild yields a different SHA-256 while the
+-> APK size (1,312,517 B) and bundled web content stay stable. The hash above records
+-> this specific built artifact; gate G7.5 checks the preserved artifact, not a fresh
+-> rebuild.
++> Reproducibility: the signed APK **is** byte-reproducible. Two consecutive clean
++> rebuilds (`pnpm --filter warsha-remote build` + `gradlew clean assembleRelease`)
++> produced this exact hash and size. The APK Signature Scheme v2 block is
++> deterministic (RSASSA-PKCS1-v1_5 + SHA2-512, algorithm id `0x0104` — no PSS salt),
++> and `build.gradle` removes the two inputs that used to drift: AGP's encrypted
++> dependency-metadata block (`dependenciesInfo { includeInApk = false }`) and the
++> Vite/workbox `*.map` source maps, which embed a random temp directory and absolute
++> worktree paths (`syncRemoteWebAssets` excludes `**/*.map`; the precache manifest
++> in `sw.js` lists no map).
+ 
+ Toolchain: node v26.8.1, pnpm 9.0.0, Android Studio JBR OpenJDK 25.0.3,
+ Gradle 9.3.1, AGP 9.1.0, Android SDK platform 36 + build-tools 36.0.0.
+@@ -118,6 +121,6 @@ JAVA_HOME="<Android Studio JBR>" ANDROID_HOME="<SDK>" \
+ APK=apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+ "$ANDROID_HOME/build-tools/36.0.0/apksigner.bat" verify --verbose --print-certs "$APK"
+ unzip -l "$APK" | grep -E 'assets/public/(index\.html|sw\.js)$'   # → 2 entries
+-stat -c %s "$APK"                                                 # → 1312517
++stat -c %s "$APK"                                                 # → 840513
+ sha256sum "$APK"                                                  # → hash above
+ ```
+-- 
+2.55.0.windows.5
+

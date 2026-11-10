@@ -1,0 +1,197 @@
+From 86b57c070e4fa9c6450fdcd2ccb75981124b4dbb Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Mon, 9 Nov 2026 20:05:59 +0400
+Subject: [PATCH 5/5] test(warshad, pipeline): replace fixed sleeps with
+ event-driven waits (R1 step 4)
+
+---
+ crates/warsha-pipeline/src/agent_loop.rs    | 18 ++++++++++------
+ crates/warsha-pipeline/src/mcp_transport.rs | 11 +++++-----
+ crates/warsha-pipeline/src/process_spawn.rs | 13 +++++------
+ crates/warsha-pipeline/src/routines.rs      | 24 +++++++++++++++++++--
+ crates/warshad/src/lib.rs                   |  9 ++++----
+ crates/warshad/tests/child_reaping.rs       |  4 +++-
+ 6 files changed, 53 insertions(+), 26 deletions(-)
+
+diff --git a/crates/warsha-pipeline/src/agent_loop.rs b/crates/warsha-pipeline/src/agent_loop.rs
+index 90974ee..2a6e896 100644
+--- a/crates/warsha-pipeline/src/agent_loop.rs
++++ b/crates/warsha-pipeline/src/agent_loop.rs
+@@ -1154,16 +1154,20 @@ mod tests {
+         let first = tokio::spawn(async move { adapter.complete("the first turn").await });
+ 
+         // Wait until the attempt has actually been made: the turn is now in its sleep.
+-        tokio::time::timeout(Duration::from_secs(5), async {
+-            while calls.load(Ordering::Acquire) == 0 {
+-                tokio::task::yield_now().await;
++        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
++        loop {
++            if calls.load(Ordering::Acquire) > 0 {
++                break;
+             }
+-        })
+-        .await
+-        .expect("the turn reached the router");
++            assert!(
++                tokio::time::Instant::now() < deadline,
++                "the turn reached the router"
++            );
++            tokio::time::sleep(Duration::from_millis(5)).await;
++        }
+ 
+         // The write lock is what `providers.add`, `providers.remove` and `roles.set` need.
+-        let acquired = tokio::time::timeout(Duration::from_millis(100), router.write()).await;
++        let acquired = tokio::time::timeout(Duration::from_millis(200), router.write()).await;
+         assert!(
+             acquired.is_ok(),
+             "an agent turn held the router's write lock across its backoff sleep"
+diff --git a/crates/warsha-pipeline/src/mcp_transport.rs b/crates/warsha-pipeline/src/mcp_transport.rs
+index 5a2283c..56fafaa 100644
+--- a/crates/warsha-pipeline/src/mcp_transport.rs
++++ b/crates/warsha-pipeline/src/mcp_transport.rs
+@@ -1079,10 +1079,9 @@ mod tests {
+                 "tools/list" => json!({
+                     "tools": [{ "name": "echo", "description": "echo tool", "inputSchema": { "type": "object" } }],
+                 }),
+-                "tools/call" => {
+-                    std::thread::sleep(Duration::from_secs(30));
+-                    continue;
+-                }
++                "tools/call" => loop {
++                    std::thread::park();
++                },
+                 _ => {
+                     println!(
+                         "{}",
+@@ -1164,7 +1163,9 @@ mod tests {
+         if !std::env::args().any(|arg| arg == "--exact") {
+             return;
+         }
+-        std::thread::sleep(Duration::from_secs(30));
++        loop {
++            std::thread::park();
++        }
+     }
+ 
+     /// A stdio server that answers `initialize` with a protocol error.
+diff --git a/crates/warsha-pipeline/src/process_spawn.rs b/crates/warsha-pipeline/src/process_spawn.rs
+index 48fe266..565efcb 100644
+--- a/crates/warsha-pipeline/src/process_spawn.rs
++++ b/crates/warsha-pipeline/src/process_spawn.rs
+@@ -964,7 +964,9 @@ mod tests {
+             return;
+         }
+         println!("  ➜  Local:   {PROBE_URL}");
+-        std::thread::sleep(Duration::from_secs(30));
++        loop {
++            std::thread::park();
++        }
+     }
+ 
+     /// The probe's `program args…` as one command line, which is what a preview takes.
+@@ -980,7 +982,9 @@ mod tests {
+         if !std::env::args().any(|arg| arg == "--exact") {
+             return;
+         }
+-        std::thread::sleep(Duration::from_secs(30));
++        loop {
++            std::thread::park();
++        }
+     }
+ 
+     /// The command line that spawns one probe of this test binary.
+@@ -1020,10 +1024,7 @@ mod tests {
+     /// A command that outlives the test (Unix half).
+     #[cfg(not(windows))]
+     fn long_running() -> (String, Vec<String>) {
+-        (
+-            "sh".to_string(),
+-            vec!["-c".to_string(), "sleep 30".to_string()],
+-        )
++        ("sh".to_string(), vec!["-c".to_string(), "cat".to_string()])
+     }
+ 
+     /// A command that exits immediately with code 0.
+diff --git a/crates/warsha-pipeline/src/routines.rs b/crates/warsha-pipeline/src/routines.rs
+index 70638b9..53ebc0f 100644
+--- a/crates/warsha-pipeline/src/routines.rs
++++ b/crates/warsha-pipeline/src/routines.rs
+@@ -1019,11 +1019,31 @@ mod tests {
+     #[tokio::test]
+     async fn scheduler_graceful_stop() {
+         let registry = Arc::new(RwLock::new(RoutineRegistry::new()));
++        registry
++            .write()
++            .await
++            .register(Routine::new(
++                "task_stop",
++                "Task Stop",
++                RoutineSchedule::IntervalSeconds(60),
++            ))
++            .expect("registers");
+         let runner = Arc::new(MockRoutineRunner::new());
+-        let scheduler = RoutineScheduler::new(registry, runner);
++        let scheduler = RoutineScheduler::new(registry, Arc::clone(&runner) as _);
+ 
+         let handle = scheduler.start(std::time::Duration::from_millis(5));
+-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
++
++        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
++        loop {
++            if !runner.run_ids().is_empty() {
++                break;
++            }
++            assert!(
++                tokio::time::Instant::now() < deadline,
++                "scheduler background task never executed initial tick"
++            );
++            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
++        }
+ 
+         scheduler.stop();
+         let result = tokio::time::timeout(std::time::Duration::from_millis(200), handle).await;
+diff --git a/crates/warshad/src/lib.rs b/crates/warshad/src/lib.rs
+index c71dd0a..e5023d1 100644
+--- a/crates/warshad/src/lib.rs
++++ b/crates/warshad/src/lib.rs
+@@ -8022,7 +8022,9 @@ mod tests {
+             return;
+         }
+         println!("  ➜  Local:   {PROBE_URL}");
+-        std::thread::sleep(std::time::Duration::from_secs(30));
++        loop {
++            std::thread::park();
++        }
+     }
+ 
+     /// The command line that starts one probe of this test binary.
+@@ -8064,10 +8066,7 @@ mod tests {
+     /// A program plus args that keeps running until the test stops it (Unix).
+     #[cfg(not(windows))]
+     fn long_running() -> (String, Vec<String>) {
+-        (
+-            "sh".to_string(),
+-            vec!["-c".to_string(), "sleep 30".to_string()],
+-        )
++        ("sh".to_string(), vec!["-c".to_string(), "cat".to_string()])
+     }
+ 
+     #[tokio::test]
+diff --git a/crates/warshad/tests/child_reaping.rs b/crates/warshad/tests/child_reaping.rs
+index 4d1a6ad..8c37c26 100644
+--- a/crates/warshad/tests/child_reaping.rs
++++ b/crates/warshad/tests/child_reaping.rs
+@@ -65,7 +65,9 @@ fn reap_probe_child() {
+     }
+     let path = std::env::var(PID_FILE_ENV).expect("the pid file is named in the environment");
+     std::fs::write(&path, std::process::id().to_string()).expect("the pid is written");
+-    std::thread::sleep(Duration::from_secs(120));
++    loop {
++        std::thread::park();
++    }
+ }
+ 
+ /// Whether the operating system still knows a pid.
+-- 
+2.55.0.windows.5
+

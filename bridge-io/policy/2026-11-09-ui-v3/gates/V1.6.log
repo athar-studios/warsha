@@ -1,0 +1,5 @@
+576:          draft: true
+GREP1=0
+60:          node scripts/check-versions.mjs --expect "${GITHUB_REF_NAME#v}"
+GREP2=0
+COMBINED_EXIT=0

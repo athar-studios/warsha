@@ -1,0 +1,2 @@
+ledger-audit: judged-gates-with-logs ok unless listed; checkpoints 6 seqs 1,2,3,4,5,6; state seq 6; files scanned 116; secret hits 0; problems 0
+AUDIT_EXIT=0

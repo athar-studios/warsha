@@ -1,0 +1,23 @@
+=== gate G4.1 (client tests) ===
+command: pnpm --filter @warsha/client test
+commit: 73b1331c76ccb7c6ea14e78ff4c874b8faf563c4
+utc: 2026-11-08T09:48:01Z
+worktree: /c/Users/Dragonfly/Downloads/warsha-wt/verify-w4
+--- output ---
+
+> @warsha/client@0.1.0 test C:\Users\Dragonfly\Downloads\warsha-wt\verify-w4\packages\client
+> vitest run
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mC:/Users/Dragonfly/Downloads/warsha-wt/verify-w4/packages/client[39m
+
+ [32m✓[39m src/wire-contract.test.ts [2m([22m[2m23 tests[22m[2m)[22m[90m 49[2mms[22m[39m
+ [32m✓[39m src/index.test.ts [2m([22m[2m125 tests[22m[2m)[22m[90m 117[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m2 passed[39m[22m[90m (2)[39m
+[2m      Tests [22m [1m[32m148 passed[39m[22m[90m (148)[39m
+[2m   Start at [22m 13:48:03
+[2m   Duration [22m 1.58s[2m (transform 390ms, setup 0ms, collect 513ms, tests 166ms, environment 1ms, prepare 830ms)[22m
+
+--- [exit code: 0] ---

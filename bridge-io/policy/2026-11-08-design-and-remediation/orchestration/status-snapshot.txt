@@ -1,0 +1,14 @@
+snapshot at 07:34:24Z
+[w1] commits=3 head=763f6ff uncommitted=1 file changed, 12 insertions(+), 4 deletions(-)
+[w3] commits=1 head=f0a5e84 uncommitted=
+[w4] commits=2 head=081ec5b uncommitted=2 files changed, 356 insertions(+), 4 deletions(-)
+[w6] commits=3 head=a9edd90 uncommitted=
+[w7] commits=3 head=5a18a14 uncommitted=
+[w8] commits=0 head=0772d50 uncommitted=
+--- reports and reviews on disk ---
+[W1] report=no review=no
+[W3] report=no review=no
+[W4] report=no review=no
+[W6] report=no review=no
+[W7] report=yes review=no
+[W8] report=no review=no

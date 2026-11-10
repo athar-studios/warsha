@@ -1,0 +1,88 @@
+From 6f6ff097a84129f4bea2bc60fbde20cde39701fe Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Mon, 9 Nov 2026 19:29:51 +0400
+Subject: [PATCH 4/5] fix(warshad): write bootstrap admin token directly to
+ stderr (R1 step 6)
+
+---
+ crates/warshad/src/lib.rs | 52 ++++++++++++++++++++++++++++++++++++---
+ 1 file changed, 48 insertions(+), 4 deletions(-)
+
+diff --git a/crates/warshad/src/lib.rs b/crates/warshad/src/lib.rs
+index 8e88108..c71dd0a 100644
+--- a/crates/warshad/src/lib.rs
++++ b/crates/warshad/src/lib.rs
+@@ -5900,15 +5900,15 @@ pub async fn load_or_create_config(config_path: Option<&Path>) -> Result<DaemonC
+         }
+ 
+         // A brand-new daemon has just minted the one owner token it will never show
+-        // again, because after this the file already holds it. Printing it is the way a
+-        // headless operator captures that first token, and it is deliberately gated
++        // again, because after this the file already holds it. Printing it directly to stderr
++        // is the way a headless operator captures that first token, and it is deliberately gated
+         // behind `WARSHA_PRINT_BOOTSTRAP_TOKEN=1`: a normal run, and every test, must
+-        // not leak a freshly minted secret into a log or a CI capture (AGENTS.md).
++        // not leak a freshly minted secret into a log file or collector (AGENTS.md).
+         if std::env::var("WARSHA_PRINT_BOOTSTRAP_TOKEN")
+             .ok()
+             .is_some_and(|value| value == "1")
+         {
+-            info!("BOOTSTRAP_ADMIN_TOKEN={}", config.auth_token);
++            eprintln!("BOOTSTRAP_ADMIN_TOKEN={}", config.auth_token);
+         }
+         config
+     };
+@@ -9000,6 +9000,50 @@ mod tests {
+             "disallowed command must return POLICY_REFUSED (-32001)"
+         );
+     }
++
++    #[test]
++    fn bootstrap_admin_token_is_never_sent_to_tracing_subscriber() {
++        let capture = LogCapture::default();
++        let subscriber = capture_subscriber(&capture);
++        let runtime = tokio::runtime::Builder::new_current_thread()
++            .enable_all()
++            .build()
++            .expect("a current-thread runtime");
++        let temp = crate::test_util::fresh_tempdir();
++        let config_file = temp.path().join("config.toml");
++
++        std::env::set_var("WARSHA_PRINT_BOOTSTRAP_TOKEN", "1");
++        struct EnvGuard;
++        impl Drop for EnvGuard {
++            fn drop(&mut self) {
++                std::env::remove_var("WARSHA_PRINT_BOOTSTRAP_TOKEN");
++            }
++        }
++        let _guard = EnvGuard;
++
++        let token = tracing::subscriber::with_default(subscriber, || {
++            runtime.block_on(async {
++                let config = load_or_create_config(Some(&config_file))
++                    .await
++                    .expect("config created");
++                config.auth_token
++            })
++        });
++
++        assert!(!token.is_empty(), "token should be generated");
++        assert_eq!(
++            capture.count_matching("BOOTSTRAP_ADMIN_TOKEN"),
++            0,
++            "tracing subscriber saw BOOTSTRAP_ADMIN_TOKEN: {:?}",
++            capture.lines()
++        );
++        assert_eq!(
++            capture.count_matching(&token),
++            0,
++            "tracing subscriber saw the auth token: {:?}",
++            capture.lines()
++        );
++    }
+ }
+ 
+ // Declared last, after the test module above: `tests::the_startup_listener_lines_are_written_once`
+-- 
+2.55.0.windows.5
+

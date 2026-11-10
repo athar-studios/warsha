@@ -1,0 +1,131 @@
+From 148689231dd2c3917f0765b20a03b50e62b1df23 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 14:57:07 +0400
+Subject: [PATCH 08/13] docs(index): publish the canonical-doc shims and
+ refresh the design index and skill
+
+---
+ _agents/skills/warsha_elephant/SKILL.md | 11 +++++++++--
+ docs/designs/SITEMAP.md                 |  8 +++++++-
+ docs/src/SUMMARY.md                     |  5 +++++
+ docs/src/deploy.md                      |  2 ++
+ docs/src/design-system-v2.md            |  2 ++
+ docs/src/install.md                     |  2 ++
+ docs/src/skills-and-harnesses.md        |  2 ++
+ docs/src/verify.md                      |  2 ++
+ 8 files changed, 31 insertions(+), 3 deletions(-)
+ create mode 100644 docs/src/deploy.md
+ create mode 100644 docs/src/design-system-v2.md
+ create mode 100644 docs/src/install.md
+ create mode 100644 docs/src/skills-and-harnesses.md
+ create mode 100644 docs/src/verify.md
+
+diff --git a/_agents/skills/warsha_elephant/SKILL.md b/_agents/skills/warsha_elephant/SKILL.md
+index caf4664..3030adc 100644
+--- a/_agents/skills/warsha_elephant/SKILL.md
++++ b/_agents/skills/warsha_elephant/SKILL.md
+@@ -12,13 +12,20 @@ or drift check (`/egm-drift-report`) on the Warsha repo.
+ 
+ - Rust workspace (`crates/`: `warshad`, `warsha-store`, `warsha-pipeline`, `warsha-core`, …)
+ - TypeScript desktop app (`apps/desktop/src/screens/`, 21+ screens, RTL ar/en, light/dark)
+-- E2E: Playwright (`apps/desktop/e2e/` — `screens.a11y.spec.ts` 180، `states.spec.ts` 252، `screens.visual.spec.ts` 308)
++- E2E: Playwright (`apps/desktop/e2e/` — `screens.a11y.spec.ts` 188, `states.spec.ts` 252,
++  `screens.visual.spec.ts` 308, behaviour 45 across `flows.spec.ts` 30 / `layout.spec.ts` 12 /
++  `onboarding.spec.ts` 3; remote `apps/remote/e2e/` 91 — `bench.visual.spec.ts` 84, `flows.spec.ts` 7)
+ - Visual contract: `playwright.config.ts` (`maxDiffPixelRatio: 0`، `threshold: 0.05`) + Linux fontconfig pin (`scripts/ci/capture-fontconfig.conf`)
+ 
+ ## Canonical docs (read first)
+ 
+-- `docs/ARCHITECTURE.md` — system architecture (note: some sections stale, verify against code)
++- `docs/ARCHITECTURE.md` — system architecture (verified against the tree at `99a7c03`)
++- `docs/designs/DESIGN_SYSTEM_V2.md` — Design System v2 (tokens, R6 v2, compound contracts, adoption ladder)
+ - `docs/design/REDESIGN.md` — redesign spec (S5/S6/§7/§10/§11)
++- `docs/UI.md` — desktop UI reference (screens, states, directions)
++- `docs/INSTALL.md` — build, install and uninstall transcript with measured hashes
++- `docs/DEPLOY.md` — Docker/Caddy deployment, TLS boundary and domainless paths
++- `docs/VERIFY.md` — artifact verification, evidence bar and deferred device items
+ - `docs/SKILLS_AND_HARNESSES.md` — skill bundling rule (Apache-2.0/MIT/BSD can bundle with notices; GPL/AGPL link-only)
+ - `THIRD_PARTY_NOTICES.md` — declared third-party components
+ - `docs/designs/SITEMAP.md` — EGM design index for this repo
+diff --git a/docs/designs/SITEMAP.md b/docs/designs/SITEMAP.md
+index 68cf625..56547dc 100644
+--- a/docs/designs/SITEMAP.md
++++ b/docs/designs/SITEMAP.md
+@@ -13,11 +13,17 @@ Elephant-Goldfish Model flow (`/egm-brainstorm` → `/egm-draft` →
+ |---|---|---|
+ | Redesign baseline (S5/S6/§7/§10/§11) | Canonical reference | `../design/REDESIGN.md` |
+ | Design System v2 — tokens, R6 v2, compound contracts, screen architecture, adoption ladder | Draft for implementation (run 2026-11-08, packets W3/W5) | [`./DESIGN_SYSTEM_V2.md`](./DESIGN_SYSTEM_V2.md) |
++| Skills and harnesses policy | Canonical policy | [`../SKILLS_AND_HARNESSES.md`](../SKILLS_AND_HARNESSES.md) |
++| Desktop UI reference | Canonical reference | [`../UI.md`](../UI.md) |
++| Install manual (build, install, uninstall) | Canonical reference | [`../INSTALL.md`](../INSTALL.md) |
++| Deployment manual (Docker, Caddy, TLS, tunnels) | Canonical reference | [`../DEPLOY.md`](../DEPLOY.md) |
++| Verification guide (artifacts, hashes, evidence bar) | Canonical reference | [`../VERIFY.md`](../VERIFY.md) |
+ | _(next design)_ | Draft | `./FEATURE.md` (create per feature) |
+ 
+ ## Conventions
+ 
+ - One file per feature under `docs/designs/`, named `FEATURE.md`.
+ - Sections: Overview, Problem, Goals, Non-Goals, Open Questions, CUJs, Technical Plan, Alternatives, Verification.
+-- Verification must name real commands and E2E spec totals (a11y 188, states 252, visual 308).
++- Verification must name real commands and E2E spec totals (a11y 188, states 252, visual 308,
++  behaviour 45 across `flows`/`layout`/`onboarding`, remote 91).
+ - Drift check weekly: `/egm-drift-report docs/designs/` — reconcile doc or code, human picks which.
+diff --git a/docs/src/SUMMARY.md b/docs/src/SUMMARY.md
+index 79b4706..01deafc 100644
+--- a/docs/src/SUMMARY.md
++++ b/docs/src/SUMMARY.md
+@@ -10,6 +10,11 @@
+ - [Security Model](security.md)
+ - [Gates and Approvals](gates.md)
+ - [Desktop UI](UI.md)
++- [Design System v2](design-system-v2.md)
++- [Skills and Harnesses](skills-and-harnesses.md)
++- [Install](install.md)
++- [Deploy](deploy.md)
++- [Verify](verify.md)
+ - [Work Protection](work-protection.md)
+ - [Router Additions](router-additions.md)
+ - [Status Strip and Delivery](status-strip.md)
+diff --git a/docs/src/deploy.md b/docs/src/deploy.md
+new file mode 100644
+index 0000000..11a0eee
+--- /dev/null
++++ b/docs/src/deploy.md
+@@ -0,0 +1,2 @@
++<!-- Source of truth: docs/DEPLOY.md (kept outside src/ so the file is readable at the repo root; this shim only publishes it). -->
++{{#include ../DEPLOY.md}}
+diff --git a/docs/src/design-system-v2.md b/docs/src/design-system-v2.md
+new file mode 100644
+index 0000000..5e369ea
+--- /dev/null
++++ b/docs/src/design-system-v2.md
+@@ -0,0 +1,2 @@
++<!-- Source of truth: docs/designs/DESIGN_SYSTEM_V2.md (planner-owned design; this shim only publishes it in the book). -->
++{{#include ../designs/DESIGN_SYSTEM_V2.md}}
+diff --git a/docs/src/install.md b/docs/src/install.md
+new file mode 100644
+index 0000000..108b88b
+--- /dev/null
++++ b/docs/src/install.md
+@@ -0,0 +1,2 @@
++<!-- Source of truth: docs/INSTALL.md (kept outside src/ so the file is readable at the repo root; this shim only publishes it). -->
++{{#include ../INSTALL.md}}
+diff --git a/docs/src/skills-and-harnesses.md b/docs/src/skills-and-harnesses.md
+new file mode 100644
+index 0000000..6609b64
+--- /dev/null
++++ b/docs/src/skills-and-harnesses.md
+@@ -0,0 +1,2 @@
++<!-- Source of truth: docs/SKILLS_AND_HARNESSES.md (kept outside src/ so the file is readable at the repo root; this shim only publishes it). -->
++{{#include ../SKILLS_AND_HARNESSES.md}}
+diff --git a/docs/src/verify.md b/docs/src/verify.md
+new file mode 100644
+index 0000000..a1374bb
+--- /dev/null
++++ b/docs/src/verify.md
+@@ -0,0 +1,2 @@
++<!-- Source of truth: docs/VERIFY.md (kept outside src/ so the file is readable at the repo root; this shim only publishes it). -->
++{{#include ../VERIFY.md}}
+-- 
+2.55.0.windows.5
+

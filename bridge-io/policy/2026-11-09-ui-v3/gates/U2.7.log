@@ -1,0 +1,21 @@
+hook+test ok: useProjects
+hook+test ok: useProject
+hook+test ok: useRun
+hook+test ok: useRunEvents
+hook+test ok: useGates
+hook+test ok: useBudget
+hook+test ok: useProviders
+hook+test ok: useModels
+hook+test ok: useRoles
+hook+test ok: useHarnesses
+hook+test ok: useSkills
+hook+test ok: usePlugins
+hook+test ok: useRoutines
+hook+test ok: useDevices
+hook+test ok: usePreview
+hook+test ok: useArtifacts
+hook+test ok: usePreferences
+hook+test ok: useHealth
+hook+test ok: useFiles
+hook+test ok: useAgent
+GATE_EXIT=0

@@ -1,0 +1,78 @@
+--- script ---
+#!/usr/bin/env bash
+# U4 capture gates (U4.6 + U4.pw) — detached, survives pauses. Judge from the JSONs afterwards.
+export PATH=/root/.nvm/versions/node/v20.20.2/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EV=/mnt/c/Users/Dragonfly/Downloads/Warsha/bridge-io/policy/2026-11-09-ui-v3
+SRC=/mnt/c/Users/Dragonfly/Downloads/warsha
+META="$EV/gates/U4cap.meta"; DONE="$EV/gates/U4cap.done"
+rm -f "$DONE"; exec 2> "$EV/gates/U4cap.err"
+echo "start $(date -u +%FT%TZ)" > "$META"
+cd /root/warsha-visual || { echo clone_missing >> "$META"; echo done > "$DONE"; exit 0; }
+git fetch "$SRC" '+refs/heads/run/2026-11-09-ui-v3/u4-workbench:refs/remotes/q/u4' '+ba5cd1efb09bc37724e8f64feba6ecb9a1265d51:refs/remotes/q/tip' >> "$META" 2>&1 || { echo fetch_fail >> "$META"; echo done > "$DONE"; exit 0; }
+git worktree remove --force /root/warsha-u4v 2>/dev/null; git worktree prune; rm -rf /root/warsha-u4v
+git worktree add --detach /root/warsha-u4v q/tip >> "$META" 2>&1 || { echo wt_fail >> "$META"; echo done > "$DONE"; exit 0; }
+cd /root/warsha-u4v || { echo cd_fail >> "$META"; echo done > "$DONE"; exit 0; }
+git merge --no-ff q/u4 -m "scratch: U4 capture" >> "$META" 2>&1 || { echo merge_fail >> "$META"; echo done > "$DONE"; exit 0; }
+pnpm install --frozen-lockfile > "$EV/gates/U4cap.install.log" 2>&1 || { echo install_fail >> "$META"; echo done > "$DONE"; exit 0; }
+echo install_ok >> "$META"
+if ss -ltn 2>/dev/null | grep -qE ':(5173|5174)[[:space:]]'; then echo PORT_BUSY >> "$META"; echo done > "$DONE"; exit 0; fi
+CI=true pnpm exec playwright test --project=desktop v3/bench.spec.ts --grep-invert @visual --reporter=json > "$EV/gates/U4.6.json" 2>> "$EV/gates/U4cap.err"
+echo "u46_exit=$?" >> "$META"
+CI=true pnpm exec playwright test --project=desktop --project=remote --reporter=json > "$EV/gates/U4.pw.json" 2>> "$EV/gates/U4cap.err"
+echo "u4pw_exit=$?" >> "$META"
+echo "end $(date -u +%FT%TZ)" >> "$META"
+echo done > "$DONE"
+--- meta full ---
+start 2026-11-10TTZ
+Preparing worktree (detached HEAD ba5cd1e)
+HEAD is now at ba5cd1e chore(integration): C3 merge U5 (support fix needed by U4 e2e; recorded reorder)
+Merge made by the 'ort' strategy.
+ apps/desktop/e2e/v3/bench.spec.ts                  | 568 +++++++++++++
+ apps/desktop/src/v3/actions/registry/bench.ts      |  34 +-
+ apps/desktop/src/v3/pages/bench/bench.css          |  21 +
+ apps/desktop/src/v3/pages/bench/bench.test.tsx     | 913 +++++++++++++++++++++
+ .../v3/pages/bench/components/AdvancedComposer.tsx | 222 +++++
+ .../pages/bench/components/BenchDecisionCard.tsx   | 273 ++++++
+ .../src/v3/pages/bench/components/BenchHeader.tsx  | 228 +++++
+ .../src/v3/pages/bench/components/BenchRail.tsx    | 187 +++++
+ .../src/v3/pages/bench/components/BenchTabs.tsx    | 114 +++
+ .../src/v3/pages/bench/components/StageStrip.tsx   |  85 ++
+ apps/desktop/src/v3/pages/bench/helpers.ts         | 143 ++++
+ apps/desktop/src/v3/pages/bench/index.tsx          | 510 +++++++++++-
+ .../src/v3/pages/bench/tabs/ArtifactsTab.tsx       | 138 ++++
+ .../src/v3/pages/bench/tabs/AssistantTab.tsx       | 337 ++++++++
+ .../desktop/src/v3/pages/bench/tabs/ChangesTab.tsx | 169 ++++
+ apps/desktop/src/v3/pages/bench/tabs/CostTab.tsx   | 243 ++++++
+ apps/desktop/src/v3/pages/bench/tabs/FilesTab.tsx  | 258 ++++++
+ .../src/v3/pages/bench/tabs/OverviewTab.tsx        | 168 ++++
+ apps/desktop/src/v3/pages/bench/tabs/PlanTab.tsx   |  69 ++
+ .../desktop/src/v3/pages/bench/tabs/PreviewTab.tsx | 161 ++++
+ apps/desktop/src/v3/pages/bench/tabs/TeamTab.tsx   | 299 +++++++
+ .../src/v3/pages/bench/tabs/TerminalTab.tsx        | 119 +++
+ apps/desktop/src/v3/pages/bench/types.ts           |  52 ++
+ packages/i18n/src/v3/ar/bench.ts                   | 166 ++++
+ packages/i18n/src/v3/en/bench.ts                   | 166 ++++
+ 25 files changed, 5639 insertions(+), 4 deletions(-)
+ create mode 100644 apps/desktop/e2e/v3/bench.spec.ts
+ create mode 100644 apps/desktop/src/v3/pages/bench/bench.css
+ create mode 100644 apps/desktop/src/v3/pages/bench/bench.test.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/components/AdvancedComposer.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/components/BenchDecisionCard.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/components/BenchHeader.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/components/BenchRail.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/components/BenchTabs.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/components/StageStrip.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/helpers.ts
+ create mode 100644 apps/desktop/src/v3/pages/bench/tabs/ArtifactsTab.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/tabs/AssistantTab.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/tabs/ChangesTab.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/tabs/CostTab.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/tabs/FilesTab.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/tabs/OverviewTab.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/tabs/PlanTab.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/tabs/PreviewTab.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/tabs/TeamTab.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/tabs/TerminalTab.tsx
+ create mode 100644 apps/desktop/src/v3/pages/bench/types.ts
+install_ok
+u46_exit=0

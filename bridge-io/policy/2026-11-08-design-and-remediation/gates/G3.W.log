@@ -1,0 +1,7 @@
+gate: G3.W (wire contract)
+command: node scripts/check-wire-contract.mjs
+commit: 0f829731273d722ae21f25e26a54767bc852fe56
+utc: 2026-11-08T10:23:25Z
+--- output ---
+wire: 8 checks, 0 violations
+exit: 0

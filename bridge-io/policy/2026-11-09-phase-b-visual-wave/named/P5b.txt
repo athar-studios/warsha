@@ -1,0 +1,2 @@
+# P5b — SettingsLayout + scope strings on settings screens, opacity -> text-muted, HandoffDialog layer
+^desktop › (screens\.visual|states)\.spec\.ts › (settings|settings-providers|providers|roles|harnesses|skills|plugins|models|routines|crash-reports|store-reviews|backend-kit) 

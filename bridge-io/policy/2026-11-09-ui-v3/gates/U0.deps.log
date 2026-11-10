@@ -1,0 +1,6 @@
+--- manifest diff stat ---
+ packages/ui/package.json | 2 ++
+ 1 file changed, 2 insertions(+)
+--- gate pipeline ---
+PIPESTATUS(grep1,grep2,grep3)=1,1,1 GATE_EXIT=1
+--- added dep lines (pre fontsource filter) ---

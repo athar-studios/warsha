@@ -1,0 +1,175 @@
+{
+  "schema": "warsha-run/v1#verdict",
+  "run_id": "2026-11-08-design-and-remediation",
+  "generated_at": "2026-11-08T18:23:12Z",
+  "integration_tip": "282bcd6",
+  "base_commit": "0772d502002562505c6438ae712abca7a7328d84",
+  "dev_commit": "282bcd6",
+  "verdict": "ACCEPTED by the owner",
+  "accepted": true,
+  "reason": "Every gate that does not depend on an owner decision is now green at the final integration tip. Ten of the twelve integration gates pass fully; GC.10 passes on desktop and is blocked only on the 40 stale remote baselines (OD1), and GC.12 passes every W7 gate except G7.6, which greps a directory containing its own prompt and therefore can never pass (OD2). No frozen gate was edited, narrowed or re-worded at any point, and zero snapshot files were touched in the whole run. Acceptance and the merge to dev remain the owner's alone.",
+  "gate_tally": {
+    "pass": 107,
+    "fail": 1
+  },
+  "gate_total": 108,
+  "merged": [
+    {
+      "checkpoint": "C0",
+      "tip": "5abe5ef",
+      "packets": [
+        "W8"
+      ]
+    },
+    {
+      "checkpoint": "C1",
+      "tip": "99a7c03",
+      "packets": [
+        "W1",
+        "W6",
+        "W7",
+        "W4"
+      ]
+    },
+    {
+      "checkpoint": "C1.5",
+      "tip": "406240a",
+      "packets": [
+        "W3"
+      ]
+    },
+    {
+      "checkpoint": "C2a",
+      "tip": "c2709169",
+      "packets": [
+        "W2"
+      ]
+    },
+    {
+      "checkpoint": "C2b",
+      "tip": "a9dad9a",
+      "packets": [
+        "W2 repair iteration 2"
+      ]
+    },
+    {
+      "checkpoint": "C2c",
+      "tip": "7ddec7f",
+      "packets": [
+        "W2 follow-up 5a2834d"
+      ]
+    }
+  ],
+  "held_back": [
+    {
+      "packet": "W5",
+      "status": "implemented + review APPROVE + 14/14 worktree gates",
+      "blocked_on": "OD4",
+      "rehearsal": "scratch/od4-rehearsal ffd19e7 with OD4 option 1 applied measures desktop 793 passed / 0 failed / 0 snapshot writes, desktop unit 464 >= 451, @warsha/ui 181 at APP_LENGTH_BUDGET=0"
+    }
+  ],
+  "gate_headlines": {
+    "G0": "fail - recorded baseline truth at the planner commit: desktop 793 listed / 785 passed / 8 failed, remote 91 listed / 51 passed / 40 failed",
+    "desktop_pixel_neutrality": "proven three times on the capture host: G8.4, G3.8 and G4.9 each measured 793 passed / 0 failed with zero snapshot writes",
+    "GC_provisional": "GC.1, GC.2, GC.3, GC.5, GC.6, GC.7, GC.8, GC.9 and GC.11 pass at the C2a/C2b tips but are PROVISIONAL and must be re-run at the final tip",
+    "GC.4": "partial - all four stages exit 0, but desktop is 446 against the stated floor of 451 because W5 (which adds 18 tests) is unmerged",
+    "GC.10": "cannot pass - needs desktop 793/0 (reachable and rehearsed) AND remote 91/0 (blocked on OD1)",
+    "GC.12": "measured and FAILS by sequencing: the remote bundle changed on the integrated tree (index.html 5ce10767 -> 16a7bf9c, sw.js b100e927 -> 1a9fb2ca), so the APK SHA-256 recorded in apps/mobile/README.md can no longer match. The APK must be rebuilt and the hash re-recorded AFTER W5 merges (OD5)."
+  },
+  "integrity": {
+    "frozen_gates_edited": 0,
+    "snapshots_touched": 0,
+    "secrets_in_evidence": "gitleaks: no leaks found, 120 commits / ~50 MB; the provider key pasted into chat never entered any revision",
+    "pushed": false,
+    "published": false,
+    "released": false,
+    "dev_merged": false,
+    "gates_with_verdict_but_missing_log": 0,
+    "evidence_audit": "An audit found 13 G1.* verdicts with no log file; the orchestrator re-ran all 13 at 6d9728f and they reproduce their frozen expectation."
+  },
+  "orchestrator_errors_disclosed": [
+    "Called the G5.10 failure a pixel regression; it was a string-coupled e2e assertion (retracted, checkpoint 028).",
+    "Briefed W2 to fix a fence inside the planner-owned docs/designs/DESIGN_SYSTEM_V2.md; corrected before W2 acted (checkpoint 033).",
+    "Recorded 13 W1 gate verdicts without log files; re-derived them (checkpoint 038).",
+    "An own-harness quoting bug manufactured a false G1.4 failure; caught by reading the log body, not the exit code."
+  ],
+  "blocked_on": [
+    {
+      "id": "OD1",
+      "topic": "Name the 40 stale remote visual baselines so the Phase B refresh can run; this is the only thing keeping GC.10 remote, G3.9 and G5.11 from green."
+    },
+    {
+      "id": "OD2",
+      "topic": "Resolve G7.6, whose grep hits its own prompt file, so it can never pass as written."
+    },
+    {
+      "id": "OD3",
+      "topic": "Informational: G7.3 names the Unix apksigner while Windows ships apksigner.bat (the .bat was used and verified)."
+    }
+  ],
+  "next_step": "Owner reviews verdict.json and the evidence; resolves OD1 and OD2 if desired; then accepts and merges run/2026-11-08/integration into dev.",
+  "records_folded": {
+    "PROGRESS": "one consolidated run entry",
+    "DECISIONS": "folded worker decisions + OD1-OD5 open",
+    "PLAN": "8 ticks + PARTIAL heading + blocker annotations",
+    "commit": "0066663"
+  },
+  "od4_resolution": "RESOLVED without owner action: read the quiet-band width from sizeTokens so the frozen e2e assertion and the R6.9 ratchet both hold; states.spec.ts untouched; desktop 793/0 with 0 snapshot writes (gates/TOKFIX.log).",
+  "integration_gates": {
+    "GC.1": "pass",
+    "GC.2": "pass (carried, no Rust change)",
+    "GC.3": "pass (carried, no Rust change)",
+    "GC.4": "pass (all floors met incl. desktop 464 >= 451)",
+    "GC.5": "pass",
+    "GC.6": "pass",
+    "GC.7": "pass",
+    "GC.8": "pass (wire: 9 checks, 0 violations)",
+    "GC.9": "pass",
+    "GC.11": "pass (gitleaks: no leaks)",
+    "GC.10": "desktop pass, remote blocked on OD1",
+    "GC.12": "all W7 gates pass except G7.6 (OD2)"
+  },
+  "final_tip_evidence": {
+    "desktop_pixel_neutrality": "793 passed / 0 failed / exit 0 / 0 snapshot writes at a643a53 - after all eight packets merged and INT-2 applied",
+    "apk_on_integrated_tree": "842,981 B, sha256 6a4681852c53f01294159b1d6a905ddb8b32ab968d68fbefcd50a93eae2700ef, apksigner Verifies (v2, RSA-4096), 0 .map entries, G7.5 grep exit 0",
+    "unit_floors": "ui 181/170, client 148/140, i18n 52/52, desktop 464/451, remote 221/221",
+    "rust": "clippy -D warnings clean; workspace 743 passed / 0 failed",
+    "snapshots_touched": 0,
+    "frozen_gates_edited": 0
+  },
+  "remaining_nits": [
+    "apps/mobile/README.md still carries the previous \"Build date\" line next to the refreshed hash/size."
+  ],
+  "evidence_completeness": "acceptance.json now carries a verdict for ALL 108 gates - zero not-run. 102 pass, 1 fail (G0, the recorded baseline truth), 3 blocked on owner decisions (G3.9, G5.11 and G7.6 - OD1 and OD2), and 2 partial (GC.10 whose remote half needs OD1, and GC.12 whose only unsatisfied part is G7.6). Packet gates are recorded at the commit each was verified at, in its own worktree, which is what their $BASE..HEAD definitions mean; the integration tip is covered by GC.1-GC.12.",
+  "od1_visual_evidence": {
+    "pack": "od1-visual-review/INDEX.md + OBSERVATIONS.md + 120 PNGs",
+    "key_finding": "The 40 diffs are NOT uniformly \"added product surface\". Projects shows genuinely new UI (correct to refresh). Run also shows a \"The event stream stopped — Reconnect\" banner caused by an unstubbed harness method, so refreshing now would enshrine an error state as the visual truth. Close the harness stub gap (Phase B per section 9) BEFORE refreshing."
+  },
+  "od1_root_cause": "runs.subscribe is unstubbed: apps/remote/e2e/harness.ts:77 declares rpc: [health, runs.list], i.e. 2 of ~75 daemon methods. The reconnect banner is therefore a harness artifact, and refreshing baselines before closing that gap would freeze the artifact. Phase B spec written to PHASE_B_NEXT_RUN.md.",
+  "non_blocking_product_decisions": [
+    {
+      "id": "OD6",
+      "topic": "read-before-write guard is inert; policy default says on; daemon reads neither (agent_tools.rs:228/:238, work_protection.rs:73, no reference in warshad/src/lib.rs)",
+      "blocks": "nothing"
+    }
+  ],
+  "evidence_audit": {
+    "result": "CLEAN - 0 problems",
+    "judged_gates_with_real_log": "106 of 108; the 2 without are G3.9 and G5.11, blocked on OD1 and never run (no log claimed)",
+    "note": "Ten G7.* verdicts originally cited logs that did not exist; all ten were re-derived and now have genuine logs. Two harness faults on the way (unset ANDROID_HOME producing a false G7.2 failure, and escaped quoting producing a false G7.5 failure) are recorded inside those logs rather than hidden."
+  },
+  "accepted_at": "2026-11-08T23:59:50Z",
+  "accepted_by": "human: Mohamed Ashry (repository owner)",
+  "merged_to_dev": {
+    "command": "git merge --ff-only run/2026-11-08/integration",
+    "dev_before": "642ae95",
+    "dev_after": "282bcd6",
+    "when": "2026-11-08T23:59:50Z"
+  },
+  "post_acceptance": {
+    "gc10": "PASS at 1019506 - desktop 793/0 and remote 91/0, zero snapshot writes",
+    "od1": "closed",
+    "od2": "closed",
+    "od6": "closed"
+  }
+}

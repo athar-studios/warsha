@@ -1,0 +1,9 @@
+
+Running 4 tests using 2 workers
+
+  ✓  2 [desktop] › desktop/e2e/flows.spec.ts:81:5 › the mode group moves focus with the arrows and presses with Enter: 390x844 en (1.5s)
+  ✓  1 [desktop] › desktop/e2e/flows.spec.ts:81:5 › the mode group moves focus with the arrows and presses with Enter: 390x844 ar (1.6s)
+  ✓  3 [desktop] › desktop/e2e/flows.spec.ts:81:5 › the mode group moves focus with the arrows and presses with Enter: 1440x900 ar (1.7s)
+  ✓  4 [desktop] › desktop/e2e/flows.spec.ts:81:5 › the mode group moves focus with the arrows and presses with Enter: 1440x900 en (1.7s)
+
+  4 passed (6.9s)

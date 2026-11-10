@@ -1,0 +1,467 @@
+From fc8f06656a1b665913b0aeeecb19cb8278775bb6 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Mon, 9 Nov 2026 18:26:32 +0400
+Subject: [PATCH 12/12] fix(desktop): align data hook tests with client wire
+ types and fix import order
+
+Ensure mock data in unit tests satisfies exact Wire and API types from
+@warsha/client and fix ESLint import ordering.
+---
+ apps/desktop/src/v3/data/useAgent.ts          |  1 +
+ apps/desktop/src/v3/data/useArtifacts.ts      |  1 +
+ apps/desktop/src/v3/data/useBudget.ts         |  1 +
+ apps/desktop/src/v3/data/useDevices.ts        |  1 +
+ apps/desktop/src/v3/data/useFiles.ts          |  1 +
+ apps/desktop/src/v3/data/useGates.test.ts     |  9 +++--
+ apps/desktop/src/v3/data/useGates.ts          |  1 +
+ apps/desktop/src/v3/data/useHarnesses.test.ts | 34 +++++++++++++++++--
+ apps/desktop/src/v3/data/useHarnesses.ts      |  1 +
+ apps/desktop/src/v3/data/useHealth.ts         |  1 +
+ apps/desktop/src/v3/data/useModels.test.ts    | 16 +++++++--
+ apps/desktop/src/v3/data/useModels.ts         |  1 +
+ apps/desktop/src/v3/data/usePlugins.test.ts   | 26 ++++++++++++--
+ apps/desktop/src/v3/data/usePlugins.ts        |  1 +
+ apps/desktop/src/v3/data/usePreferences.ts    |  1 +
+ apps/desktop/src/v3/data/usePreview.ts        |  1 +
+ apps/desktop/src/v3/data/useProviders.ts      |  1 +
+ apps/desktop/src/v3/data/useRoles.ts          |  1 +
+ apps/desktop/src/v3/data/useRoutines.test.ts  |  4 +--
+ apps/desktop/src/v3/data/useRoutines.ts       |  1 +
+ apps/desktop/src/v3/data/useRunEvents.ts      |  3 +-
+ apps/desktop/src/v3/data/useSkills.test.ts    | 22 ++++++++++--
+ apps/desktop/src/v3/data/useSkills.ts         |  1 +
+ 23 files changed, 116 insertions(+), 14 deletions(-)
+
+diff --git a/apps/desktop/src/v3/data/useAgent.ts b/apps/desktop/src/v3/data/useAgent.ts
+index 998d061..2a1ba69 100644
+--- a/apps/desktop/src/v3/data/useAgent.ts
++++ b/apps/desktop/src/v3/data/useAgent.ts
+@@ -1,6 +1,7 @@
+ import type { AgentState, WarshaClient } from '@warsha/client';
+ 
+ import { useClient } from '../app/ClientContext';
++
+ import type { HookResult } from './types';
+ import { useResource } from './useResource';
+ 
+diff --git a/apps/desktop/src/v3/data/useArtifacts.ts b/apps/desktop/src/v3/data/useArtifacts.ts
+index 1b0a7bc..a015a28 100644
+--- a/apps/desktop/src/v3/data/useArtifacts.ts
++++ b/apps/desktop/src/v3/data/useArtifacts.ts
+@@ -1,6 +1,7 @@
+ import type { RunArtifact, RunId, WarshaClient } from '@warsha/client';
+ 
+ import { useClient } from '../app/ClientContext';
++
+ import type { HookResult } from './types';
+ import { useResource } from './useResource';
+ 
+diff --git a/apps/desktop/src/v3/data/useBudget.ts b/apps/desktop/src/v3/data/useBudget.ts
+index 668573d..43c44c6 100644
+--- a/apps/desktop/src/v3/data/useBudget.ts
++++ b/apps/desktop/src/v3/data/useBudget.ts
+@@ -1,6 +1,7 @@
+ import type { BudgetStatus, ProjectId, WarshaClient } from '@warsha/client';
+ 
+ import { useClient } from '../app/ClientContext';
++
+ import type { HookResult } from './types';
+ import { useResource } from './useResource';
+ 
+diff --git a/apps/desktop/src/v3/data/useDevices.ts b/apps/desktop/src/v3/data/useDevices.ts
+index 1532d8b..6b30dde 100644
+--- a/apps/desktop/src/v3/data/useDevices.ts
++++ b/apps/desktop/src/v3/data/useDevices.ts
+@@ -1,6 +1,7 @@
+ import type { DeviceSummary, WarshaClient } from '@warsha/client';
+ 
+ import { useClient } from '../app/ClientContext';
++
+ import type { HookResult } from './types';
+ import { useResource } from './useResource';
+ 
+diff --git a/apps/desktop/src/v3/data/useFiles.ts b/apps/desktop/src/v3/data/useFiles.ts
+index b77dfac..580fef7 100644
+--- a/apps/desktop/src/v3/data/useFiles.ts
++++ b/apps/desktop/src/v3/data/useFiles.ts
+@@ -1,6 +1,7 @@
+ import type { FileEntry, WarshaClient } from '@warsha/client';
+ 
+ import { useClient } from '../app/ClientContext';
++
+ import type { HookResult } from './types';
+ import { useResource } from './useResource';
+ 
+diff --git a/apps/desktop/src/v3/data/useGates.test.ts b/apps/desktop/src/v3/data/useGates.test.ts
+index 3d7cdcc..3869522 100644
+--- a/apps/desktop/src/v3/data/useGates.test.ts
++++ b/apps/desktop/src/v3/data/useGates.test.ts
+@@ -1,5 +1,5 @@
+ import { act, renderHook } from '@testing-library/react';
+-import type { GateSummary, RunId, WarshaClient } from '@warsha/client';
++import type { DeviceId, GateSummary, RunId, WarshaClient } from '@warsha/client';
+ import { describe, expect, it, vi } from 'vitest';
+ 
+ import { useGates } from './useGates';
+@@ -29,7 +29,7 @@ describe('useGates', () => {
+ 
+   it('handles ready state when gates are returned', async () => {
+     const list: GateSummary[] = [
+-      { stage: 'gate_a', state: 'pending' },
++      { stage: 'gate_a', state: { state: 'pending' } },
+     ];
+     const client = {
+       getGates: vi.fn().mockResolvedValue(list),
+@@ -54,7 +54,10 @@ describe('useGates', () => {
+     expect(result.current.error?.message).toBe('Gates failed');
+ 
+     (client.getGates as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+-      { stage: 'gate_b', state: 'approved' },
++      {
++        stage: 'gate_b',
++        state: { state: 'approved', by: 'dev-1' as DeviceId, at: '2026-11-09T00:00:00Z' },
++      },
+     ]);
+ 
+     await act(async () => {
+diff --git a/apps/desktop/src/v3/data/useGates.ts b/apps/desktop/src/v3/data/useGates.ts
+index 52e23da..68fdeab 100644
+--- a/apps/desktop/src/v3/data/useGates.ts
++++ b/apps/desktop/src/v3/data/useGates.ts
+@@ -1,6 +1,7 @@
+ import type { GateSummary, RunId, WarshaClient } from '@warsha/client';
+ 
+ import { useClient } from '../app/ClientContext';
++
+ import type { HookResult } from './types';
+ import { useResource } from './useResource';
+ 
+diff --git a/apps/desktop/src/v3/data/useHarnesses.test.ts b/apps/desktop/src/v3/data/useHarnesses.test.ts
+index 603b64f..74eb8c7 100644
+--- a/apps/desktop/src/v3/data/useHarnesses.test.ts
++++ b/apps/desktop/src/v3/data/useHarnesses.test.ts
+@@ -29,7 +29,22 @@ describe('useHarnesses', () => {
+ 
+   it('handles ready state when harnesses exist', async () => {
+     const list: HarnessDefinition[] = [
+-      { id: 'h1', name: 'Standard Harness', path: '/harness/std' },
++      {
++        id: 'h1',
++        version: '1.0',
++        name: 'Standard Harness',
++        description: 'Standard factory flow',
++        stages: [],
++        rules: {
++          maxRepairIterations: 3,
++          budgetCapCents: 500,
++          allowParallelSubagents: false,
++          requireVerificationReceipt: true,
++        },
++        preset: true,
++        active: true,
++        createdAt: '2026-11-09T00:00:00Z',
++      },
+     ];
+     const client = {
+       listHarnesses: vi.fn().mockResolvedValue(list),
+@@ -54,7 +69,22 @@ describe('useHarnesses', () => {
+     expect(result.current.error?.message).toBe('Harness error');
+ 
+     (client.listHarnesses as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+-      { id: 'h2', name: 'Custom Harness', path: '/harness/custom' },
++      {
++        id: 'h2',
++        version: '1.0',
++        name: 'Custom Harness',
++        description: 'Custom flow',
++        stages: [],
++        rules: {
++          maxRepairIterations: 1,
++          budgetCapCents: null,
++          allowParallelSubagents: false,
++          requireVerificationReceipt: false,
++        },
++        preset: false,
++        active: true,
++        createdAt: '2026-11-09T00:00:00Z',
++      },
+     ]);
+ 
+     await act(async () => {
+diff --git a/apps/desktop/src/v3/data/useHarnesses.ts b/apps/desktop/src/v3/data/useHarnesses.ts
+index bea0966..78b43fe 100644
+--- a/apps/desktop/src/v3/data/useHarnesses.ts
++++ b/apps/desktop/src/v3/data/useHarnesses.ts
+@@ -1,6 +1,7 @@
+ import type { HarnessDefinition, WarshaClient } from '@warsha/client';
+ 
+ import { useClient } from '../app/ClientContext';
++
+ import type { HookResult } from './types';
+ import { useResource } from './useResource';
+ 
+diff --git a/apps/desktop/src/v3/data/useHealth.ts b/apps/desktop/src/v3/data/useHealth.ts
+index da06b5a..a79747f 100644
+--- a/apps/desktop/src/v3/data/useHealth.ts
++++ b/apps/desktop/src/v3/data/useHealth.ts
+@@ -1,6 +1,7 @@
+ import type { WarshaClient } from '@warsha/client';
+ 
+ import { useClient } from '../app/ClientContext';
++
+ import type { HookResult } from './types';
+ import { useResource } from './useResource';
+ 
+diff --git a/apps/desktop/src/v3/data/useModels.test.ts b/apps/desktop/src/v3/data/useModels.test.ts
+index be9485d..73dc290 100644
+--- a/apps/desktop/src/v3/data/useModels.test.ts
++++ b/apps/desktop/src/v3/data/useModels.test.ts
+@@ -29,7 +29,13 @@ describe('useModels', () => {
+ 
+   it('handles ready state when custom models exist', async () => {
+     const list: CustomModelRecord[] = [
+-      { provider: 'ollama', model_id: 'llama3:8b', display_name: 'Llama 3' },
++      {
++        provider: 'ollama',
++        modelId: 'llama3:8b',
++        displayName: 'Llama 3',
++        contextWindow: 8192,
++        enabled: true,
++      },
+     ];
+     const client = {
+       listCustomModels: vi.fn().mockResolvedValue(list),
+@@ -54,7 +60,13 @@ describe('useModels', () => {
+     expect(result.current.error?.message).toBe('Models error');
+ 
+     (client.listCustomModels as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+-      { provider: 'ollama', model_id: 'mistral:7b' },
++      {
++        provider: 'ollama',
++        modelId: 'mistral:7b',
++        displayName: 'Mistral 7B',
++        contextWindow: 8192,
++        enabled: true,
++      },
+     ]);
+ 
+     await act(async () => {
+diff --git a/apps/desktop/src/v3/data/useModels.ts b/apps/desktop/src/v3/data/useModels.ts
+index 83133de..e9c2372 100644
+--- a/apps/desktop/src/v3/data/useModels.ts
++++ b/apps/desktop/src/v3/data/useModels.ts
+@@ -1,6 +1,7 @@
+ import type { CustomModelRecord, WarshaClient } from '@warsha/client';
+ 
+ import { useClient } from '../app/ClientContext';
++
+ import type { HookResult } from './types';
+ import { useResource } from './useResource';
+ 
+diff --git a/apps/desktop/src/v3/data/usePlugins.test.ts b/apps/desktop/src/v3/data/usePlugins.test.ts
+index 85b65a9..6b63e94 100644
+--- a/apps/desktop/src/v3/data/usePlugins.test.ts
++++ b/apps/desktop/src/v3/data/usePlugins.test.ts
+@@ -29,7 +29,18 @@ describe('usePlugins', () => {
+ 
+   it('handles ready state when plugins exist', async () => {
+     const list: PluginDefinition[] = [
+-      { id: 'plugin-1', name: 'github', enabled: true, tools: ['search_prs'] },
++      {
++        id: 'plugin-1',
++        name: 'github',
++        description: 'GitHub integration',
++        transport: 'stdio',
++        command: 'npx',
++        args: ['-y', '@modelcontextprotocol/server-github'],
++        env: {},
++        enabled: true,
++        tools: [{ name: 'search_prs', description: 'Search pull requests', parametersJson: null }],
++        source: 'registry',
++      },
+     ];
+     const client = {
+       listPlugins: vi.fn().mockResolvedValue(list),
+@@ -54,7 +65,18 @@ describe('usePlugins', () => {
+     expect(result.current.error?.message).toBe('Plugins error');
+ 
+     (client.listPlugins as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+-      { id: 'plugin-2', name: 'filesystem', enabled: true, tools: [] },
++      {
++        id: 'plugin-2',
++        name: 'filesystem',
++        description: 'Filesystem integration',
++        transport: 'stdio',
++        command: null,
++        args: [],
++        env: {},
++        enabled: true,
++        tools: [],
++        source: 'builtin',
++      },
+     ]);
+ 
+     await act(async () => {
+diff --git a/apps/desktop/src/v3/data/usePlugins.ts b/apps/desktop/src/v3/data/usePlugins.ts
+index 732d88a..632e5e5 100644
+--- a/apps/desktop/src/v3/data/usePlugins.ts
++++ b/apps/desktop/src/v3/data/usePlugins.ts
+@@ -1,6 +1,7 @@
+ import type { PluginDefinition, WarshaClient } from '@warsha/client';
+ 
+ import { useClient } from '../app/ClientContext';
++
+ import type { HookResult } from './types';
+ import { useResource } from './useResource';
+ 
+diff --git a/apps/desktop/src/v3/data/usePreferences.ts b/apps/desktop/src/v3/data/usePreferences.ts
+index 245cb90..ca110e6 100644
+--- a/apps/desktop/src/v3/data/usePreferences.ts
++++ b/apps/desktop/src/v3/data/usePreferences.ts
+@@ -1,6 +1,7 @@
+ import type { Preference, WarshaClient } from '@warsha/client';
+ 
+ import { useClient } from '../app/ClientContext';
++
+ import type { HookResult } from './types';
+ import { useResource } from './useResource';
+ 
+diff --git a/apps/desktop/src/v3/data/usePreview.ts b/apps/desktop/src/v3/data/usePreview.ts
+index d6dae9e..6073ccd 100644
+--- a/apps/desktop/src/v3/data/usePreview.ts
++++ b/apps/desktop/src/v3/data/usePreview.ts
+@@ -1,6 +1,7 @@
+ import type { LivePreview, WarshaClient } from '@warsha/client';
+ 
+ import { useClient } from '../app/ClientContext';
++
+ import type { HookResult } from './types';
+ import { useResource } from './useResource';
+ 
+diff --git a/apps/desktop/src/v3/data/useProviders.ts b/apps/desktop/src/v3/data/useProviders.ts
+index 4f89129..b80d9d3 100644
+--- a/apps/desktop/src/v3/data/useProviders.ts
++++ b/apps/desktop/src/v3/data/useProviders.ts
+@@ -1,6 +1,7 @@
+ import type { ProviderConfig, WarshaClient } from '@warsha/client';
+ 
+ import { useClient } from '../app/ClientContext';
++
+ import type { HookResult } from './types';
+ import { useResource } from './useResource';
+ 
+diff --git a/apps/desktop/src/v3/data/useRoles.ts b/apps/desktop/src/v3/data/useRoles.ts
+index e249997..635de21 100644
+--- a/apps/desktop/src/v3/data/useRoles.ts
++++ b/apps/desktop/src/v3/data/useRoles.ts
+@@ -1,6 +1,7 @@
+ import type { RoleRouting, WarshaClient } from '@warsha/client';
+ 
+ import { useClient } from '../app/ClientContext';
++
+ import type { HookResult } from './types';
+ import { useResource } from './useResource';
+ 
+diff --git a/apps/desktop/src/v3/data/useRoutines.test.ts b/apps/desktop/src/v3/data/useRoutines.test.ts
+index d82912d..d5c79ff 100644
+--- a/apps/desktop/src/v3/data/useRoutines.test.ts
++++ b/apps/desktop/src/v3/data/useRoutines.test.ts
+@@ -33,7 +33,7 @@ describe('useRoutines', () => {
+         id: 'r1',
+         name: 'Nightly build',
+         description: 'Runs daily',
+-        schedule: 'daily',
++        schedule: { cron: '0 0 * * *' },
+         state: 'idle',
+         lastRunUnix: 1700000000,
+       },
+@@ -65,7 +65,7 @@ describe('useRoutines', () => {
+         id: 'r2',
+         name: 'Hourly check',
+         description: 'Runs hourly',
+-        schedule: 'hourly',
++        schedule: { intervalSeconds: 3600 },
+         state: 'running',
+         lastRunUnix: null,
+       },
+diff --git a/apps/desktop/src/v3/data/useRoutines.ts b/apps/desktop/src/v3/data/useRoutines.ts
+index 6f0597c..0684584 100644
+--- a/apps/desktop/src/v3/data/useRoutines.ts
++++ b/apps/desktop/src/v3/data/useRoutines.ts
+@@ -1,6 +1,7 @@
+ import type { Routine, WarshaClient } from '@warsha/client';
+ 
+ import { useClient } from '../app/ClientContext';
++
+ import type { HookResult } from './types';
+ import { useResource } from './useResource';
+ 
+diff --git a/apps/desktop/src/v3/data/useRunEvents.ts b/apps/desktop/src/v3/data/useRunEvents.ts
+index f8b50c3..0a74ebf 100644
+--- a/apps/desktop/src/v3/data/useRunEvents.ts
++++ b/apps/desktop/src/v3/data/useRunEvents.ts
+@@ -1,7 +1,8 @@
+-import { useCallback, useEffect, useRef, useState } from 'react';
+ import type { RunId, RunStreamSync, WarshaClient, WarshaEvent } from '@warsha/client';
++import { useCallback, useEffect, useRef, useState } from 'react';
+ 
+ import { useClient } from '../app/ClientContext';
++
+ import type { HookResult, HookStatus } from './types';
+ 
+ export interface UseRunEventsOptions {
+diff --git a/apps/desktop/src/v3/data/useSkills.test.ts b/apps/desktop/src/v3/data/useSkills.test.ts
+index 2571825..6e811ca 100644
+--- a/apps/desktop/src/v3/data/useSkills.test.ts
++++ b/apps/desktop/src/v3/data/useSkills.test.ts
+@@ -29,7 +29,16 @@ describe('useSkills', () => {
+ 
+   it('handles ready state when skills exist', async () => {
+     const list: SkillDefinition[] = [
+-      { id: 'skill-1', name: 'commit', description: 'Make a git commit', enabled: true },
++      {
++        id: 'skill-1',
++        name: 'commit',
++        description: 'Make a git commit',
++        source: 'builtin',
++        license: 'MIT',
++        content: '# Commit skill',
++        enabled: true,
++        tags: ['git'],
++      },
+     ];
+     const client = {
+       listSkills: vi.fn().mockResolvedValue(list),
+@@ -54,7 +63,16 @@ describe('useSkills', () => {
+     expect(result.current.error?.message).toBe('Skills error');
+ 
+     (client.listSkills as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+-      { id: 'skill-2', name: 'search', description: 'Search codebase', enabled: true },
++      {
++        id: 'skill-2',
++        name: 'search',
++        description: 'Search codebase',
++        source: 'builtin',
++        license: 'MIT',
++        content: '# Search skill',
++        enabled: true,
++        tags: ['code'],
++      },
+     ]);
+ 
+     await act(async () => {
+diff --git a/apps/desktop/src/v3/data/useSkills.ts b/apps/desktop/src/v3/data/useSkills.ts
+index a706a0e..450878a 100644
+--- a/apps/desktop/src/v3/data/useSkills.ts
++++ b/apps/desktop/src/v3/data/useSkills.ts
+@@ -1,6 +1,7 @@
+ import type { SkillDefinition, WarshaClient } from '@warsha/client';
+ 
+ import { useClient } from '../app/ClientContext';
++
+ import type { HookResult } from './types';
+ import { useResource } from './useResource';
+ 
+-- 
+2.55.0.windows.5
+

@@ -1,0 +1,713 @@
+Scope: 7 of 8 workspace projects
+docs test$ mdbook test
+packages/i18n test$ vitest run
+packages/client test$ vitest run
+packages/crypto test$ vitest run
+docs test:  INFO Testing chapter 'Landing': "index.md"
+docs test:  INFO Testing chapter 'Introduction': "introduction.md"
+docs test:  INFO Testing chapter 'Quickstart': "quickstart.md"
+docs test:  INFO Testing chapter 'First run: adding your provider key': "first-run.md"
+docs test:  INFO Testing chapter 'Known limitations': "known-limitations.md"
+docs test:  INFO Testing chapter 'دليل المستخدم بالعربية': "user-guide.ar.md"
+docs test:  INFO Testing chapter 'Providers': "providers.md"
+docs test:  INFO Testing chapter 'Security Model': "security.md"
+docs test:  INFO Testing chapter 'Gates and Approvals': "gates.md"
+docs test:  INFO Testing chapter 'Desktop UI': "UI.md"
+docs test:  INFO Testing chapter 'Design System v2': "design-system-v2.md"
+docs test:  INFO Testing chapter 'Skills and Harnesses': "skills-and-harnesses.md"
+docs test:  INFO Testing chapter 'Install': "install.md"
+docs test:  INFO Testing chapter 'Deploy': "deploy.md"
+docs test:  INFO Testing chapter 'Verify': "verify.md"
+docs test:  INFO Testing chapter 'Work Protection': "work-protection.md"
+docs test:  INFO Testing chapter 'Router Additions': "router-additions.md"
+docs test:  INFO Testing chapter 'Status Strip and Delivery': "status-strip.md"
+docs test:  INFO Testing chapter 'Live Preview': "live-preview.md"
+docs test:  INFO Testing chapter 'Continue on Server': "continue-on-server.md"
+docs test:  INFO Testing chapter 'Post-launch Care': "post-launch-care.md"
+docs test:  INFO Testing chapter 'Agent Workflow and Context': "agent-workflow.md"
+docs test:  INFO Testing chapter 'Backend Kit': "backend-kit.md"
+docs test:  INFO Testing chapter 'Scale Standards': "scale-standards.md"
+docs test:  INFO Testing chapter 'Run Modes': "run-modes.md"
+docs test:  INFO Testing chapter 'Changelog': "changelog.md"
+docs test:  INFO Testing chapter 'Terms of Service': "tos.md"
+docs test:  INFO Testing chapter 'Architecture': "architecture.md"
+docs test:  INFO Testing chapter 'Activepieces (optional automations)': "launch/activepieces.md"
+packages/crypto test: [33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+packages/client test: [33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+packages/i18n test: [33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+docs test:  INFO Testing chapter 'Provider auto-update': "launch/provider-auto-update.md"
+packages/crypto test: [1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mC:/Users/Dragonfly/Downloads/warsha-wt/integration/packages/crypto[39m
+packages/i18n test: [1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mC:/Users/Dragonfly/Downloads/warsha-wt/integration/packages/i18n[39m
+packages/client test: [1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mC:/Users/Dragonfly/Downloads/warsha-wt/integration/packages/client[39m
+docs test: Done
+packages/ui test$ vitest run
+packages/crypto test:  [32m✓[39m src/index.test.ts [2m([22m[2m22 tests[22m[2m)[22m[90m 107[2mms[22m[39m
+packages/crypto test: [2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+packages/crypto test: [2m      Tests [22m [1m[32m22 passed[39m[22m[90m (22)[39m
+packages/crypto test: [2m   Start at [22m 17:01:36
+packages/crypto test: [2m   Duration [22m 1.89s[2m (transform 144ms, setup 0ms, collect 299ms, tests 107ms, environment 1ms, prepare 560ms)[22m
+packages/client test:  [32m✓[39m src/wire-contract.test.ts [2m([22m[2m23 tests[22m[2m)[22m[90m 47[2mms[22m[39m
+packages/crypto test: Done
+packages/client test:  [32m✓[39m src/index.test.ts [2m([22m[2m125 tests[22m[2m)[22m[90m 163[2mms[22m[39m
+packages/client test: [2m Test Files [22m [1m[32m2 passed[39m[22m[90m (2)[39m
+packages/client test: [2m      Tests [22m [1m[32m148 passed[39m[22m[90m (148)[39m
+packages/client test: [2m   Start at [22m 17:01:36
+packages/client test: [2m   Duration [22m 2.03s[2m (transform 539ms, setup 0ms, collect 567ms, tests 209ms, environment 1ms, prepare 1.35s)[22m
+packages/client test: Done
+packages/i18n test:  [32m✓[39m src/index.test.ts [2m([22m[2m52 tests[22m[2m)[22m[90m 136[2mms[22m[39m
+packages/i18n test: [2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+packages/i18n test: [2m      Tests [22m [1m[32m52 passed[39m[22m[90m (52)[39m
+packages/i18n test: [2m   Start at [22m 17:01:36
+packages/i18n test: [2m   Duration [22m 2.17s[2m (transform 313ms, setup 0ms, collect 457ms, tests 136ms, environment 0ms, prepare 646ms)[22m
+packages/i18n test: Done
+packages/ui test: [33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+packages/ui test: [1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mC:/Users/Dragonfly/Downloads/warsha-wt/integration/packages/ui[39m
+packages/ui test:  [32m✓[39m src/tokens/contrast.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 11[2mms[22m[39m
+packages/ui test:  [32m✓[39m src/tokens/tokens.test.ts [2m([22m[2m26 tests[22m[2m)[22m[90m 28[2mms[22m[39m
+packages/ui test:  [32m✓[39m src/components.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[90m 201[2mms[22m[39m
+packages/ui test:  [32m✓[39m src/tokens/tokenDrift.test.ts [2m([22m[2m35 tests[22m[2m)[22m[33m 458[2mms[22m[39m
+packages/ui test:  [32m✓[39m src/index.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 141[2mms[22m[39m
+packages/ui test:  [32m✓[39m src/components/machine.test.tsx [2m([22m[2m11 tests[22m[2m)[22m[90m 230[2mms[22m[39m
+packages/ui test:  [32m✓[39m src/components/compounds.v2.test.tsx [2m([22m[2m11 tests[22m[2m)[22m[33m 482[2mms[22m[39m
+packages/ui test:  [32m✓[39m src/components/keyboard.test.tsx [2m([22m[2m18 tests[22m[2m)[22m[33m 677[2mms[22m[39m
+packages/ui test:  [32m✓[39m src/components/compounds.test.tsx [2m([22m[2m58 tests[22m[2m)[22m[33m 916[2mms[22m[39m
+packages/ui test: [2m Test Files [22m [1m[32m9 passed[39m[22m[90m (9)[39m
+packages/ui test: [2m      Tests [22m [1m[32m181 passed[39m[22m[90m (181)[39m
+packages/ui test: [2m   Start at [22m 17:01:39
+packages/ui test: [2m   Duration [22m 6.42s[2m (transform 1.39s, setup 10.87s, collect 5.27s, tests 3.14s, environment 24.09s, prepare 3.18s)[22m
+packages/ui test: Done
+apps/desktop test$ vitest run
+apps/remote test$ vitest run
+apps/desktop test: [1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mC:/Users/Dragonfly/Downloads/warsha-wt/integration/apps/desktop[39m
+apps/remote test: [1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mC:/Users/Dragonfly/Downloads/warsha-wt/integration/apps/remote[39m
+apps/remote test:  [32m✓[39m src/labels.test.ts [2m([22m[2m14 tests[22m[2m)[22m[90m 16[2mms[22m[39m
+apps/remote test:  [32m✓[39m src/offline.test.ts [2m([22m[2m8 tests[22m[2m)[22m[90m 17[2mms[22m[39m
+apps/remote test:  [32m✓[39m src/styles.test.ts [2m([22m[2m12 tests[22m[2m)[22m[90m 18[2mms[22m[39m
+apps/remote test:  [32m✓[39m src/session.test.ts [2m([22m[2m34 tests[22m[2m)[22m[90m 51[2mms[22m[39m
+apps/remote test: [90mstderr[2m | src/gatePlate.test.tsx[2m > [22m[2ma pending gate the run has not reached[2m > [22m[2mis a name, not a lit plate, and offers no decision
+apps/remote test: [22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+apps/remote test: ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+apps/remote test: [90mstderr[2m | src/run.test.tsx[2m > [22m[2mthe pipeline plate[2m > [22m[2mdraws every stage of the run, with the current one lit
+apps/remote test: [22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+apps/remote test: ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+apps/remote test: [90mstderr[2m | src/App.test.tsx[2m > [22m[2mthe bench shell[2m > [22m[2mis the region the visual harness waits for, with its chrome around the screen
+apps/remote test: [22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+apps/remote test: ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+apps/remote test: [90mstderr[2m | src/projects.test.tsx[2m > [22m[2mthe projects ledger[2m > [22m[2mis a ledger of ruled rows, one per project, with the newest one the bench opened on
+apps/remote test: [22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+apps/remote test: ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+apps/remote test: [90mstderr[2m | src/bench.test.tsx[2m > [22m[2mwhere the queue comes from[2m > [22m[2mprefers the gates list when the daemon serves it
+apps/remote test: [22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+apps/remote test: ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+apps/remote test: [90mstderr[2m | src/settings.test.tsx[2m > [22m[2mthe settings tab strip[2m > [22m[2mis one tablist with three tabs and a roving tabindex
+apps/remote test: [22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+apps/remote test: ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+apps/desktop test: [90mstderr[2m | src/screens/ProjectsBoard.test.tsx[2m > [22m[2mProjectsBoard[2m > [22m[2mshows a named skeleton while the daemon answers
+apps/desktop test: [22m[39mWarning: An update to ProjectsBoard inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at ProjectsBoard (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\ProjectsBoard.tsx:78:26)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to ProjectsBoard inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at ProjectsBoard (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\ProjectsBoard.tsx:78:26)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to ProjectsBoard inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at ProjectsBoard (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\ProjectsBoard.tsx:78:26)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/remote test: [90mstderr[2m | src/gates.test.tsx[2m > [22m[2mthe queue under the owner’s thumb[2m > [22m[2mlights the gate the run is parked on when the daemon answers gates.list
+apps/remote test: [22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+apps/remote test: ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+apps/desktop test:  [32m✓[39m src/components/LivePreview.test.tsx [2m([22m[2m14 tests[22m[2m)[22m[33m 941[2mms[22m[39m
+apps/remote test: [90mstderr[2m | src/run.test.tsx[2m > [22m[2mthe pipeline plate[2m > [22m[2mlists the project runs and follows the one the owner pressed
+apps/remote test: [22m[39mWarning: An update to RemoteProvider inside a test was not wrapped in act(...).
+apps/remote test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/remote test: act(() => {
+apps/remote test:   /* fire events that update state */
+apps/remote test: });
+apps/remote test: /* assert on the output */
+apps/remote test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/remote test:     at RemoteProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\remote\src\bench.tsx:44:3)
+apps/remote test:     at Bench (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\remote\src\App.tsx:98:18)
+apps/remote test:     at ThemeProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\remote\src\theme.tsx:64:26)
+apps/remote test:     at App (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\remote\src\App.tsx:233:16)
+apps/remote test:     at Router (C:\Users\Dragonfly\Downloads\warsha-wt\integration\node_modules\.pnpm\react-router@6.30.6_react@18.3.1\node_modules\react-router\dist\umd\react-router.development.js:1203:17)
+apps/remote test:     at MemoryRouter (C:\Users\Dragonfly\Downloads\warsha-wt\integration\node_modules\.pnpm\react-router@6.30.6_react@18.3.1\node_modules\react-router\dist\umd\react-router.development.js:1097:7)
+apps/remote test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/remote test: Warning: An update to RemoteProvider inside a test was not wrapped in act(...).
+apps/remote test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/remote test: act(() => {
+apps/remote test:   /* fire events that update state */
+apps/remote test: });
+apps/remote test: /* assert on the output */
+apps/remote test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/remote test:     at RemoteProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\remote\src\bench.tsx:44:3)
+apps/remote test:     at Bench (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\remote\src\App.tsx:98:18)
+apps/remote test:     at ThemeProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\remote\src\theme.tsx:64:26)
+apps/remote test:     at App (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\remote\src\App.tsx:233:16)
+apps/remote test:     at Router (C:\Users\Dragonfly\Downloads\warsha-wt\integration\node_modules\.pnpm\react-router@6.30.6_react@18.3.1\node_modules\react-router\dist\umd\react-router.development.js:1203:17)
+apps/remote test:     at MemoryRouter (C:\Users\Dragonfly\Downloads\warsha-wt\integration\node_modules\.pnpm\react-router@6.30.6_react@18.3.1\node_modules\react-router\dist\umd\react-router.development.js:1097:7)
+apps/remote test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/remote test: Warning: An update to RemoteProvider inside a test was not wrapped in act(...).
+apps/remote test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/remote test: act(() => {
+apps/remote test:   /* fire events that update state */
+apps/remote test: });
+apps/remote test: /* assert on the output */
+apps/remote test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/remote test:     at RemoteProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\remote\src\bench.tsx:44:3)
+apps/remote test:     at Bench (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\remote\src\App.tsx:98:18)
+apps/remote test:     at ThemeProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\remote\src\theme.tsx:64:26)
+apps/remote test:     at App (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\remote\src\App.tsx:233:16)
+apps/remote test:     at Router (C:\Users\Dragonfly\Downloads\warsha-wt\integration\node_modules\.pnpm\react-router@6.30.6_react@18.3.1\node_modules\react-router\dist\umd\react-router.development.js:1203:17)
+apps/remote test:     at MemoryRouter (C:\Users\Dragonfly\Downloads\warsha-wt\integration\node_modules\.pnpm\react-router@6.30.6_react@18.3.1\node_modules\react-router\dist\umd\react-router.development.js:1097:7)
+apps/remote test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/remote test: Warning: An update to RemoteProvider inside a test was not wrapped in act(...).
+apps/remote test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/remote test: act(() => {
+apps/remote test:   /* fire events that update state */
+apps/remote test: });
+apps/remote test: /* assert on the output */
+apps/remote test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/remote test:     at RemoteProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\remote\src\bench.tsx:44:3)
+apps/remote test:     at Bench (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\remote\src\App.tsx:98:18)
+apps/remote test:     at ThemeProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\remote\src\theme.tsx:64:26)
+apps/remote test:     at App (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\remote\src\App.tsx:233:16)
+apps/remote test:     at Router (C:\Users\Dragonfly\Downloads\warsha-wt\integration\node_modules\.pnpm\react-router@6.30.6_react@18.3.1\node_modules\react-router\dist\umd\react-router.development.js:1203:17)
+apps/remote test:     at MemoryRouter (C:\Users\Dragonfly\Downloads\warsha-wt\integration\node_modules\.pnpm\react-router@6.30.6_react@18.3.1\node_modules\react-router\dist\umd\react-router.development.js:1097:7)
+apps/remote test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/remote test: Warning: An update to RemoteProvider inside a test was not wrapped in act(...).
+apps/remote test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/remote test: act(() => {
+apps/remote test:   /* fire events that update state */
+apps/remote test: });
+apps/remote test: /* assert on the output */
+apps/remote test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/remote test:     at RemoteProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\remote\src\bench.tsx:44:3)
+apps/remote test:     at Bench (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\remote\src\App.tsx:98:18)
+apps/remote test:     at ThemeProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\remote\src\theme.tsx:64:26)
+apps/remote test:     at App (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\remote\src\App.tsx:233:16)
+apps/remote test:     at Router (C:\Users\Dragonfly\Downloads\warsha-wt\integration\node_modules\.pnpm\react-router@6.30.6_react@18.3.1\node_modules\react-router\dist\umd\react-router.development.js:1203:17)
+apps/remote test:     at MemoryRouter (C:\Users\Dragonfly\Downloads\warsha-wt\integration\node_modules\.pnpm\react-router@6.30.6_react@18.3.1\node_modules\react-router\dist\umd\react-router.development.js:1097:7)
+apps/remote test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test:  [32m✓[39m src/screens/ProvidersSettings.test.tsx [2m([22m[2m12 tests[22m[2m)[22m[33m 2032[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m ProvidersSettings[2m > [22mrules the configured providers with their kind, endpoint and budget [33m561[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m ProvidersSettings[2m > [22mconfirms a removal on the row instead of asking the browser [33m326[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m ProvidersSettings[2m > [22mthe add-provider plate[2m > [22mrejects an endpoint that is not a URL, near the field [33m314[2mms[22m[39m
+apps/desktop test: [90mstderr[2m | src/screens/Onboarding.test.tsx[2m > [22m[2mfirst project[2m > [22m[2msays so when the daemon refuses to create the project
+apps/desktop test: [22m[39mWarning: An update to Onboarding inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at Onboarding (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\Onboarding.tsx:66:23)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to Onboarding inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at Onboarding (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\Onboarding.tsx:66:23)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test:  [32m✓[39m src/screens/ProjectsBoard.test.tsx [2m([22m[2m17 tests[22m[2m)[22m[33m 2290[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m ProjectsBoard[2m > [22mshows a named skeleton while the daemon answers [33m328[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/screens/GatesInbox.test.tsx [2m([22m[2m18 tests[22m[2m)[22m[33m 2385[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m the gate the run is stopped at[2m > [22mis the only lit plate in a four-stage queue, and the only one with a decision bar [33m368[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/screens/Onboarding.test.tsx [2m([22m[2m12 tests[22m[2m)[22m[33m 2476[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m connect and test[2m > [22madds the provider then tests it, and reports the pass [33m418[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m connect and test[2m > [22mreports a refused key, scrubs the key out of the daemon message and wipes the field [33m357[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m first project[2m > [22mcreates it under the typed name and hands it to the shell [33m419[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m first project[2m > [22msays so when the daemon refuses to create the project [33m384[2mms[22m[39m
+apps/remote test:  [32m✓[39m src/projects.test.tsx [2m([22m[2m12 tests[22m[2m)[22m[33m 2467[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m the projects ledger[2m > [22mis a ledger of ruled rows, one per project, with the newest one the bench opened on [33m831[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/screens/ModelsSettings.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 2747[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m ModelsSettings[2m > [22mrules the custom catalogue with the daemon facts and the known capability card [33m720[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m ModelsSettings[2m > [22mvalidates the add form and then writes the new row through the daemon [33m905[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m ModelsSettings[2m > [22mremoves a row through the daemon and forgets it from the ledger [33m339[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m ModelsSettings[2m > [22mshows the reported routing and assigns a role with a single weighted target [33m338[2mms[22m[39m
+apps/remote test:  [32m✓[39m src/gatePlate.test.tsx [2m([22m[2m12 tests[22m[2m)[22m[33m 3077[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m a pending gate the run has not reached[2m > [22mis a name, not a lit plate, and offers no decision [33m1096[2mms[22m[39m
+apps/remote test: (node:10952) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+apps/remote test: (Use `node --trace-warnings ...` to show where the warning was created)
+apps/remote test:  [32m✓[39m src/settings.test.tsx [2m([22m[2m19 tests[22m[2m)[22m[33m 3655[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m the settings tab strip[2m > [22mis one tablist with three tabs and a roving tabindex [33m713[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m the settings tab strip[2m > [22mmoves focus with the arrows and selects with the keyboard [33m339[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m the session plate[2m > [22masks twice before it ends the session, and Escape is the first answer [33m321[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/components/ShellBench.test.tsx [2m([22m[2m13 tests[22m[2m)[22m[33m 765[2mms[22m[39m
+apps/remote test:  [32m✓[39m src/bench.test.tsx [2m([22m[2m13 tests[22m[2m)[22m[33m 3961[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m where the queue comes from[2m > [22mprefers the gates list when the daemon serves it [33m965[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m where the queue comes from[2m > [22mkeeps a gate the owner decided on this device out of the queue, and in the ledger [33m309[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m what a selection resets[2m > [22mdrops the previous run’s feed and closes its socket [33m389[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m what a selection resets[2m > [22mkeeps the reading of a run the daemon moved, and re-reads it after a decision [33m348[2mms[22m[39m
+apps/desktop test: [90mstderr[2m | src/screens/RunView.test.tsx[2m > [22m[2mrun view header[2m > [22m[2mnames the run in machine type and the stage in the owner’s language
+apps/desktop test: [22m[39mWarning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: [90mstderr[2m | src/screens/RunView.test.tsx[2m > [22m[2mrun view header[2m > [22m[2mkeeps the LTR isolation on the id, never on the title block
+apps/desktop test: [22m[39mWarning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/remote test:  [32m✓[39m src/gates.test.tsx [2m([22m[2m14 tests[22m[2m)[22m[33m 4278[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m the queue under the owner’s thumb[2m > [22mlights the gate the run is parked on when the daemon answers gates.list [33m1110[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m the queue under the owner’s thumb[2m > [22mlights the same gate on the stage fallback, for a daemon that does not serve gates.list [33m594[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m the queue under the owner’s thumb[2m > [22mwill not send a refusal without the reason the team reads [33m344[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m the queue under the owner’s thumb[2m > [22msends requested changes with their notes [33m338[2mms[22m[39m
+apps/desktop test: [90mstderr[2m | src/screens/RunView.test.tsx[2m > [22m[2mrun view pane strip[2m > [22m[2mis a tablist whose selected tab owns the tab order
+apps/desktop test: [22m[39mWarning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: [90mstderr[2m | src/screens/RunView.test.tsx[2m > [22m[2mrun view pane strip[2m > [22m[2mmirrors the arrow keys with the document direction
+apps/desktop test: [22m[39mWarning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/remote test:  [32m✓[39m src/App.test.tsx [2m([22m[2m21 tests[22m[2m)[22m[33m 4617[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m the bench shell[2m > [22mis the region the visual harness waits for, with its chrome around the screen [33m786[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m the bench shell[2m > [22mreports the daemon on the instrument strip in words, and a count the queue agrees with [33m805[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m the bench shell[2m > [22mmoves between screens by their own routes [33m561[2mms[22m[39m
+apps/remote test:  [32m✓[39m src/run.test.tsx [2m([22m[2m19 tests[22m[2m)[22m[33m 4956[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m the pipeline plate[2m > [22mdraws every stage of the run, with the current one lit [33m974[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m the pipeline plate[2m > [22msays the run in words: its id, its status, its stage and its clock [33m378[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m the pipeline plate[2m > [22mlists the project runs and follows the one the owner pressed [33m350[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m the readings, the feed and the log[2m > [22madds the costs the feed reported, in mono, and says so when nothing reported one [33m390[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m the readings, the feed and the log[2m > [22msays a dropped feed is a dropped feed, and reconnects it [33m313[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m the run under the owner’s thumb (W4 run controls)[2m > [22madvances the run through `runs.advance` and follows the stage the daemon answered with [33m346[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/screens/RunView.test.tsx [2m([22m[2m11 tests[22m[2m)[22m[33m 1696[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m run view header[2m > [22mannounces that manual advance is not wired, instead of calling alert() [33m301[2mms[22m[39m
+apps/desktop test: [90mstderr[2m | src/screens/SimpleMode.test.tsx[2m > [22m[2mSimpleMode gates[2m > [22m[2mshows a pending gate as the one card that interrupts the transcript
+apps/desktop test: [22m[39mWarning: An update to SimpleMode inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at SimpleMode (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\SimpleMode.tsx:328:23)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to SimpleMode inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at SimpleMode (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\SimpleMode.tsx:328:23)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: (node:29104) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+apps/desktop test: (Use `node --trace-warnings ...` to show where the warning was created)
+apps/desktop test: [90mstderr[2m | src/App.test.tsx[2m > [22m[2mthe desktop bench[2m > [22m[2mmounts the top bar, the instrument strip and the main bench region
+apps/desktop test: [22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+apps/desktop test: ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+apps/desktop test: [90mstderr[2m | src/App.test.tsx[2m > [22m[2mthe desktop bench[2m > [22m[2mreaches every settings sub-screen from the settings tab strip
+apps/desktop test: [22m[39mWarning: An update to AppContent inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at AppContent (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\App.tsx:207:37)
+apps/desktop test:     at ThemeProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\theme.tsx:56:26)
+apps/desktop test:     at App
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test:     at Router (C:\Users\Dragonfly\Downloads\warsha-wt\integration\node_modules\.pnpm\react-router@6.30.6_react@18.3.1\node_modules\react-router\dist\umd\react-router.development.js:1203:17)
+apps/desktop test:     at BrowserRouter (C:\Users\Dragonfly\Downloads\warsha-wt\integration\node_modules\.pnpm\react-router-dom@6.30.6_react-dom@18.3.1_react@18.3.1__react@18.3.1\node_modules\react-router-dom\dist\umd\react-router-dom.development.js:688:7)
+apps/desktop test: [90mstderr[2m | src/App.test.tsx[2m > [22m[2mrun view mounts[2m > [22m[2mshows the live preview on the preview tab and runs it
+apps/desktop test: [22m[39mWarning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: [90mstderr[2m | src/App.test.tsx[2m > [22m[2mrun view mounts[2m > [22m[2mopens the handoff dialog from the run view header and closes it again
+apps/desktop test: [22m[39mWarning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: [90mstderr[2m | src/App.test.tsx[2m > [22m[2mrun view mounts[2m > [22m[2mmounts the review & apply panel on the handoff tab
+apps/desktop test: [22m[39mWarning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: [90mstderr[2m | src/App.test.tsx[2m > [22m[2mrun view mounts[2m > [22m[2mmounts eco mode and the local/cloud badges on the router & cost tab
+apps/desktop test: [22m[39mWarning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test: Warning: An update to RunView inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at RunView (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\RunView.tsx:29:20)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test:  [32m✓[39m src/screens/SimpleMode.test.tsx [2m([22m[2m19 tests[22m[2m)[22m[33m 4445[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m SimpleMode agent list[2m > [22mdisplays the active agent and collapses idle agents by default [33m482[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m SimpleMode gates[2m > [22mshows a pending gate as the one card that interrupts the transcript [33m701[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m SimpleMode gates[2m > [22msends the approved gate to the daemon with the run it belongs to [33m603[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m SimpleMode gates[2m > [22mkeeps the card when the decision RPC fails, and says so inline [33m609[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/App.test.tsx [2m([22m[2m13 tests[22m[2m)[22m[33m 2180[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m the desktop bench[2m > [22mmounts the top bar, the instrument strip and the main bench region [33m502[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m the desktop bench[2m > [22mreaches every settings sub-screen from the settings tab strip [33m497[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/screens/AdvancedMode.test.tsx [2m([22m[2m27 tests[22m[2m)[22m[33m 4030[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m AdvancedMode stream wiring (#66)[2m > [22mdials the resolved /events endpoint with the real session token, never the RPC base [33m318[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m AdvancedMode bench[2m > [22mfolds the live stream into lanes with a lamp, a number and a cost [33m333[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m AdvancedMode bench[2m > [22mfilters the stream and keeps gate lines whatever the filter says [33m509[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m AdvancedMode bench[2m > [22mpressing a lane filters the feed to it, and the chip clears it again [33m363[2mms[22m[39m
+apps/remote test:  [32m✓[39m src/theme.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[90m 268[2mms[22m[39m
+apps/remote test:  [32m✓[39m src/serve.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+apps/remote test: [90mstderr[2m | src/landmarks.test.tsx[2m > [22m[2mthe landmark shape[2m > [22m[2m'/' keeps one page banner, one main and one h1
+apps/remote test: [22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+apps/remote test: ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+apps/remote test:  [32m✓[39m src/format.test.ts [2m([22m[2m12 tests[22m[2m)[22m[90m 37[2mms[22m[39m
+apps/remote test:  [32m✓[39m src/pipeline.test.ts [2m([22m[2m8 tests[22m[2m)[22m[90m 10[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/screens/Devices.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[33m 1174[2mms[22m[39m
+apps/remote test:  [32m✓[39m src/landmarks.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 1659[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m the landmark shape[2m > [22m'/' keeps one page banner, one main and one h1 [33m417[2mms[22m[39m
+apps/remote test:    [33m[2m✓[22m[39m the landmark shape[2m > [22m'/' keeps one page banner, one main and one h1 [33m388[2mms[22m[39m
+apps/remote test: [2m Test Files [22m [1m[32m16 passed[39m[22m[90m (16)[39m
+apps/remote test: [2m      Tests [22m [1m[32m221 passed[39m[22m[90m (221)[39m
+apps/remote test: [2m   Start at [22m 17:01:46
+apps/remote test: [2m   Duration [22m 23.44s[2m (transform 3.11s, setup 34.74s, collect 17.35s, tests 29.09s, environment 93.42s, prepare 10.99s)[22m
+apps/desktop test:  [32m✓[39m src/components/HandoffDialog.test.tsx [2m([22m[2m11 tests[22m[2m)[22m[33m 414[2mms[22m[39m
+apps/remote test: Done
+apps/desktop test:  [32m✓[39m src/components/ReviewApplyPanel.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[33m 973[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m ReviewApplyPanel[2m > [22mlists every changed file with its own diff [33m353[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/screens/Budgets.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[33m 978[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/theme.test.tsx [2m([22m[2m15 tests[22m[2m)[22m[90m 214[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/components/BackendKitPanel.test.tsx [2m([22m[2m12 tests[22m[2m)[22m[33m 840[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/screens/SettingsScreenIntegrations.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[33m 1264[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m SettingsScreen live connectors[2m > [22mreplaces the local ledger with the daemon integration statuses [33m413[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/components/PreviewToolbar.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 367[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/components/StatusStrip.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 365[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/screens/ArtifactViewer.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[33m 1386[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m ArtifactViewer[2m > [22mnames what it is loading before it answers [33m303[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/screens/PluginsSettings.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 1075[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m PluginsSettings[2m > [22mrules the daemon packs with transport, command and tool count as machine data [33m368[2mms[22m[39m
+apps/desktop test: (node:5324) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+apps/desktop test: (Use `node --trace-warnings ...` to show where the warning was created)
+apps/desktop test: [90mstderr[2m | src/deepLink.test.tsx[2m > [22m[2mopening a screen from the query parameter[2m > [22m[2mopens the run view, selecting the project and its first run first
+apps/desktop test: [22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+apps/desktop test: ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+apps/desktop test:  [32m✓[39m src/components/RouterAdditions.test.tsx [2m([22m[2m15 tests[22m[2m)[22m[33m 659[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/screens/CrashReports.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[33m 645[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/screens/StoreReviews.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[33m 885[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m StoreReviews[2m > [22mrenders a ruled ledger with one row per review [33m318[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/screens/SkillsSettings.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 1003[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/screens/HarnessesSettings.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 1147[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m HarnessesSettings[2m > [22mrules the daemon harnesses with their preset words and per-row facts [33m422[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/deepLink.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 1169[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m opening a screen from the query parameter[2m > [22mopens the run view, selecting the project and its first run first [33m378[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/screens/RolesSettings.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 1098[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m RolesSettings[2m > [22mrules every role the daemon knows, with its routing in mono [33m314[2mms[22m[39m
+apps/desktop test: [90mstderr[2m | src/screens/SettingsProvidersCustom.test.tsx[2m > [22m[2mSettingsProviders custom providers[2m > [22m[2mstarts collapsed and opens the form on demand
+apps/desktop test: [22m[39mWarning: An update to SettingsProviders inside a test was not wrapped in act(...).
+apps/desktop test: When testing, code that causes React state updates should be wrapped into act(...):
+apps/desktop test: act(() => {
+apps/desktop test:   /* fire events that update state */
+apps/desktop test: });
+apps/desktop test: /* assert on the output */
+apps/desktop test: This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+apps/desktop test:     at SettingsProviders (C:\Users\Dragonfly\Downloads\warsha-wt\integration\apps\desktop\src\screens\SettingsProviders.tsx:13:3)
+apps/desktop test:     at LocaleProvider (C:\Users\Dragonfly\Downloads\warsha-wt\integration\packages\i18n\src\index.tsx:2302:3)
+apps/desktop test:  [32m✓[39m src/screens/SettingsProvidersCustom.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 997[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m SettingsProviders custom providers[2m > [22madds a custom provider, clears the key and lists the new row [33m393[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/components/ReleasePreflight.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 524[2mms[22m[39m
+apps/desktop test: (node:32244) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+apps/desktop test: (Use `node --trace-warnings ...` to show where the warning was created)
+apps/desktop test: [90mstderr[2m | src/locale.test.tsx[2m > [22m[2mthe shell honours the app-wide provider[2m > [22m[2mrenders the English shell when the provider is in English
+apps/desktop test: [22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+apps/desktop test: ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+apps/desktop test:  [32m✓[39m src/locale.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 545[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/components/ThemeToggle.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[33m 315[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/components/WebDeployButton.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[90m 256[2mms[22m[39m
+apps/desktop test: (node:4456) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+apps/desktop test: (Use `node --trace-warnings ...` to show where the warning was created)
+apps/desktop test:  [32m✓[39m src/components/ErrorBoundary.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 453[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/components/SlashCommandPicker.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 528[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/screens/SettingsProviders.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 676[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/screens/SettingsScreen.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 829[2mms[22m[39m
+apps/desktop test:    [33m[2m✓[22m[39m SettingsScreen[2m > [22mnames itself and its three plates in Arabic [33m316[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/components/MentionPicker.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 649[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/screens/Routines.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 423[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/components/RoutineRow.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 328[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/components/RunModeBadge.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[90m 99[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/components/ProviderRow.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 307[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/components/PlanModeBadge.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[90m 105[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/date.test.ts [2m([22m[2m7 tests[22m[2m)[22m[90m 32[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/components/InstrumentStrip.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[90m 71[2mms[22m[39m
+apps/desktop test:  [32m✓[39m src/components/WorkProtection.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[90m 99[2mms[22m[39m
+apps/desktop test: [2m Test Files [22m [1m[32m47 passed[39m[22m[90m (47)[39m
+apps/desktop test: [2m      Tests [22m [1m[32m446 passed[39m[22m[90m (446)[39m
+apps/desktop test: [2m   Start at [22m 17:01:46
+apps/desktop test: [2m   Duration [22m 43.04s[2m (transform 19.17s, setup 85.85s, collect 53.81s, tests 48.88s, environment 199.86s, prepare 24.97s)[22m
+apps/desktop test: Done

@@ -1,0 +1,8 @@
+gate: G2.W
+command: node scripts/check-wire-contract.mjs
+commit: e71567a499c435711899643bc676a004ac81eaa2
+timestamp: 2026-11-08T12:04:33Z
+exit: 0
+expected: 0
+--- output ---
+wire: 9 checks, 0 violations

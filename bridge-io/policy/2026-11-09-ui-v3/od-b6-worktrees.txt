@@ -1,0 +1,27 @@
+C:/Users/Dragonfly/Downloads/Warsha                                       ba90e71 [dev]
+C:/Users/Dragonfly/.qoder/worktrees/app/ec90aa/Warsha                     642ae95 (detached HEAD)
+C:/Users/Dragonfly/Downloads/Warsha/.qoder/worktrees/agent-Coder-159cc7b1 9897078 [worktree-agent-Coder-159cc7b1]
+C:/Users/Dragonfly/Downloads/Warsha/.qoder/worktrees/agent-Coder-27b22b54 46ef2ea [worktree-agent-Coder-27b22b54]
+C:/Users/Dragonfly/Downloads/Warsha/.qoder/worktrees/agent-Coder-4d73f17a 46ef2ea [worktree-agent-Coder-4d73f17a]
+C:/Users/Dragonfly/Downloads/Warsha/.qoder/worktrees/agent-Coder-95e26b50 46ef2ea [worktree-agent-Coder-95e26b50]
+C:/Users/Dragonfly/Downloads/Warsha/.qoder/worktrees/agent-Coder-c2047b9f 46ef2ea [worktree-agent-Coder-c2047b9f]
+C:/Users/Dragonfly/Downloads/Warsha/.qoder/worktrees/agent-Coder-c9081fad 46ef2ea [worktree-agent-Coder-c9081fad]
+C:/Users/Dragonfly/Downloads/Warsha/.qoder/worktrees/agent-Coder-ec11f05f 2f042d1 [worktree-agent-Coder-ec11f05f]
+C:/Users/Dragonfly/Downloads/warsha-wt/integration                        282bcd6 [run/2026-11-08/integration]
+C:/Users/Dragonfly/Downloads/warsha-wt/rehearsal                          ffd19e7 [scratch/od4-rehearsal]
+C:/Users/Dragonfly/Downloads/warsha-wt/tokfix                             9f1b8e4 [scratch/od4-token-fix]
+C:/Users/Dragonfly/Downloads/warsha-wt/verify-w1                          6d9728f (detached HEAD)
+C:/Users/Dragonfly/Downloads/warsha-wt/verify-w2                          e71567a (detached HEAD)
+C:/Users/Dragonfly/Downloads/warsha-wt/verify-w3                          0f82973 (detached HEAD)
+C:/Users/Dragonfly/Downloads/warsha-wt/verify-w4                          73b1331 (detached HEAD)
+C:/Users/Dragonfly/Downloads/warsha-wt/verify-w5                          10a1819 (detached HEAD)
+C:/Users/Dragonfly/Downloads/warsha-wt/verify-w6                          a9edd90 (detached HEAD)
+C:/Users/Dragonfly/Downloads/warsha-wt/verify-w8                          0b8a7e8 (detached HEAD)
+C:/Users/Dragonfly/Downloads/warsha-wt/w1                                 6d9728f [run/2026-11-08/w1-readme-truth]
+C:/Users/Dragonfly/Downloads/warsha-wt/w2                                 5a2834d [run/2026-11-08/w2-canonical-docs]
+C:/Users/Dragonfly/Downloads/warsha-wt/w3                                 0f82973 [run/2026-11-08/w3-ui-v2]
+C:/Users/Dragonfly/Downloads/warsha-wt/w4                                 73b1331 [run/2026-11-08/w4-wire-client-harness]
+C:/Users/Dragonfly/Downloads/warsha-wt/w5                                 77a02c1 [run/2026-11-08/w5-apps-adoption]
+C:/Users/Dragonfly/Downloads/warsha-wt/w6                                 a9edd90 [run/2026-11-08/w6-pipeline-hardening]
+C:/Users/Dragonfly/Downloads/warsha-wt/w7                                 7adbff4 [run/2026-11-08/w7-android-apk]
+C:/Users/Dragonfly/Downloads/warsha-wt/w8                                 0b8a7e8 [run/2026-11-08/w8-g0-a11y-repair]

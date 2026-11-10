@@ -1,0 +1,9 @@
+gate: G1.4
+command: ( for m in agent_loop ... settings; do grep -q "`$m`" crates/warsha-pipeline/README.md || { echo "$m"; exit 1; }; done )
+commit: 6d9728f52eb096199c4ace208435c8b8927e5140
+base: 0772d502002562505c6438ae712abca7a7328d84
+host: Windows throwaway worktree verify-w1c
+timestamp: 2026-11-08T13:37:26Z
+---
+all 26 module names found in backticks: yes
+exit_code: 0

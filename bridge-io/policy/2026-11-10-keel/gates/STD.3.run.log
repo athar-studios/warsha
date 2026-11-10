@@ -1,0 +1,7 @@
+STD.3 launch start=2026-11-10T08:10:39Z pid=12440
+rust-tests: cwd=C:/Users/Dragonfly/Downloads/warsha-wt/keel/k1 CARGO_TARGET_DIR=C:/Users/Dragonfly/Downloads/warsha-wt/keel/k1/target
+rust-tests: cargo exit=0 (full output: C:/Users/Dragonfly/Downloads/Warsha/bridge-io/policy/2026-11-10-keel/gates/STD.3.log)
+rust-tests: binary summary-lines=36 passed=763 failed=0 ignored=10 cargo_exit=0
+rust-tests: doctest summary (excluded from pass criteria): passed=0 failed=0 ignored=1
+KEEL-PASS rust-tests passed=763 ignored=10
+STD.3 finish=2026-11-10T08:11:41Z exit=0

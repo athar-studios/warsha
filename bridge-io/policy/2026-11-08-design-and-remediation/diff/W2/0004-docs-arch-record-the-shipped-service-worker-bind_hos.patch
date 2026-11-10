@@ -1,0 +1,241 @@
+From f13c469b7ccf75fb51af38d270f1f2f963fa7c76 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 14:56:49 +0400
+Subject: [PATCH 04/10] docs(arch): record the shipped service worker,
+ bind_host and container topology
+
+---
+ docs/src/architecture.md | 141 ++++++++++++++++++++++-----------------
+ 1 file changed, 78 insertions(+), 63 deletions(-)
+
+diff --git a/docs/src/architecture.md b/docs/src/architecture.md
+index 3121c77..54c926f 100644
+--- a/docs/src/architecture.md
++++ b/docs/src/architecture.md
+@@ -117,17 +117,22 @@ Desktop                          Relay                          Mobile
+ ────────                          ──────                          ──────
+    │                                │                                │
+    │  PairingData (QR) ────────────►│                                │
+-   │                                │                                │
+    │                                │◄──── Scan QR ─────────────────│
+    │                                │                                │
+-   │◄──── handshake ───────────────│──────── handshake ────────────►│
+-   │                                │                                │
+-   │  EncryptedFrame ──────────────►│                                │
+-   │                                │  EncryptedFrame ─────────────►│
++   │◄──── pairing secret ──────────│──────── pairing secret ───────►│
+    │                                │                                │
+-   │◄──── EncryptedFrame ──────────│◄──── EncryptedFrame ───────────│
++   │  Frame ───────────────────────►│                                │
++   │                                │  Frame ───────────────────────►│
++   │◄──── Frame ───────────────────│◄──── Frame ────────────────────│
+ ```
+ 
++`PairingData` carries an X25519 static public key, a one-time secret and a 10-minute expiry. The
++encrypted channel is **scaffolding, not encryption**: `EncryptedChannel::process_handshake` is a
++stub that returns `Ok(false)` (`crates/warsha-remote/src/lib.rs:656-659`) and no session keys are
++derived, so today's frames are not end-to-end encrypted. The phone opens the daemon's address with
++the bearer token instead, and on any network that is not your own machine it must sit behind HTTPS
++or a tunnel the owner controls (see [Security Model](security.md)).
++
+ ## Deployment
+ 
+ ### Development
+@@ -145,9 +150,12 @@ cd apps/remote && pnpm dev
+ 
+ ### Production
+ 
+-Nothing below is produced today: no release is published, no container image exists, and no installer has
+-been built on this host. These are the deployment shapes the code supports or is meant to support, each
+-labelled.
++The repository ships the container deployment: `docker/Dockerfile`, `docker/compose.yml`,
++`deploy/docker-compose.yml` and `deploy/Caddyfile` build and run the daemon behind Caddy, and the
++daemon itself serves the remote bundle when `WARSHA_REMOTE_ASSETS_DIR` is set. The NSIS installer and
++the signed Android APK were built and measured on the project's Windows host (`INSTALL.md` §2;
++`VERIFY.md` §3–4). No release is published and no image is published to a registry; each subsection
++below states what exists and what does not.
+ 
+ #### Daemon (systemd)
+ 
+@@ -161,7 +169,8 @@ After=network.target
+ Type=simple
+ User=warsha
+ WorkingDirectory=/opt/warsha
+-# Real flags only: warshad accepts --config, --foreground, --http-port, --ws-port and --socket.
++# Real flags only: warshad accepts --config, --foreground, --http-port, --ws-port, --socket,
++# --bind-host and --advertised-host.
+ # There is no --data-dir flag; the data directory is the `data_dir` key inside the config file.
+ ExecStart=/opt/warsha/warshad --foreground --config /etc/warsha/config.toml
+ Restart=on-failure
+@@ -176,34 +185,40 @@ The daemon writes its own `config.toml` on first run, so a system-wide service e
+ 
+ #### Desktop App
+ 
+-**Planned, not produced.** The bundler is configured (`apps/desktop/src-tauri/tauri.conf.json:35-69`) and
+-would emit these formats, at the current version `0.2.0`:
++**Built locally, not published.** `tauri build --bundles nsis` on the Windows host produced
++`apps/desktop/src-tauri/target/release/warsha-desktop.exe` (25,215,488 B) and
++`bundle/nsis/Warsha_0.2.0_x64-setup.exe` (6,864,766 B) at version `0.2.0`; `INSTALL.md` §2 records
++the sizes and SHA-256 hashes and §5 the silent install/uninstall transcript. The bundler is
++configured for the other formats too (`apps/desktop/src-tauri/tauri.conf.json`):
+ 
+-- **Windows**: MSI and NSIS installers via the Tauri bundler — needs a Windows host with MSVC plus WiX/NSIS;
+-  this project's development host is Linux on arm64, so it cannot produce them
++- **Windows**: MSI and NSIS — NSIS measured; MSI not built
+ - **macOS**: DMG (notarization needs an Apple Developer ID the owner has not provisioned)
+-- **Linux**: `.deb` and AppImage — `bundle.targets` is `all`, and the declared `deb` dependencies are Ubuntu or
+-  Debian WebKitGTK package names, but no package has been built or installed on this host
++- **Linux**: `.deb` and AppImage (`bundle.targets` is `all`) — not built
+ 
+-No size, no file name and no download URL is quoted for any of them, because none exists. See
+-[Quickstart](quickstart.md) for the only path that works today: build from source.
++No download URL is quoted because nothing is published. See [Quickstart](quickstart.md) for the
++build-from-source path.
+ 
+ #### Remote PWA
+ 
+ ```bash
+-# Build
++# Build — tsc, vite, then the service-worker post-build step
+ cd apps/remote && pnpm build
+ 
+-# Serve the dist/ folder from any static host
++# dist/ is served either by warshad (WARSHA_REMOTE_ASSETS_DIR, see DEPLOY.md)
++# or by any static host on the same domain.
+ ```
+ 
+-Two corrections to what this section used to say:
++The build is `tsc && vite build && node scripts/generate-service-worker.mjs`
++(`apps/remote/package.json:9`). The post-build step writes `dist/sw.js` from `workbox-config.cjs`, and
++the app registers it in production only — `registerShellWorker({ prod: import.meta.env.PROD })`
++(`apps/remote/src/main.tsx:44`; `apps/remote/src/offline.ts:96`). A development server has no
++`dist/sw.js` and registers nothing; a browser without service workers is a supported outcome, not an
++error. There is still no Web Push (`apps/remote/src` contains no `PushManager` or `Notification`
++code).
+ 
+-- The build is `tsc && vite build` only. A `workbox-config.js` file exists in `apps/remote`, but no script
+-  runs it and nothing calls `navigator.serviceWorker`, so **there is no offline service worker today** — and
+-  therefore no Web Push either (`apps/remote/src` contains no `PushManager` or `Notification` code).
+-- HTTPS is still what you want for a phone reaching a daemon over a real network, but not because Warsha
+-  provides the encryption: it doesn't. See [Security Model](security.md).
++HTTPS is what a phone needs for installability and transport confidentiality, but not because Warsha
++provides the encryption: the daemon has no TLS listener and the encrypted channel is a stub. See
++[Security Model](security.md) and [`DEPLOY.md`](../DEPLOY.md).
+ 
+ #### Relay (Optional)
+ 
+@@ -220,58 +235,49 @@ paired phone does not go through it.
+ 
+ ### Docker Compose (Full Stack)
+ 
+-**Not available.** No `warsha/*` container image is published, and no `Dockerfile` or compose file exists in
+-this repository, so the following plan cannot be run and is kept here only as the intended shape:
+-
+-```yaml
+-# PLANNED — no image exists, nothing below can be pulled today
+-version: '3.8'
+-services:
+-  warshad:
+-    image: warsha/warshad:latest
+-    ports:
+-      - "8766:8766"
+-    volumes:
+-      - warsha-data:/data
+-    environment:
+-      - RUST_LOG=info
+-
+-  warsha-relay:
+-    image: warsha/warsha-relay:latest
+-    ports:
+-      - "8767:8767"
+-
+-  remote:
+-    image: warsha/remote:latest
+-    ports:
+-      - "3000:80"
+-    depends_on:
+-      - warsha-relay
+-
+-volumes:
+-  warsha-data:
++**Shipped in the repository.** The topology is `deploy/docker-compose.yml` with `deploy/Caddyfile`;
++the image is `docker/Dockerfile`, and `docker/compose.yml` is the same topology with paths relative
++to `docker/`. [`DEPLOY.md`](../DEPLOY.md) is the operating manual. In one line:
++
++```text
++Internet → host :80/:443 (+443/udp) → caddy → warsha_internal → warshad :8765/:8766
+ ```
+ 
+-Note also that a containerised daemon would fight the two properties the code depends on: it binds
+-`127.0.0.1` only, and it keeps its state in one `warsha.db` plus a lock file.
++`warshad` has no published host port and sits on an `internal: true` network; Caddy is the only
++dual-homed container and the only one that terminates TLS. The image bakes the built `apps/remote`
++bundle at `/usr/share/warsha/remote` and sets `WARSHA_REMOTE_ASSETS_DIR` to it
++(`docker/Dockerfile:102`, `:115`). The daemon serves that bundle from its HTTP listener — a real
++file, a directory's `index.html`, the SPA history fallback, with traversal refused and `/rpc`,
++`/events*` and `/health*` never answered from static serving
++(`crates/warshad/src/lib.rs:5654-5655`, `:6220`). Caddy routes `/health*` and `/events*` to 8765,
++`/rpc*` to 8766 and everything else to 8765 (`deploy/Caddyfile:39-66`).
++
++The daemon still binds loopback by default; the container's `0.0.0.0` is the owner's explicit opt-in
++through `WARSHA_BIND_HOST`, safe because the internal network has no route from outside. State still
++lives in one `warsha.db` plus a lock file, on the `warsha-data` volume.
+ 
+ ## Configuration
+ 
+ ### Daemon Config (`config.toml` in the platform config directory)
+ 
+ The file is a flat set of keys — the `DaemonConfig` struct serialized directly
+-(`crates/warshad/src/lib.rs:147-196`). There are no `[data]`, `[daemon]`, `[auth]` or `[pipeline]` tables,
++(`crates/warshad/src/lib.rs:520-590`). There are no `[data]`, `[daemon]`, `[auth]` or `[pipeline]` tables,
+ and the key that names the RPC port is `ws_port`, not `rpc_port`:
+ 
+ ```toml
+ # Written by `warsha init`, or by the daemon itself on first run.
+ data_dir = "/home/user/.config/warsha"       # holds warsha.db, warshad.lock and the socket
+ socket_path = "/home/user/.config/warsha/warshad.sock"
+-http_port = 8765                             # /health and /events
+-ws_port = 8766                               # JSON-RPC, at the root path
++http_port = 8765                             # /health, /events and the optional remote bundle
++ws_port = 8766                               # JSON-RPC, POST <base>/rpc
+ auth_token = ""                              # the daemon generates 32 bytes on first run
+ allowed_origins = ["http://localhost:5173", "tauri://localhost"]
+ 
++# The address both listeners bind: loopback by default, a bare IP literal.
++bind_host = "127.0.0.1"
++# advertised_host = "warsha.example.com"     # only needed for a wildcard bind; a bare host, no scheme
++# remote_assets_dir = "/usr/share/warsha/remote"  # serve the built remote UI from http_port
++
+ # Optional, and `serde(default)` so an older file still starts the daemon.
+ allowed_commands = []                        # empty means DEFAULT_ALLOWED_COMMANDS, not "everything"
+ 
+@@ -279,6 +285,13 @@ allowed_commands = []                        # empty means DEFAULT_ALLOWED_COMMA
+ # per-identity inbound ceilings (security audit H-01)
+ ```
+ 
++The three address keys have environment overrides applied at startup:
++`WARSHA_BIND_HOST`, `WARSHA_ADVERTISED_HOST` and `WARSHA_REMOTE_ASSETS_DIR`
++(`crates/warshad/src/lib.rs:5899`, `:5902`, `:6192`). `bind_host` is a bare IP literal, not a
++hostname; a wildcard bind (`0.0.0.0`, `::`) serves, but `devices.pair-start` refuses to mint a
++pairing link until `advertised_host` says which address the phone should dial. The daemon has no TLS
++listener, so `advertised_host` accepts a bare host with no scheme.
++
+ There is no `default_budget_cents` key: a budget is written per project through `warsha budget set` or the
+ app, and stored with the project's runs.
+ 
+@@ -321,8 +334,10 @@ repo_template = "warsha/template-web"
+ - `GET http://127.0.0.1:8765/health` — daemon liveness, and the only route that needs no token
+ - `GET http://127.0.0.1:8765/events` — the live event feed; it requires the bearer token, which a browser
+   cannot attach when opening it (see [docs/INSTALL.md](../INSTALL.md), "Not in this build yet")
+-- JSON-RPC is served at the **root** of the RPC port, `http://127.0.0.1:8766/` — there is no `/rpc` path, and
+-  `warsha` uses that address by default (`--url`)
++- JSON-RPC is `POST <base>/rpc` on the RPC port; the typed client appends `/rpc`
++  (`packages/client/src/index.ts:1338`), so the default is `http://127.0.0.1:8766/rpc`, and `warsha` uses
++  that address by default (`--url`). Caddy forwards `/rpc*` to 8766; the HTTP listener on 8765 refuses
++  `/rpc` rather than serving the SPA shell.
+ 
+ ### Key Metrics
+ 
+-- 
+2.55.0.windows.5
+

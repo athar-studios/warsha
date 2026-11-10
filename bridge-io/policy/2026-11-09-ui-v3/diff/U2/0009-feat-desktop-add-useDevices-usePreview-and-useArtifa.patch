@@ -1,0 +1,370 @@
+From 6de367f171ddcf3c99db3df6ae91d8bbcf5a1c5e Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Mon, 9 Nov 2026 18:08:31 +0400
+Subject: [PATCH 09/12] feat(desktop): add useDevices, usePreview, and
+ useArtifacts v3 hooks
+
+Add hooks for paired devices, dev-server preview status, and run artifacts
+with four-state unit tests covering loading, empty, ready, and error states.
+---
+ apps/desktop/src/v3/data/useArtifacts.test.ts | 82 ++++++++++++++++++
+ apps/desktop/src/v3/data/useArtifacts.ts      | 22 +++++
+ apps/desktop/src/v3/data/useDevices.test.ts   | 76 +++++++++++++++++
+ apps/desktop/src/v3/data/useDevices.ts        | 21 +++++
+ apps/desktop/src/v3/data/usePreview.test.ts   | 85 +++++++++++++++++++
+ apps/desktop/src/v3/data/usePreview.ts        | 22 +++++
+ 6 files changed, 308 insertions(+)
+ create mode 100644 apps/desktop/src/v3/data/useArtifacts.test.ts
+ create mode 100644 apps/desktop/src/v3/data/useArtifacts.ts
+ create mode 100644 apps/desktop/src/v3/data/useDevices.test.ts
+ create mode 100644 apps/desktop/src/v3/data/useDevices.ts
+ create mode 100644 apps/desktop/src/v3/data/usePreview.test.ts
+ create mode 100644 apps/desktop/src/v3/data/usePreview.ts
+
+diff --git a/apps/desktop/src/v3/data/useArtifacts.test.ts b/apps/desktop/src/v3/data/useArtifacts.test.ts
+new file mode 100644
+index 0000000..d0f8d90
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useArtifacts.test.ts
+@@ -0,0 +1,82 @@
++import { act, renderHook } from '@testing-library/react';
++import type { RunArtifact, RunId, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useArtifacts } from './useArtifacts';
++
++describe('useArtifacts', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      getRunArtifacts: () => new Promise<RunArtifact[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useArtifacts('run-1' as RunId, client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when artifacts list is empty', async () => {
++    const client = {
++      getRunArtifacts: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useArtifacts('run-1' as RunId, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when artifacts exist', async () => {
++    const list: RunArtifact[] = [
++      {
++        name: 'spec.md',
++        content: '# Spec',
++        stage: 'prd_spec',
++        role: 'pm',
++        created_at: '2026-11-09T00:00:00Z',
++        updated_at: '2026-11-09T00:00:00Z',
++        version: 1,
++      },
++    ];
++    const client = {
++      getRunArtifacts: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useArtifacts('run-1' as RunId, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      getRunArtifacts: vi.fn().mockRejectedValue(new Error('Artifacts error')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useArtifacts('run-1' as RunId, client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Artifacts error');
++
++    (client.getRunArtifacts as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      {
++        name: 'arch.md',
++        content: '# Architecture',
++        stage: 'design',
++        role: 'architect',
++        created_at: '2026-11-09T01:00:00Z',
++        updated_at: '2026-11-09T01:00:00Z',
++        version: 1,
++      },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useArtifacts.ts b/apps/desktop/src/v3/data/useArtifacts.ts
+new file mode 100644
+index 0000000..1b0a7bc
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useArtifacts.ts
+@@ -0,0 +1,22 @@
++import type { RunArtifact, RunId, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useArtifacts(
++  runId?: RunId | string | null,
++  overrideClient?: WarshaClient | null
++): HookResult<RunArtifact[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<RunArtifact[]>(
++    async () => {
++      if (!client || !runId) return [];
++      return client.getRunArtifacts(runId as RunId);
++    },
++    (list) => !list || list.length === 0,
++    [client, runId]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/useDevices.test.ts b/apps/desktop/src/v3/data/useDevices.test.ts
+new file mode 100644
+index 0000000..26ba2e4
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useDevices.test.ts
+@@ -0,0 +1,76 @@
++import { act, renderHook } from '@testing-library/react';
++import type { DeviceId, DeviceSummary, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { useDevices } from './useDevices';
++
++describe('useDevices', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      listDevices: () => new Promise<DeviceSummary[]>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useDevices(client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when devices list is empty', async () => {
++    const client = {
++      listDevices: vi.fn().mockResolvedValue([]),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useDevices(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual([]);
++  });
++
++  it('handles ready state when devices exist', async () => {
++    const list: DeviceSummary[] = [
++      {
++        id: 'dev-1' as DeviceId,
++        name: 'Pixel 8',
++        pairedAt: '2026-11-09T00:00:00Z',
++        revoked: false,
++      },
++    ];
++    const client = {
++      listDevices: vi.fn().mockResolvedValue(list),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useDevices(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(list);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      listDevices: vi.fn().mockRejectedValue(new Error('Devices error')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => useDevices(client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Devices error');
++
++    (client.listDevices as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
++      {
++        id: 'dev-2' as DeviceId,
++        name: 'iPhone 15',
++        pairedAt: '2026-11-09T01:00:00Z',
++        revoked: false,
++      },
++    ]);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/useDevices.ts b/apps/desktop/src/v3/data/useDevices.ts
+new file mode 100644
+index 0000000..1532d8b
+--- /dev/null
++++ b/apps/desktop/src/v3/data/useDevices.ts
+@@ -0,0 +1,21 @@
++import type { DeviceSummary, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function useDevices(
++  overrideClient?: WarshaClient | null
++): HookResult<DeviceSummary[]> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<DeviceSummary[]>(
++    async () => {
++      if (!client) return [];
++      return client.listDevices();
++    },
++    (list) => !list || list.length === 0,
++    [client]
++  );
++}
+diff --git a/apps/desktop/src/v3/data/usePreview.test.ts b/apps/desktop/src/v3/data/usePreview.test.ts
+new file mode 100644
+index 0000000..2fa17ee
+--- /dev/null
++++ b/apps/desktop/src/v3/data/usePreview.test.ts
+@@ -0,0 +1,85 @@
++import { act, renderHook } from '@testing-library/react';
++import type { LivePreview, WarshaClient } from '@warsha/client';
++import { describe, expect, it, vi } from 'vitest';
++
++import { usePreview } from './usePreview';
++
++describe('usePreview', () => {
++  it('handles loading state initially', () => {
++    const client = {
++      previewStatus: () => new Promise<LivePreview>(() => {}),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePreview('proj-1', client));
++    expect(result.current.status).toBe('loading');
++    expect(result.current.data).toBeNull();
++  });
++
++  it('handles empty state when preview is stopped or missing', async () => {
++    const emptyPreview: LivePreview = {
++      projectId: 'proj-1',
++      processId: '',
++      command: 'npm run dev',
++      args: [],
++      status: 'stopped',
++      url: null,
++    };
++    const client = {
++      previewStatus: vi.fn().mockResolvedValue(emptyPreview),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePreview('proj-1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('empty');
++    expect(result.current.data).toEqual(emptyPreview);
++  });
++
++  it('handles ready state when preview is running', async () => {
++    const runningPreview: LivePreview = {
++      projectId: 'proj-1',
++      processId: 'proc-101',
++      command: 'npm run dev',
++      args: [],
++      status: 'running',
++      url: 'http://localhost:3000',
++    };
++    const client = {
++      previewStatus: vi.fn().mockResolvedValue(runningPreview),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePreview('proj-1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('ready');
++    expect(result.current.data).toEqual(runningPreview);
++  });
++
++  it('handles error state and reloads', async () => {
++    const client = {
++      previewStatus: vi.fn().mockRejectedValue(new Error('Preview error')),
++    } as unknown as WarshaClient;
++
++    const { result } = renderHook(() => usePreview('proj-1', client));
++    await act(async () => {});
++
++    expect(result.current.status).toBe('error');
++    expect(result.current.error?.message).toBe('Preview error');
++
++    const runningPreview: LivePreview = {
++      projectId: 'proj-1',
++      processId: 'proc-102',
++      command: 'npm run dev',
++      args: [],
++      status: 'running',
++      url: 'http://localhost:3000',
++    };
++    (client.previewStatus as ReturnType<typeof vi.fn>).mockResolvedValueOnce(runningPreview);
++
++    await act(async () => {
++      result.current.reload();
++    });
++
++    expect(result.current.status).toBe('ready');
++  });
++});
+diff --git a/apps/desktop/src/v3/data/usePreview.ts b/apps/desktop/src/v3/data/usePreview.ts
+new file mode 100644
+index 0000000..d6dae9e
+--- /dev/null
++++ b/apps/desktop/src/v3/data/usePreview.ts
+@@ -0,0 +1,22 @@
++import type { LivePreview, WarshaClient } from '@warsha/client';
++
++import { useClient } from '../app/ClientContext';
++import type { HookResult } from './types';
++import { useResource } from './useResource';
++
++export function usePreview(
++  projectId?: string | null,
++  overrideClient?: WarshaClient | null
++): HookResult<LivePreview> {
++  const contextClient = useClient();
++  const client = overrideClient !== undefined ? overrideClient : contextClient;
++
++  return useResource<LivePreview>(
++    async () => {
++      if (!client || !projectId) return null;
++      return client.previewStatus(projectId);
++    },
++    (preview) => !preview || !preview.processId || preview.status === 'stopped',
++    [client, projectId]
++  );
++}
+-- 
+2.55.0.windows.5
+

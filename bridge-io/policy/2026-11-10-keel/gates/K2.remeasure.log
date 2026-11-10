@@ -1,0 +1,40 @@
+=== K2.1 ===
+test run_integrity::tests::cancel_during_stage_aborts_worker_and_leaves_no_artifact ... ok
+test run_integrity::tests::concurrent_advances_execute_each_stage_only_once ... ok
+test run_integrity::tests::change_request_reopens_gate_and_reruns_stage_with_feedback ... ok
+test run_integrity::tests::interrupted_run_marked_paused_and_resumable ... ok
+test run_integrity::tests::budget_exceeded_pauses_and_resumes_after_budget_increase ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 357 filtered out; finished in 0.28s
+
+EXIT_K2.1=0
+=== K2.2 ===
+running 4 tests
+test tests::cas::reloading_run_version_reflects_version_bump ... ok
+test tests::cas::concurrent_update_with_stale_version_is_rejected ... ok
+test tests::cas::recovering_interrupted_runs_bumps_version ... ok
+test tests::cas::sequential_cas_updates_increment_version ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 0.16s
+
+EXIT_K2.2=0
+=== K2.3 ===
+running 4 tests
+test tests::runs_resume::runs_resume_requires_authorization_and_allows_session ... ok
+test tests::runs_resume::daemon_restart_recovers_interrupted_run_and_runs_resume_resumes_it ... ok
+test tests::runs_resume::runs_resume_budget_paused_run_succeeds_after_budget_set ... ok
+test tests::runs_resume::runs_resume_resumes_paused_run_after_change_request ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 109 filtered out; finished in 0.92s
+
+EXIT_K2.3=0
+=== STD.1 fmt ===
+EXIT_FMT=0
+test run_integrity::tests::stale_stage_write_cannot_overwrite_cancelled_status ... ok
+test run_integrity::tests::cancel_during_stage_aborts_worker_and_leaves_no_artifact ... ok
+test run_integrity::tests::two_different_runs_can_advance_concurrently ... ok
+test run_integrity::tests::interrupted_run_marked_paused_and_resumable ... ok
+test run_integrity::tests::change_request_reopens_gate_and_reruns_stage_with_feedback ... ok
+test run_integrity::tests::concurrent_advances_execute_each_stage_only_once ... ok
+test run_integrity::tests::budget_exceeded_pauses_and_resumes_after_budget_increase ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 357 filtered out; finished in 0.33s

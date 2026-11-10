@@ -1,0 +1,5 @@
+
+> @warsha/client@0.1.0 lint C:\Users\Dragonfly\Downloads\warsha-wt\v3\f2\packages\client
+> eslint src --ext .ts
+
+EXIT=0

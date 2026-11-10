@@ -1,0 +1,8 @@
+=== gate G4.P (engineering policy) ===
+command: node scripts/check-engineering-policy.mjs
+commit: 73b1331c76ccb7c6ea14e78ff4c874b8faf563c4
+utc: 2026-11-08T09:48:59Z
+worktree: /c/Users/Dragonfly/Downloads/warsha-wt/verify-w4
+--- output ---
+policy: 8 checks, 0 failures
+--- [exit code: 0] ---

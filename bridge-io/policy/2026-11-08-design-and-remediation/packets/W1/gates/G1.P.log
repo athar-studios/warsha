@@ -1,0 +1,9 @@
+# Gate: G1.P
+# Command: node scripts/check-engineering-policy.mjs
+# CWD: C:/Users/Dragonfly/Downloads/warsha-wt/verify-w1
+# Commit: 6d9728f52eb096199c4ace208435c8b8927e5140
+# UTC: 2026-11-08T09:09:30Z
+# --- output ---
+policy: 8 checks, 0 failures
+
+# Exit code: 0

@@ -1,0 +1,7 @@
+=== gate G4.8 (stale wording gone; expect exit 1 = no match) ===
+command: grep -nE 'REQUIRE_NO_KNOWN_DRIFT is false|FALSE again|RE-OPENED for Wave 2|deferred in .KNOWN_UNREGISTERED_METHODS' scripts/check-wire-contract.mjs packages/client/src/index.ts
+commit: 73b1331c76ccb7c6ea14e78ff4c874b8faf563c4
+utc: 2026-11-08T09:47:45Z
+worktree: /c/Users/Dragonfly/Downloads/warsha-wt/verify-w4
+--- output ---
+--- [exit code: 1] (1 = no match, expected) ---

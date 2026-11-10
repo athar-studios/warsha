@@ -1,0 +1,20 @@
+gate: G3.5 (monorepo typecheck)
+command: pnpm -r typecheck
+expect: exit 0 (apps still compile against the changed @warsha/ui)
+commit: 0f829731273d722ae21f25e26a54767bc852fe56
+utc: 2026-11-08T10:24:58Z
+--- output ---
+Scope: 7 of 8 workspace projects
+packages/crypto typecheck$ tsc --noEmit
+packages/client typecheck$ tsc --noEmit
+packages/ui typecheck$ tsc --noEmit && tsc --noEmit -p tsconfig.storybook.json
+packages/i18n typecheck$ tsc --noEmit
+packages/crypto typecheck: Done
+packages/client typecheck: Done
+packages/i18n typecheck: Done
+packages/ui typecheck: Done
+apps/remote typecheck$ tsc --noEmit
+apps/desktop typecheck$ tsc --noEmit && tsc --noEmit -p tsconfig.e2e.json
+apps/remote typecheck: Done
+apps/desktop typecheck: Done
+exit: 0

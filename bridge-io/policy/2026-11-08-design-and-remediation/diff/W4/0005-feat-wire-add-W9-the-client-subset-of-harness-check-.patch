@@ -1,0 +1,109 @@
+From c83af5e948fd578d2a8ed1355c5a0a81f2ec01fe Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 12:05:00 +0400
+Subject: [PATCH 5/5] feat(wire): add W9, the client-subset-of-harness check,
+ with a self-test mutant
+
+Every method the client can send must have an e2e harness stub (DECISIONS
+2026-11-08 D8): a call with no stub renders the error state in every case that
+reaches it, which is the 2026-11-07 "32 visual failures" class. Unresolvable
+call sites stay W1's finding, so each broken site is reported once. The
+self-test plants a registered client call whose stub is deleted and asserts
+W9 names it; the output contract becomes "wire: 9 checks, 0 violations".
+---
+ scripts/check-wire-contract.mjs | 44 ++++++++++++++++++++++++++++++---
+ 1 file changed, 41 insertions(+), 3 deletions(-)
+
+diff --git a/scripts/check-wire-contract.mjs b/scripts/check-wire-contract.mjs
+index e9214eb..9d43652 100644
+--- a/scripts/check-wire-contract.mjs
++++ b/scripts/check-wire-contract.mjs
+@@ -30,7 +30,7 @@
+ //
+ // Output contract (see docs/ARCH_RULES.md):
+ //   `<CHECK-ID>: <file>:<line> <offence>` on stdout, one line per violation, exit 1;
+-//   `wire: 8 checks, 0 violations` on stdout and exit 0 otherwise.
++//   `wire: 9 checks, 0 violations` on stdout and exit 0 otherwise.
+ //
+ // Four sources, compared until they agree:
+ //   daemon   — every `#[method(name = "…")]` in crates/warshad/src/lib.rs (whitespace-tolerant,
+@@ -43,7 +43,11 @@
+ //              indirection (five call sites do exactly that — a naive `'…'` regex silently drops
+ //              them), with each call's params object counted AND its top-level key names read (a
+ //              quoted key counts as an entry and is still a key);
+-//   harness  — the `RPC_METHODS` array in apps/desktop/e2e/harness.ts, entries in either quote style;
++//   harness  — the `RPC_METHODS` array in apps/desktop/e2e/harness.ts, entries in either quote
++//              style; compared BOTH ways: every stub must be a daemon method (W2), and every
++//              method the client can send must have a stub (W9, DECISIONS.md 2026-11-08 D8) — a
++//              client method that reaches the e2e lane unstubbed renders §7's error state, which
++//              is how the 2026-11-07 "32 visual failures" class shipped;
+ //
+ // The param rules, and the measurements that settled them (DECISIONS.md 2026-11-03, #40 WITHDRAWN +
+ // restated; #54 for the renames): the earlier plan to require client keys to equal the daemon's
+@@ -126,6 +130,7 @@ const CHECK_IDS = [
+   ['W6', 'view-integrity'],
+   ['W7', 'required-field-drift'],
+   ['W8', 'param-name-drift'],
++  ['W9', 'client-method-without-harness-stub'],
+ ];
+ 
+ // The one-edit flip: when true, the KNOWN_* sets below are ignored and every parsed name and
+@@ -609,6 +614,25 @@ function run(root, opts = {}) {
+     else raise('W2', HARNESS_FILE, entry.line, offence);
+   }
+ 
++  // W9: every method the client can put on the wire has an e2e harness stub (DECISIONS.md
++  // 2026-11-08 D8). The other direction from W2: a stub the daemon cannot serve is fiction, and a
++  // client call with no stub renders §7's error state in every case that reaches it — the
++  // 2026-11-07 "32 visual failures" class. Unresolvable call sites are W1's finding and skipped
++  // here, so each broken call site is reported once, against the check that can name it. Nothing
++  // is deferrable: this check has no known-drift set, because a stub for a registered method is
++  // always the fix, and a name the daemon does not serve is W1's to delete, not W9's to stub.
++  const harnessSet = new Set(harness.names.map((entry) => entry.name));
++  for (const call of client) {
++    if (call.unresolved !== null) continue; // W1 already refuses this call site
++    if (harnessSet.has(call.name)) continue;
++    raise(
++      'W9',
++      CLIENT_FILE,
++      call.line,
++      `client method "${call.name}" has no e2e harness stub (${HARNESS_FILE} RPC_METHODS)`
++    );
++  }
++
+   // W3 and W5: every daemon method has a policy row and is declared `with_extensions`.
+   for (const m of daemon.methods) {
+     if (!policySet.has(m.name)) {
+@@ -1170,6 +1194,20 @@ const MUTATIONS = [
+       );
+     },
+   },
++  {
++    name: 'client-call-without-harness-stub',
++    ids: ['W9'],
++    expect: /client method "gates.list" has no e2e harness stub \(apps\/desktop\/e2e\/harness\.ts RPC_METHODS\)/,
++    mutate: (f) => {
++      // The 2026-11-07 class in one mutation: `gates.list` is a REGISTERED daemon method and the
++      // client calls it (through its same-file const, so the parser must resolve the name exactly
++      // as W1 does), but the harness has no stub. W1 stays silent — the daemon serves the name —
++      // so only W9 can see the case: every screenshot that reaches `gates.list` would photograph
++      // §7's error state instead of the gates it claims to measure. Deleting the stub, not adding a
++      // ghost name, keeps this mutant specific to W9 (the daemon and policy views are untouched).
++      f[HARNESS_FILE] = f[HARNESS_FILE].replace("  'gates.list',\n", '');
++    },
++  },
+ ];
+ 
+ function selfTest() {
+@@ -1387,7 +1425,7 @@ function selfTest() {
+     writeTree(dir, MUTATIONS.reduce((files, m) => ((m.mutate(files), files)), cleanFixture()));
+     for (const v of run(dir, { requireNoKnownDrift: true }).violations) {
+       const rendered = `${v.id}: ${v.file}:${v.line} ${v.offence}`;
+-      if (!/^W[1-8]: [^:\n]+:\d+ \S/.test(rendered) || path.isAbsolute(v.file)) {
++      if (!/^W[1-9]: [^:\n]+:\d+ \S/.test(rendered) || path.isAbsolute(v.file)) {
+         failed = true;
+         console.log(`self-test message format: FAILED — ${rendered}`);
+       }
+-- 
+2.55.0.windows.5
+

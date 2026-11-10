@@ -1,0 +1,8 @@
+# Gate: G1.5
+# Command: grep -q process_handshake crates/warsha-remote/README.md && grep -qiE 'stub|not implemented' crates/warsha-remote/README.md
+# CWD: C:/Users/Dragonfly/Downloads/warsha-wt/verify-w1
+# Commit: 6d9728f52eb096199c4ace208435c8b8927e5140
+# UTC: 2026-11-08T09:09:16Z
+# --- output ---
+
+# Exit code: 0

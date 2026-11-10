@@ -1,0 +1,23 @@
+gate: G5.3
+command: pnpm --filter @warsha/i18n test
+commit: 10a181998af4d0ee79e2435fac2f3b9d217902d5
+worktree: C:/Users/Dragonfly/Downloads/warsha-wt/verify-w5
+utc_start: 2026-11-08T11:58:33Z
+--- output ---
+
+> @warsha/i18n@0.1.0 test C:\Users\Dragonfly\Downloads\warsha-wt\verify-w5\packages\i18n
+> vitest run
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mC:/Users/Dragonfly/Downloads/warsha-wt/verify-w5/packages/i18n[39m
+
+ [32m✓[39m src/index.test.ts [2m([22m[2m52 tests[22m[2m)[22m[90m 75[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m52 passed[39m[22m[90m (52)[39m
+[2m   Start at [22m 15:58:34
+[2m   Duration [22m 877ms[2m (transform 108ms, setup 0ms, collect 183ms, tests 75ms, environment 0ms, prepare 227ms)[22m
+
+exit_code: 0
+utc_end: 2026-11-08T11:58:35Z

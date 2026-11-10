@@ -1,0 +1,2 @@
+# U4 — genesis v3 baselines (missing snapshots) for its pages; @visual cases only
+^desktop › (bench)\.spec\.ts › .*@visual

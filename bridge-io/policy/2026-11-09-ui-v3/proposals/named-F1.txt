@@ -1,0 +1,2 @@
+# F1 (PROPOSAL) — pixel drift expected from the two v2 mobile-providers fixes; soft assertions must pass (gate F1.7 proves it)
+^desktop › screens\.visual\.spec\.ts › providers 390x844 (ar|en) (light|dark)$

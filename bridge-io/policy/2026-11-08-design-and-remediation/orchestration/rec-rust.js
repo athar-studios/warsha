@@ -1,0 +1,28 @@
+const fs=require('fs');
+const dir='C:/Users/Dragonfly/Downloads/Warsha/bridge-io/policy/2026-11-08-design-and-remediation/';
+const now=new Date().toISOString().replace(/\.\d{3}Z$/,'Z');
+const TIP='c27091696796805bbdf72848fbc93ff611866dcc';
+const ap=JSON.parse(fs.readFileSync(dir+'acceptance.json','utf8'));
+const set=(id,v)=>{const g=ap.gates.find(x=>x.id===id);if(!g){console.log('WARN no gate '+id);return;}Object.assign(g,v,{recorded_at:now,commit:TIP});};
+set('GC.1',{verdict:'pass-provisional',exit_code:0,log:'gates/GC.1.log',measured:'cargo fmt --all --check clean at the C2a tip',note:'provisional: must be re-run at the FINAL C3 tip'});
+set('GC.2',{verdict:'pass-provisional',exit_code:0,log:'gates/GC.2.log',measured:'cargo clippy --workspace --all-targets -- -D warnings: exit 0, 0 warning lines',note:'provisional: re-run at final tip'});
+set('GC.3',{verdict:'pass-provisional',exit_code:0,log:'gates/GC.3.log',measured:'cargo test --workspace --all-targets: 743 passed / 0 failed / 10 ignored across 36 suites (threshold >= 734), recomputed by the orchestrator from the raw "test result: ok." lines',note:'provisional: re-run at final tip. The word FAILED appears once in the log, in its own header comment, not as a result.'});
+set('GC.9',{verdict:'pass-provisional',exit_code:0,log:'gates/GC.9.log',measured:'mdbook build docs ok, tree stays clean',note:'provisional; NOTE mdbook TEST (not build) currently fails - see GC.4'});
+set('GC.11',{verdict:'pass-provisional',exit_code:0,log:'gates/GC.11.log',measured:'gitleaks: no leaks found (120 commits, ~50 MB)',note:'provisional: re-run at final tip'});
+set('GC.5',{verdict:'pass-provisional',exit_code:0,log:'gates/GC.5.log',measured:'tsc -p tsconfig.e2e.json clean',note:'provisional'});
+set('GC.6',{verdict:'pass-provisional',exit_code:0,log:'gates/GC.6a.log + gates/GC.6b.log',measured:'arch self-test (5 rules fire) + arch 5 rules 0 violations',note:'provisional'});
+set('GC.7',{verdict:'pass-provisional',exit_code:0,log:'gates/GC.7a.log + gates/GC.7b.log',measured:'policy self-test + policy 8 checks 0 failures',note:'provisional'});
+set('GC.8',{verdict:'pass-provisional',exit_code:0,log:'gates/GC.8a.log + gates/GC.8b.log',measured:'wire self-test (9 checks fire) + "wire: 9 checks, 0 violations"',note:'provisional'});
+set('GC.4',{verdict:'fail',exit_code:101,log:'orchestration/gc4-test.out',measured:'typecheck exit 0, lint exit 0, build exit 0, but pnpm -r test exit 101: mdbook test fails on 4 unannotated code fences in docs/src/design-system-v2.md (line 85) and docs/src/deploy.md (lines 54, 167, 329), all in files W2 created. Control: mdbook test exits 0 at 406240a.',note:'W2 repair iteration 2 dispatched'});
+fs.writeFileSync(dir+'acceptance.json',JSON.stringify(ap,null,2)+'\n');
+const s=JSON.parse(fs.readFileSync(dir+'state.json','utf8'));
+if(s.seq!==31){console.error('seq '+s.seq);process.exit(1);}
+s.seq=32;s.updated_at=now;
+s.integration_gate_results.pass['GC.2']='clippy -D warnings exit 0, 0 warning lines';
+s.integration_gate_results.pass['GC.3']='743 passed / 0 failed / 10 ignored / 36 suites (>= 734)';
+delete s.integration_gate_results.pending['GC.2/GC.3'];
+s.orchestration_findings.push({at:now,topic:'Rust integration gates GC.2 and GC.3 pass on the C2a tip',fact:'Run by a debugger-model agent in the integration worktree with its own CARGO_TARGET_DIR. GC.2 cargo clippy --workspace --all-targets -- -D warnings: exit 0, zero warning lines. GC.3 cargo test --workspace --all-targets: exit 0; the orchestrator recomputed the totals itself from the raw "test result: ok." lines - 743 passed, 0 failed, 10 ignored across 36 suites, against a threshold of 734. A grep for FAILED/panicked matched exactly one line, which is the log own header comment ("no FAILED/failed lines present"), not a result. These are recorded pass-provisional because the final C3 verdict must be taken at the final tip after W5 and W2 repairs merge.'});
+fs.writeFileSync(dir+'state.json',JSON.stringify(s,null,2)+'\n');
+fs.writeFileSync(dir+'checkpoints/032-rust.json',JSON.stringify(s,null,2)+'\n');
+const c=k=>ap.gates.filter(g=>g.verdict===k).length;
+console.log('seq='+s.seq+' | pass='+c('pass')+' pass-provisional='+c('pass-provisional')+' fail='+c('fail')+' blocked='+c('blocked-on-owner-decision')+' not-run='+c('not-run')+' / '+ap.gates.length);

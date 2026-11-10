@@ -1,0 +1,5 @@
+1
+RC=0
+ls: cannot open file '/root/warsha-visual': Permission denied
+ls: cannot open file '/root/u2-scratch': Permission denied
+ls: cannot open directory '/root': Permission denied

@@ -1,0 +1,1 @@
+^apps/remote/e2e/bench\.visual\.spec\.ts-snapshots/

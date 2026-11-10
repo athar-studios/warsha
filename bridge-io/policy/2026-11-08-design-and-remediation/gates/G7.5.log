@@ -1,0 +1,14 @@
+gate: G7.5
+command: grep -qF "$(sha256sum "$APK" | cut -d' ' -f1)" apps/mobile/README.md
+commit: e172caf238550bbe4c26d311ccd0f08a6ca964dd
+worktree: C:/Users/Dragonfly/Downloads/warsha-wt/integration
+host: Windows integration worktree (re-derived by the orchestrator)
+timestamp: 2026-11-08T17:34:43Z
+note: an earlier automated derivation escaped the 'cut -d" "' argument badly and reported a false
+note: exit 1. Re-run here as a plain shell command, which is what the gate actually is.
+---
+APK size: 842981 bytes
+APK sha256: 6a4681852c53f01294159b1d6a905ddb8b32ab968d68fbefcd50a93eae2700ef
+README records: 6a4681852c53f01294159b1d6a905ddb8b32ab968d68fbefcd50a93eae2700ef
+grep exit: 0
+exit_code: 0

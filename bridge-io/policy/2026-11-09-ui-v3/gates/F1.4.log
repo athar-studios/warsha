@@ -1,0 +1,3 @@
+$ git diff \..HEAD -- '*package.json' 'crates/*/Cargo.toml' 'apps/*/src-tauri/Cargo.toml' Cargo.toml | grep -E <added-dep> | grep -vE <version-keys>
+GATE_EXIT=1
+(manifest diff body above is empty => no manifest touched)

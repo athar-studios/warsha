@@ -1,0 +1,177 @@
+From 297cfc9a74309de8a4eacfd49931654f5ea32667 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Sun, 8 Nov 2026 15:02:52 +0400
+Subject: [PATCH 09/13] docs(arch-rules): align R6 with the merged W3 rules and
+ 35 tests
+
+---
+ _agents/skills/warsha_elephant/SKILL.md |  2 +-
+ docs/ARCHITECTURE.md                    |  4 +-
+ docs/ARCH_RULES.md                      | 63 ++++++++++++++-----------
+ docs/designs/SITEMAP.md                 |  2 +-
+ 4 files changed, 39 insertions(+), 32 deletions(-)
+
+diff --git a/_agents/skills/warsha_elephant/SKILL.md b/_agents/skills/warsha_elephant/SKILL.md
+index 3030adc..9c5fc97 100644
+--- a/_agents/skills/warsha_elephant/SKILL.md
++++ b/_agents/skills/warsha_elephant/SKILL.md
+@@ -19,7 +19,7 @@ or drift check (`/egm-drift-report`) on the Warsha repo.
+ 
+ ## Canonical docs (read first)
+ 
+-- `docs/ARCHITECTURE.md` — system architecture (verified against the tree at `99a7c03`)
++- `docs/ARCHITECTURE.md` — system architecture (verified against the tree at `406240a`)
+ - `docs/designs/DESIGN_SYSTEM_V2.md` — Design System v2 (tokens, R6 v2, compound contracts, adoption ladder)
+ - `docs/design/REDESIGN.md` — redesign spec (S5/S6/§7/§10/§11)
+ - `docs/UI.md` — desktop UI reference (screens, states, directions)
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 3507aa3..07ee6ce 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -72,7 +72,7 @@ edges.
+ ### 2.3 Module map (what each crate actually contains)
+ 
+ The `mod` declarations in `crates/<name>/src/lib.rs` are the real module inventory. The map below
+-was read at `99a7c03`; a module listed as private is only reachable through that crate's `pub use`
++was read at `406240a`; a module listed as private is only reachable through that crate's `pub use`
+ block (rule `R4`).
+ 
+ | Crate | Modules declared in `src/lib.rs` | Public surface |
+@@ -198,7 +198,7 @@ milestone; the enforcement in `ARCH_RULES.md` is deliberately written so the cur
+ | `warsha-cli` → `warshad` | the CLI links the daemon crate | the CLI is an RPC client only | **No.** Not expressible as a ring rule; noted here so the CLI keeps its `Debug`/`DaemonConfig` use of the daemon crate in one place. |
+ | `warsha-relay` imports `warsha-remote` | correct today | unchanged | Yes — `R3` allows it (both are layer ≥ 2, relay is not above the pipeline). |
+ | `warsha-pipeline` declares `mod provider_setup;` | a second `provider_setup` also exists in `warsha-providers` | one home for provider setup | **No.** Duplication is a code smell, not a dependency violation. |
+-| `warsha-store` keeps its code in two files | `lib.rs` is 1,414 lines and `persistence.rs` is 1,818 lines (`wc -l`, measured at `99a7c03`) | split by aggregate | **No.** Not a boundary question. |
++| `warsha-store` keeps its code in two files | `lib.rs` is 1,414 lines and `persistence.rs` is 1,818 lines (`wc -l`, measured at `406240a`) | split by aggregate | **No.** Not a boundary question. |
+ | `@warsha/crypto` is unused by the apps | declared as a library | used for pairing on the remote UI | **No.** `R5` only forbids the *wrong* direction. |
+ 
+ ---
+diff --git a/docs/ARCH_RULES.md b/docs/ARCH_RULES.md
+index 7238b98..94b8b36 100644
+--- a/docs/ARCH_RULES.md
++++ b/docs/ARCH_RULES.md
+@@ -163,13 +163,14 @@ commit; the ids are what a failing build prints, so they are part of the interfa
+ 
+ - **Rule id**: `R6`
+ - **Name**: `no-token-drift`
+-- **Implemented by**: `packages/ui/src/tokens/tokenDrift.test.ts` (25 tests), run by `pnpm -r test`
++- **Implemented by**: `packages/ui/src/tokens/tokenDrift.test.ts` (35 tests), run by `pnpm -r test`
+   in CI and by the bridge. It is not in `scripts/check-arch.mjs` on purpose: R1–R5 read Rust
+   manifests and app imports, while R6 has to read the TypeScript token modules *and* `tokens.css` to
+-  compare them, which only the package that owns both can do. The 25 is measured from the merged
+-  file at `99a7c03` (`grep -cE '^\s*it\('`), not copied from the design document.
+-- **Forbids**, in every file that renders UI in `packages/ui` — `src/components.tsx` and
+-  `src/components/*.tsx`, excluding `*.stories.tsx` and `*.test.tsx`:
++  compare them, which only the package that owns both can do. The 35 is measured from the merged
++  file at `406240a` (`grep -cE '^\s*it\('`), not copied from the design document.
++- **Forbids**, in every file that renders UI in `packages/ui` — `src/components.tsx`,
++  `src/components/*.tsx`, `src/compounds/*.{ts,tsx}` (excluding the barrel, `internal.ts`, stories
++  and tests) and `src/storySupport.tsx`:
+   1. `R6.1` a **colour literal** — `#rgb`, `#rrggbb`, `rgb(`, `rgba(`, `hsl(`, `hsla(`;
+   2. `R6.2` a **length literal** — any `px`, `rem`, `em`, `pt`, `vh`, `vw`, `ms`, `s` value;
+   3. `R6.3` a **physical direction property** — `marginLeft`, `paddingRight`, `borderLeft*`,
+@@ -181,7 +182,9 @@ commit; the ids are what a failing build prints, so they are part of the interfa
+   5. `R6.5` a **raw token name** — `--warsha-…`, whether bare or wrapped in `var()`;
+   6. `R6.6` a `cssVar(` **call** — the untyped primitive is for the token modules and for Storybook;
+      a component uses the typed helpers (`colorVar`, `space`, `radius`, `shadow`, `fontSize`,
+-     `fontWeight`, `duration`, `easing`), each of which takes only a declared token name.
++     `fontWeight`, `duration`, `easing`), each of which takes only a declared token name;
++  7. `R6.7` a **unitless design literal** — `fontWeight: <n>` or `zIndex: <n>` (use `fontWeight()` /
++     `layer()`). A weight or a layer is a design value even without a unit.
+ 
+   Comments are blanked before scanning, so documentation may describe a value ("half-steps of the
+   4px base") without tripping the rule; only what renders is scanned.
+@@ -200,30 +203,34 @@ commit; the ids are what a failing build prints, so they are part of the interfa
+   - an **inline font stack** fails; `inherit` and `var(--warsha-font-mono)` pass;
+   - the scan reads the *value* of a declaration, so `borderRadius: '8px'` beside
+     `padding: 'var(--warsha-space-4)'` is not mistaken for a spacing literal.
++  `R6.9` and `R6.10` are a second, independent app scan: they read `.ts`, `.tsx` and `.css` (tests
++  and comments excluded) and count every absolute length and literal `var()` fallback against the
++  ratchet, so the on-scale tolerance above cannot hide an off-scale length forever.
+ - **Also checks**, in the same file:
++  - `R6.8` — a raw colour may appear in `tokens.css` only inside a block whose selector list is
++    exactly `:root, [data-theme='light']` or `[data-theme='dark']`. `compounds/internal.ts` is
++    scanned by the package rules above, so `:root :focus-visible` cannot smuggle a raw colour past
++    them;
+   - `R6.P` — `tokens.css` and the token modules declare **exactly the same names** — no extra
+-    property in the stylesheet, no token in TypeScript the CSS forgot;
++    property in the stylesheet, no token in TypeScript the CSS forgot. It covers the DS v2 families
++    `lines.ts` and `elevation.ts`; `breakpoints.ts` is explicitly exempt because a media query cannot
++    read a custom property;
+   - every name carries the same **value**, compared separately for `:root` (light) and
+     `[data-theme='dark']`, so a dark-mode value cannot drift from its TypeScript twin;
+   - `R6.S` — every component exported by `components.tsx` (and by the compound modules) has a
+     `*.stories.tsx` (Storybook cannot silently lose a component).
+-- **R6 v2 — specified in `docs/designs/DESIGN_SYSTEM_V2.md` §4.6, not merged at this BASE.** W3 owns
+-  the extension and is held back from checkpoint C1 (`state.json` C1 `held_back`: the remote baseline
+-  decision OD1). At `99a7c03` the rules above are what the 25 tests enforce; the v2 set adds:
+-  - `R6.7` — a unitless `fontWeight: <n>` / `zIndex: <n>` in `packages/ui` (use `fontWeight()` /
+-    `layer()`);
+-  - `R6.8` — scan `compounds/internal.ts`; a raw colour is allowed only inside a block whose selector
+-    list is exactly `:root, [data-theme='light']` or `[data-theme='dark']`, closing the
+-    `:root :focus-visible` loophole;
++- **R6 v2 is live** (`docs/designs/DESIGN_SYSTEM_V2.md` §4.6; W3 merged at `406240a`):
+   - `R6.9` — the **app length ratchet**: every `px`/`rem`/`em` length in
+-    `apps/{desktop,remote}/src/**/*.{ts,tsx,css}`, outside an `@media` prelude whose value is in the
+-    breakpoint set, is an offence, and the live count may not exceed `APP_LENGTH_BUDGET`;
++    `apps/{desktop,remote}/src/**/*.{ts,tsx,css}` (comments and tests excluded), outside an `@media`
++    prelude whose value is in the `breakpoints.ts` px set, is an offence. The live count may not
++    exceed `APP_LENGTH_BUDGET = 145` (142 R6.9 lengths plus 3 R6.10 literal fallbacks, measured at
++    W3's base `5abe5ef`);
+   - `R6.10` — a literal `var()` fallback (`var(--warsha-x, 4px)`).
+ 
+-  The ratchet's frozen mechanics: `APP_LENGTH_BUDGET` is the count measured at W3's base;
+-  `WARSHA_R6_APP_LENGTH_BUDGET` can only **tighten** it (`Math.min(APP_LENGTH_BUDGET, env)`), and
+-  INT-2 sets the constant to `0`. Every new rule ships with a planted-violation fixture that must
+-  fire and a clean fixture that must stay clean.
++  The ratchet's frozen mechanics: `WARSHA_R6_APP_LENGTH_BUDGET` can only **tighten** the budget
++  (`Math.min(APP_LENGTH_BUDGET, env)`), never raise it; W5 drives the apps to zero at `=0`, and INT-2
++  pins the constant to `0`. Every rule ships with a planted-violation fixture that must fire and a
++  clean fixture that must stay clean.
+ - **Why**: the dark theme is only correct if a component asks for a *role* rather than a colour. A
+   literal is a value that cannot follow `[data-theme]`, it is invisible in review because it looks
+   like every other string, and it silently forks the palette — before this rule `components.tsx`
+@@ -235,12 +242,12 @@ commit; the ids are what a failing build prints, so they are part of the interfa
+   each fires, plus a clean fixture that must produce nothing — mirroring
+   `node scripts/check-arch.mjs --self-test`, so a rule that silently matches nothing fails instead of
+   passing.
+-- **Passes today**: the four primitives (`Box`, `Text`, `Button`, `Card`) and the compound components
+-  reference tokens only; `tokens.css` and the token modules agree name for name and value for value;
+-  28 story files cover the exported components and the token layer; and both apps — 68 non-test
+-  `.ts`/`.tsx` files (50 under `apps/desktop/src`, 18 under `apps/remote/src`, measured at `99a7c03`)
+-  — render from `var(--warsha-*)` references with no colour, on-scale spacing or type literal left.
+-  The test file's measured `it(` count is 25.
++- **Passes today** (measured at `406240a`): the primitives and the compound components reference
++  tokens only; `tokens.css` and the token modules agree name for name and value for value; 28 story
++  files cover the exported components and the token layer; both apps — 70 non-test source files (68
++  `.ts`/`.tsx` plus 2 `.css`, 51 under `apps/desktop/src` and 19 under `apps/remote/src`) — carry no
++  colour, on-scale spacing or type literal; and the ratchet's live count is within
++  `APP_LENGTH_BUDGET = 145`. The test file's measured `it(` count is 35.
+ - **Failure messages** (one per line, in the `ARCH_RULES` shape):
+   - ``R6: packages/ui/src/components.tsx:34 hardcoded colour `#2563eb` (use a colour token: …)``
+   - ``R6: packages/ui/src/components.tsx:52 hardcoded length `12px` (use a spacing or radius token: …)``
+@@ -375,7 +382,7 @@ commit; the ids are what a failing build prints, so they are part of the interfa
+   assertion reads the four shapes whose names can be (snake, alias, shorthand, quoted) straight off
+   `parseClient`, so the check is proven to parse and not merely to match — mirroring
+   `node scripts/check-arch.mjs --self-test`.
+-- **Passes today** (measured at `99a7c03`): the daemon registers 88 methods and the policy table
++- **Passes today** (measured at `406240a`): the daemon registers 88 methods and the policy table
+   names 88, the two daemon views agree, and every method is declared `with_extensions`. The client
+   has 75 call sites over 75 distinct methods — 60 with an object-literal params argument and 15 with
+   no params argument, zero unresolvable and zero positional — and every one is stubbed by the
+diff --git a/docs/designs/SITEMAP.md b/docs/designs/SITEMAP.md
+index 56547dc..b788975 100644
+--- a/docs/designs/SITEMAP.md
++++ b/docs/designs/SITEMAP.md
+@@ -12,7 +12,7 @@ Elephant-Goldfish Model flow (`/egm-brainstorm` → `/egm-draft` →
+ | Design | Status | Path |
+ |---|---|---|
+ | Redesign baseline (S5/S6/§7/§10/§11) | Canonical reference | `../design/REDESIGN.md` |
+-| Design System v2 — tokens, R6 v2, compound contracts, screen architecture, adoption ladder | Draft for implementation (run 2026-11-08, packets W3/W5) | [`./DESIGN_SYSTEM_V2.md`](./DESIGN_SYSTEM_V2.md) |
++| Design System v2 — tokens, R6 v2, compound contracts, screen architecture, adoption ladder | Implemented in part: W3 merged at `406240a`; W5 (app adoption) pending | [`./DESIGN_SYSTEM_V2.md`](./DESIGN_SYSTEM_V2.md) |
+ | Skills and harnesses policy | Canonical policy | [`../SKILLS_AND_HARNESSES.md`](../SKILLS_AND_HARNESSES.md) |
+ | Desktop UI reference | Canonical reference | [`../UI.md`](../UI.md) |
+ | Install manual (build, install, uninstall) | Canonical reference | [`../INSTALL.md`](../INSTALL.md) |
+-- 
+2.55.0.windows.5
+

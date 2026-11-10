@@ -1,0 +1,5 @@
+rust-tests: cwd=C:/Users/Dragonfly/Downloads/warsha-wt/keel/k3 CARGO_TARGET_DIR=C:/Users/Dragonfly/Downloads/warsha-wt/keel/k3/target
+rust-tests: cargo exit=0 (full output: C:/Users/Dragonfly/Downloads/Warsha/bridge-io/policy/2026-11-10-keel/gates/K3.STD.3.log)
+rust-tests: binary summary-lines=36 passed=795 failed=0 ignored=10 cargo_exit=0
+rust-tests: doctest summary (excluded from pass criteria): passed=0 failed=0 ignored=1
+KEEL-PASS rust-tests passed=795 ignored=10

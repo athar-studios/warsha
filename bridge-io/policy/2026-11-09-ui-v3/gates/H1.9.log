@@ -1,0 +1,7 @@
+--- changed files 4c65ead..HEAD ---
+apps/desktop/e2e/harness.ts
+apps/desktop/src/harness.contract.test.ts
+apps/remote/e2e/harness.ts
+scripts/check-wire-contract.mjs
+--- outside allowlist ---
+GATE_EXIT=0

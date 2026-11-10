@@ -1,0 +1,2 @@
+$ git diff \..HEAD -- manifests | grep <added-dep> | grep -v <version-keys>
+GATE_EXIT=1

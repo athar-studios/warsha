@@ -1,0 +1,3 @@
+# P1 snapshot allowlist
+^apps/desktop/e2e/(screens\.visual|states)\.spec\.ts-snapshots/
+^apps/remote/e2e/bench\.visual\.spec\.ts-snapshots/

@@ -1,0 +1,10 @@
+gate: G3.2 (@warsha/ui lint)
+command: pnpm --filter @warsha/ui lint
+commit: 0f829731273d722ae21f25e26a54767bc852fe56
+utc: 2026-11-08T10:23:56Z
+--- output ---
+
+> @warsha/ui@0.1.0 lint C:\Users\Dragonfly\Downloads\warsha-wt\verify-w3\packages\ui
+> eslint src --ext .ts,.tsx
+
+exit: 0

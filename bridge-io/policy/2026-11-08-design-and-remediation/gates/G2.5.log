@@ -1,0 +1,8 @@
+gate: G2.5
+command: ( n=$(node scripts/check-wire-contract.mjs | grep -oE '[0-9]+ checks' | head -1); echo "$n"; grep -qF "$n" docs/ARCH_RULES.md )
+commit: e71567a499c435711899643bc676a004ac81eaa2
+timestamp: 2026-11-08T12:04:30Z
+exit: 0
+expected: 0
+--- output ---
+9 checks

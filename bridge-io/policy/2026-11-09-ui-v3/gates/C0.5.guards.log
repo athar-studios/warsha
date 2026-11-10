@@ -1,0 +1,6 @@
+arch: 5 rules, 0 violations
+arch_exit=0
+policy: 8 checks, 0 failures
+policy_exit=0
+wire: 9 checks, 0 violations
+wire_exit=0

@@ -1,0 +1,38 @@
+From a3d24a949e44951dbfc2671f62b1477f4d7ec276 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Mon, 9 Nov 2026 17:23:12 +0400
+Subject: [PATCH] fix(client): drop unused test imports (F2)
+
+---
+ packages/client/src/index.test.ts | 5 -----
+ 1 file changed, 5 deletions(-)
+
+diff --git a/packages/client/src/index.test.ts b/packages/client/src/index.test.ts
+index 716e159..3c4d983 100644
+--- a/packages/client/src/index.test.ts
++++ b/packages/client/src/index.test.ts
+@@ -3,12 +3,9 @@
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+ 
+ import {
+-  ALL_ROLES,
+   createClient,
+   decodeBackendKit,
+   decodeDeviceSummary,
+-  decodeModelCatalogDiff,
+-  decodeModelInfo,
+   decodeProjectSummary,
+   decodeRoutine,
+   decodeRunSummary,
+@@ -23,8 +20,6 @@ import {
+   type DeviceId,
+   type GateState,
+   type GateSummary,
+-  type ModelCatalogDiff,
+-  type ModelInfo,
+   type PairingData,
+   type PreferenceSignal,
+   type ProjectId,
+-- 
+2.55.0.windows.5
+

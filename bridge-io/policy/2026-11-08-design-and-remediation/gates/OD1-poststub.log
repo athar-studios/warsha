@@ -1,0 +1,548 @@
+=== Linux gate OD1-poststub ===
+commit:  75d1e3baecf21d7d77a6700c74152f271b25a13a
+project: remote  mode: run
+host:    WSL Ubuntu x86_64 user=root node=v20.20.2 pnpm=9.0.0
+worktree: /root/verify-OD1-poststub
+CI: unset (matches the G0 baseline: 3 workers)
+plex faces: 9
+
+--- fetching objects from /mnt/c/Users/Dragonfly/Downloads/Warsha (additive only) ---
+From /mnt/c/Users/Dragonfly/Downloads/Warsha
+   642ae95..75d1e3b  dev        -> origin-win/dev
+   e914ad3..282bcd6  run/2026-11-08/integration -> origin-win/run/2026-11-08/integration
+Preparing worktree (detached HEAD 75d1e3b)
+HEAD is now at 75d1e3b test(remote): stub runs.subscribe and stream resync in e2e harness
+--- pnpm install --frozen-lockfile ---
+Scope: all 8 workspace projects
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +806
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Progress: resolved 806, reused 524, downloaded 0, added 0
+Progress: resolved 806, reused 806, downloaded 0, added 806, done
+
+devDependencies:
++ @playwright/test 1.49.1
++ @typescript-eslint/eslint-plugin 8.72.1
++ @typescript-eslint/parser 8.72.1
++ axe-core 4.14.0
++ eslint 9.39.5
++ eslint-config-prettier 10.1.8
++ eslint-plugin-import 2.32.0
++ eslint-plugin-jsx-a11y 6.10.2
++ eslint-plugin-react 7.37.5
++ eslint-plugin-react-hooks 5.2.0
++ husky 9.1.7
++ prettier 3.9.10
++ typescript 5.9.3
++ vitest 2.1.9
+
+. prepare$ husky install
+. prepare: husky - install command is DEPRECATED
+. prepare: Done
+Done in 3.7s
+[install exit: 0]
+=== pnpm exec playwright test --project=remote --reporter=line ===
+
+Running 91 tests using 3 workers
+
+[1A[2K[1/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 320x568 ar light
+[1A[2K[2/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 320x568 en light
+[1A[2K[3/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 320x568 ar dark
+[1A[2K[4/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 320x568 en dark
+[1A[2K[5/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 390x844 ar light
+[1A[2K[6/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 390x844 ar dark
+[1A[2K[7/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 390x844 en light
+[1A[2K[8/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 390x844 en dark
+[1A[2K[9/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 768x1024 ar light
+[1A[2K[10/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 768x1024 ar dark
+[1A[2K[11/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 768x1024 en light
+[1A[2K[12/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › needs-you 768x1024 en dark
+[1A[2K[13/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 320x568 ar light
+[1A[2K[14/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 320x568 ar dark
+[1A[2K[15/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 320x568 en light
+[1A[2K[16/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 320x568 en dark
+[1A[2K[17/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 390x844 ar light
+[1A[2K[18/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 390x844 ar dark
+[1A[2K[19/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 390x844 en light
+[1A[2K[20/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 390x844 en dark
+[1A[2K[21/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 768x1024 ar light
+[1A[2K[22/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 768x1024 ar dark
+[1A[2K[23/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 768x1024 en light
+[1A[2K[24/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › gates 768x1024 en dark
+[1A[2K[25/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 320x568 ar light
+[1A[2K[26/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 320x568 ar dark
+[1A[2K[27/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 320x568 en light
+[1A[2K[28/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 320x568 en dark
+[1A[2K[29/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 390x844 ar light
+[1A[2K[30/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 390x844 ar dark
+[1A[2K[31/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 390x844 en light
+[1A[2K[32/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 390x844 en dark
+[1A[2K[33/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 768x1024 ar light
+[1A[2K[34/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 768x1024 ar dark
+[1A[2K[35/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 768x1024 en light
+[1A[2K[36/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › run 768x1024 en dark
+[1A[2K[37/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 320x568 ar light
+[1A[2K[38/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 320x568 ar dark
+[1A[2K[39/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 320x568 en light
+[1A[2K  1) [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 320x568 ar light ───────────────────
+
+    Error: [2mexpect([22m[31mpage[39m[2m).[22mtoHaveScreenshot[2m([22m[32mexpected[39m[2m)[22m
+
+      1424 pixels (ratio 0.01 of all image pixels) are different.
+
+    Expected: [33m/root/verify-OD1-poststub/apps/remote/e2e/bench.visual.spec.ts-snapshots/projects-320x568-ar-light-remote-linux.png[39m
+    Received: [33m/root/verify-OD1-poststub/test-results/bench.visual-projects-320x568-ar-light-remote/projects-320x568-ar-light-actual.png[39m
+        Diff: [33m/root/verify-OD1-poststub/test-results/bench.visual-projects-320x568-ar-light-remote/projects-320x568-ar-light-diff.png[39m
+
+    Call log:
+    [2m  - expect.toHaveScreenshot(projects-320x568-ar-light.png) with timeout 15000ms[22m
+    [2m    - verifying given screenshot expectation[22m
+    [2m  - taking page screenshot[22m
+    [2m    - disabled all CSS animations[22m
+    [2m  - waiting for fonts to load...[22m
+    [2m  - fonts loaded[22m
+    [2m  - 1424 pixels (ratio 0.01 of all image pixels) are different.[22m
+    [2m  - waiting 100ms before taking screenshot[22m
+    [2m  - taking page screenshot[22m
+    [2m    - disabled all CSS animations[22m
+    [2m  - waiting for fonts to load...[22m
+    [2m  - fonts loaded[22m
+    [2m  - captured a stable screenshot[22m
+    [2m  - 1424 pixels (ratio 0.01 of all image pixels) are different.[22m
+
+
+       99 |           });
+      100 |
+    > 101 |           await expect(page).toHaveScreenshot(`${screen.id}-${viewport.name}-${locale}-${theme}.png`);
+          |                              ^
+      102 |         });
+      103 |       }
+      104 |     }
+        at /root/verify-OD1-poststub/apps/remote/e2e/bench.visual.spec.ts:101:30
+
+    attachment #1: projects-320x568-ar-light-expected.png (image/png) ──────────────────────────────
+    apps/remote/e2e/bench.visual.spec.ts-snapshots/projects-320x568-ar-light-remote-linux.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: projects-320x568-ar-light-actual.png (image/png) ────────────────────────────────
+    test-results/bench.visual-projects-320x568-ar-light-remote/projects-320x568-ar-light-actual.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: projects-320x568-ar-light-diff.png (image/png) ──────────────────────────────────
+    test-results/bench.visual-projects-320x568-ar-light-remote/projects-320x568-ar-light-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[1A[2K[40/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 320x568 en dark
+[1A[2K  2) [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 320x568 ar dark ────────────────────
+
+    Error: [2mexpect([22m[31mpage[39m[2m).[22mtoHaveScreenshot[2m([22m[32mexpected[39m[2m)[22m
+
+      2727 pixels (ratio 0.02 of all image pixels) are different.
+
+    Expected: [33m/root/verify-OD1-poststub/apps/remote/e2e/bench.visual.spec.ts-snapshots/projects-320x568-ar-dark-remote-linux.png[39m
+    Received: [33m/root/verify-OD1-poststub/test-results/bench.visual-projects-320x568-ar-dark-remote/projects-320x568-ar-dark-actual.png[39m
+        Diff: [33m/root/verify-OD1-poststub/test-results/bench.visual-projects-320x568-ar-dark-remote/projects-320x568-ar-dark-diff.png[39m
+
+    Call log:
+    [2m  - expect.toHaveScreenshot(projects-320x568-ar-dark.png) with timeout 15000ms[22m
+    [2m    - verifying given screenshot expectation[22m
+    [2m  - taking page screenshot[22m
+    [2m    - disabled all CSS animations[22m
+    [2m  - waiting for fonts to load...[22m
+    [2m  - fonts loaded[22m
+    [2m  - 2727 pixels (ratio 0.02 of all image pixels) are different.[22m
+    [2m  - waiting 100ms before taking screenshot[22m
+    [2m  - taking page screenshot[22m
+    [2m    - disabled all CSS animations[22m
+    [2m  - waiting for fonts to load...[22m
+    [2m  - fonts loaded[22m
+    [2m  - captured a stable screenshot[22m
+    [2m  - 2727 pixels (ratio 0.02 of all image pixels) are different.[22m
+
+
+       99 |           });
+      100 |
+    > 101 |           await expect(page).toHaveScreenshot(`${screen.id}-${viewport.name}-${locale}-${theme}.png`);
+          |                              ^
+      102 |         });
+      103 |       }
+      104 |     }
+        at /root/verify-OD1-poststub/apps/remote/e2e/bench.visual.spec.ts:101:30
+
+    attachment #1: projects-320x568-ar-dark-expected.png (image/png) ───────────────────────────────
+    apps/remote/e2e/bench.visual.spec.ts-snapshots/projects-320x568-ar-dark-remote-linux.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: projects-320x568-ar-dark-actual.png (image/png) ─────────────────────────────────
+    test-results/bench.visual-projects-320x568-ar-dark-remote/projects-320x568-ar-dark-actual.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: projects-320x568-ar-dark-diff.png (image/png) ───────────────────────────────────
+    test-results/bench.visual-projects-320x568-ar-dark-remote/projects-320x568-ar-dark-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[1A[2K  3) [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 320x568 en light ───────────────────
+
+    Error: [2mexpect([22m[31mpage[39m[2m).[22mtoHaveScreenshot[2m([22m[32mexpected[39m[2m)[22m
+
+      255 pixels (ratio 0.01 of all image pixels) are different.
+
+    Expected: [33m/root/verify-OD1-poststub/apps/remote/e2e/bench.visual.spec.ts-snapshots/projects-320x568-en-light-remote-linux.png[39m
+    Received: [33m/root/verify-OD1-poststub/test-results/bench.visual-projects-320x568-en-light-remote/projects-320x568-en-light-actual.png[39m
+        Diff: [33m/root/verify-OD1-poststub/test-results/bench.visual-projects-320x568-en-light-remote/projects-320x568-en-light-diff.png[39m
+
+    Call log:
+    [2m  - expect.toHaveScreenshot(projects-320x568-en-light.png) with timeout 15000ms[22m
+    [2m    - verifying given screenshot expectation[22m
+    [2m  - taking page screenshot[22m
+    [2m    - disabled all CSS animations[22m
+    [2m  - waiting for fonts to load...[22m
+    [2m  - fonts loaded[22m
+    [2m  - 255 pixels (ratio 0.01 of all image pixels) are different.[22m
+    [2m  - waiting 100ms before taking screenshot[22m
+    [2m  - taking page screenshot[22m
+    [2m    - disabled all CSS animations[22m
+    [2m  - waiting for fonts to load...[22m
+    [2m  - fonts loaded[22m
+    [2m  - captured a stable screenshot[22m
+    [2m  - 255 pixels (ratio 0.01 of all image pixels) are different.[22m
+
+
+       99 |           });
+      100 |
+    > 101 |           await expect(page).toHaveScreenshot(`${screen.id}-${viewport.name}-${locale}-${theme}.png`);
+          |                              ^
+      102 |         });
+      103 |       }
+      104 |     }
+        at /root/verify-OD1-poststub/apps/remote/e2e/bench.visual.spec.ts:101:30
+
+    attachment #1: projects-320x568-en-light-expected.png (image/png) ──────────────────────────────
+    apps/remote/e2e/bench.visual.spec.ts-snapshots/projects-320x568-en-light-remote-linux.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: projects-320x568-en-light-actual.png (image/png) ────────────────────────────────
+    test-results/bench.visual-projects-320x568-en-light-remote/projects-320x568-en-light-actual.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: projects-320x568-en-light-diff.png (image/png) ──────────────────────────────────
+    test-results/bench.visual-projects-320x568-en-light-remote/projects-320x568-en-light-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[1A[2K[41/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 390x844 ar light
+[1A[2K[42/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 390x844 ar dark
+[1A[2K  4) [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 320x568 en dark ────────────────────
+
+    Error: [2mexpect([22m[31mpage[39m[2m).[22mtoHaveScreenshot[2m([22m[32mexpected[39m[2m)[22m
+
+      579 pixels (ratio 0.01 of all image pixels) are different.
+
+    Expected: [33m/root/verify-OD1-poststub/apps/remote/e2e/bench.visual.spec.ts-snapshots/projects-320x568-en-dark-remote-linux.png[39m
+    Received: [33m/root/verify-OD1-poststub/test-results/bench.visual-projects-320x568-en-dark-remote/projects-320x568-en-dark-actual.png[39m
+        Diff: [33m/root/verify-OD1-poststub/test-results/bench.visual-projects-320x568-en-dark-remote/projects-320x568-en-dark-diff.png[39m
+
+    Call log:
+    [2m  - expect.toHaveScreenshot(projects-320x568-en-dark.png) with timeout 15000ms[22m
+    [2m    - verifying given screenshot expectation[22m
+    [2m  - taking page screenshot[22m
+    [2m    - disabled all CSS animations[22m
+    [2m  - waiting for fonts to load...[22m
+    [2m  - fonts loaded[22m
+    [2m  - 579 pixels (ratio 0.01 of all image pixels) are different.[22m
+    [2m  - waiting 100ms before taking screenshot[22m
+    [2m  - taking page screenshot[22m
+    [2m    - disabled all CSS animations[22m
+    [2m  - waiting for fonts to load...[22m
+    [2m  - fonts loaded[22m
+    [2m  - captured a stable screenshot[22m
+    [2m  - 579 pixels (ratio 0.01 of all image pixels) are different.[22m
+
+
+       99 |           });
+      100 |
+    > 101 |           await expect(page).toHaveScreenshot(`${screen.id}-${viewport.name}-${locale}-${theme}.png`);
+          |                              ^
+      102 |         });
+      103 |       }
+      104 |     }
+        at /root/verify-OD1-poststub/apps/remote/e2e/bench.visual.spec.ts:101:30
+
+    attachment #1: projects-320x568-en-dark-expected.png (image/png) ───────────────────────────────
+    apps/remote/e2e/bench.visual.spec.ts-snapshots/projects-320x568-en-dark-remote-linux.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: projects-320x568-en-dark-actual.png (image/png) ─────────────────────────────────
+    test-results/bench.visual-projects-320x568-en-dark-remote/projects-320x568-en-dark-actual.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: projects-320x568-en-dark-diff.png (image/png) ───────────────────────────────────
+    test-results/bench.visual-projects-320x568-en-dark-remote/projects-320x568-en-dark-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[1A[2K[43/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 390x844 en light
+[1A[2K  5) [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 390x844 ar light ───────────────────
+
+    Error: [2mexpect([22m[31mpage[39m[2m).[22mtoHaveScreenshot[2m([22m[32mexpected[39m[2m)[22m
+
+      19032 pixels (ratio 0.06 of all image pixels) are different.
+
+    Expected: [33m/root/verify-OD1-poststub/apps/remote/e2e/bench.visual.spec.ts-snapshots/projects-390x844-ar-light-remote-linux.png[39m
+    Received: [33m/root/verify-OD1-poststub/test-results/bench.visual-projects-390x844-ar-light-remote/projects-390x844-ar-light-actual.png[39m
+        Diff: [33m/root/verify-OD1-poststub/test-results/bench.visual-projects-390x844-ar-light-remote/projects-390x844-ar-light-diff.png[39m
+
+    Call log:
+    [2m  - expect.toHaveScreenshot(projects-390x844-ar-light.png) with timeout 15000ms[22m
+    [2m    - verifying given screenshot expectation[22m
+    [2m  - taking page screenshot[22m
+    [2m    - disabled all CSS animations[22m
+    [2m  - waiting for fonts to load...[22m
+    [2m  - fonts loaded[22m
+    [2m  - 19032 pixels (ratio 0.06 of all image pixels) are different.[22m
+    [2m  - waiting 100ms before taking screenshot[22m
+    [2m  - taking page screenshot[22m
+    [2m    - disabled all CSS animations[22m
+    [2m  - waiting for fonts to load...[22m
+    [2m  - fonts loaded[22m
+    [2m  - captured a stable screenshot[22m
+    [2m  - 19032 pixels (ratio 0.06 of all image pixels) are different.[22m
+
+
+       99 |           });
+      100 |
+    > 101 |           await expect(page).toHaveScreenshot(`${screen.id}-${viewport.name}-${locale}-${theme}.png`);
+          |                              ^
+      102 |         });
+      103 |       }
+      104 |     }
+        at /root/verify-OD1-poststub/apps/remote/e2e/bench.visual.spec.ts:101:30
+
+    attachment #1: projects-390x844-ar-light-expected.png (image/png) ──────────────────────────────
+    apps/remote/e2e/bench.visual.spec.ts-snapshots/projects-390x844-ar-light-remote-linux.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: projects-390x844-ar-light-actual.png (image/png) ────────────────────────────────
+    test-results/bench.visual-projects-390x844-ar-light-remote/projects-390x844-ar-light-actual.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: projects-390x844-ar-light-diff.png (image/png) ──────────────────────────────────
+    test-results/bench.visual-projects-390x844-ar-light-remote/projects-390x844-ar-light-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[1A[2K  6) [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 390x844 ar dark ────────────────────
+
+    Error: [2mexpect([22m[31mpage[39m[2m).[22mtoHaveScreenshot[2m([22m[32mexpected[39m[2m)[22m
+
+      25184 pixels (ratio 0.08 of all image pixels) are different.
+
+    Expected: [33m/root/verify-OD1-poststub/apps/remote/e2e/bench.visual.spec.ts-snapshots/projects-390x844-ar-dark-remote-linux.png[39m
+    Received: [33m/root/verify-OD1-poststub/test-results/bench.visual-projects-390x844-ar-dark-remote/projects-390x844-ar-dark-actual.png[39m
+        Diff: [33m/root/verify-OD1-poststub/test-results/bench.visual-projects-390x844-ar-dark-remote/projects-390x844-ar-dark-diff.png[39m
+
+    Call log:
+    [2m  - expect.toHaveScreenshot(projects-390x844-ar-dark.png) with timeout 15000ms[22m
+    [2m    - verifying given screenshot expectation[22m
+    [2m  - taking page screenshot[22m
+    [2m    - disabled all CSS animations[22m
+    [2m  - waiting for fonts to load...[22m
+    [2m  - fonts loaded[22m
+    [2m  - 25184 pixels (ratio 0.08 of all image pixels) are different.[22m
+    [2m  - waiting 100ms before taking screenshot[22m
+    [2m  - taking page screenshot[22m
+    [2m    - disabled all CSS animations[22m
+    [2m  - waiting for fonts to load...[22m
+    [2m  - fonts loaded[22m
+    [2m  - captured a stable screenshot[22m
+    [2m  - 25184 pixels (ratio 0.08 of all image pixels) are different.[22m
+
+
+       99 |           });
+      100 |
+    > 101 |           await expect(page).toHaveScreenshot(`${screen.id}-${viewport.name}-${locale}-${theme}.png`);
+          |                              ^
+      102 |         });
+      103 |       }
+      104 |     }
+        at /root/verify-OD1-poststub/apps/remote/e2e/bench.visual.spec.ts:101:30
+
+    attachment #1: projects-390x844-ar-dark-expected.png (image/png) ───────────────────────────────
+    apps/remote/e2e/bench.visual.spec.ts-snapshots/projects-390x844-ar-dark-remote-linux.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: projects-390x844-ar-dark-actual.png (image/png) ─────────────────────────────────
+    test-results/bench.visual-projects-390x844-ar-dark-remote/projects-390x844-ar-dark-actual.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: projects-390x844-ar-dark-diff.png (image/png) ───────────────────────────────────
+    test-results/bench.visual-projects-390x844-ar-dark-remote/projects-390x844-ar-dark-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[1A[2K[44/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 390x844 en dark
+[1A[2K[45/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › settings 320x568 ar light
+[1A[2K  7) [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 390x844 en light ───────────────────
+
+    Error: [2mexpect([22m[31mpage[39m[2m).[22mtoHaveScreenshot[2m([22m[32mexpected[39m[2m)[22m
+
+      19036 pixels (ratio 0.06 of all image pixels) are different.
+
+    Expected: [33m/root/verify-OD1-poststub/apps/remote/e2e/bench.visual.spec.ts-snapshots/projects-390x844-en-light-remote-linux.png[39m
+    Received: [33m/root/verify-OD1-poststub/test-results/bench.visual-projects-390x844-en-light-remote/projects-390x844-en-light-actual.png[39m
+        Diff: [33m/root/verify-OD1-poststub/test-results/bench.visual-projects-390x844-en-light-remote/projects-390x844-en-light-diff.png[39m
+
+    Call log:
+    [2m  - expect.toHaveScreenshot(projects-390x844-en-light.png) with timeout 15000ms[22m
+    [2m    - verifying given screenshot expectation[22m
+    [2m  - taking page screenshot[22m
+    [2m    - disabled all CSS animations[22m
+    [2m  - waiting for fonts to load...[22m
+    [2m  - fonts loaded[22m
+    [2m  - 19036 pixels (ratio 0.06 of all image pixels) are different.[22m
+    [2m  - waiting 100ms before taking screenshot[22m
+    [2m  - taking page screenshot[22m
+    [2m    - disabled all CSS animations[22m
+    [2m  - waiting for fonts to load...[22m
+    [2m  - fonts loaded[22m
+    [2m  - captured a stable screenshot[22m
+    [2m  - 19036 pixels (ratio 0.06 of all image pixels) are different.[22m
+
+
+       99 |           });
+      100 |
+    > 101 |           await expect(page).toHaveScreenshot(`${screen.id}-${viewport.name}-${locale}-${theme}.png`);
+          |                              ^
+      102 |         });
+      103 |       }
+      104 |     }
+        at /root/verify-OD1-poststub/apps/remote/e2e/bench.visual.spec.ts:101:30
+
+    attachment #1: projects-390x844-en-light-expected.png (image/png) ──────────────────────────────
+    apps/remote/e2e/bench.visual.spec.ts-snapshots/projects-390x844-en-light-remote-linux.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: projects-390x844-en-light-actual.png (image/png) ────────────────────────────────
+    test-results/bench.visual-projects-390x844-en-light-remote/projects-390x844-en-light-actual.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: projects-390x844-en-light-diff.png (image/png) ──────────────────────────────────
+    test-results/bench.visual-projects-390x844-en-light-remote/projects-390x844-en-light-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[1A[2K[46/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › settings 320x568 ar dark
+[1A[2K[47/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › settings 320x568 en light
+[1A[2K  8) [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 390x844 en dark ────────────────────
+
+    Error: [2mexpect([22m[31mpage[39m[2m).[22mtoHaveScreenshot[2m([22m[32mexpected[39m[2m)[22m
+
+      24742 pixels (ratio 0.08 of all image pixels) are different.
+
+    Expected: [33m/root/verify-OD1-poststub/apps/remote/e2e/bench.visual.spec.ts-snapshots/projects-390x844-en-dark-remote-linux.png[39m
+    Received: [33m/root/verify-OD1-poststub/test-results/bench.visual-projects-390x844-en-dark-remote/projects-390x844-en-dark-actual.png[39m
+        Diff: [33m/root/verify-OD1-poststub/test-results/bench.visual-projects-390x844-en-dark-remote/projects-390x844-en-dark-diff.png[39m
+
+    Call log:
+    [2m  - expect.toHaveScreenshot(projects-390x844-en-dark.png) with timeout 15000ms[22m
+    [2m    - verifying given screenshot expectation[22m
+    [2m  - taking page screenshot[22m
+    [2m    - disabled all CSS animations[22m
+    [2m  - waiting for fonts to load...[22m
+    [2m  - fonts loaded[22m
+    [2m  - 24742 pixels (ratio 0.08 of all image pixels) are different.[22m
+    [2m  - waiting 100ms before taking screenshot[22m
+    [2m  - taking page screenshot[22m
+    [2m    - disabled all CSS animations[22m
+    [2m  - waiting for fonts to load...[22m
+    [2m  - fonts loaded[22m
+    [2m  - captured a stable screenshot[22m
+    [2m  - 24742 pixels (ratio 0.08 of all image pixels) are different.[22m
+
+
+       99 |           });
+      100 |
+    > 101 |           await expect(page).toHaveScreenshot(`${screen.id}-${viewport.name}-${locale}-${theme}.png`);
+          |                              ^
+      102 |         });
+      103 |       }
+      104 |     }
+        at /root/verify-OD1-poststub/apps/remote/e2e/bench.visual.spec.ts:101:30
+
+    attachment #1: projects-390x844-en-dark-expected.png (image/png) ───────────────────────────────
+    apps/remote/e2e/bench.visual.spec.ts-snapshots/projects-390x844-en-dark-remote-linux.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: projects-390x844-en-dark-actual.png (image/png) ─────────────────────────────────
+    test-results/bench.visual-projects-390x844-en-dark-remote/projects-390x844-en-dark-actual.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: projects-390x844-en-dark-diff.png (image/png) ───────────────────────────────────
+    test-results/bench.visual-projects-390x844-en-dark-remote/projects-390x844-en-dark-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[1A[2K[48/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › settings 320x568 en dark
+[1A[2K[49/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › settings 390x844 ar light
+[1A[2K[50/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › settings 390x844 ar dark
+[1A[2K[51/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › settings 390x844 en light
+[1A[2K[52/91] [remote] › remote/e2e/bench.visual.spec.ts:58:9 › settings 390x844 en dark
+[1A[2K[53/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you unpaired 320x568 ar light
+[1A[2K[54/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you unpaired 320x568 ar dark
+[1A[2K[55/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you unpaired 320x568 en light
+[1A[2K[56/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you unpaired 320x568 en dark
+[1A[2K[57/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you empty 320x568 ar light
+[1A[2K[58/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you empty 320x568 ar dark
+[1A[2K[59/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you empty 320x568 en light
+[1A[2K[60/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you empty 320x568 en dark
+[1A[2K[61/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you error 320x568 ar light
+[1A[2K[62/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you error 320x568 ar dark
+[1A[2K[63/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you error 320x568 en light
+[1A[2K[64/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you error 320x568 en dark
+[1A[2K[65/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you offline 320x568 ar light
+[1A[2K[66/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you offline 320x568 ar dark
+[1A[2K[67/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you offline 320x568 en light
+[1A[2K[68/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you offline 320x568 en dark
+[1A[2K[69/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you permission 320x568 ar light
+[1A[2K[70/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you permission 320x568 ar dark
+[1A[2K[71/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you permission 320x568 en light
+[1A[2K[72/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you permission 320x568 en dark
+[1A[2K[73/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you dense 320x568 ar light
+[1A[2K[74/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you dense 320x568 ar dark
+[1A[2K[75/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you dense 320x568 en light
+[1A[2K[76/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › needs-you dense 320x568 en dark
+[1A[2K[77/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › gates empty 320x568 ar light
+[1A[2K[78/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › gates empty 320x568 ar dark
+[1A[2K[79/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › gates empty 320x568 en light
+[1A[2K[80/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › gates empty 320x568 en dark
+[1A[2K[81/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › gates dense 320x568 ar light
+[1A[2K[82/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › gates dense 320x568 ar dark
+[1A[2K[83/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › gates dense 320x568 en light
+[1A[2K[84/91] [remote] › remote/e2e/bench.visual.spec.ts:120:9 › gates dense 320x568 en dark
+[1A[2K[85/91] [remote] › remote/e2e/flows.spec.ts:45:1 › the language switch changes the catalog, the direction and the declared language
+[1A[2K[86/91] [remote] › remote/e2e/flows.spec.ts:69:1 › a pairing link typed by hand becomes a session, and leaves the address
+[1A[2K[87/91] [remote] › remote/e2e/flows.spec.ts:110:1 › the skip link is the first thing a keyboard finds on the phone
+[1A[2K[88/91] [remote] › remote/e2e/flows.spec.ts:120:1 › a gate is decided from the keyboard, and the decision reaches the daemon
+[1A[2K[89/91] [remote] › remote/e2e/flows.spec.ts:145:1 › a dropped feed says so and keeps the queue
+[1A[2K[90/91] [remote] › remote/e2e/flows.spec.ts:167:1 › the offline bench offers a retry rather than implying the work is gone
+[1A[2K[91/91] [remote] › remote/e2e/flows.spec.ts:187:1 › the phone and the desktop say the same thing about the same gate
+[1A[2K  8 failed
+    [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 320x568 ar light ────────────────────
+    [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 320x568 ar dark ─────────────────────
+    [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 320x568 en light ────────────────────
+    [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 320x568 en dark ─────────────────────
+    [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 390x844 ar light ────────────────────
+    [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 390x844 ar dark ─────────────────────
+    [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 390x844 en light ────────────────────
+    [remote] › remote/e2e/bench.visual.spec.ts:58:9 › projects 390x844 en dark ─────────────────────
+  83 passed (1.2m)
+[remote exit code: 1]
+
+=== post-run integrity ===
+snapshot_writes: 0
+dirty_after: 0
+head_after: 75d1e3baecf21d7d77a6700c74152f271b25a13a
+desktop_exit=skipped remote_exit=1

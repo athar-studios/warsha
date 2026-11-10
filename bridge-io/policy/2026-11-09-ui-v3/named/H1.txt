@@ -1,0 +1,2 @@
+# H1 — v2 screens whose stubs become daemon-true
+^desktop › (screens\.visual|states)\.spec\.ts › (crash-reports|store-reviews|backend-kit) 

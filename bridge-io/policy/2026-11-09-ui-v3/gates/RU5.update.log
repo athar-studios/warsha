@@ -1,0 +1,246 @@
+
+Running 120 tests using 2 workers
+
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-general-ready-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  1 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings general ready 1280x800 ar light @visual (2.2s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-general-ready-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  2 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings general ready 1280x800 ar dark @visual (2.3s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-general-ready-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  3 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings general ready 1280x800 en light @visual (2.3s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-general-ready-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  4 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings general ready 1280x800 en dark @visual (2.4s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-general-ready-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  5 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings general ready 390x844 ar light @visual (2.2s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-general-ready-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  6 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings general ready 390x844 ar dark @visual (2.2s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-general-ready-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  7 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings general ready 390x844 en light @visual (1.9s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-general-ready-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  8 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings general ready 390x844 en dark @visual (1.9s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-models-ready-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  9 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings models ready 1280x800 ar light @visual (2.0s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-models-ready-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  10 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings models ready 1280x800 ar dark @visual (2.1s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-models-ready-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  11 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings models ready 1280x800 en light @visual (1.9s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-models-ready-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  12 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings models ready 1280x800 en dark @visual (1.9s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-models-ready-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  13 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings models ready 390x844 ar light @visual (1.8s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-models-ready-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  14 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings models ready 390x844 ar dark @visual (1.9s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-models-ready-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  15 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings models ready 390x844 en light @visual (2.0s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-models-ready-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  16 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings models ready 390x844 en dark @visual (2.0s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-devices-ready-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  17 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings devices ready 1280x800 ar light @visual (2.3s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-devices-ready-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  18 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings devices ready 1280x800 ar dark @visual (2.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-devices-ready-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  19 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings devices ready 1280x800 en light @visual (2.5s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-devices-ready-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  20 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings devices ready 1280x800 en dark @visual (2.2s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-devices-ready-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  21 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings devices ready 390x844 ar light @visual (1.9s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-devices-ready-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  22 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings devices ready 390x844 ar dark @visual (1.8s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-devices-ready-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  23 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings devices ready 390x844 en light @visual (1.8s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-devices-ready-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  24 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings devices ready 390x844 en dark @visual (1.8s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-about-ready-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  25 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings about ready 1280x800 ar light @visual (2.0s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-about-ready-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  26 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings about ready 1280x800 ar dark @visual (2.0s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-about-ready-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  27 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings about ready 1280x800 en light @visual (1.9s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-about-ready-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  28 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings about ready 1280x800 en dark @visual (2.0s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-about-ready-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  29 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings about ready 390x844 ar light @visual (1.8s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-about-ready-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  30 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings about ready 390x844 ar dark @visual (1.8s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-about-ready-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  31 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings about ready 390x844 en light @visual (1.8s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-about-ready-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  32 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings about ready 390x844 en dark @visual (1.8s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-workflows-ready-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  33 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings workflows ready 1280x800 ar light @visual (1.8s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-workflows-ready-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  34 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings workflows ready 1280x800 ar dark @visual (1.8s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-workflows-ready-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  35 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings workflows ready 1280x800 en light @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-workflows-ready-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  36 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings workflows ready 1280x800 en dark @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-workflows-ready-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  37 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings workflows ready 390x844 ar light @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-workflows-ready-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  38 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings workflows ready 390x844 ar dark @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-workflows-ready-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  39 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings workflows ready 390x844 en light @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-workflows-ready-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  40 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings workflows ready 390x844 en dark @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-skills-ready-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  41 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings skills ready 1280x800 ar light @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-skills-ready-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  42 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings skills ready 1280x800 ar dark @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-skills-ready-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  43 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings skills ready 1280x800 en light @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-skills-ready-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  44 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings skills ready 1280x800 en dark @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-skills-ready-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  45 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings skills ready 390x844 ar light @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-skills-ready-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  46 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings skills ready 390x844 ar dark @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-skills-ready-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  47 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings skills ready 390x844 en light @visual (1.5s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-skills-ready-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  48 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings skills ready 390x844 en dark @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-plugins-ready-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  49 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings plugins ready 1280x800 ar light @visual (1.8s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-plugins-ready-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  50 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings plugins ready 1280x800 ar dark @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-plugins-ready-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  51 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings plugins ready 1280x800 en light @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-plugins-ready-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  52 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings plugins ready 1280x800 en dark @visual (1.8s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-plugins-ready-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  53 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings plugins ready 390x844 ar light @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-plugins-ready-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  54 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings plugins ready 390x844 ar dark @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-plugins-ready-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  55 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings plugins ready 390x844 en light @visual (2.5s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-plugins-ready-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  56 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings plugins ready 390x844 en dark @visual (2.1s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-integrations-ready-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  57 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings integrations ready 1280x800 ar light @visual (1.8s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-integrations-ready-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  58 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings integrations ready 1280x800 ar dark @visual (1.8s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-integrations-ready-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  59 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings integrations ready 1280x800 en light @visual (1.8s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-integrations-ready-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  60 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings integrations ready 1280x800 en dark @visual (1.8s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-integrations-ready-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  61 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings integrations ready 390x844 ar light @visual (1.5s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-integrations-ready-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  62 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings integrations ready 390x844 ar dark @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-integrations-ready-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  63 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings integrations ready 390x844 en light @visual (1.5s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-integrations-ready-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  64 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings integrations ready 390x844 en dark @visual (1.5s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-routines-ready-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  65 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings routines ready 1280x800 ar light @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-routines-ready-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  66 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings routines ready 1280x800 ar dark @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-routines-ready-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  67 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings routines ready 1280x800 en light @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-routines-ready-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  68 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings routines ready 1280x800 en dark @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-routines-ready-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  69 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings routines ready 390x844 ar light @visual (1.5s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-routines-ready-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  70 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings routines ready 390x844 ar dark @visual (1.5s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-routines-ready-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  71 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings routines ready 390x844 en light @visual (1.5s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-routines-ready-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  72 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings routines ready 390x844 en dark @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-budgets-ready-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  73 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings budgets ready 1280x800 ar light @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-budgets-ready-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  74 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings budgets ready 1280x800 ar dark @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-budgets-ready-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  75 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings budgets ready 1280x800 en light @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-budgets-ready-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  76 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings budgets ready 1280x800 en dark @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-budgets-ready-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  77 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings budgets ready 390x844 ar light @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-budgets-ready-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  78 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings budgets ready 390x844 ar dark @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-budgets-ready-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  79 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings budgets ready 390x844 en light @visual (1.5s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-budgets-ready-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  80 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings budgets ready 390x844 en dark @visual (1.5s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-postlaunch-ready-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  81 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings postlaunch ready 1280x800 ar light @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-postlaunch-ready-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  82 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings postlaunch ready 1280x800 ar dark @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-postlaunch-ready-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  83 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings postlaunch ready 1280x800 en light @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-postlaunch-ready-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  84 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings postlaunch ready 1280x800 en dark @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-postlaunch-ready-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  85 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings postlaunch ready 390x844 ar light @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-postlaunch-ready-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  86 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings postlaunch ready 390x844 ar dark @visual (1.5s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-postlaunch-ready-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  87 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings postlaunch ready 390x844 en light @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-postlaunch-ready-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  88 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings postlaunch ready 390x844 en dark @visual (1.5s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-backend-ready-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  89 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings backend ready 1280x800 ar light @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-backend-ready-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  90 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings backend ready 1280x800 ar dark @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-backend-ready-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  91 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings backend ready 1280x800 en light @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-backend-ready-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  92 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings backend ready 1280x800 en dark @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-backend-ready-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  93 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings backend ready 390x844 ar light @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-backend-ready-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  94 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings backend ready 390x844 ar dark @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-backend-ready-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  95 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings backend ready 390x844 en light @visual (1.5s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-backend-ready-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  96 [desktop] › desktop/e2e/v3/settings.spec.ts:1051:11 › Settings v3 › visual baseline: settings backend ready 390x844 en dark @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-models-empty-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  97 [desktop] › desktop/e2e/v3/settings.spec.ts:1072:9 › Settings v3 › visual baseline: settings models empty 1280x800 ar light @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-devices-empty-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  98 [desktop] › desktop/e2e/v3/settings.spec.ts:1090:9 › Settings v3 › visual baseline: settings devices empty 1280x800 ar light @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-general-error-1280x800-ar-light-desktop-linux.png, writing actual.
+  ✓  99 [desktop] › desktop/e2e/v3/settings.spec.ts:1107:9 › Settings v3 › visual baseline: settings general error 1280x800 ar light @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-models-empty-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  100 [desktop] › desktop/e2e/v3/settings.spec.ts:1072:9 › Settings v3 › visual baseline: settings models empty 1280x800 ar dark @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-devices-empty-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  101 [desktop] › desktop/e2e/v3/settings.spec.ts:1090:9 › Settings v3 › visual baseline: settings devices empty 1280x800 ar dark @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-general-error-1280x800-ar-dark-desktop-linux.png, writing actual.
+  ✓  102 [desktop] › desktop/e2e/v3/settings.spec.ts:1107:9 › Settings v3 › visual baseline: settings general error 1280x800 ar dark @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-models-empty-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  103 [desktop] › desktop/e2e/v3/settings.spec.ts:1072:9 › Settings v3 › visual baseline: settings models empty 1280x800 en light @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-devices-empty-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  104 [desktop] › desktop/e2e/v3/settings.spec.ts:1090:9 › Settings v3 › visual baseline: settings devices empty 1280x800 en light @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-general-error-1280x800-en-light-desktop-linux.png, writing actual.
+  ✓  105 [desktop] › desktop/e2e/v3/settings.spec.ts:1107:9 › Settings v3 › visual baseline: settings general error 1280x800 en light @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-models-empty-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  106 [desktop] › desktop/e2e/v3/settings.spec.ts:1072:9 › Settings v3 › visual baseline: settings models empty 1280x800 en dark @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-devices-empty-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  107 [desktop] › desktop/e2e/v3/settings.spec.ts:1090:9 › Settings v3 › visual baseline: settings devices empty 1280x800 en dark @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-general-error-1280x800-en-dark-desktop-linux.png, writing actual.
+  ✓  108 [desktop] › desktop/e2e/v3/settings.spec.ts:1107:9 › Settings v3 › visual baseline: settings general error 1280x800 en dark @visual (1.7s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-models-empty-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  109 [desktop] › desktop/e2e/v3/settings.spec.ts:1072:9 › Settings v3 › visual baseline: settings models empty 390x844 ar light @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-devices-empty-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  110 [desktop] › desktop/e2e/v3/settings.spec.ts:1090:9 › Settings v3 › visual baseline: settings devices empty 390x844 ar light @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-general-error-390x844-ar-light-desktop-linux.png, writing actual.
+  ✓  111 [desktop] › desktop/e2e/v3/settings.spec.ts:1107:9 › Settings v3 › visual baseline: settings general error 390x844 ar light @visual (1.5s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-models-empty-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  112 [desktop] › desktop/e2e/v3/settings.spec.ts:1072:9 › Settings v3 › visual baseline: settings models empty 390x844 ar dark @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-devices-empty-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  113 [desktop] › desktop/e2e/v3/settings.spec.ts:1090:9 › Settings v3 › visual baseline: settings devices empty 390x844 ar dark @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-general-error-390x844-ar-dark-desktop-linux.png, writing actual.
+  ✓  114 [desktop] › desktop/e2e/v3/settings.spec.ts:1107:9 › Settings v3 › visual baseline: settings general error 390x844 ar dark @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-models-empty-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  115 [desktop] › desktop/e2e/v3/settings.spec.ts:1072:9 › Settings v3 › visual baseline: settings models empty 390x844 en light @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-devices-empty-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  116 [desktop] › desktop/e2e/v3/settings.spec.ts:1090:9 › Settings v3 › visual baseline: settings devices empty 390x844 en light @visual (1.5s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-general-error-390x844-en-light-desktop-linux.png, writing actual.
+  ✓  117 [desktop] › desktop/e2e/v3/settings.spec.ts:1107:9 › Settings v3 › visual baseline: settings general error 390x844 en light @visual (1.6s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-models-empty-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  118 [desktop] › desktop/e2e/v3/settings.spec.ts:1072:9 › Settings v3 › visual baseline: settings models empty 390x844 en dark @visual (1.5s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-devices-empty-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  119 [desktop] › desktop/e2e/v3/settings.spec.ts:1090:9 › Settings v3 › visual baseline: settings devices empty 390x844 en dark @visual (1.5s)
+A snapshot doesn't exist at /root/warsha-ru5/apps/desktop/e2e/v3/settings.spec.ts-snapshots/settings-general-error-390x844-en-dark-desktop-linux.png, writing actual.
+  ✓  120 [desktop] › desktop/e2e/v3/settings.spec.ts:1107:9 › Settings v3 › visual baseline: settings general error 390x844 en dark @visual (1.5s)
+
+  120 passed (1.9m)
+::notice title=🎭 Playwright Run Summary::  120 passed (1.9m)

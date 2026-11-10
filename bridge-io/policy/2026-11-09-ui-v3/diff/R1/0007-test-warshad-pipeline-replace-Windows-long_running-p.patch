@@ -1,0 +1,49 @@
+From ee0fd1f56ee4ab15e844ceffcc4ed3a4c7ea7363 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Tue, 10 Nov 2026 00:34:54 +0400
+Subject: [PATCH 7/8] test(warshad, pipeline): replace Windows long_running
+ ping wait with stdin block (R1 F2)
+
+Replace fixed 30-second loopback ping wait on Windows with `cmd /C more`,
+matching the Unix `cat` stdin-blocking pattern and eliminating reap delays.
+---
+ crates/warsha-pipeline/src/process_spawn.rs | 5 ++---
+ crates/warshad/src/lib.rs                   | 2 +-
+ 2 files changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/crates/warsha-pipeline/src/process_spawn.rs b/crates/warsha-pipeline/src/process_spawn.rs
+index 565efcb..83f67f5 100644
+--- a/crates/warsha-pipeline/src/process_spawn.rs
++++ b/crates/warsha-pipeline/src/process_spawn.rs
+@@ -1011,13 +1011,12 @@ mod tests {
+         panic!("process `{id}` printed nothing within four seconds");
+     }
+ 
+-    /// A command that outlives the test: `sleep` on Unix, a loopback ping on
+-    /// Windows, quiet on both so the test log stays readable.
++    /// A command that outlives the test (Windows half): blocks on stdin like `cat`.
+     #[cfg(windows)]
+     fn long_running() -> (String, Vec<String>) {
+         (
+             "cmd".to_string(),
+-            vec!["/C".to_string(), "ping -n 30 127.0.0.1 >nul".to_string()],
++            vec!["/C".to_string(), "more".to_string()],
+         )
+     }
+ 
+diff --git a/crates/warshad/src/lib.rs b/crates/warshad/src/lib.rs
+index ef1bd21..62c2fca 100644
+--- a/crates/warshad/src/lib.rs
++++ b/crates/warshad/src/lib.rs
+@@ -8080,7 +8080,7 @@ mod tests {
+     fn long_running() -> (String, Vec<String>) {
+         (
+             "cmd".to_string(),
+-            vec!["/C".to_string(), "ping -n 30 127.0.0.1 >nul".to_string()],
++            vec!["/C".to_string(), "more".to_string()],
+         )
+     }
+ 
+-- 
+2.55.0.windows.5
+

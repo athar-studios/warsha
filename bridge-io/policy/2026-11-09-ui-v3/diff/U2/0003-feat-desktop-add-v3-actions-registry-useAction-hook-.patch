@@ -1,0 +1,415 @@
+From 8fc1fc0c83447355cdc37673291949480bd61d28 Mon Sep 17 00:00:00 2001
+From: Mohamed Ashry <contact@atharapp.download>
+Date: Mon, 9 Nov 2026 17:40:37 +0400
+Subject: [PATCH 03/12] feat(desktop): add v3 actions registry, useAction hook,
+ and capabilities detection
+
+Add typed per-area ActionDef registries for frame, onboarding, home,
+projects, project, inbox, bench, and settings. Implement registry
+validation with duplicate checking. Provide useAction hook routing errors
+to the toast notification port. Add capability detection for daemon
+and provider health states.
+---
+ .../src/v3/actions/capabilities.test.ts       | 43 +++++++++
+ apps/desktop/src/v3/actions/capabilities.ts   | 64 ++++++++++++++
+ apps/desktop/src/v3/actions/index.test.ts     | 67 ++++++++++++++
+ apps/desktop/src/v3/actions/index.ts          | 88 +++++++++++++++++++
+ apps/desktop/src/v3/actions/registry/bench.ts |  3 +
+ apps/desktop/src/v3/actions/registry/frame.ts |  3 +
+ apps/desktop/src/v3/actions/registry/home.ts  |  3 +
+ apps/desktop/src/v3/actions/registry/inbox.ts |  3 +
+ .../src/v3/actions/registry/onboarding.ts     |  3 +
+ .../src/v3/actions/registry/project.ts        |  3 +
+ .../src/v3/actions/registry/projects.ts       |  3 +
+ .../src/v3/actions/registry/settings.ts       |  3 +
+ apps/desktop/src/v3/actions/types.ts          |  8 ++
+ 13 files changed, 294 insertions(+)
+ create mode 100644 apps/desktop/src/v3/actions/capabilities.test.ts
+ create mode 100644 apps/desktop/src/v3/actions/capabilities.ts
+ create mode 100644 apps/desktop/src/v3/actions/index.test.ts
+ create mode 100644 apps/desktop/src/v3/actions/index.ts
+ create mode 100644 apps/desktop/src/v3/actions/registry/bench.ts
+ create mode 100644 apps/desktop/src/v3/actions/registry/frame.ts
+ create mode 100644 apps/desktop/src/v3/actions/registry/home.ts
+ create mode 100644 apps/desktop/src/v3/actions/registry/inbox.ts
+ create mode 100644 apps/desktop/src/v3/actions/registry/onboarding.ts
+ create mode 100644 apps/desktop/src/v3/actions/registry/project.ts
+ create mode 100644 apps/desktop/src/v3/actions/registry/projects.ts
+ create mode 100644 apps/desktop/src/v3/actions/registry/settings.ts
+ create mode 100644 apps/desktop/src/v3/actions/types.ts
+
+diff --git a/apps/desktop/src/v3/actions/capabilities.test.ts b/apps/desktop/src/v3/actions/capabilities.test.ts
+new file mode 100644
+index 0000000..98f62de
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/capabilities.test.ts
+@@ -0,0 +1,43 @@
++import { describe, expect, it } from 'vitest';
++
++import { detectCapabilities, type Capabilities } from './capabilities';
++
++describe('capabilities detection', () => {
++  it('detects daemon online and provider present when client calls succeed', async () => {
++    const mockClient = {
++      health: async () => ({ status: 'ok', version: '0.2.1' }),
++      listProviders: async () => [
++        { name: 'deepseek', kind: 'openai_compatible', endpoint: 'https://api.deepseek.com' },
++      ],
++    } as unknown;
++
++    const caps: Capabilities = await detectCapabilities(mockClient as never);
++    expect(caps.daemon).toBe(true);
++    expect(caps.provider).toBe(true);
++    expect(caps.devices).toBe(true);
++  });
++
++  it('detects daemon online but no provider when providers list is empty', async () => {
++    const mockClient = {
++      health: async () => ({ status: 'ok', version: '0.2.1' }),
++      listProviders: async () => [],
++    } as unknown;
++
++    const caps: Capabilities = await detectCapabilities(mockClient as never);
++    expect(caps.daemon).toBe(true);
++    expect(caps.provider).toBe(false);
++  });
++
++  it('detects daemon offline when health fails', async () => {
++    const mockClient = {
++      health: async () => {
++        throw new Error('Connection refused');
++      },
++      listProviders: async () => [],
++    } as unknown;
++
++    const caps: Capabilities = await detectCapabilities(mockClient as never);
++    expect(caps.daemon).toBe(false);
++    expect(caps.provider).toBe(false);
++  });
++});
+diff --git a/apps/desktop/src/v3/actions/capabilities.ts b/apps/desktop/src/v3/actions/capabilities.ts
+new file mode 100644
+index 0000000..5f7bd54
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/capabilities.ts
+@@ -0,0 +1,64 @@
++import type { WarshaClient } from '@warsha/client';
++
++export interface Capabilities {
++  daemon: boolean;
++  provider: boolean;
++  devices: boolean;
++  integrations: boolean;
++  plugins: boolean;
++  skills: boolean;
++  harnesses: boolean;
++  routines: boolean;
++  preview: boolean;
++  backend: boolean;
++}
++
++export const DEFAULT_CAPABILITIES: Capabilities = {
++  daemon: false,
++  provider: false,
++  devices: true,
++  integrations: true,
++  plugins: true,
++  skills: true,
++  harnesses: true,
++  routines: true,
++  preview: true,
++  backend: true,
++};
++
++export async function detectCapabilities(client: WarshaClient): Promise<Capabilities> {
++  let daemon = false;
++  let provider = false;
++
++  try {
++    const health = await client.health();
++    if (health && typeof health.status === 'string') {
++      daemon = true;
++    }
++  } catch {
++    daemon = false;
++  }
++
++  if (daemon) {
++    try {
++      const providers = await client.listProviders();
++      // provider = at least one provider configured / tested OK
++      provider = Array.isArray(providers) && providers.length > 0;
++    } catch {
++      provider = false;
++    }
++  }
++
++  return {
++    daemon,
++    provider,
++    devices: true,
++    integrations: true,
++    plugins: true,
++    skills: true,
++    harnesses: true,
++    routines: true,
++    preview: true,
++    backend: true,
++  };
++}
+diff --git a/apps/desktop/src/v3/actions/index.test.ts b/apps/desktop/src/v3/actions/index.test.ts
+new file mode 100644
+index 0000000..7bb033a
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/index.test.ts
+@@ -0,0 +1,67 @@
++import { act, renderHook } from '@testing-library/react';
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++
++import { clearToastListeners, subscribeToast, type ToastMessage } from '../app/toast';
++
++import { ALL_ACTIONS, getAction, useAction, validateActionRegistry, type ActionDef } from './index';
++
++describe('action registry and useAction', () => {
++  beforeEach(() => {
++    clearToastListeners();
++  });
++
++  it('validates action registry without throwing on clean unique actions', () => {
++    expect(() => validateActionRegistry(ALL_ACTIONS)).not.toThrow();
++  });
++
++  it('throws in dev/test when duplicate action ids exist', () => {
++    const dupes: ActionDef[] = [
++      { id: 'home.start', labelKey: 'home.start', effect: 'rpc' },
++      { id: 'home.start', labelKey: 'home.start_again', effect: 'nav' },
++    ];
++    expect(() => validateActionRegistry(dupes)).toThrow('Duplicate action id registered: "home.start"');
++  });
++
++  it('retrieves an action definition by id', () => {
++    expect(getAction('non.existent')).toBeUndefined();
++  });
++
++  it('executes useAction successfully and manages pending state', async () => {
++    const fn = vi.fn().mockResolvedValue('ok');
++    const { result } = renderHook(() => useAction<[], string>('test.action', fn));
++
++    expect(result.current.pending).toBe(false);
++    expect(result.current.error).toBeNull();
++
++    let output: string | undefined;
++    await act(async () => {
++      output = await result.current.run();
++    });
++
++    expect(output).toBe('ok');
++    expect(fn).toHaveBeenCalledTimes(1);
++    expect(result.current.pending).toBe(false);
++    expect(result.current.error).toBeNull();
++  });
++
++  it('routes action failure to toast notification and updates error state', async () => {
++    const toasts: ToastMessage[] = [];
++    const unsubscribe = subscribeToast((t) => toasts.push(t));
++
++    const fn = vi.fn().mockRejectedValue(new Error('RPC call failed'));
++    const { result } = renderHook(() => useAction('test.failing', fn));
++
++    await act(async () => {
++      await result.current.run();
++    });
++
++    expect(result.current.pending).toBe(false);
++    expect(result.current.error?.message).toBe('RPC call failed');
++    expect(toasts.length).toBe(1);
++    expect(toasts[0].type).toBe('error');
++    expect(toasts[0].message).toBe('RPC call failed');
++    expect(toasts[0].actionId).toBe('test.failing');
++
++    unsubscribe();
++  });
++});
+diff --git a/apps/desktop/src/v3/actions/index.ts b/apps/desktop/src/v3/actions/index.ts
+new file mode 100644
+index 0000000..f1481f9
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/index.ts
+@@ -0,0 +1,88 @@
++import { useCallback, useState } from 'react';
++
++import { notify } from '../app/toast';
++
++import { ACTIONS as benchActions } from './registry/bench';
++import { ACTIONS as frameActions } from './registry/frame';
++import { ACTIONS as homeActions } from './registry/home';
++import { ACTIONS as inboxActions } from './registry/inbox';
++import { ACTIONS as onboardingActions } from './registry/onboarding';
++import { ACTIONS as projectActions } from './registry/project';
++import { ACTIONS as projectsActions } from './registry/projects';
++import { ACTIONS as settingsActions } from './registry/settings';
++import type { ActionDef } from './types';
++
++export * from './capabilities';
++export type { ActionDef } from './types';
++
++export const ALL_ACTIONS: readonly ActionDef[] = [
++  ...frameActions,
++  ...onboardingActions,
++  ...homeActions,
++  ...projectsActions,
++  ...projectActions,
++  ...inboxActions,
++  ...benchActions,
++  ...settingsActions,
++];
++
++export function validateActionRegistry(actions: readonly ActionDef[]): void {
++  const seen = new Set<string>();
++  for (const action of actions) {
++    if (seen.has(action.id)) {
++      throw new Error(`Duplicate action id registered: "${action.id}"`);
++    }
++    seen.add(action.id);
++  }
++}
++
++if (process.env.NODE_ENV !== 'production') {
++  validateActionRegistry(ALL_ACTIONS);
++}
++
++export function getAction(id: string): ActionDef | undefined {
++  return ALL_ACTIONS.find((action) => action.id === id);
++}
++
++export interface UseActionResult<TArgs extends unknown[], TResult> {
++  run: (...args: TArgs) => Promise<TResult | undefined>;
++  pending: boolean;
++  error: Error | null;
++}
++
++export function useAction<TArgs extends unknown[] = unknown[], TResult = unknown>(
++  id: string,
++  fn?: (...args: TArgs) => Promise<TResult>
++): UseActionResult<TArgs, TResult> {
++  const [pending, setPending] = useState(false);
++  const [error, setError] = useState<Error | null>(null);
++
++  const run = useCallback(
++    async (...args: TArgs): Promise<TResult | undefined> => {
++      setPending(true);
++      setError(null);
++      try {
++        if (!fn) {
++          setPending(false);
++          return undefined;
++        }
++        const result = await fn(...args);
++        setPending(false);
++        return result;
++      } catch (err) {
++        const failure = err instanceof Error ? err : new Error(String(err));
++        setError(failure);
++        setPending(false);
++        notify({
++          type: 'error',
++          message: failure.message,
++          actionId: id,
++        });
++        return undefined;
++      }
++    },
++    [id, fn]
++  );
++
++  return { run, pending, error };
++}
+diff --git a/apps/desktop/src/v3/actions/registry/bench.ts b/apps/desktop/src/v3/actions/registry/bench.ts
+new file mode 100644
+index 0000000..a669424
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/registry/bench.ts
+@@ -0,0 +1,3 @@
++import type { ActionDef } from '../types';
++
++export const ACTIONS: readonly ActionDef[] = [];
+diff --git a/apps/desktop/src/v3/actions/registry/frame.ts b/apps/desktop/src/v3/actions/registry/frame.ts
+new file mode 100644
+index 0000000..a669424
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/registry/frame.ts
+@@ -0,0 +1,3 @@
++import type { ActionDef } from '../types';
++
++export const ACTIONS: readonly ActionDef[] = [];
+diff --git a/apps/desktop/src/v3/actions/registry/home.ts b/apps/desktop/src/v3/actions/registry/home.ts
+new file mode 100644
+index 0000000..a669424
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/registry/home.ts
+@@ -0,0 +1,3 @@
++import type { ActionDef } from '../types';
++
++export const ACTIONS: readonly ActionDef[] = [];
+diff --git a/apps/desktop/src/v3/actions/registry/inbox.ts b/apps/desktop/src/v3/actions/registry/inbox.ts
+new file mode 100644
+index 0000000..a669424
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/registry/inbox.ts
+@@ -0,0 +1,3 @@
++import type { ActionDef } from '../types';
++
++export const ACTIONS: readonly ActionDef[] = [];
+diff --git a/apps/desktop/src/v3/actions/registry/onboarding.ts b/apps/desktop/src/v3/actions/registry/onboarding.ts
+new file mode 100644
+index 0000000..a669424
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/registry/onboarding.ts
+@@ -0,0 +1,3 @@
++import type { ActionDef } from '../types';
++
++export const ACTIONS: readonly ActionDef[] = [];
+diff --git a/apps/desktop/src/v3/actions/registry/project.ts b/apps/desktop/src/v3/actions/registry/project.ts
+new file mode 100644
+index 0000000..a669424
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/registry/project.ts
+@@ -0,0 +1,3 @@
++import type { ActionDef } from '../types';
++
++export const ACTIONS: readonly ActionDef[] = [];
+diff --git a/apps/desktop/src/v3/actions/registry/projects.ts b/apps/desktop/src/v3/actions/registry/projects.ts
+new file mode 100644
+index 0000000..a669424
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/registry/projects.ts
+@@ -0,0 +1,3 @@
++import type { ActionDef } from '../types';
++
++export const ACTIONS: readonly ActionDef[] = [];
+diff --git a/apps/desktop/src/v3/actions/registry/settings.ts b/apps/desktop/src/v3/actions/registry/settings.ts
+new file mode 100644
+index 0000000..a669424
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/registry/settings.ts
+@@ -0,0 +1,3 @@
++import type { ActionDef } from '../types';
++
++export const ACTIONS: readonly ActionDef[] = [];
+diff --git a/apps/desktop/src/v3/actions/types.ts b/apps/desktop/src/v3/actions/types.ts
+new file mode 100644
+index 0000000..0694b85
+--- /dev/null
++++ b/apps/desktop/src/v3/actions/types.ts
+@@ -0,0 +1,8 @@
++export interface ActionDef {
++  id: string;
++  labelKey: string;
++  effect: 'rpc' | 'nav' | 'state';
++  rpc?: string[];
++  route?: string;
++  capability?: string;
++}
+-- 
+2.55.0.windows.5
+

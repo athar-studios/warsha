@@ -1,0 +1,15 @@
+const fs=require('fs');
+const dir='C:/Users/Dragonfly/Downloads/Warsha/bridge-io/policy/2026-11-08-design-and-remediation/';
+const now=new Date().toISOString().replace(/\.\d{3}Z$/,'Z');
+const ap=JSON.parse(fs.readFileSync(dir+'acceptance.json','utf8'));
+const byV={};for(const g of ap.gates)byV[g.verdict]=(byV[g.verdict]||0)+1;
+const v=JSON.parse(fs.readFileSync(dir+'verdict.json','utf8'));
+v.generated_at=now;v.gate_tally=byV;v.gate_total=ap.gates.length;
+v.evidence_completeness='acceptance.json now carries a verdict for ALL 108 gates - zero not-run. 102 pass, 1 fail (G0, the recorded baseline truth), 3 blocked on owner decisions (G3.9, G5.11 and G7.6 - OD1 and OD2), and 2 partial (GC.10 whose remote half needs OD1, and GC.12 whose only unsatisfied part is G7.6). Packet gates are recorded at the commit each was verified at, in its own worktree, which is what their $BASE..HEAD definitions mean; the integration tip is covered by GC.1-GC.12.';
+fs.writeFileSync(dir+'verdict.json',JSON.stringify(v,null,2)+'\n');
+const s=JSON.parse(fs.readFileSync(dir+'state.json','utf8'));
+s.seq=47;s.updated_at=now;
+s.orchestration_findings.push({at:now,topic:'acceptance.json completed: 108/108 gates have a verdict, zero not-run',fact:'Transcribed the 41 packet gates that had verification evidence but no recorded verdict (W8 8, W2 10, W5 14, W7 9) plus G7.6 as blocked, each at the commit it was verified at with its log path and measured value. Final tally: 102 pass, 1 fail (G0 - the honest baseline record), 3 blocked-on-owner-decision (G3.9 and G5.11 need OD1; G7.6 is OD2), 2 partial (GC.10 remote half needs OD1; GC.12 only lacks G7.6). Nothing is now invisible in the record: every one of the 108 frozen gates has a verdict, an exit code, a commit and a log path.'});
+fs.writeFileSync(dir+'state.json',JSON.stringify(s,null,2)+'\n');
+fs.writeFileSync(dir+'checkpoints/047-complete-record.json',JSON.stringify(s,null,2)+'\n');
+console.log('seq='+s.seq+' | tally '+JSON.stringify(byV)+' / '+ap.gates.length);

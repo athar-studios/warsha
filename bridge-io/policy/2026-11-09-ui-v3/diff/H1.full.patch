@@ -1,0 +1,640 @@
+diff --git a/apps/desktop/e2e/harness.ts b/apps/desktop/e2e/harness.ts
+index 9e72189..f03a6b0 100644
+--- a/apps/desktop/e2e/harness.ts
++++ b/apps/desktop/e2e/harness.ts
+@@ -803,6 +803,8 @@ const RUN_EVENTS: readonly EventFixture[] = RUN_LOGS.map((line, index) => ({
+ export interface StubReport {
+   /** JSON-RPC methods the app called, in order. */
+   rpcMethods: string[];
++  /** JSON-RPC calls the app made, in order, with method and params. */
++  rpcCalls: { method: string; params: unknown }[];
+   /** Requests whose bearer token was not the app's own — always zero when the stub is right. */
+   unauthorized: number;
+   /** Methods the stub does not implement, so an unexpected call fails the case instead of hiding. */
+@@ -915,7 +917,7 @@ export function createDaemon(
+ 
+ /** A fresh stub report, so an app-specific harness can start the same record. */
+ export function createStubReport(): StubReport {
+-  return { rpcMethods: [], unauthorized: 0, unimplemented: [], configWrites: [], eventsSent: 0 };
++  return { rpcMethods: [], rpcCalls: [], unauthorized: 0, unimplemented: [], configWrites: [], eventsSent: 0 };
+ }
+ 
+ /**
+@@ -1049,7 +1051,7 @@ function bindPairingData(source: Record<string, unknown>): StubOutcome {
+ }
+ 
+ /** What the stub answers for one call: a result, or an error the screen is meant to show. */
+-type StubOutcome = { ok: true; result: unknown } | { ok: false; code: number; message: string };
++export type StubOutcome = { ok: true; result: unknown } | { ok: false; code: number; message: string };
+ 
+ /** The wire shape `warsha_core::HarnessDefinition` serialises (`harness.get`/`harness.import`). */
+ function harnessRow(id: string): Record<string, unknown> {
+@@ -1282,7 +1284,7 @@ function bindRunModeConfig(value: unknown): { config: Record<string, unknown> }
+  * `StubReport.unimplemented` and fails a case, and it is deliberately different from an error the
+  * daemon is modelled as returning (a refused API key), which a screen is supposed to render.
+  */
+-function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): StubOutcome | null {
++export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): StubOutcome | null {
+   const override = daemon.fixtures[method];
+   if (override !== undefined && (override.result !== undefined || override.error !== undefined)) {
+     if (override.error !== undefined) return { ok: false, code: -32001, message: override.error };
+@@ -1554,57 +1556,62 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
+     case 'postlaunch.crashes':
+       return {
+         ok: true,
+-        result: {
+-          crashes: [
+-            {
+-              id: 'crash-9f3a',
+-              run_id: 'run-code',
+-              message: 'تعطلت المعاينة بعد تحميل الحزمة، ولم تُحفظ المراجعة',
+-              stack_trace: '    at BenchPreview.render (src/components/LivePreview.tsx:118:9)',
+-              occurred_at: 1764939300,
+-              sent: false,
+-            },
+-            {
+-              id: 'crash-4b71',
+-              run_id: 'run-gate-a',
+-              message: 'WebSocket closed while the run was waiting on a gate',
+-              stack_trace: null,
+-              occurred_at: 1764935700,
+-              sent: true,
+-            },
+-          ],
+-        },
++        result: [
++          {
++            id: 'crash-9f3a',
++            run_id: 'run-code',
++            message: 'تعطلت المعاينة بعد تحميل الحزمة، ولم تُحفظ المراجعة',
++            stack_trace: '    at BenchPreview.render (src/components/LivePreview.tsx:118:9)',
++            occurred_at: 1764939300,
++            sent: false,
++          },
++          {
++            id: 'crash-4b71',
++            run_id: 'run-gate-a',
++            message: 'WebSocket closed while the run was waiting on a gate',
++            stack_trace: null,
++            occurred_at: 1764935700,
++            sent: true,
++          },
++        ],
+       };
+     case 'postlaunch.reviews':
+       return {
+         ok: true,
+-        result: {
+-          reviews: [
+-            {
+-              id: 'rev-1',
+-              store: 'play',
+-              rating: 5,
+-              body: 'أفضل أداة متابعة للعمل، عربية من البداية إلى النهاية',
+-              author: 'Maha',
+-              received_at: 1764939300,
+-            },
+-            {
+-              id: 'rev-2',
+-              store: 'ios',
+-              rating: 3,
+-              body: 'Works well, but I would like a darker theme for night shifts.',
+-              author: 'Omar',
+-              received_at: 1764935700,
+-            },
+-          ],
+-        },
++        result: [
++          {
++            id: 'rev-1',
++            store: 'play',
++            rating: 5,
++            body: 'أفضل أداة متابعة للعمل، عربية من البداية إلى النهاية',
++            author: 'Maha',
++            received_at: 1764939300,
++          },
++          {
++            id: 'rev-2',
++            store: 'ios',
++            rating: 3,
++            body: 'Works well, but I would like a darker theme for night shifts.',
++            author: 'Omar',
++            received_at: 1764935700,
++          },
++        ],
+       };
+     case 'backend.export':
+-      return { ok: true, result: { path: '/tmp/warsha/backend-kit' } };
++      return { ok: true, result: '/tmp/warsha/backend-kit' };
+     case 'handoff.create':
+-      return { ok: true, result: { path: '/tmp/warsha/handoff.zip' } };
++      return { ok: true, result: '/tmp/warsha/handoff.zip' };
+     case 'handoff.apply':
+-      return { ok: true, result: { summary: '{"files":3,"conflicts":0}' } };
++      return {
++        ok: true,
++        result: JSON.stringify({
++          applied: ['src/App.tsx', 'package.json'],
++          conflicts: [],
++          backups: ['/tmp/warsha/.warsha-backup/1764939300/src/App.tsx'],
++          resolved: [],
++          backup_dir: '/tmp/warsha/.warsha-backup/1764939300',
++        }),
++      };
+     // Wave 2 reads and writes plus the wiring batch (PLAN.md M16/M19/M20). These stubs exist to keep
+     // W9 honest (every client method has a stub) and to model the daemon's own answers: reads list
+     // `[]` or answer `null`, and the mutations echo a minimal valid row built from the request.
+@@ -1727,7 +1734,7 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
+     case 'files.read':
+       if (!paramEntry(params, 'project_id').found) return missingField('project_id');
+       if (!paramEntry(params, 'path').found) return missingField('path');
+-      return { ok: true, result: { path: paramValue(params, 'path') ?? '', content: '', mime_type: 'text/plain' } };
++      return { ok: true, result: { content: '', mime_type: 'text/plain', path: paramValue(params, 'path') ?? '' } };
+     // `routines.*` (`warsha_pipeline::Routine`; lib.rs list/get/run_now/pause/resume). The registry
+     // starts empty, so the two reads answer `[]`/`null`; each mutation echoes the row it acted on —
+     // the state the daemon's runner would have moved it to (`run_now` → `running`, `pause` →
+@@ -1895,6 +1902,16 @@ async function driveWizard(page: Page, target: WizardDrive): Promise<void> {
+   await page.locator('.onboarding').waitFor({ state: 'detached' });
+ }
+ 
++const PAGE_RPC_CALLS = new WeakMap<Page, { method: string; params: unknown }[]>();
++
++/**
++ * Return all JSON-RPC calls observed by the daemon stub for this page, in order.
++ */
++export async function rpcCalls(page: Page): Promise<{ method: string; params: unknown }[]> {
++  const calls = PAGE_RPC_CALLS.get(page);
++  return calls ? calls.map((c) => ({ method: c.method, params: c.params })) : [];
++}
++
+ /**
+  * The RPC surface both browser apps are tested against.
+  *
+@@ -1913,6 +1930,14 @@ export async function installDaemonStub(
+   report: StubReport,
+   token = DAEMON_TOKEN
+ ): Promise<void> {
++  let pageCalls = PAGE_RPC_CALLS.get(page);
++  if (!pageCalls) {
++    pageCalls = report.rpcCalls;
++    PAGE_RPC_CALLS.set(page, pageCalls);
++  } else {
++    report.rpcCalls = pageCalls;
++  }
++
+   // The daemon answers JSON-RPC over HTTP; nothing listens on its port, and nothing has to.
+   await page.route('**/rpc', async (route) => {
+     const request = route.request();
+@@ -1937,6 +1962,7 @@ export async function installDaemonStub(
+     }
+ 
+     report.rpcMethods.push(method);
++    report.rpcCalls.push({ method, params });
+     const behaviour = daemon.fixtures[method as RpcMethod];
+ 
+     // "the daemon is not there" is a transport failure, not a JSON-RPC error: the client's own catch
+@@ -2012,6 +2038,7 @@ export async function installEventStub(
+ export async function openScreen(page: Page, options: OpenScreenOptions): Promise<StubReport> {
+   const report: StubReport = {
+     rpcMethods: [],
++    rpcCalls: [],
+     unauthorized: 0,
+     unimplemented: [],
+     configWrites: [],
+@@ -2335,33 +2362,29 @@ export const SCENARIOS: readonly Scenario[] = [
+         ],
+       },
+       'postlaunch.reviews': {
+-        result: {
+-          reviews: [
+-            {
+-              id: 'rev-long',
+-              store: 'play',
+-              rating: 4,
+-              body: 'أستخدم التطبيق لمتابعة أعمال الورشة منذ إصداره الأول وهو ممتاز، لكنني أتمنى إضافة تقارير مفصلة عن التكاليف لكل مشروع مع إمكانية تصديرها إلى جدول بيانات مباشرة من الهاتف دون الحاجة إلى اتصال بالإنترنت',
+-              author: 'عبدالرحمن',
+-              received_at: 1764939300,
+-            },
+-          ],
+-        },
++        result: [
++          {
++            id: 'rev-long',
++            store: 'play',
++            rating: 4,
++            body: 'أستخدم التطبيق لمتابعة أعمال الورشة منذ إصداره الأول وهو ممتاز، لكنني أتمنى إضافة تقارير مفصلة عن التكاليف لكل مشروع مع إمكانية تصديرها إلى جدول بيانات مباشرة من الهاتف دون الحاجة إلى اتصال بالإنترنت',
++            author: 'عبدالرحمن',
++            received_at: 1764939300,
++          },
++        ],
+       },
+       'postlaunch.crashes': {
+-        result: {
+-          crashes: [
+-            {
+-              id: 'crash-bidi',
+-              run_id: 'run-code',
+-              message:
+-                'فشل تحميل المعاينة عند المسار src/components/LivePreview.tsx:118 بينما كان الأمر cargo test --workspace يعمل',
+-              stack_trace: 'thread main panicked at src/main.rs:42',
+-              occurred_at: 1764939300,
+-              sent: false,
+-            },
+-          ],
+-        },
++        result: [
++          {
++            id: 'crash-bidi',
++            run_id: 'run-code',
++            message:
++              'فشل تحميل المعاينة عند المسار src/components/LivePreview.tsx:118 بينما كان الأمر cargo test --workspace يعمل',
++            stack_trace: 'thread main panicked at src/main.rs:42',
++            occurred_at: 1764939300,
++            sent: false,
++          },
++        ],
+       },
+     },
+     settle: 'settled',
+diff --git a/apps/desktop/src/harness.contract.test.ts b/apps/desktop/src/harness.contract.test.ts
+new file mode 100644
+index 0000000..c24d1de
+--- /dev/null
++++ b/apps/desktop/src/harness.contract.test.ts
+@@ -0,0 +1,84 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++import { WarshaClient, type RunId } from '@warsha/client';
++import { createDaemon, rpcResult, type RpcMethod, type StubDaemon } from '../e2e/harness';
++
++describe('harness contract test', () => {
++  let daemon: StubDaemon;
++  let client: WarshaClient;
++
++  beforeEach(() => {
++    daemon = createDaemon();
++    vi.stubGlobal('fetch', async (_input: RequestInfo | URL, init?: RequestInit) => {
++      const body = JSON.parse(String(init?.body ?? '{}'));
++      const outcome = rpcResult(body.method as RpcMethod, body.params, daemon);
++      if (outcome && outcome.ok) {
++        return new Response(
++          JSON.stringify({ jsonrpc: '2.0', id: body.id, result: outcome.result }),
++          { status: 200, headers: { 'Content-Type': 'application/json' } }
++        );
++      }
++      return new Response(
++        JSON.stringify({
++          jsonrpc: '2.0',
++          id: body?.id ?? 0,
++          error: {
++            code: outcome ? outcome.code : -32601,
++            message: outcome ? outcome.message : 'no stub',
++          },
++        }),
++        { status: 500, headers: { 'Content-Type': 'application/json' } }
++      );
++    });
++    client = new WarshaClient('http://localhost:8080', 'test-token');
++  });
++
++  afterEach(() => {
++    vi.unstubAllGlobals();
++  });
++
++  it('decodes postlaunch.crashes from the harness stub', async () => {
++    const crashes = await client.listCrashReports();
++    expect(crashes).toHaveLength(2);
++    expect(crashes[0].id).toBe('crash-9f3a');
++    expect(crashes[0].run_id).toBe('run-code');
++    expect(crashes[0].sent).toBe(false);
++  });
++
++  it('decodes postlaunch.reviews from the harness stub', async () => {
++    const reviews = await client.listStoreReviews();
++    expect(reviews).toHaveLength(2);
++    expect(reviews[0].id).toBe('rev-1');
++    expect(reviews[0].store).toBe('play');
++    expect(reviews[0].rating).toBe(5);
++  });
++
++  it('decodes backend.export from the harness stub', async () => {
++    const path = await client.exportBackend('run-code' as RunId, '/tmp/export');
++    expect(path).toBe('/tmp/warsha/backend-kit');
++  });
++
++  it('decodes handoff.create from the harness stub', async () => {
++    const path = await client.createHandoff('run-code' as RunId, []);
++    expect(path).toBe('/tmp/warsha/handoff.zip');
++  });
++
++  it('decodes handoff.apply from the harness stub', async () => {
++    const summary = await client.applyHandoff('/tmp/warsha/handoff.zip', true);
++    expect(summary.applied).toEqual(['src/App.tsx', 'package.json']);
++    expect(summary.conflicts).toEqual([]);
++    expect(summary.backup_dir).toBe('/tmp/warsha/.warsha-backup/1764939300');
++  });
++
++  it('rejects an object-wrapped list for postlaunch.crashes', async () => {
++    daemon = createDaemon({
++      fixtures: {
++        'postlaunch.crashes': {
++          result: { crashes: [{ id: 'crash-1' }] },
++        },
++      },
++    });
++    await expect(client.listCrashReports()).rejects.toThrow(
++      'Malformed RPC result from postlaunch.crashes: "crashes" is not a list'
++    );
++  });
++});
+diff --git a/apps/remote/e2e/harness.ts b/apps/remote/e2e/harness.ts
+index 1d1c8d7..f384570 100644
+--- a/apps/remote/e2e/harness.ts
++++ b/apps/remote/e2e/harness.ts
+@@ -18,9 +18,11 @@ import {
+   createStubReport,
+   installDaemonStub,
+   installEventStub,
++  rpcCalls,
+   settleScroll,
+   scenarioById,
+   VIEWPORTS,
++  RPC_METHODS,
+   type EventStubMode,
+   type Locale,
+   type RpcBehaviour,
+@@ -31,6 +33,8 @@ import {
+   type Viewport,
+ } from '../../desktop/e2e/harness';
+ 
++export { rpcCalls, RPC_METHODS };
++
+ /** The daemon the paired cases point the phone at. Nothing listens here; the stub answers. */
+ export const REMOTE_DAEMON_URL = 'http://127.0.0.1:8799';
+ 
+@@ -203,11 +207,13 @@ export const RUN_STREAM_SYNC_FIXTURE: RunStreamSync = {
+   dropped_count: 0,
+   run: {
+     id: 'run-review',
+-    projectId: 'proj-store',
++    project_id: 'proj-store',
+     stage: 'review_qa_security',
++    current_stage: 'review_qa_security',
+     status: 'running',
+-    startedAt: '2026-10-05T07:15:00.000Z',
+-    updatedAt: '2026-10-05T09:20:00.000Z',
++    created_at: '2026-10-05T07:15:00.000Z',
++    started_at: '2026-10-05T07:15:00.000Z',
++    updated_at: '2026-10-05T09:20:00.000Z',
+   },
+   events: REMOTE_EVENT_FIXTURES as unknown as WarshaEvent[],
+ };
+diff --git a/scripts/check-wire-contract.mjs b/scripts/check-wire-contract.mjs
+index 9d43652..50a8c97 100644
+--- a/scripts/check-wire-contract.mjs
++++ b/scripts/check-wire-contract.mjs
+@@ -30,7 +30,7 @@
+ //
+ // Output contract (see docs/ARCH_RULES.md):
+ //   `<CHECK-ID>: <file>:<line> <offence>` on stdout, one line per violation, exit 1;
+-//   `wire: 9 checks, 0 violations` on stdout and exit 0 otherwise.
++//   `wire: 10 checks, 0 violations` on stdout and exit 0 otherwise.
+ //
+ // Four sources, compared until they agree:
+ //   daemon   — every `#[method(name = "…")]` in crates/warshad/src/lib.rs (whitespace-tolerant,
+@@ -120,6 +120,8 @@ const DAEMON_FILE = 'crates/warshad/src/lib.rs';
+ const POLICY_FILE = 'crates/warshad/src/auth.rs';
+ const CLIENT_FILE = 'packages/client/src/index.ts';
+ const HARNESS_FILE = 'apps/desktop/e2e/harness.ts';
++const REMOTE_BENCH_FILE = 'apps/remote/src/bench.tsx';
++const REMOTE_HARNESS_FILE = 'apps/remote/e2e/harness.ts';
+ 
+ const CHECK_IDS = [
+   ['W1', 'client-method-unregistered'],
+@@ -131,6 +133,7 @@ const CHECK_IDS = [
+   ['W7', 'required-field-drift'],
+   ['W8', 'param-name-drift'],
+   ['W9', 'client-method-without-harness-stub'],
++  ['W10', 'remote-bench-api-without-harness-stub'],
+ ];
+ 
+ // The one-edit flip: when true, the KNOWN_* sets below are ignored and every parsed name and
+@@ -506,6 +509,105 @@ function parseHarness(text) {
+   return { found: true, names };
+ }
+ 
++const BENCH_API_TO_RPC = {
++  health: 'health',
++  listProjects: 'projects.list',
++  listRuns: 'runs.list',
++  getRunStatus: 'runs.get',
++  getGates: 'gates.list',
++  getRunLogs: 'runs.events',
++  getProjectBudget: 'budget.show',
++  approveGate: 'gates.approve',
++  rejectGate: 'gates.reject',
++  requestChanges: 'gates.changes',
++  createProject: 'projects.create',
++  startRun: 'runs.start',
++  advanceRun: 'runs.advance',
++  cancelRun: 'runs.cancel',
++  followupRun: 'runs.followup',
++  getRunArtifacts: 'runs.artifacts',
++  subscribeRun: 'runs.subscribe',
++  createHandoff: 'handoff.create',
++  applyHandoff: 'handoff.apply',
++  listDevices: 'devices.list',
++  revokeDevice: 'devices.revoke',
++};
++
++/** Parse `BenchApi` method declarations in `apps/remote/src/bench.tsx`. */
++function parseBenchApi(text) {
++  const marker = 'export interface BenchApi';
++  const start = text.indexOf(marker);
++  if (start < 0) return { found: false, methods: [] };
++  const braceOpen = text.indexOf('{', start);
++  if (braceOpen < 0) return { found: false, methods: [] };
++  let depth = 1;
++  let i = braceOpen + 1;
++  while (i < text.length && depth > 0) {
++    if (text[i] === '{') depth += 1;
++    else if (text[i] === '}') depth -= 1;
++    i += 1;
++  }
++  const region = text.slice(braceOpen + 1, depth === 0 ? i - 1 : text.length);
++  const methodRe = /^\s*([a-zA-Z0-9_$]+)\??\s*\(/gm;
++  const methods = [];
++  let m;
++  while ((m = methodRe.exec(region)) !== null) {
++    const name = m[1];
++    const line = lineOf(text, braceOpen + 1 + m.index);
++    const rpc = BENCH_API_TO_RPC[name] ?? name;
++    methods.push({ name, rpc, line });
++  }
++  return { found: true, methods };
++}
++
++/** The set of RPC method names reachable from `apps/remote/e2e/harness.ts`. */
++function parseRemoteReachableStubs(remoteHarnessText, root) {
++  const stubs = new Set();
++  if (!remoteHarnessText) return stubs;
++
++  // 1. Directly declared RPC_METHODS in this file
++  const localHarness = parseHarness(remoteHarnessText);
++  if (localHarness.found) {
++    for (const entry of localHarness.names) stubs.add(entry.name);
++  }
++
++  // 2. Fixture method keys declared in fixtures tables
++  const fixtureKeyRe = /['"]([a-z_][a-z0-9_]*\.[a-z0-9_]+|[a-z_][a-z0-9_]*)['"]\s*:/g;
++  let match;
++  while ((match = fixtureKeyRe.exec(remoteHarnessText)) !== null) {
++    stubs.add(match[1]);
++  }
++
++  // 3. Methods reachable via imported harness files
++  const importRe = /import\s+[\s\S]*?from\s+['"]([^'"]+)['"]/g;
++  let imp;
++  while ((imp = importRe.exec(remoteHarnessText)) !== null) {
++    const importPath = imp[1];
++    if (importPath.startsWith('.')) {
++      const resolvedBase = path.resolve(root, path.dirname(REMOTE_HARNESS_FILE), importPath);
++      const candidates = [
++        resolvedBase,
++        `${resolvedBase}.ts`,
++        `${resolvedBase}.js`,
++        `${resolvedBase}.mjs`,
++        path.join(resolvedBase, 'index.ts'),
++      ];
++      for (const cand of candidates) {
++        const content = readIfExists(cand);
++        if (content !== null) {
++          const importedHarness = parseHarness(content);
++          if (importedHarness.found) {
++            for (const entry of importedHarness.names) stubs.add(entry.name);
++          }
++          break;
++        }
++      }
++    }
++  }
++
++  return stubs;
++}
++
+ // ------------------------------------------------------------------------------------------- checks
+ 
+ /**
+@@ -547,6 +649,8 @@ function run(root, opts = {}) {
+   const policyText = readIfExists(path.join(root, POLICY_FILE));
+   const clientText = readIfExists(path.join(root, CLIENT_FILE));
+   const harnessText = readIfExists(path.join(root, HARNESS_FILE));
++  const remoteBenchText = readIfExists(path.join(root, REMOTE_BENCH_FILE));
++  const remoteHarnessText = readIfExists(path.join(root, REMOTE_HARNESS_FILE));
+ 
+   // W6, the integrity half: a missing source or a parser that matches nothing would let the
+   // other checks pass vacuously. The two daemon-side views are also counted against each other.
+@@ -559,11 +663,14 @@ function run(root, opts = {}) {
+   if (policyText === null) broken(POLICY_FILE, 'source file missing (the wire contract cannot be checked)');
+   if (clientText === null) broken(CLIENT_FILE, 'source file missing (the wire contract cannot be checked)');
+   if (harnessText === null) broken(HARNESS_FILE, 'source file missing (the wire contract cannot be checked)');
++  if (remoteBenchText === null) broken(REMOTE_BENCH_FILE, 'source file missing (the wire contract cannot be checked)');
++  if (remoteHarnessText === null) broken(REMOTE_HARNESS_FILE, 'source file missing (the wire contract cannot be checked)');
+ 
+   const daemon = daemonText === null ? { found: false, methods: [], malformed: [] } : parseDaemon(daemonText);
+   const policy = policyText === null ? { found: false, rows: [] } : parsePolicy(policyText);
+   const client = clientText === null ? [] : parseClient(clientText);
+   const harness = harnessText === null ? { found: false, names: [] } : parseHarness(harnessText);
++  const remoteBench = remoteBenchText === null ? { found: false, methods: [] } : parseBenchApi(remoteBenchText);
+ 
+   if (daemonText !== null && !daemon.found) {
+     broken(DAEMON_FILE, 'the `pub trait WarshaApi` declaration was not found (source moved or parser broken)');
+@@ -574,6 +681,9 @@ function run(root, opts = {}) {
+   if (harnessText !== null && !harness.found) {
+     broken(HARNESS_FILE, '`export const RPC_METHODS` was not found (source moved or parser broken)');
+   }
++  if (remoteBenchText !== null && !remoteBench.found) {
++    broken(REMOTE_BENCH_FILE, '`export interface BenchApi` was not found (source moved or parser broken)');
++  }
+   for (const m of daemon.malformed) {
+     broken(DAEMON_FILE, `malformed method declaration at line ${m.line}: ${m.offence}`);
+   }
+@@ -736,8 +846,28 @@ function run(root, opts = {}) {
+     // rejects as an error long before it is a wire fact.
+   }
+ 
+-  violations.sort((a, b) => a.id.localeCompare(b.id) || a.file.localeCompare(b.file) || a.line - b.line);
+-  knowns.sort((a, b) => a.id.localeCompare(b.id) || a.file.localeCompare(b.file) || a.line - b.line);
++  // W10: every RPC the remote BenchApi dials has a stub reachable from apps/remote/e2e/harness.ts.
++  const reachableStubs = parseRemoteReachableStubs(remoteHarnessText, root);
++  for (const method of remoteBench.methods) {
++    if (reachableStubs.has(method.rpc)) continue;
++    raise(
++      'W10',
++      REMOTE_BENCH_FILE,
++      method.line,
++      `remote BenchApi method "${method.name}" dials RPC "${method.rpc}", which has no stub reachable from ${REMOTE_HARNESS_FILE}`
++    );
++  }
++
++  const checkNum = (id) => {
++    const m = /^W(\d+)$/.exec(id);
++    return m ? Number(m[1]) : 999;
++  };
++  violations.sort(
++    (a, b) => checkNum(a.id) - checkNum(b.id) || a.file.localeCompare(b.file) || a.line - b.line
++  );
++  knowns.sort(
++    (a, b) => checkNum(a.id) - checkNum(b.id) || a.file.localeCompare(b.file) || a.line - b.line
++  );
+   return { violations, knowns };
+ }
+ 
+@@ -867,6 +997,18 @@ function cleanFixture() {
+       '] as const;',
+       '',
+     ].join('\n'),
++    [REMOTE_BENCH_FILE]: [
++      'export interface BenchApi {',
++      '  getGates(runId: string): Promise<unknown[]>;',
++      '  approveGate(runId: string, stage: string): Promise<void>;',
++      '}',
++      '',
++    ].join('\n'),
++    [REMOTE_HARNESS_FILE]: [
++      "import { RPC_METHODS } from '../../desktop/e2e/harness';",
++      'export const REMOTE_DEFAULT_FIXTURES = {};',
++      '',
++    ].join('\n'),
+   };
+ }
+ 
+@@ -1208,6 +1350,20 @@ const MUTATIONS = [
+       f[HARNESS_FILE] = f[HARNESS_FILE].replace("  'gates.list',\n", '');
+     },
+   },
++  {
++    name: 'remote-bench-api-without-harness-stub',
++    ids: ['W10'],
++    expect: /remote BenchApi method "startRun" dials RPC "runs\.start", which has no stub reachable from apps\/remote\/e2e\/harness\.ts/,
++    mutate: (f) => {
++      // W10: every RPC dialed by BenchApi must have a stub reachable from apps/remote/e2e/harness.ts.
++      // In this mutant, startRun is added to BenchApi, dialing runs.start which cleanFixture's
++      // harness table does not declare, planting the required W10 violation.
++      f[REMOTE_BENCH_FILE] = f[REMOTE_BENCH_FILE].replace(
++        '  approveGate(runId: string, stage: string): Promise<void>;',
++        '  approveGate(runId: string, stage: string): Promise<void>;\n  startRun(projectId: string, idea: string): Promise<unknown>;'
++      );
++    },
++  },
+ ];
+ 
+ function selfTest() {
+@@ -1425,7 +1581,7 @@ function selfTest() {
+     writeTree(dir, MUTATIONS.reduce((files, m) => ((m.mutate(files), files)), cleanFixture()));
+     for (const v of run(dir, { requireNoKnownDrift: true }).violations) {
+       const rendered = `${v.id}: ${v.file}:${v.line} ${v.offence}`;
+-      if (!/^W[1-9]: [^:\n]+:\d+ \S/.test(rendered) || path.isAbsolute(v.file)) {
++      if (!/^W(10|[1-9]): [^:\n]+:\d+ \S/.test(rendered) || path.isAbsolute(v.file)) {
+         failed = true;
+         console.log(`self-test message format: FAILED — ${rendered}`);
+       }

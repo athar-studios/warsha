@@ -1,0 +1,65 @@
+=== FINAL LOCAL GATES @ 10195064f0fb63a144368a3ab9aab97baa26427d ===
+fmt=0
+self-test R1 core-is-leaf: detected path dependency warsha-store
+self-test R2 no-daemon-under-pipeline: detected dependency warshad
+self-test R3 no-upward-edges: detected dependency warsha-pipeline (tier 3 is above warsha-store tier 1)
+self-test R4 no-private-module-reach: detected path warsha_pipeline::handoff (private module)
+self-test R5 ui-through-client: detected fetch( (call daemon through @warsha/client)
+self-test clean fixture: 0 violations
+arch self-test: 5 rules fire, clean fixture is clean
+arch_selftest=0
+arch: 5 rules, 0 violations
+arch=0
+self-test E1 policy-file: detected — ENGINEERING_POLICY.md: missing or empty
+self-test E2 lifecycle-sections: detected — ENGINEERING_POLICY.md: missing required section heading for 'roles'
+self-test E3 lifecycle-phases: detected — ENGINEERING_POLICY.md: missing lifecycle phase heading for 'repair'
+self-test E4 required-terms: detected — ENGINEERING_POLICY.md: missing required term 'max_repair_iterations'
+self-test E5 provenance: detected — ENGINEERING_POLICY.md: missing provenance reference 'github.com/the-open-engine/zeroshot'
+self-test E6 agents-reference: detected — AGENTS.md: does not reference ENGINEERING_POLICY.md
+self-test E7 agents-validator-command: detected — AGENTS.md: does not require running `node scripts/check-engineering-policy.mjs`
+self-test E8 package-script: detected — package.json: scripts.policy must invoke `node scripts/check-engineering-policy.mjs`
+self-test clean fixture: 0 failures
+policy self-test: 8 checks fire, clean fixture is clean
+policy_selftest=0
+policy: 8 checks, 0 failures
+policy=0
+self-test parser multi-line-#[method]: detected gates.list (5/5 methods parsed)
+self-test parser bound-args: detected run_id (required) + device_id (Option)
+self-test parser const-indirect + rpc<T>: detected gates.list and alpha.write
+self-test parser quote-styles: dq-literal + dq-generic + template + dq-const + nested-angle parsed, quoted params keys counted
+self-test parser param-names: snake + alias + shorthand + quoted keys read; spread + computed + positional + variable reported, not guessed
+self-test parser harness-stub-quotes: detected the sq, dq and template-literal entries
+self-test W1 client-method-unregistered/const-indirect-ghost: detected
+self-test W1 client-method-unregistered/generic-ghost: detected
+self-test W2 harness-method-unregistered/harness-stub: detected
+self-test W3 daemon-method-without-policy/missing-policy-row: detected
+self-test W4+W6 policy-row-without-daemon-method/stale-policy-row: detected
+self-test W5 method-without-extensions/no-with-extensions: detected
+self-test W6 view-integrity/trait-region-moved: detected
+self-test W1 client-method-unregistered/camel-key-not-an-offence: detected
+self-test W7 required-field-drift/omitted-required-params: detected
+self-test W7 required-field-drift/one-short-required-field: detected
+self-test W7 required-field-drift/required-field-drift-enforced-in-both-modes: detected
+self-test W1 client-method-unregistered/unregistered-name-enforced-in-both-modes: detected
+self-test W1 client-method-unregistered/dq-literal-ghost: detected
+self-test W1 client-method-unregistered/dq-generic-ghost: detected
+self-test W1 client-method-unregistered/dq-const-indirect-ghost: detected
+self-test W2 harness-method-unregistered/dq-harness-stub: detected
+self-test W1 client-method-unregistered/nested-generic-ghost: detected
+self-test W7 required-field-drift/quoted-params-key-still-counts: detected
+self-test W8 param-name-drift/renamed-param-key: detected
+self-test W8 param-name-drift/aliased-casing-is-not-an-offence: accepted (legal spelling, 0 violations)
+self-test W8 param-name-drift/params-from-a-variable: detected
+self-test W8 param-name-drift/params-with-a-spread: detected
+self-test W8 param-name-drift/params-with-a-computed-key: detected
+self-test W8 param-name-drift/positional-array-params: detected
+self-test W9 client-method-without-harness-stub/client-call-without-harness-stub: detected
+self-test clean fixture (shipped): 0 violations
+self-test clean fixture (strict): 0 violations
+wire self-test: 9 checks fire, clean fixture is clean in both modes
+wire_selftest=0
+wire: 9 checks, 0 violations
+wire=0
+mdbook_test=0
+gitleaks=0
+DONE

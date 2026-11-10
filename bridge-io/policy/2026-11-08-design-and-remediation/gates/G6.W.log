@@ -1,0 +1,10 @@
+gate: G6.W
+command: node scripts/check-wire-contract.mjs
+worktree: C:/Users/Dragonfly/Downloads/warsha-wt/verify-w6
+commit: a9edd90e92521c2c84da0b586f7191e5d52f45a5
+cargo_target_dir: C:/Users/Dragonfly/Downloads/warsha-wt/target-verify-w6
+start_utc: 2026-11-08T08:31:32Z
+end_utc: 2026-11-08T08:31:32Z
+exit_code: 0
+--- raw combined stdout+stderr ---
+wire: 8 checks, 0 violations

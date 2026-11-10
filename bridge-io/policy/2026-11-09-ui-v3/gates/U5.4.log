@@ -1,0 +1,10 @@
+gate: U5.4
+commit: 7d4ceb9d589c23a139117ad98a977ff3a073ad9a
+cwd: C:/Users/Dragonfly/Downloads/warsha-wt/v3/u5
+cmd: node 'C:/Users/Dragonfly/Downloads/Warsha/bridge-io/policy/2026-11-09-ui-v3/tools/actions-gate.mjs' . --only settings.
+started: 2026-11-10T16:04:56Z
+-----
+actions: 54 registered, 54 used, 0 violations
+-----
+finished: 2026-11-10T16:04:56Z
+EXIT=0

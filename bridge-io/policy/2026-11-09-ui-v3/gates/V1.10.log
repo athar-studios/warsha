@@ -1,0 +1,18 @@
+--- changed files 4c65ead..HEAD ---
+.github/workflows/desktop-bundle.yml
+.github/workflows/release.yml
+.gitignore
+apps/mobile/README.md
+apps/mobile/android/app/build.gradle
+apps/remote/package.json
+docker/Dockerfile
+docker/compose.yml
+docs/DAEMON.md
+package.json
+packages/client/package.json
+packages/crypto/package.json
+packages/i18n/package.json
+packages/ui/package.json
+scripts/check-versions.mjs
+--- outside allowlist ---
+GATE_EXIT=0

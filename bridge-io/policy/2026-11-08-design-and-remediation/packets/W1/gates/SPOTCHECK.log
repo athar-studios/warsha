@@ -1,0 +1,65 @@
+# Gate: SPOTCHECK
+# Command: G0=C:/Users/Dragonfly/Downloads/Warsha/bridge-io/policy/2026-11-08-design-and-remediation/gates/G0.log
+ACC=C:/Users/Dragonfly/Downloads/Warsha/bridge-io/policy/2026-11-08-design-and-remediation/acceptance.json
+strip() { sed -E 's/\x1b\[[0-9;]*m//g'; }
+echo "== G0 header: commit, commit_source, capture host =="; grep -nE '^(commit        :|commit_source|capture_host)' "$G0"
+echo "== G0 per-project summaries =="; grep -nE '^  summary  :' "$G0"
+echo "== all desktop failed-case listing lines (ANSI stripped) =="; grep -E '[0-9]+\) \[desktop\]' "$G0" | strip
+echo "== desktop failed-case count (expect 8) =="; grep -cE '[0-9]+\) \[desktop\]' "$G0"
+echo "== G0 acceptance verdict + desktop/remote totals =="; grep -nE '"verdict": "fail"' "$ACC"; grep -nE '"listed": (793|91)|"passed": (785|51|180)|"failed": (8|40)' "$ACC" | head -12
+echo "== apps/desktop/README.md baseline claim (785/8/793, 180 of 188) =="; grep -nE '785 passed|180 passed|793 tests' apps/desktop/README.md
+echo "== lib.rs module declarations (expect 26) =="; grep -cE '^(pub )?mod [a-z_]+;' crates/warsha-pipeline/src/lib.rs
+echo "== set diff: lib.rs modules vs README module bullets (expect only test_util) =="
+grep -oE '^(pub )?mod [a-z_]+;' crates/warsha-pipeline/src/lib.rs | sed -E 's/^(pub )?mod //; s/;//' | sort > /tmp/w1-lib-mods.txt
+grep -oE '^- `[a-z_]+`' crates/warsha-pipeline/README.md | sed -E 's/^- `//; s/`$//' | sort > /tmp/w1-readme-mods.txt
+diff /tmp/w1-lib-mods.txt /tmp/w1-readme-mods.txt || true
+echo "== README module bullet count (expect 27 incl. test_util) =="; grep -cE '^- `[a-z_]+`' crates/warsha-pipeline/README.md
+echo "== any all-green style claim in the 9 READMEs? (expect no match) =="; grep -nEi 'all[- ]green|793 passed|91 passed|everything passes' README.md README.ar.md apps/desktop/README.md apps/remote/README.md crates/warsha-pipeline/README.md crates/warsha-git/README.md crates/warsha-remote/README.md packages/crypto/README.md templates/README.md || echo "no match (exit $?)"
+# CWD: C:/Users/Dragonfly/Downloads/warsha-wt/verify-w1
+# Commit: 6d9728f52eb096199c4ace208435c8b8927e5140
+# UTC: 2026-11-08T09:12:25Z
+# --- output ---
+== G0 header: commit, commit_source, capture host ==
+8:commit        : 0772d502002562505c6438ae712abca7a7328d84
+9:commit_source : fetched from Windows checkout /mnt/c/Users/Dragonfly/Downloads/Warsha
+12:capture_host  : WSL Ubuntu, x86_64, user root
+== G0 per-project summaries ==
+30:  summary  : 8 failed, 785 passed, 0 skipped (793 listed)
+36:  summary  : 40 failed, 51 passed, 0 skipped (91 listed)
+== all desktop failed-case listing lines (ANSI stripped) ==
+[1A[2K  1) [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 390x844 ar light 
+[1A[2K  2) [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 390x844 ar dark 
+[1A[2K  3) [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 390x844 en light 
+[1A[2K  4) [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 390x844 en dark 
+[1A[2K  5) [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 1440x900 ar light 
+[1A[2K  6) [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 1440x900 ar dark 
+[1A[2K  7) [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 1440x900 en light 
+[1A[2K  8) [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 1440x900 en dark 
+== desktop failed-case count (expect 8) ==
+8
+== G0 acceptance verdict + desktop/remote totals ==
+12:      "verdict": "fail",
+22:          "listed": 793,
+23:          "passed": 785,
+24:          "failed": 8,
+30:              "passed": 180,
+31:              "failed": 8
+61:          "listed": 91,
+62:          "passed": 51,
+63:          "failed": 40,
+70:              "failed": 40
+== apps/desktop/README.md baseline claim (785/8/793, 180 of 188) ==
+32:`pnpm exec playwright test --project=desktop --list` reports **793 tests in 6 files**:
+49:host, recorded **785 passed / 8 failed** for this project. The eight failures are all
+51:light/dark — so `screens.a11y.spec.ts` came back **180 passed of 188 listed**. That is the whole of
+== lib.rs module declarations (expect 26) ==
+26
+== set diff: lib.rs modules vs README module bullets (expect only test_util) ==
+25a26
+> test_util
+== README module bullet count (expect 27 incl. test_util) ==
+27
+== any all-green style claim in the 9 READMEs? (expect no match) ==
+no match (exit 1)
+
+# Exit code: 0

@@ -1,0 +1,10 @@
+gate: GC.11
+command: gitleaks detect --source . --config .gitleaks.toml --no-banner
+commit: a643a536323b845fe7dec486a5d747f16653660d
+host: Windows integration worktree (FINAL tip)
+timestamp: 2026-11-08T15:41:04Z
+---
+[90m7:41PM[0m [32mINF[0m [1m152 commits scanned.[0m
+[90m7:41PM[0m [32mINF[0m [1mscanned ~50225697 bytes (50.23 MB) in 3.15s[0m
+[90m7:41PM[0m [32mINF[0m [1mno leaks found[0m
+exit_code: 0

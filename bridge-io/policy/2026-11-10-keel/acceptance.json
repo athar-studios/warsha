@@ -1,0 +1,552 @@
+{
+  "schema": "warsha-run/v1-acceptance",
+  "run_id": "2026-11-10-keel",
+  "base_commit": "128b59c08cbf5ddbe4de002528a50f451ea74296",
+  "standing": [
+    {
+      "id": "STD.1",
+      "host": "windows",
+      "check": "cargo fmt --all -- --check",
+      "expect": "exit 0, no output",
+      "verdict": "pass",
+      "verified_at": "2026-11-10T18:33:24Z",
+      "commit": "bc157e102627c3f7fe5a7fb2c8e70d4ae0502a0c",
+      "note": "log=gates/K3.STD.1.log; exit 0, no output (0 bytes)"
+    },
+    {
+      "id": "STD.2",
+      "host": "windows",
+      "check": "cargo clippy --workspace --all-targets -- -D warnings",
+      "expect": "exit 0",
+      "verdict": "pass",
+      "verified_at": "2026-11-10T18:33:24Z",
+      "commit": "bc157e102627c3f7fe5a7fb2c8e70d4ae0502a0c",
+      "note": "log=gates/K3.STD.2.log; exit file gates/K3.STD.2.exit=0, marker gates/K3.STD.2.done; 0 warnings (workspace clippy -D warnings, Finished 8.27s)"
+    },
+    {
+      "id": "STD.3",
+      "host": "windows",
+      "check": "bash tools/rust-tests.sh",
+      "expect": "exit 0; last line 'KEEL-PASS rust-tests passed=N ignored=10' with N>=759",
+      "verdict": "pass",
+      "verified_at": "2026-11-10T18:36:10Z",
+      "commit": "bc157e102627c3f7fe5a7fb2c8e70d4ae0502a0c",
+      "marker": "gates/K3.STD.3.done",
+      "note": "KEEL-PASS rust-tests passed=795 ignored=10 (failed=0, cargo exit=0, 36 binary summary lines); exit file gates/K3.STD.3.exit=0; marker landed 2026-11-10T18:33:06Z; full output gates/K3.STD.3.log; transcript gates/K3.STD.3.run.log"
+    },
+    {
+      "id": "STD.4",
+      "host": "windows",
+      "check": "pnpm -r typecheck",
+      "expect": "exit 0"
+    },
+    {
+      "id": "STD.5",
+      "host": "windows",
+      "check": "pnpm -r lint",
+      "expect": "exit 0"
+    },
+    {
+      "id": "STD.6",
+      "host": "windows",
+      "check": "pnpm -r test",
+      "expect": "exit 0; no line matching 'Tests .* failed' or 'FAIL '"
+    },
+    {
+      "id": "STD.7",
+      "host": "windows",
+      "check": "pnpm format:check",
+      "expect": "exit 0"
+    },
+    {
+      "id": "STD.8",
+      "host": "windows",
+      "check": "node scripts/check-arch.mjs",
+      "expect": "exit 0; line 'arch: 5 rules, 0 violations'",
+      "verdict": "pass",
+      "verified_at": "2026-11-10T18:33:24Z",
+      "commit": "bc157e102627c3f7fe5a7fb2c8e70d4ae0502a0c",
+      "note": "log=gates/K3.STD.8.log; arch: 5 rules, 0 violations"
+    },
+    {
+      "id": "STD.9",
+      "host": "windows",
+      "check": "node scripts/check-wire-contract.mjs",
+      "expect": "exit 0; line matching /^wire: [0-9]+ checks, 0 violations$/",
+      "verdict": "pass",
+      "verified_at": "2026-11-10T18:33:24Z",
+      "commit": "bc157e102627c3f7fe5a7fb2c8e70d4ae0502a0c",
+      "note": "log=gates/K3.STD.9.log; wire: 10 checks, 0 violations"
+    },
+    {
+      "id": "STD.10",
+      "host": "windows",
+      "check": "node scripts/check-engineering-policy.mjs",
+      "expect": "exit 0; line 'policy: 8 checks, 0 failures'",
+      "verdict": "pass",
+      "verified_at": "2026-11-10T18:33:24Z",
+      "commit": "bc157e102627c3f7fe5a7fb2c8e70d4ae0502a0c",
+      "note": "log=gates/K3.STD.10.log; policy: 8 checks, 0 failures"
+    },
+    {
+      "id": "STD.11",
+      "host": "windows",
+      "check": "bash tools/no-new-skip.sh",
+      "expect": "exit 0; line 'ignore-now=10 base=10 reasoned=10'"
+    },
+    {
+      "id": "STD.12",
+      "host": "windows",
+      "check": "git diff --name-only 128b59c08cbf5ddbe4de002528a50f451ea74296..HEAD -- '*-snapshots/*' '*.png' '*.webp'",
+      "expect": "exit 0; no output",
+      "verdict": "pass",
+      "verified_at": "2026-11-10T18:33:24Z",
+      "commit": "bc157e102627c3f7fe5a7fb2c8e70d4ae0502a0c",
+      "note": "log=gates/K3.STD.12.log; empty (0 bytes), exit 0"
+    },
+    {
+      "id": "STD.13",
+      "host": "windows",
+      "check": "bash tools/scope.sh <PACKET-ID>",
+      "expect": "exit 0; line 'scope-ok <PACKET-ID>: <n> files'",
+      "verdict": "pass",
+      "verified_at": "2026-11-10T18:33:24Z",
+      "commit": "bc157e102627c3f7fe5a7fb2c8e70d4ae0502a0c",
+      "note": "log=gates/K3.STD.13.log; scope-ok K3: 11 files (= full base..head diff count), bad=0"
+    }
+  ],
+  "gates": [
+    {
+      "id": "K1.1",
+      "packet": "K1",
+      "host": "windows",
+      "check": "cargo test -p warsha-pipeline --lib gate_integrity::approving_a_gate_the_run_has_not_reached_is_refused -- --exact",
+      "expect": "exit 0; 'test result: ok. 1 passed'",
+      "verdict": "pass",
+      "verified_at": "2026-11-10T08:02:22Z",
+      "commit": "bef00eb203f98973fb157a789f278b38e27862f4"
+    },
+    {
+      "id": "K1.2",
+      "packet": "K1",
+      "host": "windows",
+      "check": "cargo test -p warsha-pipeline --lib gate_integrity::approving_the_current_gate_succeeds_once -- --exact",
+      "expect": "exit 0; 'test result: ok. 1 passed'",
+      "verdict": "pass",
+      "verified_at": "2026-11-10T08:02:22Z",
+      "commit": "bef00eb203f98973fb157a789f278b38e27862f4"
+    },
+    {
+      "id": "K1.3",
+      "packet": "K1",
+      "host": "windows",
+      "check": "cargo test -p warsha-pipeline --lib gate_integrity::the_gate_decision_event_carries_the_artifacts_hash -- --exact",
+      "expect": "exit 0; 'test result: ok. 1 passed'",
+      "verdict": "pass",
+      "verified_at": "2026-11-10T08:02:22Z",
+      "commit": "bef00eb203f98973fb157a789f278b38e27862f4"
+    },
+    {
+      "id": "K2.1",
+      "packet": "K2",
+      "host": "windows",
+      "check": "cargo test -p warsha-pipeline --lib run_integrity::",
+      "expect": "exit 0; 'test result: ok. N passed; 0 failed', N>=6",
+      "verdict": "pass",
+      "verified_at": "2026-11-10T10:36:27Z",
+      "commit": "718e8596a1d2c8a13257d6e988ba02110f21621d",
+      "note": "log=gates/K2.1.log; test result: ok. 7 passed; 0 failed"
+    },
+    {
+      "id": "K2.2",
+      "packet": "K2",
+      "host": "windows",
+      "check": "cargo test -p warsha-store --lib cas::",
+      "expect": "exit 0; 'test result: ok. N passed; 0 failed', N>=2",
+      "verdict": "pass",
+      "verified_at": "2026-11-10T10:36:27Z",
+      "commit": "718e8596a1d2c8a13257d6e988ba02110f21621d",
+      "note": "log=gates/K2.2.log; test result: ok. 4 passed; 0 failed"
+    },
+    {
+      "id": "K2.3",
+      "packet": "K2",
+      "host": "windows",
+      "check": "cargo test -p warshad --lib runs_resume::",
+      "expect": "exit 0; 'test result: ok. N passed; 0 failed', N>=3",
+      "verdict": "pass",
+      "verified_at": "2026-11-10T10:36:27Z",
+      "commit": "718e8596a1d2c8a13257d6e988ba02110f21621d",
+      "note": "log=gates/K2.3.log; test result: ok. 4 passed; 0 failed"
+    },
+    {
+      "id": "K2.4",
+      "packet": "K2",
+      "host": "windows",
+      "check": "git grep -c 'runs.resume' crates/warshad/src/auth.rs crates/warshad/src/lib.rs",
+      "expect": "exit 0; two lines, each count >= 1",
+      "verdict": "pass",
+      "verified_at": "2026-11-10T10:36:27Z",
+      "commit": "718e8596a1d2c8a13257d6e988ba02110f21621d",
+      "note": "log=gates/K2.4.log; crates/warshad/src/auth.rs:1 crates/warshad/src/lib.rs:16"
+    },
+    {
+      "id": "K2.5",
+      "packet": "K2",
+      "host": "windows",
+      "check": "ls crates/warsha-store/migrations/003_run_version.sql",
+      "expect": "exit 0; filename printed",
+      "verdict": "pass",
+      "verified_at": "2026-11-10T10:36:27Z",
+      "commit": "718e8596a1d2c8a13257d6e988ba02110f21621d",
+      "note": "log=gates/K2.5.log; crates/warsha-store/migrations/003_run_version.sql"
+    },
+    {
+      "id": "K3.1",
+      "packet": "K3",
+      "host": "windows",
+      "check": "git grep -n -E 'In real implementation|mock proposals' -- crates/warsha-pipeline crates/warshad ':(exclude)**/tests/**'",
+      "expect": "exit 1; no output",
+      "note": "log=gates/K3.1.log; amended scoped git grep exit 1, 0 bytes (no output)",
+      "verdict": "pass",
+      "verified_at": "2026-11-10T18:33:24Z",
+      "commit": "bc157e102627c3f7fe5a7fb2c8e70d4ae0502a0c"
+    },
+    {
+      "id": "K3.2",
+      "packet": "K3",
+      "host": "windows",
+      "check": "bash tools/k3-mock-scan.sh",
+      "expect": "exit 0; line 'no production MockRoutineRunner'",
+      "verdict": "pass",
+      "verified_at": "2026-11-10T18:33:24Z",
+      "commit": "bc157e102627c3f7fe5a7fb2c8e70d4ae0502a0c",
+      "note": "log=gates/K3.2.log; exit 0, line 'no production MockRoutineRunner'"
+    },
+    {
+      "id": "K3.3",
+      "packet": "K3",
+      "host": "windows",
+      "check": "cargo test -p warsha-pipeline --lib status_truth::",
+      "expect": "exit 0; 'test result: ok. N passed; 0 failed', N>=4",
+      "verdict": "pass",
+      "verified_at": "2026-11-10T18:33:24Z",
+      "commit": "bc157e102627c3f7fe5a7fb2c8e70d4ae0502a0c",
+      "note": "log=gates/K3.3.log; exit 0; test result: ok. 6 passed; 0 failed (N=6>=4)"
+    },
+    {
+      "id": "K3.4",
+      "packet": "K3",
+      "host": "windows",
+      "check": "cargo test -p warshad --lib provider_truth::",
+      "expect": "exit 0; 'test result: ok. N passed; 0 failed', N>=3",
+      "verdict": "pass",
+      "verified_at": "2026-11-10T18:33:24Z",
+      "commit": "bc157e102627c3f7fe5a7fb2c8e70d4ae0502a0c",
+      "note": "log=gates/K3.4.log; exit 0; test result: ok. 4 passed; 0 failed (N=4>=3)"
+    },
+    {
+      "id": "K3.5",
+      "packet": "K3",
+      "host": "windows",
+      "check": "cargo test -p warshad --lib health_reports_probed_capabilities -- --exact",
+      "expect": "exit 0; 'test result: ok. 1 passed'",
+      "verdict": "pass",
+      "verified_at": "2026-11-10T18:33:24Z",
+      "commit": "bc157e102627c3f7fe5a7fb2c8e70d4ae0502a0c",
+      "note": "log=gates/K3.5.log; exit 0; test result: ok. 1 passed; 0 failed"
+    },
+    {
+      "id": "K4.1",
+      "packet": "K4",
+      "host": "windows",
+      "check": "cargo test -p warsha-pipeline --lib command_policy::",
+      "expect": "exit 0; 'test result: ok. N passed; 0 failed', N>=5"
+    },
+    {
+      "id": "K4.2",
+      "packet": "K4",
+      "host": "windows",
+      "check": "cargo test -p warsha-pipeline --lib command_policy::a_child_that_prints_its_environment_sees_none_of_the_daemons_variables -- --exact",
+      "expect": "exit 0; 'test result: ok. 1 passed'"
+    },
+    {
+      "id": "K4.3",
+      "packet": "K4",
+      "host": "windows",
+      "check": "cargo test -p warsha-pipeline --lib command_policy::a_sleeping_child_is_killed_at_the_timeout_and_no_process_remains -- --exact",
+      "expect": "exit 0; 'test result: ok. 1 passed'"
+    },
+    {
+      "id": "K4.4",
+      "packet": "K4",
+      "host": "windows",
+      "check": "cargo test -p warshad --lib agent_lock::",
+      "expect": "exit 0; 'test result: ok. N passed; 0 failed', N>=2"
+    },
+    {
+      "id": "K4.5",
+      "packet": "K4",
+      "host": "windows",
+      "check": "git grep -n 'std::process::Command' -- crates/warsha-pipeline/src/agent_tools.rs",
+      "expect": "exit 1; no output"
+    },
+    {
+      "id": "K5.1",
+      "packet": "K5",
+      "host": "windows",
+      "check": "cargo test -p warsha-pipeline --lib spawn_hardening::",
+      "expect": "exit 0; 'test result: ok. N passed; 0 failed', N>=5"
+    },
+    {
+      "id": "K5.2",
+      "packet": "K5",
+      "host": "windows",
+      "check": "cargo test -p warshad --lib spawn_hardening::",
+      "expect": "exit 0; 'test result: ok. N passed; 0 failed', N>=3"
+    },
+    {
+      "id": "K5.3",
+      "packet": "K5",
+      "host": "windows",
+      "check": "cargo test -p warsha-core --lib bundled_packs_are_pinned_and_seeded_disabled -- --exact",
+      "expect": "exit 0; 'test result: ok. 1 passed'"
+    },
+    {
+      "id": "K5.4",
+      "packet": "K5",
+      "host": "windows",
+      "check": "git grep -n 'env_clear' -- crates/warsha-pipeline/src/process_spawn.rs",
+      "expect": "exit 0; >= 1 line"
+    },
+    {
+      "id": "K5.5",
+      "packet": "K5",
+      "host": "windows",
+      "check": "git grep -n -E 'let _ = self\\.state\\.mcp\\.(connect|disconnect|send)' -- crates/warshad/src/lib.rs",
+      "expect": "exit 1; no output"
+    },
+    {
+      "id": "K6.1",
+      "packet": "K6",
+      "host": "windows",
+      "check": "cargo test -p warsha-pipeline --lib mcp_permission::",
+      "expect": "exit 0; 'test result: ok. N passed; 0 failed', N>=5"
+    },
+    {
+      "id": "K6.2",
+      "packet": "K6",
+      "host": "windows",
+      "check": "cargo test -p warshad --lib mcp_permission::",
+      "expect": "exit 0; 'test result: ok. N passed; 0 failed', N>=3"
+    },
+    {
+      "id": "K6.3",
+      "packet": "K6",
+      "host": "windows",
+      "check": "git grep -n 'check_permission' -- crates/warsha-pipeline/src/agent_loop.rs crates/warshad/src/lib.rs",
+      "expect": "exit 0; >= 2 lines"
+    },
+    {
+      "id": "K6.4",
+      "packet": "K6",
+      "host": "windows",
+      "check": "ls crates/warsha-store/migrations/004_mcp_permissions.sql",
+      "expect": "exit 0; filename printed"
+    },
+    {
+      "id": "K7.1",
+      "packet": "K7",
+      "host": "windows",
+      "check": "git grep -n -E 'fn verify_signature|fn process_handshake' -- crates/warsha-remote/src/lib.rs",
+      "expect": "exit 1; no output"
+    },
+    {
+      "id": "K7.2",
+      "packet": "K7",
+      "host": "windows",
+      "check": "cargo test -p warsha-remote -p warsha-relay",
+      "expect": "exit 0; 0 failed on every binary"
+    },
+    {
+      "id": "K7.3",
+      "packet": "K7",
+      "host": "windows",
+      "check": "git grep -n -E 'In real implementation|WebSocket not implemented' -- crates/warsha-remote/src/lib.rs",
+      "expect": "exit 1; no output"
+    },
+    {
+      "id": "K8.1",
+      "packet": "K8",
+      "host": "windows",
+      "check": "node tools/k8-evidence-audit.mjs",
+      "expect": "exit 0; 'k8-audit: 0 unsuperseded pass rows; 9 corrected'"
+    },
+    {
+      "id": "K8.2",
+      "packet": "K8",
+      "host": "windows",
+      "check": "bash tools/k8-plan-labels.sh",
+      "expect": "exit 1; no output"
+    },
+    {
+      "id": "K8.3",
+      "packet": "K8",
+      "host": "windows",
+      "check": "git grep -n -E 'writes code|runnable web app' -- README.md README.ar.md",
+      "expect": "exit 1; no output"
+    },
+    {
+      "id": "K8.4",
+      "packet": "K8",
+      "host": "windows",
+      "check": "git diff --numstat 128b59c08cbf5ddbe4de002528a50f451ea74296..HEAD -- bridge-io/policy/2026-11-08-design-and-remediation/acceptance.json",
+      "expect": "exit 0; one line, third column (deletions) = 0"
+    },
+    {
+      "id": "S1a.1",
+      "packet": "S1a",
+      "host": "windows",
+      "check": "bash tools/s1a-versions.sh",
+      "expect": "exit 0; 'Locking 0 packages' for each of tokio, chrono, anyhow, tracing-subscriber, rand"
+    },
+    {
+      "id": "S1a.2",
+      "packet": "S1a",
+      "host": "windows",
+      "check": "cargo deny --manifest-path Cargo.toml --all-features check advisories",
+      "expect": "exit 0; output names none of tokio, chrono, anyhow, tracing-subscriber, rand"
+    },
+    {
+      "id": "S1b.1",
+      "packet": "S1b",
+      "host": "windows",
+      "check": "cargo test -p warsha-relay -p warsha-remote",
+      "expect": "exit 0; 0 failed"
+    },
+    {
+      "id": "S1b.2",
+      "packet": "S1b",
+      "host": "windows",
+      "check": "cargo update --dry-run -p ring --manifest-path Cargo.toml",
+      "expect": "exit 0; 'Locking 0 packages'"
+    },
+    {
+      "id": "S1c.1",
+      "packet": "S1c",
+      "host": "windows",
+      "check": "cargo deny --manifest-path Cargo.toml --all-features check advisories",
+      "expect": "exit 0; 'advisories ok'"
+    },
+    {
+      "id": "S1c.2",
+      "packet": "S1c",
+      "host": "windows",
+      "check": "cargo deny --manifest-path apps/desktop/src-tauri/Cargo.toml --all-features check advisories",
+      "expect": "exit 0; 'advisories ok'"
+    },
+    {
+      "id": "S1c.3",
+      "packet": "S1c",
+      "host": "windows",
+      "check": "cargo test -p warsha-store -p warsha-git",
+      "expect": "exit 0; 0 failed"
+    },
+    {
+      "id": "S1c.4",
+      "packet": "S1c",
+      "host": "windows",
+      "check": "cargo tree -i libsqlite3-sys --manifest-path Cargo.toml -e normal",
+      "expect": "exit 0; exactly one version line matching /libsqlite3-sys v0\\.(39|4[0-9])\\./"
+    },
+    {
+      "id": "S1c.5",
+      "packet": "S1c",
+      "host": "windows",
+      "check": "cargo check --workspace --all-targets",
+      "expect": "exit 0"
+    },
+    {
+      "id": "S1d.1",
+      "packet": "S1d",
+      "host": "windows",
+      "check": "cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets",
+      "expect": "exit 0"
+    },
+    {
+      "id": "S1d.2",
+      "packet": "S1d",
+      "host": "windows",
+      "check": "cargo deny --manifest-path apps/desktop/src-tauri/Cargo.toml --all-features check advisories",
+      "expect": "exit 0"
+    },
+    {
+      "id": "S2.1",
+      "packet": "S2",
+      "host": "windows",
+      "check": "pnpm audit --prod --audit-level high",
+      "expect": "exit 0; no high or critical finding"
+    },
+    {
+      "id": "S3.1",
+      "packet": "S3",
+      "host": "windows",
+      "check": "gitleaks detect --config .gitleaks.toml --no-banner --redact",
+      "expect": "exit 0; 'no leaks found'"
+    },
+    {
+      "id": "S3.2",
+      "packet": "S3",
+      "host": "windows",
+      "check": "cargo deny --manifest-path Cargo.toml --all-features check licenses bans sources",
+      "expect": "exit 0; 'bans ok, licenses ok, sources ok'"
+    },
+    {
+      "id": "S3.3",
+      "packet": "S3",
+      "host": "windows",
+      "check": "bash tools/s3-notices.sh",
+      "expect": "exit 0; 'notices-current: 0 missing'"
+    },
+    {
+      "id": "CP.1",
+      "packet": "CHECKPOINT",
+      "host": "any",
+      "check": "node -e \"const v=require('./verdict.json');process.exit(v.findings.filter(f=>f.severity==='high'||f.severity==='critical').length===0&&v.verdict==='approve'?0:1)\"",
+      "expect": "exit 0"
+    },
+    {
+      "id": "CP.2",
+      "packet": "CHECKPOINT",
+      "host": "windows",
+      "check": "cargo deny --manifest-path Cargo.toml --all-features check",
+      "expect": "exit 0; 'advisories ok, bans ok, licenses ok, sources ok'"
+    },
+    {
+      "id": "CP.3",
+      "packet": "CHECKPOINT",
+      "host": "windows",
+      "check": "bash tools/rust-tests.sh",
+      "expect": "exit 0; 'KEEL-PASS rust-tests' with 0 failed, ignored=10"
+    },
+    {
+      "id": "CP.4",
+      "packet": "CHECKPOINT",
+      "host": "any",
+      "check": "git merge-base --is-ancestor <K1-merge-sha> HEAD && git merge-base --is-ancestor <K2-merge-sha> HEAD",
+      "expect": "exit 0 for both"
+    },
+    {
+      "id": "STD.3",
+      "host": "windows",
+      "check": "bash tools/rust-tests.sh",
+      "expect": "KEEL-PASS rust-tests passed=N ignored=10 N>=759",
+      "verdict": "pass",
+      "exit_code": 0,
+      "commit": "718e859",
+      "timestamp": "2026-11-10T08:11:41Z",
+      "log": "gates/STD.3.log + STD.3.run.log",
+      "note": "orchestrator-recorded from the run log (the verifier died before writing this row): KEEL-PASS rust-tests passed=763 ignored=10 cargo_exit=0"
+    }
+  ]
+}

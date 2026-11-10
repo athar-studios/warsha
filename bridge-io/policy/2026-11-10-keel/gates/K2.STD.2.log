@@ -1,0 +1,9 @@
+    Checking tower v0.4.13
+    Checking warsha-remote v0.2.1 (C:\Users\Dragonfly\Downloads\warsha-wt\keel\k2\crates\warsha-remote)
+    Checking warsha-core v0.2.1 (C:\Users\Dragonfly\Downloads\warsha-wt\keel\k2\crates\warsha-core)
+    Checking warsha-git v0.2.1 (C:\Users\Dragonfly\Downloads\warsha-wt\keel\k2\crates\warsha-git)
+    Checking warsha-cli v0.2.1 (C:\Users\Dragonfly\Downloads\warsha-wt\keel\k2\crates\warsha-cli)
+    Checking warsha-backends v0.2.1 (C:\Users\Dragonfly\Downloads\warsha-wt\keel\k2\crates\warsha-backends)
+    Checking warsha-providers v0.2.1 (C:\Users\Dragonfly\Downloads\warsha-wt\keel\k2\crates\warsha-providers)
+    Checking warsha-relay v0.2.1 (C:\Users\Dragonfly\Downloads\warsha-wt\keel\k2\crates\warsha-relay)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.52s

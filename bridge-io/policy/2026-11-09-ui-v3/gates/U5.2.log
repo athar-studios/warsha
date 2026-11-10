@@ -1,0 +1,27 @@
+gate: U5.2
+commit: 7d4ceb9d589c23a139117ad98a977ff3a073ad9a
+cwd: C:/Users/Dragonfly/Downloads/warsha-wt/v3/u5
+cmd: pnpm -r typecheck && pnpm --filter warsha-desktop lint && node scripts/check-ds-v3.mjs apps/desktop/src/v3
+started: 2026-11-10T16:04:14Z
+-----
+Scope: 7 of 8 workspace projects
+packages/ui typecheck$ tsc --noEmit && tsc --noEmit -p tsconfig.storybook.json
+packages/crypto typecheck$ tsc --noEmit
+packages/i18n typecheck$ tsc --noEmit
+packages/client typecheck$ tsc --noEmit
+packages/crypto typecheck: Done
+packages/i18n typecheck: Done
+packages/client typecheck: Done
+packages/ui typecheck: Done
+apps/desktop typecheck$ tsc --noEmit && tsc --noEmit -p tsconfig.e2e.json
+apps/remote typecheck$ tsc --noEmit
+apps/remote typecheck: Done
+apps/desktop typecheck: Done
+
+> warsha-desktop@0.2.1 lint C:\Users\Dragonfly\Downloads\warsha-wt\v3\u5\apps\desktop
+> eslint src --ext .ts,.tsx
+
+check-ds-v3: 0 violations in apps/desktop/src/v3
+-----
+finished: 2026-11-10T16:04:55Z
+EXIT=0

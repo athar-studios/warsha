@@ -1,0 +1,63 @@
+{
+  "schema": "warsha-run/v1",
+  "run_id": "2026-11-09-ui-v3",
+  "task": "Rebuild the Warsha UI from a clean slate on Design System v3 «حِرفة» (docs/designs/DESIGN_SYSTEM_V3.md) following docs/designs/UI_V3_PLAN.md: a Simple mode that is simple, an Advanced Workbench where every control works, every page and action registered and proven by e2e; plus the still-valid audit packets of 2026-11-09 (harness truth, Rust hygiene, release truth, optional agent command policy); stage a local, unpublished draft release bundle.",
+  "phase": "intake",
+  "seq": 1,
+  "updated_at": "2026-11-09T07:03:54Z",
+  "supersedes": "2026-11-09-phase-b-visual-wave (its P1/P5a/P5b/P6 DS-v2 visual packets are dropped; P2/P3/P4/P7 continue here as H1/R1/V1/P7)",
+  "roles": {
+    "planner": "claude-opus-5-5 (planner only)",
+    "orchestrator": "UNASSIGNED (Qoder)",
+    "implementer": "per packet",
+    "reviewer": "per packet",
+    "verifier": "per packet"
+  },
+  "scope": {
+    "allowed_files": "per packet",
+    "out_of_scope": [
+      "**/*-snapshots/** for every implementer",
+      "PLAN.md, PROGRESS.md, DECISIONS.md (orchestrator only, at checkpoints)",
+      "dependencies (except OD-U2 = A: two pinned @fontsource packages in U0)",
+      "publishing, tags, pushes, releases",
+      "daemon features the UI lacks (UI_V3_PLAN §6)",
+      "Tauri updater, code signing (human-only)"
+    ]
+  },
+  "base": {
+    "branch": "dev",
+    "planner_commit": "50b2b75255dbd4a224194f3254bdc2e775dbcb01",
+    "integration_branch": "run/2026-11-09-ui-v3/integration",
+    "worktree_root": "C:/Users/Dragonfly/Downloads/warsha-wt/v3"
+  },
+  "plan": {
+    "steps": [
+      "intake: owner request 2026-11-09 + two Haiku UI audits, see EXECUTIVE_SUMMARY.md"
+    ]
+  },
+  "baseline": {
+    "counts": null,
+    "recorded_at": null
+  },
+  "repair": {
+    "iteration": 0,
+    "max_repair_iterations": 3,
+    "open_findings": []
+  },
+  "blocker": null,
+  "owner_decisions": {
+    "file": "OWNER_DECISIONS.md",
+    "OD-U0": null,
+    "OD-U1": null,
+    "OD-U2": null,
+    "OD-U3": null,
+    "OD-B3": null,
+    "OD-B4": null,
+    "OD-B6": null
+  },
+  "evidence": {
+    "dir": "bridge-io/policy/2026-11-09-ui-v3",
+    "gates": [],
+    "logs": []
+  }
+}

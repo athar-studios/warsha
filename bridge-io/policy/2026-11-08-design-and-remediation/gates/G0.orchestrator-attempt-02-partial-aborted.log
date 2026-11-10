@@ -1,0 +1,455 @@
+=== G0 baseline — run 2026-11-08-design-and-remediation ===
+started_at: 2026-11-08T01:23:02Z
+host: WSL Ubuntu x86_64, user=root
+worktree: /root/warsha-g0
+commit: 0772d502002562505c6438ae712abca7a7328d84
+dirty_before: 0
+node: v20.20.2  pnpm: 9.0.0
+env: CI=true (missing baselines fail instead of being written)
+fontconfig_pin: /root/warsha-g0/scripts/ci/capture-fontconfig.conf
+plex_faces: 9
+
+=== G0-a: pnpm exec playwright test --project=desktop --reporter=line ===
+
+Running 793 tests using 2 workers
+
+[1A[2K[1/793] [desktop] › desktop/e2e/flows.spec.ts:81:5 › the mode group moves focus with the arrows and presses with Enter: 390x844 ar
+[1A[2K[2/793] [desktop] › desktop/e2e/flows.spec.ts:70:5 › the skip link is the first stop and it lands in the bench: 390x844 ar
+[1A[2K[3/793] [desktop] › desktop/e2e/flows.spec.ts:109:5 › the settings tab strip is a roving tablist: 390x844 ar
+[1A[2K[4/793] [desktop] › desktop/e2e/flows.spec.ts:147:5 › the composer: Shift+Enter breaks the line, Enter sends it: 390x844 ar
+[1A[2K[5/793] [desktop] › desktop/e2e/flows.spec.ts:172:5 › a gate is approved from the keyboard, and only by the daemon: 390x844 ar
+[1A[2K[6/793] [desktop] › desktop/e2e/flows.spec.ts:189:5 › a refusal needs a note, and Escape hands focus back: 390x844 ar
+[1A[2K[7/793] [desktop] › desktop/e2e/flows.spec.ts:229:5 › the handoff dialog traps the keyboard and gives focus back on Escape: 390x844 ar
+[1A[2K[8/793] [desktop] › desktop/e2e/flows.spec.ts:70:5 › the skip link is the first stop and it lands in the bench: 390x844 en
+[1A[2K[9/793] [desktop] › desktop/e2e/flows.spec.ts:81:5 › the mode group moves focus with the arrows and presses with Enter: 390x844 en
+[1A[2K[10/793] [desktop] › desktop/e2e/flows.spec.ts:109:5 › the settings tab strip is a roving tablist: 390x844 en
+[1A[2K[11/793] [desktop] › desktop/e2e/flows.spec.ts:147:5 › the composer: Shift+Enter breaks the line, Enter sends it: 390x844 en
+[1A[2K[12/793] [desktop] › desktop/e2e/flows.spec.ts:172:5 › a gate is approved from the keyboard, and only by the daemon: 390x844 en
+[1A[2K[13/793] [desktop] › desktop/e2e/flows.spec.ts:189:5 › a refusal needs a note, and Escape hands focus back: 390x844 en
+[1A[2K[14/793] [desktop] › desktop/e2e/flows.spec.ts:229:5 › the handoff dialog traps the keyboard and gives focus back on Escape: 390x844 en
+[1A[2K[15/793] [desktop] › desktop/e2e/flows.spec.ts:70:5 › the skip link is the first stop and it lands in the bench: 1440x900 ar
+[1A[2K[16/793] [desktop] › desktop/e2e/flows.spec.ts:81:5 › the mode group moves focus with the arrows and presses with Enter: 1440x900 ar
+[1A[2K[17/793] [desktop] › desktop/e2e/flows.spec.ts:109:5 › the settings tab strip is a roving tablist: 1440x900 ar
+[1A[2K[18/793] [desktop] › desktop/e2e/flows.spec.ts:147:5 › the composer: Shift+Enter breaks the line, Enter sends it: 1440x900 ar
+[1A[2K[19/793] [desktop] › desktop/e2e/flows.spec.ts:172:5 › a gate is approved from the keyboard, and only by the daemon: 1440x900 ar
+[1A[2K[20/793] [desktop] › desktop/e2e/flows.spec.ts:189:5 › a refusal needs a note, and Escape hands focus back: 1440x900 ar
+[1A[2K[21/793] [desktop] › desktop/e2e/flows.spec.ts:229:5 › the handoff dialog traps the keyboard and gives focus back on Escape: 1440x900 ar
+[1A[2K[22/793] [desktop] › desktop/e2e/flows.spec.ts:70:5 › the skip link is the first stop and it lands in the bench: 1440x900 en
+[1A[2K[23/793] [desktop] › desktop/e2e/flows.spec.ts:81:5 › the mode group moves focus with the arrows and presses with Enter: 1440x900 en
+[1A[2K[24/793] [desktop] › desktop/e2e/flows.spec.ts:109:5 › the settings tab strip is a roving tablist: 1440x900 en
+[1A[2K[25/793] [desktop] › desktop/e2e/flows.spec.ts:147:5 › the composer: Shift+Enter breaks the line, Enter sends it: 1440x900 en
+[1A[2K[26/793] [desktop] › desktop/e2e/flows.spec.ts:172:5 › a gate is approved from the keyboard, and only by the daemon: 1440x900 en
+[1A[2K[27/793] [desktop] › desktop/e2e/flows.spec.ts:189:5 › a refusal needs a note, and Escape hands focus back: 1440x900 en
+[1A[2K[28/793] [desktop] › desktop/e2e/flows.spec.ts:229:5 › the handoff dialog traps the keyboard and gives focus back on Escape: 1440x900 en
+[1A[2K[29/793] [desktop] › desktop/e2e/flows.spec.ts:278:3 › a focused control draws the §9 ring in light
+[1A[2K[30/793] [desktop] › desktop/e2e/flows.spec.ts:278:3 › a focused control draws the §9 ring in dark
+[1A[2K[31/793] [desktop] › desktop/e2e/layout.spec.ts:44:5 › the onboarding heading stack keeps three separate boxes (320x568, ar)
+[1A[2K[32/793] [desktop] › desktop/e2e/layout.spec.ts:44:5 › the onboarding heading stack keeps three separate boxes (320x568, en)
+[1A[2K[33/793] [desktop] › desktop/e2e/layout.spec.ts:44:5 › the onboarding heading stack keeps three separate boxes (390x844, ar)
+[1A[2K[34/793] [desktop] › desktop/e2e/layout.spec.ts:44:5 › the onboarding heading stack keeps three separate boxes (390x844, en)
+[1A[2K[35/793] [desktop] › desktop/e2e/layout.spec.ts:44:5 › the onboarding heading stack keeps three separate boxes (768x1024, ar)
+[1A[2K[36/793] [desktop] › desktop/e2e/layout.spec.ts:44:5 › the onboarding heading stack keeps three separate boxes (768x1024, en)
+[1A[2K[37/793] [desktop] › desktop/e2e/layout.spec.ts:44:5 › the onboarding heading stack keeps three separate boxes (1024x768, ar)
+[1A[2K[38/793] [desktop] › desktop/e2e/layout.spec.ts:44:5 › the onboarding heading stack keeps three separate boxes (1024x768, en)
+[1A[2K[39/793] [desktop] › desktop/e2e/layout.spec.ts:44:5 › the onboarding heading stack keeps three separate boxes (1440x900, ar)
+[1A[2K[40/793] [desktop] › desktop/e2e/layout.spec.ts:44:5 › the onboarding heading stack keeps three separate boxes (1440x900, en)
+[1A[2K[41/793] [desktop] › desktop/e2e/layout.spec.ts:120:3 › the settings plate keeps every box inside its phone width (ar)
+[1A[2K[42/793] [desktop] › desktop/e2e/layout.spec.ts:120:3 › the settings plate keeps every box inside its phone width (en)
+[1A[2K[43/793] [desktop] › desktop/e2e/onboarding.spec.ts:45:1 › the first run lists providers, tests the key, creates the project and leaves the wizard
+[1A[2K[44/793] [desktop] › desktop/e2e/onboarding.spec.ts:76:1 › a refused key is reported as a failure, and the key is nowhere it could leak from
+[1A[2K[45/793] [desktop] › desktop/e2e/onboarding.spec.ts:110:1 › the owner is told the test passed, and only then can name a project
+[1A[2K[46/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: simple 390x844 ar light
+[1A[2K[47/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: simple 390x844 ar dark
+[1A[2K[48/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: simple 390x844 en light
+[1A[2K[49/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: simple 390x844 en dark
+[1A[2K[50/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: simple 1440x900 ar light
+[1A[2K[51/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: simple 1440x900 ar dark
+[1A[2K[52/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: simple 1440x900 en light
+[1A[2K[53/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: simple 1440x900 en dark
+[1A[2K[54/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: advanced 390x844 ar light
+[1A[2K[55/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: advanced 390x844 ar dark
+[1A[2K[56/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: advanced 390x844 en light
+[1A[2K[57/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: advanced 390x844 en dark
+[1A[2K[58/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: advanced 1440x900 ar light
+[1A[2K[59/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: advanced 1440x900 ar dark
+[1A[2K[60/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: advanced 1440x900 en light
+[1A[2K[61/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: advanced 1440x900 en dark
+[1A[2K[62/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: gates 390x844 ar light
+[1A[2K[63/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: gates 390x844 ar dark
+[1A[2K[64/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: gates 390x844 en light
+[1A[2K[65/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: gates 390x844 en dark
+[1A[2K[66/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: gates 1440x900 ar light
+[1A[2K[67/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: gates 1440x900 ar dark
+[1A[2K[68/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: gates 1440x900 en light
+[1A[2K[69/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: gates 1440x900 en dark
+[1A[2K[70/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: projects 390x844 ar light
+[1A[2K[71/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: projects 390x844 ar dark
+[1A[2K[72/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: projects 390x844 en light
+[1A[2K[73/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: projects 390x844 en dark
+[1A[2K[74/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: projects 1440x900 ar light
+[1A[2K[75/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: projects 1440x900 ar dark
+[1A[2K[76/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: projects 1440x900 en light
+[1A[2K[77/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: projects 1440x900 en dark
+[1A[2K[78/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: run 390x844 ar light
+[1A[2K[79/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: run 390x844 ar dark
+[1A[2K[80/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: run 390x844 en light
+[1A[2K[81/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: run 390x844 en dark
+[1A[2K[82/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: run 1440x900 ar light
+[1A[2K[83/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: run 1440x900 ar dark
+[1A[2K[84/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: run 1440x900 en light
+[1A[2K[85/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: run 1440x900 en dark
+[1A[2K[86/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: artifacts 390x844 ar light
+[1A[2K[87/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: artifacts 390x844 ar dark
+[1A[2K[88/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: artifacts 390x844 en light
+[1A[2K[89/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: artifacts 390x844 en dark
+[1A[2K[90/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: artifacts 1440x900 ar light
+[1A[2K[91/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: artifacts 1440x900 ar dark
+[1A[2K[92/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: artifacts 1440x900 en light
+[1A[2K[93/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: artifacts 1440x900 en dark
+[1A[2K[94/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 390x844 ar light
+[1A[2K[95/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 390x844 ar dark
+[1A[2K  1) [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 390x844 ar light 
+
+    Error: axe found WCAG AA violations:
+    aria-required-children [critical] Certain ARIA roles must contain particular children
+        ul — Fix any of the following:
+      Required ARIA child role not present: listitem
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoEqual[2m([22m[32mexpected[39m[2m) // deep equality[22m
+
+    [32m- Expected  -  1[39m
+    [31m+ Received  + 12[39m
+
+    [32m- Array [][39m
+    [31m+ Array [[39m
+    [31m+   Object {[39m
+    [31m+     "help": "Certain ARIA roles must contain particular children",[39m
+    [31m+     "href": "https://dequeuniversity.com/rules/axe/4.14/aria-required-children?application=axeAPI",[39m
+    [31m+     "id": "aria-required-children",[39m
+    [31m+     "impact": "critical",[39m
+    [31m+     "nodes": Array [[39m
+    [31m+       "ul — Fix any of the following:[39m
+    [31m+   Required ARIA child role not present: listitem",[39m
+    [31m+     ],[39m
+    [31m+   },[39m
+    [31m+ ][39m
+
+      46 |
+      47 |           const axe = await runAxe(page);
+    > 48 |           expect.soft(axe.violations, `axe found WCAG AA violations:\n${describeAxe(axe)}`).toEqual([]);
+         |                                                                                             ^
+      49 |
+      50 |           const focus = await auditFocusWalk(page);
+      51 |           expect.soft(focusIsClean(focus), `focus problems:\n${describeFocus(focus)}`).toBe(true);
+        at /root/warsha-g0/apps/desktop/e2e/screens.a11y.spec.ts:48:93
+
+
+[1A[2K[96/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 390x844 en light
+[1A[2K  2) [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 390x844 ar dark 
+
+    Error: axe found WCAG AA violations:
+    aria-required-children [critical] Certain ARIA roles must contain particular children
+        ul — Fix any of the following:
+      Required ARIA child role not present: listitem
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoEqual[2m([22m[32mexpected[39m[2m) // deep equality[22m
+
+    [32m- Expected  -  1[39m
+    [31m+ Received  + 12[39m
+
+    [32m- Array [][39m
+    [31m+ Array [[39m
+    [31m+   Object {[39m
+    [31m+     "help": "Certain ARIA roles must contain particular children",[39m
+    [31m+     "href": "https://dequeuniversity.com/rules/axe/4.14/aria-required-children?application=axeAPI",[39m
+    [31m+     "id": "aria-required-children",[39m
+    [31m+     "impact": "critical",[39m
+    [31m+     "nodes": Array [[39m
+    [31m+       "ul — Fix any of the following:[39m
+    [31m+   Required ARIA child role not present: listitem",[39m
+    [31m+     ],[39m
+    [31m+   },[39m
+    [31m+ ][39m
+
+      46 |
+      47 |           const axe = await runAxe(page);
+    > 48 |           expect.soft(axe.violations, `axe found WCAG AA violations:\n${describeAxe(axe)}`).toEqual([]);
+         |                                                                                             ^
+      49 |
+      50 |           const focus = await auditFocusWalk(page);
+      51 |           expect.soft(focusIsClean(focus), `focus problems:\n${describeFocus(focus)}`).toBe(true);
+        at /root/warsha-g0/apps/desktop/e2e/screens.a11y.spec.ts:48:93
+
+
+[1A[2K[97/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 390x844 en dark
+[1A[2K  3) [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 390x844 en light 
+
+    Error: axe found WCAG AA violations:
+    aria-required-children [critical] Certain ARIA roles must contain particular children
+        ul — Fix any of the following:
+      Required ARIA child role not present: listitem
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoEqual[2m([22m[32mexpected[39m[2m) // deep equality[22m
+
+    [32m- Expected  -  1[39m
+    [31m+ Received  + 12[39m
+
+    [32m- Array [][39m
+    [31m+ Array [[39m
+    [31m+   Object {[39m
+    [31m+     "help": "Certain ARIA roles must contain particular children",[39m
+    [31m+     "href": "https://dequeuniversity.com/rules/axe/4.14/aria-required-children?application=axeAPI",[39m
+    [31m+     "id": "aria-required-children",[39m
+    [31m+     "impact": "critical",[39m
+    [31m+     "nodes": Array [[39m
+    [31m+       "ul — Fix any of the following:[39m
+    [31m+   Required ARIA child role not present: listitem",[39m
+    [31m+     ],[39m
+    [31m+   },[39m
+    [31m+ ][39m
+
+      46 |
+      47 |           const axe = await runAxe(page);
+    > 48 |           expect.soft(axe.violations, `axe found WCAG AA violations:\n${describeAxe(axe)}`).toEqual([]);
+         |                                                                                             ^
+      49 |
+      50 |           const focus = await auditFocusWalk(page);
+      51 |           expect.soft(focusIsClean(focus), `focus problems:\n${describeFocus(focus)}`).toBe(true);
+        at /root/warsha-g0/apps/desktop/e2e/screens.a11y.spec.ts:48:93
+
+
+[1A[2K[98/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 1440x900 ar light
+[1A[2K  4) [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 390x844 en dark 
+
+    Error: axe found WCAG AA violations:
+    aria-required-children [critical] Certain ARIA roles must contain particular children
+        ul — Fix any of the following:
+      Required ARIA child role not present: listitem
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoEqual[2m([22m[32mexpected[39m[2m) // deep equality[22m
+
+    [32m- Expected  -  1[39m
+    [31m+ Received  + 12[39m
+
+    [32m- Array [][39m
+    [31m+ Array [[39m
+    [31m+   Object {[39m
+    [31m+     "help": "Certain ARIA roles must contain particular children",[39m
+    [31m+     "href": "https://dequeuniversity.com/rules/axe/4.14/aria-required-children?application=axeAPI",[39m
+    [31m+     "id": "aria-required-children",[39m
+    [31m+     "impact": "critical",[39m
+    [31m+     "nodes": Array [[39m
+    [31m+       "ul — Fix any of the following:[39m
+    [31m+   Required ARIA child role not present: listitem",[39m
+    [31m+     ],[39m
+    [31m+   },[39m
+    [31m+ ][39m
+
+      46 |
+      47 |           const axe = await runAxe(page);
+    > 48 |           expect.soft(axe.violations, `axe found WCAG AA violations:\n${describeAxe(axe)}`).toEqual([]);
+         |                                                                                             ^
+      49 |
+      50 |           const focus = await auditFocusWalk(page);
+      51 |           expect.soft(focusIsClean(focus), `focus problems:\n${describeFocus(focus)}`).toBe(true);
+        at /root/warsha-g0/apps/desktop/e2e/screens.a11y.spec.ts:48:93
+
+
+[1A[2K[99/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 1440x900 ar dark
+[1A[2K  5) [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 1440x900 ar light 
+
+    Error: axe found WCAG AA violations:
+    aria-required-children [critical] Certain ARIA roles must contain particular children
+        ul — Fix any of the following:
+      Required ARIA child role not present: listitem
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoEqual[2m([22m[32mexpected[39m[2m) // deep equality[22m
+
+    [32m- Expected  -  1[39m
+    [31m+ Received  + 12[39m
+
+    [32m- Array [][39m
+    [31m+ Array [[39m
+    [31m+   Object {[39m
+    [31m+     "help": "Certain ARIA roles must contain particular children",[39m
+    [31m+     "href": "https://dequeuniversity.com/rules/axe/4.14/aria-required-children?application=axeAPI",[39m
+    [31m+     "id": "aria-required-children",[39m
+    [31m+     "impact": "critical",[39m
+    [31m+     "nodes": Array [[39m
+    [31m+       "ul — Fix any of the following:[39m
+    [31m+   Required ARIA child role not present: listitem",[39m
+    [31m+     ],[39m
+    [31m+   },[39m
+    [31m+ ][39m
+
+      46 |
+      47 |           const axe = await runAxe(page);
+    > 48 |           expect.soft(axe.violations, `axe found WCAG AA violations:\n${describeAxe(axe)}`).toEqual([]);
+         |                                                                                             ^
+      49 |
+      50 |           const focus = await auditFocusWalk(page);
+      51 |           expect.soft(focusIsClean(focus), `focus problems:\n${describeFocus(focus)}`).toBe(true);
+        at /root/warsha-g0/apps/desktop/e2e/screens.a11y.spec.ts:48:93
+
+
+[1A[2K[100/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 1440x900 en light
+[1A[2K  6) [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 1440x900 ar dark 
+
+    Error: axe found WCAG AA violations:
+    aria-required-children [critical] Certain ARIA roles must contain particular children
+        ul — Fix any of the following:
+      Required ARIA child role not present: listitem
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoEqual[2m([22m[32mexpected[39m[2m) // deep equality[22m
+
+    [32m- Expected  -  1[39m
+    [31m+ Received  + 12[39m
+
+    [32m- Array [][39m
+    [31m+ Array [[39m
+    [31m+   Object {[39m
+    [31m+     "help": "Certain ARIA roles must contain particular children",[39m
+    [31m+     "href": "https://dequeuniversity.com/rules/axe/4.14/aria-required-children?application=axeAPI",[39m
+    [31m+     "id": "aria-required-children",[39m
+    [31m+     "impact": "critical",[39m
+    [31m+     "nodes": Array [[39m
+    [31m+       "ul — Fix any of the following:[39m
+    [31m+   Required ARIA child role not present: listitem",[39m
+    [31m+     ],[39m
+    [31m+   },[39m
+    [31m+ ][39m
+
+      46 |
+      47 |           const axe = await runAxe(page);
+    > 48 |           expect.soft(axe.violations, `axe found WCAG AA violations:\n${describeAxe(axe)}`).toEqual([]);
+         |                                                                                             ^
+      49 |
+      50 |           const focus = await auditFocusWalk(page);
+      51 |           expect.soft(focusIsClean(focus), `focus problems:\n${describeFocus(focus)}`).toBe(true);
+        at /root/warsha-g0/apps/desktop/e2e/screens.a11y.spec.ts:48:93
+
+
+[1A[2K[101/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 1440x900 en dark
+[1A[2K  7) [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 1440x900 en light 
+
+    Error: axe found WCAG AA violations:
+    aria-required-children [critical] Certain ARIA roles must contain particular children
+        ul — Fix any of the following:
+      Required ARIA child role not present: listitem
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoEqual[2m([22m[32mexpected[39m[2m) // deep equality[22m
+
+    [32m- Expected  -  1[39m
+    [31m+ Received  + 12[39m
+
+    [32m- Array [][39m
+    [31m+ Array [[39m
+    [31m+   Object {[39m
+    [31m+     "help": "Certain ARIA roles must contain particular children",[39m
+    [31m+     "href": "https://dequeuniversity.com/rules/axe/4.14/aria-required-children?application=axeAPI",[39m
+    [31m+     "id": "aria-required-children",[39m
+    [31m+     "impact": "critical",[39m
+    [31m+     "nodes": Array [[39m
+    [31m+       "ul — Fix any of the following:[39m
+    [31m+   Required ARIA child role not present: listitem",[39m
+    [31m+     ],[39m
+    [31m+   },[39m
+    [31m+ ][39m
+
+      46 |
+      47 |           const axe = await runAxe(page);
+    > 48 |           expect.soft(axe.violations, `axe found WCAG AA violations:\n${describeAxe(axe)}`).toEqual([]);
+         |                                                                                             ^
+      49 |
+      50 |           const focus = await auditFocusWalk(page);
+      51 |           expect.soft(focusIsClean(focus), `focus problems:\n${describeFocus(focus)}`).toBe(true);
+        at /root/warsha-g0/apps/desktop/e2e/screens.a11y.spec.ts:48:93
+
+
+[1A[2K[102/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: providers 390x844 ar light
+[1A[2K  8) [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings 1440x900 en dark 
+
+    Error: axe found WCAG AA violations:
+    aria-required-children [critical] Certain ARIA roles must contain particular children
+        ul — Fix any of the following:
+      Required ARIA child role not present: listitem
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoEqual[2m([22m[32mexpected[39m[2m) // deep equality[22m
+
+    [32m- Expected  -  1[39m
+    [31m+ Received  + 12[39m
+
+    [32m- Array [][39m
+    [31m+ Array [[39m
+    [31m+   Object {[39m
+    [31m+     "help": "Certain ARIA roles must contain particular children",[39m
+    [31m+     "href": "https://dequeuniversity.com/rules/axe/4.14/aria-required-children?application=axeAPI",[39m
+    [31m+     "id": "aria-required-children",[39m
+    [31m+     "impact": "critical",[39m
+    [31m+     "nodes": Array [[39m
+    [31m+       "ul — Fix any of the following:[39m
+    [31m+   Required ARIA child role not present: listitem",[39m
+    [31m+     ],[39m
+    [31m+   },[39m
+    [31m+ ][39m
+
+      46 |
+      47 |           const axe = await runAxe(page);
+    > 48 |           expect.soft(axe.violations, `axe found WCAG AA violations:\n${describeAxe(axe)}`).toEqual([]);
+         |                                                                                             ^
+      49 |
+      50 |           const focus = await auditFocusWalk(page);
+      51 |           expect.soft(focusIsClean(focus), `focus problems:\n${describeFocus(focus)}`).toBe(true);
+        at /root/warsha-g0/apps/desktop/e2e/screens.a11y.spec.ts:48:93
+
+
+[1A[2K[103/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: providers 390x844 ar dark
+[1A[2K[104/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: providers 390x844 en light
+[1A[2K[105/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: providers 390x844 en dark
+[1A[2K[106/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: providers 1440x900 ar light
+[1A[2K[107/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: providers 1440x900 ar dark
+[1A[2K[108/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: providers 1440x900 en light
+[1A[2K[109/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: providers 1440x900 en dark
+[1A[2K[110/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: roles 390x844 ar light
+[1A[2K[111/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: roles 390x844 ar dark
+[1A[2K[112/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: roles 390x844 en light
+[1A[2K[113/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: roles 390x844 en dark
+[1A[2K[114/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: roles 1440x900 ar light
+[1A[2K[115/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: roles 1440x900 ar dark
+[1A[2K[116/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: roles 1440x900 en light
+[1A[2K[117/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: roles 1440x900 en dark
+[1A[2K[118/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: budgets 390x844 ar light
+[1A[2K[119/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: budgets 390x844 ar dark
+[1A[2K[120/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: budgets 390x844 en light
+[1A[2K[121/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: budgets 390x844 en dark
+[1A[2K[122/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: budgets 1440x900 ar light
+[1A[2K[123/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: budgets 1440x900 ar dark
+[1A[2K[124/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: budgets 1440x900 en light
+[1A[2K[125/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: budgets 1440x900 en dark
+[1A[2K[126/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: devices 390x844 ar light
+[1A[2K[127/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: devices 390x844 ar dark
+[1A[2K[128/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: devices 390x844 en light
+[1A[2K[129/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: devices 390x844 en dark
+[1A[2K[130/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: devices 1440x900 ar light
+[1A[2K[131/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: devices 1440x900 ar dark
+[1A[2K[132/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: devices 1440x900 en light
+[1A[2K[133/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: devices 1440x900 en dark
+[1A[2K[134/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings-providers 390x844 ar light
+[1A[2K[135/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings-providers 390x844 ar dark
+[1A[2K[136/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings-providers 390x844 en light
+[1A[2K[137/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings-providers 390x844 en dark
+[1A[2K[138/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings-providers 1440x900 ar light
+[1A[2K[139/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings-providers 1440x900 ar dark
+[1A[2K[140/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings-providers 1440x900 en light
+[1A[2K[141/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: settings-providers 1440x900 en dark
+[1A[2K[142/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: routines 390x844 ar light
+[1A[2K[143/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: routines 390x844 ar dark
+[1A[2K[144/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: routines 390x844 en light
+[1A[2K[145/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: routines 390x844 en dark
+[1A[2K[146/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: routines 1440x900 ar light
+[1A[2K[147/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: routines 1440x900 ar dark
+[1A[2K[148/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: routines 1440x900 en light
+[1A[2K[149/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: routines 1440x900 en dark
+[1A[2K[150/793] [desktop] › desktop/e2e/screens.a11y.spec.ts:44:9 › axe AA is clean and the keyboard reaches everything: crash-reports 390x844 ar light
+undefined
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command was killed with SIGTERM (Termination): playwright test --project=desktop --reporter=line
