@@ -71,6 +71,7 @@ struct Daemon {
 
 impl Daemon {
     async fn start() -> Self {
+        std::env::set_var("WARSHA_LLM_PROVIDER", "fake");
         let dir = fresh_tempdir();
         let config = DaemonConfig {
             data_dir: dir.path().to_path_buf(),
@@ -328,6 +329,13 @@ async fn an_open_events_socket_receives_the_events_a_run_start_and_a_gate_decisi
     assert_eq!(started["run_id"].as_str(), Some(run_id.as_str()));
     assert_eq!(started["kind"], json!("stage_started"));
 
+    // Advance Idea -> Gate A so Gate A is the current stage before deciding it.
+    rpc_ok(daemon.rpc(), "runs.advance", json!([run_id.clone()])).await;
+    let at_gate_a = socket.next_event_frame().await;
+    assert_eq!(at_gate_a["run_id"].as_str(), Some(run_id.as_str()));
+    assert_eq!(at_gate_a["kind"], json!("stage_started"));
+    assert_eq!(at_gate_a["stage"], json!("gate_a"));
+
     // 3. A gate decision, same socket still open.
     rpc_ok(
         daemon.rpc(),
@@ -346,7 +354,7 @@ async fn an_open_events_socket_receives_the_events_a_run_start_and_a_gate_decisi
     //    are looking at the same one.
     let stored = rpc_ok(daemon.rpc(), "runs.events", json!([run_id.clone()])).await;
     let stored = stored.as_array().expect("the run's event log").clone();
-    for delivered in [&started, &decided] {
+    for delivered in [&started, &at_gate_a, &decided] {
         let id = delivered["id"].as_str().expect("an event id").to_string();
         let persisted = store_event_by_id(&stored, &id);
         assert_eq!(
@@ -392,6 +400,17 @@ async fn a_run_start_with_no_socket_attached_is_persisted_and_readable_afterward
         .find(|event| event["kind"] == json!("stage_started"))
         .expect("the unwatched run start is in the store");
     assert_eq!(started["run_id"].as_str(), Some(run_id.as_str()));
+
+    // Advance to Gate B while no socket is attached so the post-attach decision
+    // is made at the current gate.
+    rpc_ok(daemon.rpc(), "runs.advance", json!([run_id.clone()])).await;
+    rpc_ok(
+        daemon.rpc(),
+        "gates.approve",
+        json!([run_id.clone(), "gate_a"]),
+    )
+    .await;
+    rpc_ok(daemon.rpc(), "runs.advance", json!([run_id.clone()])).await;
 
     // A socket opened after the fact attaches cleanly and waits: the past is the
     // store's job (`runs.events` above), the socket's job is what comes next.

@@ -56,6 +56,7 @@ struct Daemon {
 
 impl Daemon {
     async fn start() -> Self {
+        std::env::set_var("WARSHA_LLM_PROVIDER", "fake");
         let dir = fresh_tempdir();
         let config = DaemonConfig {
             data_dir: dir.path().to_path_buf(),
@@ -225,21 +226,18 @@ async fn the_gates_queue_is_served_over_the_wire_in_the_flat_shape() {
         );
     }
 
-    // Decide three gates; the ledger the queue reads is the same one the decisions
-    // mutate, so the next read shows them — flat, with `by`/`at` beside `state`.
+    // Decide gates at their reached stages; the ledger the queue reads is the same one
+    // the decisions mutate, so the next read shows them — flat, with `by`/`at` beside
+    // `state`. Rejecting `gate_b` pauses this run before `gate_c`, so `gate_c`'s
+    // `changes_requested` state is exercised on a second run that approves through `gate_b`.
+    rpc_ok(port, OWNER, "runs.advance", json!([run.clone()])).await;
     rpc_ok(port, OWNER, "gates.approve", json!([run, "gate_a"])).await;
+    rpc_ok(port, OWNER, "runs.advance", json!([run.clone()])).await;
     rpc_ok(
         port,
         OWNER,
         "gates.reject",
         json!([run, "gate_b", "not this"]),
-    )
-    .await;
-    rpc_ok(
-        port,
-        OWNER,
-        "gates.changes",
-        json!([run, "gate_c", "tighten"]),
     )
     .await;
 
@@ -257,10 +255,39 @@ async fn the_gates_queue_is_served_over_the_wire_in_the_flat_shape() {
     );
     assert_eq!(gates[1]["state"]["state"], "rejected");
     assert_eq!(gates[1]["state"]["reason"], "not this");
-    assert_eq!(gates[2]["state"]["state"], "changes_requested");
-    assert_eq!(gates[2]["state"]["notes"], "tighten");
+    assert_eq!(gates[2]["state"], json!({ "state": "pending" }));
     assert_eq!(gates[3]["state"], json!({ "state": "pending" }));
     for gate in gates.iter() {
+        assert!(
+            gate["state"].get("detail").is_none(),
+            "the queue carried the adjacent-tagged `detail` object instead of the \
+             flat shape: {}",
+            gate["state"]
+        );
+    }
+
+    let changes_run = owned_run(port).await;
+    rpc_ok(port, OWNER, "runs.advance", json!([changes_run.clone()])).await;
+    rpc_ok(port, OWNER, "gates.approve", json!([changes_run, "gate_a"])).await;
+    rpc_ok(port, OWNER, "runs.advance", json!([changes_run.clone()])).await;
+    rpc_ok(port, OWNER, "gates.approve", json!([changes_run, "gate_b"])).await;
+    rpc_ok(port, OWNER, "runs.advance", json!([changes_run.clone()])).await;
+    rpc_ok(
+        port,
+        OWNER,
+        "gates.changes",
+        json!([changes_run, "gate_c", "tighten"]),
+    )
+    .await;
+
+    let changes_decided = rpc_ok(port, OWNER, "gates.list", json!([changes_run.clone()])).await;
+    let changes_gates = changes_decided.as_array().expect("the queue is a list");
+    assert_eq!(changes_gates[0]["state"]["state"], "approved");
+    assert_eq!(changes_gates[1]["state"]["state"], "approved");
+    assert_eq!(changes_gates[2]["state"]["state"], "changes_requested");
+    assert_eq!(changes_gates[2]["state"]["notes"], "tighten");
+    assert_eq!(changes_gates[3]["state"], json!({ "state": "pending" }));
+    for gate in changes_gates.iter() {
         assert!(
             gate["state"].get("detail").is_none(),
             "the queue carried the adjacent-tagged `detail` object instead of the \

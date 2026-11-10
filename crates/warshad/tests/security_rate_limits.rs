@@ -57,6 +57,7 @@ struct Daemon {
 
 impl Daemon {
     async fn start(rate_limits: RateLimitConfig) -> Self {
+        std::env::set_var("WARSHA_LLM_PROVIDER", "fake");
         let dir = fresh_tempdir();
         let config = DaemonConfig {
             data_dir: dir.path().to_path_buf(),
@@ -315,6 +316,8 @@ async fn a_ceiling_belongs_to_the_identity_that_earned_it() {
     let port = daemon.rpc();
     let first_run = owned_run(port).await;
     let second_run = owned_run(port).await;
+    rpc_ok(port, OWNER, "runs.advance", json!([first_run.clone()])).await;
+    rpc_ok(port, OWNER, "runs.advance", json!([second_run.clone()])).await;
 
     // Two phones, so the gate tier can be measured per device.
     let phone_a = uuid::Uuid::new_v4().to_string();
@@ -337,6 +340,8 @@ async fn a_ceiling_belongs_to_the_identity_that_earned_it() {
         json!([second_run, "gate_a"]),
     )
     .await;
+    rpc_ok(port, OWNER, "runs.advance", json!([first_run.clone()])).await;
+    rpc_ok(port, OWNER, "runs.advance", json!([second_run.clone()])).await;
     let code = rpc_code(
         port,
         "secret-a",
@@ -508,6 +513,7 @@ async fn the_default_ceilings_do_not_interrupt_a_working_session() {
         )
         .await;
         let id = run["id"].as_str().expect("a run id").to_string();
+        rpc_ok(port, OWNER, "runs.advance", json!([id.clone()])).await;
         rpc_ok(port, OWNER, "gates.approve", json!([id, "gate_a"])).await;
         rpc_ok(port, OWNER, "runs.get", json!([id])).await;
     }

@@ -366,18 +366,19 @@ async fn seq_is_monotonic_across_start_advance_approve_followup_cancel_artifacts
 
     // Each action must produce at least one event, and later actions must be
     // stamped later — the stream's order is the store's order.
-    rpc_ok(
-        port,
-        "gates.approve",
-        json!({ "run_id": run_id, "stage": "gate_a" }),
-    )
-    .await;
     let advanced = rpc_ok(port, "runs.advance", json!({ "run_id": run_id.clone() })).await;
     assert_eq!(
         advanced["id"].as_str(),
         Some(run_id.as_str()),
         "runs.advance must answer the same run"
     );
+
+    rpc_ok(
+        port,
+        "gates.approve",
+        json!({ "run_id": run_id, "stage": "gate_a" }),
+    )
+    .await;
 
     let followed = rpc_ok(
         port,
@@ -469,6 +470,7 @@ async fn seq_is_monotonic_across_start_advance_approve_followup_cancel_artifacts
 /// Produce at least four events on a fresh daemon and return the run id.
 async fn seed_events(port: u16) -> String {
     let run_id = start_run(port, "Replay Shop").await;
+    rpc_ok(port, "runs.advance", json!({ "run_id": run_id.clone() })).await;
     rpc_ok(
         port,
         "gates.approve",

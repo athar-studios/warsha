@@ -61,6 +61,7 @@ struct Daemon {
 
 impl Daemon {
     async fn start(allowed_commands: Vec<String>) -> Self {
+        std::env::set_var("WARSHA_LLM_PROVIDER", "fake");
         let dir = fresh_tempdir();
         let config = DaemonConfig {
             data_dir: dir.path().to_path_buf(),
@@ -196,6 +197,9 @@ async fn a_gate_decision_records_the_session_and_refuses_a_claimed_device() {
     let local = owner_device(port).await;
     let (_project, run) = owned_run(port).await;
 
+    // Advance to Gate A before deciding it.
+    rpc_ok(port, OWNER, "runs.advance", json!([run.clone()])).await;
+
     // The workflow the desktop uses today: no device id at all. The daemon still has
     // to know who approved, and it does — from the credential.
     rpc_ok(port, OWNER, "gates.approve", json!([run, "gate_a"])).await;
@@ -206,6 +210,9 @@ async fn a_gate_decision_records_the_session_and_refuses_a_claimed_device() {
         Some(local.as_str()),
         "the approver recorded is not the authenticated owner device"
     );
+
+    // Advance to Gate B before deciding it.
+    rpc_ok(port, OWNER, "runs.advance", json!([run.clone()])).await;
 
     // The same decision, claiming a different device: refused, and the gate is
     // untouched. This is the request the audit described as working.
@@ -231,6 +238,9 @@ async fn a_gate_decision_records_the_session_and_refuses_a_claimed_device() {
     // checked, not removed from the wire shape.
     rpc_ok(port, OWNER, "gates.approve", json!([run, "gate_b", local])).await;
     assert_eq!(gate_state(port, &run, "gate_b").await["state"], "approved");
+
+    // Advance to Gate C before deciding it.
+    rpc_ok(port, OWNER, "runs.advance", json!([run.clone()])).await;
 
     // And the other two decisions behave the same way.
     let code = rpc_error_code(
@@ -280,6 +290,7 @@ async fn a_paired_device_is_a_session_but_not_the_owner() {
     // recorded against the phone.
     let (_project, run) = owned_run(port).await;
     rpc_ok(port, PHONE_SECRET, "projects.list", json!([])).await;
+    rpc_ok(port, OWNER, "runs.advance", json!([run.clone()])).await;
     rpc_ok(port, PHONE_SECRET, "gates.approve", json!([run, "gate_a"])).await;
     let approved = gate_state(port, &run, "gate_a").await;
     assert_eq!(
@@ -289,6 +300,7 @@ async fn a_paired_device_is_a_session_but_not_the_owner() {
     );
 
     // A phone cannot sign as the desktop.
+    rpc_ok(port, OWNER, "runs.advance", json!([run.clone()])).await;
     let local = owner_device(port).await;
     let code = rpc_error_code(
         port,
@@ -536,6 +548,7 @@ async fn a_pairing_that_names_no_device_id_cannot_decide_a_gate() {
 
     // The session is real — it can read — but a decision has no device to record.
     rpc_ok(port, "legacy-secret", "projects.list", json!([])).await;
+    rpc_ok(port, OWNER, "runs.advance", json!([run.clone()])).await;
     let code = rpc_error_code(
         port,
         "legacy-secret",
