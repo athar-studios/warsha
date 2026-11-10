@@ -18,7 +18,7 @@ const VIEWPORTS = [
 
 const LOCALES = ['ar', 'en'] as const;
 const THEMES = ['light', 'dark'] as const;
-const SECTIONS = ['general', 'models', 'devices', 'about', 'workflows', 'skills', 'plugins'] as const;
+const SECTIONS = ['general', 'models', 'devices', 'about', 'workflows', 'skills', 'plugins', 'integrations'] as const;
 
 const CUSTOM_MODELS_FIXTURE = {
   'models.list': {
@@ -97,6 +97,20 @@ const PLUGINS_FIXTURE = {
         enabled: true,
         tools: [{ name: 'git_status', description: 'status', parameters_json: null }],
         source: 'installed',
+      },
+    ],
+  },
+} as const;
+
+const INTEGRATIONS_FIXTURE = {
+  'integrations.list': {
+    result: [
+      {
+        id: 'github',
+        name: 'GitHub',
+        connected: true,
+        configured_at: '2026-10-05T07:00:00.000Z',
+        details: null,
       },
     ],
   },
@@ -349,6 +363,36 @@ test.describe('Settings v3 (Slice 1)', () => {
     await act(page, 'settings.plugin.remove.confirm');
     await expectRpc(page, 'plugins.remove');
     await expect(removeDialog).not.toBeVisible();
+  });
+
+  test('integrations journey: connect, test, and disconnect via dialog', async ({ page }) => {
+    await openV3(page, '/settings/integrations', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: INTEGRATIONS_FIXTURE,
+    });
+    await expect(page.locator('[data-testid="settings-section-integrations"]')).toBeVisible();
+
+    await act(page, 'settings.integration.connect.open');
+    const connectDialog = page.locator('[data-testid="integration-connect-dialog"]');
+    await expect(connectDialog).toBeVisible();
+    await connectDialog.locator('[data-testid="integration-id-input"] input').fill('github');
+    await connectDialog
+      .locator('[data-testid="integration-token-input"] input')
+      .fill('ghp-test-token-1234');
+    await act(page, 'settings.integration.connect');
+    await expectRpc(page, 'integrations.connect');
+    await expect(connectDialog).not.toBeVisible();
+
+    await act(page, 'settings.integration.test');
+    await expectRpc(page, 'integrations.test');
+
+    await act(page, 'settings.integration.disconnect.open');
+    const disconnectDialog = page.locator('[data-testid="integration-disconnect-dialog"]');
+    await expect(disconnectDialog).toBeVisible();
+    await act(page, 'settings.integration.disconnect');
+    await expectRpc(page, 'integrations.disconnect');
+    await expect(disconnectDialog).not.toBeVisible();
   });
 
   // ---------------------------------------------------------------------------
@@ -653,6 +697,52 @@ test.describe('Settings v3 (Slice 1)', () => {
     await act(page, 'settings.plugin.remove.open');
     await act(page, 'settings.plugin.remove.confirm');
     await expectRpc(page, 'plugins.remove');
+  });
+
+  test('action: settings.integration.connect.open', async ({ page }) => {
+    await openV3(page, '/settings/integrations', { lang: 'ar', mode: 'advanced' });
+    await act(page, 'settings.integration.connect.open');
+    await expect(page.locator('[data-testid="integration-connect-dialog"]')).toBeVisible();
+  });
+
+  test('action: settings.integration.connect', async ({ page }) => {
+    await openV3(page, '/settings/integrations', { lang: 'ar', mode: 'advanced' });
+    await act(page, 'settings.integration.connect.open');
+    const dialog = page.locator('[data-testid="integration-connect-dialog"]');
+    await dialog.locator('[data-testid="integration-id-input"] input').fill('slack');
+    await act(page, 'settings.integration.connect');
+    await expectRpc(page, 'integrations.connect');
+  });
+
+  test('action: settings.integration.test', async ({ page }) => {
+    await openV3(page, '/settings/integrations', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: INTEGRATIONS_FIXTURE,
+    });
+    await act(page, 'settings.integration.test');
+    await expectRpc(page, 'integrations.test');
+  });
+
+  test('action: settings.integration.disconnect.open', async ({ page }) => {
+    await openV3(page, '/settings/integrations', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: INTEGRATIONS_FIXTURE,
+    });
+    await act(page, 'settings.integration.disconnect.open');
+    await expect(page.locator('[data-testid="integration-disconnect-dialog"]')).toBeVisible();
+  });
+
+  test('action: settings.integration.disconnect', async ({ page }) => {
+    await openV3(page, '/settings/integrations', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: INTEGRATIONS_FIXTURE,
+    });
+    await act(page, 'settings.integration.disconnect.open');
+    await act(page, 'settings.integration.disconnect');
+    await expectRpc(page, 'integrations.disconnect');
   });
 
   test('action: settings.dialog.cancel', async ({ page }) => {

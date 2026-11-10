@@ -163,6 +163,28 @@ export const ACTIONS: readonly ActionDef[] = [
     rpc: ['plugins.remove'],
   },
 
+  // Integrations section
+  { id: 'settings.integration.connect.open', labelKey: 'settings.integrations.connect_btn', effect: 'state' },
+  {
+    id: 'settings.integration.connect',
+    labelKey: 'settings.integrations.form.save',
+    effect: 'rpc',
+    rpc: ['integrations.connect'],
+  },
+  {
+    id: 'settings.integration.test',
+    labelKey: 'settings.integrations.test',
+    effect: 'rpc',
+    rpc: ['integrations.test'],
+  },
+  { id: 'settings.integration.disconnect.open', labelKey: 'settings.integrations.disconnect', effect: 'state' },
+  {
+    id: 'settings.integration.disconnect',
+    labelKey: 'settings.common.confirm_disconnect',
+    effect: 'rpc',
+    rpc: ['integrations.disconnect'],
+  },
+
   // Shared dialog & error recovery actions
   { id: 'settings.dialog.cancel', labelKey: 'common.cancel', effect: 'state' },
   { id: 'settings.error.retry', labelKey: 'common.retry', effect: 'state' },

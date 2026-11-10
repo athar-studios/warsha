@@ -4,6 +4,7 @@ import type {
   DeviceId,
   DeviceSummary,
   HarnessDefinition,
+  IntegrationStatus,
   PairingOffer,
   PluginDefinition,
   ProviderConfig,
@@ -251,6 +252,30 @@ function createMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
       source: 'local',
     } satisfies PluginDefinition),
     removePlugin: vi.fn().mockResolvedValue(undefined),
+    listIntegrations: vi.fn().mockResolvedValue([
+      {
+        id: 'github',
+        name: 'GitHub',
+        connected: true,
+        configuredAt: '2026-10-05T07:00:00.000Z',
+        details: null,
+      } satisfies IntegrationStatus,
+    ]),
+    connectIntegration: vi.fn().mockResolvedValue({
+      id: 'github',
+      name: 'GitHub',
+      connected: true,
+      configuredAt: '2026-10-05T07:00:00.000Z',
+      details: null,
+    } satisfies IntegrationStatus),
+    disconnectIntegration: vi.fn().mockResolvedValue({
+      id: 'github',
+      name: 'GitHub',
+      connected: false,
+      configuredAt: null,
+      details: null,
+    } satisfies IntegrationStatus),
+    testIntegration: vi.fn().mockResolvedValue({ status: 'ok', message: 'GitHub connection OK' }),
     health: vi.fn().mockResolvedValue({ status: 'ok', version: '0.2.1' }),
     ...overrides,
   } as unknown as WarshaClient;
@@ -542,5 +567,31 @@ describe('SettingsPage (Slice 1)', () => {
     await waitFor(() => expect(screen.getByTestId('plugin-remove-dialog')).toBeDefined());
     fireEvent.click(document.querySelector('button[data-action="settings.plugin.remove.confirm"]') as HTMLElement);
     await waitFor(() => expect(client.removePlugin).toHaveBeenCalledWith('plugin-1'));
+  });
+
+  it('handles integration connect dialog, test, and disconnect dialog in IntegrationsSection', async () => {
+    const client = createMockClient();
+    renderSettings('/settings/integrations', client, 'advanced');
+    await waitFor(() => expect(screen.getByTestId('settings-section-integrations')).toBeDefined());
+
+    fireEvent.click(document.querySelector('button[data-action="settings.integration.connect.open"]') as HTMLElement);
+    await waitFor(() => expect(screen.getByTestId('integration-connect-dialog')).toBeDefined());
+
+    const tokenInput = screen.getByTestId('integration-token-input').querySelector('input') as HTMLInputElement;
+    expect(tokenInput.type).toBe('password');
+    fireEvent.change(screen.getByTestId('integration-id-input').querySelector('input') as HTMLInputElement, {
+      target: { value: 'github' },
+    });
+    fireEvent.change(tokenInput, { target: { value: 'ghp-secret-token' } });
+    fireEvent.click(document.querySelector('button[data-action="settings.integration.connect"]') as HTMLElement);
+    await waitFor(() => expect(client.connectIntegration).toHaveBeenCalledWith('github', expect.objectContaining({ token: 'ghp-secret-token' })));
+
+    fireEvent.click(document.querySelector('button[data-action="settings.integration.test"]') as HTMLElement);
+    await waitFor(() => expect(client.testIntegration).toHaveBeenCalledWith('github'));
+
+    fireEvent.click(document.querySelector('button[data-action="settings.integration.disconnect.open"]') as HTMLElement);
+    await waitFor(() => expect(screen.getByTestId('integration-disconnect-dialog')).toBeDefined());
+    fireEvent.click(document.querySelector('button[data-action="settings.integration.disconnect"]') as HTMLElement);
+    await waitFor(() => expect(client.disconnectIntegration).toHaveBeenCalledWith('github'));
   });
 });

@@ -13,6 +13,7 @@ import { SettingsNav } from './SettingsNav';
 import { AboutSection } from './sections/AboutSection';
 import { DevicesSection } from './sections/DevicesSection';
 import { GeneralSection } from './sections/GeneralSection';
+import { IntegrationsSection } from './sections/IntegrationsSection';
 import { ModelsSection } from './sections/ModelsSection';
 import { PluginsSection } from './sections/PluginsSection';
 import { SkillsSection } from './sections/SkillsSection';
@@ -87,6 +88,8 @@ export default function SettingsPage(): React.ReactElement {
         return <SkillsSection />;
       case 'plugins':
         return <PluginsSection />;
+      case 'integrations':
+        return <IntegrationsSection />;
       default:
         return <PendingAdvancedSection meta={activeMeta} />;
     }
