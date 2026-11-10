@@ -55,8 +55,8 @@ pub(crate) mod test_util;
 mod work_protection;
 
 pub use crate::agent_loop::{
-    AgentLoop, AgentTurnResult, ProviderRouterAdapter, Router, RouterError, AGENT_ROLE,
-    TURN_CONTEXT_BUDGET_TOKENS,
+    AgentLoop, AgentTurnResult, ExecutedTurn, PreparedTurn, ProviderRouterAdapter, Router,
+    RouterError, AGENT_ROLE, TURN_CONTEXT_BUDGET_TOKENS,
 };
 pub use crate::agent_tools::{
     AgentTool, FilesystemToolExecutor, NoToolExecutor, ToolError, ToolExecutor, ToolResult,

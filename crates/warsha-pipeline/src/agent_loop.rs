@@ -249,7 +249,7 @@ pub struct AgentLoop {
     /// Head/tail compression for tool output, held as the loop's tool.
     pub compressor: OutputCompressor,
     /// The file and command layer an Agent-mode tool request runs through.
-    pub tool_executor: Box<dyn ToolExecutor>,
+    pub tool_executor: Arc<dyn ToolExecutor>,
     /// The model call an Agent-mode turn makes. `None` means the response says so.
     pub router: Option<Arc<dyn Router>>,
     /// The MCP manager handling tool calls.
@@ -258,6 +258,32 @@ pub struct AgentLoop {
     pub backend_kit: Option<Arc<RwLock<BackendKit>>>,
     /// The transcript the compactor works on, oldest first.
     context: Vec<String>,
+}
+
+/// Captured state for one turn so tool/model execution can proceed without
+/// holding any lock on [`AgentLoop`].
+pub struct PreparedTurn {
+    input: String,
+    mode: AgentMode,
+    mentions: Vec<Mention>,
+    command: Option<SlashCommand>,
+    requested: Option<String>,
+    todo: Option<String>,
+    plan_response: Option<String>,
+    tool_executor: Arc<dyn ToolExecutor>,
+    router: Option<Arc<dyn Router>>,
+    mcp_manager: Option<Arc<dyn McpManager>>,
+    backend_kit: Option<Arc<RwLock<BackendKit>>>,
+}
+
+/// Completed execution output ready to be committed to [`AgentLoop`].
+pub struct ExecutedTurn {
+    input: String,
+    mode: AgentMode,
+    mentions: Vec<Mention>,
+    command: Option<SlashCommand>,
+    response: String,
+    tools: Vec<ToolResult>,
 }
 
 impl AgentLoop {
@@ -274,6 +300,11 @@ impl AgentLoop {
     ///
     /// [`AgentLoop::with_router`] adds the model call.
     pub fn with_tool_executor(tool_executor: Box<dyn ToolExecutor>) -> Self {
+        Self::with_shared_tool_executor(Arc::from(tool_executor))
+    }
+
+    /// A loop whose tool requests run through a shared `tool_executor`.
+    pub fn with_shared_tool_executor(tool_executor: Arc<dyn ToolExecutor>) -> Self {
         Self {
             mode_manager: ModeManager::new(),
             todo_list: TodoList::new(),
@@ -351,6 +382,14 @@ impl AgentLoop {
     /// router for an answer; a Plan-mode turn and a tool turn both complete
     /// without waiting on anything.
     pub async fn run_turn(&mut self, input: &str, skills: &[SlashCommand]) -> AgentTurnResult {
+        let prepared = self.prepare_turn(input, skills);
+        let executed = prepared.execute().await;
+        self.finish_turn(executed)
+    }
+
+    /// Prepare a turn under the loop's lock, extracting mentions, commands,
+    /// and recording the initial todo before any tool or model execution begins.
+    pub fn prepare_turn(&mut self, input: &str, skills: &[SlashCommand]) -> PreparedTurn {
         let mentions = MentionParser::parse(input);
         let requested = requested_command(input);
         let command = requested.as_deref().and_then(|name| {
@@ -360,30 +399,61 @@ impl AgentLoop {
         });
         let mode = self.mode_manager.current;
 
-        let (response, tools) = match mode {
-            AgentMode::Plan => (
-                self.plan_response(input, &mentions, command.as_ref(), requested.as_deref()),
-                Vec::new(),
-            ),
-            AgentMode::Agent => {
-                self.execute_turn(input, &mentions, command.as_ref(), requested.as_deref())
-                    .await
+        match mode {
+            AgentMode::Plan => {
+                let response =
+                    self.plan_response(input, &mentions, command.as_ref(), requested.as_deref());
+                PreparedTurn {
+                    input: input.to_string(),
+                    mode,
+                    mentions,
+                    command,
+                    requested,
+                    todo: None,
+                    plan_response: Some(response),
+                    tool_executor: self.tool_executor.clone(),
+                    router: self.router.clone(),
+                    mcp_manager: self.mcp_manager.clone(),
+                    backend_kit: self.backend_kit.clone(),
+                }
             }
-        };
+            AgentMode::Agent => {
+                let todo = self.record_todo(
+                    format!("execute the turn: {}", first_line(input)),
+                    TodoStatus::Done,
+                );
+                PreparedTurn {
+                    input: input.to_string(),
+                    mode,
+                    mentions,
+                    command,
+                    requested,
+                    todo,
+                    plan_response: None,
+                    tool_executor: self.tool_executor.clone(),
+                    router: self.router.clone(),
+                    mcp_manager: self.mcp_manager.clone(),
+                    backend_kit: self.backend_kit.clone(),
+                }
+            }
+        }
+    }
 
-        // The transcript is the prompt and the answer of every turn so far, and
-        // the compactor folds the oldest of them away once it passes the budget.
-        self.context.push(format!("user: {}", input.trim()));
-        self.context.push(format!("assistant: {response}"));
+    /// Commit the completed turn to the transcript and compact context.
+    pub fn finish_turn(&mut self, executed: ExecutedTurn) -> AgentTurnResult {
+        self.context
+            .push(format!("user: {}", executed.input.trim()));
+        self.context
+            .push(format!("assistant: {}", executed.response));
         self.context = ContextCompactor::compact(&self.context, TURN_CONTEXT_BUDGET_TOKENS);
 
         AgentTurnResult {
-            mode,
-            mentions,
-            command,
-            response,
+            mode: executed.mode,
+            mentions: executed.mentions,
+            command: executed.command,
+            response: executed.response,
             todos: self.todo_list.items.clone(),
-            tools,
+            tools: executed.tools,
         }
     }
 
@@ -413,30 +483,43 @@ impl AgentLoop {
         .join("\n")
     }
 
-    /// The Agent-mode answer: run the turn's tool, or ask the model.
+    /// Record the turn's todo and return its id.
     ///
-    /// Returns the response and the tools it ran, so the caller gets both the line
-    /// a human reads and the record a run view shows.
-    async fn execute_turn(
-        &mut self,
-        input: &str,
-        mentions: &[Mention],
-        command: Option<&SlashCommand>,
-        requested: Option<&str>,
-    ) -> (String, Vec<ToolResult>) {
-        let todo = self.record_todo(
-            format!("execute the turn: {}", first_line(input)),
-            TodoStatus::Done,
-        );
+    /// The id is the next free number, so the store's duplicate check cannot fire
+    /// here; if a future caller removes todos and it does, the response says the
+    /// todo was not recorded instead of failing a turn over bookkeeping.
+    fn record_todo(&mut self, description: String, status: TodoStatus) -> Option<String> {
+        let id = format!("turn-{}", self.todo_list.len() + 1);
+        let item = TodoItem::new(id.clone(), description).with_status(status);
+        self.todo_list.add(item).ok().map(|()| id)
+    }
+}
+
+impl PreparedTurn {
+    /// Execute the prepared turn without holding the daemon's `AgentLoop` lock.
+    pub async fn execute(self) -> ExecutedTurn {
+        if let Some(response) = self.plan_response {
+            return ExecutedTurn {
+                input: self.input,
+                mode: self.mode,
+                mentions: self.mentions,
+                command: self.command,
+                response,
+                tools: Vec::new(),
+            };
+        }
 
         let mut lines = vec![
             String::new(), // the summary line, filled in below
-            format!("- mentions: {}", mention_summary(mentions)),
-            format!("- command: {}", command_summary(command, requested)),
+            format!("- mentions: {}", mention_summary(&self.mentions)),
+            format!(
+                "- command: {}",
+                command_summary(self.command.as_ref(), self.requested.as_deref())
+            ),
         ];
 
         let mut tools = Vec::new();
-        match parse_tool_request(input) {
+        match parse_tool_request(&self.input) {
             Some(AgentTool::CallTool {
                 server,
                 tool,
@@ -473,13 +556,22 @@ impl AgentLoop {
                                 lines.push("- output:".to_string());
                                 lines.push(format!("  {}", res.output));
                                 tools.push(res);
-                                lines[0] =
-                                    format!("Summary (tool execution): {}", first_line(input));
+                                lines[0] = format!(
+                                    "Summary (tool execution): {}",
+                                    first_line(&self.input)
+                                );
                                 lines.push(format!(
                                     "- todo: {}",
-                                    todo_line(todo.as_deref(), "done")
+                                    todo_line(self.todo.as_deref(), "done")
                                 ));
-                                return (lines.join("\n"), tools);
+                                return ExecutedTurn {
+                                    input: self.input,
+                                    mode: self.mode,
+                                    mentions: self.mentions,
+                                    command: self.command,
+                                    response: lines.join("\n"),
+                                    tools,
+                                };
                             }
                         }
                     };
@@ -594,10 +686,10 @@ impl AgentLoop {
                     lines.push(format!("  {line}"));
                 }
                 tools.push(result);
-                lines[0] = format!("Summary (tool execution): {}", first_line(input));
+                lines[0] = format!("Summary (tool execution): {}", first_line(&self.input));
             }
             Some(tool) => {
-                let result = self.tool_executor.execute(&tool);
+                let result = self.tool_executor.execute(&tool).await;
                 lines.push(format!(
                     "- tool: {} — {}",
                     result.tool.summary(),
@@ -612,16 +704,20 @@ impl AgentLoop {
                     lines.push(format!("  {line}"));
                 }
                 tools.push(result);
-                lines[0] = format!("Summary (tool execution): {}", first_line(input));
+                lines[0] = format!("Summary (tool execution): {}", first_line(&self.input));
             }
             None => {
-                // The router is cloned out of the loop so the borrow does not sit
-                // across the await; `Arc<dyn Router>` is what the daemon holds too.
                 let router = self.router.clone();
                 let (source, model_line) = match router {
                     Some(router) => {
-                        let attachments = self.attach_file_mentions(mentions);
-                        let prompt = model_prompt(input, mentions, command, &attachments);
+                        let attachments =
+                            attach_file_mentions_with(&self.tool_executor, &self.mentions).await;
+                        let prompt = model_prompt(
+                            &self.input,
+                            &self.mentions,
+                            self.command.as_ref(),
+                            &attachments,
+                        );
                         match router.complete(&prompt).await {
                             Ok(answer) => {
                                 let answer = OutputCompressor::compress(
@@ -644,55 +740,53 @@ impl AgentLoop {
                 };
                 lines.push("- tool: none".to_string());
                 lines.push(model_line);
-                lines[0] = format!("Summary ({source}): {}", first_line(input));
+                lines[0] = format!("Summary ({source}): {}", first_line(&self.input));
             }
         }
 
-        lines.push(format!("- todo: {}", todo_line(todo.as_deref(), "done")));
-        (lines.join("\n"), tools)
+        lines.push(format!(
+            "- todo: {}",
+            todo_line(self.todo.as_deref(), "done")
+        ));
+        ExecutedTurn {
+            input: self.input,
+            mode: self.mode,
+            mentions: self.mentions,
+            command: self.command,
+            response: lines.join("\n"),
+            tools,
+        }
     }
+}
 
-    /// Record the turn's todo and return its id.
-    ///
-    /// The id is the next free number, so the store's duplicate check cannot fire
-    /// here; if a future caller removes todos and it does, the response says the
-    /// todo was not recorded instead of failing a turn over bookkeeping.
-    fn record_todo(&mut self, description: String, status: TodoStatus) -> Option<String> {
-        let id = format!("turn-{}", self.todo_list.len() + 1);
-        let item = TodoItem::new(id.clone(), description).with_status(status);
-        self.todo_list.add(item).ok().map(|()| id)
-    }
-
-    /// Read every `@file` mention through the tool layer for the model prompt.
-    ///
-    /// A successful read is compressed to [`MAX_TOOL_OUTPUT_LINES`] and attached as
-    /// a block; a failed read becomes a one-line note. Either way the turn
-    /// continues. Reading through the executor lets an enforced read-before-write
-    /// guard record the mention as read. Non-file mentions are left to the prompt's
-    /// `attached:` line.
-    fn attach_file_mentions(&self, mentions: &[Mention]) -> Vec<FileAttachment> {
-        let mut attachments = Vec::new();
-        for mention in mentions {
-            if mention.kind != MentionKind::File {
-                continue;
-            }
-            let result = self.tool_executor.execute(&AgentTool::ReadFile {
+/// Read every `@file` mention through the tool layer for the model prompt.
+async fn attach_file_mentions_with(
+    executor: &Arc<dyn ToolExecutor>,
+    mentions: &[Mention],
+) -> Vec<FileAttachment> {
+    let mut attachments = Vec::new();
+    for mention in mentions {
+        if mention.kind != MentionKind::File {
+            continue;
+        }
+        let result = executor
+            .execute(&AgentTool::ReadFile {
                 path: mention.target.clone(),
+            })
+            .await;
+        if result.success {
+            attachments.push(FileAttachment::Read {
+                path: mention.target.clone(),
+                content: OutputCompressor::compress(&result.output, MAX_TOOL_OUTPUT_LINES),
             });
-            if result.success {
-                attachments.push(FileAttachment::Read {
-                    path: mention.target.clone(),
-                    content: OutputCompressor::compress(&result.output, MAX_TOOL_OUTPUT_LINES),
-                });
-            } else {
-                attachments.push(FileAttachment::Failed {
-                    path: mention.target.clone(),
-                    reason: result.output,
-                });
-            }
+        } else {
+            attachments.push(FileAttachment::Failed {
+                path: mention.target.clone(),
+                reason: result.output,
+            });
         }
-        attachments
     }
+    attachments
 }
 
 impl Default for AgentLoop {
@@ -799,12 +893,18 @@ fn parse_tool_request(input: &str) -> Option<AgentTool> {
     }
 
     if let Some(rest) = rest_after_prefix(head, RUN_COMMAND_PREFIX) {
-        let mut parts = rest.split_whitespace();
-        let command = parts.next()?;
-        return Some(AgentTool::RunCommand {
-            command: command.to_string(),
-            args: parts.map(str::to_string).collect(),
-        });
+        let trimmed = rest.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        return match crate::process_spawn::split_command(trimmed) {
+            Ok((command, args)) => Some(AgentTool::RunCommand { command, args }),
+            Err(crate::process_spawn::ProcessError::EmptyCommand) => None,
+            Err(_) => Some(AgentTool::RunCommand {
+                command: trimmed.to_string(),
+                args: Vec::new(),
+            }),
+        };
     }
 
     if let Some(rest) = rest_after_prefix(head, CALL_TOOL_PREFIX)
@@ -1393,8 +1493,22 @@ mod tests {
     #[tokio::test]
     async fn agent_mode_runs_a_command_through_the_tool_layer() {
         let temp = fresh_tempdir();
-        let mut agent_loop = tool_loop(temp.path());
         let (command, args) = printing_command();
+        let mut executor = FilesystemToolExecutor::new(temp.path());
+        #[cfg(windows)]
+        {
+            executor = executor
+                .with_command_policy(crate::CommandPolicy::from_config(&["cmd".to_string()]));
+        }
+        #[cfg(not(windows))]
+        {
+            executor = executor
+                .with_command_policy(crate::CommandPolicy::from_config(&["echo".to_string()]));
+        }
+        let mut agent_loop = AgentLoop::with_tool_executor(Box::new(executor));
+        agent_loop
+            .approve_agent_mode("owner")
+            .expect("an approval is accepted");
         let input = format!(
             "run command {}",
             std::iter::once(command)
@@ -1416,6 +1530,21 @@ mod tests {
         );
         assert!(turn.tools[0].output.contains("hello"));
         assert!(turn.tools[0].output.contains("exit code: 0"));
+    }
+
+    #[tokio::test]
+    async fn agent_mode_refuses_disallowed_run_command_via_tool_layer() {
+        let temp = fresh_tempdir();
+        let mut agent_loop = tool_loop(temp.path());
+
+        let turn = agent_loop
+            .run_turn("run command sh -c id", &catalog())
+            .await;
+
+        assert_eq!(turn.tools.len(), 1);
+        assert!(!turn.tools[0].success);
+        assert!(turn.tools[0].output.contains("refused"));
+        assert!(turn.response.contains("Summary (tool execution):"));
     }
 
     #[tokio::test]
