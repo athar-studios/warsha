@@ -43,7 +43,7 @@ use warsha_pipeline::{
     InMemoryProcessManager, InMemoryStoreReviewStore, LivePreview, LivePreviewManager,
     ManagedProcess, McpConnection, McpManager, MessageBus, ModeManager, ModeTransition,
     PairingStore, PhonePairing, Preference, PreferenceSignal, PreferenceStore, ProcessManager,
-    ProcessStatus, ProcessSummary, ProviderRouterAdapter, Routine, RoutineError, RoutineRegistry, RoutineRunner,
+    ProcessStatus, ProcessSummary, ProviderRouterAdapter, Routine, RoutineRegistry, RoutineRunner,
     RoutineScheduler, RunMode, RunModeConfig, SlashCommand, SlashCommandRegistry, StoreReview,
     StoreReviewStore, TodoItem, TodoList, WorkProtectionPolicy, AGENT_ROLE,
 };
@@ -1194,6 +1194,40 @@ impl DaemonState {
             warn!("{}", summary.message());
         }
     }
+
+    /// Probe real capabilities of the daemon (daemon, providers, keychain availability).
+    pub async fn probe_capabilities(&self) -> HealthCapabilities {
+        // Probe daemon capability: verify store connectivity.
+        let daemon = self.store.list_projects().await.is_ok();
+
+        // Probe providers capability: are any providers configured or pipeline roles routed?
+        let providers_configured = self
+            .settings
+            .load_providers()
+            .await
+            .map(|list| list.iter().any(|p| p.enabled))
+            .unwrap_or(false);
+        let roles_routed = !self.role_routings.read().await.is_empty();
+        let providers = providers_configured || roles_routed;
+
+        // Probe keychain capability: verify secret store is operational.
+        let keychain = match self.secrets.load("__warsha_health_probe__").await {
+            Ok(_) => true,
+            Err(warsha_providers::ProviderError::Auth(msg)) => {
+                let lower = msg.to_ascii_lowercase();
+                !lower.contains("platform")
+                    && !lower.contains("unavailable")
+                    && !lower.contains("couldn't access")
+            }
+            Err(_) => false,
+        };
+
+        HealthCapabilities {
+            daemon,
+            providers,
+            keychain,
+        }
+    }
 }
 
 /// JSON-RPC API trait
@@ -1715,12 +1749,21 @@ pub trait WarshaApi {
     async fn read_project_file(&self, project_id: String, path: String) -> RpcResult<FileContent>;
 }
 
+/// Probed capabilities reported by health.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HealthCapabilities {
+    pub daemon: bool,
+    pub providers: bool,
+    pub keychain: bool,
+}
+
 /// Health response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthResponse {
     pub status: String,
     pub version: String,
     pub uptime_seconds: u64,
+    pub capabilities: HealthCapabilities,
 }
 
 /// Provider configuration for RPC
@@ -2378,10 +2421,17 @@ fn now_epoch_secs() -> u64 {
 impl WarshaApiServer for WarshaRpc {
     async fn health(&self, ext: &RpcExtensions) -> RpcResult<HealthResponse> {
         self.authorize(ext, "health")?;
+        let capabilities = self.state.probe_capabilities().await;
+        let status = if capabilities.daemon {
+            "healthy".to_string()
+        } else {
+            "degraded".to_string()
+        };
         Ok(HealthResponse {
-            status: "healthy".to_string(),
+            status,
             version: env!("CARGO_PKG_VERSION").to_string(),
             uptime_seconds: self.start_time.elapsed().as_secs(),
+            capabilities,
         })
     }
 
@@ -5219,11 +5269,18 @@ async fn store_agent_snapshot(
 }
 
 /// HTTP server for REST API and WebSocket
-async fn health_handler() -> impl IntoResponse {
+async fn health_handler(State(state): State<Arc<DaemonState>>) -> impl IntoResponse {
+    let capabilities = state.probe_capabilities().await;
+    let status = if capabilities.daemon {
+        "healthy".to_string()
+    } else {
+        "degraded".to_string()
+    };
     Json(HealthResponse {
-        status: "healthy".to_string(),
+        status,
         version: env!("CARGO_PKG_VERSION").to_string(),
         uptime_seconds: 0,
+        capabilities,
     })
 }
 
@@ -6873,7 +6930,7 @@ mod tests {
 
     /// A daemon state over a temporary store, plus the store so a test can write
     /// the project and run the RPC reads.
-    async fn test_state(data_dir: &Path) -> (Arc<DaemonState>, Arc<Store>) {
+    pub(super) async fn test_state(data_dir: &Path) -> (Arc<DaemonState>, Arc<Store>) {
         test_state_with(data_dir, |_| {}).await
     }
 
@@ -6947,12 +7004,14 @@ mod tests {
         #[derive(Debug, Default)]
         struct TestRoutineRunner;
         impl RoutineRunner for TestRoutineRunner {
-            fn run(&self, _routine: &Routine) -> std::result::Result<(), RoutineError> {
+            fn run(
+                &self,
+                _routine: &Routine,
+            ) -> std::result::Result<(), warsha_pipeline::RoutineError> {
                 Ok(())
             }
         }
-        let routine_runner: Arc<dyn RoutineRunner + Send + Sync> =
-            Arc::new(TestRoutineRunner);
+        let routine_runner: Arc<dyn RoutineRunner + Send + Sync> = Arc::new(TestRoutineRunner);
         let routine_scheduler = Arc::new(RoutineScheduler::new(routines.clone(), routine_runner));
 
         // A hand-built state carries the same session and ceiling wiring a real one
@@ -7035,7 +7094,7 @@ mod tests {
     /// This is what the daemon's transport puts on a request after it checked the
     /// bearer credential, so a test that calls an RPC with these extensions is in the
     /// same position as the desktop app holding the daemon's own token.
-    fn owner_ext() -> RpcExtensions {
+    pub(super) fn owner_ext() -> RpcExtensions {
         owner_ext_as(DeviceId::new())
     }
 
@@ -9754,6 +9813,103 @@ mod tests {
             assert!(reloaded.artifacts.contains_key("research"));
         }
     }
+}
+
+#[cfg(test)]
+#[tokio::test]
+async fn health_reports_probed_capabilities() {
+    #[derive(Debug)]
+    struct FailingSecretStore;
+
+    #[async_trait]
+    impl SecretStore for FailingSecretStore {
+        async fn store(&self, _account: &str, _key: &str) -> warsha_providers::Result<()> {
+            Err(warsha_providers::ProviderError::Auth(
+                "Platform secure storage failure: unavailable".to_string(),
+            ))
+        }
+
+        async fn load(&self, _account: &str) -> warsha_providers::Result<String> {
+            Err(warsha_providers::ProviderError::Auth(
+                "Platform secure storage failure: unavailable".to_string(),
+            ))
+        }
+
+        async fn delete(&self, _account: &str) -> warsha_providers::Result<()> {
+            Ok(())
+        }
+    }
+
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = tests::test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state.clone());
+    let owner = tests::owner_ext();
+
+    // 1. Fresh state without configured providers or role routings:
+    // daemon is alive, keychain (InMemorySecretStore) is operational, providers is false.
+    let initial = rpc.health(&owner).await.expect("health succeeds");
+    assert_eq!(initial.status, "healthy");
+    assert!(initial.capabilities.daemon);
+    assert!(initial.capabilities.keychain);
+    assert!(!initial.capabilities.providers);
+
+    // 2. Configure an enabled provider -> providers capability becomes true.
+    state
+        .settings
+        .save_provider(&StoredProvider {
+            name: "test-provider".to_string(),
+            kind: "open_router".to_string(),
+            api_base: None,
+            enabled: true,
+            created_at: 0,
+        })
+        .await
+        .expect("save provider");
+
+    let with_provider = rpc.health(&owner).await.expect("health succeeds");
+    assert!(with_provider.capabilities.providers);
+    assert!(with_provider.capabilities.daemon);
+    assert!(with_provider.capabilities.keychain);
+
+    // 3. With an unavailable keychain store, keychain capability reports false.
+    let degraded_state = DaemonState {
+        config: state.config.clone(),
+        store: state.store.clone(),
+        providers: state.providers.clone(),
+        pipeline: state.pipeline.clone(),
+        backends: Vec::new(),
+        github: None,
+        devices: state.devices.clone(),
+        backend_kits: state.backend_kits.clone(),
+        crash_reports: state.crash_reports.clone(),
+        store_reviews: state.store_reviews.clone(),
+        agent_loop: state.agent_loop.clone(),
+        processes: state.processes.clone(),
+        mcp: state.mcp.clone(),
+        previews: state.previews.clone(),
+        settings: state.settings.clone(),
+        run_modes: state.run_modes.clone(),
+        preferences: state.preferences.clone(),
+        stored_preferences: state.stored_preferences.clone(),
+        pairings: state.pairings.clone(),
+        secrets: Arc::new(FailingSecretStore),
+        routines: state.routines.clone(),
+        routine_scheduler: state.routine_scheduler.clone(),
+        sessions: state.sessions.clone(),
+        rates: state.rates.clone(),
+        role_routings: state.role_routings.clone(),
+        provider_factory: state.provider_factory.clone(),
+        pairing_origin: std::sync::OnceLock::new(),
+        events: state.events.clone(),
+    };
+    let degraded_rpc = WarshaRpc::new(Arc::new(degraded_state));
+    let degraded_health = degraded_rpc
+        .health(&owner)
+        .await
+        .expect("health probe succeeds even when keychain is unavailable");
+    assert!(degraded_health.capabilities.daemon);
+    assert!(degraded_health.capabilities.providers);
+    assert!(!degraded_health.capabilities.keychain);
 }
 
 // Declared last, after the test module above: `tests::the_startup_listener_lines_are_written_once`
