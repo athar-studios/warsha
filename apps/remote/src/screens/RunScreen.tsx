@@ -1,56 +1,60 @@
-// The run screen — one run read whole on a phone (docs/design/REDESIGN.md §5's `run` row).
-//
-// The direction gives this screen a stage pipeline plate, an event summary, cost readings and the honest
-// states; the phone adds the constraint that decides its shape: it is read in seconds, standing up. So
-// the readings come first, the pipeline is a ruled ledger rather than a diagram, and the machine halves
-// (the feed, the log) are collapsed below them at their own scroll — never the page's (§10's overflow
-// gate).
-//
-// §3's disclosure rule still applies to a phone: no tool names, no JSON, no token counts in prose. The
-// feed says what happened in the catalog's plain words and keeps the timestamp mono; the log is the one
-// surface that shows the daemon's own lines, and it says so (`advanced.terminal_hint`).
-//
-// W4 moved the phone from read-and-decide to supervise (docs/design/REDESIGN.md §2, handoff first): when
-// the daemon answers `runs.advance` / `runs.cancel` / `runs.followup` the screen puts the run under the
-// owner's thumb, when it answers `runs.artifacts` the documents the run produced get a plate of their
-// own, and when it answers `handoff.create` / `handoff.apply` the bundle that continues the work on the
-// server is prepared and applied here. All three are capability-gated: a ten-method daemon sees this
-// screen exactly as before, panel for panel, because a control the daemon cannot honour is a lie.
+// The run screen — one run read whole on a phone, rebuilt on @warsha/ui/v3 per DESIGN_SYSTEM_V3.md.
 import { t, useDirection, useLocale } from '@warsha/i18n';
 import {
+  Badge,
   Banner,
-  Box,
   Button,
-  Chip,
+  Card,
   EmptyState,
-  Field,
-  Lamp,
-  Ledger,
-  Meter,
-  Panel,
+  IconCheck,
+  IconClock,
+  IconPlay,
+  KeyValue,
+  ListRow,
+  ProgressBar,
   Skeleton,
-  Stream,
-  TerminalDock,
-  TerminalLine,
-  Text,
-  colorVar,
-  fieldControl,
-  fontSize,
-  fontWeight,
-  space,
-} from '@warsha/ui';
-import React, { useId, useState } from 'react';
+  StatusPill,
+  TextField,
+  Transcript,
+  type StatusPillState,
+  type TranscriptLine,
+} from '@warsha/ui/v3';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { useRemote } from '../bench';
 import { Machine, ScreenTitle } from '../chrome';
 import { clock, clockWithMs, hasCeiling, money, percent, shortId } from '../format';
-import { eventWord, isErrorEvent, isGateEvent, roleWord, runLampState, runStatusWord, stageWord } from '../labels';
+import { eventWord, isErrorEvent, isGateEvent, roleWord, runStatusWord, stageWord } from '../labels';
 import { UnpairedScreen } from '../pairing';
-import { stageRows } from '../pipeline';
+import { stageRows, type StagePosition } from '../pipeline';
 
 /** How many feed lines the phone keeps visible: enough to read the shape of the run, not a transcript. */
 const VISIBLE_EVENTS = 40;
+
+function runStatusToPill(status: string): StatusPillState {
+  switch (status) {
+    case 'running':
+      return 'running';
+    case 'awaiting_gate':
+      return 'waiting';
+    case 'completed':
+      return 'done';
+    case 'failed':
+      return 'failed';
+    case 'paused':
+    case 'cancelled':
+      return 'paused';
+    default:
+      return 'idle';
+  }
+}
+
+function StageGlyph({ position }: { position: StagePosition }) {
+  if (position === 'done') return <IconCheck size={14} />;
+  if (position === 'running') return <IconPlay size={14} />;
+  return <IconClock size={14} />;
+}
 
 export function RunScreen() {
   const dir = useDirection();
@@ -67,7 +71,7 @@ export function RunScreen() {
     budget,
     logs,
     logsState,
-    pendingGates,
+    parkedGate,
     reloadAll,
     session,
     advanceCurrentRun,
@@ -83,19 +87,16 @@ export function RunScreen() {
     clearActionError,
   } = useRemote();
 
-  // The follow-up field's own state, declared before the unpaired early return so the hooks run on
-  // every render (a conditional `useState` would change the hook order between paired and unpaired).
   const [followup, setFollowup] = useState('');
   const [followupMissing, setFollowupMissing] = useState(false);
-  const followupId = useId();
 
-  // Nothing to read without a session: the phone says so and offers the pairing plate (§7).
   if (session === null) {
     return <UnpairedScreen heading={t('remote.run_title', {}, locale)} testId="remote-screen-run" />;
   }
 
   const spentCents = events.reduce((sum, event) => sum + (event.costCents ?? 0), 0);
   const reportedCost = events.some((event) => event.costCents !== null);
+  const waitingCount = parkedGate !== null ? 1 : 0;
 
   const submitFollowup = (event: React.FormEvent) => {
     event.preventDefault();
@@ -106,44 +107,45 @@ export function RunScreen() {
     }
     setFollowupMissing(false);
     void sendFollowup(followup.trim()).then((accepted) => {
-      // The field clears only on a write the daemon took; a refusal keeps the owner's words.
       if (accepted) setFollowup('');
     });
   };
 
   const followupError = followupMissing ? t('remote.followup_needed', {}, locale) : undefined;
-  const followupControl = fieldControl(followupId, {
-    hint: followupError === undefined,
-    error: followupError !== undefined,
-    required: true,
-  });
-
-  // At least one run-control is live: advance, cancel, or follow-up. A ten-method daemon answers none
-  // of them, so the controls plate stays unrendered rather than showing a plate with nothing in it.
   const hasRunControls = advanceCurrentRun !== null || cancelCurrentRun !== null || sendFollowup !== null;
-
-  // The handoff is its own surface: shown when either half — prepare or apply — is answered.
   const hasHandoff = triggerHandoff !== null || applyHandoffBundle !== null;
+
+  const transcriptLines: TranscriptLine[] =
+    logsState === 'loading'
+      ? [{ id: 'loading', content: t('advanced.logs_loading', {}, locale), stream: 'system' }]
+      : logsState === 'failed'
+        ? [{ id: 'failed', content: t('advanced.logs_failed', {}, locale), stream: 'stderr' }]
+        : logs.length === 0
+          ? [{ id: 'empty', content: t('advanced.logs_empty', {}, locale), stream: 'system' }]
+          : logs.map((line, index) => ({
+              id: String(index),
+              content: line,
+              stream: /error|fail/i.test(line) ? 'stderr' : /^(\+|ok|pass)/i.test(line) ? 'system' : 'stdout',
+            }));
 
   return (
     <div dir={dir} className="remote-screen" data-testid="remote-screen-run">
-      <Box dir={dir} className="remote-title">
-        {/* §4: a pushed screen keeps a back control that returns to its documented parent (`run → projects`). */}
+      <div dir={dir} className="remote-title">
         <Link to="/projects" dir={dir} className="remote-link remote-back" data-testid="remote-run-back">
           {t('run.back', {}, locale)}
         </Link>
         <ScreenTitle>{t('remote.run_title', {}, locale)}</ScreenTitle>
         {project !== null && (
-          <Text size="xs" dir={dir} style={{ color: colorVar('text'), fontSize: fontSize('xs') }}>
+          <p style={{ margin: 0, color: 'var(--w-text-muted)', fontSize: 'var(--w-font-size-xs)' }}>
             {`${t('bench.project_label', {}, locale)} `}
             <Machine title={project.id}>{project.id}</Machine>
-          </Text>
+          </p>
         )}
-      </Box>
+      </div>
 
       {runsState === 'failed' && (
         <Banner
-          tone="error"
+          variant="danger"
           action={
             <Button variant="secondary" size="sm" dir={dir} onClick={reloadAll} data-testid="remote-retry-runs">
               {t('common.retry', {}, locale)}
@@ -154,50 +156,76 @@ export function RunScreen() {
         </Banner>
       )}
 
-      {session !== null && streamState === 'closed' && (
-        <Banner
-          tone="offline"
-          action={
-            <Button variant="secondary" size="sm" dir={dir} onClick={reconnectStream}>
-              {t('simple.stream_retry', {}, locale)}
-            </Button>
-          }
-        >
-          {t('simple.stream_offline', {}, locale)}
-        </Banner>
+      {streamState === 'closed' && (
+        <div data-tone="offline">
+          <Banner
+            variant="attention"
+            action={
+              <Button variant="secondary" size="sm" dir={dir} onClick={reconnectStream}>
+                {t('simple.stream_retry', {}, locale)}
+              </Button>
+            }
+          >
+            {t('simple.stream_offline', {}, locale)}
+          </Banner>
+        </div>
       )}
 
       {runs.length > 0 && (
-        <Panel title={t('remote.run_select_title', {}, locale)} label={t('remote.run_select_title', {}, locale)} recessed>
+        <Card title={t('remote.run_select_title', {}, locale)} variant="sunken">
           {runsState === 'loading' ? (
-            <Skeleton label={t('advanced.runs_loading', {}, locale)} variant="row" lines={2} />
+            <Skeleton variant="rectangular" />
           ) : (
-            <Ledger label={t('remote.run_select_title', {}, locale)}>
-              {runs.map((candidate) => (
-                <Ledger.Row
-                  key={candidate.id}
-                  selected={run !== null && candidate.id === run.id}
-                  onSelect={() => setRunId(candidate.id)}
-                  meta={<Machine title={candidate.id}>{shortId(candidate.id, 10)}</Machine>}
-                >
-                  <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: space(2), minInlineSize: 0 }}>
-                    <Lamp state={runLampState(candidate.status)} size="xs">
-                      {runStatusWord(candidate.status, locale)}
-                    </Lamp>
-                    <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-                      {stageWord(candidate.stage, locale)}
-                    </Text>
-                  </Box>
-                </Ledger.Row>
-              ))}
-            </Ledger>
+            <ul
+              role="list"
+              aria-label={t('remote.run_select_title', {}, locale)}
+              style={{ listStyle: 'none', margin: 0, padding: 0 }}
+            >
+              {runs.map((candidate) => {
+                const selected = run !== null && candidate.id === run.id;
+                return (
+                  <li key={candidate.id}>
+                    <button
+                      type="button"
+                      aria-current={selected ? 'true' : undefined}
+                      onClick={() => setRunId(candidate.id)}
+                      className="warsha-control"
+                      style={{
+                        width: '100%',
+                        padding: 0,
+                        margin: 0,
+                        border: 'none',
+                        background: 'transparent',
+                        textAlign: 'start',
+                        cursor: 'pointer',
+                        font: 'inherit',
+                      }}
+                    >
+                      <ListRow
+                        selected={selected}
+                        title={
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--w-space-2)', minInlineSize: 0 }}>
+                            <StatusPill
+                              status={runStatusToPill(candidate.status)}
+                              label={runStatusWord(candidate.status, locale)}
+                            />
+                            <span>{stageWord(candidate.stage, locale)}</span>
+                          </span>
+                        }
+                        meta={<Machine title={candidate.id}>{shortId(candidate.id, 10)}</Machine>}
+                      />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           )}
-        </Panel>
+        </Card>
       )}
 
       {run === null ? (
         runsState === 'loading' ? (
-          <Skeleton label={t('advanced.runs_loading', {}, locale)} variant="block" lines={3} />
+          <Skeleton variant="rectangular" />
         ) : (
           <EmptyState
             title={t('bench.no_run', {}, locale)}
@@ -213,211 +241,235 @@ export function RunScreen() {
         )
       ) : (
         <>
-          <Panel title={t('bench.run_label', {}, locale)} label={t('remote.run_title', {}, locale)}>
-            <Ledger label={t('remote.run_title', {}, locale)}>
-              <Ledger.Row meta={<Machine title={run.id}>{run.id}</Machine>}>
-                <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-                  {t('run.id_label', {}, locale)}
-                </Text>
-              </Ledger.Row>
+          <section aria-label={t('remote.run_title', {}, locale)}>
+            <Card title={t('bench.run_label', {}, locale)}>
+              <div style={{ display: 'grid' }}>
+                <KeyValue
+                  label={t('run.id_label', {}, locale)}
+                  value={<Machine title={run.id}>{run.id}</Machine>}
+                />
+                <ListRow
+                  title={
+                    <StatusPill
+                      status={runStatusToPill(run.status)}
+                      label={t('run.status', { status: runStatusWord(run.status, locale) }, locale)}
+                    />
+                  }
+                  meta={<span>{runStatusWord(run.status, locale)}</span>}
+                />
+                <KeyValue
+                  label={t('bench.stage_label', {}, locale)}
+                  value={stageWord(run.stage, locale)}
+                />
+                <KeyValue
+                  label={t('projects.updated', {}, locale)}
+                  value={<Machine>{clock(run.updatedAt, locale)}</Machine>}
+                />
+              </div>
 
-              <Ledger.Row
-                meta={
-                  <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-                    {runStatusWord(run.status, locale)}
-                  </Text>
-                }
+              <div
+                dir={dir}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: 'var(--w-space-2)',
+                  marginBlockStart: 'var(--w-space-3)',
+                }}
               >
-                <Lamp state={runLampState(run.status)} size="sm">
-                  {t('run.status', { status: runStatusWord(run.status, locale) }, locale)}
-                </Lamp>
-              </Ledger.Row>
+                <Link to="/gates" dir={dir} className="remote-link" data-testid="remote-run-gates">
+                  {t('shell.open_gates', {}, locale)}
+                </Link>
+                {waitingCount > 0 && (
+                  <StatusPill
+                    status="waiting"
+                    label={t('remote.queue_pending', { count: waitingCount }, locale)}
+                  />
+                )}
+              </div>
+            </Card>
+          </section>
 
-              <Ledger.Row
-                meta={
-                  <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-                    {stageWord(run.stage, locale)}
-                  </Text>
-                }
-              >
-                <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-                  {t('bench.stage_label', {}, locale)}
-                </Text>
-              </Ledger.Row>
-
-              <Ledger.Row meta={<Machine>{clock(run.updatedAt, locale)}</Machine>}>
-                <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-                  {t('projects.updated', {}, locale)}
-                </Text>
-              </Ledger.Row>
-            </Ledger>
-
-            <Box dir={dir} style={{ marginBlockStart: space(3) }}>
-              <Link to="/gates" dir={dir} className="remote-link" data-testid="remote-run-gates">
-                {t('shell.open_gates', {}, locale)}
-              </Link>
-              {pendingGates.length > 0 && (
-                // Lit, because this is the owner's queue and nothing else on the bench is (§1).
-                <Chip tone="lit" glyph="!" label={t('simple.pending_gates', {}, locale)}>
-                  {t('remote.queue_pending', { count: pendingGates.length }, locale)}
-                </Chip>
-              )}
-            </Box>
-          </Panel>
-
-          <Panel title={t('remote.run_stages', {}, locale)} label={t('remote.run_stages', {}, locale)}>
-            <Ledger label={t('remote.run_stages', {}, locale)}>
+          <Card title={t('remote.run_stages', {}, locale)}>
+            <ul
+              role="list"
+              aria-label={t('remote.run_stages', {}, locale)}
+              style={{ listStyle: 'none', margin: 0, padding: 0 }}
+            >
               {stageRows(run.stage, run.status).map((row) => (
-                <Ledger.Row
-                  key={row.stage}
-                  state={row.position}
-                  meta={
-                    row.position === 'running' ? (
-                      // Not lit: a stage in progress is the team's work, and the signal is the owner's
-                      // queue (§1). The `»` glyph on the row already says running. And the word itself is
-                      // a word — `جارٍ`, `يعمل الآن` — so it takes the plain meta chip, not the machine
-                      // skin, which would set it in a fixed-advance face (§11).
-                      <Chip>{t('advanced.state_running', {}, locale)}</Chip>
+                <li key={row.stage} data-state={row.position}>
+                  <ListRow
+                    selected={row.position === 'running'}
+                    icon={<StageGlyph position={row.position} />}
+                    title={stageWord(row.stage, locale)}
+                    meta={
+                      row.position === 'running' ? (
+                        <Badge variant="primary">{t('advanced.state_running', {}, locale)}</Badge>
+                      ) : (
+                        <Machine>{row.stage}</Machine>
+                      )
+                    }
+                  />
+                </li>
+              ))}
+            </ul>
+          </Card>
+
+          <section aria-label={t('run.cost_total', {}, locale)}>
+            <Card title={t('bench.budget_label', {}, locale)}>
+              <div style={{ display: 'grid' }}>
+                <KeyValue
+                  label={t('run.cost_total', {}, locale)}
+                  value={
+                    reportedCost ? (
+                      <Machine>{money(spentCents / 100)}</Machine>
                     ) : (
-                      <Machine>{row.stage}</Machine>
+                      <Machine>{t('bench.not_reported', {}, locale)}</Machine>
                     )
                   }
+                />
+                <KeyValue
+                  label={t('bench.budget_used', {}, locale)}
+                  value={
+                    budget === null ? (
+                      <Machine>{t('bench.not_reported', {}, locale)}</Machine>
+                    ) : !hasCeiling(budget.totalBudgetUsd) ? (
+                      <Machine>{`${money(budget.spentUsd)} · ${t('bench.no_ceiling', {}, locale)}`}</Machine>
+                    ) : (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--w-space-2)' }}>
+                        <ProgressBar
+                          role="meter"
+                          value={Number(budget.spentUsd.toFixed(2))}
+                          max={Number(budget.totalBudgetUsd.toFixed(2))}
+                          label={t('bench.budget_used', {}, locale)}
+                          aria-valuenow={Number(budget.spentUsd.toFixed(2))}
+                          aria-valuemin={0}
+                          aria-valuemax={Number(budget.totalBudgetUsd.toFixed(2))}
+                          style={{ width: 'var(--w-space-10)', flexShrink: 0 }}
+                        />
+                        <Machine>
+                          {`${money(budget.spentUsd)} / ${money(budget.totalBudgetUsd)} · ${percent(budget.spentUsd, budget.totalBudgetUsd)}`}
+                        </Machine>
+                      </span>
+                    )
+                  }
+                />
+              </div>
+
+              {!reportedCost && (
+                <p
+                  style={{
+                    margin: 0,
+                    marginBlockStart: 'var(--w-space-2)',
+                    color: 'var(--w-text-muted)',
+                    fontSize: 'var(--w-font-size-xs)',
+                  }}
                 >
-                  <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-                    {stageWord(row.stage, locale)}
-                  </Text>
-                </Ledger.Row>
-              ))}
-            </Ledger>
-          </Panel>
-
-          <Panel title={t('bench.budget_label', {}, locale)} label={t('run.cost_total', {}, locale)}>
-            <Ledger label={t('run.cost_total', {}, locale)}>
-              <Ledger.Row
-                meta={
-                  // A cost nothing reported is not a free run: `$0.00` would be a claim, not a reading (§7).
-                  reportedCost ? (
-                    <Machine>{money(spentCents / 100)}</Machine>
-                  ) : (
-                    <Machine>{t('bench.not_reported', {}, locale)}</Machine>
-                  )
-                }
-              >
-                <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-                  {t('run.cost_total', {}, locale)}
-                </Text>
-              </Ledger.Row>
-
-              <Ledger.Row
-                meta={
-                  budget === null ? (
-                    <Machine>{t('bench.not_reported', {}, locale)}</Machine>
-                  ) : !hasCeiling(budget.totalBudgetUsd) ? (
-                    // The client folds `budget.show`'s null ceiling into `0`; printing that as `$0.00`
-                    // would claim the budget is spent rather than never set (§7).
-                    <Machine>{`${money(budget.spentUsd)} · ${t('bench.no_ceiling', {}, locale)}`}</Machine>
-                  ) : (
-                    <Meter
-                      value={Number(budget.spentUsd.toFixed(2))}
-                      max={Number(budget.totalBudgetUsd.toFixed(2))}
-                      label={t('bench.budget_used', {}, locale)}
-                      trackSize={space(12)}
-                    >
-                      {`${money(budget.spentUsd)} / ${money(budget.totalBudgetUsd)} · ${percent(budget.spentUsd, budget.totalBudgetUsd)}`}
-                    </Meter>
-                  )
-                }
-              >
-                <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-                  {t('bench.budget_used', {}, locale)}
-                </Text>
-              </Ledger.Row>
-            </Ledger>
-
-            {!reportedCost && (
-              <Box dir={dir} style={{ marginBlockStart: space(2) }}>
-                <Text size="xs" dir={dir} style={{ color: colorVar('text'), fontSize: fontSize('xs') }}>
                   {t('advanced.cost_none', {}, locale)}
-                </Text>
-              </Box>
-            )}
-          </Panel>
+                </p>
+              )}
+            </Card>
+          </section>
 
-          <Panel title={t('advanced.stream_label', {}, locale)} label={t('advanced.stream_label', {}, locale)}>
+          <Card title={t('advanced.stream_label', {}, locale)}>
             {events.length === 0 ? (
-              <Box dir={dir}>
-                <Skeleton label={t('run.events_loading', {}, locale)} lines={2} />
-                <Text size="xs" dir={dir} style={{ color: colorVar('text'), fontSize: fontSize('xs'), marginBlockStart: space(2) }}>
+              <div dir={dir} style={{ display: 'grid', gap: 'var(--w-space-2)' }}>
+                <Skeleton variant="text" />
+                <Skeleton variant="text" />
+                <p style={{ margin: 0, color: 'var(--w-text-muted)', fontSize: 'var(--w-font-size-xs)' }}>
                   {t('advanced.no_events', {}, locale)}
-                </Text>
-              </Box>
+                </p>
+              </div>
             ) : (
               <div
                 className="remote-stream"
-                role="region"
+                role="log"
+                aria-live="polite"
                 tabIndex={0}
                 aria-label={t('advanced.stream_label', {}, locale)}
               >
-                <Stream label={t('advanced.stream_label', {}, locale)}>
-                  {events.slice(-VISIBLE_EVENTS).map((event) => (
-                    <Stream.Line
-                      key={event.id}
-                      time={clockWithMs(event.createdAt, locale)}
-                      lane={roleWord(event.role, locale) ?? undefined}
-                      kind={
-                        isErrorEvent(event.kind)
-                          ? 'fail'
-                          : isGateEvent(event.kind)
-                            ? 'gate'
-                            : event.kind.includes('cost') || event.kind.includes('artifact')
-                              ? 'ok'
-                              : 'default'
-                      }
-                    >
-                      {`${eventWord(event.kind, locale)} ${stageWord(event.stage, locale)}`}
-                      {event.costCents !== null && ` · ${money(event.costCents / 100)}`}
-                    </Stream.Line>
-                  ))}
-                </Stream>
+                <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 'var(--w-space-1)' }}>
+                  {events.slice(-VISIBLE_EVENTS).map((event) => {
+                    const kind = isErrorEvent(event.kind)
+                      ? 'fail'
+                      : isGateEvent(event.kind)
+                        ? 'gate'
+                        : event.kind.includes('cost') || event.kind.includes('artifact')
+                          ? 'ok'
+                          : 'default';
+                    const lane = roleWord(event.role, locale);
+                    return (
+                      <li
+                        key={event.id}
+                        data-kind={kind}
+                        style={{
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          alignItems: 'baseline',
+                          gap: 'var(--w-space-2)',
+                          paddingBlock: 'var(--w-space-2)',
+                          paddingInline: 'var(--w-space-2)',
+                          borderBlockEnd: 'var(--w-border-width) solid var(--w-line)',
+                          backgroundColor:
+                            kind === 'gate'
+                              ? 'var(--w-attention-soft)'
+                              : kind === 'fail'
+                                ? 'var(--w-danger-soft)'
+                                : 'transparent',
+                          borderRadius: 'var(--w-radius-sm)',
+                          fontSize: 'var(--w-font-size-sm)',
+                        }}
+                      >
+                        <time
+                          dir="ltr"
+                          translate="no"
+                          style={{
+                            fontFamily: 'var(--w-font-mono)',
+                            fontVariantNumeric: 'tabular-nums',
+                            fontSize: 'var(--w-font-size-xs)',
+                            color: 'var(--w-text-faint)',
+                            flexShrink: 0,
+                          }}
+                        >
+                          {clockWithMs(event.createdAt, locale)}
+                        </time>
+                        {lane !== null && (
+                          <Badge variant={kind === 'gate' ? 'attention' : 'neutral'}>{lane}</Badge>
+                        )}
+                        <span style={{ color: 'var(--w-text)' }}>
+                          {`${eventWord(event.kind, locale)} ${stageWord(event.stage, locale)}`}
+                          {event.costCents !== null && ` · ${money(event.costCents / 100)}`}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ol>
               </div>
             )}
-          </Panel>
+          </Card>
 
-          <Panel title={t('remote.run_logs_title', {}, locale)} label={t('remote.run_logs_title', {}, locale)}>
-            <TerminalDock
-              // The dock names itself differently from its plate: two regions with one name is a tree the
-              // owner cannot tell apart (§6), and the transcript is the thing inside the plate.
-              label={t('advanced.terminal_label', {}, locale)}
-              commandLabel={t('advanced.terminal_readonly', {}, locale)}
-              submitLabel={t('run.follow_live', {}, locale)}
-              hint={t('advanced.terminal_hint', {}, locale)}
-              hideLabel
-              output={
-                logsState === 'loading' ? (
-                  <TerminalLine>{t('advanced.logs_loading', {}, locale)}</TerminalLine>
-                ) : logsState === 'failed' ? (
-                  <TerminalLine tone="fail">{t('advanced.logs_failed', {}, locale)}</TerminalLine>
-                ) : logs.length === 0 ? (
-                  <TerminalLine>{t('advanced.logs_empty', {}, locale)}</TerminalLine>
-                ) : (
-                  logs.map((line, index) => (
-                    <TerminalLine key={index} tone={/^(\+|ok|pass)/i.test(line) ? 'ok' : /error|fail/i.test(line) ? 'fail' : 'output'}>
-                      {line}
-                    </TerminalLine>
-                  ))
-                )
-              }
-            />
-          </Panel>
-
-          {/* A daemon that serves the run-control RPCs gets the owner's thumb on the run itself. */}
-          {hasRunControls && (
-            <Panel
-              title={t('remote.run_controls_title', {}, locale)}
-              label={t('remote.run_controls_title', {}, locale)}
+          <section aria-label={t('advanced.terminal_label', {}, locale)}>
+            <Card
+              title={t('remote.run_logs_title', {}, locale)}
+              subtitle={t('advanced.terminal_hint', {}, locale)}
             >
-              <div dir={dir} data-testid="remote-run-controls" className="remote-run-controls">
-                <Box dir={dir} style={{ display: 'flex', flexWrap: 'wrap', gap: space(2) }}>
+              <Transcript
+                lines={transcriptLines}
+                showLineNumbers={false}
+                maxHeight="var(--w-rail-width)"
+              />
+            </Card>
+          </section>
+
+          {hasRunControls && (
+            <Card title={t('remote.run_controls_title', {}, locale)}>
+              <div
+                dir={dir}
+                data-testid="remote-run-controls"
+                className="remote-run-controls"
+                style={{ display: 'grid', gap: 'var(--w-space-3)' }}
+              >
+                <div dir={dir} style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--w-space-2)' }}>
                   {advanceCurrentRun !== null && (
                     <Button
                       variant="primary"
@@ -444,151 +496,136 @@ export function RunScreen() {
                       {t('remote.run_cancel', {}, locale)}
                     </Button>
                   )}
-                </Box>
+                </div>
 
                 {sendFollowup !== null && (
-                  <form onSubmit={submitFollowup} dir={dir} className="remote-form" data-testid="remote-followup-form">
-                    <Field
-                      id={followupId}
+                  <form onSubmit={submitFollowup} noValidate dir={dir} className="remote-form" data-testid="remote-followup-form">
+                    <TextField
+                      ref={(node) => {
+                        if (node !== null) node.setAttribute('data-testid', 'remote-followup-input');
+                      }}
                       label={t('remote.followup_label', {}, locale)}
                       error={followupError}
                       required
-                    >
-                      <input
-                        {...followupControl}
-                        autoComplete="off"
-                        value={followup}
-                        onChange={(event) => {
-                          setFollowup(event.target.value);
-                          if (followupMissing) setFollowupMissing(false);
-                          if (actionError !== null) clearActionError();
-                        }}
-                        data-testid="remote-followup-input"
-                      />
-                    </Field>
+                      autoComplete="off"
+                      value={followup}
+                      onChange={(event) => {
+                        setFollowup(event.target.value);
+                        if (followupMissing) setFollowupMissing(false);
+                        if (actionError !== null) clearActionError();
+                      }}
+                    />
                     <Button type="submit" variant="secondary" dir={dir} data-testid="remote-followup-submit">
                       {t('common.send', {}, locale)}
                     </Button>
                   </form>
                 )}
               </div>
-            </Panel>
+            </Card>
           )}
 
-          {/* The documents the run produced, read from `runs.artifacts`. `idle` means the daemon does
-              not serve the name — the plate does not exist here, rather than an empty list claiming
-              the run produced nothing (§7). */}
           {artifactsState !== 'idle' && (
-            <Panel title={t('run.artifacts', {}, locale)} label={t('run.artifacts', {}, locale)}>
+            <Card title={t('run.artifacts', {}, locale)}>
               <div dir={dir} data-testid="remote-run-artifacts" className="remote-run-artifacts">
                 {artifactsState === 'loading' ? (
-                  <Skeleton label={t('run.artifacts', {}, locale)} variant="row" lines={2} />
+                  <Skeleton variant="rectangular" />
                 ) : artifacts.length === 0 ? (
-                  <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
+                  <p style={{ margin: 0, color: 'var(--w-text)', fontSize: 'var(--w-font-size-sm)' }}>
                     {t('run.no_artifacts', {}, locale)}
-                  </Text>
+                  </p>
                 ) : (
-                  <Ledger label={t('run.artifacts', {}, locale)}>
+                  <div style={{ display: 'grid' }}>
                     {artifacts.map((artifact) => (
-                      <Ledger.Row
+                      <ListRow
                         key={artifact.name}
-                        meta={<Machine title={artifact.name}>{`v${artifact.version}`}</Machine>}
-                      >
-                        <Box dir={dir} style={{ display: 'grid', gap: space(1), minInlineSize: 0 }}>
-                          <Text size="sm" dir={dir} style={{ color: colorVar('text'), fontWeight: fontWeight('bold') }}>
-                            {artifact.name}
-                          </Text>
-                          <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: space(2), minInlineSize: 0 }}>
-                            <Text size="xs" dir={dir} style={{ color: colorVar('text'), fontSize: fontSize('xs') }}>
-                              {stageWord(artifact.stage, locale)}
-                            </Text>
+                        title={artifact.name}
+                        subtitle={
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--w-space-2)', minInlineSize: 0 }}>
+                            <span>{stageWord(artifact.stage, locale)}</span>
                             <Machine title={artifact.content}>{artifact.content.split('\n')[0]}</Machine>
-                          </Box>
-                        </Box>
-                      </Ledger.Row>
+                          </span>
+                        }
+                        meta={<Machine title={artifact.name}>{`v${artifact.version}`}</Machine>}
+                      />
                     ))}
-                  </Ledger>
+                  </div>
                 )}
               </div>
-            </Panel>
+            </Card>
           )}
 
-          {/* The handoff: bundle the run's artifacts on the server, apply a prepared one. The phone
-              never moves bytes itself — it names the pair and the daemon does the carrying. */}
           {hasHandoff && (
-            <Panel title={t('run.tab_handoff', {}, locale)} label={t('run.tab_handoff', {}, locale)}>
-              <div dir={dir} data-testid="remote-run-handoff" className="remote-run-handoff">
-                <Box dir={dir} style={{ display: 'grid', gap: space(2) }}>
-                  {triggerHandoff !== null && (
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      dir={dir}
-                      onClick={() => {
-                        void triggerHandoff();
-                      }}
-                      data-testid="remote-handoff-create"
-                    >
-                      {t('remote.handoff_create', {}, locale)}
-                    </Button>
-                  )}
+            <Card title={t('run.tab_handoff', {}, locale)}>
+              <div
+                dir={dir}
+                data-testid="remote-run-handoff"
+                className="remote-run-handoff"
+                style={{ display: 'grid', gap: 'var(--w-space-2)' }}
+              >
+                {triggerHandoff !== null && (
+                  <Button
+                    variant={advanceCurrentRun === null ? 'primary' : 'secondary'}
+                    size="sm"
+                    dir={dir}
+                    onClick={() => {
+                      void triggerHandoff();
+                    }}
+                    data-testid="remote-handoff-create"
+                  >
+                    {t('remote.handoff_create', {}, locale)}
+                  </Button>
+                )}
 
-                  {handoffPath !== null && (
-                    <Box dir={dir} style={{ display: 'flex', alignItems: 'center', gap: space(2), minInlineSize: 0 }}>
-                      <Text size="xs" dir={dir} style={{ color: colorVar('text'), fontSize: fontSize('xs') }}>
-                        {`${t('remote.handoff_path_label', {}, locale)} `}
-                      </Text>
-                      <Machine title={handoffPath}>{handoffPath}</Machine>
-                    </Box>
-                  )}
+                {handoffPath !== null && (
+                  <KeyValue
+                    label={t('remote.handoff_path_label', {}, locale)}
+                    value={<Machine title={handoffPath}>{handoffPath}</Machine>}
+                  />
+                )}
 
-                  {applyHandoffBundle !== null && (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      dir={dir}
-                      onClick={() => {
-                        void applyHandoffBundle();
-                      }}
-                      data-testid="remote-handoff-apply"
-                    >
-                      {t('remote.handoff_apply', {}, locale)}
-                    </Button>
-                  )}
+                {applyHandoffBundle !== null && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    dir={dir}
+                    onClick={() => {
+                      void applyHandoffBundle();
+                    }}
+                    data-testid="remote-handoff-apply"
+                  >
+                    {t('remote.handoff_apply', {}, locale)}
+                  </Button>
+                )}
 
-                  {handoffSummary !== null && (
-                    <Box dir={dir} style={{ display: 'grid', gap: space(1) }}>
-                      <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-                        {t('review_apply.summary', { count: handoffSummary.applied.length }, locale)}
-                      </Text>
-                      {handoffSummary.applied.map((name) => (
-                        <Machine key={name}>{name}</Machine>
-                      ))}
-                    </Box>
-                  )}
-                </Box>
+                {handoffSummary !== null && (
+                  <div dir={dir} style={{ display: 'grid', gap: 'var(--w-space-1)' }}>
+                    <p style={{ margin: 0, color: 'var(--w-text)', fontSize: 'var(--w-font-size-sm)' }}>
+                      {t('review_apply.summary', { count: handoffSummary.applied.length }, locale)}
+                    </p>
+                    {handoffSummary.applied.map((name) => (
+                      <Machine key={name}>{name}</Machine>
+                    ))}
+                  </div>
+                )}
               </div>
-            </Panel>
+            </Card>
           )}
         </>
       )}
 
-      {/* A refused run-control write says so, in the daemon's redacted words, beside what it failed. */}
       {actionError !== null && (
         <Banner
-          tone="error"
+          variant="danger"
           action={
             <Button variant="secondary" size="sm" dir={dir} onClick={clearActionError} data-testid="remote-action-dismiss">
               {t('common.close', {}, locale)}
             </Button>
           }
         >
-          <Box dir={dir} style={{ display: 'grid', gap: space(1), minInlineSize: 0 }}>
-            <Text size="sm" dir={dir} style={{ color: colorVar('text') }}>
-              {t('remote.action_failed', {}, locale)}
-            </Text>
+          <div dir={dir} style={{ display: 'grid', gap: 'var(--w-space-1)', minInlineSize: 0 }}>
+            <span>{t('remote.action_failed', {}, locale)}</span>
             <Machine title={actionError}>{actionError}</Machine>
-          </Box>
+          </div>
         </Banner>
       )}
     </div>
