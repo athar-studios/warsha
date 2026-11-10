@@ -252,6 +252,13 @@ async fn execute_stage_uses_harness_prompt_template_when_available() {
         .await
         .expect("run starts");
 
+    // Reach Gate A before approving it
+    let run = engine
+        .advance_stage(run.id)
+        .await
+        .expect("advance to Gate A");
+    assert_eq!(run.current_stage, Stage::GateA);
+
     // Approve Gate A
     engine
         .approve_gate(run.id, Stage::GateA, DeviceId::new())
@@ -327,6 +334,13 @@ async fn execute_stage_prepends_enabled_skills_to_prompt() {
         .start_run(project_id, "Test idea for skills wiring")
         .await
         .expect("run starts");
+
+    // Reach Gate A before approving it
+    let run = engine
+        .advance_stage(run.id)
+        .await
+        .expect("advance to Gate A");
+    assert_eq!(run.current_stage, Stage::GateA);
 
     // Approve Gate A
     engine
@@ -462,6 +476,13 @@ async fn execute_stage_combines_harness_template_and_skills() {
         .await
         .expect("run starts");
 
+    // Reach Gate A before approving it
+    let run = engine
+        .advance_stage(run.id)
+        .await
+        .expect("advance to Gate A");
+    assert_eq!(run.current_stage, Stage::GateA);
+
     // Approve Gate A
     engine
         .approve_gate(run.id, Stage::GateA, DeviceId::new())
@@ -586,6 +607,13 @@ async fn execute_stage_uses_default_prompt_when_no_harness_template() {
         .start_run(project_id, "Test default prompt")
         .await
         .expect("run starts");
+
+    // Reach Gate A before approving it
+    let run = engine
+        .advance_stage(run.id)
+        .await
+        .expect("advance to Gate A");
+    assert_eq!(run.current_stage, Stage::GateA);
 
     // Approve Gate A
     engine
