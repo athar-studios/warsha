@@ -20,7 +20,6 @@ import {
   IconGlobe,
   IconPlus,
   IconTrash,
-  ListRow,
   Select,
   SettingsSection,
   Skeleton,
@@ -49,6 +48,7 @@ export function ModelsSection(): React.ReactElement {
   const { setReady } = useDataReady();
 
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProviderConfig[]>([]);
   const [customModels, setCustomModels] = useState<CustomModelRecord[]>([]);
@@ -81,6 +81,7 @@ export function ModelsSection(): React.ReactElement {
   const loadData = useCallback(async () => {
     setLoading(true);
     setReady(false);
+    setLoadFailed(false);
     setLoadError(null);
     if (!client) {
       setProviders([]);
@@ -99,8 +100,8 @@ export function ModelsSection(): React.ReactElement {
       setProviders(provList);
       setCustomModels(modList);
       setRoleRoutings(rotList);
-      if (provList.length > 0 && !modelProvider) {
-        setModelProvider(provList[0].name);
+      if (provList.length > 0) {
+        setModelProvider((prev) => prev || provList[0].name);
       }
       const nextDrafts: Partial<Record<Role, string>> = {};
       for (const r of rotList) {
@@ -113,11 +114,12 @@ export function ModelsSection(): React.ReactElement {
       setLoading(false);
       setReady(true);
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : t('common.error'));
+      setLoadFailed(true);
+      setLoadError(err instanceof Error ? err.message : null);
       setLoading(false);
       setReady(true);
     }
-  }, [client, modelProvider, setReady, t]);
+  }, [client, setReady]);
 
   useEffect(() => {
     void loadData();
@@ -308,11 +310,11 @@ export function ModelsSection(): React.ReactElement {
           </Button>
         }
       >
-        {loadError && (
+        {loadFailed && (
           <div style={{ padding: 'var(--w-space-4)' }}>
-            <Banner
-              variant="danger"
-              action={
+            <Banner variant="danger">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--w-space-3)', flexWrap: 'wrap' }}>
+                <span>{loadError ?? t('common.error')}</span>
                 <Button
                   size="sm"
                   variant="secondary"
@@ -323,9 +325,7 @@ export function ModelsSection(): React.ReactElement {
                 >
                   {t('common.retry')}
                 </Button>
-              }
-            >
-              {loadError}
+              </div>
             </Banner>
           </div>
         )}
@@ -348,76 +348,77 @@ export function ModelsSection(): React.ReactElement {
               const testState = testResults[p.name];
               const catalog = fetchedModels[p.name];
               return (
-                <ListRow
-                  key={p.name}
-                  icon={p.kind === 'custom' ? <IconGlobe size={18} /> : <IconCpu size={18} />}
-                  title={<bdi dir="ltr">{p.name}</bdi>}
-                  subtitle={
-                    <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 'var(--w-space-2)', alignItems: 'center' }}>
-                      <span>{t(`settings.providers.kind.${p.kind}`) !== `settings.providers.kind.${p.kind}` ? t(`settings.providers.kind.${p.kind}`) : p.kind}</span>
-                      {p.api_base && <bdi dir="ltr">{p.api_base}</bdi>}
-                      {catalog && (
-                        <span>{t('settings.providers.models_fetched', { count: catalog.length })}</span>
-                      )}
-                    </span>
-                  }
-                  meta={
-                    <span style={{ display: 'inline-flex', gap: 'var(--w-space-2)', alignItems: 'center' }}>
+                <div key={p.name} className="v3-settings-row" data-testid={`provider-row-${p.name}`}>
+                  <span className="v3-settings-row-icon" aria-hidden="true">
+                    {p.kind === 'custom' ? <IconGlobe size={18} /> : <IconCpu size={18} />}
+                  </span>
+                  <div className="v3-settings-row-main">
+                    <div className="v3-settings-row-title">
+                      <bdi dir="ltr">{p.name}</bdi>
+                    </div>
+                    <div className="v3-settings-row-subtitle">
+                      <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 'var(--w-space-2)', alignItems: 'center' }}>
+                        <span>{t(`settings.providers.kind.${p.kind}`) !== `settings.providers.kind.${p.kind}` ? t(`settings.providers.kind.${p.kind}`) : p.kind}</span>
+                        {p.api_base && <bdi dir="ltr">{p.api_base}</bdi>}
+                        {catalog && (
+                          <span>{t('settings.providers.models_fetched', { count: catalog.length })}</span>
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="v3-settings-row-meta">
+                    <StatusPill
+                      status={p.enabled ? 'done' : 'idle'}
+                      label={
+                        p.enabled
+                          ? t('settings.providers.status.enabled')
+                          : t('settings.providers.status.disabled')
+                      }
+                    />
+                    {testState && (
                       <StatusPill
-                        status={p.enabled ? 'done' : 'idle'}
+                        status={testState === 'ok' ? 'done' : 'failed'}
                         label={
-                          p.enabled
-                            ? t('settings.providers.status.enabled')
-                            : t('settings.providers.status.disabled')
+                          testState === 'ok'
+                            ? t('settings.providers.test.ok')
+                            : t('settings.providers.test.fail')
                         }
                       />
-                      {testState && (
-                        <StatusPill
-                          status={testState === 'ok' ? 'done' : 'failed'}
-                          label={
-                            testState === 'ok'
-                              ? t('settings.providers.test.ok')
-                              : t('settings.providers.test.fail')
-                          }
-                        />
-                      )}
-                    </span>
-                  }
-                  actions={
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--w-space-1)', alignItems: 'center' }}>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        loading={testProviderAction.pending}
-                        data-action="settings.provider.test"
-                        onClick={() => {
-                          void testProviderAction.run(p.name);
-                        }}
-                      >
-                        {t('settings.providers.test')}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        loading={fetchModelsAction.pending}
-                        data-action="settings.provider.models.fetch"
-                        onClick={() => {
-                          void fetchModelsAction.run(p.name);
-                        }}
-                      >
-                        {t('settings.providers.fetch_models')}
-                      </Button>
-                      <IconButton
-                        size="sm"
-                        variant="ghost"
-                        icon={<IconTrash size={16} />}
-                        label={t('settings.providers.remove')}
-                        data-action="settings.provider.remove.open"
-                        onClick={() => setRemoveProviderTarget(p)}
-                      />
-                    </div>
-                  }
-                />
+                    )}
+                  </div>
+                  <div className="v3-settings-row-actions">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      loading={testProviderAction.pending}
+                      data-action="settings.provider.test"
+                      onClick={() => {
+                        void testProviderAction.run(p.name);
+                      }}
+                    >
+                      {t('settings.providers.test')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      loading={fetchModelsAction.pending}
+                      data-action="settings.provider.models.fetch"
+                      onClick={() => {
+                        void fetchModelsAction.run(p.name);
+                      }}
+                    >
+                      {t('settings.providers.fetch_models')}
+                    </Button>
+                    <IconButton
+                      size="sm"
+                      variant="ghost"
+                      icon={<IconTrash size={16} />}
+                      label={t('settings.providers.remove')}
+                      data-action="settings.provider.remove.open"
+                      onClick={() => setRemoveProviderTarget(p)}
+                    />
+                  </div>
+                </div>
               );
             })}
           </div>
@@ -434,16 +435,17 @@ export function ModelsSection(): React.ReactElement {
           ) : (
             <div>
               {customModels.map((m) => (
-                <ListRow
-                  key={`${m.provider}::${m.modelId}`}
-                  title={<bdi dir="ltr">{m.modelId}</bdi>}
-                  subtitle={
-                    <span>
+                <div key={`${m.provider}::${m.modelId}`} className="v3-settings-row" data-testid={`model-row-${m.modelId}`}>
+                  <div className="v3-settings-row-main">
+                    <div className="v3-settings-row-title">
+                      <bdi dir="ltr">{m.modelId}</bdi>
+                    </div>
+                    <div className="v3-settings-row-subtitle">
                       <bdi dir="ltr">{m.provider}</bdi>
                       {m.displayName ? ` · ${m.displayName}` : ''}
-                    </span>
-                  }
-                  actions={
+                    </div>
+                  </div>
+                  <div className="v3-settings-row-actions">
                     <IconButton
                       size="sm"
                       variant="ghost"
@@ -452,8 +454,8 @@ export function ModelsSection(): React.ReactElement {
                       data-action="settings.model.remove.open"
                       onClick={() => setRemoveModelTarget(m)}
                     />
-                  }
-                />
+                  </div>
+                </div>
               ))}
             </div>
           )}
@@ -596,27 +598,6 @@ export function ModelsSection(): React.ReactElement {
         onClose={closeAddDialog}
         title={t('settings.providers.form.title')}
         data-testid="add-provider-dialog"
-        actions={
-          <>
-            <Button
-              variant="ghost"
-              data-action="settings.dialog.cancel"
-              onClick={closeAddDialog}
-            >
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="primary"
-              loading={addProviderAction.pending}
-              data-action="settings.provider.add.save"
-              onClick={() => {
-                void addProviderAction.run();
-              }}
-            >
-              {t('settings.providers.form.save')}
-            </Button>
-          </>
-        }
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--w-space-3)' }}>
           {formError && <Banner variant="danger">{formError}</Banner>}
@@ -663,6 +644,25 @@ export function ModelsSection(): React.ReactElement {
             dir="ltr"
             data-testid="provider-form-api-base"
           />
+          <div className="v3-settings-dialog-actions">
+            <Button
+              variant="ghost"
+              data-action="settings.dialog.cancel"
+              onClick={closeAddDialog}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              loading={addProviderAction.pending}
+              data-action="settings.provider.add.save"
+              onClick={() => {
+                void addProviderAction.run();
+              }}
+            >
+              {t('settings.providers.form.save')}
+            </Button>
+          </div>
         </div>
       </Dialog>
 
@@ -674,8 +674,14 @@ export function ModelsSection(): React.ReactElement {
           name: removeProviderTarget?.name ?? '',
         })}
         data-testid="remove-provider-dialog"
-        actions={
-          <>
+      >
+        <div>
+          <p style={{ margin: 0 }}>
+            {t('settings.providers.remove.desc', {
+              name: removeProviderTarget?.name ?? '',
+            })}
+          </p>
+          <div className="v3-settings-dialog-actions">
             <Button
               variant="ghost"
               data-action="settings.dialog.cancel"
@@ -693,14 +699,8 @@ export function ModelsSection(): React.ReactElement {
             >
               {t('settings.common.confirm_remove')}
             </Button>
-          </>
-        }
-      >
-        <p style={{ margin: 0 }}>
-          {t('settings.providers.remove.desc', {
-            name: removeProviderTarget?.name ?? '',
-          })}
-        </p>
+          </div>
+        </div>
       </Dialog>
 
       {/* Confirm Remove Custom Model Dialog */}
@@ -711,8 +711,14 @@ export function ModelsSection(): React.ReactElement {
           name: removeModelTarget?.modelId ?? '',
         })}
         data-testid="remove-model-dialog"
-        actions={
-          <>
+      >
+        <div>
+          <p style={{ margin: 0 }}>
+            {t('settings.models.remove.desc', {
+              name: removeModelTarget?.modelId ?? '',
+            })}
+          </p>
+          <div className="v3-settings-dialog-actions">
             <Button
               variant="ghost"
               data-action="settings.dialog.cancel"
@@ -730,14 +736,8 @@ export function ModelsSection(): React.ReactElement {
             >
               {t('settings.common.confirm_remove')}
             </Button>
-          </>
-        }
-      >
-        <p style={{ margin: 0 }}>
-          {t('settings.models.remove.desc', {
-            name: removeModelTarget?.modelId ?? '',
-          })}
-        </p>
+          </div>
+        </div>
       </Dialog>
     </div>
   );
