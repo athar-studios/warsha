@@ -273,6 +273,7 @@ export const AssistantTab: React.FC<AssistantTabProps> = ({
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--w-space-2)' }}>
           <TextArea
+            label={t('bench.assistant.title')}
             placeholder={t('bench.assistant.placeholder')}
             value={input}
             onChange={(e) => setInput(e.target.value)}

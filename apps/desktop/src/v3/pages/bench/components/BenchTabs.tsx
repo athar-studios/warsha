@@ -74,7 +74,7 @@ export const BenchTabs: React.FC<BenchTabsProps> = ({ activeTab, onChange }) => 
             role="tab"
             id={`bench-tab-${tabId}`}
             aria-selected={isSelected}
-            aria-controls={`bench-panel-${tabId}`}
+            aria-controls={isSelected ? `bench-panel-${tabId}` : undefined}
             tabIndex={isSelected ? 0 : -1}
             onClick={() => onChange(tabId)}
             onKeyDown={(e) => handleKeyDown(e, idx)}

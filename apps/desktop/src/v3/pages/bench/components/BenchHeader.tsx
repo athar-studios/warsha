@@ -184,8 +184,22 @@ export const BenchHeader: React.FC<BenchHeaderProps> = ({
         title={t('bench.cancel_dialog.title')}
         description={t('bench.cancel_dialog.description')}
         closeLabel={t('bench.cancel_dialog.dismiss')}
-        actions={
-          <>
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--w-space-4)' }}>
+          <TextField
+            label={t('bench.cancel_dialog.reason_label')}
+            placeholder={t('bench.cancel_dialog.reason_placeholder')}
+            value={cancelReason}
+            onChange={(e) => setCancelReason(e.target.value)}
+          />
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              gap: 'var(--w-space-2)',
+            }}
+          >
             <Button
               variant="ghost"
               size="sm"
@@ -204,15 +218,8 @@ export const BenchHeader: React.FC<BenchHeaderProps> = ({
             >
               {t('bench.cancel_dialog.confirm')}
             </Button>
-          </>
-        }
-      >
-        <TextField
-          label={t('bench.cancel_dialog.reason_label')}
-          placeholder={t('bench.cancel_dialog.reason_placeholder')}
-          value={cancelReason}
-          onChange={(e) => setCancelReason(e.target.value)}
-        />
+          </div>
+        </div>
       </Dialog>
     </header>
   );

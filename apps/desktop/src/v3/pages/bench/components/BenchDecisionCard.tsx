@@ -144,6 +144,7 @@ export const BenchDecisionCard: React.FC<BenchDecisionCardProps> = ({
           }}
         >
           <TextArea
+            label={t('bench.action.gate_changes_send')}
             value={changeNotes}
             onChange={(e) => setChangeNotes(e.target.value)}
             placeholder={t('bench.gate.changes_placeholder')}
@@ -225,8 +226,24 @@ export const BenchDecisionCard: React.FC<BenchDecisionCardProps> = ({
           title={t('bench.gate.reject_title')}
           description={t('bench.gate.reject_description')}
           closeLabel={t('bench.header.cancel')}
-          actions={
-            <>
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--w-space-4)' }}>
+            <TextArea
+              label={t('bench.gate.reject_title')}
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder={t('bench.gate.reject_placeholder')}
+              rows={3}
+              data-testid="decision-reject-reason-input"
+            />
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'flex-end',
+                gap: 'var(--w-space-2)',
+              }}
+            >
               <Button
                 variant="ghost"
                 size="sm"
@@ -245,16 +262,8 @@ export const BenchDecisionCard: React.FC<BenchDecisionCardProps> = ({
               >
                 {t('bench.action.gate_reject_confirm')}
               </Button>
-            </>
-          }
-        >
-          <TextArea
-            value={rejectReason}
-            onChange={(e) => setRejectReason(e.target.value)}
-            placeholder={t('bench.gate.reject_placeholder')}
-            rows={3}
-            data-testid="decision-reject-reason-input"
-          />
+            </div>
+          </div>
         </Dialog>
       )}
     </section>
