@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.28
 #
 # docker/Dockerfile — multi-stage production image for the Warsha daemon.
 #
@@ -20,7 +20,7 @@
 
 # Pinned for reproducibility; must be >= 1.89 because uuid@1.29.0 requires rustc >= 1.89.0.
 ARG RUST_IMAGE=rust:1-bookworm
-ARG NODE_IMAGE=node:22-bookworm-slim
+ARG NODE_IMAGE=node:22.23.4-bookworm-slim
 ARG RUNTIME_IMAGE=debian:bookworm-slim
 
 # --------------------------------------------------------------------------

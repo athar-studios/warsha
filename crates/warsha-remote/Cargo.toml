@@ -19,11 +19,11 @@ chacha20poly1305 = { workspace = true }
 rand = { workspace = true }
 zeroize = { workspace = true }
 ring = { workspace = true }
-qrcode = "0.14"
-image = { version = "0.25", default-features = false, features = ["png"] }
-base64 = "0.22"
+qrcode = "0.14.1"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+base64 = "0.23.1"
 chrono = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
-pretty_assertions = "1.4"
+pretty_assertions = "1.4.1"
