@@ -224,7 +224,8 @@ describe('OnboardingPage', () => {
     });
 
     expect(enBtn.getAttribute('aria-pressed')).toBe('true');
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Choose your language');
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Onboarding');
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Choose your language');
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('onboarding-next-btn'));

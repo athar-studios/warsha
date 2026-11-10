@@ -409,6 +409,10 @@ export default function OnboardingPage(): React.ReactElement {
     return (
       <div className="v3-onboarding-container" data-testid="onboarding-loading">
         <div className="v3-onboarding-shell">
+          <header className="v3-onboarding-header">
+            <h1 className="v3-onboarding-title">{t('onboarding.title')}</h1>
+            <p className="v3-onboarding-desc">{t('onboarding.subtitle')}</p>
+          </header>
           <div className="v3-onboarding-card">
             <Skeleton variant="text" />
             <Skeleton variant="rectangular" />
@@ -422,6 +426,11 @@ export default function OnboardingPage(): React.ReactElement {
   return (
     <div className="v3-onboarding-container" data-testid="onboarding-page">
       <div className="v3-onboarding-shell">
+        <header className="v3-onboarding-header">
+          <h1 className="v3-onboarding-title">{t('onboarding.title')}</h1>
+          <p className="v3-onboarding-desc">{t('onboarding.subtitle')}</p>
+        </header>
+
         <nav
           aria-label={t('onboarding.step_indicator', { current: stepIndex + 1, total: STEPS.length })}
           className="v3-onboarding-progress"
@@ -446,7 +455,7 @@ export default function OnboardingPage(): React.ReactElement {
         {step === 'language' && (
           <section className="v3-onboarding-card" data-testid="onboarding-step-language">
             <header className="v3-onboarding-header">
-              <h1 className="v3-onboarding-title">{t('onboarding.language_title')}</h1>
+              <h2 className="v3-onboarding-subtitle">{t('onboarding.language_title')}</h2>
               <p className="v3-onboarding-desc">{t('onboarding.language_desc')}</p>
             </header>
 
@@ -493,7 +502,7 @@ export default function OnboardingPage(): React.ReactElement {
         {step === 'provider' && (
           <section className="v3-onboarding-card" data-testid="onboarding-step-provider">
             <header className="v3-onboarding-header">
-              <h1 className="v3-onboarding-title">{t('onboarding.provider_title')}</h1>
+              <h2 className="v3-onboarding-subtitle">{t('onboarding.provider_title')}</h2>
               <p className="v3-onboarding-desc">{t('onboarding.provider_desc')}</p>
             </header>
 
@@ -724,7 +733,7 @@ export default function OnboardingPage(): React.ReactElement {
         {step === 'idea' && (
           <section className="v3-onboarding-card" data-testid="onboarding-step-idea">
             <header className="v3-onboarding-header">
-              <h1 className="v3-onboarding-title">{t('onboarding.idea_title')}</h1>
+              <h2 className="v3-onboarding-subtitle">{t('onboarding.idea_title')}</h2>
               <p className="v3-onboarding-desc">{t('onboarding.idea_desc')}</p>
             </header>
 

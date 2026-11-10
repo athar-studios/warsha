@@ -1,5 +1,5 @@
 export default {
-  'onboarding.title': 'First-time setup',
+  'onboarding.title': 'Onboarding',
   'onboarding.subtitle': 'Set up your workspace in three simple steps',
   'onboarding.step_indicator': 'Step {current} of {total}',
   'onboarding.step_language': 'Language',

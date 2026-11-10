@@ -73,6 +73,14 @@
   margin-block: 0;
 }
 
+.v3-onboarding-subtitle {
+  font-size: var(--w-font-size-xl);
+  line-height: var(--w-line-height-xl);
+  font-weight: var(--w-font-weight-semibold);
+  color: var(--w-text);
+  margin-block: 0;
+}
+
 .v3-onboarding-desc {
   font-size: var(--w-font-size-md);
   line-height: var(--w-line-height-md);
