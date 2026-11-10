@@ -52,7 +52,7 @@ pub(crate) fn ensure_gate_decidable(run: &Run, stage: Stage) -> Result<()> {
 /// (`name`, `stage`, `version`, `content`), independent of `HashMap` iteration order.
 pub fn artifacts_sha256(artifacts: &HashMap<String, Artifact>) -> String {
     let mut entries: Vec<(&String, &Artifact)> = artifacts.iter().collect();
-    entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+    entries.sort_by_key(|(a, _)| *a);
 
     let mut hasher = Sha256::new();
     hasher.update(&(entries.len() as u64).to_le_bytes());
@@ -222,8 +222,9 @@ impl Sha256 {
 
     fn compress(&mut self, block: &[u8; 64]) {
         let mut w = [0u32; 64];
-        for (i, chunk) in block.chunks_exact(4).enumerate() {
-            w[i] = u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+        for (i, dst) in w.iter_mut().take(16).enumerate() {
+            let j = i * 4;
+            *dst = u32::from_be_bytes([block[j], block[j + 1], block[j + 2], block[j + 3]]);
         }
         for i in 16..64 {
             let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
@@ -235,14 +236,14 @@ impl Sha256 {
         }
 
         let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = self.state;
-        for i in 0..64 {
+        for (&k_i, &w_i) in Self::K.iter().zip(&w) {
             let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
             let ch = (e & f) ^ ((!e) & g);
             let temp1 = h
                 .wrapping_add(s1)
                 .wrapping_add(ch)
-                .wrapping_add(Self::K[i])
-                .wrapping_add(w[i]);
+                .wrapping_add(k_i)
+                .wrapping_add(w_i);
             let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
             let maj = (a & b) ^ (a & c) ^ (b & c);
             let temp2 = s0.wrapping_add(maj);
