@@ -80,37 +80,36 @@ export function AboutSection(): React.ReactElement {
         title={t('settings.section.about')}
         description={t('settings.section.about.desc')}
         scope={t('settings.scope.device')}
-        action={
-          <div style={{ display: 'flex', gap: 'var(--w-space-2)' }}>
-            <Button
-              size="sm"
-              variant="secondary"
-              icon={<IconRefresh size={16} />}
-              loading={refreshAction.pending}
-              data-action="settings.about.health.refresh"
-              onClick={() => {
-                void refreshAction.run();
-              }}
-            >
-              {t('settings.about.refresh')}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              icon={<IconCopy size={16} />}
-              data-action="settings.about.copy"
-              onClick={handleCopy}
-            >
-              {copied ? t('settings.about.copied') : t('settings.about.copy')}
-            </Button>
-          </div>
-        }
       >
+        <div className="v3-settings-section-actions">
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={<IconRefresh size={16} />}
+            loading={refreshAction.pending}
+            data-action="settings.about.health.refresh"
+            onClick={() => {
+              void refreshAction.run();
+            }}
+          >
+            {t('settings.about.refresh')}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<IconCopy size={16} />}
+            data-action="settings.about.copy"
+            onClick={handleCopy}
+          >
+            {copied ? t('settings.about.copied') : t('settings.about.copy')}
+          </Button>
+        </div>
+
         {status === 'error' && (
           <div style={{ padding: 'var(--w-space-4)' }}>
-            <Banner
-              variant="danger"
-              action={
+            <Banner variant="danger">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--w-space-3)', flexWrap: 'wrap' }}>
+                <span>{error?.message ?? t('common.error')}</span>
                 <Button
                   size="sm"
                   variant="secondary"
@@ -119,10 +118,14 @@ export function AboutSection(): React.ReactElement {
                 >
                   {t('common.retry')}
                 </Button>
-              }
-            >
-              {error?.message ?? t('common.error')}
+              </div>
             </Banner>
+          </div>
+        )}
+
+        {copied && (
+          <div style={{ padding: 'var(--w-space-4)', paddingBlockEnd: 0 }}>
+            <Banner variant="success">{t('settings.about.copied')}</Banner>
           </div>
         )}
 
