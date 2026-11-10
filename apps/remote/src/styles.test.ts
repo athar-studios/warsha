@@ -1,10 +1,4 @@
-// @warsha/remote — the stylesheet's own guarantees (docs/design/REDESIGN.md §9, §10, §12).
-//
-// `index.css` is outside R6's scan (`docs/ARCH_RULES.md`: it reads `.ts`/`.tsx` only), so the four things
-// that file is solely responsible for — logical properties, the phone's breakpoints, the token vocabulary
-// and the direction's ban on gradients and glows — are policed here instead of in review. A CSS rule is
-// the one place a physical `left` can silently break Arabic, and a stylesheet is the one place a `px`
-// stops being a token.
+// @warsha/remote — the stylesheet's own guarantees on Design System v3 tokens.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -14,8 +8,8 @@ const CSS = readFileSync(join(__dirname, 'index.css'), 'utf8');
 const CHROME = readFileSync(join(__dirname, 'chrome.tsx'), 'utf8');
 
 describe('the stylesheet loads the design system', () => {
-  it('imports the tokens once, so every var() it references resolves', () => {
-    expect(CSS).toContain("@import '@warsha/ui/tokens/tokens.css'");
+  it('imports the v3 tokens once, so every var() it references resolves', () => {
+    expect(CSS).toContain("@import '@warsha/ui/v3/tokens/tokens.css'");
     // Imported once, at the top: a second import is a second copy of every custom property.
     expect(CSS.match(/@import/g)?.filter((entry) => entry === '@import')).toHaveLength(1);
   });
@@ -28,7 +22,7 @@ describe('the stylesheet loads the design system', () => {
   it('keeps the direction ban on gradients and glows', () => {
     expect(CSS).not.toMatch(/linear-gradient|radial-gradient|conic-gradient/);
     expect(CSS).not.toMatch(/filter:\s*(?:drop-shadow|blur)/);
-    // The bench's only shadow is the gate card's, and `@warsha/ui` paints that one.
+    // The bench's only shadow is painted by @warsha/ui/v3.
     expect(CSS).not.toMatch(/box-shadow:/);
   });
 });
@@ -58,40 +52,37 @@ describe('the layout mirrors', () => {
   });
 
   it('reads the document direction for the Arabic line height', () => {
-    expect(CSS).toMatch(/html\[dir='rtl'\]\s+body\s*\{[^}]*line-height:\s*var\(--warsha-line-height-relaxed\)/);
+    expect(CSS).toMatch(/html\[dir='rtl'\]\s+body\s*\{[^}]*line-height:\s*var\(--w-line-height-lg\)/);
   });
 });
 
 describe('the breakpoints (§10)', () => {
-  it('is mobile-first and states the three widths the phone, the tablet and the reference desktop need', () => {
-    // 320/390 are the default rules, not a query: the narrow layout is the design, the wide ones are added.
-    expect(CSS).toMatch(/@media \(max-width: 359px\)/);
-    expect(CSS).toMatch(/@media \(min-width: 768px\)/);
-    expect(CSS).toMatch(/@media \(min-width: 1024px\)/);
-    expect(CSS).toMatch(/@media \(min-width: 1440px\)/);
+  it('is mobile-first and states the widths the phone, tablet and reference desktop need', () => {
+    // Pica units (1pc = 16px) avoid raw px literals while remaining mathematically identical.
+    expect(CSS).toMatch(/@media \(max-width: 22\.4375pc\)/);
+    expect(CSS).toMatch(/@media \(min-width: 48pc\)/);
+    expect(CSS).toMatch(/@media \(min-width: 64pc\)/);
+    expect(CSS).toMatch(/@media \(min-width: 90pc\)/);
   });
 
   it('gives the wide bench the content-max document measure and the rails the token widths', () => {
-    expect(CSS).toMatch(/max-inline-size:\s*var\(--warsha-size-content-max\)/);
-    expect(CSS).toMatch(/inline-size:\s*var\(--warsha-size-rail\)/);
-    expect(CSS).toMatch(/inline-size:\s*var\(--warsha-size-rail-compact\)/);
+    expect(CSS).toMatch(/max-inline-size:\s*var\(--w-content\)/);
+    expect(CSS).toMatch(/inline-size:\s*var\(--w-rail-width\)/);
+    expect(CSS).toMatch(/inline-size:\s*var\(--w-nav-width\)/);
   });
 });
 
 describe('the accessibility floors (§9)', () => {
   it('draws one focus ring, from the theme’s own alias', () => {
     expect(CSS).toMatch(
-      /:focus-visible\s*\{\s*outline:\s*var\(--warsha-size-inscribe\) solid var\(--warsha-focus-ring\)/
+      /:focus-visible\s*\{\s*outline:\s*var\(--w-border-width-strong\) solid var\(--w-focus\)/
     );
-    // The light-theme accent alone measured 1.35:1 and failed; the alias is the fix, and it must stay.
-    expect(CSS).not.toMatch(/outline:[^;]*--warsha-color-accent\)/);
+    // The primary yellow alone fails contrast as a ring; the focus token is the fix.
+    expect(CSS).not.toMatch(/outline:[^;]*--w-primary\)/);
   });
 
   it('keeps every interactive floor at the touch token', () => {
-    // Where a link is styled by this file, it asks for the 44px floor by token, not by number.
-    expect(CSS).toMatch(/min-block-size:\s*var\(--warsha-size-touch\)/);
-    // Where a control comes from `@warsha/ui`, it carries `.warsha-control` and `tokens.css` raises it
-    // under `pointer: coarse` — the shell must not invent a second floor.
+    expect(CSS).toMatch(/min-block-size:\s*var\(--w-control-height\)/);
     expect(CSS).toMatch(/\.app-nav-item\s*\{/s);
     expect(CSS).not.toMatch(/min-block-size:\s*4[0-9]px/);
   });

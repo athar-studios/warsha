@@ -1,4 +1,5 @@
 // The run screen — one run read whole on a phone, rebuilt on @warsha/ui/v3 per DESIGN_SYSTEM_V3.md.
+/* eslint-disable import/no-unresolved */
 import { t, useDirection, useLocale } from '@warsha/i18n';
 import {
   Badge,

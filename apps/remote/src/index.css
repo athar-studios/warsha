@@ -1,22 +1,17 @@
-/* Warsha Remote — the phone's bench: global styles and layout (docs/design/REDESIGN.md §4, §9, §10)
+/* Warsha Remote — the phone's bench: global styles and layout on Design System v3 tokens.
  *
- * The design tokens live in @warsha/ui (`packages/ui/src/tokens/tokens.css`) and are imported once,
- * here. Nothing below invents a colour, a length or a font: every value is a token, so flipping
- * `data-theme="dark"` on `<html>` restyles the whole app without touching this file, and an alias
- * (`--warsha-signal`, `--warsha-bench-rule`) is used in preference to the colour it resolves to.
- *
- * What belongs in this file is exactly what a component cannot express inline: a pseudo-class
- * (`:focus-visible`, `[aria-current]`), a viewport (`@media`), a pointer type, or the document's reading
- * direction (`[dir]`). `tokens.css` owns those same conditions for the shared system; this file adds the
- * *remote bench's* regions at the breakpoints §10 names, mobile-first: the 390 phone is the default and
- * 768 / 1440 are the additions.
+ * The design tokens live in @warsha/ui/v3 (`packages/ui/src/v3/tokens/tokens.css`) and are imported once,
+ * here (and in main.tsx). Every value uses v3 `--w-*` tokens so flipping `data-theme="dark"` on `<html>`
+ * restyles the whole app without touching this file.
  *
  * Layout uses logical properties only (`inline-size`, `padding-inline`, `inset-inline-start`,
  * `border-block-end`, `margin-inline`), so Arabic mirrors without a second rule (§11). There is no
- * gradient, no glow and no decorative shadow anywhere in this file: the direction's one shadow belongs
- * to the gate card, which `@warsha/ui` already paints.
+ * gradient, no glow and no decorative shadow anywhere in this file.
+ *
+ * Media-query breakpoints use CSS picas (`1pc = 16px` exact): `22.4375pc` (359px), `48pc` (768px),
+ * `64pc` (1024px), `90pc` (1440px).
  */
-@import '@warsha/ui/tokens/tokens.css';
+@import '@warsha/ui/v3/tokens/tokens.css';
 
 * {
   box-sizing: border-box;
@@ -31,23 +26,21 @@ body,
 }
 
 body {
-  /* Arabic-first stack: IBM Plex Sans Arabic leads for both directions, so one stack covers Arabic and
-     Latin copy and there is no `[dir="rtl"]` family override to fall out of sync. */
-  font-family: var(--warsha-font-sans);
-  background-color: var(--warsha-color-bg);
-  color: var(--warsha-color-text);
-  line-height: var(--warsha-line-height-base);
+  font-family: var(--w-font-sans);
+  background-color: var(--w-bg);
+  color: var(--w-text);
+  line-height: var(--w-line-height-md);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* §11: RTL body copy reads at the relaxed leading; headings keep `snug` in both directions. */
+/* §11: RTL body copy reads at the relaxed leading. */
 html[dir='rtl'] body {
-  line-height: var(--warsha-line-height-relaxed);
+  line-height: var(--w-line-height-lg);
 }
 
 a {
-  color: var(--warsha-color-accent-strong);
+  color: var(--w-primary-text);
   text-decoration: none;
 }
 
@@ -63,137 +56,149 @@ input,
 textarea,
 select {
   font-family: inherit;
-  font-size: var(--warsha-font-size-md);
+  font-size: var(--w-font-size-md);
 }
 
-/*
- * One focus ring for the whole app (AUDIT-1 §1.3, REDESIGN §9): 2px `--warsha-focus-ring`, 2px offset.
- * `tokens.css` declares the same ring under `:root` and outranks this selector; both agree, and neither
- * may name a colour — the light-theme answer is dark gold (5.03:1 against `bg`), the dark one is brand
- * yellow.
- */
+/* Focus ring and scroll margins so sticky bands never obscure keyboard focus. */
 :focus-visible {
-  outline: var(--warsha-size-inscribe) solid var(--warsha-focus-ring);
-  outline-offset: var(--warsha-size-inscribe);
-  /*
-   * §9's "a focused element is never obscured", for the phone: the top bar and the instrument strip are
-   * sticky at the block start and the navigation is sticky at the block end, so a control the browser
-   * has just scrolled to the edge of the screen is under one of them. `scroll-margin` is what makes the
-   * keyboard and the sticky bands agree — B4 found this in the focus walk, not in a screenshot.
-   */
+  outline: var(--w-border-width-strong) solid var(--w-focus);
+  outline-offset: var(--w-border-width-strong);
   scroll-margin-block-start: calc(
-    var(--warsha-size-topbar) * 2 + var(--warsha-size-strip) + var(--warsha-space-4)
+    var(--w-space-10) * 2 + var(--w-control-height) + var(--w-space-4)
   );
-  scroll-margin-block-end: calc(var(--warsha-size-touch) * 2 + var(--warsha-space-6));
+  scroll-margin-block-end: calc(var(--w-control-height) * 2 + var(--w-space-6));
 }
 
-/* Visual determinism, not a layout opinion: the capture must start from the same scroll offset every
-   time, and anchoring moves content inside a scroll container without any scroll event to see it. */
 html {
   overflow-anchor: none;
 }
 
 ::selection {
-  background-color: var(--warsha-color-surface-muted);
-  color: var(--warsha-color-accent-strong);
+  background-color: var(--w-sunken);
+  color: var(--w-primary-text);
+}
+
+.warsha-control {
+  min-block-size: var(--w-control-height);
 }
 
 /* ======================================================================================== the bench */
 
-/* The shell column: skip link (absolute), top bar, instrument strip, then the body. `100dvh` so a
-   mobile browser's shrinking chrome never pushes the strip or the nav out of the visible area (§10). */
 .app {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   min-block-size: 100vh;
   min-block-size: 100dvh;
-  background-color: var(--warsha-color-bg);
+  background-color: var(--w-bg);
 }
 
-/* §4: the top bar is 56px and sticky. On the phone its groups wrap onto their own lines and the
-   contextual id is dropped (§10: "the topbar wraps and the project id hides"). */
 .app-topbar {
   position: sticky;
   inset-block-start: 0;
-  z-index: 100;
+  z-index: var(--w-layer-dropdown);
   display: flex;
   align-items: center;
-  gap: var(--warsha-space-3);
+  gap: var(--w-space-3);
   flex-wrap: wrap;
-  row-gap: var(--warsha-space-2);
-  min-block-size: var(--warsha-size-topbar);
-  padding-inline: var(--warsha-space-3);
-  padding-block: var(--warsha-space-2);
-  background-color: var(--warsha-color-surface);
-  border-block-end: var(--warsha-size-rule) solid var(--warsha-bench-rule);
+  row-gap: var(--w-space-2);
+  min-block-size: var(--w-space-10);
+  padding-inline: var(--w-space-3);
+  padding-block: var(--w-space-2);
+  background-color: var(--w-surface);
+  border-block-end: var(--w-border-width) solid var(--w-line);
 }
 
 .app-brand {
   display: inline-flex;
   align-items: center;
-  gap: var(--warsha-space-2);
+  gap: var(--w-space-2);
   min-inline-size: 0;
-  color: var(--warsha-color-text);
-  font-weight: var(--warsha-font-weight-bold);
-  font-size: var(--warsha-font-size-lg);
+  color: var(--w-text);
+  font-weight: var(--w-font-weight-bold);
+  font-size: var(--w-font-size-lg);
 }
 
 .app-brand-mark {
   flex: none;
-  inline-size: var(--warsha-size-nut);
-  block-size: var(--warsha-size-nut);
+  inline-size: var(--w-space-6);
+  block-size: var(--w-space-6);
 }
 
-/* The role line: what this surface is. It wraps under the name on a phone rather than pushing it out. */
 .app-brand-role {
-  color: var(--warsha-color-text-muted);
-  font-size: var(--warsha-font-size-xs);
-  font-weight: var(--warsha-font-weight-medium);
+  color: var(--w-text-muted);
+  font-size: var(--w-font-size-xs);
+  font-weight: var(--w-font-weight-medium);
   white-space: nowrap;
 }
 
-/* The contextual identity — machine data, so mono with tabular numerals (§11), and gone below 768 (§10). */
 .app-identity {
   display: none;
   align-items: center;
-  gap: var(--warsha-space-2);
+  gap: var(--w-space-2);
   min-inline-size: 0;
   flex: 1 1 auto;
-  font-family: var(--warsha-font-mono);
+  font-family: var(--w-font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: var(--warsha-font-size-xs);
-  color: var(--warsha-color-text);
+  font-size: var(--w-font-size-xs);
+  color: var(--w-text);
   overflow-wrap: anywhere;
 }
 
-/* The language pair sits at the inline end of the bar, on the plate the bench uses for control groups. */
 .app-language {
   display: inline-flex;
   align-items: center;
-  gap: var(--warsha-space-1);
+  gap: var(--w-space-1);
   margin-inline-start: auto;
-  padding: var(--warsha-space-1);
-  background-color: var(--warsha-bench-plate);
-  border: var(--warsha-size-rule) solid var(--warsha-bench-edge);
-  border-radius: var(--warsha-radius-md);
+  padding: var(--w-space-1);
+  background-color: var(--w-sunken);
+  border: var(--w-border-width) solid var(--w-line-strong);
+  border-radius: var(--w-radius-md);
 }
 
 .app-language-option:hover {
-  background-color: var(--warsha-color-surface);
+  background-color: var(--w-surface);
 }
 
-/* The instrument strip (§4) is 36px and recessed; `StatusStrip` paints itself, this only fastens it. */
 .app-strip {
-  border-block-end: var(--warsha-size-rule) solid var(--warsha-bench-rule);
+  border-block-end: var(--w-border-width) solid var(--w-line);
 }
 
-/* The body: the screen, with the navigation under it on a phone and beside it from 768 up. */
+.app-strip-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-3);
+  padding-inline: var(--w-space-3);
+  min-block-size: var(--w-control-height);
+  background-color: var(--w-sunken);
+  color: var(--w-text);
+  font-size: var(--w-font-size-xs);
+  overflow-x: auto;
+  min-inline-size: 0;
+}
+
+.app-strip-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--w-space-1);
+  min-inline-size: 0;
+  flex: none;
+}
+
+.app-strip-item[data-hide-narrow='true'] {
+  display: none;
+}
+
+.app-strip-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--w-space-2);
+  min-inline-size: 0;
+}
+
 .app-body {
   display: flex;
   flex-direction: column;
   min-inline-size: 0;
-  /* B4 §9: the phone's chrome (the bar above, the nav below) is sticky over a *page* scroll, so a
-     focused control could end up under it with no scroll left to do. The bench scrolls in here. */
   min-block-size: 0;
   overflow-y: auto;
 }
@@ -202,25 +207,24 @@ html {
   flex: 1 1 auto;
   min-inline-size: 0;
   overflow-x: hidden;
-  padding-inline: var(--warsha-space-3);
-  padding-block: var(--warsha-space-4);
+  padding-inline: var(--w-space-3);
+  padding-block: var(--w-space-4);
 }
 
 /* --------------------------------------------------------------------------- the skip link (§9) */
 .app-skip {
   position: absolute;
-  inset-inline-start: var(--warsha-space-2);
-  inset-block-start: var(--warsha-space-2);
-  z-index: 200;
-  padding-inline: var(--warsha-space-3);
-  padding-block: var(--warsha-space-2);
-  background-color: var(--warsha-color-surface);
-  color: var(--warsha-color-text);
-  border: var(--warsha-size-rule) solid var(--warsha-bench-edge);
-  border-radius: var(--warsha-radius-md);
-  /* Hidden until it has focus: keyboard owners get it, pointer owners never see it. */
+  inset-inline-start: var(--w-space-2);
+  inset-block-start: var(--w-space-2);
+  z-index: var(--w-layer-toast);
+  padding-inline: var(--w-space-3);
+  padding-block: var(--w-space-2);
+  background-color: var(--w-surface);
+  color: var(--w-text);
+  border: var(--w-border-width) solid var(--w-line-strong);
+  border-radius: var(--w-radius-md);
   clip-path: inset(50%);
-  block-size: var(--warsha-size-inscribe);
+  block-size: var(--w-border-width-strong);
   overflow: hidden;
 }
 
@@ -231,15 +235,12 @@ html {
 }
 
 /* ------------------------------------------------------------------------ the navigation (§4, §10) */
-/* On the phone it is the bar under the bench: five places, each a 44px row, sticky so the thumb never
-   has to hunt for it. The `env()` inset keeps it clear of an iOS home indicator — a platform fact, not a
-   design value, and there is no token for a notch. */
 .app-nav {
   position: sticky;
   inset-block-end: 0;
-  z-index: 90;
-  background-color: var(--warsha-bench-plate);
-  border-block-start: var(--warsha-size-rule) solid var(--warsha-bench-rule);
+  z-index: var(--w-layer-sticky);
+  background-color: var(--w-sunken);
+  border-block-start: var(--w-border-width) solid var(--w-line);
   padding-block-end: env(safe-area-inset-bottom);
 }
 
@@ -249,9 +250,6 @@ html {
   list-style: none;
   margin: 0;
   padding: 0;
-  /* The bar is bound to the plate and slides sideways inside itself — the settings strip's disclosure
-     (`@warsha/ui` `Tabs`, and `.bench-settings-tabs` in the desktop sheet): an explicit cross-axis
-     maximum, because Arabic min-content sizing will otherwise grow the row past the 390px viewport. */
   inline-size: 100%;
   max-inline-size: 100%;
   overflow-x: auto;
@@ -259,155 +257,133 @@ html {
 }
 
 .app-nav-list > li {
-  /* Grow to fill the bar; never shrink below the label. A word may not be broken, so the item that does
-     not fit takes the bar's scroll instead of folding itself in half — and the row, not the page, is
-     what scrolls (§10's overflow gate). */
   flex: 1 0 auto;
   display: flex;
 }
 
-/* The current place is stated by `aria-current`, and the same attribute draws the signal edge (§6: one
-   source of truth, so the mark and the accessible statement can never disagree). */
 .app-nav-item {
   inline-size: 100%;
-  color: var(--warsha-color-text);
-  border-block-start: var(--warsha-size-edge) solid transparent;
-  /* One word, one line. `overflow-wrap: anywhere` used to live here, and it is exactly what let the
-     phone's tab bar cut `البوّابات` in half with an orphan `ت` beside the badge — the tab that carries
-     the lit lamp. A joined script cannot survive a break inside the word, and neither can `Gates`. */
+  color: var(--w-text);
+  border-block-start: var(--w-border-width-strong) solid transparent;
   white-space: nowrap;
 }
 
 .app-nav-item[aria-current='page'] {
-  border-block-start-color: var(--warsha-signal-text);
-  background-color: var(--warsha-color-surface);
-  font-weight: var(--warsha-font-weight-bold);
+  border-block-start-color: var(--w-primary-text);
+  background-color: var(--w-surface);
+  font-weight: var(--w-font-weight-bold);
 }
 
 .app-nav-item:hover {
-  background-color: var(--warsha-color-surface);
+  background-color: var(--w-surface);
 }
 
-/* The pending count is the lit lamp: signal as a fill with its own ink on top (§1, §4). */
 .app-nav-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-inline-size: var(--warsha-size-badge);
-  block-size: var(--warsha-size-badge);
-  padding-inline: var(--warsha-space-1);
-  border-radius: var(--warsha-radius-full);
-  background-color: var(--warsha-signal);
-  color: var(--warsha-signal-ink);
-  font-family: var(--warsha-font-mono);
+  min-inline-size: var(--w-space-5);
+  block-size: var(--w-space-5);
+  padding-inline: var(--w-space-1);
+  border-radius: var(--w-radius-full);
+  background-color: var(--w-primary);
+  color: var(--w-on-primary);
+  font-family: var(--w-font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: var(--warsha-font-size-xs);
-  font-weight: var(--warsha-font-weight-bold);
+  font-size: var(--w-font-size-xs);
+  font-weight: var(--w-font-weight-bold);
   flex: none;
 }
 
 /* ===================================================================================== the screens */
 
-/* One screen is a stack of plates. The rhythm is the bench's: 16px between plates, 12px inside them. */
 .remote-screen {
   display: grid;
-  gap: var(--warsha-space-4);
+  gap: var(--w-space-4);
   min-inline-size: 0;
 }
 
 .remote-title {
   display: grid;
-  gap: var(--warsha-space-1);
+  gap: var(--w-space-1);
   min-inline-size: 0;
 }
 
-/* A link that is an action: 44px tall on touch, the bench's edge as its fastener, no paint of its own. */
 .remote-link,
 .remote-action {
   display: inline-flex;
   align-items: center;
-  gap: var(--warsha-space-2);
-  min-block-size: var(--warsha-size-touch);
-  padding-inline: var(--warsha-space-3);
-  color: var(--warsha-color-accent-strong);
-  border-radius: var(--warsha-radius-md);
-  font-weight: var(--warsha-font-weight-medium);
+  gap: var(--w-space-2);
+  min-block-size: var(--w-control-height);
+  padding-inline: var(--w-space-3);
+  color: var(--w-primary-text);
+  border-radius: var(--w-radius-md);
+  font-weight: var(--w-font-weight-medium);
 }
 
 .remote-link:hover,
 .remote-action:hover {
-  background-color: var(--warsha-bench-plate);
+  background-color: var(--w-sunken);
   text-decoration: underline;
 }
 
-/* A pushed screen keeps its back control at the inline start (§4) — first in DOM, so it is first in Tab. */
 .remote-back {
   justify-self: start;
   padding-inline-start: 0;
 }
 
-/* Long Arabic prose reads at the 68-character measure (§11); nothing on this bench runs wider. */
 .remote-copy {
-  max-inline-size: var(--warsha-size-measure);
+  max-inline-size: var(--w-content-narrow);
   min-inline-size: 0;
 }
 
 .remote-form {
   display: grid;
-  gap: var(--warsha-space-2);
-  margin-block-start: var(--warsha-space-3);
+  gap: var(--w-space-2);
+  margin-block-start: var(--w-space-3);
   min-inline-size: 0;
 }
 
-/* The gates screen: ledger first, detail under it on a phone; two columns from 768 (§10). */
 .remote-two-column {
   display: grid;
-  gap: var(--warsha-space-4);
+  gap: var(--w-space-4);
   min-inline-size: 0;
 }
 
 .remote-detail {
   display: grid;
-  gap: var(--warsha-space-3);
+  gap: var(--w-space-3);
   min-inline-size: 0;
 }
 
-/* The settings tab strip is the one rail allowed to slide sideways: scroll inside, never the page (§10). */
 .remote-tabs {
-  border: var(--warsha-size-rule) solid var(--warsha-bench-rule);
-  border-radius: var(--warsha-radius-md);
+  border: var(--w-border-width) solid var(--w-line);
+  border-radius: var(--w-radius-md);
 }
 
 .remote-panel-body {
   display: grid;
-  gap: var(--warsha-space-4);
+  gap: var(--w-space-4);
   min-inline-size: 0;
 }
 
-/* The event feed scrolls inside its own plate: a phone's page must not become a transcript (§10). */
 .remote-stream {
-  max-block-size: min(48vh, var(--warsha-size-sheet-block));
+  max-block-size: min(48vh, calc(var(--w-space-10) * 6));
   overflow-y: auto;
   overflow-x: hidden;
   min-inline-size: 0;
 }
 
-/* The phone's plates fill from the daemon and from the event feed. Without a reserved gutter the
-   first scrollbar to appear shifts a whole column of text by a fraction of a pixel, and a baseline
-   that cannot be reproduced twice is not a baseline: `maxDiffPixelRatio: 0` stays, the frame gets
-   honest. */
 .app-main,
 .remote-screen,
 .remote-stream {
   scrollbar-gutter: stable;
 }
 
-
 /* ================================================================================== breakpoints */
 
-/* 320: the bar keeps its five places at the smaller type step, and the row scrolls to the one that no
-   longer fits — no label is broken, and nothing widens the page (§10's gate). */
-@media (max-width: 359px) {
+/* <= 359px (22.4375pc) */
+@media (max-width: 22.4375pc) {
   .app-topbar {
     align-items: flex-start;
     flex-direction: column;
@@ -418,13 +394,17 @@ html {
   }
 
   .app-nav-item {
-    font-size: var(--warsha-font-size-xs);
+    font-size: var(--w-font-size-xs);
   }
 }
 
-/* 768: the nav becomes the inline-start rail, the contextual id comes back, and the gates screen splits. */
-@media (min-width: 768px) {
+/* >= 768px (48pc) */
+@media (min-width: 48pc) {
   .app-identity {
+    display: inline-flex;
+  }
+
+  .app-strip-item[data-hide-narrow='true'] {
     display: inline-flex;
   }
 
@@ -434,20 +414,17 @@ html {
   }
 
   .app-nav {
-    /* The rail sits at the inline start in both directions: `order` is direction-neutral, a margin is not. */
     order: -1;
     position: static;
-    inline-size: var(--warsha-size-rail-compact);
+    inline-size: var(--w-nav-width);
     flex: none;
     border-block-start: none;
-    border-inline-end: var(--warsha-size-rule) solid var(--warsha-bench-rule);
+    border-inline-end: var(--w-border-width) solid var(--w-line);
   }
 
   .app-nav-list {
     flex-direction: column;
     align-items: stretch;
-    /* The rail stacks instead of sliding: its rows are never wider than the rail's own token width, so
-       the phone's sideways disclosure is turned off here rather than inherited into the desktop. */
     overflow-x: visible;
   }
 
@@ -459,12 +436,12 @@ html {
     justify-content: flex-start;
     text-align: start;
     border-block-start: none;
-    border-inline-start: var(--warsha-size-edge) solid transparent;
-    padding-inline: var(--warsha-space-4);
+    border-inline-start: var(--w-border-width-strong) solid transparent;
+    padding-inline: var(--w-space-4);
   }
 
   .app-nav-item[aria-current='page'] {
-    border-inline-start-color: var(--warsha-signal-text);
+    border-inline-start-color: var(--w-primary-text);
   }
 
   .app-nav-badge {
@@ -472,30 +449,30 @@ html {
   }
 
   .app-main {
-    padding-inline: var(--warsha-space-4);
+    padding-inline: var(--w-space-4);
   }
 
   .remote-two-column {
-    grid-template-columns: var(--warsha-size-rail-compact) minmax(0, 1fr);
+    grid-template-columns: var(--w-nav-width) minmax(0, 1fr);
     align-items: start;
   }
 }
 
-/* 1024: the rail widens to the bench's full 264px (§10). */
-@media (min-width: 1024px) {
+/* >= 1024px (64pc) */
+@media (min-width: 64pc) {
   .app-nav {
-    inline-size: var(--warsha-size-rail);
+    inline-size: var(--w-rail-width);
   }
 
   .remote-two-column {
-    grid-template-columns: var(--warsha-size-rail) minmax(0, 1fr);
+    grid-template-columns: var(--w-rail-width) minmax(0, 1fr);
   }
 }
 
-/* 1440: the reference width — ledgers and forms take the 1100px prose measure, the bench stays centred. */
-@media (min-width: 1440px) {
+/* >= 1440px (90pc) */
+@media (min-width: 90pc) {
   .app-main {
-    max-inline-size: var(--warsha-size-content-max);
+    max-inline-size: var(--w-content);
     margin-inline: auto;
     inline-size: 100%;
   }

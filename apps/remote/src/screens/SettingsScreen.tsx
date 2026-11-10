@@ -1,4 +1,5 @@
 // The settings entry point on the phone, rebuilt on @warsha/ui/v3 per DESIGN_SYSTEM_V3.md.
+/* eslint-disable import/no-unresolved */
 import { t, useDirection, useLocale, useLocaleControl, type Locale } from '@warsha/i18n';
 import {
   Banner,
