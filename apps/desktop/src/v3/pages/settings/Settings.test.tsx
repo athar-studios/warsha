@@ -770,4 +770,197 @@ describe('SettingsPage (Slice 1)', () => {
     fireEvent.click(document.querySelector('button[data-action="settings.backend.export"]') as HTMLElement);
     await waitFor(() => expect(client.exportBackend).toHaveBeenCalled());
   });
+
+  it('validates budget input in GeneralSection and refuses zero or non-numeric values', async () => {
+    const client = createMockClient();
+    renderSettings('/settings/general', client);
+    await waitFor(() => expect(screen.getByTestId('settings-section-general')).toBeDefined());
+
+    const budgetInput = screen.getByTestId('general-default-budget-input').querySelector('input') as HTMLInputElement;
+    fireEvent.change(budgetInput, { target: { value: '-5' } });
+
+    const saveBtn = document.querySelector('button[data-action="settings.budget-default.save"]') as HTMLElement;
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/أدخل قيمة رقمية موجبة صالحة|Enter a valid positive number/)).toBeDefined();
+    });
+    expect(client.recordPreference).not.toHaveBeenCalled();
+  });
+
+  it('validates provider form in ModelsSection and refuses empty name or key', async () => {
+    const client = createMockClient();
+    renderSettings('/settings/models', client);
+    await waitFor(() => expect(screen.getByTestId('settings-section-models')).toBeDefined());
+
+    fireEvent.click(document.querySelector('button[data-action="settings.provider.add.open"]') as HTMLElement);
+    await waitFor(() => expect(screen.getByTestId('add-provider-dialog')).toBeDefined());
+
+    fireEvent.click(document.querySelector('button[data-action="settings.provider.add.save"]') as HTMLElement);
+    await waitFor(() => expect(document.querySelector('.w-banner--danger')).not.toBeNull());
+    expect(client.addProvider).not.toHaveBeenCalled();
+  });
+
+  it('validates custom model form in ModelsSection and refuses empty model ID', async () => {
+    const client = createMockClient();
+    renderSettings('/settings/models', client);
+    await waitFor(() => expect(screen.getByTestId('settings-section-models')).toBeDefined());
+
+    fireEvent.change(screen.getByTestId('custom-model-id-input').querySelector('input') as HTMLInputElement, {
+      target: { value: '' },
+    });
+    fireEvent.click(document.querySelector('button[data-action="settings.model.add"]') as HTMLElement);
+    await waitFor(() => {
+      expect(screen.getByText(/يرجى تحديد المزوّد وإدخال معرّف النموذج|Please select a provider and enter a model ID/)).toBeDefined();
+    });
+    expect(client.addCustomModel).not.toHaveBeenCalled();
+  });
+
+  it('renders EmptyState in ModelsSection when provider list is empty', async () => {
+    const client = createMockClient({ listProviders: vi.fn().mockResolvedValue([]) });
+    renderSettings('/settings/models', client);
+    await waitFor(() => expect(screen.getByTestId('settings-section-models')).toBeDefined());
+    expect(document.querySelector('.w-empty-state')).not.toBeNull();
+  });
+
+  it('handles provider test failure in ModelsSection', async () => {
+    const client = createMockClient({ testProvider: vi.fn().mockRejectedValue(new Error('Connection refused')) });
+    renderSettings('/settings/models', client);
+    await waitFor(() => expect(screen.getByTestId('settings-section-models')).toBeDefined());
+
+    fireEvent.click(document.querySelector('button[data-action="settings.provider.test"]') as HTMLElement);
+    await waitFor(() => expect(client.testProvider).toHaveBeenCalledWith('prov-alpha'));
+    await waitFor(() => {
+      expect(screen.getByText(/فشل الاختبار|Test failed/)).toBeDefined();
+    });
+  });
+
+  it('renders error banner and retries in DevicesSection when listDevices fails', async () => {
+    const listDevices = vi.fn().mockRejectedValueOnce(new Error('Device read failed')).mockResolvedValueOnce([]);
+    const client = createMockClient({ listDevices });
+    renderSettings('/settings/devices', client);
+    await waitFor(() => expect(screen.getByTestId('settings-section-devices')).toBeDefined());
+
+    const retryBtn = document.querySelector('button[data-action="settings.error.retry"]') as HTMLElement;
+    expect(retryBtn).not.toBeNull();
+    fireEvent.click(retryBtn);
+    await waitFor(() => expect(listDevices).toHaveBeenCalledTimes(2));
+  });
+
+  it('displays loopback warning in DevicesSection QR pairing dialog', async () => {
+    const client = createMockClient();
+    renderSettings('/settings/devices', client);
+    await waitFor(() => expect(screen.getByTestId('settings-section-devices')).toBeDefined());
+
+    fireEvent.click(document.querySelector('button[data-action="settings.device.pair.start"]') as HTMLElement);
+    await waitFor(() => expect(screen.getByTestId('device-pair-dialog')).toBeDefined());
+    expect(document.querySelector('.w-banner--info')).not.toBeNull();
+  });
+
+  it('validates workflow import in WorkflowsSection and refuses empty content', async () => {
+    const client = createMockClient();
+    renderSettings('/settings/workflows', client, 'advanced');
+    await waitFor(() => expect(screen.getByTestId('settings-section-workflows')).toBeDefined());
+
+    fireEvent.click(document.querySelector('button[data-action="settings.harness.import"]') as HTMLElement);
+    await waitFor(() => {
+      expect(screen.getByText(/أدخل تعريف مسار العمل بصيغة JSON أولًا|Enter the workflow definition in JSON first/)).toBeDefined();
+    });
+    expect(client.importHarness).not.toHaveBeenCalled();
+  });
+
+  it('renders EmptyState in WorkflowsSection when harnesses list is empty', async () => {
+    const client = createMockClient({ listHarnesses: vi.fn().mockResolvedValue([]) });
+    renderSettings('/settings/workflows', client, 'advanced');
+    await waitFor(() => expect(screen.getByTestId('settings-section-workflows')).toBeDefined());
+    expect(document.querySelector('.w-empty-state')).not.toBeNull();
+  });
+
+  it('validates skill import in SkillsSection and refuses empty content', async () => {
+    const client = createMockClient();
+    renderSettings('/settings/skills', client, 'advanced');
+    await waitFor(() => expect(screen.getByTestId('settings-section-skills')).toBeDefined());
+
+    fireEvent.click(document.querySelector('button[data-action="settings.skill.import"]') as HTMLElement);
+    await waitFor(() => {
+      expect(screen.getByText(/أدخل محتوى المهارة أولًا|Enter the skill content first/)).toBeDefined();
+    });
+    expect(client.importSkill).not.toHaveBeenCalled();
+  });
+
+  it('renders EmptyState in SkillsSection when skills list is empty', async () => {
+    const client = createMockClient({ listSkills: vi.fn().mockResolvedValue([]) });
+    renderSettings('/settings/skills', client, 'advanced');
+    await waitFor(() => expect(screen.getByTestId('settings-section-skills')).toBeDefined());
+    expect(document.querySelector('.w-empty-state')).not.toBeNull();
+  });
+
+  it('validates plugin install in PluginsSection and refuses empty manifest', async () => {
+    const client = createMockClient();
+    renderSettings('/settings/plugins', client, 'advanced');
+    await waitFor(() => expect(screen.getByTestId('settings-section-plugins')).toBeDefined());
+
+    fireEvent.click(document.querySelector('button[data-action="settings.plugin.install"]') as HTMLElement);
+    await waitFor(() => {
+      expect(screen.getByText(/أدخل بيان الإضافة بصيغة JSON أولًا|Enter the plugin manifest in JSON first/)).toBeDefined();
+    });
+    expect(client.installPlugin).not.toHaveBeenCalled();
+  });
+
+  it('renders EmptyState in PluginsSection when plugins list is empty', async () => {
+    const client = createMockClient({ listPlugins: vi.fn().mockResolvedValue([]) });
+    renderSettings('/settings/plugins', client, 'advanced');
+    await waitFor(() => expect(screen.getByTestId('settings-section-plugins')).toBeDefined());
+    expect(document.querySelector('.w-empty-state')).not.toBeNull();
+  });
+
+  it('validates integration connect in IntegrationsSection and refuses empty id', async () => {
+    const client = createMockClient();
+    renderSettings('/settings/integrations', client, 'advanced');
+    await waitFor(() => expect(screen.getByTestId('settings-section-integrations')).toBeDefined());
+
+    fireEvent.click(document.querySelector('button[data-action="settings.integration.connect.open"]') as HTMLElement);
+    await waitFor(() => expect(screen.getByTestId('integration-connect-dialog')).toBeDefined());
+
+    fireEvent.click(document.querySelector('button[data-action="settings.integration.connect"]') as HTMLElement);
+    await waitFor(() => {
+      expect(screen.getByText(/يرجى إدخال معرّف التكامل|Please enter the integration ID/)).toBeDefined();
+    });
+    expect(client.connectIntegration).not.toHaveBeenCalled();
+  });
+
+  it('renders EmptyState in IntegrationsSection when integrations list is empty', async () => {
+    const client = createMockClient({ listIntegrations: vi.fn().mockResolvedValue([]) });
+    renderSettings('/settings/integrations', client, 'advanced');
+    await waitFor(() => expect(screen.getByTestId('settings-section-integrations')).toBeDefined());
+    expect(document.querySelector('.w-empty-state')).not.toBeNull();
+  });
+
+  it('renders EmptyState in RoutinesSection when routines list is empty', async () => {
+    const client = createMockClient({ listRoutines: vi.fn().mockResolvedValue([]) });
+    renderSettings('/settings/routines', client, 'advanced');
+    await waitFor(() => expect(screen.getByTestId('settings-section-routines')).toBeDefined());
+    expect(document.querySelector('.w-empty-state')).not.toBeNull();
+  });
+
+  it('renders EmptyState in BudgetsSection when projects list is empty', async () => {
+    const client = createMockClient({ listProjects: vi.fn().mockResolvedValue([]) });
+    renderSettings('/settings/budgets', client, 'advanced');
+    await waitFor(() => expect(screen.getByTestId('settings-section-budgets')).toBeDefined());
+    expect(document.querySelector('.w-empty-state')).not.toBeNull();
+  });
+
+  it('renders EmptyState in PostLaunchSection when crashes list is empty', async () => {
+    const client = createMockClient({ listCrashReports: vi.fn().mockResolvedValue([]), listStoreReviews: vi.fn().mockResolvedValue([]) });
+    renderSettings('/settings/postlaunch', client, 'advanced');
+    await waitFor(() => expect(screen.getByTestId('settings-section-postlaunch')).toBeDefined());
+    expect(document.querySelector('.w-empty-state')).not.toBeNull();
+  });
+
+  it('renders EmptyState in BackendSection when runs list is empty', async () => {
+    const client = createMockClient({ listProjects: vi.fn().mockResolvedValue([]), listRuns: vi.fn().mockResolvedValue([]) });
+    renderSettings('/settings/backend', client, 'advanced');
+    await waitFor(() => expect(screen.getByTestId('settings-section-backend')).toBeDefined());
+    expect(document.querySelector('.w-empty-state')).not.toBeNull();
+  });
 });
