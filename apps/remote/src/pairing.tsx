@@ -1,26 +1,8 @@
 // @warsha/remote — the pairing plate: the bench's permission state (docs/design/REDESIGN.md §7).
-//
-// Nothing on the phone is readable until this device holds a session, so this is the first screen an
-// owner meets and it has to do three things §7 asks of a permission state: name what is missing, say how
-// to get it, and never imply that work was lost. The long Arabic sentence is the instruction, the field
-// is a real labelled field, and the refusal lands beside the field rather than in a toast.
-//
-// The token rule is stated on the plate itself (`remote.session_token_note`) because it is the one
-// promise this app makes about the owner's credentials: it lives in `sessionStorage`, is stripped from
-// the address bar, and is redacted out of every message that could have carried it.
+// Rebuilt on @warsha/ui/v3 per DESIGN_SYSTEM_V3.md.
 import { t, useDirection, useLocale } from '@warsha/i18n';
-import {
-  Box,
-  Button,
-  Field,
-  Panel,
-  Text,
-  colorVar,
-  fieldControl,
-  fontFamily,
-  fontSize,
-  space,
-} from '@warsha/ui';
+// eslint-disable-next-line import/no-unresolved
+import { Button, Card, TextField } from '@warsha/ui/v3';
 import React, { useCallback, useId, useState } from 'react';
 
 import { useRemote } from './bench';
@@ -37,9 +19,9 @@ export function UnpairedScreen({ heading, testId }: { heading: string; testId: s
   const dir = useDirection();
   return (
     <div dir={dir} className="remote-screen" data-testid={testId}>
-      <Box dir={dir} className="remote-title">
+      <div dir={dir} className="remote-title">
         <ScreenTitle>{heading}</ScreenTitle>
-      </Box>
+      </div>
       <PairingPlate />
     </div>
   );
@@ -71,39 +53,44 @@ export function PairingPlate({ title, className = '' }: PairingPlateProps) {
   );
 
   const error = refused === null ? undefined : t(reasonKey(refused), {}, locale);
-  const control = fieldControl(fieldId, {
-    hint: refused === null,
-    error: error !== undefined,
-    required: true,
-  });
+  const plateTitle = title ?? t('remote.session_none_title', {}, locale);
 
   return (
-    <Panel
-      className={className}
-      title={title ?? t('remote.session_none_title', {}, locale)}
-      label={t('remote.session_none_title', {}, locale)}
-    >
-      <Box dir={dir} className="remote-copy">
-        {/* The first screen an unpaired phone meets names the product it is about to control (§5). */}
-        <Text size="sm" weight="medium" dir={dir} style={{ color: colorVar('text') }}>
-          {`${t('app.name', {}, locale)} — ${t('app.tagline', {}, locale)}`}
-        </Text>
-        <Text size="sm" dir={dir} style={{ color: colorVar('text'), marginBlockStart: space(2) }}>
-          {t('remote.session_none_desc', {}, locale)}
-        </Text>
-      </Box>
+    <section aria-label={plateTitle}>
+      <Card className={className} title={plateTitle} variant="default">
+        <div dir={dir} className="remote-copy">
+          {/* The first screen an unpaired phone meets names the product it is about to control (§5). */}
+          <div
+            dir={dir}
+            style={{
+              color: 'var(--w-text)',
+              fontSize: 'var(--w-font-size-sm)',
+              fontWeight: 'var(--w-font-weight-medium)',
+              lineHeight: 'var(--w-line-height-sm)',
+            }}
+          >
+            {`${t('app.name', {}, locale)} — ${t('app.tagline', {}, locale)}`}
+          </div>
+          <div
+            dir={dir}
+            style={{
+              color: 'var(--w-text)',
+              fontSize: 'var(--w-font-size-sm)',
+              lineHeight: 'var(--w-line-height-sm)',
+              marginBlockStart: 'var(--w-space-2)',
+            }}
+          >
+            {t('remote.session_none_desc', {}, locale)}
+          </div>
+        </div>
 
-      <form onSubmit={submit} dir={dir} className="remote-form">
-        <Field
-          id={fieldId}
-          label={t('remote.pair_link_label', {}, locale)}
-          hint={t('remote.pair_link_hint', {}, locale)}
-          error={error}
-          required
-        >
-          <input
-            {...control}
-            // A daemon address is LTR machinery inside an Arabic bench; the browser must not guess (§11).
+        <form noValidate onSubmit={submit} dir={dir} className="remote-form">
+          <TextField
+            id={fieldId}
+            label={t('remote.pair_link_label', {}, locale)}
+            hint={t('remote.pair_link_hint', {}, locale)}
+            error={error}
+            required
             dir="ltr"
             autoComplete="off"
             spellCheck={false}
@@ -114,24 +101,29 @@ export function PairingPlate({ title, className = '' }: PairingPlateProps) {
               setLink(event.target.value);
               if (refused !== null) setRefused(null);
             }}
-            style={{ ...control.style, fontFamily: fontFamily('mono') }}
+            style={{ fontFamily: 'var(--w-font-mono)' }}
           />
-        </Field>
 
-        <Button type="submit" variant="primary" dir={dir} data-testid="remote-pair-submit">
-          {t('remote.pair_submit', {}, locale)}
-        </Button>
-      </form>
+          <Button type="submit" variant="primary" data-testid="remote-pair-submit">
+            {t('remote.pair_submit', {}, locale)}
+          </Button>
+        </form>
 
-      <Box dir={dir} style={{ marginBlockStart: space(3) }}>
-        <Text
-          size="xs"
-          dir={dir}
-          style={{ color: colorVar('text'), fontSize: fontSize('xs'), maxInlineSize: 'var(--warsha-size-measure)' }}
-        >
-          {t('remote.session_token_note', {}, locale)}
-        </Text>
-      </Box>
-    </Panel>
+        <div dir={dir} style={{ marginBlockStart: 'var(--w-space-3)' }}>
+          <p
+            dir={dir}
+            style={{
+              color: 'var(--w-text)',
+              fontSize: 'var(--w-font-size-xs)',
+              lineHeight: 'var(--w-line-height-xs)',
+              margin: 0,
+              maxInlineSize: 'var(--w-content-narrow)',
+            }}
+          >
+            {t('remote.session_token_note', {}, locale)}
+          </p>
+        </div>
+      </Card>
+    </section>
   );
 }
