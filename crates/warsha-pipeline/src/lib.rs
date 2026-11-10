@@ -40,6 +40,7 @@ mod prompts;
 mod provider_setup;
 mod router_quality;
 mod routines;
+mod run_integrity;
 mod run_modes;
 mod scale_standards;
 mod scout;
@@ -218,6 +219,33 @@ fn verified_actor(device_id: DeviceId, action: &str) -> Result<DeviceId> {
     Ok(device_id)
 }
 
+/// Control structure for a single run, maintaining per-run execution serialization,
+/// state write mutual exclusion, and cooperative cancellation signaling (K2).
+pub struct RunControl {
+    /// Serializes stage execution (`advance_stage`, `advance_to_next_gate`, `resume_run`)
+    /// so two concurrent writers/advancers never interleave stage walks.
+    pub exec_lock: tokio::sync::Mutex<()>,
+    /// Short-lived mutex protecting database read-modify-write transitions.
+    /// Never held across external provider calls.
+    pub state_lock: tokio::sync::Mutex<()>,
+    /// Live cancellation broadcast for this run (`true` = cancelled).
+    pub cancel_tx: tokio::sync::watch::Sender<bool>,
+    /// Keeps the watch channel open even when no worker is subscribed, ensuring
+    /// `cancel_tx.send(true)` reliably updates the value without receiver-drop error.
+    _cancel_keepalive: tokio::sync::watch::Receiver<bool>,
+}
+
+/// Map a gate to the stage that produced the artifacts reviewed by that gate.
+pub(crate) fn producing_stage_for_gate(gate: Stage) -> Option<Stage> {
+    match gate {
+        Stage::GateA => Some(Stage::Idea),
+        Stage::GateB => Some(Stage::PrdSpec),
+        Stage::GateC => Some(Stage::ReviewQaSecurity),
+        Stage::GateD => Some(Stage::Release),
+        _ => None,
+    }
+}
+
 /// Pipeline engine that drives the stage machine
 pub struct PipelineEngine<S: SettingsProvider> {
     store: Arc<Store>,
@@ -226,6 +254,8 @@ pub struct PipelineEngine<S: SettingsProvider> {
     orchestrator: Orchestrator,
     /// Settings store for accessing active harness, enabled skills, and plugins
     settings: Arc<S>,
+    /// Per-run synchronization controls for execution serialization and real cancel
+    run_controls: Arc<tokio::sync::Mutex<HashMap<RunId, Arc<RunControl>>>>,
 }
 
 impl<S: SettingsProvider> PipelineEngine<S> {
@@ -239,7 +269,25 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             providers,
             orchestrator: Orchestrator::new(OrchestratorConfig::default()),
             settings,
+            run_controls: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Obtain or create the [`RunControl`] for `run_id`.
+    pub async fn control_for(&self, run_id: RunId) -> Arc<RunControl> {
+        let mut controls = self.run_controls.lock().await;
+        controls
+            .entry(run_id)
+            .or_insert_with(|| {
+                let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+                Arc::new(RunControl {
+                    exec_lock: tokio::sync::Mutex::new(()),
+                    state_lock: tokio::sync::Mutex::new(()),
+                    cancel_tx,
+                    _cancel_keepalive: cancel_rx,
+                })
+            })
+            .clone()
     }
 
     /// Create a PipelineEngine with default settings for testing
@@ -310,7 +358,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             }
         }
 
-        // Create brief artifact
+        // Create initial artifact: brief.md
         let brief_markdown = self.orchestrator.get_brief_markdown(&orchestrator_state);
         let brief_artifact = Artifact {
             name: "brief".to_string(),
@@ -322,6 +370,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             version: 1,
         };
         run.artifacts.insert("brief".to_string(), brief_artifact);
+        self.store.update_run(&run).await?;
 
         // Emit event
         let event = Event {
@@ -342,73 +391,106 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         Ok(run)
     }
 
-    /// Advance to the next stage
+    /// Advance to the next stage (serialized per-run via `exec_lock`).
     pub async fn advance_stage(&self, run_id: RunId) -> Result<Run> {
-        let mut run = self.store.get_run(run_id).await?;
+        let ctrl = self.control_for(run_id).await;
+        let _exec_guard = ctrl.exec_lock.lock().await;
+        self.advance_stage_locked(run_id, &ctrl).await
+    }
 
-        if run.status != RunStatus::Running {
-            return Err(PipelineError::Other(format!(
-                "Run is not running: {:?}",
-                run.status
-            )));
-        }
-
-        let current = run.current_stage;
-        let next = current
-            .next()
-            .ok_or(PipelineError::InvalidTransition(current, current))?;
-
-        // Check if we're at a gate that needs approval
-        if current.is_gate() {
-            let gate_state = run
-                .gate_states
-                .get(&current)
-                .cloned()
-                .unwrap_or(GateState::Pending);
-            if !matches!(gate_state, GateState::Approved { .. }) {
-                return Err(PipelineError::GateNotPending(current));
+    async fn advance_stage_locked(&self, run_id: RunId, ctrl: &RunControl) -> Result<Run> {
+        let (mut run, mut version, current, next) = {
+            let _state_guard = ctrl.state_lock.lock().await;
+            if *ctrl.cancel_tx.borrow() {
+                return Err(PipelineError::Other("Run is cancelled".to_string()));
             }
-        }
+            let (mut run, version) = self.store.get_run_versioned(run_id).await?;
 
-        run.current_stage = next;
-        run.updated_at = Utc::now();
+            if run.status != RunStatus::Running {
+                return Err(PipelineError::Other(format!(
+                    "Run is not running: {:?}",
+                    run.status
+                )));
+            }
 
-        // Emit event for stage start
-        let event = Event {
-            id: Ulid::new(),
-            run_id,
-            stage: next,
-            role: None,
-            kind: EventKind::StageStarted,
-            payload: serde_json::json!({ "from": current, "to": next }),
-            cost_cents: None,
-            tokens: None,
-            created_at: Utc::now(),
-            device_id: None,
+            let current = run.current_stage;
+            let next = current
+                .next()
+                .ok_or(PipelineError::InvalidTransition(current, current))?;
+
+            // Check if we're at a gate that needs approval
+            if current.is_gate() {
+                let gate_state = run
+                    .gate_states
+                    .get(&current)
+                    .cloned()
+                    .unwrap_or(GateState::Pending);
+                if !matches!(gate_state, GateState::Approved { .. }) {
+                    return Err(PipelineError::GateNotPending(current));
+                }
+            }
+
+            run.current_stage = next;
+            run.updated_at = Utc::now();
+
+            // Persist the stage advance with CAS before emitting StageStarted.
+            let next_version = self.store.update_run_cas(&run, version).await?;
+
+            let event = Event {
+                id: Ulid::new(),
+                run_id,
+                stage: next,
+                role: None,
+                kind: EventKind::StageStarted,
+                payload: serde_json::json!({ "from": current, "to": next }),
+                cost_cents: None,
+                tokens: None,
+                created_at: Utc::now(),
+                device_id: None,
+            };
+            self.store.append_event(&event).await?;
+            (run, next_version, current, next)
         };
-        self.store.append_event(&event).await?;
-        self.store.update_run(&run).await?;
 
-        // Execute the new stage (unless it's a gate or final stage)
+        // Execute the new stage (unless it's a gate or final stage) without holding state_lock
+        // across the provider await so cancel_run can interrupt immediately.
         if !next.is_gate() && next != Stage::Feedback {
-            self.execute_stage(&mut run).await?;
-            self.store.update_run(&run).await?;
+            self.execute_stage_with_feedback(&mut run, &mut version, ctrl, None)
+                .await?;
         }
 
         info!("Run {} advanced from {:?} to {:?}", run_id.0, current, next);
         Ok(run)
     }
 
-    /// Execute the role's agent step for the current stage
-    async fn execute_stage(&self, run: &mut Run) -> Result<()> {
+    /// Execute the role's agent step for the current stage, observing cooperative cancellation
+    /// and committing via CAS so a stale stage write cannot overwrite a cancel or concurrent update.
+    async fn execute_stage_with_feedback(
+        &self,
+        run: &mut Run,
+        version: &mut u64,
+        ctrl: &RunControl,
+        feedback: Option<&str>,
+    ) -> Result<()> {
         let stage = run.current_stage;
         let role = match crate::prompts::role_for_stage(stage) {
             Some(r) => r,
             None => return Ok(()), // Gates don't execute, they just wait for approval
         };
 
-        // Build context from previous artifacts
-        let context = self.build_context(run);
+        // Re-check cancellation before starting any provider work.
+        if *ctrl.cancel_tx.borrow() {
+            return Err(PipelineError::Other("Run is cancelled".to_string()));
+        }
+        {
+            let latest = self.store.get_run(run.id).await?;
+            if latest.status == RunStatus::Cancelled {
+                return Err(PipelineError::Other("Run is cancelled".to_string()));
+            }
+        }
+
+        // Build context from previous artifacts (plus optional change-request feedback)
+        let context = self.build_context_with_feedback(run, feedback);
 
         // --- Zero "sandwich code" wiring: active harness + enabled skills ---
         //
@@ -493,16 +575,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         // Render the prompt with context
         let prompt = self.render_prompt(&prompt_template, &context);
 
-        // Call the provider.
-        //
-        // The router is taken as a *handle* — a clone that shares the adapters, the
-        // routing, the retry policy, the concurrency bound and the spend ledger — and the
-        // daemon's lock is released before the first `await` (audit N-3). A write guard
-        // held across the whole retry walk was the finding: a second run could not reach
-        // `chat_with_fallback` at all, so the cap on simultaneous paid calls that the
-        // router's own tests prove never engaged on this path, and every `providers.*`
-        // read a paired phone wanted queued behind one run's backoff sleep. Spend is still
-        // recorded, because it goes to the ledger the handle shares.
+        // Call the provider while watching the live cancellation channel.
         let providers = {
             let router = self.providers.read().await;
             (*router).clone()
@@ -518,54 +591,114 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             stream: false,
         };
 
-        let response =
-            match Self::dispatch_chat(&providers, role, &run.project_id.0.to_string(), request)
-                .await
-            {
-                Ok(response) => response,
-                Err(error) => {
-                    // The real-LLM failure path: a refused key, a timeout, a dead
-                    // endpoint. The run does not stay `Running` at a half-started
-                    // stage and the operator does not have to guess — the failure
-                    // is recorded (scrubbed) in the run's own event log before the
-                    // error keeps travelling up to the caller that asked for the
-                    // advance.
-                    return Err(self.record_stage_failure(run, stage, role, error).await);
+        let mut cancel_rx = ctrl.cancel_tx.subscribe();
+        if *cancel_rx.borrow() {
+            return Err(PipelineError::Other(
+                "Run cancelled before stage execution".to_string(),
+            ));
+        }
+        let dispatch_project_id = run.project_id.0.to_string();
+        let response = tokio::select! {
+            biased;
+            _ = cancel_rx.changed() => {
+                return Err(PipelineError::Other(
+                    "Run cancelled during stage execution".to_string(),
+                ));
+            }
+            res = Self::dispatch_chat(&providers, role, &dispatch_project_id, request) => {
+                match res {
+                    Ok(response) => response,
+                    Err(error) => {
+                        return Err(self
+                            .record_stage_failure(run, *version, ctrl, stage, role, error)
+                            .await);
+                    }
                 }
-            };
-
-        // Parse the JSON response
-        let artifact_content = response
-            .choices
-            .first()
-            .map(|c| c.message.content.clone())
-            .unwrap_or_default();
-
-        // Calculate cost
-        let cost_cents = providers.cost_of(&response.model, &response.usage)?;
-        let tokens = Some(response.usage.clone());
-
-        // Create artifact
-        let artifact = Artifact {
-            name: stage_to_string(stage).to_lowercase(),
-            content: artifact_content,
-            stage,
-            role: Some(role),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-            version: 1,
+            }
         };
 
-        // Write artifact to factory and record in run
+        // Re-check cancellation and commit under state_lock via CAS before writing any artifact.
+        let (
+            artifact_name,
+            artifact_content,
+            cost_cents,
+            tokens,
+            budget_exceeded_info,
+            budget_warn_info,
+        ) = {
+            let _state_guard = ctrl.state_lock.lock().await;
+            if *ctrl.cancel_tx.borrow() {
+                return Err(PipelineError::Other(
+                    "Run cancelled before committing stage artifact".to_string(),
+                ));
+            }
+            let (latest, _latest_v) = self.store.get_run_versioned(run.id).await?;
+            if latest.status == RunStatus::Cancelled {
+                return Err(PipelineError::Other(
+                    "Run cancelled before committing stage artifact".to_string(),
+                ));
+            }
+
+            // Parse the response
+            let artifact_content = response
+                .choices
+                .first()
+                .map(|c| c.message.content.clone())
+                .unwrap_or_default();
+
+            // Calculate cost
+            let cost_cents = providers.cost_of(&response.model, &response.usage)?;
+            let tokens = Some(response.usage.clone());
+
+            let artifact_name = stage_to_string(stage).to_lowercase();
+            let prev_version = run
+                .artifacts
+                .get(&artifact_name)
+                .map(|a| a.version)
+                .unwrap_or(0);
+            let artifact = Artifact {
+                name: artifact_name.clone(),
+                content: artifact_content.clone(),
+                stage,
+                role: Some(role),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                version: prev_version + 1,
+            };
+
+            run.artifacts.insert(artifact_name.clone(), artifact);
+            run.spent_cents += cost_cents;
+            run.updated_at = Utc::now();
+
+            let mut budget_exceeded_info = None;
+            let mut budget_warn_info = None;
+            if let Some(budget) = run.budget_cents {
+                if run.spent_cents >= budget {
+                    run.status = RunStatus::Paused;
+                    budget_exceeded_info = Some((budget, run.spent_cents));
+                } else if run.spent_cents as f64 >= budget as f64 * 0.8 {
+                    budget_warn_info = Some((budget, run.spent_cents));
+                }
+            }
+
+            // Atomic CAS update: refuses to overwrite if a concurrent cancel or writer bumped version.
+            *version = self.store.update_run_cas(run, *version).await?;
+
+            (
+                artifact_name,
+                artifact_content,
+                cost_cents,
+                tokens,
+                budget_exceeded_info,
+                budget_warn_info,
+            )
+        };
+
+        // Persist artifact file to factory and append events only after CAS succeeded.
         self.store
-            .write_artifact(run.project_id, &artifact.name, &artifact.content)
+            .write_artifact(run.project_id, &artifact_name, &artifact_content)
             .await?;
-        run.artifacts.insert(artifact.name.clone(), artifact);
 
-        // Record cost
-        run.spent_cents += cost_cents;
-
-        // Emit event
         let event = Event {
             id: Ulid::new(),
             run_id: run.id,
@@ -580,42 +713,42 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         };
         self.store.append_event(&event).await?;
 
-        // Check budget
-        if let Some(budget) = run.budget_cents {
-            if run.spent_cents >= budget {
-                let budget_event = Event {
-                    id: Ulid::new(),
-                    run_id: run.id,
-                    stage,
-                    role: None,
-                    kind: EventKind::BudgetExceeded,
-                    payload: serde_json::json!({ "budget_cents": budget, "spent_cents": run.spent_cents }),
-                    cost_cents: None,
-                    tokens: None,
-                    created_at: Utc::now(),
-                    device_id: None,
-                };
-                self.store.append_event(&budget_event).await?;
-                run.status = RunStatus::Paused;
-                warn!(
-                    "Budget exceeded for run {}: {} >= {}",
-                    run.id.0, run.spent_cents, budget
-                );
-            } else if run.spent_cents as f64 >= budget as f64 * 0.8 {
-                let warn_event = Event {
-                    id: Ulid::new(),
-                    run_id: run.id,
-                    stage,
-                    role: None,
-                    kind: EventKind::BudgetWarning,
-                    payload: serde_json::json!({ "budget_cents": budget, "spent_cents": run.spent_cents, "percent": (run.spent_cents as f64 / budget as f64 * 100.0) as u32 }),
-                    cost_cents: None,
-                    tokens: None,
-                    created_at: Utc::now(),
-                    device_id: None,
-                };
-                self.store.append_event(&warn_event).await?;
-            }
+        if let Some((budget, spent)) = budget_exceeded_info {
+            let budget_event = Event {
+                id: Ulid::new(),
+                run_id: run.id,
+                stage,
+                role: None,
+                kind: EventKind::BudgetExceeded,
+                payload: serde_json::json!({ "budget_cents": budget, "spent_cents": spent }),
+                cost_cents: None,
+                tokens: None,
+                created_at: Utc::now(),
+                device_id: None,
+            };
+            self.store.append_event(&budget_event).await?;
+            warn!(
+                "Budget exceeded for run {}: {} >= {}",
+                run.id.0, spent, budget
+            );
+        } else if let Some((budget, spent)) = budget_warn_info {
+            let warn_event = Event {
+                id: Ulid::new(),
+                run_id: run.id,
+                stage,
+                role: None,
+                kind: EventKind::BudgetWarning,
+                payload: serde_json::json!({
+                    "budget_cents": budget,
+                    "spent_cents": spent,
+                    "percent": (spent as f64 / budget as f64 * 100.0) as u32
+                }),
+                cost_cents: None,
+                tokens: None,
+                created_at: Utc::now(),
+                device_id: None,
+            };
+            self.store.append_event(&warn_event).await?;
         }
 
         Ok(())
@@ -682,15 +815,27 @@ impl<S: SettingsProvider> PipelineEngine<S> {
     async fn record_stage_failure(
         &self,
         run: &mut Run,
+        version: u64,
+        ctrl: &RunControl,
         stage: Stage,
         role: Role,
         error: PipelineError,
     ) -> PipelineError {
         let message = scrub_llm_error(&error);
 
+        let _guard = ctrl.state_lock.lock().await;
+        if *ctrl.cancel_tx.borrow() {
+            return PipelineError::Other("Run is cancelled".to_string());
+        }
+        if let Ok((latest, _)) = self.store.get_run_versioned(run.id).await {
+            if latest.status == RunStatus::Cancelled {
+                return PipelineError::Other("Run is cancelled".to_string());
+            }
+        }
+
         run.status = RunStatus::Failed;
         run.updated_at = Utc::now();
-        if let Err(store_error) = self.store.update_run(run).await {
+        if let Err(store_error) = self.store.update_run_cas(run, version).await {
             warn!(
                 "the failed-run write for run {} did not land: {store_error}",
                 run.id.0
@@ -733,27 +878,41 @@ impl<S: SettingsProvider> PipelineEngine<S> {
     /// Walk the run forward until it is waiting at a gate or has reached the final
     /// `Feedback` stage.
     ///
-    /// Each step is a normal [`advance_stage`](Self::advance_stage), so the walk
-    /// stops at the first gate that still needs a decision (a pending, rejected or
-    /// changes-requested gate) and passes straight through a gate the owner already
-    /// approved. Landing on `Stage::Feedback` means the pipeline has produced
-    /// everything it can: the run's status becomes [`RunStatus::Completed`] and is
-    /// persisted before the run is returned.
+    /// Serialized per run so two concurrent callers execute each stage at most once.
     pub async fn advance_to_next_gate(&self, run_id: RunId) -> Result<Run> {
-        let mut run = self.store.get_run(run_id).await?;
+        let ctrl = self.control_for(run_id).await;
+        let _exec_guard = ctrl.exec_lock.lock().await;
+        self.advance_to_next_gate_locked(run_id, &ctrl).await
+    }
+
+    async fn advance_to_next_gate_locked(&self, run_id: RunId, ctrl: &RunControl) -> Result<Run> {
+        let (mut run, _version) = self.store.get_run_versioned(run_id).await?;
+
+        if run.status == RunStatus::Paused {
+            return Err(PipelineError::Other(
+                "Run is paused; call runs.resume before advancing".to_string(),
+            ));
+        }
+
         loop {
-            // A failed run has no next gate: it is finished, answered as itself,
-            // and never re-walked. Without this the caller of a failed advance
-            // would sit at the stage that cannot execute and retry-storm the
-            // provider through repeated advances.
-            if run.status == RunStatus::Failed {
+            if *ctrl.cancel_tx.borrow() {
+                return self.store.get_run(run_id).await.map_err(Into::into);
+            }
+            if run.status == RunStatus::Failed
+                || run.status == RunStatus::Cancelled
+                || run.status == RunStatus::Paused
+            {
                 return Ok(run);
             }
             if run.current_stage == Stage::Feedback {
-                run.status = RunStatus::Completed;
-                run.updated_at = Utc::now();
-                self.store.update_run(&run).await?;
-                return Ok(run);
+                let _state_guard = ctrl.state_lock.lock().await;
+                let (mut latest, latest_v) = self.store.get_run_versioned(run_id).await?;
+                if latest.status == RunStatus::Running {
+                    latest.status = RunStatus::Completed;
+                    latest.updated_at = Utc::now();
+                    self.store.update_run_cas(&latest, latest_v).await?;
+                }
+                return Ok(latest);
             }
             if run.current_stage.is_gate() {
                 let decided = matches!(
@@ -764,17 +923,20 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                     return Ok(run);
                 }
             }
-            run = match self.advance_stage(run.id).await {
-                Ok(run) => run,
+            run = match self.advance_stage_locked(run.id, ctrl).await {
+                Ok(next_run) => {
+                    if next_run.status == RunStatus::Paused
+                        || next_run.status == RunStatus::Cancelled
+                        || next_run.status == RunStatus::Failed
+                    {
+                        return Ok(next_run);
+                    }
+                    next_run
+                }
                 Err(error) => {
-                    // The one advance failure this walk must answer with a run
-                    // rather than an error is the recorded one: a stage whose
-                    // model call failed is already persisted as `Failed` with
-                    // its event ([`PipelineEngine::record_stage_failure`]), and
-                    // handing that run back is what a caller polling the walk
-                    // needs. Anything else is not the walk's to reinterpret.
                     let current = self.store.get_run(run_id).await?;
-                    if current.status == RunStatus::Failed {
+                    if current.status == RunStatus::Failed || current.status == RunStatus::Cancelled
+                    {
                         return Ok(current);
                     }
                     return Err(error);
@@ -785,16 +947,28 @@ impl<S: SettingsProvider> PipelineEngine<S> {
 
     /// Cancel a run, recording why.
     ///
-    /// The run's status becomes [`RunStatus::Cancelled`], the new state is persisted,
-    /// and one event is appended so the run's log explains its own ending: the note
-    /// asks for `EventKind::StageFailed`, which the core event vocabulary does not
-    /// have, so the cancel is carried by [`EventKind::Error`] with an explicit
-    /// `"action": "run_cancelled"` payload instead.
+    /// Signals any in-flight stage worker via the per-run cancellation watch channel,
+    /// atomically sets `RunStatus::Cancelled` via CAS (retrying on concurrent version bumps
+    /// so cancel is never lost), and appends an [`EventKind::Error`] event with
+    /// `"action": "run_cancelled"`.
     pub async fn cancel_run(&self, run_id: RunId, reason: Option<String>) -> Result<Run> {
-        let mut run = self.store.get_run(run_id).await?;
-        run.status = RunStatus::Cancelled;
-        run.updated_at = Utc::now();
-        self.store.update_run(&run).await?;
+        let ctrl = self.control_for(run_id).await;
+        let _ = ctrl.cancel_tx.send(true);
+
+        let _state_guard = ctrl.state_lock.lock().await;
+        let mut attempts = 0;
+        let run = loop {
+            let (mut run, version) = self.store.get_run_versioned(run_id).await?;
+            run.status = RunStatus::Cancelled;
+            run.updated_at = Utc::now();
+            match self.store.update_run_cas(&run, version).await {
+                Ok(_) => break run,
+                Err(warsha_store::StoreError::VersionConflict { .. }) if attempts < 8 => {
+                    attempts += 1;
+                }
+                Err(e) => return Err(e.into()),
+            }
+        };
 
         let event = Event {
             id: Ulid::new(),
@@ -814,16 +988,235 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         Ok(run)
     }
 
+    /// Resume a paused run (change request loop, budget-exceeded pause, or restart recovery).
+    pub async fn resume_run(&self, run_id: RunId) -> Result<Run> {
+        let ctrl = self.control_for(run_id).await;
+        let _exec_guard = ctrl.exec_lock.lock().await;
+
+        let (mut run, mut version, gate_feedback_opt) = {
+            let _state_guard = ctrl.state_lock.lock().await;
+            let (mut run, version) = self.store.get_run_versioned(run_id).await?;
+
+            match run.status {
+                RunStatus::Completed | RunStatus::Cancelled => {
+                    return Err(PipelineError::Other(format!(
+                        "Cannot resume run in {:?} status",
+                        run.status
+                    )));
+                }
+                RunStatus::Running => return Ok(run),
+                RunStatus::Failed => {
+                    return Err(PipelineError::Other(
+                        "Cannot resume a failed run".to_string(),
+                    ));
+                }
+                RunStatus::Paused => {}
+            }
+
+            if let Some(budget) = run.budget_cents {
+                if run.spent_cents >= budget {
+                    return Err(PipelineError::Other(format!(
+                        "Budget exceeded ({} >= {}); increase budget before resuming",
+                        run.spent_cents, budget
+                    )));
+                }
+            }
+
+            if run.current_stage.is_gate() {
+                let gate_stage = run.current_stage;
+                match run.gate_states.get(&gate_stage).cloned() {
+                    Some(GateState::ChangesRequested { notes, .. }) => {
+                        let producing_stage =
+                            producing_stage_for_gate(gate_stage).ok_or_else(|| {
+                                PipelineError::Other(format!(
+                                    "No producing stage for gate {gate_stage:?}"
+                                ))
+                            })?;
+                        run.gate_states.insert(gate_stage, GateState::Pending);
+                        run.current_stage = producing_stage;
+                        run.status = RunStatus::Running;
+                        run.updated_at = Utc::now();
+                        let next_v = self.store.update_run_cas(&run, version).await?;
+
+                        let event = Event {
+                            id: Ulid::new(),
+                            run_id,
+                            stage: gate_stage,
+                            role: None,
+                            kind: EventKind::StageStarted,
+                            payload: serde_json::json!({
+                                "action": "run_resumed",
+                                "from_gate": stage_to_string(gate_stage),
+                                "notes": notes
+                            }),
+                            cost_cents: None,
+                            tokens: None,
+                            created_at: Utc::now(),
+                            device_id: None,
+                        };
+                        self.store.append_event(&event).await?;
+                        (run, next_v, Some(notes))
+                    }
+                    Some(GateState::Rejected { reason, .. }) => {
+                        let producing_stage =
+                            producing_stage_for_gate(gate_stage).ok_or_else(|| {
+                                PipelineError::Other(format!(
+                                    "No producing stage for gate {gate_stage:?}"
+                                ))
+                            })?;
+                        run.gate_states.insert(gate_stage, GateState::Pending);
+                        run.current_stage = producing_stage;
+                        run.status = RunStatus::Running;
+                        run.updated_at = Utc::now();
+                        let next_v = self.store.update_run_cas(&run, version).await?;
+
+                        let event = Event {
+                            id: Ulid::new(),
+                            run_id,
+                            stage: gate_stage,
+                            role: None,
+                            kind: EventKind::StageStarted,
+                            payload: serde_json::json!({
+                                "action": "run_resumed",
+                                "from_gate": stage_to_string(gate_stage),
+                                "reason": reason
+                            }),
+                            cost_cents: None,
+                            tokens: None,
+                            created_at: Utc::now(),
+                            device_id: None,
+                        };
+                        self.store.append_event(&event).await?;
+                        (run, next_v, Some(reason))
+                    }
+                    _ => {
+                        run.status = RunStatus::Running;
+                        run.updated_at = Utc::now();
+                        let next_v = self.store.update_run_cas(&run, version).await?;
+                        let event = Event {
+                            id: Ulid::new(),
+                            run_id,
+                            stage: gate_stage,
+                            role: None,
+                            kind: EventKind::StageStarted,
+                            payload: serde_json::json!({ "action": "run_resumed" }),
+                            cost_cents: None,
+                            tokens: None,
+                            created_at: Utc::now(),
+                            device_id: None,
+                        };
+                        self.store.append_event(&event).await?;
+                        (run, next_v, None)
+                    }
+                }
+            } else {
+                run.status = RunStatus::Running;
+                run.updated_at = Utc::now();
+                let next_v = self.store.update_run_cas(&run, version).await?;
+                let event = Event {
+                    id: Ulid::new(),
+                    run_id,
+                    stage: run.current_stage,
+                    role: None,
+                    kind: EventKind::StageStarted,
+                    payload: serde_json::json!({ "action": "run_resumed" }),
+                    cost_cents: None,
+                    tokens: None,
+                    created_at: Utc::now(),
+                    device_id: None,
+                };
+                self.store.append_event(&event).await?;
+                (run, next_v, None)
+            }
+        };
+
+        if let Some(feedback) = gate_feedback_opt {
+            self.execute_stage_with_feedback(&mut run, &mut version, &ctrl, Some(&feedback))
+                .await?;
+            if run.status != RunStatus::Running {
+                return Ok(run);
+            }
+            return self.advance_stage_locked(run.id, &ctrl).await;
+        }
+
+        if !run.current_stage.is_gate() && run.current_stage != Stage::Feedback {
+            let stage = run.current_stage;
+            let needs_exec = if stage == Stage::Idea {
+                !run.artifacts.contains_key("brief")
+            } else {
+                !run.artifacts
+                    .contains_key(&stage_to_string(stage).to_lowercase())
+            };
+            if needs_exec {
+                self.execute_stage_with_feedback(&mut run, &mut version, &ctrl, None)
+                    .await?;
+                if run.status != RunStatus::Running {
+                    return Ok(run);
+                }
+            }
+            return self.advance_to_next_gate_locked(run.id, &ctrl).await;
+        }
+
+        if run.current_stage.is_gate()
+            && matches!(
+                run.gate_states.get(&run.current_stage),
+                Some(GateState::Approved { .. })
+            )
+        {
+            return self.advance_to_next_gate_locked(run.id, &ctrl).await;
+        }
+
+        Ok(run)
+    }
+
+    /// Update a run's budget under per-run lock and CAS protection.
+    pub async fn set_run_budget(&self, run_id: RunId, budget_cents: u64) -> Result<Run> {
+        let ctrl = self.control_for(run_id).await;
+        let _guard = ctrl.state_lock.lock().await;
+        let mut attempts = 0;
+        loop {
+            let (mut run, version) = self.store.get_run_versioned(run_id).await?;
+            run.budget_cents = Some(budget_cents);
+            run.updated_at = Utc::now();
+            match self.store.update_run_cas(&run, version).await {
+                Ok(_) => return Ok(run),
+                Err(warsha_store::StoreError::VersionConflict { .. }) if attempts < 8 => {
+                    attempts += 1;
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+    }
+
+    /// Recover any runs left in `Running` status after an unclean restart.
+    pub async fn recover_interrupted_runs(&self) -> Result<Vec<Run>> {
+        self.store
+            .recover_interrupted_runs()
+            .await
+            .map_err(Into::into)
+    }
+
     /// Answer a follow-up prompt on an existing run without moving its stage.
-    ///
-    /// The reply goes through the same dispatch as a stage call — the routed
-    /// provider when the owner routed the current stage's role, the deterministic
-    /// fake (or env-configured model) otherwise — and is recorded as the `followup`
-    /// artifact and an [`EventKind::AgentStep`] event, so the run's log and factory
-    /// directory carry the answer exactly like any stage output.
     pub async fn followup_run(&self, run_id: RunId, prompt: &str) -> Result<Run> {
-        let mut run = self.store.get_run(run_id).await?;
-        let role = crate::prompts::role_for_stage(run.current_stage).unwrap_or(Role::Intake);
+        let ctrl = self.control_for(run_id).await;
+        let (run, version, role) = {
+            let _guard = ctrl.state_lock.lock().await;
+            if *ctrl.cancel_tx.borrow() {
+                return Err(PipelineError::Other("Run is cancelled".to_string()));
+            }
+            let (run, version) = self.store.get_run_versioned(run_id).await?;
+            if matches!(
+                run.status,
+                RunStatus::Cancelled | RunStatus::Completed | RunStatus::Failed
+            ) {
+                return Err(PipelineError::Other(format!(
+                    "Cannot apply followup to a {:?} run",
+                    run.status
+                )));
+            }
+            let role = crate::prompts::role_for_stage(run.current_stage).unwrap_or(Role::Intake);
+            (run, version, role)
+        };
 
         let providers = {
             let router = self.providers.read().await;
@@ -839,8 +1232,20 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             max_tokens: Some(4000),
             stream: false,
         };
-        let response =
-            Self::dispatch_chat(&providers, role, &run.project_id.0.to_string(), request).await?;
+        let mut cancel_rx = ctrl.cancel_tx.subscribe();
+        if *cancel_rx.borrow() {
+            return Err(PipelineError::Other("Run is cancelled".to_string()));
+        }
+        let dispatch_project_id = run.project_id.0.to_string();
+        let response = tokio::select! {
+            biased;
+            _ = cancel_rx.changed() => {
+                return Err(PipelineError::Other("Run cancelled during followup".to_string()));
+            }
+            res = Self::dispatch_chat(&providers, role, &dispatch_project_id, request) => {
+                res?
+            }
+        };
         let answer = response
             .choices
             .first()
@@ -849,26 +1254,45 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         let cost_cents = providers.cost_of(&response.model, &response.usage)?;
 
         let now = Utc::now();
-        let artifact = Artifact {
-            name: "followup".to_string(),
-            content: answer.clone(),
-            stage: run.current_stage,
-            role: Some(role),
-            created_at: now,
-            updated_at: now,
-            version: 1,
+        let mut updated = {
+            let _guard = ctrl.state_lock.lock().await;
+            if *ctrl.cancel_tx.borrow() {
+                return Err(PipelineError::Other("Run is cancelled".to_string()));
+            }
+            let (mut latest, latest_v) = self.store.get_run_versioned(run_id).await?;
+            if matches!(
+                latest.status,
+                RunStatus::Cancelled | RunStatus::Completed | RunStatus::Failed
+            ) || latest_v != version
+            {
+                return Err(PipelineError::Other(
+                    "Run state changed concurrently during followup".to_string(),
+                ));
+            }
+            let artifact = Artifact {
+                name: "followup".to_string(),
+                content: answer.clone(),
+                stage: latest.current_stage,
+                role: Some(role),
+                created_at: now,
+                updated_at: now,
+                version: 1,
+            };
+            latest.artifacts.insert(artifact.name.clone(), artifact);
+            latest.spent_cents += cost_cents;
+            latest.updated_at = now;
+            self.store.update_run_cas(&latest, latest_v).await?;
+            latest
         };
+
         self.store
-            .write_artifact(run.project_id, &artifact.name, &artifact.content)
+            .write_artifact(updated.project_id, "followup", &answer)
             .await?;
-        run.artifacts.insert(artifact.name.clone(), artifact);
-        run.spent_cents += cost_cents;
-        run.updated_at = now;
 
         let event = Event {
             id: Ulid::new(),
             run_id,
-            stage: run.current_stage,
+            stage: updated.current_stage,
             role: Some(role),
             kind: EventKind::AgentStep,
             payload: serde_json::json!({
@@ -882,14 +1306,14 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             device_id: None,
         };
         self.store.append_event(&event).await?;
-        self.store.update_run(&run).await?;
+        updated.updated_at = now;
 
         info!("Follow-up answered for run {}", run_id.0);
-        Ok(run)
+        Ok(updated)
     }
 
-    /// Build context from previous artifacts for the prompt
-    fn build_context(&self, run: &Run) -> serde_json::Value {
+    /// Build context from previous artifacts for the prompt, optionally carrying change-request notes.
+    fn build_context_with_feedback(&self, run: &Run, feedback: Option<&str>) -> serde_json::Value {
         let mut context = serde_json::Map::new();
 
         // Add all previous artifacts
@@ -900,6 +1324,15 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                     "content": artifact.content,
                     "stage": artifact.stage,
                     "role": artifact.role,
+                }),
+            );
+        }
+
+        if let Some(notes) = feedback {
+            context.insert(
+                "change_request_notes".to_string(),
+                serde_json::json!({
+                    "content": notes,
                 }),
             );
         }
@@ -922,6 +1355,12 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         );
 
         serde_json::Value::Object(context)
+    }
+
+    /// Build context from previous artifacts for the prompt
+    #[allow(dead_code)]
+    fn build_context(&self, run: &Run) -> serde_json::Value {
+        self.build_context_with_feedback(run, None)
     }
 
     /// Simple template rendering - replace {{key}} with values
@@ -1008,16 +1447,25 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         // This is a simplification - in reality we'd get language from project
         result = result.replace("{{language}}", "en");
 
+        // Inject change-request feedback if present
+        if let Some(feedback) = context
+            .get("change_request_notes")
+            .and_then(|v| v.get("content"))
+            .and_then(|v| v.as_str())
+        {
+            result = result.replace("{{feedback}}", feedback);
+            result = result.replace("{{notes}}", feedback);
+            if !result.contains(feedback) {
+                result.push_str(&format!(
+                    "\n\n## Feedback / Change Request Notes\n\n{feedback}\n"
+                ));
+            }
+        }
+
         result
     }
 
     /// Approve a gate
-    ///
-    /// `device_id` is the device the *daemon* authenticated as the caller — the
-    /// transport decides that and passes it down (security audit H-03). This layer's
-    /// contribution is the floor under it: a decision whose acting device is "nobody"
-    /// is refused rather than recorded, so an unverified identity cannot reach a run
-    /// even if a caller above it forgets to check.
     pub async fn approve_gate(
         &self,
         run_id: RunId,
@@ -1025,7 +1473,9 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         device_id: DeviceId,
     ) -> Result<Run> {
         let device_id = verified_actor(device_id, "an approval")?;
-        let mut run = self.store.get_run(run_id).await?;
+        let ctrl = self.control_for(run_id).await;
+        let _guard = ctrl.state_lock.lock().await;
+        let (mut run, version) = self.store.get_run_versioned(run_id).await?;
 
         gate_integrity::ensure_gate_decidable(&run, stage)?;
         let artifacts_hash = gate_integrity::artifacts_sha256(&run.artifacts);
@@ -1040,6 +1490,8 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             at: Utc::now(),
         };
         run.updated_at = Utc::now();
+
+        self.store.update_run_cas(&run, version).await?;
 
         let event = Event {
             id: Ulid::new(),
@@ -1058,7 +1510,6 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             device_id: Some(device_id),
         };
         self.store.append_event(&event).await?;
-        self.store.update_run(&run).await?;
 
         info!(
             "Gate {:?} approved for run {} by device {}",
@@ -1076,7 +1527,9 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         device_id: DeviceId,
     ) -> Result<Run> {
         let device_id = verified_actor(device_id, "a rejection")?;
-        let mut run = self.store.get_run(run_id).await?;
+        let ctrl = self.control_for(run_id).await;
+        let _guard = ctrl.state_lock.lock().await;
+        let (mut run, version) = self.store.get_run_versioned(run_id).await?;
 
         gate_integrity::ensure_gate_decidable(&run, stage)?;
         let artifacts_hash = gate_integrity::artifacts_sha256(&run.artifacts);
@@ -1093,6 +1546,8 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         };
         run.updated_at = Utc::now();
         run.status = RunStatus::Paused;
+
+        self.store.update_run_cas(&run, version).await?;
 
         let event = Event {
             id: Ulid::new(),
@@ -1112,7 +1567,6 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             device_id: Some(device_id),
         };
         self.store.append_event(&event).await?;
-        self.store.update_run(&run).await?;
 
         info!(
             "Gate {:?} rejected for run {} by device {}: {}",
@@ -1130,7 +1584,9 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         device_id: DeviceId,
     ) -> Result<Run> {
         let device_id = verified_actor(device_id, "a change request")?;
-        let mut run = self.store.get_run(run_id).await?;
+        let ctrl = self.control_for(run_id).await;
+        let _guard = ctrl.state_lock.lock().await;
+        let (mut run, version) = self.store.get_run_versioned(run_id).await?;
 
         gate_integrity::ensure_gate_decidable(&run, stage)?;
         let artifacts_hash = gate_integrity::artifacts_sha256(&run.artifacts);
@@ -1147,6 +1603,8 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         };
         run.updated_at = Utc::now();
         run.status = RunStatus::Paused;
+
+        self.store.update_run_cas(&run, version).await?;
 
         let event = Event {
             id: Ulid::new(),
@@ -1166,7 +1624,6 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             device_id: Some(device_id),
         };
         self.store.append_event(&event).await?;
-        self.store.update_run(&run).await?;
 
         info!(
             "Gate {:?} changes requested for run {} by device {}",
@@ -1177,10 +1634,14 @@ impl<S: SettingsProvider> PipelineEngine<S> {
 
     /// Create or update an artifact
     pub async fn upsert_artifact(&self, run_id: RunId, artifact: Artifact) -> Result<()> {
-        let mut run = self.store.get_run(run_id).await?;
+        let ctrl = self.control_for(run_id).await;
+        let _guard = ctrl.state_lock.lock().await;
+        let (mut run, version) = self.store.get_run_versioned(run_id).await?;
         run.artifacts
             .insert(artifact.name.clone(), artifact.clone());
         run.updated_at = Utc::now();
+
+        self.store.update_run_cas(&run, version).await?;
 
         // Write to factory directory
         self.store
@@ -1200,7 +1661,6 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             device_id: None,
         };
         self.store.append_event(&event).await?;
-        self.store.update_run(&run).await?;
 
         Ok(())
     }
@@ -1214,9 +1674,13 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         cost_cents: u64,
         tokens: Option<TokenUsage>,
     ) -> Result<()> {
-        let mut run = self.store.get_run(run_id).await?;
+        let ctrl = self.control_for(run_id).await;
+        let _guard = ctrl.state_lock.lock().await;
+        let (mut run, mut version) = self.store.get_run_versioned(run_id).await?;
         run.spent_cents += cost_cents;
         run.updated_at = Utc::now();
+
+        version = self.store.update_run_cas(&run, version).await?;
 
         let event = Event {
             id: Ulid::new(),
@@ -1231,11 +1695,13 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             device_id: None,
         };
         self.store.append_event(&event).await?;
-        self.store.update_run(&run).await?;
 
         // Check budget
         if let Some(budget) = run.budget_cents {
             if run.spent_cents >= budget {
+                run.status = RunStatus::Paused;
+                run.updated_at = Utc::now();
+                self.store.update_run_cas(&run, version).await?;
                 let budget_event = Event {
                     id: Ulid::new(),
                     run_id,
@@ -1249,8 +1715,6 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                     device_id: None,
                 };
                 self.store.append_event(&budget_event).await?;
-                run.status = RunStatus::Paused;
-                self.store.update_run(&run).await?;
                 warn!(
                     "Budget exceeded for run {}: {} >= {}",
                     run_id.0, run.spent_cents, budget
