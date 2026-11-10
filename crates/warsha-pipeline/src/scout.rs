@@ -283,11 +283,7 @@ impl Scout {
     }
 
     /// Scout custom catalogs
-    async fn scout_custom(
-        &self,
-        _project_id: ProjectId,
-        role: Role,
-    ) -> Result<Vec<ScoutProposal>> {
+    async fn scout_custom(&self, _project_id: ProjectId, role: Role) -> Result<Vec<ScoutProposal>> {
         let url = self
             .config
             .catalog_urls

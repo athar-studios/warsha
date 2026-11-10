@@ -46,6 +46,8 @@ mod scale_standards;
 mod scout;
 pub mod settings;
 mod skills;
+#[cfg(test)]
+mod status_truth;
 /// Test-only helpers shared by this crate's test modules.
 #[cfg(test)]
 pub(crate) mod test_util;

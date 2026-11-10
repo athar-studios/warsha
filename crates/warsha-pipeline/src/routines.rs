@@ -1083,7 +1083,9 @@ mod tests {
     fn unavailable_routine_runner_refuses_execution() {
         let runner = UnavailableRoutineRunner::new();
         let routine = Routine::new("nightly", "Nightly", RoutineSchedule::Manual);
-        let err = runner.run(&routine).expect_err("unavailable runner must fail");
+        let err = runner
+            .run(&routine)
+            .expect_err("unavailable runner must fail");
         assert!(err.to_string().contains("unavailable"));
     }
 }
