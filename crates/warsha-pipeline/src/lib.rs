@@ -127,7 +127,8 @@ pub use crate::run_modes::{
 };
 pub use crate::scale_standards::{ScaleCategory, ScaleStandard, ScaleStandards, SCALE_STANDARDS};
 pub use crate::scout::{
-    Scout, ScoutConfig, ScoutDependency, ScoutError, ScoutProposal, ScoutResult, ScoutSource,
+    ProductionScoutRegistryClient, Scout, ScoutConfig, ScoutDependency, ScoutError, ScoutProposal,
+    ScoutRegistryClient, ScoutResult, ScoutSource,
 };
 pub use crate::skills::{
     default_role_packs, load_skill_from_dir, LicenseClass, RolePack, Skill, SkillDependency,
