@@ -26,7 +26,7 @@ describe('Transcript composite', () => {
     const handleCopy = vi.fn();
     render(
       <Transcript
-        text="output log line 1\noutput log line 2"
+        text={'output log line 1\noutput log line 2'}
         copyLabel="نسخ المخرجات"
         onCopy={handleCopy}
       />

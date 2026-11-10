@@ -103,7 +103,7 @@ export const Stepper: React.FC<StepperProps> = ({
             key={stage.key}
             data-stage-key={stage.key}
             data-state={stage.state}
-            onClick={isClickable ? () => onStageClick(stage.key) : undefined}
+            onClick={isClickable ? () => onStageClick?.(stage.key) : undefined}
             style={{
               display: 'flex',
               flexDirection: 'column',

@@ -10,7 +10,7 @@ describe('CodeView composite', () => {
       <CodeView
         filename="main.rs"
         language="rust"
-        code="fn main() {\n    println!(\"Hello\");\n}"
+        code={'fn main() {\n    println!("Hello");\n}'}
         copyLabel="نسخ الكود"
       />
     );

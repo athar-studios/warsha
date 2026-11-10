@@ -3,6 +3,7 @@ import React from 'react';
 
 import { IconFolder, IconHome, IconSettings } from '../icons';
 import { Badge } from '../primitives/Badge';
+
 import { SideNav } from './SideNav';
 
 const meta = {

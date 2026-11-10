@@ -3,6 +3,7 @@ import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { Button } from '../primitives/Button';
+
 import { Dialog } from './Dialog';
 
 describe('Dialog composite', () => {
@@ -51,7 +52,6 @@ describe('Dialog composite', () => {
     );
 
     const input = screen.getByTestId('input-name');
-    const cancel = screen.getByTestId('btn-cancel');
     const confirm = screen.getByTestId('btn-confirm');
 
     // Simulate focus on last element, then Tab -> wraps to input

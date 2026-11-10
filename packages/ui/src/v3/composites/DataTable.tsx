@@ -5,6 +5,7 @@ import React from 'react';
 
 import { IconArrow, IconMore } from '../icons';
 import { IconButton } from '../primitives/IconButton';
+
 import { Menu, type MenuItem } from './Menu';
 
 export interface DataTableColumn<T> {

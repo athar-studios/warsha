@@ -3,6 +3,7 @@ import React from 'react';
 
 import { IconEdit, IconMore, IconTrash } from '../icons';
 import { IconButton } from '../primitives/IconButton';
+
 import { Menu } from './Menu';
 
 const meta = {

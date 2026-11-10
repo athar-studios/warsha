@@ -24,7 +24,7 @@ describe('SideNav composite', () => {
   });
 
   it('renders groups with titles and handles link clicks', () => {
-    const handleClick = vi.fn((e: React.MouseEvent) => e.preventDefault());
+    const handleClick = vi.fn((e: React.MouseEvent<HTMLElement>) => e.preventDefault());
     render(
       <SideNav
         groups={[

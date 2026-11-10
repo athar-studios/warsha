@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react';
 import React from 'react';
 
 import { Button } from '../primitives/Button';
+
 import { Dialog } from './Dialog';
 
 const meta = {
@@ -9,6 +10,7 @@ const meta = {
   component: Dialog,
   args: {
     open: true,
+    onClose: () => {},
     title: 'تأكيد العملية',
     description: 'يرجى مراجعة التفاصيل قبل المتابعة.',
     children: 'هل أنت متأكد من تنفيذ هذا الإجراء؟ لا يمكن التراجع بعد التأكيد.',

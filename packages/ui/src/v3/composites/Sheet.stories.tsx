@@ -7,6 +7,7 @@ const meta = {
   component: Sheet,
   args: {
     open: true,
+    onClose: () => {},
     title: 'تفاصيل الحدث',
     description: 'سجل العمليات المرتبط بهذا الإجراء',
     children: 'هنا يظهر محتوى اللوحة الجانبية المفصل.',

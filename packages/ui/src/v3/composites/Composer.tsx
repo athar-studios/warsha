@@ -5,7 +5,7 @@
 import React from 'react';
 
 import { IconSend } from '../icons';
-import { Button, type ButtonVariant } from '../primitives/Button';
+import { Button } from '../primitives/Button';
 
 export interface ComposerProps {
   value: string;

@@ -3,6 +3,7 @@ import React from 'react';
 import { describe, expect, it } from 'vitest';
 
 import { Button } from '../primitives/Button';
+
 import { EmptyState } from './EmptyState';
 
 describe('EmptyState composite', () => {

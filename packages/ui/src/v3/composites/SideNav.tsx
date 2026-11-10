@@ -10,7 +10,7 @@ export interface SideNavItem {
   href?: string;
   active?: boolean;
   badge?: React.ReactNode;
-  onClick?: () => void;
+  onClick?: (event: React.MouseEvent<HTMLElement>) => void;
   'data-action'?: string;
   'data-testid'?: string;
 }

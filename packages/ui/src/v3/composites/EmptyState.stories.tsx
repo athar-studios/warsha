@@ -3,6 +3,7 @@ import React from 'react';
 
 import { IconFolder } from '../icons';
 import { Button } from '../primitives/Button';
+
 import { EmptyState } from './EmptyState';
 
 const meta = {
