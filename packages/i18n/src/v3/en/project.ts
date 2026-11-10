@@ -54,4 +54,10 @@ export default {
   'project.run_cancel_dialog_desc': 'Are you sure you want to cancel this active run?',
   'project.cancel': 'Cancel',
   'project.no_runs': 'No runs have been recorded for this project yet.',
+  'project.status_idle': 'Idle',
+  'project.status_running': 'Running',
+  'project.status_waiting': 'Waiting',
+  'project.status_done': 'Delivered',
+  'project.status_failed': 'Failed',
+  'project.status_paused': 'Paused',
 };

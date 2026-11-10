@@ -54,4 +54,10 @@ export default {
   'project.run_cancel_dialog_desc': 'هل أنت متأكد من رغبتك في إلغاء هذا التشغيل الجاري؟',
   'project.cancel': 'إلغاء',
   'project.no_runs': 'لا توجد تشغيلات مسجلة لهذا المشروع بعد.',
+  'project.status_idle': 'خامل',
+  'project.status_running': 'يعمل',
+  'project.status_waiting': 'ينتظرك',
+  'project.status_done': 'سُلِّم',
+  'project.status_failed': 'تعثّر',
+  'project.status_paused': 'متوقف',
 };
