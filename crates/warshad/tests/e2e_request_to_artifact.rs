@@ -264,6 +264,11 @@ async fn e2e_request_to_artifact() {
     assert_eq!(approval.from, AgentMode::Plan);
     assert_eq!(approval.to, AgentMode::Agent);
 
+    // ---- 5. Execute the plan: advance to Gate A, approve, then run stages.
+    let engine = state.pipeline.clone();
+    let run = engine.advance_stage(run.id).await.expect("Idea -> Gate A");
+    assert_eq!(run.current_stage, Stage::GateA);
+
     // Gate A: the owner's approval of the brief, through the daemon's RPC layer.
     let device = owner;
     let run = rpc
@@ -275,10 +280,6 @@ async fn e2e_request_to_artifact() {
         "gate A is approved"
     );
 
-    // ---- 5. Execute the plan: the stages run, then the code lands.
-    let engine = state.pipeline.clone();
-    let run = engine.advance_stage(run.id).await.expect("Idea -> Gate A");
-    assert_eq!(run.current_stage, Stage::GateA);
     let run = engine
         .advance_stage(run.id)
         .await

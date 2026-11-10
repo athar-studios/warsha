@@ -7198,6 +7198,13 @@ mod tests {
             "the approver recorded is not the session's device"
         );
 
+        let mut at_gate_b = store.get_run(run.id).await.expect("the run is readable");
+        at_gate_b.current_stage = Stage::GateB;
+        store
+            .update_run(&at_gate_b)
+            .await
+            .expect("run reached GateB");
+
         let omitted = rpc
             .reject_gate(&ext, run.id, Stage::GateB, "not yet".to_string(), None)
             .await
@@ -7591,10 +7598,11 @@ mod tests {
         }
     }
 
-    /// A stored run sitting at its first two pending gates.
+    /// A stored run sitting at pending GateA (with GateB also seeded Pending).
     async fn stored_run_with_gate(store: &Arc<Store>, name: &str) -> Run {
         let run = stored_run(store, name, None).await;
         let mut run = store.get_run(run.id).await.expect("the run is readable");
+        run.current_stage = Stage::GateA;
         run.gate_states.insert(Stage::GateA, GateState::Pending);
         run.gate_states.insert(Stage::GateB, GateState::Pending);
         store.update_run(&run).await.expect("the gates are pending");

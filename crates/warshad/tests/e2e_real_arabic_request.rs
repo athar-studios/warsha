@@ -718,6 +718,11 @@ async fn e2e_real_arabic_request_clinic_flow() {
     assert_eq!(approval.from, AgentMode::Plan);
     assert_eq!(approval.to, AgentMode::Agent);
 
+    // ---- 6. Pipeline stages walk and cost accounting.
+    let engine = state.pipeline.clone();
+    let run = engine.advance_stage(run.id).await.expect("Idea -> Gate A");
+    assert_eq!(run.current_stage, Stage::GateA);
+
     // Owner approves Gate A (brief approval)
     let device = owner;
     let run = rpc
@@ -728,11 +733,6 @@ async fn e2e_real_arabic_request_clinic_flow() {
         run.gate_states[&Stage::GateA],
         GateState::Approved { .. }
     ));
-
-    // ---- 6. Pipeline stages walk and cost accounting.
-    let engine = state.pipeline.clone();
-    let run = engine.advance_stage(run.id).await.expect("Idea -> Gate A");
-    assert_eq!(run.current_stage, Stage::GateA);
 
     let run = engine
         .advance_stage(run.id)

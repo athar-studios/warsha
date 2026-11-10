@@ -21,6 +21,7 @@ mod agent_workflow;
 mod backend_kit;
 mod build_cache;
 mod evals;
+mod gate_integrity;
 mod guardrails;
 mod handoff;
 mod llm_cache;
@@ -71,6 +72,7 @@ pub use crate::build_cache::{
     BuildCache, BuildCacheEntry, BuildCacheKey, BuildCacheStats, InMemoryBuildCache,
 };
 pub use crate::evals::{blocks_change, run_suite, EvalCase, EvalError, EvalOutcome, EvalSuite};
+pub use crate::gate_integrity::artifacts_sha256;
 pub use crate::guardrails::{
     classify_action, mask_secrets, wrap_untrusted, ApprovalRequest, Guardrails, InjectionSignal,
     InputOrigin, InspectionResult, SensitiveAction, REDACTED,
@@ -1025,20 +1027,13 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         let device_id = verified_actor(device_id, "an approval")?;
         let mut run = self.store.get_run(run_id).await?;
 
-        if !stage.is_gate() {
-            return Err(PipelineError::Other(format!(
-                "{:?} is not a gate stage",
-                stage
-            )));
-        }
+        gate_integrity::ensure_gate_decidable(&run, stage)?;
+        let artifacts_hash = gate_integrity::artifacts_sha256(&run.artifacts);
 
         let gate_state = run
             .gate_states
             .get_mut(&stage)
             .ok_or(PipelineError::Other("Gate not found".to_string()))?;
-        if !matches!(gate_state, GateState::Pending) {
-            return Err(PipelineError::GateNotPending(stage));
-        }
 
         *gate_state = GateState::Approved {
             by: device_id,
@@ -1052,7 +1047,11 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             stage,
             role: None,
             kind: EventKind::GateDecision,
-            payload: serde_json::json!({ "decision": "approved", "by": device_id.0 }),
+            payload: serde_json::json!({
+                "decision": "approved",
+                "by": device_id.0,
+                "artifacts_sha256": artifacts_hash,
+            }),
             cost_cents: None,
             tokens: None,
             created_at: Utc::now(),
@@ -1079,20 +1078,13 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         let device_id = verified_actor(device_id, "a rejection")?;
         let mut run = self.store.get_run(run_id).await?;
 
-        if !stage.is_gate() {
-            return Err(PipelineError::Other(format!(
-                "{:?} is not a gate stage",
-                stage
-            )));
-        }
+        gate_integrity::ensure_gate_decidable(&run, stage)?;
+        let artifacts_hash = gate_integrity::artifacts_sha256(&run.artifacts);
 
         let gate_state = run
             .gate_states
             .get_mut(&stage)
             .ok_or(PipelineError::Other("Gate not found".to_string()))?;
-        if !matches!(gate_state, GateState::Pending) {
-            return Err(PipelineError::GateNotPending(stage));
-        }
 
         *gate_state = GateState::Rejected {
             reason: reason.clone(),
@@ -1108,7 +1100,12 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             stage,
             role: None,
             kind: EventKind::GateDecision,
-            payload: serde_json::json!({ "decision": "rejected", "reason": reason, "by": device_id.0 }),
+            payload: serde_json::json!({
+                "decision": "rejected",
+                "reason": reason,
+                "by": device_id.0,
+                "artifacts_sha256": artifacts_hash,
+            }),
             cost_cents: None,
             tokens: None,
             created_at: Utc::now(),
@@ -1135,20 +1132,13 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         let device_id = verified_actor(device_id, "a change request")?;
         let mut run = self.store.get_run(run_id).await?;
 
-        if !stage.is_gate() {
-            return Err(PipelineError::Other(format!(
-                "{:?} is not a gate stage",
-                stage
-            )));
-        }
+        gate_integrity::ensure_gate_decidable(&run, stage)?;
+        let artifacts_hash = gate_integrity::artifacts_sha256(&run.artifacts);
 
         let gate_state = run
             .gate_states
             .get_mut(&stage)
             .ok_or(PipelineError::Other("Gate not found".to_string()))?;
-        if !matches!(gate_state, GateState::Pending) {
-            return Err(PipelineError::GateNotPending(stage));
-        }
 
         *gate_state = GateState::ChangesRequested {
             notes: notes.clone(),
@@ -1164,7 +1154,12 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             stage,
             role: None,
             kind: EventKind::GateDecision,
-            payload: serde_json::json!({ "decision": "changes_requested", "notes": notes, "by": device_id.0 }),
+            payload: serde_json::json!({
+                "decision": "changes_requested",
+                "notes": notes,
+                "by": device_id.0,
+                "artifacts_sha256": artifacts_hash,
+            }),
             cost_cents: None,
             tokens: None,
             created_at: Utc::now(),
