@@ -219,6 +219,21 @@ export const ACTIONS: readonly ActionDef[] = [
     rpc: ['budget.set'],
   },
 
+  // Post-launch section
+  {
+    id: 'settings.crashes.filter',
+    labelKey: 'settings.postlaunch.filter_btn',
+    effect: 'rpc',
+    rpc: ['postlaunch.crashes'],
+  },
+  { id: 'settings.crash.copy', labelKey: 'settings.postlaunch.copy_crash', effect: 'state' },
+  {
+    id: 'settings.reviews.filter',
+    labelKey: 'settings.postlaunch.reviews_title',
+    effect: 'rpc',
+    rpc: ['postlaunch.reviews'],
+  },
+
   // Shared dialog & error recovery actions
   { id: 'settings.dialog.cancel', labelKey: 'common.cancel', effect: 'state' },
   { id: 'settings.error.retry', labelKey: 'common.retry', effect: 'state' },

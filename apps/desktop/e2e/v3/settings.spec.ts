@@ -29,6 +29,7 @@ const SECTIONS = [
   'integrations',
   'routines',
   'budgets',
+  'postlaunch',
 ] as const;
 
 const CUSTOM_MODELS_FIXTURE = {
@@ -497,6 +498,24 @@ test.describe('Settings v3 (Slice 1)', () => {
     await expect(page.locator('.w-banner--success')).toBeVisible();
   });
 
+  test('postlaunch journey: filter crashes, copy crash details, and filter store reviews', async ({
+    page,
+  }) => {
+    await openV3(page, '/settings/postlaunch', { lang: 'ar', mode: 'advanced' });
+    await expect(page.locator('[data-testid="settings-section-postlaunch"]')).toBeVisible();
+
+    await page.locator('[data-testid="postlaunch-run-filter-input"] input').fill('run-code');
+    await act(page, 'settings.crashes.filter');
+    await expectRpc(page, 'postlaunch.crashes');
+
+    await act(page, 'settings.crash.copy');
+    await expect(page.locator('.w-banner--success')).toBeVisible();
+
+    await page.locator('[data-testid="postlaunch-store-select"] select').selectOption('play');
+    await act(page, 'settings.reviews.filter');
+    await expectRpc(page, 'postlaunch.reviews');
+  });
+
   // ---------------------------------------------------------------------------
   // One test per action id (for all 23 registered action ids)
   // ---------------------------------------------------------------------------
@@ -905,6 +924,26 @@ test.describe('Settings v3 (Slice 1)', () => {
       .fill('50');
     await act(page, 'settings.budget.save');
     await expectRpc(page, 'budget.set');
+  });
+
+  test('action: settings.crashes.filter', async ({ page }) => {
+    await openV3(page, '/settings/postlaunch', { lang: 'ar', mode: 'advanced' });
+    await page.locator('[data-testid="postlaunch-run-filter-input"] input').fill('run-code');
+    await act(page, 'settings.crashes.filter');
+    await expectRpc(page, 'postlaunch.crashes');
+  });
+
+  test('action: settings.crash.copy', async ({ page }) => {
+    await openV3(page, '/settings/postlaunch', { lang: 'ar', mode: 'advanced' });
+    await act(page, 'settings.crash.copy');
+    await expect(page.locator('.w-banner--success')).toBeVisible();
+  });
+
+  test('action: settings.reviews.filter', async ({ page }) => {
+    await openV3(page, '/settings/postlaunch', { lang: 'ar', mode: 'advanced' });
+    await page.locator('[data-testid="postlaunch-store-select"] select').selectOption('play');
+    await act(page, 'settings.reviews.filter');
+    await expectRpc(page, 'postlaunch.reviews');
   });
 
   test('action: settings.dialog.cancel', async ({ page }) => {

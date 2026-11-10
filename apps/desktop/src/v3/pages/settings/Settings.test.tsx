@@ -341,6 +341,26 @@ function createMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
       remainingUsd: 15,
     }),
     setProjectBudget: vi.fn().mockResolvedValue(undefined),
+    listCrashReports: vi.fn().mockResolvedValue([
+      {
+        id: 'crash-1',
+        run_id: 'run-1',
+        message: 'Unexpected preview exit',
+        stack_trace: 'at preview.ts:10',
+        occurred_at: 1764939300,
+        sent: false,
+      },
+    ]),
+    listStoreReviews: vi.fn().mockResolvedValue([
+      {
+        id: 'rev-1',
+        store: 'play',
+        rating: 5,
+        body: 'Great experience',
+        author: 'Noura',
+        received_at: 1764939300,
+      },
+    ]),
     health: vi.fn().mockResolvedValue({ status: 'ok', version: '0.2.1' }),
     ...overrides,
   } as unknown as WarshaClient;
@@ -687,5 +707,26 @@ describe('SettingsPage (Slice 1)', () => {
     fireEvent.change(input, { target: { value: '35' } });
     fireEvent.click(document.querySelector('button[data-action="settings.budget.save"]') as HTMLElement);
     await waitFor(() => expect(client.setProjectBudget).toHaveBeenCalledWith('proj-1', 3500));
+  });
+
+  it('handles crash filter, crash copy, and reviews filter in PostLaunchSection', async () => {
+    const client = createMockClient();
+    renderSettings('/settings/postlaunch', client, 'advanced');
+    await waitFor(() => expect(screen.getByTestId('settings-section-postlaunch')).toBeDefined());
+
+    fireEvent.change(screen.getByTestId('postlaunch-run-filter-input').querySelector('input') as HTMLInputElement, {
+      target: { value: 'run-1' },
+    });
+    fireEvent.click(document.querySelector('button[data-action="settings.crashes.filter"]') as HTMLElement);
+    await waitFor(() => expect(client.listCrashReports).toHaveBeenCalledWith('run-1'));
+
+    fireEvent.click(document.querySelector('button[data-action="settings.crash.copy"]') as HTMLElement);
+    await waitFor(() => expect(document.querySelector('.w-banner--success')).not.toBeNull());
+
+    fireEvent.change(screen.getByTestId('postlaunch-store-select').querySelector('select') as HTMLSelectElement, {
+      target: { value: 'play' },
+    });
+    fireEvent.click(document.querySelector('button[data-action="settings.reviews.filter"]') as HTMLElement);
+    await waitFor(() => expect(client.listStoreReviews).toHaveBeenCalledWith('play'));
   });
 });
