@@ -267,9 +267,9 @@ async fn execute_stage_uses_harness_prompt_template_when_available() {
 
     // Advance to Research stage (first executed stage after Gate A)
     let _run = engine
-        .advance_to_next_gate(run.id)
+        .advance_stage(run.id)
         .await
-        .expect("advance to Gate B (which executes Research)");
+        .expect("advance to Research stage");
 
     // Check that the captured prompt contains the custom harness template
     let prompt = captured_prompt
@@ -350,9 +350,9 @@ async fn execute_stage_prepends_enabled_skills_to_prompt() {
 
     // Advance to Research stage
     let _run = engine
-        .advance_to_next_gate(run.id)
+        .advance_stage(run.id)
         .await
-        .expect("advance to Gate B (which executes Research)");
+        .expect("advance to Research stage");
 
     // Check that the captured prompt contains the skill content
     let prompt = captured_prompt
@@ -491,9 +491,9 @@ async fn execute_stage_combines_harness_template_and_skills() {
 
     // Advance to Research stage
     let _run = engine
-        .advance_to_next_gate(run.id)
+        .advance_stage(run.id)
         .await
-        .expect("advance to Gate B (which executes Research)");
+        .expect("advance to Research stage");
 
     // Check that the captured prompt contains BOTH the skill content AND the harness template
     let prompt = captured_prompt
@@ -623,9 +623,9 @@ async fn execute_stage_uses_default_prompt_when_no_harness_template() {
 
     // Advance to Research stage
     let _run = engine
-        .advance_to_next_gate(run.id)
+        .advance_stage(run.id)
         .await
-        .expect("advance to Gate B (which executes Research)");
+        .expect("advance to Research stage");
 
     // Check that the captured prompt contains the DEFAULT role prompt (from prompts.rs)
     let prompt = captured_prompt

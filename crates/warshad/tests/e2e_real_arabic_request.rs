@@ -41,9 +41,9 @@ use warsha_core::{
 use warsha_pipeline::{
     AgentLoop, AgentMode, AskUserRequest, FilesystemToolExecutor, InMemoryCrashReportStore,
     InMemoryMcpManager, InMemoryPairingStore, InMemoryPreferenceStore, InMemoryProcessManager,
-    InMemoryStoreReviewStore, LivePreviewManager, McpManager, MockRoutineRunner, PipelineEngine,
-    ProcessManager, ProviderRouterAdapter, RoutineRegistry, RoutineRunner, RoutineScheduler,
-    RunMode, RunModeConfig, AGENT_ROLE,
+    InMemoryStoreReviewStore, LivePreviewManager, McpManager, PipelineEngine, ProcessManager,
+    ProviderRouterAdapter, RoutineRegistry, RoutineRunner, RoutineScheduler, RunMode,
+    RunModeConfig, UnavailableRoutineRunner, AGENT_ROLE,
 };
 use warsha_providers::{
     AnthropicProvider, ChatMessage, ChatProvider, ChatRequest, InMemorySecretStore, MessageRole,
@@ -1117,7 +1117,8 @@ async fn daemon_state(data_dir: &Path, provider_mode: RealOrMockProvider) -> Arc
     ));
 
     let routines = Arc::new(RwLock::new(RoutineRegistry::new()));
-    let routine_runner: Arc<dyn RoutineRunner + Send + Sync> = Arc::new(MockRoutineRunner::new());
+    let routine_runner: Arc<dyn RoutineRunner + Send + Sync> =
+        Arc::new(UnavailableRoutineRunner::new());
     let routine_scheduler = Arc::new(RoutineScheduler::new(routines.clone(), routine_runner));
 
     let identity = DeviceIdentity::generate("arabic e2e daemon".to_string()).expect("device id");

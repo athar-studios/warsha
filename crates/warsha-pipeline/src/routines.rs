@@ -12,8 +12,7 @@
 //! the Goose-backed scheduler rather than duplicated here.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -167,77 +166,32 @@ pub trait RoutineRunner {
     }
 }
 
-/// Test double that records the calls it receives.
-#[derive(Debug, Default)]
-pub struct MockRoutineRunner {
-    runs: Mutex<Vec<RoutineId>>,
-    pauses: Mutex<Vec<RoutineId>>,
-    resumes: Mutex<Vec<RoutineId>>,
-    fail_next_run: AtomicBool,
-}
+/// A routine runner for production when no external runner (such as Goose) is configured.
+///
+/// Refuses routine execution with an explicit error indicating that routines are unavailable.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct UnavailableRoutineRunner;
 
-impl MockRoutineRunner {
-    /// An empty runner that succeeds on every call.
+impl UnavailableRoutineRunner {
+    /// Create a new unavailable routine runner.
     pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Make the next [`RoutineRunner::run`] fail with [`RoutineError::Runner`].
-    pub fn failing(self) -> Self {
-        self.fail_next_run.store(true, Ordering::SeqCst);
-        self
-    }
-
-    /// Ids passed to [`RoutineRunner::run`], in call order.
-    pub fn run_ids(&self) -> Vec<RoutineId> {
-        self.runs.lock().unwrap_or_else(|p| p.into_inner()).clone()
-    }
-
-    /// Ids passed to [`RoutineRunner::pause`], in call order.
-    pub fn pause_ids(&self) -> Vec<RoutineId> {
-        self.pauses
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clone()
-    }
-
-    /// Ids passed to [`RoutineRunner::resume`], in call order.
-    pub fn resume_ids(&self) -> Vec<RoutineId> {
-        self.resumes
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clone()
+        Self
     }
 }
 
-impl RoutineRunner for MockRoutineRunner {
+impl RoutineRunner for UnavailableRoutineRunner {
     fn run(&self, routine: &Routine) -> Result<(), RoutineError> {
-        self.runs
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .push(routine.id.clone());
-        if self.fail_next_run.swap(false, Ordering::SeqCst) {
-            return Err(RoutineError::Runner(format!(
-                "mock failure for {}",
-                routine.id
-            )));
-        }
+        Err(RoutineError::Runner(format!(
+            "routine runner unavailable: no scheduler configured for routine '{}'",
+            routine.id
+        )))
+    }
+
+    fn pause(&self, _routine: &Routine) -> Result<(), RoutineError> {
         Ok(())
     }
 
-    fn pause(&self, routine: &Routine) -> Result<(), RoutineError> {
-        self.pauses
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .push(routine.id.clone());
-        Ok(())
-    }
-
-    fn resume(&self, routine: &Routine) -> Result<(), RoutineError> {
-        self.resumes
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .push(routine.id.clone());
+    fn resume(&self, _routine: &Routine) -> Result<(), RoutineError> {
         Ok(())
     }
 }
@@ -624,6 +578,78 @@ fn next_daily_after(hour: u8, minute: u8, after_unix: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Mutex;
+
+    /// Test double that records the calls it receives.
+    #[derive(Debug, Default)]
+    struct MockRoutineRunner {
+        runs: Mutex<Vec<RoutineId>>,
+        pauses: Mutex<Vec<RoutineId>>,
+        resumes: Mutex<Vec<RoutineId>>,
+        fail_next_run: AtomicBool,
+    }
+
+    impl MockRoutineRunner {
+        fn new() -> Self {
+            Self::default()
+        }
+
+        fn failing(self) -> Self {
+            self.fail_next_run.store(true, Ordering::SeqCst);
+            self
+        }
+
+        fn run_ids(&self) -> Vec<RoutineId> {
+            self.runs.lock().unwrap_or_else(|p| p.into_inner()).clone()
+        }
+
+        fn pause_ids(&self) -> Vec<RoutineId> {
+            self.pauses
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone()
+        }
+
+        fn resume_ids(&self) -> Vec<RoutineId> {
+            self.resumes
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone()
+        }
+    }
+
+    impl RoutineRunner for MockRoutineRunner {
+        fn run(&self, routine: &Routine) -> Result<(), RoutineError> {
+            self.runs
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .push(routine.id.clone());
+            if self.fail_next_run.swap(false, Ordering::SeqCst) {
+                return Err(RoutineError::Runner(format!(
+                    "mock failure for {}",
+                    routine.id
+                )));
+            }
+            Ok(())
+        }
+
+        fn pause(&self, routine: &Routine) -> Result<(), RoutineError> {
+            self.pauses
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .push(routine.id.clone());
+            Ok(())
+        }
+
+        fn resume(&self, routine: &Routine) -> Result<(), RoutineError> {
+            self.resumes
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .push(routine.id.clone());
+            Ok(())
+        }
+    }
 
     const MINUTE: u64 = 60;
 
@@ -1051,5 +1077,15 @@ mod tests {
             result.is_ok(),
             "scheduler background task should exit promptly after stop"
         );
+    }
+
+    #[test]
+    fn unavailable_routine_runner_refuses_execution() {
+        let runner = UnavailableRoutineRunner::new();
+        let routine = Routine::new("nightly", "Nightly", RoutineSchedule::Manual);
+        let err = runner
+            .run(&routine)
+            .expect_err("unavailable runner must fail");
+        assert!(err.to_string().contains("unavailable"));
     }
 }

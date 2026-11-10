@@ -3,14 +3,16 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 use thiserror::Error;
-use ulid::Ulid;
 use warsha_core::*;
 
 #[derive(Error, Debug)]
 pub enum ScoutError {
     #[error("Catalog not found: {0}")]
     CatalogNotFound(String),
+    #[error("catalog unavailable: {0}")]
+    CatalogUnavailable(String),
     #[error("Network error: {0}")]
     Network(String),
     #[error("Serialization error: {0}")]
@@ -110,14 +112,60 @@ pub struct ScoutResult {
     pub config_snapshot: ScoutConfig,
 }
 
+/// Trait seam for querying remote skill/MCP registries.
+#[async_trait::async_trait]
+pub trait ScoutRegistryClient: Send + Sync {
+    async fn fetch_proposals(
+        &self,
+        source: ScoutSource,
+        catalog_url: Option<&str>,
+        role: Role,
+    ) -> Result<Vec<ScoutProposal>>;
+}
+
+/// Production registry client that returns an explicit catalog unavailable error
+/// when live network registry querying is not configured.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ProductionScoutRegistryClient;
+
+#[async_trait::async_trait]
+impl ScoutRegistryClient for ProductionScoutRegistryClient {
+    async fn fetch_proposals(
+        &self,
+        source: ScoutSource,
+        catalog_url: Option<&str>,
+        _role: Role,
+    ) -> Result<Vec<ScoutProposal>> {
+        let endpoint = catalog_url.unwrap_or(match source {
+            ScoutSource::McpRegistry => "https://registry.modelcontextprotocol.io",
+            ScoutSource::Npm => "https://registry.npmjs.org",
+            _ => "unspecified",
+        });
+        Err(ScoutError::CatalogUnavailable(format!(
+            "catalog unavailable for {source:?} at endpoint '{endpoint}'"
+        )))
+    }
+}
+
 /// Scout agent
 pub struct Scout {
     config: ScoutConfig,
+    registry_client: Arc<dyn ScoutRegistryClient>,
 }
 
 impl Scout {
     pub fn new(config: ScoutConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            registry_client: Arc::new(ProductionScoutRegistryClient),
+        }
+    }
+
+    pub fn with_client(config: ScoutConfig, registry_client: Arc<dyn ScoutRegistryClient>) -> Self {
+        Self {
+            config,
+            registry_client,
+        }
     }
 
     /// Run scout for a project/agent
@@ -190,25 +238,8 @@ impl Scout {
     }
 
     /// Scout local skill directories
-    async fn scout_local(&self, _project_id: ProjectId, role: Role) -> Result<Vec<ScoutProposal>> {
-        // In real implementation, scan ~/.config/warsha/skills/ or project/.warsha/skills/
-        // For now, return mock proposals based on role
-        Ok(vec![ScoutProposal {
-            id: Ulid::new().to_string(),
-            source: ScoutSource::Local,
-            source_url: "local://skills".to_string(),
-            name: format!("{:?}-local-skill", role),
-            version: "1.0.0".to_string(),
-            description: format!("Local skill for {:?}", role),
-            license: "MIT".to_string(),
-            license_class: LicenseClass::Permissive,
-            target_role: role,
-            provides: vec![format!("{:?}-capability", role)],
-            required_permissions: vec![],
-            dependencies: vec![],
-            metadata: HashMap::new(),
-            discovered_at: Utc::now().to_rfc3339(),
-        }])
+    async fn scout_local(&self, _project_id: ProjectId, _role: Role) -> Result<Vec<ScoutProposal>> {
+        Ok(vec![])
     }
 
     /// Scout MCP Registry
@@ -217,73 +248,50 @@ impl Scout {
         _project_id: ProjectId,
         role: Role,
     ) -> Result<Vec<ScoutProposal>> {
-        // In real implementation, query https://registry.modelcontextprotocol.io
-        // Return mock proposals
-        let role_tools = match role {
-            Role::Coder => vec!["github", "filesystem", "sqlite", "postgres"],
-            Role::Researcher => vec!["web-search", "wikipedia", "arxiv"],
-            Role::Designer => vec!["figma", "storybook"],
-            Role::Security => vec!["semgrep", "trivy", "owasp-zap"],
-            Role::QA => vec!["playwright", "cypress", "postman"],
-            Role::Release => vec!["github-actions", "docker", "helm"],
-            _ => vec!["filesystem"],
-        };
-
-        Ok(role_tools
-            .into_iter()
-            .map(|tool| ScoutProposal {
-                id: Ulid::new().to_string(),
-                source: ScoutSource::McpRegistry,
-                source_url: format!("https://registry.modelcontextprotocol.io/{}", tool),
-                name: format!("mcp-{}", tool),
-                version: "latest".to_string(),
-                description: format!("MCP server for {}", tool),
-                license: "MIT".to_string(),
-                license_class: LicenseClass::Permissive,
-                target_role: role,
-                provides: vec![tool.to_string()],
-                required_permissions: vec!["network".to_string(), "filesystem".to_string()],
-                dependencies: vec![],
-                metadata: HashMap::new(),
-                discovered_at: Utc::now().to_rfc3339(),
-            })
-            .collect())
+        let url = self
+            .config
+            .catalog_urls
+            .get(&ScoutSource::McpRegistry)
+            .map(String::as_str);
+        self.registry_client
+            .fetch_proposals(ScoutSource::McpRegistry, url, role)
+            .await
     }
 
     /// Scout npm registry for skill packages
     async fn scout_npm(&self, _project_id: ProjectId, role: Role) -> Result<Vec<ScoutProposal>> {
-        // In real implementation, query npm registry for @warsha/skill-* packages
-        Ok(vec![ScoutProposal {
-            id: Ulid::new().to_string(),
-            source: ScoutSource::Npm,
-            source_url: "https://registry.npmjs.org".to_string(),
-            name: format!("@warsha/skill-{:?}-base", role).to_lowercase(),
-            version: "1.0.0".to_string(),
-            description: format!("Base skill pack for {:?}", role),
-            license: "MIT".to_string(),
-            license_class: LicenseClass::Permissive,
-            target_role: role,
-            provides: vec![format!("{:?}-base", role)],
-            required_permissions: vec![],
-            dependencies: vec![],
-            metadata: HashMap::new(),
-            discovered_at: Utc::now().to_rfc3339(),
-        }])
+        let url = self
+            .config
+            .catalog_urls
+            .get(&ScoutSource::Npm)
+            .map(String::as_str);
+        self.registry_client
+            .fetch_proposals(ScoutSource::Npm, url, role)
+            .await
     }
 
     /// Scout Git repositories
-    async fn scout_git(&self, _project_id: ProjectId, _role: Role) -> Result<Vec<ScoutProposal>> {
-        // In real implementation, search GitHub for skill repos
-        Ok(vec![])
+    async fn scout_git(&self, _project_id: ProjectId, role: Role) -> Result<Vec<ScoutProposal>> {
+        let url = self
+            .config
+            .catalog_urls
+            .get(&ScoutSource::Git)
+            .map(String::as_str);
+        self.registry_client
+            .fetch_proposals(ScoutSource::Git, url, role)
+            .await
     }
 
     /// Scout custom catalogs
-    async fn scout_custom(
-        &self,
-        _project_id: ProjectId,
-        _role: Role,
-    ) -> Result<Vec<ScoutProposal>> {
-        Ok(vec![])
+    async fn scout_custom(&self, _project_id: ProjectId, role: Role) -> Result<Vec<ScoutProposal>> {
+        let url = self
+            .config
+            .catalog_urls
+            .get(&ScoutSource::Custom)
+            .map(String::as_str);
+        self.registry_client
+            .fetch_proposals(ScoutSource::Custom, url, role)
+            .await
     }
 
     /// Install approved proposal (record in skills.lock)
@@ -330,6 +338,7 @@ impl Scout {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ulid::Ulid;
 
     #[test]
     fn test_scout_config_default() {
@@ -409,5 +418,146 @@ mod tests {
 
         assert_eq!(proposals.len(), 1);
         assert_eq!(proposals[0].name, "permissive");
+    }
+
+    struct FixtureRegistryClient {
+        proposals: Vec<ScoutProposal>,
+    }
+
+    #[async_trait::async_trait]
+    impl ScoutRegistryClient for FixtureRegistryClient {
+        async fn fetch_proposals(
+            &self,
+            source: ScoutSource,
+            _catalog_url: Option<&str>,
+            role: Role,
+        ) -> Result<Vec<ScoutProposal>> {
+            Ok(self
+                .proposals
+                .iter()
+                .filter(|p| p.source == source && p.target_role == role)
+                .cloned()
+                .collect())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_production_scout_returns_catalog_unavailable() {
+        let scout = Scout::new(ScoutConfig::default());
+        let err = scout
+            .scout_for_role(ProjectId::new(), Role::Coder, None)
+            .await
+            .expect_err("production scout without live registry must fail explicitly");
+        assert!(
+            matches!(err, ScoutError::CatalogUnavailable(_)),
+            "unexpected error: {err:?}"
+        );
+        assert!(err.to_string().contains("catalog unavailable"));
+    }
+
+    #[tokio::test]
+    async fn test_fixture_client_returns_recorded_proposals() {
+        let recorded = vec![
+            ScoutProposal {
+                id: "fix-1".to_string(),
+                source: ScoutSource::McpRegistry,
+                source_url: "https://registry.modelcontextprotocol.io/github".to_string(),
+                name: "mcp-github".to_string(),
+                version: "1.0.0".to_string(),
+                description: "Recorded GitHub MCP server".to_string(),
+                license: "MIT".to_string(),
+                license_class: LicenseClass::Permissive,
+                target_role: Role::Coder,
+                provides: vec!["github".to_string()],
+                required_permissions: vec!["network".to_string()],
+                dependencies: vec![],
+                metadata: HashMap::new(),
+                discovered_at: Utc::now().to_rfc3339(),
+            },
+            ScoutProposal {
+                id: "fix-2".to_string(),
+                source: ScoutSource::Npm,
+                source_url: "https://registry.npmjs.org".to_string(),
+                name: "@warsha/skill-coder-base".to_string(),
+                version: "1.0.0".to_string(),
+                description: "Recorded skill pack".to_string(),
+                license: "GPL-3.0".to_string(),
+                license_class: LicenseClass::Copyleft,
+                target_role: Role::Coder,
+                provides: vec!["coder-base".to_string()],
+                required_permissions: vec![],
+                dependencies: vec![],
+                metadata: HashMap::new(),
+                discovered_at: Utc::now().to_rfc3339(),
+            },
+        ];
+
+        let scout = Scout::with_client(
+            ScoutConfig::default(),
+            Arc::new(FixtureRegistryClient {
+                proposals: recorded,
+            }),
+        );
+        let results = scout
+            .scout_for_role(ProjectId::new(), Role::Coder, None)
+            .await
+            .expect("fixture scout succeeds");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "mcp-github");
+    }
+
+    #[tokio::test]
+    async fn test_production_scout_git_and_custom_return_catalog_unavailable() {
+        for source in [ScoutSource::Git, ScoutSource::Custom] {
+            let config = ScoutConfig {
+                enabled_sources: vec![source],
+                ..ScoutConfig::default()
+            };
+            let scout = Scout::new(config);
+            let err = scout
+                .scout_for_role(ProjectId::new(), Role::Coder, None)
+                .await
+                .expect_err("remote scout source must fail with catalog unavailable");
+            assert!(
+                matches!(err, ScoutError::CatalogUnavailable(_)),
+                "unexpected error for {source:?}: {err:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_recorded_json_fixture_client() {
+        const RECORDED_FIXTURE_JSON: &str = r#"[
+            {
+                "id": "rec-mcp-1",
+                "source": "mcp_registry",
+                "source_url": "https://registry.modelcontextprotocol.io/servers/filesystem",
+                "name": "mcp-filesystem",
+                "version": "1.2.0",
+                "description": "Recorded MCP filesystem fixture",
+                "license": "MIT",
+                "license_class": "permissive",
+                "target_role": "coder",
+                "provides": ["fs"],
+                "required_permissions": ["filesystem"],
+                "dependencies": [],
+                "metadata": {},
+                "discovered_at": "2026-11-10T00:00:00Z"
+            }
+        ]"#;
+        let proposals: Vec<ScoutProposal> =
+            serde_json::from_str(RECORDED_FIXTURE_JSON).expect("recorded JSON fixture parses");
+        let scout = Scout::with_client(
+            ScoutConfig::default(),
+            Arc::new(FixtureRegistryClient { proposals }),
+        );
+        let result = scout
+            .scout_project(ProjectId::new(), None, vec![Role::Coder])
+            .await
+            .expect("scout_project succeeds with recorded fixture");
+        let coder = result.proposals.get(&Role::Coder).expect("coder key");
+        assert_eq!(coder.len(), 1);
+        assert_eq!(coder[0].id, "rec-mcp-1");
+        assert_eq!(coder[0].name, "mcp-filesystem");
     }
 }

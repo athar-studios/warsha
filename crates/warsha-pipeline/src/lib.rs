@@ -46,6 +46,8 @@ mod scale_standards;
 mod scout;
 pub mod settings;
 mod skills;
+#[cfg(test)]
+mod status_truth;
 /// Test-only helpers shared by this crate's test modules.
 #[cfg(test)]
 pub(crate) mod test_util;
@@ -118,8 +120,8 @@ pub use crate::router_quality::{
     PerTaskDefaults, ResponseCache, RouterPolicy, RouterTarget, TargetKind, TaskDifficulty,
 };
 pub use crate::routines::{
-    MockRoutineRunner, Routine, RoutineAction, RoutineError, RoutineId, RoutineRegistry,
-    RoutineRunner, RoutineSchedule, RoutineScheduler, RoutineState,
+    Routine, RoutineAction, RoutineError, RoutineId, RoutineRegistry, RoutineRunner,
+    RoutineSchedule, RoutineScheduler, RoutineState, UnavailableRoutineRunner,
 };
 pub use crate::run_modes::{
     is_loopback_host, InMemoryPairingStore, PairingStore, PhonePairing, RunMode, RunModeConfig,
@@ -127,7 +129,8 @@ pub use crate::run_modes::{
 };
 pub use crate::scale_standards::{ScaleCategory, ScaleStandard, ScaleStandards, SCALE_STANDARDS};
 pub use crate::scout::{
-    Scout, ScoutConfig, ScoutDependency, ScoutError, ScoutProposal, ScoutResult, ScoutSource,
+    ProductionScoutRegistryClient, Scout, ScoutConfig, ScoutDependency, ScoutError, ScoutProposal,
+    ScoutRegistryClient, ScoutResult, ScoutSource,
 };
 pub use crate::skills::{
     default_role_packs, load_skill_from_dir, LicenseClass, RolePack, Skill, SkillDependency,
@@ -191,6 +194,8 @@ pub enum PipelineError {
     ProjectNotFound(ProjectId),
     #[error("Gate not pending: {0:?}")]
     GateNotPending(Stage),
+    #[error("No provider routed for role: {0:?}")]
+    NoProviderRouted(Role),
     #[error("Invalid stage transition: {0:?} -> {1:?}")]
     InvalidTransition(Stage, Stage),
     #[error("Serialization error: {0}")]
@@ -756,22 +761,14 @@ impl<S: SettingsProvider> PipelineEngine<S> {
 
     /// Take one stage/follow-up request to the provider that should answer it.
     ///
-    /// Three cases, in order:
-    ///
     /// 1. The role IS routed (`providers.route(role).is_some()`): the request goes
-    ///    through [`ProviderRouter::chat_with_fallback`] exactly as before, so the
-    ///    routed adapter (a `MockProvider` in tests, any configured provider in
-    ///    production) answers with the router's retry, fallback, budget and spend
-    ///    accounting intact. This is the backward-compatible path and it is
-    ///    unchanged.
-    /// 2. Nothing is routed for the role, but the environment carries
-    ///    `WARSHA_LLM_API_KEY` and `WARSHA_LLM_PROVIDER` is not explicitly `"fake"`:
-    ///    an OpenAI-compatible client built from [`EnvLlmConfig`] answers, so a
-    ///    developer with a key gets real model output on unrouted stages without
-    ///    registering a provider or touching the OS keychain.
-    /// 3. Otherwise — the default zero-configuration path — the deterministic,
-    ///    zero-network [`FakeProvider`] answers, so a full pipeline run is always
-    ///    executable and reproducible offline.
+    ///    through [`ProviderRouter::chat_with_fallback`].
+    /// 2. If `WARSHA_LLM_PROVIDER=fake` is explicitly set in the environment,
+    ///    [`FakeProvider`] answers for zero-network testing.
+    /// 3. If the environment carries `WARSHA_LLM_API_KEY` (and `WARSHA_LLM_PROVIDER`
+    ///    is not "fake"), an OpenAI-compatible client built from [`EnvLlmConfig`] answers.
+    /// 4. Otherwise, the unrouted role produces an explicit [`PipelineError::NoProviderRouted`]
+    ///    error — no silent fake answers are fabricated.
     async fn dispatch_chat(
         providers: &ProviderRouter,
         role: Role,
@@ -798,7 +795,11 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             return Ok(provider.chat(request).await?);
         }
 
-        Ok(FakeProvider::new().chat(request).await?)
+        if forced_fake {
+            return Ok(FakeProvider::new().chat(request).await?);
+        }
+
+        Err(PipelineError::NoProviderRouted(role))
     }
 
     /// Record a stage whose model call failed, and hand the caller back the error.
@@ -807,10 +808,10 @@ impl<S: SettingsProvider> PipelineEngine<S> {
     /// timeout, a dead endpoint made `dispatch_chat` return an error that left the
     /// run `Running` at the stage that could not produce anything, with no event
     /// explaining why. Here the run's own record carries the ending instead: the
-    /// status becomes [`RunStatus::Failed`] and is persisted, and one
-    /// [`EventKind::Error`] with `"action": "stage_failed"` says which stage and,
-    /// after [`scrub_llm_error`], what the provider said without saying what the
-    /// key is. The error itself is *not* swallowed — the caller gets it back so
+    /// status becomes [`RunStatus::Failed`] (or [`RunStatus::Paused`] if an unrouted
+    /// provider needs to be configured) and is persisted, and one
+    /// [`EventKind::Error`] with `"action": "stage_failed"` or `"provider_required"`
+    /// explains why. The error itself is *not* swallowed — the caller gets it back so
     /// the RPC reply is still an honest failure of the call that made it.
     async fn record_stage_failure(
         &self,
@@ -833,7 +834,12 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             }
         }
 
-        run.status = RunStatus::Failed;
+        let is_unrouted = matches!(error, PipelineError::NoProviderRouted(_));
+        if is_unrouted {
+            run.status = RunStatus::Paused;
+        } else {
+            run.status = RunStatus::Failed;
+        }
         run.updated_at = Utc::now();
         if let Err(store_error) = self.store.update_run_cas(run, version).await {
             warn!(
@@ -842,6 +848,12 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             );
         }
 
+        let action = if is_unrouted {
+            "provider_required"
+        } else {
+            "stage_failed"
+        };
+
         let error_event = Event {
             id: Ulid::new(),
             run_id: run.id,
@@ -849,8 +861,9 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             role: Some(role),
             kind: EventKind::Error,
             payload: serde_json::json!({
-                "action": "stage_failed",
+                "action": action,
                 "stage": stage_to_string(stage),
+                "role": role,
                 "message": message,
             }),
             cost_cents: None,
@@ -860,7 +873,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         };
         if let Err(store_error) = self.store.append_event(&error_event).await {
             warn!(
-                "the stage_failed event for run {} did not land: {store_error}",
+                "the {action} event for run {} did not land: {store_error}",
                 run.id.0
             );
         }
@@ -872,7 +885,11 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             stage_to_string(stage),
             run.id.0
         );
-        PipelineError::Other(message)
+        if is_unrouted {
+            error
+        } else {
+            PipelineError::Other(message)
+        }
     }
 
     /// Walk the run forward until it is waiting at a gate or has reached the final
@@ -934,6 +951,9 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                     next_run
                 }
                 Err(error) => {
+                    if matches!(error, PipelineError::NoProviderRouted(_)) {
+                        return Err(error);
+                    }
                     let current = self.store.get_run(run_id).await?;
                     if current.status == RunStatus::Failed || current.status == RunStatus::Cancelled
                     {
