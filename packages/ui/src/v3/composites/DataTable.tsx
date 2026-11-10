@@ -121,7 +121,15 @@ export function DataTable<T>({
                   key={col.id}
                   scope="col"
                   aria-sort={ariaSort}
+                  tabIndex={col.sortable ? 0 : undefined}
                   onClick={() => handleHeaderClick(col)}
+                  onKeyDown={(e) => {
+                    if (!col.sortable) return;
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleHeaderClick(col);
+                    }
+                  }}
                   style={{
                     paddingBlock: compact ? 'var(--w-space-2)' : 'var(--w-space-3)',
                     paddingInline: compact ? 'var(--w-space-3)' : 'var(--w-space-4)',
@@ -131,6 +139,7 @@ export function DataTable<T>({
                     width: col.width,
                     cursor: col.sortable ? 'pointer' : 'default',
                     userSelect: col.sortable ? 'none' : undefined,
+                    outlineColor: 'var(--w-focus)',
                   }}
                 >
                   <div

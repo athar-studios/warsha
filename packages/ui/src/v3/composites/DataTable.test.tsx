@@ -42,6 +42,32 @@ describe('DataTable composite', () => {
     expect(handleSort).toHaveBeenCalledWith('name', 'desc');
   });
 
+  it('supports keyboard navigation and activation for sortable headers', () => {
+    const handleSort = vi.fn();
+    render(
+      <DataTable
+        columns={COLUMNS}
+        data={DATA}
+        keyExtractor={(r) => r.id}
+        sortColumn="name"
+        sortDirection="asc"
+        onSort={handleSort}
+      />
+    );
+
+    const nameHeader = screen.getByRole('columnheader', { name: /الاسم/ });
+    expect(nameHeader).toHaveAttribute('tabindex', '0');
+
+    fireEvent.keyDown(nameHeader, { key: 'Enter' });
+    expect(handleSort).toHaveBeenCalledWith('name', 'desc');
+
+    fireEvent.keyDown(nameHeader, { key: ' ' });
+    expect(handleSort).toHaveBeenCalledTimes(2);
+
+    const roleHeader = screen.getByRole('columnheader', { name: /الدور/ });
+    expect(roleHeader).not.toHaveAttribute('tabindex');
+  });
+
   it('renders row actions in a Menu component', () => {
     const handleDelete = vi.fn();
     render(
