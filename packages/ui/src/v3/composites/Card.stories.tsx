@@ -18,11 +18,11 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 
-export const Attention: Story = {
+export const Sunken: Story = {
   args: {
-    variant: 'attention',
-    title: 'قرار مطلوب',
-    subtitle: 'يرجى مراجعة التغييرات قبل المتابعة',
+    variant: 'sunken',
+    title: 'بطاقة غائرة',
+    subtitle: 'خلفية غائرة لتجميع المحتوى',
   },
 };
 

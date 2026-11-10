@@ -3,7 +3,7 @@
 
 import React from 'react';
 
-export type CardVariant = 'default' | 'sunken' | 'attention';
+export type CardVariant = 'default' | 'sunken';
 
 export interface CardProps {
   title?: React.ReactNode;
@@ -28,10 +28,6 @@ const VARIANT_STYLES: Record<CardVariant, React.CSSProperties> = {
   sunken: {
     backgroundColor: 'var(--w-sunken)',
     borderColor: 'var(--w-line)',
-  },
-  attention: {
-    backgroundColor: 'var(--w-attention-soft)',
-    borderColor: 'var(--w-attention)',
   },
 };
 
