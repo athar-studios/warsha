@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WarshaClient, type RunId } from '@warsha/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { createDaemon, rpcResult, type RpcMethod, type StubDaemon } from '../e2e/harness';
 
 describe('harness contract test', () => {
