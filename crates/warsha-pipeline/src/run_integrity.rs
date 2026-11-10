@@ -1,6 +1,21 @@
 //! Run-state integrity invariants, per-run locks, CAS updates, real cancel, and change-request loop (K2).
 
 #[cfg(test)]
+impl<S: crate::settings::SettingsProvider> crate::PipelineEngine<S> {
+    fn clone_engine(&self) -> Self {
+        Self {
+            store: self.store.clone(),
+            providers: self.providers.clone(),
+            orchestrator: crate::orchestrator::Orchestrator::new(
+                crate::orchestrator::OrchestratorConfig::default(),
+            ),
+            settings: self.settings.clone(),
+            run_controls: self.run_controls.clone(),
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use crate::settings::SettingsStore;
     use crate::PipelineEngine;
@@ -537,20 +552,5 @@ mod tests {
 
         assert_eq!(r1.unwrap().current_stage, Stage::GateA);
         assert_eq!(r2.unwrap().current_stage, Stage::GateA);
-    }
-}
-
-#[cfg(test)]
-impl<S: crate::settings::SettingsProvider> crate::PipelineEngine<S> {
-    fn clone_engine(&self) -> Self {
-        Self {
-            store: self.store.clone(),
-            providers: self.providers.clone(),
-            orchestrator: crate::orchestrator::Orchestrator::new(
-                crate::orchestrator::OrchestratorConfig::default(),
-            ),
-            settings: self.settings.clone(),
-            run_controls: self.run_controls.clone(),
-        }
     }
 }
