@@ -1032,6 +1032,20 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             )));
         }
 
+        if run.status != RunStatus::Running {
+            return Err(PipelineError::Other(format!(
+                "Run is not running: {:?}",
+                run.status
+            )));
+        }
+
+        if run.current_stage != stage {
+            return Err(PipelineError::Other(format!(
+                "Gate {:?} is not current stage {:?}",
+                stage, run.current_stage
+            )));
+        }
+
         let gate_state = run
             .gate_states
             .get_mut(&stage)
