@@ -14,11 +14,11 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-async-trait = "0.1"
-which = "6.0"
+async-trait = "0.1.92"
+which = "6.0.3"
 ulid = { workspace = true }
 
 [dev-dependencies]
 mockall = { workspace = true }
 tempfile = { workspace = true }
-pretty_assertions = "1.4"
+pretty_assertions = "1.4.1"

@@ -24,7 +24,7 @@ dirs = { workspace = true }
 toml = { workspace = true }
 ulid = { workspace = true }
 uuid = { workspace = true }
-which = "6.0"
+which = "6.0.3"
 
 [[bin]]
 name = "warsha"
@@ -32,7 +32,7 @@ path = "src/main.rs"
 
 [dev-dependencies]
 tempfile = { workspace = true }
-pretty_assertions = "1.4"
+pretty_assertions = "1.4.1"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.59", features = ["Win32_Security_Credentials", "Win32_Foundation", "Win32_System_Threading"] }
+windows = { version = "0.62.2", features = ["Win32_Security_Credentials", "Win32_Foundation", "Win32_System_Threading"] }

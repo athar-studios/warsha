@@ -11,12 +11,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "intl-messageformat": "^10.5.0",
+    "intl-messageformat": "^10.7.18",
     "react": "^18.3.0"
   },
   "devDependencies": {
-    "@types/react": "^18.3.0",
-    "typescript": "^5.5.0",
+    "@types/react": "^18.3.31",
+    "typescript": "^5.9.3",
     "vitest": "^2.0.0"
   }
 }
