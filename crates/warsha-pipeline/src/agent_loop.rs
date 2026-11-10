@@ -1154,13 +1154,17 @@ mod tests {
         let first = tokio::spawn(async move { adapter.complete("the first turn").await });
 
         // Wait until the attempt has actually been made: the turn is now in its sleep.
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while calls.load(Ordering::Acquire) == 0 {
-                tokio::task::yield_now().await;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if calls.load(Ordering::Acquire) > 0 {
+                break;
             }
-        })
-        .await
-        .expect("the turn reached the router");
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the turn reached the router"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
 
         // The write lock is what `providers.add`, `providers.remove` and `roles.set` need.
         let acquired = tokio::time::timeout(Duration::from_millis(100), router.write()).await;

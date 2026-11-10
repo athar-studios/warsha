@@ -2080,7 +2080,7 @@ impl WarshaRpc {
     /// a secret on the wire the browser reads.
     async fn integration_status_of(&self, id: &str) -> RpcResult<IntegrationStatus> {
         let row = self.stored_integration(id).await?;
-        Ok(wave2::integration_status(
+        wave2::integration_status(
             &row,
             self.state
                 .secrets
@@ -2092,7 +2092,8 @@ impl WarshaRpc {
                 .load(&wave2::integration_bot_secret_account(&row.id))
                 .await
                 .is_ok(),
-        ))
+        )
+        .map_err(rpc_error)
     }
 
     /// Every integration the daemon has been connected, by name.
@@ -2105,19 +2106,22 @@ impl WarshaRpc {
             .map_err(rpc_error)?;
         let mut statuses = Vec::with_capacity(rows.len());
         for row in &rows {
-            statuses.push(wave2::integration_status(
-                row,
-                self.state
-                    .secrets
-                    .load(&wave2::integration_secret_account(&row.id))
-                    .await
-                    .is_ok(),
-                self.state
-                    .secrets
-                    .load(&wave2::integration_bot_secret_account(&row.id))
-                    .await
-                    .is_ok(),
-            ));
+            statuses.push(
+                wave2::integration_status(
+                    row,
+                    self.state
+                        .secrets
+                        .load(&wave2::integration_secret_account(&row.id))
+                        .await
+                        .is_ok(),
+                    self.state
+                        .secrets
+                        .load(&wave2::integration_bot_secret_account(&row.id))
+                        .await
+                        .is_ok(),
+                )
+                .map_err(rpc_error)?,
+            );
         }
         Ok(statuses)
     }
@@ -2828,11 +2832,13 @@ impl WarshaApiServer for WarshaRpc {
         {
             let mut pairings = self.state.pairings.write().await;
             if pairings.get(&pairing_data.device_id.to_string()).is_none() {
-                let _ = pairings.create(
-                    &pairing_data.device_id.to_string(),
-                    &pairing_data.secret_token(),
-                    now_epoch_secs(),
-                );
+                pairings
+                    .create(
+                        &pairing_data.device_id.to_string(),
+                        &pairing_data.secret_token(),
+                        now_epoch_secs(),
+                    )
+                    .map_err(|e| rpc_error(e.to_string()))?;
             }
         }
         self.save_pairings().await?;
@@ -2910,7 +2916,9 @@ impl WarshaApiServer for WarshaRpc {
 
         {
             let mut pairings = self.state.pairings.write().await;
-            let _ = pairings.revoke(&device_id.to_string());
+            pairings
+                .revoke(&device_id.to_string())
+                .map_err(|e| rpc_error(e.to_string()))?;
         }
         self.save_pairings().await?;
         Ok(())
@@ -3477,13 +3485,14 @@ impl WarshaApiServer for WarshaRpc {
         command: String,
     ) -> RpcResult<LivePreview> {
         self.authorize(ext, "preview.start")?;
-        // The command line is split on whitespace by the pipeline (no shell), so
-        // `npm run dev` runs `npm` with `run dev` and nothing else is interpreted.
-        // The policy judges the program the pipeline will start, which is its first
-        // word (audit H-05).
+        // The command line is quote-aware split by the pipeline (no shell) via
+        // `split_command`, so a program or argument with spaces survives quoting.
+        // The policy judges the program the pipeline will start, which is its
+        // first token (audit H-05).
         let policy = self.process_policy();
-        let program = command.split_whitespace().next().unwrap_or_default();
-        policy.check_command(program).map_err(rpc_policy_refused)?;
+        let (program, _) = warsha_pipeline::LivePreviewManager::split_command(&command)
+            .map_err(|e| rpc_policy_refused(e.to_string()))?;
+        policy.check_command(&program).map_err(rpc_policy_refused)?;
         self.state
             .previews
             .start(&project_id, &command)
@@ -3945,8 +3954,7 @@ impl WarshaApiServer for WarshaRpc {
             .settings
             .get_active_harness(ACTIVE_HARNESS_GLOBAL_KEY)
             .await
-            .ok()
-            .flatten()
+            .map_err(rpc_error)?
             .unwrap_or_else(|| "autonomous-factory".to_string());
         let rows = self
             .state
@@ -3971,8 +3979,7 @@ impl WarshaApiServer for WarshaRpc {
             .settings
             .get_active_harness(ACTIVE_HARNESS_GLOBAL_KEY)
             .await
-            .ok()
-            .flatten()
+            .map_err(rpc_error)?
             .unwrap_or_else(|| "autonomous-factory".to_string());
         let mut def = wave2::harness_definition(&self.stored_harness(&id).await?);
         def.active = def.id == active_id;
@@ -3999,8 +4006,7 @@ impl WarshaApiServer for WarshaRpc {
             .settings
             .get_active_harness(ACTIVE_HARNESS_GLOBAL_KEY)
             .await
-            .ok()
-            .flatten()
+            .map_err(rpc_error)?
             .unwrap_or_else(|| "autonomous-factory".to_string());
         let mut def = wave2::harness_definition(&self.stored_harness(&row.id).await?);
         def.active = def.id == active_id;
@@ -4063,8 +4069,7 @@ impl WarshaApiServer for WarshaRpc {
             .settings
             .get_active_harness(ACTIVE_HARNESS_GLOBAL_KEY)
             .await
-            .ok()
-            .flatten()
+            .map_err(rpc_error)?
             .as_deref()
             == Some(id.as_str())
         {
@@ -4085,7 +4090,11 @@ impl WarshaApiServer for WarshaRpc {
     async fn list_skills(&self, ext: &RpcExtensions) -> RpcResult<Vec<SkillDefinition>> {
         self.authorize(ext, "skills.list")?;
         let rows = self.state.settings.list_skills().await.map_err(rpc_error)?;
-        Ok(rows.iter().map(wave2::skill_definition).collect())
+        let mut skills = Vec::with_capacity(rows.len());
+        for row in &rows {
+            skills.push(wave2::skill_definition(row).map_err(rpc_error)?);
+        }
+        Ok(skills)
     }
 
     async fn import_skill(
@@ -4115,7 +4124,7 @@ impl WarshaApiServer for WarshaRpc {
                     row.id
                 ))
             })?;
-        Ok(wave2::skill_definition(&stored))
+        wave2::skill_definition(&stored).map_err(rpc_error)
     }
 
     /// Set one skill's flag to the value the caller named.
@@ -4150,7 +4159,7 @@ impl WarshaApiServer for WarshaRpc {
                     "the skill `{id}` vanished while it was being enabled"
                 ))
             })?;
-        Ok(wave2::skill_definition(&stored))
+        wave2::skill_definition(&stored).map_err(rpc_error)
     }
 
     async fn delete_skill(&self, ext: &RpcExtensions, id: String) -> RpcResult<()> {
@@ -4172,7 +4181,11 @@ impl WarshaApiServer for WarshaRpc {
             .list_plugins()
             .await
             .map_err(rpc_error)?;
-        Ok(rows.iter().map(wave2::plugin_definition).collect())
+        let mut plugins = Vec::with_capacity(rows.len());
+        for row in &rows {
+            plugins.push(wave2::plugin_definition(row).map_err(rpc_error)?);
+        }
+        Ok(plugins)
     }
 
     async fn install_plugin(
@@ -4207,7 +4220,7 @@ impl WarshaApiServer for WarshaRpc {
                     row.id
                 ))
             })?;
-        Ok(wave2::plugin_definition(&stored))
+        wave2::plugin_definition(&stored).map_err(rpc_error)
     }
 
     async fn toggle_plugin(
@@ -4226,7 +4239,7 @@ impl WarshaApiServer for WarshaRpc {
                 .map_err(rpc_error)?;
         }
         let updated = self.stored_plugin(&id).await?;
-        let def = wave2::plugin_definition(&updated);
+        let def = wave2::plugin_definition(&updated).map_err(rpc_error)?;
         // Sync with MCP manager (F2)
         if enabled {
             if let Some(cmd) = &def.command {
@@ -4236,11 +4249,24 @@ impl WarshaApiServer for WarshaRpc {
                         cmd,
                         def.args.clone(),
                     );
-                    let _ = self.state.mcp.connect(mcp_cfg).await;
+                    self.state
+                        .mcp
+                        .connect(mcp_cfg)
+                        .await
+                        .map_err(|e| rpc_error(e.to_string()))?;
                 }
             }
-        } else {
-            let _ = self.state.mcp.disconnect(&def.id).await;
+        } else if def
+            .command
+            .as_deref()
+            .map(|c| !c.trim().is_empty())
+            .unwrap_or(false)
+        {
+            self.state
+                .mcp
+                .disconnect(&def.id)
+                .await
+                .map_err(|e| rpc_error(e.to_string()))?;
         }
         Ok(def)
     }
@@ -4267,7 +4293,7 @@ impl WarshaApiServer for WarshaRpc {
             .await
             .map_err(rpc_error)?;
         let updated = self.stored_plugin(&id).await?;
-        let def = wave2::plugin_definition(&updated);
+        let def = wave2::plugin_definition(&updated).map_err(rpc_error)?;
         // Sync with MCP manager if enabled (F2)
         if def.enabled {
             if let Some(cmd) = &def.command {
@@ -4277,7 +4303,11 @@ impl WarshaApiServer for WarshaRpc {
                         cmd,
                         def.args.clone(),
                     );
-                    let _ = self.state.mcp.connect(mcp_cfg).await;
+                    self.state
+                        .mcp
+                        .connect(mcp_cfg)
+                        .await
+                        .map_err(|e| rpc_error(e.to_string()))?;
                 }
             }
         }
@@ -4289,7 +4319,8 @@ impl WarshaApiServer for WarshaRpc {
         let row = self.stored_plugin(&id).await?;
         // Keychain first, exactly as `providers.remove` does it: a row deleted while
         // its secrets stayed behind would be an address nothing could reach again.
-        for account in wave2::filed_secret_accounts(&wave2::plugin_definition(&row).env) {
+        let def = wave2::plugin_definition(&row).map_err(rpc_error)?;
+        for account in wave2::filed_secret_accounts(&def.env) {
             self.state.secrets.delete(&account).await.map_err(|error| {
                 rpc_error(format!(
                     "the secret `{account}` could not be removed from the OS keychain: {error}"
@@ -4529,14 +4560,10 @@ impl WarshaApiServer for WarshaRpc {
                 ))
             })?;
         }
-        let disconnected = wave2::integration_row(
-            &row.id,
-            &row.name,
-            false,
-            &wave2::integration_config(&row),
-            row.configured_at,
-        )
-        .map_err(rpc_error)?;
+        let config = wave2::integration_config(&row).map_err(rpc_error)?;
+        let disconnected =
+            wave2::integration_row(&row.id, &row.name, false, &config, row.configured_at)
+                .map_err(rpc_error)?;
         self.state
             .settings
             .save_integration(&disconnected, Some(&disconnected.config_json))
@@ -4561,7 +4588,7 @@ impl WarshaApiServer for WarshaRpc {
     ) -> RpcResult<IntegrationTestResult> {
         self.authorize(ext, "integrations.test")?;
         let row = self.stored_integration(&id).await?;
-        let config = wave2::integration_config(&row);
+        let config = wave2::integration_config(&row).map_err(rpc_error)?;
         let has_token = self
             .state
             .secrets
@@ -5873,15 +5900,15 @@ pub async fn load_or_create_config(config_path: Option<&Path>) -> Result<DaemonC
         }
 
         // A brand-new daemon has just minted the one owner token it will never show
-        // again, because after this the file already holds it. Printing it is the way a
-        // headless operator captures that first token, and it is deliberately gated
+        // again, because after this the file already holds it. Printing it directly to stderr
+        // is the way a headless operator captures that first token, and it is deliberately gated
         // behind `WARSHA_PRINT_BOOTSTRAP_TOKEN=1`: a normal run, and every test, must
-        // not leak a freshly minted secret into a log or a CI capture (AGENTS.md).
+        // not leak a freshly minted secret into a log file or collector (AGENTS.md).
         if std::env::var("WARSHA_PRINT_BOOTSTRAP_TOKEN")
             .ok()
             .is_some_and(|value| value == "1")
         {
-            info!("BOOTSTRAP_ADMIN_TOKEN={}", config.auth_token);
+            eprintln!("BOOTSTRAP_ADMIN_TOKEN={}", config.auth_token);
         }
         config
     };
@@ -6831,6 +6858,21 @@ mod tests {
         data_dir: &Path,
         configure: impl FnOnce(&mut DaemonConfig),
     ) -> (Arc<DaemonState>, Arc<Store>) {
+        test_state_custom(data_dir, configure, None).await
+    }
+
+    async fn test_state_with_custom_settings(
+        data_dir: &Path,
+        settings: Arc<SettingsStore>,
+    ) -> (Arc<DaemonState>, Arc<Store>) {
+        test_state_custom(data_dir, |_| {}, Some(settings)).await
+    }
+
+    async fn test_state_custom(
+        data_dir: &Path,
+        configure: impl FnOnce(&mut DaemonConfig),
+        custom_settings: Option<Arc<SettingsStore>>,
+    ) -> (Arc<DaemonState>, Arc<Store>) {
         std::fs::create_dir_all(data_dir).expect("the data directory is made");
         let mut config = DaemonConfig {
             data_dir: data_dir.to_path_buf(),
@@ -6844,11 +6886,23 @@ mod tests {
                 .expect("the store opens"),
         );
         let providers = Arc::new(RwLock::new(agent_router_with_mock()));
-        let settings = Arc::new(
-            SettingsStore::open(&data_dir.join("warsha.db"))
-                .await
-                .expect("the settings open"),
-        );
+        let settings = match custom_settings {
+            Some(s) => s,
+            None => {
+                let s = Arc::new(
+                    SettingsStore::open(&data_dir.join("warsha.db"))
+                        .await
+                        .expect("the settings open"),
+                );
+                // The same seeding a real start performs, so a test's daemon answers
+                // `harness.list` with the presets it ships and a catalog write has the row
+                // under it that production would have.
+                wave2::seed_bundled_records(&s)
+                    .await
+                    .expect("the bundled catalogs seed");
+                s
+            }
+        };
         let pipeline = Arc::new(warsha_pipeline::PipelineEngine::new(
             store.clone(),
             providers.clone(),
@@ -6856,12 +6910,6 @@ mod tests {
         ));
         let identity = warsha_remote::DeviceIdentity::generate("test daemon".to_string())
             .expect("a device identity");
-        // The same seeding a real start performs, so a test's daemon answers
-        // `harness.list` with the presets it ships and a catalog write has the row
-        // under it that production would have.
-        wave2::seed_bundled_records(&settings)
-            .await
-            .expect("the bundled catalogs seed");
 
         let routines = Arc::new(RwLock::new(RoutineRegistry::new()));
         let routine_runner: Arc<dyn RoutineRunner + Send + Sync> =
@@ -7995,7 +8043,9 @@ mod tests {
             return;
         }
         println!("  ➜  Local:   {PROBE_URL}");
-        std::thread::sleep(std::time::Duration::from_secs(30));
+        loop {
+            std::thread::park();
+        }
     }
 
     /// The command line that starts one probe of this test binary.
@@ -8030,17 +8080,14 @@ mod tests {
     fn long_running() -> (String, Vec<String>) {
         (
             "cmd".to_string(),
-            vec!["/C".to_string(), "ping -n 30 127.0.0.1 >nul".to_string()],
+            vec!["/C".to_string(), "more".to_string()],
         )
     }
 
     /// A program plus args that keeps running until the test stops it (Unix).
     #[cfg(not(windows))]
     fn long_running() -> (String, Vec<String>) {
-        (
-            "sh".to_string(),
-            vec!["-c".to_string(), "sleep 30".to_string()],
-        )
+        ("sh".to_string(), vec!["-c".to_string(), "cat".to_string()])
     }
 
     #[tokio::test]
@@ -8894,6 +8941,196 @@ mod tests {
                 "the ceilings printed a limiter key: {printed}"
             );
         });
+    }
+
+    #[tokio::test]
+    async fn revoking_an_unknown_device_returns_an_rpc_error() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+        let unknown = DeviceId::new();
+        let err = rpc
+            .revoke_device(&owner, unknown)
+            .await
+            .expect_err("revoking an unknown device must fail with an RPC error");
+        assert_eq!(rpc_error_code(&err), -32000);
+    }
+
+    #[tokio::test]
+    async fn toggle_plugin_returns_an_rpc_error_when_mcp_connect_fails() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+        let manifest = r#"{
+            "name": "Bad MCP Plugin",
+            "transport": "stdio",
+            "command": "definitely_nonexistent_binary_xyz_12345",
+            "enabled": false
+        }"#;
+        let installed = rpc
+            .install_plugin(&owner, manifest.to_string())
+            .await
+            .expect("plugin installs cleanly in disabled state");
+        assert!(!installed.enabled);
+
+        let err = rpc
+            .toggle_plugin(&owner, installed.id, true)
+            .await
+            .expect_err("enabling plugin with nonexistent binary must fail with an RPC error");
+        assert_eq!(rpc_error_code(&err), -32000);
+    }
+
+    #[tokio::test]
+    async fn preview_policy_allows_allow_listed_quoted_path_with_spaces() {
+        let temp = crate::test_util::fresh_tempdir();
+        let custom_bin = "C:/Program Files/My Tools/dev-server.exe".to_string();
+        let (state, _store) = test_state_with(temp.path(), |config| {
+            config.allowed_commands = vec![custom_bin.clone()];
+        })
+        .await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+        let cmd = format!("\"{custom_bin}\" --port 3000");
+        let result = rpc.start_preview(&owner, "proj-1".to_string(), cmd).await;
+        if let Err(err) = result {
+            assert_ne!(
+                rpc_error_code(&err),
+                auth::rpc_codes::POLICY_REFUSED,
+                "allow-listed quoted command was rejected by policy"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn preview_policy_refuses_quoted_path_with_spaces_not_allowed() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+        let cmd = "\"C:/Program Files/Disallowed Tool/evil.exe\" --port 3000".to_string();
+        let err = rpc
+            .start_preview(&owner, "proj-1".to_string(), cmd)
+            .await
+            .expect_err("disallowed quoted command must be rejected by policy");
+        assert_eq!(
+            rpc_error_code(&err),
+            auth::rpc_codes::POLICY_REFUSED,
+            "disallowed command must return POLICY_REFUSED (-32001)"
+        );
+    }
+
+    #[test]
+    fn bootstrap_admin_token_is_never_sent_to_tracing_subscriber() {
+        let capture = LogCapture::default();
+        let subscriber = capture_subscriber(&capture);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a current-thread runtime");
+        let temp = crate::test_util::fresh_tempdir();
+        let config_file = temp.path().join("config.toml");
+
+        std::env::set_var("WARSHA_PRINT_BOOTSTRAP_TOKEN", "1");
+        struct EnvGuard;
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                std::env::remove_var("WARSHA_PRINT_BOOTSTRAP_TOKEN");
+            }
+        }
+        let _guard = EnvGuard;
+
+        let token = tracing::subscriber::with_default(subscriber, || {
+            runtime.block_on(async {
+                let config = load_or_create_config(Some(&config_file))
+                    .await
+                    .expect("config created");
+                config.auth_token
+            })
+        });
+
+        assert!(!token.is_empty(), "token should be generated");
+        assert_eq!(
+            capture.count_matching("BOOTSTRAP_ADMIN_TOKEN"),
+            0,
+            "tracing subscriber saw BOOTSTRAP_ADMIN_TOKEN: {:?}",
+            capture.lines()
+        );
+        assert_eq!(
+            capture.count_matching(&token),
+            0,
+            "tracing subscriber saw the auth token: {:?}",
+            capture.lines()
+        );
+    }
+
+    #[tokio::test]
+    async fn create_pairing_returns_an_rpc_error_when_device_already_paired() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+        let device_id = "test-device-duplicate".to_string();
+
+        let first = rpc
+            .create_pairing(&owner, device_id.clone(), "secret-1".to_string())
+            .await
+            .expect("first pairing creation succeeds");
+        assert_eq!(first.device_id, device_id);
+
+        let err = rpc
+            .create_pairing(&owner, device_id.clone(), "secret-2".to_string())
+            .await
+            .expect_err("creating duplicate pairing must fail with an RPC error");
+        assert_eq!(rpc_error_code(&err), -32000);
+        assert!(
+            err.message().contains("already paired"),
+            "expected duplicate pairing error, got: {}",
+            err.message()
+        );
+    }
+
+    #[tokio::test]
+    async fn toggle_plugin_returns_an_rpc_error_when_mcp_disconnect_fails() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+        let manifest = r#"{
+            "name": "Enabled Plugin For Disconnect",
+            "transport": "stdio",
+            "command": "definitely_nonexistent_binary_for_disconnect",
+            "enabled": true
+        }"#;
+        let installed = rpc
+            .install_plugin(&owner, manifest.to_string())
+            .await
+            .expect("plugin installs cleanly in enabled state");
+        assert!(installed.enabled);
+
+        let err = rpc
+            .toggle_plugin(&owner, installed.id, false)
+            .await
+            .expect_err("disabling an unconnected plugin must fail with an RPC error");
+        assert_eq!(rpc_error_code(&err), -32000);
+    }
+
+    #[tokio::test]
+    async fn get_active_harness_db_error_returns_an_rpc_error() {
+        let temp = crate::test_util::fresh_tempdir();
+        let corrupt_db = temp.path().join("corrupt_warsha.db");
+        std::fs::write(&corrupt_db, b"not-a-sqlite-database-header")
+            .expect("corrupt database file written");
+        let settings = Arc::new(SettingsStore::open_unvalidated(&corrupt_db));
+        let (state, _store) = test_state_with_custom_settings(temp.path(), settings).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+        let err = rpc
+            .list_harnesses(&owner)
+            .await
+            .expect_err("corrupt settings db in list_harnesses must fail with an RPC error");
+        assert_eq!(rpc_error_code(&err), -32000);
     }
 }
 

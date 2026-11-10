@@ -114,6 +114,15 @@ impl SettingsStore {
         Ok(settings)
     }
 
+    /// A store pointed at a database file without running migrations.
+    ///
+    /// Intended for tests asserting error behavior against corrupt or unreachable databases.
+    pub fn open_unvalidated(path: &Path) -> Self {
+        Self {
+            path: path.display().to_string(),
+        }
+    }
+
     /// The path of the database these settings live in.
     pub fn path(&self) -> &str {
         &self.path

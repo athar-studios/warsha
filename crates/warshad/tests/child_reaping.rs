@@ -65,7 +65,9 @@ fn reap_probe_child() {
     }
     let path = std::env::var(PID_FILE_ENV).expect("the pid file is named in the environment");
     std::fs::write(&path, std::process::id().to_string()).expect("the pid is written");
-    std::thread::sleep(Duration::from_secs(120));
+    loop {
+        std::thread::park();
+    }
 }
 
 /// Whether the operating system still knows a pid.

@@ -964,7 +964,9 @@ mod tests {
             return;
         }
         println!("  ➜  Local:   {PROBE_URL}");
-        std::thread::sleep(Duration::from_secs(30));
+        loop {
+            std::thread::park();
+        }
     }
 
     /// The probe's `program args…` as one command line, which is what a preview takes.
@@ -980,7 +982,9 @@ mod tests {
         if !std::env::args().any(|arg| arg == "--exact") {
             return;
         }
-        std::thread::sleep(Duration::from_secs(30));
+        loop {
+            std::thread::park();
+        }
     }
 
     /// The command line that spawns one probe of this test binary.
@@ -1007,23 +1011,19 @@ mod tests {
         panic!("process `{id}` printed nothing within four seconds");
     }
 
-    /// A command that outlives the test: `sleep` on Unix, a loopback ping on
-    /// Windows, quiet on both so the test log stays readable.
+    /// A command that outlives the test (Windows half): blocks on stdin like `cat`.
     #[cfg(windows)]
     fn long_running() -> (String, Vec<String>) {
         (
             "cmd".to_string(),
-            vec!["/C".to_string(), "ping -n 30 127.0.0.1 >nul".to_string()],
+            vec!["/C".to_string(), "more".to_string()],
         )
     }
 
     /// A command that outlives the test (Unix half).
     #[cfg(not(windows))]
     fn long_running() -> (String, Vec<String>) {
-        (
-            "sh".to_string(),
-            vec!["-c".to_string(), "sleep 30".to_string()],
-        )
+        ("sh".to_string(), vec!["-c".to_string(), "cat".to_string()])
     }
 
     /// A command that exits immediately with code 0.
