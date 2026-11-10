@@ -58,6 +58,13 @@ pub enum StoreError {
     /// Run lookup miss.
     #[error("run not found: {0}")]
     RunNotFound(RunId),
+    /// Optimistic concurrency conflict: the run was modified concurrently.
+    #[error("version conflict on run {run_id}: expected version {expected}, actual {actual}")]
+    VersionConflict {
+        run_id: RunId,
+        expected: u64,
+        actual: u64,
+    },
     /// Gate lookup miss.
     #[error("gate not found: {0}")]
     GateNotFound(Ulid),
@@ -321,8 +328,8 @@ impl Store {
     pub async fn create_run(&self, run: &Run) -> Result<()> {
         sqlx::query(
             "INSERT INTO runs (id, project_id, current_stage, gate_states, artifacts, \
-             created_at, updated_at, status, budget_cents, spent_cents) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             created_at, updated_at, status, budget_cents, spent_cents, version) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
         )
         .bind(run.id.0.to_string())
         .bind(run.project_id.0.as_bytes().to_vec())
@@ -341,22 +348,40 @@ impl Store {
 
     /// Fetch a run by id.
     pub async fn get_run(&self, id: RunId) -> Result<Run> {
+        let (run, _version) = self.get_run_versioned(id).await?;
+        Ok(run)
+    }
+
+    /// Fetch a run by id along with its current optimistic concurrency version.
+    pub async fn get_run_versioned(&self, id: RunId) -> Result<(Run, u64)> {
         let row = sqlx::query(
             "SELECT id, project_id, current_stage, gate_states, artifacts, created_at, \
-             updated_at, status, budget_cents, spent_cents FROM runs WHERE id = ?",
+             updated_at, status, budget_cents, spent_cents, version FROM runs WHERE id = ?",
         )
         .bind(id.0.to_string())
         .fetch_optional(&self.pool)
         .await?
         .ok_or(StoreError::RunNotFound(id))?;
-        run_from_row(&row)
+        let run = run_from_row(&row)?;
+        let version = column_int(&row, "version")?.unsigned_abs();
+        Ok((run, version))
     }
 
-    /// Update a run's mutable fields.
+    /// Fetch a run's current optimistic concurrency version.
+    pub async fn get_run_version(&self, id: RunId) -> Result<u64> {
+        let row = sqlx::query("SELECT version FROM runs WHERE id = ?")
+            .bind(id.0.to_string())
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or(StoreError::RunNotFound(id))?;
+        Ok(column_int(&row, "version")?.unsigned_abs())
+    }
+
+    /// Update a run's mutable fields, bumping its version.
     pub async fn update_run(&self, run: &Run) -> Result<()> {
-        sqlx::query(
+        let outcome = sqlx::query(
             "UPDATE runs SET current_stage = ?, gate_states = ?, artifacts = ?, updated_at = ?, \
-             status = ?, budget_cents = ?, spent_cents = ? WHERE id = ?",
+             status = ?, budget_cents = ?, spent_cents = ?, version = version + 1 WHERE id = ?",
         )
         .bind(serde_json::to_string(&run.current_stage)?)
         .bind(serde_json::to_string(&run.gate_states)?)
@@ -368,20 +393,108 @@ impl Store {
         .bind(run.id.0.to_string())
         .execute(&self.pool)
         .await?;
+        if outcome.rows_affected() == 0 {
+            return Err(StoreError::RunNotFound(run.id));
+        }
         Ok(())
+    }
+
+    /// Update a run using optimistic concurrency compare-and-swap (CAS).
+    ///
+    /// If the stored version matches `expected_version`, applies the update,
+    /// increments the version by 1, and returns the new version.
+    /// If the version has moved, returns [`StoreError::VersionConflict`].
+    pub async fn update_run_cas(&self, run: &Run, expected_version: u64) -> Result<u64> {
+        let outcome = sqlx::query(
+            "UPDATE runs SET current_stage = ?, gate_states = ?, artifacts = ?, updated_at = ?, \
+             status = ?, budget_cents = ?, spent_cents = ?, version = version + 1 \
+             WHERE id = ? AND version = ?",
+        )
+        .bind(serde_json::to_string(&run.current_stage)?)
+        .bind(serde_json::to_string(&run.gate_states)?)
+        .bind(serde_json::to_string(&run.artifacts)?)
+        .bind(run.updated_at.to_rfc3339())
+        .bind(serde_json::to_string(&run.status)?)
+        .bind(run.budget_cents.map(|v| v as i64))
+        .bind(run.spent_cents as i64)
+        .bind(run.id.0.to_string())
+        .bind(expected_version as i64)
+        .execute(&self.pool)
+        .await?;
+
+        if outcome.rows_affected() == 0 {
+            let actual = self.get_run_version(run.id).await?;
+            return Err(StoreError::VersionConflict {
+                run_id: run.id,
+                expected: expected_version,
+                actual,
+            });
+        }
+
+        Ok(expected_version + 1)
     }
 
     /// List runs belonging to a project, newest first.
     pub async fn list_runs(&self, project_id: ProjectId) -> Result<Vec<Run>> {
         let rows = sqlx::query(
             "SELECT id, project_id, current_stage, gate_states, artifacts, created_at, \
-             updated_at, status, budget_cents, spent_cents FROM runs \
+             updated_at, status, budget_cents, spent_cents, version FROM runs \
              WHERE project_id = ? ORDER BY created_at DESC",
         )
         .bind(project_id.0.as_bytes().to_vec())
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(run_from_row).collect()
+    }
+
+    /// List all runs across all projects, newest first.
+    pub async fn list_all_runs(&self) -> Result<Vec<Run>> {
+        let rows = sqlx::query(
+            "SELECT id, project_id, current_stage, gate_states, artifacts, created_at, \
+             updated_at, status, budget_cents, spent_cents, version FROM runs \
+             ORDER BY created_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(run_from_row).collect()
+    }
+
+    /// Recover runs left in `Running` state after an unclean restart/interruption:
+    /// marks them [`RunStatus::Paused`], increments their version via CAS,
+    /// and appends an `EventKind::Error` event with `{"action": "run_interrupted"}`.
+    pub async fn recover_interrupted_runs(&self) -> Result<Vec<Run>> {
+        let rows = sqlx::query(
+            "SELECT id, project_id, current_stage, gate_states, artifacts, created_at, \
+             updated_at, status, budget_cents, spent_cents, version FROM runs \
+             WHERE status = '\"running\"'",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut recovered = Vec::new();
+        for row in rows {
+            let mut run = run_from_row(&row)?;
+            let version = column_int(&row, "version")?.unsigned_abs();
+            run.status = RunStatus::Paused;
+            run.updated_at = Utc::now();
+            self.update_run_cas(&run, version).await?;
+
+            let event = Event {
+                id: Ulid::new(),
+                run_id: run.id,
+                stage: run.current_stage,
+                role: None,
+                kind: EventKind::Error,
+                payload: serde_json::json!({ "action": "run_interrupted" }),
+                cost_cents: None,
+                tokens: None,
+                created_at: Utc::now(),
+                device_id: None,
+            };
+            self.append_event(&event).await?;
+            recovered.push(run);
+        }
+        Ok(recovered)
     }
 
     // ----------------------------------------------------------------- events
@@ -916,6 +1029,10 @@ mod tests {
                 "002_m1_gates_artifacts_costs.sql",
                 &include_bytes!("../migrations/002_m1_gates_artifacts_costs.sql")[..],
             ),
+            (
+                "003_run_version.sql",
+                &include_bytes!("../migrations/003_run_version.sql")[..],
+            ),
         ] {
             assert!(
                 !bytes.contains(&b'\r'),
@@ -926,12 +1043,12 @@ mod tests {
     }
 
     /// Checksum-stability proxy: the compile-time embedded migrator must
-    /// expose exactly versions 1 and 2, with no CR in any embedded SQL.
+    /// expose exactly versions 1, 2, and 3, with no CR in any embedded SQL.
     #[test]
     fn embedded_migrator_versions_are_lf_only() {
         let migrator = sqlx::migrate!("./migrations");
         let versions: Vec<i64> = migrator.iter().map(|m| m.version).collect();
-        assert_eq!(versions, vec![1, 2]);
+        assert_eq!(versions, vec![1, 2, 3]);
         for migration in migrator.iter() {
             assert!(
                 !migration.sql.contains('\r'),
@@ -1410,5 +1527,150 @@ mod tests {
         assert!(store.list_artifacts(run.id).await.unwrap().is_empty());
         assert!(store.list_costs(run.id).await.unwrap().is_empty());
         assert_eq!(store.total_cost_cents(run.id).await.unwrap(), 0);
+    }
+
+    #[cfg(test)]
+    mod cas {
+        use super::*;
+
+        #[tokio::test]
+        async fn concurrent_update_with_stale_version_is_rejected() {
+            let store = temp_store().await;
+            let project = sample_project();
+            store.create_project(&project).await.unwrap();
+
+            let run = sample_run(project.id);
+            store.create_run(&run).await.unwrap();
+
+            // Both workers read the run at version 1.
+            let (mut run_w1, v_w1) = store.get_run_versioned(run.id).await.unwrap();
+            let (mut run_w2, v_w2) = store.get_run_versioned(run.id).await.unwrap();
+            assert_eq!(v_w1, 1);
+            assert_eq!(v_w2, 1);
+
+            // Worker 1 commits first with CAS expected version 1.
+            run_w1.current_stage = Stage::Research;
+            let new_v = store.update_run_cas(&run_w1, v_w1).await.unwrap();
+            assert_eq!(new_v, 2);
+
+            // Worker 2 attempts to commit with stale version 1 -> rejected with VersionConflict.
+            run_w2.current_stage = Stage::Design;
+            let err = store
+                .update_run_cas(&run_w2, v_w2)
+                .await
+                .expect_err("stale CAS update must fail");
+
+            match err {
+                StoreError::VersionConflict {
+                    run_id,
+                    expected,
+                    actual,
+                } => {
+                    assert_eq!(run_id, run.id);
+                    assert_eq!(expected, 1);
+                    assert_eq!(actual, 2);
+                }
+                other => panic!("expected VersionConflict, got {other:?}"),
+            }
+
+            // Stored state remains Worker 1's commit (Research), not overwritten by Worker 2.
+            let (stored, stored_v) = store.get_run_versioned(run.id).await.unwrap();
+            assert_eq!(stored.current_stage, Stage::Research);
+            assert_eq!(stored_v, 2);
+
+            // Worker 2 re-reads versioned state and retries with expected version 2 -> succeeds.
+            run_w2.current_stage = Stage::Design;
+            let retry_v = store.update_run_cas(&run_w2, stored_v).await.unwrap();
+            assert_eq!(retry_v, 3);
+
+            let (final_run, final_v) = store.get_run_versioned(run.id).await.unwrap();
+            assert_eq!(final_run.current_stage, Stage::Design);
+            assert_eq!(final_v, 3);
+        }
+
+        #[tokio::test]
+        async fn sequential_cas_updates_increment_version() {
+            let store = temp_store().await;
+            let project = sample_project();
+            store.create_project(&project).await.unwrap();
+
+            let mut run = sample_run(project.id);
+            store.create_run(&run).await.unwrap();
+            assert_eq!(store.get_run_version(run.id).await.unwrap(), 1);
+
+            run.current_stage = Stage::Research;
+            let v2 = store.update_run_cas(&run, 1).await.unwrap();
+            assert_eq!(v2, 2);
+            assert_eq!(store.get_run_version(run.id).await.unwrap(), 2);
+
+            run.current_stage = Stage::PrdSpec;
+            let v3 = store.update_run_cas(&run, 2).await.unwrap();
+            assert_eq!(v3, 3);
+            assert_eq!(store.get_run_version(run.id).await.unwrap(), 3);
+
+            // A direct update_run also increments version to 4.
+            run.current_stage = Stage::Design;
+            store.update_run(&run).await.unwrap();
+            assert_eq!(store.get_run_version(run.id).await.unwrap(), 4);
+
+            // A stale expected version (3) now fails because version is 4.
+            let err = store
+                .update_run_cas(&run, 3)
+                .await
+                .expect_err("expected version 3 should conflict with version 4");
+            assert!(matches!(
+                err,
+                StoreError::VersionConflict {
+                    expected: 3,
+                    actual: 4,
+                    ..
+                }
+            ));
+        }
+
+        #[tokio::test]
+        async fn reloading_run_version_reflects_version_bump() {
+            let store = temp_store().await;
+            let project = sample_project();
+            store.create_project(&project).await.unwrap();
+
+            let run = sample_run(project.id);
+            store.create_run(&run).await.unwrap();
+
+            let v = store.get_run_version(run.id).await.unwrap();
+            assert_eq!(v, 1);
+
+            let (loaded_run, loaded_v) = store.get_run_versioned(run.id).await.unwrap();
+            assert_eq!(loaded_v, 1);
+            assert_eq!(loaded_run.id, run.id);
+        }
+
+        #[tokio::test]
+        async fn recovering_interrupted_runs_bumps_version() {
+            let store = temp_store().await;
+            let project = sample_project();
+            store.create_project(&project).await.unwrap();
+
+            let run = sample_run(project.id);
+            store.create_run(&run).await.unwrap();
+            assert_eq!(run.status, RunStatus::Running);
+            assert_eq!(store.get_run_version(run.id).await.unwrap(), 1);
+
+            let recovered = store.recover_interrupted_runs().await.unwrap();
+            assert_eq!(recovered.len(), 1);
+            assert_eq!(recovered[0].id, run.id);
+            assert_eq!(recovered[0].status, RunStatus::Paused);
+
+            // Version was bumped by the CAS update during recovery.
+            let (stored, version) = store.get_run_versioned(run.id).await.unwrap();
+            assert_eq!(stored.status, RunStatus::Paused);
+            assert_eq!(version, 2);
+
+            // Interrupted event was recorded on the run's log.
+            let events = store.get_events(run.id).await.unwrap();
+            assert!(events
+                .iter()
+                .any(|e| e.payload["action"] == "run_interrupted"));
+        }
     }
 }
