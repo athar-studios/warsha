@@ -185,6 +185,32 @@ export const ACTIONS: readonly ActionDef[] = [
     rpc: ['integrations.disconnect'],
   },
 
+  // Routines section
+  {
+    id: 'settings.routine.run-now',
+    labelKey: 'settings.routines.run_now',
+    effect: 'rpc',
+    rpc: ['routines.run_now'],
+  },
+  {
+    id: 'settings.routine.pause',
+    labelKey: 'settings.routines.pause',
+    effect: 'rpc',
+    rpc: ['routines.pause'],
+  },
+  {
+    id: 'settings.routine.resume',
+    labelKey: 'settings.routines.resume',
+    effect: 'rpc',
+    rpc: ['routines.resume'],
+  },
+  {
+    id: 'settings.routine.view',
+    labelKey: 'settings.routines.view',
+    effect: 'rpc',
+    rpc: ['routines.get'],
+  },
+
   // Shared dialog & error recovery actions
   { id: 'settings.dialog.cancel', labelKey: 'common.cancel', effect: 'state' },
   { id: 'settings.error.retry', labelKey: 'common.retry', effect: 'state' },

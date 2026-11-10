@@ -9,6 +9,7 @@ import type {
   PluginDefinition,
   ProviderConfig,
   RoleRouting,
+  Routine,
   SkillDefinition,
   WarshaClient,
 } from '@warsha/client';
@@ -276,6 +277,56 @@ function createMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
       details: null,
     } satisfies IntegrationStatus),
     testIntegration: vi.fn().mockResolvedValue({ status: 'ok', message: 'GitHub connection OK' }),
+    listRoutines: vi.fn().mockResolvedValue([
+      {
+        id: 'routine-1',
+        name: 'Nightly Audit',
+        description: 'Run lint and tests',
+        schedule: { cron: '0 2 * * *' },
+        state: 'idle',
+        lastRunUnix: null,
+      } satisfies Routine,
+      {
+        id: 'routine-2',
+        name: 'Paused Task',
+        description: 'Weekly cleanup',
+        schedule: { intervalSeconds: 3600 },
+        state: 'paused',
+        lastRunUnix: null,
+      } satisfies Routine,
+    ]),
+    getRoutine: vi.fn().mockResolvedValue({
+      id: 'routine-1',
+      name: 'Nightly Audit',
+      description: 'Run lint and tests',
+      schedule: { cron: '0 2 * * *' },
+      state: 'idle',
+      lastRunUnix: null,
+    } satisfies Routine),
+    runRoutineNow: vi.fn().mockResolvedValue({
+      id: 'routine-1',
+      name: 'Nightly Audit',
+      description: 'Run lint and tests',
+      schedule: { cron: '0 2 * * *' },
+      state: 'running',
+      lastRunUnix: null,
+    } satisfies Routine),
+    pauseRoutine: vi.fn().mockResolvedValue({
+      id: 'routine-1',
+      name: 'Nightly Audit',
+      description: 'Run lint and tests',
+      schedule: { cron: '0 2 * * *' },
+      state: 'paused',
+      lastRunUnix: null,
+    } satisfies Routine),
+    resumeRoutine: vi.fn().mockResolvedValue({
+      id: 'routine-2',
+      name: 'Paused Task',
+      description: 'Weekly cleanup',
+      schedule: { intervalSeconds: 3600 },
+      state: 'idle',
+      lastRunUnix: null,
+    } satisfies Routine),
     health: vi.fn().mockResolvedValue({ status: 'ok', version: '0.2.1' }),
     ...overrides,
   } as unknown as WarshaClient;
@@ -593,5 +644,23 @@ describe('SettingsPage (Slice 1)', () => {
     await waitFor(() => expect(screen.getByTestId('integration-disconnect-dialog')).toBeDefined());
     fireEvent.click(document.querySelector('button[data-action="settings.integration.disconnect"]') as HTMLElement);
     await waitFor(() => expect(client.disconnectIntegration).toHaveBeenCalledWith('github'));
+  });
+
+  it('handles routine run-now, pause, resume, and view dialog in RoutinesSection', async () => {
+    const client = createMockClient();
+    renderSettings('/settings/routines', client, 'advanced');
+    await waitFor(() => expect(screen.getByTestId('settings-section-routines')).toBeDefined());
+
+    fireEvent.click(document.querySelector('button[data-action="settings.routine.run-now"]') as HTMLElement);
+    await waitFor(() => expect(client.runRoutineNow).toHaveBeenCalledWith('routine-1'));
+
+    fireEvent.click(document.querySelector('button[data-action="settings.routine.pause"]:not([disabled])') as HTMLElement);
+    await waitFor(() => expect(client.pauseRoutine).toHaveBeenCalledWith('routine-1'));
+
+    fireEvent.click(document.querySelector('button[data-action="settings.routine.resume"]:not([disabled])') as HTMLElement);
+    await waitFor(() => expect(client.resumeRoutine).toHaveBeenCalledWith('routine-2'));
+
+    fireEvent.click(document.querySelector('button[data-action="settings.routine.view"]') as HTMLElement);
+    await waitFor(() => expect(screen.getByTestId('routine-view-dialog')).toBeDefined());
   });
 });

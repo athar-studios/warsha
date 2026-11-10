@@ -18,7 +18,17 @@ const VIEWPORTS = [
 
 const LOCALES = ['ar', 'en'] as const;
 const THEMES = ['light', 'dark'] as const;
-const SECTIONS = ['general', 'models', 'devices', 'about', 'workflows', 'skills', 'plugins', 'integrations'] as const;
+const SECTIONS = [
+  'general',
+  'models',
+  'devices',
+  'about',
+  'workflows',
+  'skills',
+  'plugins',
+  'integrations',
+  'routines',
+] as const;
 
 const CUSTOM_MODELS_FIXTURE = {
   'models.list': {
@@ -111,6 +121,29 @@ const INTEGRATIONS_FIXTURE = {
         connected: true,
         configured_at: '2026-10-05T07:00:00.000Z',
         details: null,
+      },
+    ],
+  },
+} as const;
+
+const ROUTINES_FIXTURE = {
+  'routines.list': {
+    result: [
+      {
+        id: 'routine-1',
+        name: 'Nightly Audit',
+        description: 'Daily verification',
+        schedule: { cron: '0 2 * * *' },
+        state: 'idle',
+        last_run_unix: null,
+      },
+      {
+        id: 'routine-2',
+        name: 'Weekly Sync',
+        description: 'Cleanup task',
+        schedule: { interval_seconds: 3600 },
+        state: 'paused',
+        last_run_unix: null,
       },
     ],
   },
@@ -393,6 +426,37 @@ test.describe('Settings v3 (Slice 1)', () => {
     await act(page, 'settings.integration.disconnect');
     await expectRpc(page, 'integrations.disconnect');
     await expect(disconnectDialog).not.toBeVisible();
+  });
+
+  test('routines journey: run now, pause, resume, and view details', async ({ page }) => {
+    await openV3(page, '/settings/routines', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: ROUTINES_FIXTURE,
+    });
+    await expect(page.locator('[data-testid="settings-section-routines"]')).toBeVisible();
+
+    await act(page, 'settings.routine.run-now');
+    await expectRpc(page, 'routines.run_now');
+
+    await page
+      .locator('[data-action="settings.routine.pause"]:not([disabled])')
+      .first()
+      .click();
+    await expectRpc(page, 'routines.pause');
+
+    await page
+      .locator('[data-action="settings.routine.resume"]:not([disabled])')
+      .first()
+      .click();
+    await expectRpc(page, 'routines.resume');
+
+    await act(page, 'settings.routine.view');
+    await expectRpc(page, 'routines.get');
+    const viewDialog = page.locator('[data-testid="routine-view-dialog"]');
+    await expect(viewDialog).toBeVisible();
+    await act(page, 'settings.dialog.cancel');
+    await expect(viewDialog).not.toBeVisible();
   });
 
   // ---------------------------------------------------------------------------
@@ -743,6 +807,53 @@ test.describe('Settings v3 (Slice 1)', () => {
     await act(page, 'settings.integration.disconnect.open');
     await act(page, 'settings.integration.disconnect');
     await expectRpc(page, 'integrations.disconnect');
+  });
+
+  test('action: settings.routine.run-now', async ({ page }) => {
+    await openV3(page, '/settings/routines', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: ROUTINES_FIXTURE,
+    });
+    await act(page, 'settings.routine.run-now');
+    await expectRpc(page, 'routines.run_now');
+  });
+
+  test('action: settings.routine.pause', async ({ page }) => {
+    await openV3(page, '/settings/routines', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: ROUTINES_FIXTURE,
+    });
+    await page
+      .locator('[data-action="settings.routine.pause"]:not([disabled])')
+      .first()
+      .click();
+    await expectRpc(page, 'routines.pause');
+  });
+
+  test('action: settings.routine.resume', async ({ page }) => {
+    await openV3(page, '/settings/routines', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: ROUTINES_FIXTURE,
+    });
+    await page
+      .locator('[data-action="settings.routine.resume"]:not([disabled])')
+      .first()
+      .click();
+    await expectRpc(page, 'routines.resume');
+  });
+
+  test('action: settings.routine.view', async ({ page }) => {
+    await openV3(page, '/settings/routines', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: ROUTINES_FIXTURE,
+    });
+    await act(page, 'settings.routine.view');
+    await expectRpc(page, 'routines.get');
+    await expect(page.locator('[data-testid="routine-view-dialog"]')).toBeVisible();
   });
 
   test('action: settings.dialog.cancel', async ({ page }) => {

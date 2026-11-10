@@ -16,6 +16,7 @@ import { GeneralSection } from './sections/GeneralSection';
 import { IntegrationsSection } from './sections/IntegrationsSection';
 import { ModelsSection } from './sections/ModelsSection';
 import { PluginsSection } from './sections/PluginsSection';
+import { RoutinesSection } from './sections/RoutinesSection';
 import { SkillsSection } from './sections/SkillsSection';
 import { WorkflowsSection } from './sections/WorkflowsSection';
 import {
@@ -90,6 +91,8 @@ export default function SettingsPage(): React.ReactElement {
         return <PluginsSection />;
       case 'integrations':
         return <IntegrationsSection />;
+      case 'routines':
+        return <RoutinesSection />;
       default:
         return <PendingAdvancedSection meta={activeMeta} />;
     }
