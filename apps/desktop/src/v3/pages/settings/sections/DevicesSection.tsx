@@ -9,7 +9,6 @@ import {
   EmptyState,
   IconPhone,
   KeyValue,
-  ListRow,
   SettingsSection,
   Skeleton,
   StatusPill,
@@ -102,9 +101,9 @@ export function DevicesSection(): React.ReactElement {
       >
         {status === 'error' && (
           <div style={{ padding: 'var(--w-space-4)' }}>
-            <Banner
-              variant="danger"
-              action={
+            <Banner variant="danger">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--w-space-3)', flexWrap: 'wrap' }}>
+                <span>{error?.message ?? t('common.error')}</span>
                 <Button
                   size="sm"
                   variant="secondary"
@@ -113,9 +112,7 @@ export function DevicesSection(): React.ReactElement {
                 >
                   {t('common.retry')}
                 </Button>
-              }
-            >
-              {error?.message ?? t('common.error')}
+              </div>
             </Banner>
           </div>
         )}
@@ -137,18 +134,23 @@ export function DevicesSection(): React.ReactElement {
         ) : (
           <div>
             {devices.map((dev) => (
-              <ListRow
-                key={dev.id}
-                icon={<IconPhone size={18} />}
-                title={dev.name || <bdi dir="ltr">{dev.id}</bdi>}
-                subtitle={
-                  <span>
-                    {t('settings.devices.paired_at')}: {formatTimestamp(dev.pairedAt, locale)}
-                    {' · '}
-                    {t('settings.devices.last_seen')}: {formatTimestamp(dev.lastSeen, locale)}
-                  </span>
-                }
-                meta={
+              <div key={dev.id} className="v3-settings-row" data-testid={`device-row-${dev.id}`}>
+                <span className="v3-settings-row-icon" aria-hidden="true">
+                  <IconPhone size={18} />
+                </span>
+                <div className="v3-settings-row-main">
+                  <div className="v3-settings-row-title">
+                    {dev.name || <bdi dir="ltr">{dev.id}</bdi>}
+                  </div>
+                  <div className="v3-settings-row-subtitle">
+                    <span>
+                      {t('settings.devices.paired_at')}: {formatTimestamp(dev.pairedAt, locale)}
+                      {' · '}
+                      {t('settings.devices.last_seen')}: {formatTimestamp(dev.lastSeen, locale)}
+                    </span>
+                  </div>
+                </div>
+                <div className="v3-settings-row-meta">
                   <StatusPill
                     status={dev.revoked ? 'failed' : 'done'}
                     label={
@@ -157,9 +159,9 @@ export function DevicesSection(): React.ReactElement {
                         : t('settings.devices.status.active')
                     }
                   />
-                }
-                actions={
-                  !dev.revoked ? (
+                </div>
+                <div className="v3-settings-row-actions">
+                  {!dev.revoked && (
                     <Button
                       size="sm"
                       variant="ghost"
@@ -168,9 +170,9 @@ export function DevicesSection(): React.ReactElement {
                     >
                       {t('settings.devices.revoke')}
                     </Button>
-                  ) : undefined
-                }
-              />
+                  )}
+                </div>
+              </div>
             ))}
           </div>
         )}
@@ -183,15 +185,6 @@ export function DevicesSection(): React.ReactElement {
         title={t('settings.devices.pair.title')}
         description={t('settings.devices.pair.desc')}
         data-testid="device-pair-dialog"
-        actions={
-          <Button
-            variant="secondary"
-            data-action="settings.dialog.cancel"
-            onClick={() => setPairOffer(null)}
-          >
-            {t('common.close')}
-          </Button>
-        }
       >
         {pairOffer && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--w-space-4)', alignItems: 'center' }}>
@@ -225,6 +218,16 @@ export function DevicesSection(): React.ReactElement {
             {pairOffer.loopback_only && (
               <Banner variant="info">{t('settings.devices.pair.loopback_note')}</Banner>
             )}
+
+            <div className="v3-settings-dialog-actions" style={{ width: '100%' }}>
+              <Button
+                variant="secondary"
+                data-action="settings.dialog.cancel"
+                onClick={() => setPairOffer(null)}
+              >
+                {t('common.close')}
+              </Button>
+            </div>
           </div>
         )}
       </Dialog>
@@ -237,8 +240,14 @@ export function DevicesSection(): React.ReactElement {
           name: revokeTarget?.name || revokeTarget?.id || '',
         })}
         data-testid="device-revoke-dialog"
-        actions={
-          <>
+      >
+        <div>
+          <p style={{ margin: 0 }}>
+            {t('settings.devices.revoke.desc', {
+              name: revokeTarget?.name || revokeTarget?.id || '',
+            })}
+          </p>
+          <div className="v3-settings-dialog-actions">
             <Button
               variant="ghost"
               data-action="settings.dialog.cancel"
@@ -256,14 +265,8 @@ export function DevicesSection(): React.ReactElement {
             >
               {t('settings.common.confirm_revoke')}
             </Button>
-          </>
-        }
-      >
-        <p style={{ margin: 0 }}>
-          {t('settings.devices.revoke.desc', {
-            name: revokeTarget?.name || revokeTarget?.id || '',
-          })}
-        </p>
+          </div>
+        </div>
       </Dialog>
     </div>
   );
