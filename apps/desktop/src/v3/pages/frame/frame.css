@@ -1,0 +1,108 @@
+/* apps/desktop/src/v3/pages/frame/frame.css — Hirfa Design System v3 Frame styling */
+/* Uses semantic tokens (--w-*) and logical CSS properties only. Zero literals, zero physical direction. */
+
+.v3-frame-root {
+  min-block-size: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--w-bg);
+  color: var(--w-text);
+  font-family: var(--w-font-sans);
+  font-size: var(--w-font-size-md);
+  line-height: var(--w-line-height-md);
+  box-sizing: border-box;
+}
+
+.v3-frame-root :focus-visible {
+  outline: var(--w-border-width-strong) solid var(--w-focus);
+  outline-offset: var(--w-border-width-strong);
+}
+
+.v3-frame-skip {
+  position: absolute;
+  inset-block-start: var(--w-space-2);
+  inset-inline-start: var(--w-space-2);
+  z-index: var(--w-layer-toast);
+  padding-block: var(--w-space-2);
+  padding-inline: var(--w-space-4);
+  background-color: var(--w-primary);
+  color: var(--w-on-primary);
+  border-radius: var(--w-radius-sm);
+  font-weight: var(--w-font-weight-semibold);
+  font-size: var(--w-font-size-sm);
+  text-decoration: none;
+  clip-path: inset(50%);
+  block-size: var(--w-border-width);
+  inline-size: var(--w-border-width);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.v3-frame-skip:focus,
+.v3-frame-skip:focus-visible {
+  clip-path: none;
+  block-size: auto;
+  inline-size: auto;
+  overflow: visible;
+  outline: var(--w-border-width-strong) solid var(--w-focus);
+  outline-offset: var(--w-space-1);
+}
+
+.v3-frame-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-2);
+  font-weight: var(--w-font-weight-bold);
+  font-size: var(--w-font-size-lg);
+  color: var(--w-text);
+  text-decoration: none;
+  user-select: none;
+}
+
+.v3-frame-brand-hex {
+  inline-size: var(--w-space-6);
+  block-size: var(--w-space-6);
+  flex-shrink: 0;
+}
+
+.v3-frame-main {
+  flex: 1;
+  min-inline-size: 0;
+  outline: none;
+}
+
+.v3-frame-banner {
+  padding-inline: var(--w-space-5);
+  padding-block-start: var(--w-space-3);
+  box-sizing: border-box;
+}
+
+.v3-frame-inbox-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.v3-frame-inbox-badge {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  pointer-events: none;
+}
+
+.v3-frame-root .w-topbar {
+  flex-wrap: wrap;
+  padding-inline: var(--w-space-5);
+  row-gap: var(--w-space-2);
+  max-inline-size: 100%;
+}
+
+.v3-frame-root .w-topbar__project {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+.v3-frame-root .w-topbar__end {
+  margin-inline-start: auto;
+  flex-wrap: wrap;
+  gap: var(--w-space-2);
+}
