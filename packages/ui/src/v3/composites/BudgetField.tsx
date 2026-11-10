@@ -63,13 +63,21 @@ export const BudgetField: React.FC<BudgetFieldProps> = ({
             return (
               <Button
                 key={preset}
-                variant={isSelected ? 'primary' : 'secondary'}
+                variant="secondary"
                 size="sm"
                 disabled={disabled}
                 onClick={() => onChange?.(preset)}
                 data-selected={isSelected ? 'true' : undefined}
                 style={{
                   minWidth: 'var(--w-space-8)',
+                  ...(isSelected
+                    ? {
+                        backgroundColor: 'var(--w-sunken)',
+                        color: 'var(--w-primary-text)',
+                        borderColor: 'var(--w-primary-text)',
+                        fontWeight: 'var(--w-font-weight-semibold)',
+                      }
+                    : {}),
                 }}
               >
                 <span dir="ltr" style={{ fontFamily: 'var(--w-font-mono)' }}>

@@ -17,7 +17,9 @@ describe('BudgetField composite', () => {
     );
 
     const preset20 = screen.getByRole('button', { name: '$20' });
-    expect(preset20).toHaveAttribute('data-variant', 'primary');
+    expect(preset20).toHaveAttribute('data-selected', 'true');
+    expect(preset20).toHaveAttribute('data-variant', 'secondary');
+    expect(preset20).not.toHaveAttribute('data-variant', 'primary');
 
     const preset50 = screen.getByRole('button', { name: '$50' });
     fireEvent.click(preset50);
