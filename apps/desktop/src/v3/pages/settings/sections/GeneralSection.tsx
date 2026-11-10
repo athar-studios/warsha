@@ -43,6 +43,7 @@ export function GeneralSection(): React.ReactElement {
   const { setReady } = useDataReady();
 
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [budgetInput, setBudgetInput] = useState<string>(() => readStoredBudgetFallback());
   const [budgetError, setBudgetError] = useState<string | null>(null);
@@ -53,6 +54,7 @@ export function GeneralSection(): React.ReactElement {
     let active = true;
     setLoading(true);
     setReady(false);
+    setLoadFailed(false);
     setLoadError(null);
 
     if (!client) {
@@ -74,7 +76,8 @@ export function GeneralSection(): React.ReactElement {
       })
       .catch((err) => {
         if (!active) return;
-        setLoadError(err instanceof Error ? err.message : t('common.error'));
+        setLoadFailed(true);
+        setLoadError(err instanceof Error ? err.message : null);
         setLoading(false);
         setReady(true);
       });
@@ -82,7 +85,7 @@ export function GeneralSection(): React.ReactElement {
     return () => {
       active = false;
     };
-  }, [client, reloadNonce, setReady, t]);
+  }, [client, reloadNonce, setReady]);
 
   const saveBudgetAction = useAction('settings.budget-default.save', async () => {
     const parsed = Number(budgetInput.trim());
@@ -153,11 +156,11 @@ export function GeneralSection(): React.ReactElement {
       scope={t('settings.scope.device')}
       data-testid="settings-section-general"
     >
-      {loadError && (
+      {loadFailed && (
         <div style={{ padding: 'var(--w-space-4)' }}>
-          <Banner
-            variant="danger"
-            action={
+          <Banner variant="danger">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--w-space-3)', flexWrap: 'wrap' }}>
+              <span>{loadError ?? t('common.error')}</span>
               <Button
                 size="sm"
                 variant="secondary"
@@ -166,9 +169,7 @@ export function GeneralSection(): React.ReactElement {
               >
                 {t('common.retry')}
               </Button>
-            }
-          >
-            {loadError}
+            </div>
           </Banner>
         </div>
       )}
