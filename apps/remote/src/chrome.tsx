@@ -1,36 +1,13 @@
 // @warsha/remote — the bench's chrome: the row that names it, the strip that reports it, the nav that
-// moves around it (docs/design/REDESIGN.md §4, redrawn for the phone by §10's 390 row).
-//
-// Three rules decide everything in this file:
-//
-//   * **the phone reads top-down**: brand, then the instrument strip, then the queue. The strip keeps the
-//     daemon lamp and the budget at 390 and lets the rest go — `StatusStrip.Item`'s `hideNarrow` plus the
-//     `@media` rule in `tokens.css`, because a viewport is not a prop (§10);
-//   * **yellow is a lamp, never paint** (§1): the only lit things here are the pending-gate count and the
-//     selected nav item's edge, and both say their meaning in a word as well as a colour (§9);
-//   * **machine data is mono and isolated** (§11): an id inside an Arabic sentence gets `dir="ltr"`,
-//     `translate="no"` and `unicode-bidi: isolate`, or the bidi algorithm scrambles it.
-//
-// The *layout* of the chrome lives in `index.css`, which is where a viewport, an attribute and a
-// pseudo-class belong; what is inline here is what a state decides — the pressed language chip, the
-// selected row — never a colour, a length or a font.
+// moves around it (rebuilt on @warsha/ui/v3 per DESIGN_SYSTEM_V3.md).
 import { t, useDirection, useLocale, useLocaleControl, type Locale } from '@warsha/i18n';
 import {
-  Lamp,
-  Meter,
-  StatusStrip,
-  Text,
-  carriesJoinedScript,
-  colorVar,
-  fontSize,
-  fontWeight,
-  lineHeight,
-  machineSkin,
-  radius,
-  shadow,
-  size,
-  space,
-} from '@warsha/ui';
+  Badge,
+  Button,
+  ProgressBar,
+  StatusPill,
+  type StatusPillState,
+} from '@warsha/ui/v3';
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 
@@ -39,16 +16,32 @@ import { hasCeiling, money } from './format';
 import { stageWord } from './labels';
 import { endpointHost, type DaemonSession } from './session';
 
+const JOINED_SCRIPT = /[\u0600-\u06FF\u0750-\u077F\u0870-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+
+function slotText(node: React.ReactNode): string {
+  if (node === null || node === undefined || typeof node === 'boolean') return '';
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(slotText).join('');
+  if (typeof node === 'object') {
+    const candidate = node as { [Symbol.iterator]?: unknown; props?: { children?: React.ReactNode } };
+    if (typeof candidate[Symbol.iterator] === 'function') {
+      return [...(node as Iterable<React.ReactNode>)].map(slotText).join('');
+    }
+    if (candidate.props && typeof candidate.props === 'object') {
+      return slotText(candidate.props.children);
+    }
+  }
+  return '';
+}
+
+function carriesJoinedScript(node: React.ReactNode): boolean {
+  return JOINED_SCRIPT.test(slotText(node));
+}
+
 /**
  * One machine value, isolated from the line's direction (§11).
  *
  * `title` carries the full reading when the row shows a shortened one, so the value stays reachable.
- *
- * The isolation and the face are both answers to *what this slot actually holds*. A run id is Latin
- * machinery: it gets `dir="ltr"`, `translate="no"`, bidi isolation and the mono face. A reading the
- * screen wrote in words (`لم يُبلَّغ بعد`) is prose: it gets none of the direction overrides, and the
- * sans Arabic face, because a fixed advance inside an Arabic word cuts the join and the owner reads
- * `البوا ب ة`. `machineSkin` is the rule; this is only the phone's way of asking it.
  */
 export function Machine({ children, title }: { children: React.ReactNode; title?: string }) {
   const isMachineValue = !carriesJoinedScript(children);
@@ -59,10 +52,12 @@ export function Machine({ children, title }: { children: React.ReactNode; title?
       translate={isMachineValue ? 'no' : undefined}
       title={title}
       style={{
-        ...machineSkin(children),
+        fontFamily: isMachineValue ? 'var(--w-font-mono)' : 'var(--w-font-sans)',
+        fontVariantNumeric: 'tabular-nums',
+        letterSpacing: isMachineValue ? undefined : 'normal',
         unicodeBidi: isMachineValue ? 'isolate' : undefined,
-        fontSize: fontSize('xs'),
-        color: colorVar('text'),
+        fontSize: 'var(--w-font-size-xs)',
+        color: 'var(--w-text)',
       }}
     >
       {children}
@@ -80,10 +75,10 @@ export function BrandMark() {
       height="22"
       aria-hidden="true"
       focusable="false"
-      style={{ display: 'block', inlineSize: size('nut'), blockSize: size('nut') }}
+      style={{ display: 'block', inlineSize: 'var(--w-space-6)', blockSize: 'var(--w-space-6)' }}
     >
-      <polygon points="12,1 21.5,6.5 21.5,17.5 12,23 2.5,17.5 2.5,6.5" fill="var(--warsha-signal)" />
-      <circle cx="12" cy="12" r="4.5" fill="var(--warsha-bench-plate)" />
+      <polygon points="12,1 21.5,6.5 21.5,17.5 12,23 2.5,17.5 2.5,6.5" fill="var(--w-primary)" />
+      <circle cx="12" cy="12" r="4.5" fill="var(--w-sunken)" />
     </svg>
   );
 }
@@ -93,11 +88,7 @@ export function BrandMark() {
  *
  * Two buttons rather than a select, because there are two locales and each label comes from the catalog
  * in its own language (`onboarding.lang_ar` / `onboarding.lang_en`), so it reads the same whichever
- * locale is live. The pressed state is `aria-pressed` plus a lifted plate — a shape and a weight, not a
- * colour (§9) — and `pointer: coarse` raises both to the 44px floor through `.warsha-control`.
- *
- * It lives in the top bar because the phone's owner may be handed a device set to the other language,
- * and a control that costs three screens to reach is a control that costs them the ten seconds (§2).
+ * locale is live.
  */
 export function LanguageSwitch({ testIdPrefix = 'remote-language' }: { testIdPrefix?: string }) {
   const dir = useDirection();
@@ -114,9 +105,11 @@ export function LanguageSwitch({ testIdPrefix = 'remote-language' }: { testIdPre
       {options.map((option) => {
         const pressed = locale === option.value;
         return (
-          <button
+          <Button
             key={option.value}
             type="button"
+            variant={pressed ? 'secondary' : 'ghost'}
+            size="sm"
             dir={dir}
             aria-pressed={pressed}
             data-testid={`${testIdPrefix}-${option.value}`}
@@ -125,29 +118,29 @@ export function LanguageSwitch({ testIdPrefix = 'remote-language' }: { testIdPre
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: space(1),
+              gap: 'var(--w-space-1)',
               border: 'none',
-              borderRadius: radius('sm'),
+              borderRadius: 'var(--w-radius-sm)',
               cursor: 'pointer',
               fontFamily: 'inherit',
-              fontSize: fontSize('sm'),
-              paddingInline: space(2),
-              paddingBlock: space(1),
-              backgroundColor: pressed ? colorVar('surface') : 'transparent',
-              boxShadow: pressed ? shadow('sm') : 'none',
-              color: pressed ? colorVar('text') : colorVar('textMuted'),
-              fontWeight: pressed ? fontWeight('semibold') : fontWeight('medium'),
+              fontSize: 'var(--w-font-size-sm)',
+              paddingInline: 'var(--w-space-2)',
+              paddingBlock: 'var(--w-space-1)',
+              backgroundColor: pressed ? 'var(--w-surface)' : 'transparent',
+              boxShadow: pressed ? 'var(--w-shadow-1)' : 'none',
+              color: pressed ? 'var(--w-text)' : 'var(--w-text-muted)',
+              fontWeight: pressed ? 'var(--w-font-weight-semibold)' : 'var(--w-font-weight-medium)',
             }}
           >
             {t(option.key, {}, locale)}
-          </button>
+          </Button>
         );
       })}
     </div>
   );
 }
 
-/** The top bar: the brand, the contextual identity, the language. 56px, sticky, wraps below 768 (§4). */
+/** The top bar: the brand, the contextual identity, the language. */
 export function BenchTopbar() {
   const dir = useDirection();
   const locale = useLocale();
@@ -185,8 +178,8 @@ export function BenchTopbar() {
 /**
  * The instrument strip: what an owner glances at (§4).
  *
- * The phone keeps two readings at 390 — the daemon lamp and the budget — and marks the rest `hideNarrow`.
- * A reading the daemon has not made is said in words, never as a zero (§7).
+ * Keeps the daemon status and budget visible on narrow viewports, hides secondary items below tablet,
+ * and counts only the current-stage gate (`parkedGate`).
  */
 export function BenchStrip() {
   const dir = useDirection();
@@ -202,65 +195,72 @@ export function BenchStrip() {
           ? t('remote.daemon_checking', {}, locale)
           : t('remote.session_none_title', {}, locale);
 
-  const daemonLamp =
+  const daemonStatus: StatusPillState =
     connection === 'online'
-      ? 'ok'
+      ? 'done'
       : connection === 'offline'
-        ? 'fail'
+        ? 'failed'
         : connection === 'checking'
-          ? 'working'
+          ? 'running'
           : 'idle';
 
   return (
     <div dir={dir} className="app-strip" data-testid="remote-strip">
-      <StatusStrip label={t('bench.status_label', {}, locale)}>
-        <StatusStrip.Item>
-          <Lamp state={daemonLamp} size="xs">
-            {daemonWord}
-          </Lamp>
-        </StatusStrip.Item>
+      <div
+        role="status"
+        aria-label={t('bench.status_label', {}, locale)}
+        tabIndex={0}
+        className="app-strip-bar"
+      >
+        <span className="app-strip-item">
+          <StatusPill status={daemonStatus} label={daemonWord} />
+        </span>
 
-        <StatusStrip.Item hideNarrow>
+        <span className="app-strip-item" data-hide-narrow="true">
           {run === null
             ? t('bench.no_run', {}, locale)
             : `${t('bench.stage_label', {}, locale)} ${stageWord(run.stage, locale)}`}
-        </StatusStrip.Item>
+        </span>
 
-        <StatusStrip.Item hideNarrow>
-          {/* The count is the machine reading; the words beside it are the owner's language. They used to
-              share one `machine` skin, which set the Arabic phrase in a fixed-advance face (§11). */}
+        <span className="app-strip-item" data-hide-narrow="true">
           <Machine>{pendingGates.length}</Machine>
           {` ${t('bench.gates_waiting', {}, locale)}`}
-        </StatusStrip.Item>
+        </span>
 
-        <StatusStrip.Item>
+        <span className="app-strip-item">
           {budget === null ? (
-            <Lamp state="idle" size="xs" bare>
-              {`${t('bench.budget_used', {}, locale)}: ${t('bench.not_reported', {}, locale)}`}
-            </Lamp>
+            <StatusPill
+              status="idle"
+              label={`${t('bench.budget_used', {}, locale)}: ${t('bench.not_reported', {}, locale)}`}
+            />
           ) : !hasCeiling(budget.totalBudgetUsd) ? (
-            // The spend answered and the ceiling did not. `$0.00` would read as "the budget is used up",
-            // which is the opposite claim; the words say what is actually missing (§7).
-            <Lamp state="idle" size="xs" bare>
-              {`${t('bench.budget_used', {}, locale)}: ${money(budget.spentUsd)} · ${t('bench.no_ceiling', {}, locale)}`}
-            </Lamp>
+            <StatusPill
+              status="idle"
+              label={`${t('bench.budget_used', {}, locale)}: ${money(budget.spentUsd)} · ${t('bench.no_ceiling', {}, locale)}`}
+            />
           ) : (
-            <Meter
-              value={Number(budget.spentUsd.toFixed(2))}
-              max={Number(budget.totalBudgetUsd.toFixed(2))}
-              label={t('bench.budget_used', {}, locale)}
-            >
-              {`${money(budget.spentUsd)} / ${money(budget.totalBudgetUsd)}`}
-            </Meter>
+            <span className="app-strip-meter">
+              <ProgressBar
+                role="meter"
+                value={Number(budget.spentUsd.toFixed(2))}
+                max={Number(budget.totalBudgetUsd.toFixed(2))}
+                label={t('bench.budget_used', {}, locale)}
+                aria-valuenow={Number(budget.spentUsd.toFixed(2))}
+                aria-valuemin={0}
+                aria-valuemax={Number(budget.totalBudgetUsd.toFixed(2))}
+                style={{ width: 'var(--w-space-10)', flexShrink: 0 }}
+              />
+              <Machine>{`${money(budget.spentUsd)} / ${money(budget.totalBudgetUsd)}`}</Machine>
+            </span>
           )}
-        </StatusStrip.Item>
+        </span>
 
         {session !== null && (
-          <StatusStrip.Item hideNarrow>
+          <span className="app-strip-item" data-hide-narrow="true">
             <Machine title={session.baseUrl}>{endpointHost(session)}</Machine>
-          </StatusStrip.Item>
+          </span>
         )}
-      </StatusStrip>
+      </div>
     </div>
   );
 }
@@ -277,27 +277,13 @@ const NAV_ITEMS: readonly { to: string; key: string; end?: boolean; badge?: bool
 /**
  * The bench navigation.
  *
- * A `nav` landmark of links, each carrying `aria-current="page"` — which is also what draws the signal
- * edge on the selected item, so "where am I" is one attribute rather than two claims (§6). Links rather
- * than buttons: these change the URL, and the back button has to keep working (§4).
- *
- * A label is one word and a word may not be broken: five places share 390px, and an item that is
- * narrower than its own label used to fold `البوّابات` across two lines with an orphan `ت` beside the
- * badge — on the tab that carries the lit lamp, which is the one thing the owner is glancing for. The
- * English control broke the same way (`Gate`/`s`), so this is a missing constraint, not an RTL accident.
- * `whiteSpace: 'nowrap'` here keeps the word whole; `index.css` keeps the *bar* inside the plate, by
- * refusing to shrink an item and scrolling the row inside itself — the disclosure the settings strip
- * already uses (§10).
- *
- * The pending count rides the gates item and is the one lit thing on the bench: a lit lamp means the
- * owner's hand is what is missing (§1), and the number beside it is the colour-free channel (§9). Below
- * 768 the nav is the bar under the bench; at 768 and above it becomes the inline-start rail (§10).
+ * Counts only the current-stage gate (`parkedGate`) for the gates badge.
  */
 export function BenchNav() {
   const dir = useDirection();
   const locale = useLocale();
-  const { pendingGates } = useRemote();
-  const waiting = pendingGates.length;
+  const { parkedGate } = useRemote();
+  const waiting = parkedGate !== null ? 1 : 0;
 
   return (
     <nav dir={dir} className="app-nav" aria-label={t('remote.nav_label', {}, locale)} data-testid="remote-nav">
@@ -313,22 +299,20 @@ export function BenchNav() {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: space(1),
-                minBlockSize: size('touch'),
-                paddingInline: space(2),
-                paddingBlock: space(2),
+                gap: 'var(--w-space-1)',
+                minBlockSize: 'var(--w-control-height)',
+                paddingInline: 'var(--w-space-2)',
+                paddingBlock: 'var(--w-space-2)',
                 textDecoration: 'none',
                 fontFamily: 'inherit',
-                fontSize: fontSize('sm'),
+                fontSize: 'var(--w-font-size-sm)',
                 textAlign: 'center',
                 whiteSpace: 'nowrap',
               }}
             >
               <span>{t(item.key, {}, locale)}</span>
               {item.badge === true && waiting > 0 && (
-                <span className="app-nav-badge" aria-hidden="true">
-                  {waiting}
-                </span>
+                <Badge count={waiting} variant="attention" className="app-nav-badge" aria-hidden="true" />
               )}
             </NavLink>
           </li>
@@ -340,10 +324,6 @@ export function BenchNav() {
 
 /**
  * A screen's own heading.
- *
- * A real `<h1>`, not a styled `Text`: the phone's owner lands on a screen and the first thing a screen
- * reader announces should be *which* screen it is (§9's semantic controls), and `main` + `h1` is what
- * makes that claim instead of a span that happens to be bold.
  */
 export function ScreenTitle({ children }: { children: React.ReactNode }) {
   const dir = useDirection();
@@ -352,10 +332,10 @@ export function ScreenTitle({ children }: { children: React.ReactNode }) {
       dir={dir}
       style={{
         margin: 0,
-        color: colorVar('text'),
-        fontSize: fontSize('lg'),
-        fontWeight: fontWeight('bold'),
-        lineHeight: lineHeight('snug'),
+        color: 'var(--w-text)',
+        fontSize: 'var(--w-font-size-lg)',
+        fontWeight: 'var(--w-font-weight-bold)',
+        lineHeight: 'var(--w-line-height-lg)',
       }}
     >
       {children}
@@ -368,9 +348,17 @@ export function SessionLine({ session }: { session: DaemonSession }) {
   const dir = useDirection();
   const locale = useLocale();
   return (
-    <Text size="xs" dir={dir} style={{ color: colorVar('text') }}>
+    <p
+      dir={dir}
+      style={{
+        margin: 0,
+        color: 'var(--w-text)',
+        fontSize: 'var(--w-font-size-xs)',
+        lineHeight: 'var(--w-line-height-xs)',
+      }}
+    >
       {`${t('remote.session_endpoint', {}, locale)} `}
       <Machine title={session.baseUrl}>{endpointHost(session)}</Machine>
-    </Text>
+    </p>
   );
 }
