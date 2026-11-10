@@ -3853,28 +3853,43 @@ impl WarshaApiServer for WarshaRpc {
         prompt: String,
     ) -> RpcResult<Run> {
         self.authorize(ext, "runs.followup")?;
-        if prompt.trim().is_empty() {
+        let trimmed = prompt.trim();
+        if trimmed.is_empty() {
             return Err(ErrorObject::owned(
                 -32602,
                 "runs.followup needs a non-empty prompt",
                 None::<()>,
             ));
         }
-        let mut run = self.state.store.get_run(run_id).await.map_err(rpc_error)?;
-        let trimmed = prompt.trim();
+        let ctrl = self.state.pipeline.control_for(run_id).await;
+        let _state_guard = ctrl.state_lock.lock().await;
+        if *ctrl.cancel_tx.borrow() {
+            return Err(rpc_error("Cannot apply followup to a cancelled run"));
+        }
+        let (mut run, version) = self
+            .state
+            .store
+            .get_run_versioned(run_id)
+            .await
+            .map_err(rpc_error)?;
+        match run.status {
+            RunStatus::Cancelled => {
+                return Err(rpc_error("Cannot apply followup to a cancelled run"));
+            }
+            RunStatus::Completed | RunStatus::Failed => {
+                return Err(rpc_error(format!(
+                    "Cannot apply followup to a terminal ({:?}) run",
+                    run.status
+                )));
+            }
+            RunStatus::Running | RunStatus::Paused => {}
+        }
         let content = format!(
             "Follow-up applied at stage {:?}: {}",
             run.current_stage, trimmed
         );
         let now = Utc::now();
         run.updated_at = now;
-        // Store first, then the run's own artifact map: the write is the durable record,
-        // and `run.artifacts` is what `runs.get` and `runs.artifacts` report from.
-        self.state
-            .store
-            .write_artifact(run.project_id, "followup", &content)
-            .await
-            .map_err(rpc_error)?;
         run.artifacts.insert(
             "followup".to_string(),
             Artifact {
@@ -3887,7 +3902,17 @@ impl WarshaApiServer for WarshaRpc {
                 version: 1,
             },
         );
-        self.state.store.update_run(&run).await.map_err(rpc_error)?;
+        self.state
+            .store
+            .update_run_cas(&run, version)
+            .await
+            .map_err(rpc_error)?;
+        // Persist the durable artifact file and event log only after the CAS state update succeeds.
+        self.state
+            .store
+            .write_artifact(run.project_id, "followup", &content)
+            .await
+            .map_err(rpc_error)?;
         let event = Event {
             id: ulid::Ulid::new(),
             run_id,
@@ -9368,6 +9393,137 @@ mod tests {
             // Call runs.resume to resume the interrupted run.
             let resumed = rpc.resume_run(&owner, run_id).await.unwrap();
             assert_eq!(resumed.status, RunStatus::Running);
+        }
+    }
+
+    mod runs_followup {
+        use super::*;
+
+        #[tokio::test]
+        async fn stale_followup_cannot_resurrect_cancel_and_valid_followup_bumps_version() {
+            let temp = crate::test_util::fresh_tempdir();
+            let (state, store) = test_state(temp.path()).await;
+            let rpc = WarshaRpc::new(state.clone());
+            let owner = owner_ext();
+
+            let project = rpc
+                .create_project(
+                    &owner,
+                    "Followup Integrity Project".to_string(),
+                    "Test followup CAS and cancel refusal".to_string(),
+                    "en".to_string(),
+                )
+                .await
+                .expect("project created");
+            let run = rpc
+                .start_run(&owner, project.id, "Initial idea".to_string())
+                .await
+                .expect("run started");
+
+            let (initial_run, initial_version) = store
+                .get_run_versioned(run.id)
+                .await
+                .expect("initial versioned run");
+            assert_eq!(initial_run.status, RunStatus::Running);
+
+            // 1. Valid followup succeeds and bumps the version (initial_version -> initial_version + 1).
+            let followed = rpc
+                .followup_run(
+                    &owner,
+                    run.id,
+                    "Clarify onboarding requirements".to_string(),
+                )
+                .await
+                .expect("valid followup succeeds");
+            assert_eq!(followed.status, RunStatus::Running);
+
+            let (bumped_run, bumped_version) = store
+                .get_run_versioned(run.id)
+                .await
+                .expect("reloaded versioned run");
+            assert_eq!(
+                bumped_version,
+                initial_version + 1,
+                "valid followup must bump run version"
+            );
+            assert!(bumped_run.artifacts.contains_key("followup"));
+
+            // 2. Cancel the run — bumps version again (initial_version + 1 -> initial_version + 2).
+            let cancelled = rpc
+                .cancel_run(&owner, run.id, Some("User cancelled".to_string()))
+                .await
+                .expect("cancel succeeds");
+            assert_eq!(cancelled.status, RunStatus::Cancelled);
+
+            let (cancelled_run, cancel_version) = store
+                .get_run_versioned(run.id)
+                .await
+                .expect("cancelled versioned run");
+            assert_eq!(cancel_version, initial_version + 2);
+            assert_eq!(cancelled_run.status, RunStatus::Cancelled);
+
+            // 3. Followup on a cancelled run must be refused with an RPC error and not resurrect it.
+            let cancel_err = rpc
+                .followup_run(&owner, run.id, "Attempt followup after cancel".to_string())
+                .await
+                .expect_err("followup on cancelled run must be refused");
+            assert!(
+                cancel_err.message().contains("cancelled"),
+                "expected cancelled refusal message, got: {}",
+                cancel_err.message()
+            );
+
+            // 4. Verify stale snapshot cannot overwrite Cancelled status via CAS.
+            let mut stale_snapshot = bumped_run.clone(); // Running at bumped_version
+            stale_snapshot.updated_at = Utc::now();
+            let stale_cas = store.update_run_cas(&stale_snapshot, bumped_version).await;
+            assert!(
+                stale_cas.is_err(),
+                "stale followup snapshot must fail CAS against cancelled version"
+            );
+
+            let (after_run, after_version) = store.get_run_versioned(run.id).await.unwrap();
+            assert_eq!(after_run.status, RunStatus::Cancelled);
+            assert_eq!(after_version, cancel_version);
+
+            // 5. In-flight cancel signal on a live run also refuses followup before DB commit.
+            let run2 = rpc
+                .start_run(
+                    &owner,
+                    project.id,
+                    "In-flight cancel signal test".to_string(),
+                )
+                .await
+                .expect("run2 started");
+            let (_, run2_initial_v) = store.get_run_versioned(run2.id).await.unwrap();
+            let ctrl2 = state.pipeline.control_for(run2.id).await;
+            let _ = ctrl2.cancel_tx.send(true);
+            let flag_err = rpc
+                .followup_run(&owner, run2.id, "Should see cancel signal".to_string())
+                .await
+                .expect_err("followup must be refused when cancel signal is set");
+            assert!(flag_err.message().contains("cancelled"));
+            let (run2_after, run2_v) = store.get_run_versioned(run2.id).await.unwrap();
+            assert_eq!(
+                run2_v, run2_initial_v,
+                "refused followup under cancel flag must not bump version"
+            );
+            assert!(!run2_after.artifacts.contains_key("followup"));
+
+            // 6. Terminal (Completed) run must also refuse followup with an RPC error.
+            let mut completed_run = bumped_run;
+            completed_run.id = RunId::new();
+            completed_run.status = RunStatus::Completed;
+            store.create_run(&completed_run).await.unwrap();
+            let terminal_err = rpc
+                .followup_run(&owner, completed_run.id, "Late followup".to_string())
+                .await
+                .expect_err("followup on terminal run must be refused");
+            assert!(
+                terminal_err.message().contains("terminal"),
+                "expected terminal refusal message, got: {}",
+                terminal_err.message()
+            );
         }
     }
 }

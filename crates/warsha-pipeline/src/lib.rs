@@ -221,15 +221,18 @@ fn verified_actor(device_id: DeviceId, action: &str) -> Result<DeviceId> {
 
 /// Control structure for a single run, maintaining per-run execution serialization,
 /// state write mutual exclusion, and cooperative cancellation signaling (K2).
-pub(crate) struct RunControl {
+pub struct RunControl {
     /// Serializes stage execution (`advance_stage`, `advance_to_next_gate`, `resume_run`)
     /// so two concurrent writers/advancers never interleave stage walks.
-    pub(crate) exec_lock: tokio::sync::Mutex<()>,
+    pub exec_lock: tokio::sync::Mutex<()>,
     /// Short-lived mutex protecting database read-modify-write transitions.
     /// Never held across external provider calls.
-    pub(crate) state_lock: tokio::sync::Mutex<()>,
+    pub state_lock: tokio::sync::Mutex<()>,
     /// Live cancellation broadcast for this run (`true` = cancelled).
-    pub(crate) cancel_tx: tokio::sync::watch::Sender<bool>,
+    pub cancel_tx: tokio::sync::watch::Sender<bool>,
+    /// Keeps the watch channel open even when no worker is subscribed, ensuring
+    /// `cancel_tx.send(true)` reliably updates the value without receiver-drop error.
+    _cancel_keepalive: tokio::sync::watch::Receiver<bool>,
 }
 
 /// Map a gate to the stage that produced the artifacts reviewed by that gate.
@@ -271,16 +274,17 @@ impl<S: SettingsProvider> PipelineEngine<S> {
     }
 
     /// Obtain or create the [`RunControl`] for `run_id`.
-    pub(crate) async fn control_for(&self, run_id: RunId) -> Arc<RunControl> {
+    pub async fn control_for(&self, run_id: RunId) -> Arc<RunControl> {
         let mut controls = self.run_controls.lock().await;
         controls
             .entry(run_id)
             .or_insert_with(|| {
-                let (cancel_tx, _cancel_rx) = tokio::sync::watch::channel(false);
+                let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
                 Arc::new(RunControl {
                     exec_lock: tokio::sync::Mutex::new(()),
                     state_lock: tokio::sync::Mutex::new(()),
                     cancel_tx,
+                    _cancel_keepalive: cancel_rx,
                 })
             })
             .clone()
@@ -1201,8 +1205,14 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 return Err(PipelineError::Other("Run is cancelled".to_string()));
             }
             let (run, version) = self.store.get_run_versioned(run_id).await?;
-            if run.status == RunStatus::Cancelled {
-                return Err(PipelineError::Other("Run is cancelled".to_string()));
+            if matches!(
+                run.status,
+                RunStatus::Cancelled | RunStatus::Completed | RunStatus::Failed
+            ) {
+                return Err(PipelineError::Other(format!(
+                    "Cannot apply followup to a {:?} run",
+                    run.status
+                )));
             }
             let role = crate::prompts::role_for_stage(run.current_stage).unwrap_or(Role::Intake);
             (run, version, role)
@@ -1250,7 +1260,11 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 return Err(PipelineError::Other("Run is cancelled".to_string()));
             }
             let (mut latest, latest_v) = self.store.get_run_versioned(run_id).await?;
-            if latest.status == RunStatus::Cancelled || latest_v != version {
+            if matches!(
+                latest.status,
+                RunStatus::Cancelled | RunStatus::Completed | RunStatus::Failed
+            ) || latest_v != version
+            {
                 return Err(PipelineError::Other(
                     "Run state changed concurrently during followup".to_string(),
                 ));
