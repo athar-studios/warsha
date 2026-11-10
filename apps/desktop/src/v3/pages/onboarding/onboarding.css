@@ -1,0 +1,191 @@
+/* apps/desktop/src/v3/pages/onboarding/onboarding.css — Design System v3 Onboarding styling */
+/* Uses semantic tokens (--w-*) and logical CSS properties only. Zero literals, zero physical direction. */
+
+.v3-onboarding-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-block: var(--w-space-6);
+  padding-inline: var(--w-space-4);
+  box-sizing: border-box;
+}
+
+.v3-onboarding-shell {
+  inline-size: 100%;
+  max-inline-size: var(--w-content-narrow);
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-space-6);
+  box-sizing: border-box;
+}
+
+/* 3-dot progress */
+.v3-onboarding-progress {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--w-space-3);
+  padding-block: var(--w-space-2);
+}
+
+.v3-onboarding-dot {
+  inline-size: var(--w-space-3);
+  block-size: var(--w-space-3);
+  border-radius: var(--w-radius-full);
+  background-color: var(--w-line-strong);
+  transition: background-color var(--w-dur-fast) var(--w-ease);
+}
+
+.v3-onboarding-dot--active {
+  background-color: var(--w-primary-text);
+  inline-size: var(--w-space-6);
+}
+
+.v3-onboarding-dot--completed {
+  background-color: var(--w-success);
+}
+
+/* Step Card */
+.v3-onboarding-card {
+  background-color: var(--w-surface);
+  border: var(--w-border-width) solid var(--w-line);
+  border-radius: var(--w-radius-lg);
+  padding: var(--w-space-6);
+  box-shadow: var(--w-shadow-1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-space-5);
+  box-sizing: border-box;
+}
+
+.v3-onboarding-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-space-2);
+}
+
+.v3-onboarding-title {
+  font-size: var(--w-font-size-2xl);
+  line-height: var(--w-line-height-2xl);
+  font-weight: var(--w-font-weight-bold);
+  color: var(--w-text);
+  margin-block: 0;
+}
+
+.v3-onboarding-desc {
+  font-size: var(--w-font-size-md);
+  line-height: var(--w-line-height-md);
+  color: var(--w-text-muted);
+  margin-block: 0;
+}
+
+/* Step 1: Language choices */
+.v3-onboarding-lang-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--w-space-4);
+}
+
+.v3-onboarding-lang-btn {
+  flex: 1;
+  min-inline-size: var(--w-nav-width);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--w-space-2);
+  padding: var(--w-space-6);
+  border-radius: var(--w-radius-md);
+  border: var(--w-border-width) solid var(--w-line-strong);
+  background-color: var(--w-surface);
+  color: var(--w-text);
+  font-family: var(--w-font-sans);
+  font-size: var(--w-font-size-lg);
+  font-weight: var(--w-font-weight-semibold);
+  cursor: pointer;
+  transition: border-color var(--w-dur-fast) var(--w-ease), background-color var(--w-dur-fast) var(--w-ease);
+}
+
+.v3-onboarding-lang-btn:hover {
+  background-color: var(--w-sunken);
+  border-color: var(--w-focus);
+}
+
+.v3-onboarding-lang-btn[aria-pressed="true"] {
+  border-color: var(--w-primary-text);
+  background-color: var(--w-primary-soft);
+  color: var(--w-primary-text);
+}
+
+/* Step 2: Provider grid */
+.v3-onboarding-provider-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--w-space-3);
+}
+
+.v3-onboarding-provider-btn {
+  flex: 1 1 calc(50% - var(--w-space-3));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--w-space-1);
+  padding: var(--w-space-3);
+  border-radius: var(--w-radius-sm);
+  border: var(--w-border-width) solid var(--w-line);
+  background-color: var(--w-surface);
+  color: var(--w-text);
+  font-family: var(--w-font-sans);
+  font-size: var(--w-font-size-sm);
+  font-weight: var(--w-font-weight-medium);
+  cursor: pointer;
+  text-align: start;
+  box-sizing: border-box;
+  transition: border-color var(--w-dur-fast) var(--w-ease), background-color var(--w-dur-fast) var(--w-ease);
+}
+
+.v3-onboarding-provider-btn:hover {
+  background-color: var(--w-sunken);
+  border-color: var(--w-line-strong);
+}
+
+.v3-onboarding-provider-btn[aria-pressed="true"] {
+  border-color: var(--w-primary-text);
+  background-color: var(--w-primary-soft);
+  color: var(--w-primary-text);
+}
+
+.v3-onboarding-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-space-4);
+  background-color: var(--w-sunken);
+  border-radius: var(--w-radius-md);
+  padding: var(--w-space-4);
+  box-sizing: border-box;
+}
+
+/* Actions footer */
+.v3-onboarding-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--w-space-3);
+  border-block-start: var(--w-border-width) solid var(--w-line);
+  padding-block-start: var(--w-space-4);
+  margin-block-start: var(--w-space-2);
+}
+
+.v3-onboarding-actions-start {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-2);
+}
+
+.v3-onboarding-actions-end {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-2);
+  margin-inline-start: auto;
+}
