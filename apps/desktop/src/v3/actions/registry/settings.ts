@@ -114,6 +114,27 @@ export const ACTIONS: readonly ActionDef[] = [
     rpc: ['harness.delete'],
   },
 
+  // Skills section
+  {
+    id: 'settings.skill.toggle',
+    labelKey: 'settings.skills.toggle',
+    effect: 'rpc',
+    rpc: ['skills.toggle'],
+  },
+  {
+    id: 'settings.skill.import',
+    labelKey: 'settings.skills.import_btn',
+    effect: 'rpc',
+    rpc: ['skills.import'],
+  },
+  { id: 'settings.skill.delete.open', labelKey: 'settings.skills.delete', effect: 'state' },
+  {
+    id: 'settings.skill.delete.confirm',
+    labelKey: 'settings.common.confirm_delete',
+    effect: 'rpc',
+    rpc: ['skills.delete'],
+  },
+
   // Shared dialog & error recovery actions
   { id: 'settings.dialog.cancel', labelKey: 'common.cancel', effect: 'state' },
   { id: 'settings.error.retry', labelKey: 'common.retry', effect: 'state' },

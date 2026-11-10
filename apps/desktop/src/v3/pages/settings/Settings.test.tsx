@@ -7,6 +7,7 @@ import type {
   PairingOffer,
   ProviderConfig,
   RoleRouting,
+  SkillDefinition,
   WarshaClient,
 } from '@warsha/client';
 /* eslint-disable import/no-unresolved */
@@ -165,6 +166,39 @@ function createMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
     } satisfies HarnessDefinition),
     selectHarness: vi.fn().mockResolvedValue(undefined),
     deleteHarness: vi.fn().mockResolvedValue(undefined),
+    listSkills: vi.fn().mockResolvedValue([
+      {
+        id: 'skill-1',
+        name: 'Audit Skill',
+        description: 'Code audit instructions',
+        source: 'local',
+        license: 'MIT',
+        content: '# Audit',
+        enabled: true,
+        tags: ['audit'],
+      } satisfies SkillDefinition,
+    ]),
+    importSkill: vi.fn().mockResolvedValue({
+      id: 'skill-new',
+      name: 'New Skill',
+      description: '',
+      source: 'imported',
+      license: '',
+      content: '# New',
+      enabled: true,
+      tags: [],
+    } satisfies SkillDefinition),
+    toggleSkill: vi.fn().mockResolvedValue({
+      id: 'skill-1',
+      name: 'Audit Skill',
+      description: 'Code audit instructions',
+      source: 'local',
+      license: 'MIT',
+      content: '# Audit',
+      enabled: false,
+      tags: ['audit'],
+    } satisfies SkillDefinition),
+    deleteSkill: vi.fn().mockResolvedValue(undefined),
     health: vi.fn().mockResolvedValue({ status: 'ok', version: '0.2.1' }),
     ...overrides,
   } as unknown as WarshaClient;
@@ -402,5 +436,28 @@ describe('SettingsPage (Slice 1)', () => {
     await waitFor(() => expect(screen.getByTestId('workflow-delete-dialog')).toBeDefined());
     fireEvent.click(document.querySelector('button[data-action="settings.harness.delete.confirm"]') as HTMLElement);
     await waitFor(() => expect(client.deleteHarness).toHaveBeenCalledWith('wf-1'));
+  });
+
+  it('handles skill import, toggle, and delete dialog in SkillsSection', async () => {
+    const client = createMockClient();
+    renderSettings('/settings/skills', client, 'advanced');
+    await waitFor(() => expect(screen.getByTestId('settings-section-skills')).toBeDefined());
+
+    fireEvent.change(screen.getByTestId('skill-import-name').querySelector('input') as HTMLInputElement, {
+      target: { value: 'skill-new' },
+    });
+    fireEvent.change(screen.getByTestId('skill-import-content').querySelector('textarea') as HTMLTextAreaElement, {
+      target: { value: '# Skill Instructions' },
+    });
+    fireEvent.click(document.querySelector('button[data-action="settings.skill.import"]') as HTMLElement);
+    await waitFor(() => expect(client.importSkill).toHaveBeenCalledWith('# Skill Instructions', 'skill-new'));
+
+    fireEvent.click(document.querySelector('button[data-action="settings.skill.toggle"]') as HTMLElement);
+    await waitFor(() => expect(client.toggleSkill).toHaveBeenCalledWith('skill-1', false));
+
+    fireEvent.click(document.querySelector('button[data-action="settings.skill.delete.open"]') as HTMLElement);
+    await waitFor(() => expect(screen.getByTestId('skill-delete-dialog')).toBeDefined());
+    fireEvent.click(document.querySelector('button[data-action="settings.skill.delete.confirm"]') as HTMLElement);
+    await waitFor(() => expect(client.deleteSkill).toHaveBeenCalledWith('skill-1'));
   });
 });

@@ -18,7 +18,7 @@ const VIEWPORTS = [
 
 const LOCALES = ['ar', 'en'] as const;
 const THEMES = ['light', 'dark'] as const;
-const SECTIONS = ['general', 'models', 'devices', 'about', 'workflows'] as const;
+const SECTIONS = ['general', 'models', 'devices', 'about', 'workflows', 'skills'] as const;
 
 const CUSTOM_MODELS_FIXTURE = {
   'models.list': {
@@ -61,6 +61,23 @@ const WORKFLOWS_FIXTURE = {
         preset: true,
         active: false,
         created_at: '2026-10-05T07:00:00.000Z',
+      },
+    ],
+  },
+} as const;
+
+const SKILLS_FIXTURE = {
+  'skills.list': {
+    result: [
+      {
+        id: 'skill-1',
+        name: 'Audit Skill',
+        description: 'Code audit instructions',
+        source: 'local',
+        license: 'MIT',
+        content: '# Audit',
+        enabled: true,
+        tags: ['audit'],
       },
     ],
   },
@@ -250,6 +267,30 @@ test.describe('Settings v3 (Slice 1)', () => {
     await expect(deleteDialog).toBeVisible();
     await act(page, 'settings.harness.delete.confirm');
     await expectRpc(page, 'harness.delete');
+    await expect(deleteDialog).not.toBeVisible();
+  });
+
+  test('skills journey: import, toggle, and delete via dialog', async ({ page }) => {
+    await openV3(page, '/settings/skills', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: SKILLS_FIXTURE,
+    });
+    await expect(page.locator('[data-testid="settings-section-skills"]')).toBeVisible();
+
+    await page.locator('[data-testid="skill-import-name"] input').fill('skill-2');
+    await page.locator('[data-testid="skill-import-content"] textarea').fill('# Instructions');
+    await act(page, 'settings.skill.import');
+    await expectRpc(page, 'skills.import');
+
+    await act(page, 'settings.skill.toggle');
+    await expectRpc(page, 'skills.toggle');
+
+    await act(page, 'settings.skill.delete.open');
+    const deleteDialog = page.locator('[data-testid="skill-delete-dialog"]');
+    await expect(deleteDialog).toBeVisible();
+    await act(page, 'settings.skill.delete.confirm');
+    await expectRpc(page, 'skills.delete');
     await expect(deleteDialog).not.toBeVisible();
   });
 
@@ -456,6 +497,44 @@ test.describe('Settings v3 (Slice 1)', () => {
     await act(page, 'settings.harness.delete.open');
     await act(page, 'settings.harness.delete.confirm');
     await expectRpc(page, 'harness.delete');
+  });
+
+  test('action: settings.skill.import', async ({ page }) => {
+    await openV3(page, '/settings/skills', { lang: 'ar', mode: 'advanced' });
+    await page.locator('[data-testid="skill-import-content"] textarea').fill('# Skill');
+    await act(page, 'settings.skill.import');
+    await expectRpc(page, 'skills.import');
+  });
+
+  test('action: settings.skill.toggle', async ({ page }) => {
+    await openV3(page, '/settings/skills', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: SKILLS_FIXTURE,
+    });
+    await act(page, 'settings.skill.toggle');
+    await expectRpc(page, 'skills.toggle');
+  });
+
+  test('action: settings.skill.delete.open', async ({ page }) => {
+    await openV3(page, '/settings/skills', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: SKILLS_FIXTURE,
+    });
+    await act(page, 'settings.skill.delete.open');
+    await expect(page.locator('[data-testid="skill-delete-dialog"]')).toBeVisible();
+  });
+
+  test('action: settings.skill.delete.confirm', async ({ page }) => {
+    await openV3(page, '/settings/skills', {
+      lang: 'ar',
+      mode: 'advanced',
+      fixtures: SKILLS_FIXTURE,
+    });
+    await act(page, 'settings.skill.delete.open');
+    await act(page, 'settings.skill.delete.confirm');
+    await expectRpc(page, 'skills.delete');
   });
 
   test('action: settings.dialog.cancel', async ({ page }) => {

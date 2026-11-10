@@ -14,6 +14,7 @@ import { AboutSection } from './sections/AboutSection';
 import { DevicesSection } from './sections/DevicesSection';
 import { GeneralSection } from './sections/GeneralSection';
 import { ModelsSection } from './sections/ModelsSection';
+import { SkillsSection } from './sections/SkillsSection';
 import { WorkflowsSection } from './sections/WorkflowsSection';
 import {
   isSettingsSectionId,
@@ -81,6 +82,8 @@ export default function SettingsPage(): React.ReactElement {
         return <AboutSection />;
       case 'workflows':
         return <WorkflowsSection />;
+      case 'skills':
+        return <SkillsSection />;
       default:
         return <PendingAdvancedSection meta={activeMeta} />;
     }
