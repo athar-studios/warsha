@@ -20,6 +20,7 @@ mod agent_tools;
 mod agent_workflow;
 mod backend_kit;
 mod build_cache;
+mod command_policy;
 mod evals;
 mod gate_integrity;
 mod guardrails;
@@ -74,6 +75,10 @@ pub use crate::backend_kit::{
 pub use crate::build_cache::{
     BuildCache, BuildCacheEntry, BuildCacheKey, BuildCacheStats, InMemoryBuildCache,
 };
+pub use crate::command_policy::{
+    CommandOutput, CommandPolicy, CommandPolicyError, DEFAULT_ALLOWED_COMMANDS,
+    DEFAULT_COMMAND_TIMEOUT, DEFAULT_OUTPUT_CAP_BYTES, MINIMAL_CHILD_ENV, SHELL_COMMANDS,
+};
 pub use crate::evals::{blocks_change, run_suite, EvalCase, EvalError, EvalOutcome, EvalSuite};
 pub use crate::gate_integrity::artifacts_sha256;
 pub use crate::guardrails::{
@@ -111,8 +116,8 @@ pub use crate::preferences::{
     PreferenceStore, SignalKind, DECAY_HALF_LIFE_SECS, DEFAULT_SIGNAL_WEIGHT,
 };
 pub use crate::process_spawn::{
-    InMemoryProcessManager, LivePreview, LivePreviewManager, ManagedProcess, ProcessError,
-    ProcessManager, ProcessStatus, ProcessSummary,
+    split_command, InMemoryProcessManager, LivePreview, LivePreviewManager, ManagedProcess,
+    ProcessError, ProcessManager, ProcessStatus, ProcessSummary,
 };
 pub use crate::provider_setup::{ConnectionTestResult, OneClickProvider, ProviderSetupWizard};
 pub use crate::router_quality::{
