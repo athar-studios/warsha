@@ -35,7 +35,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use warsha_core::Role;
 use warsha_providers::{ChatMessage, ChatRequest, MessageRole, ProviderError, ProviderRouter};
 
@@ -256,6 +256,16 @@ pub struct AgentLoop {
     pub mcp_manager: Option<Arc<dyn McpManager>>,
     /// The backend kit updated on backend tool mutations.
     pub backend_kit: Option<Arc<RwLock<BackendKit>>>,
+    /// The gate that keeps two turns of this conversation from interleaving.
+    ///
+    /// The daemon runs a turn in three phases — prepare under the loop's write
+    /// lock, execute without it, finish under it again — so the loop's `RwLock`
+    /// no longer covers a whole turn. This mutex is what preserves the one-turn-
+    /// at-a-time rule across that gap: a second turn waits from prepare through
+    /// finish, and a mode switch cannot land in the middle of one. It is an
+    /// `Arc` so a caller can take the gate out from under the `RwLock` and hold
+    /// it across execution without holding the state lock.
+    turn_lock: Arc<Mutex<()>>,
     /// The transcript the compactor works on, oldest first.
     context: Vec<String>,
 }
@@ -316,8 +326,19 @@ impl AgentLoop {
             router: None,
             mcp_manager: None,
             backend_kit: None,
+            turn_lock: Arc::new(Mutex::new(())),
             context: Vec::new(),
         }
+    }
+
+    /// The gate every turn of this conversation is serialized by.
+    ///
+    /// Taken before [`AgentLoop::prepare_turn`] and released after
+    /// [`AgentLoop::finish_turn`]; see the `turn_lock` field. Cloning it lets a
+    /// caller hold the gate across a phased turn without holding the loop's own
+    /// lock, which is what keeps `agent.state` answerable while a command runs.
+    pub fn turn_lock(&self) -> Arc<Mutex<()>> {
+        Arc::clone(&self.turn_lock)
     }
 
     /// The same loop with the model call wired.

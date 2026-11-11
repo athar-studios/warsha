@@ -109,11 +109,6 @@ impl DeviceIdentity {
             revoked_at: None,
         })
     }
-
-    pub fn verify_signature(&self, _message: &[u8], _signature: &[u8]) -> bool {
-        // In real implementation, verify Ed25519 signature
-        true
-    }
 }
 
 /// Pairing data exchanged via QR code
@@ -183,8 +178,11 @@ impl PairingData {
             .decode(base64_png)
             .map_err(|e| RemoteError::QrCode(e.to_string()))?;
 
-        // In real implementation, decode QR from image
-        // For now, assume we have the JSON data directly
+        // This decodes the base64 payload to bytes and parses those bytes as the
+        // pairing's JSON; it does not decode a PNG image back into text. A plate
+        // produced by `to_qr_code` is a PNG and is not readable here, which is why
+        // `devices.pair-start` hands the desktop a link and a plate instead of asking
+        // the CLI to read a plate back.
         let data = serde_json::from_slice(&png_data)?;
         Ok(data)
     }
@@ -583,7 +581,15 @@ pub struct EncryptedFrame {
     pub timestamp: DateTime<Utc>,
 }
 
-/// E2E encrypted channel using Noise XX
+/// An unfinished Noise XX channel.
+///
+/// No handshake advances: `initiate` and `respond` build a handshake and discard it,
+/// `transport` therefore stays `None`, and `write_message`/`read_message` fail with
+/// `Handshake("Handshake not complete")`. The only way to set `transport` is to pass
+/// `complete_handshake` a `HandshakeState` the caller built itself. Nothing in the
+/// daemon constructs one; the relay forwards `EncryptedFrame` values as JSON envelopes
+/// under bearer authentication today, with no ciphertext guarantee, and this channel
+/// encrypts and verifies nothing.
 #[allow(dead_code)]
 pub struct EncryptedChannel {
     transport: Option<TransportState>,
@@ -595,7 +601,9 @@ pub struct EncryptedChannel {
 }
 
 impl EncryptedChannel {
-    /// Initiator side: start handshake
+    /// Initiator side: build a Noise handshake and discard it.
+    ///
+    /// `transport` stays `None`; this constructor does not perform a handshake.
     pub fn initiate(local_identity: &DeviceIdentity, remote_public: &[u8; 32]) -> Result<Self> {
         let params: NoiseParams = NOISE_PARAMS
             .parse::<NoiseParams>()
@@ -624,7 +632,9 @@ impl EncryptedChannel {
         })
     }
 
-    /// Responder side: start handshake
+    /// Responder side: build a Noise handshake and discard it.
+    ///
+    /// `transport` stays `None`; this constructor does not perform a handshake.
     pub fn respond(local_identity: &DeviceIdentity) -> Result<Self> {
         let params: NoiseParams = NOISE_PARAMS
             .parse::<NoiseParams>()
@@ -650,12 +660,6 @@ impl EncryptedChannel {
             remote_device_id: DeviceId::new(),
             replay_cache: Arc::new(Mutex::new(Vec::new())),
         })
-    }
-
-    /// Process handshake message
-    pub fn process_handshake(&mut self, _msg: &[u8], _out: &mut Vec<u8>) -> Result<bool> {
-        // In real implementation, use snow's handshake state machine
-        Ok(false)
     }
 
     /// Write a message (encrypt)
@@ -695,7 +699,12 @@ impl EncryptedChannel {
     }
 }
 
-/// Relay client for connecting to warsha-relay
+/// An outbound relay client that is not implemented.
+///
+/// Only [`RelayClient::new`] and [`RelayClient::credential`] do real work; there is no
+/// socket and no `connect`. `send_frame` and `receive_frames` are placeholders that
+/// return success and an empty list without moving anything. Nothing in the daemon
+/// constructs this type.
 #[allow(dead_code)]
 pub struct RelayClient {
     url: String,
@@ -710,12 +719,6 @@ impl RelayClient {
             device_id,
             channel: Arc::new(Mutex::new(None)),
         }
-    }
-
-    pub async fn connect(&self, _pairing: &PairingData) -> Result<()> {
-        // In real implementation, connect to relay WebSocket
-        // Perform handshake with remote device
-        Ok(())
     }
 
     /// The `Authorization` value this client must present to open a relay channel.
@@ -739,13 +742,13 @@ impl RelayClient {
         Ok(format!("Bearer {}", pairing.secret_token()))
     }
 
+    /// Not implemented: returns `Ok(())` without sending anything.
     pub async fn send_frame(&self, _frame: EncryptedFrame) -> Result<()> {
-        // Send encrypted frame to relay
         Ok(())
     }
 
+    /// Not implemented: returns an empty list without reading anything.
     pub async fn receive_frames(&self) -> Result<Vec<EncryptedFrame>> {
-        // Receive frames from relay
         Ok(vec![])
     }
 }

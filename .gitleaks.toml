@@ -164,4 +164,12 @@ regexes = [
   # "RFC1918/Tailscale" is a networking term (private IPv4 + CGNAT range),
   # not a credential.
   '''^RFC1918/Tailscale$''',
+  # crates/warsha-pipeline/src/command_policy.rs (K4, commit 6fe59e2) — the
+  # env-clearing test plants WARSHA_DAEMON_SECRET_CANARY with this exact
+  # fictional value and asserts a child process sees none of the daemon's
+  # variables. The shipped default generic-api-key rule matches the
+  # "<NAME_WITH_SECRET>", "<value>" shape; the literal is 19 filler
+  # characters, not a key. Exempted by its exact value only: any other
+  # value in that position still fires.
+  '''^canary-secret-12345$''',
 ]

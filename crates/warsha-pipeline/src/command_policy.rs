@@ -9,13 +9,21 @@
 //! - Explicitly refuses shells (`sh`, `bash`, `cmd`, `powershell`, `pwsh`) unless
 //!   the owner's configured allow-list explicitly admits them.
 //! - Rejects shell metacharacters and `..` path traversal in the program token.
+//!   Traversal is judged by splitting the token on **both** `/` and `\`, so the
+//!   same command line is classified the same way on Windows and Unix instead of
+//!   depending on the host's [`std::path`] separator rules.
 //! - Executes via `tokio::process::Command` with `kill_on_drop(true)`,
 //!   `env_clear()` plus a minimal fixed environment (never inheriting daemon or
-//!   provider secrets), a 120-second default timeout, and a 1 MiB output cap.
-//! - On timeout, sends a kill signal and waits for the child so no orphaned or
-//!   zombie process remains.
+//!   provider secrets), a 120-second default timeout, and a 1 MiB output cap. The
+//!   child `PATH` is the daemon's own `PATH` — a `PATH` is not a secret, and the
+//!   allow-listed toolchains (`cargo`, `node`, …) only resolve through it — while
+//!   every other variable stays cleared.
+//! - On timeout, the direct child is signalled, killed and reaped. On Unix the
+//!   child is spawned in its own process group and the group is killed too, so an
+//!   allow-listed toolchain's forked descendants do not survive; on Windows only
+//!   the direct child is covered (a Job Object is K8's follow-up).
 
-use std::path::{Component, Path};
+use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -77,7 +85,11 @@ pub const DEFAULT_OUTPUT_CAP_BYTES: usize = 1024 * 1024;
 ///
 /// Nothing is copied from the daemon's own environment, so provider keys,
 /// bearer tokens, user profile paths, and daemon configuration never reach a
-/// spawned tool process.
+/// spawned tool process. The `PATH` entry here is the **fallback** used only when
+/// the daemon itself has no non-empty `PATH`; otherwise the child receives the
+/// daemon's own `PATH` through [`child_path`], because the allow-listed
+/// toolchains live in the owner's `PATH` (`~/.cargo/bin`, nvm, volta) and a
+/// `PATH` carries no secret.
 #[cfg(windows)]
 pub const MINIMAL_CHILD_ENV: &[(&str, &str)] = &[
     ("PATH", r"C:\Windows\System32;C:\Windows"),
@@ -87,6 +99,9 @@ pub const MINIMAL_CHILD_ENV: &[(&str, &str)] = &[
 ];
 
 /// Fixed, minimal child environment set after `env_clear()` (Unix).
+///
+/// See the Windows variant: `PATH` is a fallback, replaced by the daemon's own
+/// `PATH` whenever that is present.
 #[cfg(not(windows))]
 pub const MINIMAL_CHILD_ENV: &[(&str, &str)] = &[
     ("PATH", "/usr/local/bin:/usr/bin:/bin"),
@@ -95,6 +110,26 @@ pub const MINIMAL_CHILD_ENV: &[(&str, &str)] = &[
     ("TERM", "dumb"),
     ("NO_COLOR", "1"),
 ];
+
+/// The `PATH` a child receives: the daemon's own, or the fixed fallback.
+///
+/// A `PATH` is not a secret — it is the owner's trust domain, and the
+/// allow-listed programs (`cargo` under `~/.cargo/bin`, `node` under nvm/volta)
+/// are only reachable through it. Everything else in the environment is still
+/// cleared. An absent or whitespace-only variable falls back to the fixed list
+/// in [`MINIMAL_CHILD_ENV`].
+fn child_path() -> String {
+    std::env::var("PATH")
+        .ok()
+        .filter(|path| !path.trim().is_empty())
+        .unwrap_or_else(|| {
+            MINIMAL_CHILD_ENV
+                .iter()
+                .find(|(key, _)| *key == "PATH")
+                .map(|(_, value)| (*value).to_string())
+                .unwrap_or_default()
+        })
+}
 
 /// Errors produced when validating or executing an agent command.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -297,10 +332,7 @@ impl CommandPolicy {
                 command: trimmed.to_string(),
             });
         }
-        if Path::new(trimmed)
-            .components()
-            .any(|component| component == Component::ParentDir)
-        {
+        if has_parent_traversal(trimmed) {
             return Err(CommandPolicyError::ParentTraversal {
                 command: trimmed.to_string(),
             });
@@ -361,6 +393,12 @@ impl CommandPolicy {
         for (key, value) in MINIMAL_CHILD_ENV {
             cmd.env(key, value);
         }
+        // The fixed set above is the fallback; the real PATH is the daemon's own.
+        cmd.env("PATH", child_path());
+        // A group of its own, so a timeout can signal the toolchain's descendants
+        // as well as the direct child (see the timeout branch below).
+        #[cfg(unix)]
+        cmd.process_group(0);
         cmd.stdin(Stdio::null());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
@@ -418,6 +456,16 @@ impl CommandPolicy {
                 ),
             },
             Err(_) => {
+                // On Unix the child leads its own process group
+                // (`process_group(0)` at spawn), so signalling `-pid` reaches the
+                // toolchain's descendants too — a dev server's workers, a test
+                // runner's forked children. `kill(1)` is POSIX and needs no crate;
+                // if it is missing the group signal fails and the direct child is
+                // still killed and reaped below.
+                #[cfg(unix)]
+                if let Some(pid) = pid {
+                    kill_process_group(pid);
+                }
                 let _ = child.start_kill();
                 let _ = child.wait().await;
                 stdout_task.abort();
@@ -479,6 +527,20 @@ fn resolve_program_and_args(
     Ok((first, combined))
 }
 
+/// Whether the program token climbs with `..` under either separator convention.
+///
+/// [`Path::components`](std::path::Path::components) is host-dependent: on Unix a
+/// backslash is an ordinary character, so `..\..\Windows\System32\cmd.exe` is one
+/// literal file name there and would not be seen as a parent directory. The same
+/// command line must be refused on every host, so the token is split on **both**
+/// `/` and `\` and any segment that is exactly `..` is a traversal — which also
+/// covers a bare `..` and a leading `..\`. Surrounding quotes are stripped first
+/// because [`split_command`] keeps them on the first token.
+fn has_parent_traversal(program_token: &str) -> bool {
+    let unquoted = program_token.trim().trim_matches('"').trim_matches('\'');
+    unquoted.split(['/', '\\']).any(|segment| segment == "..")
+}
+
 /// Normalize a program token to its lowercase base binary name without Windows
 /// executable suffixes (`.exe`, `.cmd`, `.bat`), matching `warshad::auth`.
 pub(crate) fn program_name(command: &str) -> String {
@@ -518,6 +580,24 @@ async fn read_stream_capped<R: tokio::io::AsyncRead + Unpin>(
             Ok(n) => buf.extend_from_slice(&chunk[..n]),
         }
     }
+}
+
+/// Send `SIGKILL` to the process group led by `pid` (Unix).
+///
+/// The child spawned by [`CommandPolicy::execute_with_pid`] called
+/// `process_group(0)`, so its process group id equals its own pid and
+/// `kill -KILL -- -<pid>` targets exactly that group. `kill(1)` is a POSIX
+/// utility, so no crate is added; a missing utility makes the call a no-op and
+/// leaves the direct child's `start_kill` as the only signal (the descendant gap
+/// is recorded in the K4 repair report for K8's trust-boundaries text).
+#[cfg(unix)]
+fn kill_process_group(pid: u32) {
+    let _ = std::process::Command::new("kill")
+        .args(["-KILL", "--", &format!("-{pid}")])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
 }
 
 /// Enforce the combined `cap` across stdout and stderr.
@@ -694,6 +774,12 @@ fn shell_metacharacters_and_parent_traversal_are_refused() {
         "../cargo",
         "/usr/bin/../bin/cargo",
         r"..\..\Windows\System32\cmd.exe",
+        // Host-independent: a backslash is a separator on Windows and a literal
+        // character on Unix, and both must be refused on both.
+        r"..\..\bin\sh",
+        r"..\cargo",
+        "..",
+        "\"..\"",
     ] {
         let err = policy
             .check_command(traversal)
@@ -703,6 +789,18 @@ fn shell_metacharacters_and_parent_traversal_are_refused() {
             "expected ParentTraversal for `{traversal}`, got {err:?}"
         );
     }
+}
+
+#[cfg(test)]
+#[cfg(windows)]
+fn is_path_line(line: &str) -> bool {
+    line.to_ascii_lowercase().starts_with("path=")
+}
+
+#[cfg(test)]
+#[cfg(not(windows))]
+fn is_path_line(line: &str) -> bool {
+    line.starts_with("PATH=")
 }
 
 #[cfg(test)]
@@ -770,6 +868,71 @@ async fn a_child_that_prints_its_environment_sees_none_of_the_daemons_variables(
     );
 }
 
+/// K4.4's regression guard: the daemon's own `PATH` reaches the child (so
+/// `cargo` under `~/.cargo/bin` resolves), while a planted secret still does not.
+#[cfg(test)]
+#[tokio::test]
+async fn the_child_inherits_the_daemons_path_but_no_secret() {
+    let _lock = ENV_TEST_LOCK.lock().await;
+    let _canary = EnvVarGuard::set("WARSHA_DAEMON_SECRET_CANARY", "canary-secret-12345");
+    let parent_path = std::env::var("PATH").expect("the test process has a PATH");
+
+    let temp = crate::test_util::fresh_tempdir();
+
+    #[cfg(windows)]
+    let (policy, cmd, args) = (
+        CommandPolicy::from_config(&["cmd".to_string()]),
+        "cmd",
+        vec!["/C".to_string(), "set".to_string()],
+    );
+    #[cfg(not(windows))]
+    let (policy, cmd, args) = (
+        CommandPolicy::from_config(&["env".to_string()]),
+        "env",
+        Vec::new(),
+    );
+
+    let output = policy
+        .execute(cmd, &args, temp.path())
+        .await
+        .expect("allow-listed env printer should execute");
+    assert!(output.success, "env printer failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    let line = stdout
+        .lines()
+        .find(|line| is_path_line(line))
+        .unwrap_or_else(|| panic!("child printed no PATH:\n{stdout}"));
+    let child_path = line
+        .split_once('=')
+        .map(|(_, value)| value)
+        .unwrap_or_default();
+    assert_eq!(
+        child_path, parent_path,
+        "the child must see the daemon's PATH so allow-listed toolchains resolve"
+    );
+
+    assert!(
+        !stdout.contains("WARSHA_DAEMON_SECRET_CANARY") && !stdout.contains("canary-secret-12345"),
+        "a planted secret leaked into the child environment:\n{stdout}"
+    );
+}
+
+#[cfg(test)]
+#[cfg(not(windows))]
+async fn pid_is_gone_within(pid: u32, within: Duration) -> bool {
+    let deadline = std::time::Instant::now() + within;
+    loop {
+        if !pid_is_alive(pid).await {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
 #[cfg(test)]
 #[tokio::test]
 async fn a_sleeping_child_is_killed_at_the_timeout_and_no_process_remains() {
@@ -805,7 +968,41 @@ async fn a_sleeping_child_is_killed_at_the_timeout_and_no_process_remains() {
     let pid = pid.expect("spawned child should have an OS pid");
     assert!(
         !pid_is_alive(pid).await,
-        "killed child process {pid} still exists in OS process table"
+        "killed direct child process {pid} still exists in OS process table"
+    );
+}
+
+/// The claim the timeout makes about descendants: on Unix the child leads its
+/// own process group, so the timeout's group signal takes a forked grandchild
+/// with it. K4.3 (the frozen row) asserts the direct child only; this test is
+/// what makes "no process remains" true for the descendants a dev server or a
+/// test runner spawns.
+#[cfg(test)]
+#[cfg(not(windows))]
+#[tokio::test]
+async fn a_timed_out_command_takes_its_descendants_with_it() {
+    let temp = crate::test_util::fresh_tempdir();
+    let pid_file = temp.path().join("grandchild.pid");
+    let script = format!("sleep 30 & echo $! > '{}'; wait", pid_file.display());
+
+    let policy =
+        CommandPolicy::from_config(&["sh".to_string()]).with_timeout(Duration::from_secs(2));
+    let (_pid, result) = policy
+        .execute_with_pid("sh", &["-c".to_string(), script], temp.path())
+        .await;
+
+    assert!(
+        matches!(result, Err(CommandPolicyError::TimedOut { .. })),
+        "expected TimedOut, got {result:?}"
+    );
+    let grandchild = std::fs::read_to_string(&pid_file)
+        .expect("the shell records its background child's pid before the timeout")
+        .trim()
+        .parse::<u32>()
+        .expect("the pid file holds a pid");
+    assert!(
+        pid_is_gone_within(grandchild, Duration::from_secs(5)).await,
+        "grandchild process {grandchild} survived the timeout: the process group was not killed"
     );
 }
 
@@ -844,4 +1041,93 @@ async fn defaults_and_output_cap_are_enforced() {
     assert!(output
         .format_text()
         .contains("[output truncated at 1 MiB cap]"));
+}
+
+/// The cap is a combined budget: a stream that is only stderr is still capped
+/// and flagged.
+#[cfg(test)]
+#[tokio::test]
+async fn stderr_only_output_is_capped_and_flagged() {
+    let temp = crate::test_util::fresh_tempdir();
+    let payload = "E".repeat(4096);
+
+    #[cfg(windows)]
+    let (policy, cmd, args) = (
+        CommandPolicy::from_config(&["cmd".to_string()]).with_output_cap(256),
+        "cmd",
+        vec!["/C".to_string(), format!("echo {payload} 1>&2")],
+    );
+    #[cfg(not(windows))]
+    let (policy, cmd, args) = (
+        CommandPolicy::from_config(&["sh".to_string()]).with_output_cap(256),
+        "sh",
+        vec!["-c".to_string(), format!("printf %s {payload} >&2")],
+    );
+
+    let output = policy
+        .execute(cmd, &args, temp.path())
+        .await
+        .expect("allow-listed command should run");
+    assert!(
+        output.truncated,
+        "stderr-only output exceeding cap should be marked truncated"
+    );
+    assert!(
+        output.stdout.is_empty(),
+        "no stdout was written: {:?}",
+        output.stdout
+    );
+    assert!(
+        !output.stderr.is_empty() && output.stderr.len() <= 256,
+        "stderr should be capped, got {} bytes",
+        output.stderr.len()
+    );
+    assert!(output.stdout.len() + output.stderr.len() <= 256);
+}
+
+/// Both streams at once share the one cap, and the result still says it was cut.
+#[cfg(test)]
+#[tokio::test]
+async fn mixed_stdout_and_stderr_share_the_combined_cap() {
+    let temp = crate::test_util::fresh_tempdir();
+    let payload = "M".repeat(200);
+
+    #[cfg(windows)]
+    let (policy, cmd, args) = (
+        CommandPolicy::from_config(&["cmd".to_string()]).with_output_cap(256),
+        "cmd",
+        vec![
+            "/C".to_string(),
+            format!("echo {payload} & echo {payload} 1>&2"),
+        ],
+    );
+    #[cfg(not(windows))]
+    let (policy, cmd, args) = (
+        CommandPolicy::from_config(&["sh".to_string()]).with_output_cap(256),
+        "sh",
+        vec![
+            "-c".to_string(),
+            format!("printf %s {payload} & printf %s {payload} >&2"),
+        ],
+    );
+
+    let output = policy
+        .execute(cmd, &args, temp.path())
+        .await
+        .expect("allow-listed command should run");
+    assert!(
+        output.truncated,
+        "combined output exceeding cap should be marked truncated"
+    );
+    assert!(
+        !output.stdout.is_empty() && !output.stderr.is_empty(),
+        "both streams wrote data, got stdout={} stderr={}",
+        output.stdout.len(),
+        output.stderr.len()
+    );
+    assert!(
+        output.stdout.len() + output.stderr.len() <= 256,
+        "combined output {} bytes exceeds the 256-byte cap",
+        output.stdout.len() + output.stderr.len()
+    );
 }
