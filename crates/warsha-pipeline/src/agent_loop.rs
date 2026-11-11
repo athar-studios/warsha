@@ -41,11 +41,12 @@ use warsha_providers::{ChatMessage, ChatRequest, MessageRole, ProviderError, Pro
 
 use crate::agent_tools::{AgentTool, NoToolExecutor, ToolExecutor, ToolResult};
 use crate::agent_workflow::{
-    AgentMode, AgentWorkflowError, AskUserQueue, CompressedOutput, ContextCompactor, Mention,
-    MentionKind, MentionParser, MessageBus, ModeManager, ModeTransition, OutputCompressor,
-    SlashCommand, SlashCommandRegistry, TodoItem, TodoList, TodoStatus,
+    AgentMode, AgentWorkflowError, AskUserQueue, AskUserRequest, CompressedOutput,
+    ContextCompactor, Mention, MentionKind, MentionParser, MessageBus, ModeManager, ModeTransition,
+    OutputCompressor, SlashCommand, SlashCommandRegistry, TodoItem, TodoList, TodoStatus,
 };
 use crate::backend_kit::BackendKit;
+use crate::mcp_permission::{McpPermissionSource, ToolPermission, MCP_AGENT_ROLE};
 use crate::mcp_transport::{McpManager, McpTransportError};
 
 /// The transcript budget a turn is compacted to, in estimated tokens.
@@ -254,6 +255,9 @@ pub struct AgentLoop {
     pub router: Option<Arc<dyn Router>>,
     /// The MCP manager handling tool calls.
     pub mcp_manager: Option<Arc<dyn McpManager>>,
+    /// The `server::tool::role` permission table consulted before every call.
+    /// `None` asks on every call; it never means allow.
+    pub mcp_permissions: Option<Arc<dyn McpPermissionSource>>,
     /// The backend kit updated on backend tool mutations.
     pub backend_kit: Option<Arc<RwLock<BackendKit>>>,
     /// The gate that keeps two turns of this conversation from interleaving.
@@ -283,6 +287,7 @@ pub struct PreparedTurn {
     tool_executor: Arc<dyn ToolExecutor>,
     router: Option<Arc<dyn Router>>,
     mcp_manager: Option<Arc<dyn McpManager>>,
+    mcp_permissions: Option<Arc<dyn McpPermissionSource>>,
     backend_kit: Option<Arc<RwLock<BackendKit>>>,
 }
 
@@ -293,6 +298,7 @@ pub struct ExecutedTurn {
     mentions: Vec<Mention>,
     command: Option<SlashCommand>,
     response: String,
+    questions: Vec<AskUserRequest>,
     tools: Vec<ToolResult>,
 }
 
@@ -325,6 +331,7 @@ impl AgentLoop {
             tool_executor,
             router: None,
             mcp_manager: None,
+            mcp_permissions: None,
             backend_kit: None,
             turn_lock: Arc::new(Mutex::new(())),
             context: Vec::new(),
@@ -350,6 +357,15 @@ impl AgentLoop {
     /// The same loop with the MCP manager wired.
     pub fn with_mcp(mut self, mcp: Arc<dyn McpManager>) -> Self {
         self.mcp_manager = Some(mcp);
+        self
+    }
+
+    /// The same loop with the MCP permission table wired.
+    ///
+    /// A loop with no source wired asks on every call; wiring one is the only way
+    /// an agent-initiated tool can reach the transport.
+    pub fn with_mcp_permissions(mut self, permissions: Arc<dyn McpPermissionSource>) -> Self {
+        self.mcp_permissions = Some(permissions);
         self
     }
 
@@ -435,6 +451,7 @@ impl AgentLoop {
                     tool_executor: self.tool_executor.clone(),
                     router: self.router.clone(),
                     mcp_manager: self.mcp_manager.clone(),
+                    mcp_permissions: self.mcp_permissions.clone(),
                     backend_kit: self.backend_kit.clone(),
                 }
             }
@@ -454,6 +471,7 @@ impl AgentLoop {
                     tool_executor: self.tool_executor.clone(),
                     router: self.router.clone(),
                     mcp_manager: self.mcp_manager.clone(),
+                    mcp_permissions: self.mcp_permissions.clone(),
                     backend_kit: self.backend_kit.clone(),
                 }
             }
@@ -467,6 +485,11 @@ impl AgentLoop {
         self.context
             .push(format!("assistant: {}", executed.response));
         self.context = ContextCompactor::compact(&self.context, TURN_CONTEXT_BUDGET_TOKENS);
+        // Questions are queued under the lock, after execution: the tool path runs
+        // without the loop lock, so it carries them on the `ExecutedTurn`.
+        for question in executed.questions {
+            let _ = self.ask_queue.enqueue(question);
+        }
 
         AgentTurnResult {
             mode: executed.mode,
@@ -526,6 +549,7 @@ impl PreparedTurn {
                 mentions: self.mentions,
                 command: self.command,
                 response,
+                questions: Vec::new(),
                 tools: Vec::new(),
             };
         }
@@ -540,6 +564,7 @@ impl PreparedTurn {
         ];
 
         let mut tools = Vec::new();
+        let mut questions: Vec<AskUserRequest> = Vec::new();
         match parse_tool_request(&self.input) {
             Some(AgentTool::CallTool {
                 server,
@@ -591,101 +616,130 @@ impl PreparedTurn {
                                     mentions: self.mentions,
                                     command: self.command,
                                     response: lines.join("\n"),
+                                    questions: Vec::new(),
                                     tools,
                                 };
                             }
                         }
                     };
 
-                    match mcp
-                        .call_tool(&target_server, &tool, arguments.clone())
-                        .await
-                    {
-                        Ok(tool_res) => {
-                            if tool_res.is_error {
-                                let text = tool_res
-                                    .content
-                                    .iter()
-                                    .map(|c| match c {
-                                        crate::mcp::McpContent::Text { text } => text.clone(),
-                                        crate::mcp::McpContent::Image { mime_type, .. } => {
-                                            format!("[image ({mime_type})]")
-                                        }
-                                        crate::mcp::McpContent::Resource { resource } => {
-                                            format!("[resource ({})]", resource.uri)
-                                        }
-                                    })
-                                    .collect::<Vec<_>>()
-                                    .join("\n");
-                                let out = if text.is_empty() {
-                                    format!("tool `{tool}` returned an error")
+                    let permission = self
+                        .mcp_permissions
+                        .as_ref()
+                        .map(|source| {
+                            source.check_permission(&target_server, &tool, MCP_AGENT_ROLE)
+                        })
+                        .unwrap_or(ToolPermission::Ask);
+                    match permission {
+                        ToolPermission::Allow => match mcp
+                            .call_tool(&target_server, &tool, arguments.clone())
+                            .await
+                        {
+                            Ok(tool_res) => {
+                                if tool_res.is_error {
+                                    let text = tool_res
+                                        .content
+                                        .iter()
+                                        .map(|c| match c {
+                                            crate::mcp::McpContent::Text { text } => text.clone(),
+                                            crate::mcp::McpContent::Image { mime_type, .. } => {
+                                                format!("[image ({mime_type})]")
+                                            }
+                                            crate::mcp::McpContent::Resource { resource } => {
+                                                format!("[resource ({})]", resource.uri)
+                                            }
+                                        })
+                                        .collect::<Vec<_>>()
+                                        .join("\n");
+                                    let out = if text.is_empty() {
+                                        format!("tool `{tool}` returned an error")
+                                    } else {
+                                        text
+                                    };
+                                    ToolResult::failed(call_tool_obj, out)
                                 } else {
-                                    text
-                                };
-                                ToolResult::failed(call_tool_obj, out)
-                            } else {
-                                let text_parts = tool_res
-                                    .content
-                                    .iter()
-                                    .map(|c| match c {
-                                        crate::mcp::McpContent::Text { text } => text.clone(),
-                                        crate::mcp::McpContent::Image { mime_type, .. } => {
-                                            format!("[image ({mime_type})]")
-                                        }
-                                        crate::mcp::McpContent::Resource { resource } => {
-                                            format!("[resource ({})]", resource.uri)
-                                        }
-                                    })
-                                    .collect::<Vec<_>>();
-                                let base_out = if text_parts.is_empty() {
-                                    format!("tool `{tool}` succeeded")
-                                } else {
-                                    text_parts.join("\n")
-                                };
+                                    let text_parts = tool_res
+                                        .content
+                                        .iter()
+                                        .map(|c| match c {
+                                            crate::mcp::McpContent::Text { text } => text.clone(),
+                                            crate::mcp::McpContent::Image { mime_type, .. } => {
+                                                format!("[image ({mime_type})]")
+                                            }
+                                            crate::mcp::McpContent::Resource { resource } => {
+                                                format!("[resource ({})]", resource.uri)
+                                            }
+                                        })
+                                        .collect::<Vec<_>>();
+                                    let base_out = if text_parts.is_empty() {
+                                        format!("tool `{tool}` succeeded")
+                                    } else {
+                                        text_parts.join("\n")
+                                    };
 
-                                let is_backend_mutation = matches!(
-                                    tool.as_str(),
-                                    "create_table"
-                                        | "add_table"
-                                        | "create_rls_policy"
-                                        | "add_rls_policy"
-                                        | "create_storage_bucket"
-                                        | "add_storage_bucket"
-                                        | "create_function"
-                                        | "add_function"
-                                );
-                                if is_backend_mutation {
-                                    if let Some(kit_lock) = &self.backend_kit {
-                                        let mut kit = kit_lock.write().await;
-                                        match kit.apply_tool_call(&tool, &arguments) {
-                                            Ok(msg) => ToolResult::ok(
-                                                call_tool_obj,
-                                                format!("{base_out}\n{msg}").trim().to_string(),
-                                            ),
-                                            Err(e) => ToolResult::failed(
-                                                call_tool_obj,
-                                                format!("backend update failed: {e}"),
-                                            ),
+                                    let is_backend_mutation = matches!(
+                                        tool.as_str(),
+                                        "create_table"
+                                            | "add_table"
+                                            | "create_rls_policy"
+                                            | "add_rls_policy"
+                                            | "create_storage_bucket"
+                                            | "add_storage_bucket"
+                                            | "create_function"
+                                            | "add_function"
+                                    );
+                                    if is_backend_mutation {
+                                        if let Some(kit_lock) = &self.backend_kit {
+                                            let mut kit = kit_lock.write().await;
+                                            match kit.apply_tool_call(&tool, &arguments) {
+                                                Ok(msg) => ToolResult::ok(
+                                                    call_tool_obj,
+                                                    format!("{base_out}\n{msg}").trim().to_string(),
+                                                ),
+                                                Err(e) => ToolResult::failed(
+                                                    call_tool_obj,
+                                                    format!("backend update failed: {e}"),
+                                                ),
+                                            }
+                                        } else {
+                                            ToolResult::ok(call_tool_obj, base_out)
                                         }
                                     } else {
                                         ToolResult::ok(call_tool_obj, base_out)
                                     }
-                                } else {
-                                    ToolResult::ok(call_tool_obj, base_out)
                                 }
                             }
+                            Err(McpTransportError::Timeout { seconds, .. }) => ToolResult::failed(
+                                call_tool_obj,
+                                format!("MCP tool call `{tool}` timed out after {seconds}s"),
+                            ),
+                            Err(McpTransportError::Protocol { problem, .. }) => ToolResult::failed(
+                                call_tool_obj,
+                                format!("MCP protocol error calling `{tool}`: {problem}"),
+                            ),
+                            Err(err) => ToolResult::failed(
+                                call_tool_obj,
+                                format!("MCP tool call `{tool}` failed: {err}"),
+                            ),
+                        },
+                        ToolPermission::Ask => {
+                            questions.push(AskUserRequest::new(
+                                format!("mcp-permission-{target_server}-{tool}"),
+                                format!(
+                                    "Approve the MCP tool `{target_server}::{tool}` for role `{MCP_AGENT_ROLE}`? Grant it with mcp.permissions.set {{ server: \"{target_server}\", tool: \"{tool}\", role: \"{MCP_AGENT_ROLE}\", permission: \"allow\" }}."
+                                ),
+                                true,
+                            ));
+                            ToolResult::failed(
+                                call_tool_obj,
+                                format!(
+                                    "approval required: {target_server}::{tool} is ask by default"
+                                ),
+                            )
                         }
-                        Err(McpTransportError::Timeout { seconds, .. }) => ToolResult::failed(
+                        ToolPermission::Deny => ToolResult::failed(
                             call_tool_obj,
-                            format!("MCP tool call `{tool}` timed out after {seconds}s"),
-                        ),
-                        Err(McpTransportError::Protocol { problem, .. }) => ToolResult::failed(
-                            call_tool_obj,
-                            format!("MCP protocol error calling `{tool}`: {problem}"),
-                        ),
-                        Err(err) => ToolResult::failed(
-                            call_tool_obj,
-                            format!("MCP tool call `{tool}` failed: {err}"),
+                            format!("denied by MCP permission {target_server}::{tool}"),
                         ),
                     }
                 } else {
@@ -775,6 +829,7 @@ impl PreparedTurn {
             mentions: self.mentions,
             command: self.command,
             response: lines.join("\n"),
+            questions,
             tools,
         }
     }
@@ -1958,6 +2013,16 @@ mod tests {
 
         agent_loop = agent_loop
             .with_mcp(mcp)
+            // This test exercises the backend-kit mutation, not the permission
+            // table: wire one explicit allow so the call reaches the mock.
+            .with_mcp_permissions(Arc::new(
+                crate::mcp_permission::StaticPermissions::from_rows([(
+                    "test_srv".to_string(),
+                    "create_table".to_string(),
+                    crate::mcp_permission::MCP_AGENT_ROLE.to_string(),
+                    crate::mcp_permission::ToolPermission::Allow,
+                )]),
+            ))
             .with_backend_kit(backend_kit.clone());
 
         let turn = agent_loop
@@ -2085,5 +2150,168 @@ mod tests {
             std::fs::read_to_string(temp.path().join("notes.md")).expect("the file is readable"),
             "updated"
         );
+    }
+
+    /// The MCP permission check at the call site (KEEL K6.1): deny and ask never
+    /// reach the transport, allow calls exactly once, and no source means ask.
+    mod mcp_permission {
+        use super::*;
+        use crate::mcp_permission::{StaticPermissions, ToolPermission, MCP_AGENT_ROLE};
+
+        #[derive(Default)]
+        struct RecordingMcp {
+            calls: std::sync::Mutex<Vec<(String, String, serde_json::Value)>>,
+        }
+
+        impl RecordingMcp {
+            fn calls(&self) -> Vec<(String, String, serde_json::Value)> {
+                self.calls.lock().expect("the recording lock").clone()
+            }
+        }
+
+        #[async_trait]
+        impl McpManager for RecordingMcp {
+            async fn connect(
+                &self,
+                _config: crate::mcp_transport::McpServerConfig,
+            ) -> Result<(), McpTransportError> {
+                Ok(())
+            }
+            async fn disconnect(&self, _name: &str) -> Result<(), McpTransportError> {
+                Ok(())
+            }
+            async fn list(&self) -> Vec<crate::mcp_transport::McpConnection> {
+                vec![crate::mcp_transport::McpConnection {
+                    config: crate::mcp_transport::McpServerConfig {
+                        name: "test_srv".to_string(),
+                        transport: crate::mcp_transport::McpTransport::Stdio,
+                        command: Some("dummy".to_string()),
+                        args: vec![],
+                    },
+                    status: crate::mcp_transport::McpStatus::Connected,
+                    process_id: Some("p1".to_string()),
+                    tools: vec!["echo".to_string()],
+                    tool_definitions: vec![],
+                }]
+            }
+            async fn send(&self, _name: &str, _payload: &str) -> Result<String, McpTransportError> {
+                Ok(String::new())
+            }
+            async fn call_tool(
+                &self,
+                name: &str,
+                tool: &str,
+                arguments: serde_json::Value,
+            ) -> Result<crate::mcp::McpToolResult, McpTransportError> {
+                self.calls.lock().expect("the recording lock").push((
+                    name.to_string(),
+                    tool.to_string(),
+                    arguments,
+                ));
+                Ok(crate::mcp::McpToolResult {
+                    content: vec![crate::mcp::McpContent::Text {
+                        text: "ok".to_string(),
+                    }],
+                    is_error: false,
+                })
+            }
+        }
+
+        fn call(server: Option<&str>) -> String {
+            match server {
+                Some(server) => format!("call mcp {server}/echo {{\"msg\":\"hi\"}}"),
+                None => "call tool echo {\"msg\":\"hi\"}".to_string(),
+            }
+        }
+
+        #[tokio::test]
+        async fn deny_never_reaches_the_transport() {
+            let table = StaticPermissions::new();
+            table.set("test_srv", "echo", MCP_AGENT_ROLE, ToolPermission::Deny);
+            let mcp = Arc::new(RecordingMcp::default());
+            let mut agent_loop = approved_loop()
+                .with_mcp(mcp.clone())
+                .with_mcp_permissions(Arc::new(table));
+            let turn = agent_loop
+                .run_turn(&call(Some("test_srv")), &catalog())
+                .await;
+            assert!(!turn.tools[0].success);
+            assert!(turn.tools[0].output.contains("denied by MCP permission"));
+            assert!(
+                mcp.calls().is_empty(),
+                "a denied call reached the transport"
+            );
+            assert!(agent_loop.ask_queue.is_empty(), "deny must not ask");
+        }
+
+        #[tokio::test]
+        async fn ask_queues_one_question_and_never_reaches_the_transport() {
+            let table = StaticPermissions::new();
+            let mcp = Arc::new(RecordingMcp::default());
+            let mut agent_loop = approved_loop()
+                .with_mcp(mcp.clone())
+                .with_mcp_permissions(Arc::new(table));
+            let turn = agent_loop
+                .run_turn(&call(Some("test_srv")), &catalog())
+                .await;
+            assert!(!turn.tools[0].success);
+            assert!(turn.tools[0].output.contains("approval required"));
+            assert!(mcp.calls().is_empty(), "an ask reached the transport");
+            assert_eq!(agent_loop.ask_queue.len(), 1);
+            let question = &agent_loop.ask_queue.pending()[0];
+            assert!(question.question.contains("test_srv::echo"));
+            assert!(question.question.contains("mcp.permissions.set"));
+        }
+
+        #[tokio::test]
+        async fn allow_calls_the_transport_exactly_once() {
+            let table = StaticPermissions::new();
+            table.set("test_srv", "echo", MCP_AGENT_ROLE, ToolPermission::Allow);
+            let mcp = Arc::new(RecordingMcp::default());
+            let mut agent_loop = approved_loop()
+                .with_mcp(mcp.clone())
+                .with_mcp_permissions(Arc::new(table));
+            let turn = agent_loop
+                .run_turn(&call(Some("test_srv")), &catalog())
+                .await;
+            assert!(turn.tools[0].success);
+            let calls = mcp.calls();
+            assert_eq!(calls.len(), 1, "allow did not call exactly once");
+            assert_eq!(calls[0].0, "test_srv");
+            assert_eq!(calls[0].1, "echo");
+            assert_eq!(calls[0].2["msg"], serde_json::json!("hi"));
+        }
+
+        #[tokio::test]
+        async fn a_loop_with_no_source_asks() {
+            let mcp = Arc::new(RecordingMcp::default());
+            let mut agent_loop = approved_loop().with_mcp(mcp.clone());
+            let turn = agent_loop
+                .run_turn(&call(Some("test_srv")), &catalog())
+                .await;
+            assert!(!turn.tools[0].success);
+            assert!(
+                mcp.calls().is_empty(),
+                "a loop with no source reached the transport"
+            );
+            assert_eq!(agent_loop.ask_queue.len(), 1);
+        }
+
+        #[tokio::test]
+        async fn auto_discovery_checks_the_resolved_server() {
+            let table = StaticPermissions::new();
+            table.set("test_srv", "echo", MCP_AGENT_ROLE, ToolPermission::Deny);
+            let mcp = Arc::new(RecordingMcp::default());
+            let mut agent_loop = approved_loop()
+                .with_mcp(mcp.clone())
+                .with_mcp_permissions(Arc::new(table));
+            // No server named: the loop resolves test_srv by advertising the tool.
+            let turn = agent_loop.run_turn(&call(None), &catalog()).await;
+            assert!(!turn.tools[0].success);
+            assert!(
+                mcp.calls().is_empty(),
+                "the auto-discovered call reached the transport"
+            );
+        }
     }
 }
