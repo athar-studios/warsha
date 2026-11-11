@@ -1146,6 +1146,7 @@ async fn daemon_state(data_dir: &Path, provider_mode: RealOrMockProvider) -> Arc
         agent_loop,
         mcp_permissions: Arc::new(warsha_pipeline::StaticPermissions::new()),
         run_worktrees: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        agent_sessions: Arc::new(warsha_pipeline::RunAgentSessions::new()),
         processes,
         mcp,
         previews,

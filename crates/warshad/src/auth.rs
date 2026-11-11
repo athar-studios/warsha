@@ -504,6 +504,14 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Owner,
         tier: Spend,
     },
+    // A turn in one run's own loop and workspace. Owner, Spend: it is the same
+    // authority as agent.turn, only bound to a run instead of the daemon's single
+    // legacy conversation.
+    M {
+        method: "agent.turn_run",
+        policy: Owner,
+        tier: Spend,
+    },
     // C2: the switch into Agent mode is the switch that lets a tool edit a file and a
     // turn reach a configured provider, so it is the owner's alone and it is measured on
     // the approval path with the gate decisions. Returning to Plan is the read-only

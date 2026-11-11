@@ -44,9 +44,9 @@ use warsha_pipeline::{
     ManagedProcess, McpConnection, McpManager, MessageBus, ModeManager, ModeTransition,
     PairingStore, PhonePairing, Preference, PreferenceSignal, PreferenceStore, ProcessManager,
     ProcessStatus, ProcessSummary, ProviderRouterAdapter, Routine, RoutineRegistry, RoutineRunner,
-    RoutineScheduler, RunMode, RunModeConfig, RunWorktree, SlashCommand, SlashCommandRegistry,
-    StaticPermissions, StoreReview, StoreReviewStore, TodoItem, TodoList, WorkProtectionPolicy,
-    AGENT_ROLE,
+    RoutineScheduler, RunAgentSessions, RunMode, RunModeConfig, RunWorktree, SlashCommand,
+    SlashCommandRegistry, StaticPermissions, StoreReview, StoreReviewStore, TodoItem, TodoList,
+    WorkProtectionPolicy, AGENT_ROLE,
 };
 use warsha_providers::{
     probe_endpoint, HealthCheck, KeychainSecretStore, OneClickProvider, ProviderRouter,
@@ -1092,6 +1092,9 @@ pub struct DaemonState {
     pub mcp_permissions: Arc<StaticPermissions>,
     /// The per-run git worktrees created at `runs.start` (ENGINE E3 wiring).
     pub run_worktrees: Arc<RwLock<HashMap<RunId, RunWorktree>>>,
+    /// The per-run agent sessions (ENGINE E2 wiring). The global loop stays for
+    /// `agent.turn`; a run's turn uses its own loop and workspace.
+    pub agent_sessions: Arc<RunAgentSessions>,
     /// The one spawner: `process.*` drives it, the MCP stdio transport starts its
     /// server through it, and the live preview runs its dev server on it, so every
     /// child the daemon starts shows up in one `process.list`.
@@ -1514,6 +1517,9 @@ pub trait WarshaApi {
 
     #[method(name = "agent.turn", with_extensions)]
     async fn agent_turn(&self, input: String) -> RpcResult<AgentTurnResult>;
+
+    #[method(name = "agent.turn_run", with_extensions)]
+    async fn agent_turn_run(&self, run_id: RunId, input: String) -> RpcResult<AgentTurnResult>;
 
     #[method(name = "agent.approve_mode", with_extensions)]
     async fn approve_agent_mode(&self) -> RpcResult<ModeTransition>;
@@ -2739,6 +2745,32 @@ impl WarshaApiServer for WarshaRpc {
             }
         }
 
+        // ENGINE E2 wiring: each run gets its own loop bound to its own checkout
+        // (the worktree when it has one, else the daemon workspace), inserted under
+        // the run id. `agent.turn_run` runs the turn there; `agent.turn` keeps the
+        // legacy single conversation.
+        let workspace = match self.state.run_worktrees.read().await.get(&run.id) {
+            Some(worktree) => worktree.path.clone(),
+            None => self.state.config.data_dir.join(AGENT_WORKSPACE_DIR),
+        };
+        let backend_kit = Arc::new(RwLock::new(default_backend_kit("run")));
+        let per_run_loop = build_agent_loop_in(
+            &workspace,
+            &self.state.config.allowed_commands,
+            self.state.providers.clone(),
+            self.state.mcp.clone(),
+            self.state.mcp_permissions.clone(),
+            backend_kit,
+        );
+        if self
+            .state
+            .agent_sessions
+            .insert(run.id, per_run_loop)
+            .is_err()
+        {
+            warn!(run_id = %run.id.0, "the run already had an agent session");
+        }
+
         Ok(run)
     }
 
@@ -3607,6 +3639,27 @@ impl WarshaApiServer for WarshaRpc {
             warn!("the agent conversation could not be stored, so it continues from the last turn that was: {error}");
         }
         Ok(result)
+    }
+
+    /// Run one turn in one run's own loop and workspace.
+    ///
+    /// The legacy `agent.turn` above is one conversation per daemon; this is the
+    /// per-run loop (ENGINE E2), so two runs cannot share context, todos, asks or
+    /// mode state. The session is created at `runs.start`; a run that predates it
+    /// has no session and is refused rather than silently using the legacy loop.
+    async fn agent_turn_run(
+        &self,
+        ext: &RpcExtensions,
+        run_id: RunId,
+        input: String,
+    ) -> RpcResult<AgentTurnResult> {
+        self.authorize(ext, "agent.turn_run").await?;
+        let skills = self.active_skill_catalog().await;
+        self.state
+            .agent_sessions
+            .run_turn(run_id, &input, &skills)
+            .await
+            .map_err(|error| ErrorObject::owned(-32000, error.to_string(), None::<()>))
     }
 
     /// Approve Agent mode for the session that asks.
@@ -5347,12 +5400,31 @@ fn build_agent_loop(
     mcp_permissions: Arc<StaticPermissions>,
     backend_kit: Arc<RwLock<BackendKit>>,
 ) -> Arc<RwLock<AgentLoop>> {
+    Arc::new(RwLock::new(build_agent_loop_in(
+        &data_dir.join(AGENT_WORKSPACE_DIR),
+        allowed_commands,
+        providers,
+        mcp,
+        mcp_permissions,
+        backend_kit,
+    )))
+}
+
+/// The same loop bound to an explicit workspace: a run's own worktree when it has
+/// one, or the daemon's default workspace for the legacy single conversation.
+fn build_agent_loop_in(
+    workspace_dir: &Path,
+    allowed_commands: &[String],
+    providers: Arc<RwLock<ProviderRouter>>,
+    mcp: Arc<dyn McpManager>,
+    mcp_permissions: Arc<StaticPermissions>,
+    backend_kit: Arc<RwLock<BackendKit>>,
+) -> AgentLoop {
     // The shipped work-protection policy enforces read-before-write, so the
     // agent's file tools do too: an existing file must be read before it is
     // overwritten. A genuine create needs no prior read.
     let policy = WorkProtectionPolicy::default();
-    let workspace_dir = data_dir.join(AGENT_WORKSPACE_DIR);
-    if let Err(error) = std::fs::create_dir_all(&workspace_dir) {
+    if let Err(error) = std::fs::create_dir_all(workspace_dir) {
         // The turn still starts; every `RunCommand`/file tool that needs the
         // workspace will fail its `current_dir`, so say why here instead of
         // leaving only an opaque per-command spawn error.
@@ -5362,17 +5434,15 @@ fn build_agent_loop(
         );
     }
     let command_policy = CommandPolicy::from_config(allowed_commands);
-    let tools = FilesystemToolExecutor::new(workspace_dir)
+    let tools = FilesystemToolExecutor::new(workspace_dir.to_path_buf())
         .with_read_before_write(policy.read_before_write)
         .with_command_policy(command_policy);
     let router = ProviderRouterAdapter::new(providers, AGENT_ROLE, AGENT_METER_KEY);
-    Arc::new(RwLock::new(
-        AgentLoop::with_tool_executor(Box::new(tools))
-            .with_router(Arc::new(router))
-            .with_mcp(mcp)
-            .with_mcp_permissions(mcp_permissions)
-            .with_backend_kit(backend_kit),
-    ))
+    AgentLoop::with_tool_executor(Box::new(tools))
+        .with_router(Arc::new(router))
+        .with_mcp(mcp)
+        .with_mcp_permissions(mcp_permissions)
+        .with_backend_kit(backend_kit)
 }
 
 /// The settings document the role routing table is kept in.
@@ -6023,6 +6093,7 @@ pub async fn start_daemon_with_provider_factory(
         agent_loop,
         mcp_permissions,
         run_worktrees: Arc::new(RwLock::new(HashMap::new())),
+        agent_sessions: Arc::new(RunAgentSessions::new()),
         processes,
         mcp,
         previews,
@@ -7482,6 +7553,7 @@ mod tests {
             agent_loop,
             mcp_permissions,
             run_worktrees: Arc::new(RwLock::new(HashMap::new())),
+            agent_sessions: Arc::new(RunAgentSessions::new()),
             processes,
             mcp,
             previews,
@@ -11249,6 +11321,7 @@ async fn health_reports_probed_capabilities() {
         agent_loop: state.agent_loop.clone(),
         mcp_permissions: state.mcp_permissions.clone(),
         run_worktrees: state.run_worktrees.clone(),
+        agent_sessions: state.agent_sessions.clone(),
         processes: state.processes.clone(),
         mcp: state.mcp.clone(),
         previews: state.previews.clone(),
@@ -11755,5 +11828,75 @@ mod e3_wiring {
         let runs = store.list_runs(project.id).await.expect("the runs list");
         assert_eq!(runs.len(), 1);
         assert_eq!(runs[0].status, RunStatus::Cancelled);
+    }
+}
+
+/// ENGINE E2 wiring: `agent.turn_run` runs a turn in the run's own loop, created
+/// at `runs.start`; an unknown run is refused instead of borrowing the legacy loop.
+#[cfg(test)]
+mod e2_wiring {
+    use super::*;
+
+    fn owner() -> RpcExtensions {
+        let mut ext = RpcExtensions::new();
+        ext.insert(Actor::owner(DeviceId::new()));
+        ext
+    }
+
+    fn project() -> Project {
+        Project {
+            id: ProjectId::new(),
+            name: "Sessions Project".to_string(),
+            description: "Test".to_string(),
+            language: "en".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            repo_path: None,
+            repo_url: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_run_turn_uses_the_runs_own_session() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = crate::tests::test_state(temp.path()).await;
+        let project = project();
+        store.create_project(&project).await.expect("the project");
+        let rpc = WarshaRpc::new(state);
+
+        let first = rpc
+            .start_run(&owner(), project.id, "Build a todo app".to_string())
+            .await
+            .expect("the first run starts");
+        let turn = rpc
+            .agent_turn_run(&owner(), first.id, "hello".to_string())
+            .await
+            .expect("the run's turn runs");
+        assert_eq!(turn.mode, AgentMode::Plan);
+        assert!(
+            turn.response.contains("Plan (nothing executed)"),
+            "{}",
+            turn.response
+        );
+
+        let second = rpc
+            .start_run(&owner(), project.id, "Second idea".to_string())
+            .await
+            .expect("the second run starts");
+        assert!(rpc.state.agent_sessions.contains(first.id));
+        assert!(rpc.state.agent_sessions.contains(second.id));
+    }
+
+    #[tokio::test]
+    async fn an_unknown_run_has_no_session() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = crate::tests::test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+
+        let error = rpc
+            .agent_turn_run(&owner(), RunId::new(), "hello".to_string())
+            .await
+            .expect_err("an unknown run has no session");
+        assert!(error.to_string().contains("no agent session"), "{error}");
     }
 }

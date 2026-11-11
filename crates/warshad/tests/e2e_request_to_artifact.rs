@@ -562,6 +562,7 @@ async fn daemon_state(data_dir: &Path) -> Arc<DaemonState> {
         agent_loop: Arc::new(RwLock::new(AgentLoop::new())),
         mcp_permissions: Arc::new(warsha_pipeline::StaticPermissions::new()),
         run_worktrees: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        agent_sessions: Arc::new(warsha_pipeline::RunAgentSessions::new()),
         processes,
         mcp,
         previews,
