@@ -152,6 +152,26 @@ impl SkillRegistry {
     pub fn list_skills(&self) -> Vec<&Skill> {
         self.skills.values().collect()
     }
+
+    /// The skills a role's pack names, in the pack's order.
+    ///
+    /// Scoped by role: a skill outside the pack is never returned, and a pack
+    /// entry that names no loaded skill is an error rather than a silent skip —
+    /// a role that silently loses a skill is a role that silently changes.
+    pub fn skills_for_role(&self, role: Role) -> Result<Vec<&Skill>> {
+        let pack = self
+            .packs
+            .get(&role)
+            .ok_or_else(|| SkillError::NotFound(format!("no pack for role {role:?}")))?;
+        pack.skills
+            .iter()
+            .map(|id| {
+                self.skills.get(id).ok_or_else(|| {
+                    SkillError::NotFound(format!("role {role:?} names `{id}`, which is not loaded"))
+                })
+            })
+            .collect()
+    }
 }
 
 /// Default role packs
@@ -453,6 +473,70 @@ impl SkillsLockfile {
         self.entries.insert(entry.skill_id.clone(), entry);
         self.updated_at = Utc::now().to_rfc3339();
     }
+
+    /// The lock entry the registry's current skills resolve to (local source).
+    pub fn from_registry(registry: &SkillRegistry) -> Self {
+        let mut lock = Self::new();
+        for skill in registry.list_skills() {
+            lock.add_entry(SkillsLockEntry {
+                skill_id: skill.manifest.id.clone(),
+                version: skill.manifest.version.clone(),
+                commit: skill.manifest.commit.clone(),
+                license: skill.manifest.license.clone(),
+                license_class: skill.manifest.license_class,
+                resolved_at: skill.loaded_at.clone(),
+                source: SkillSource::Local,
+            });
+        }
+        lock
+    }
+
+    /// Read a lockfile from disk (pretty JSON with a version field).
+    pub fn load(path: &std::path::Path) -> Result<Self> {
+        let content = std::fs::read_to_string(path)?;
+        Ok(serde_json::from_str(&content)?)
+    }
+
+    /// Write the lockfile to disk (pretty JSON, one trailing newline).
+    pub fn save(&self, path: &std::path::Path) -> Result<()> {
+        let content = format!("{}\n", serde_json::to_string_pretty(self)?);
+        std::fs::write(path, content)?;
+        Ok(())
+    }
+
+    /// Fail closed when the loaded skills and the lock disagree.
+    ///
+    /// Every locked skill must be loaded at the locked version and commit, and
+    /// every loaded skill must be locked: an unlocked skill could change without
+    /// the lock noticing.
+    pub fn verify(&self, registry: &SkillRegistry) -> Result<()> {
+        for (id, entry) in &self.entries {
+            let skill = registry.get(id).ok_or_else(|| {
+                SkillError::NotFound(format!("locked skill `{id}` is not loaded"))
+            })?;
+            if skill.manifest.version != entry.version {
+                return Err(SkillError::InvalidManifest(format!(
+                    "`{id}` is locked at version {} but loaded at {}",
+                    entry.version, skill.manifest.version
+                )));
+            }
+            if skill.manifest.commit != entry.commit {
+                return Err(SkillError::InvalidManifest(format!(
+                    "`{id}` is locked at commit {} but loaded at {}",
+                    entry.commit, skill.manifest.commit
+                )));
+            }
+        }
+        for skill in registry.list_skills() {
+            if !self.entries.contains_key(&skill.manifest.id) {
+                return Err(SkillError::InvalidManifest(format!(
+                    "`{}` is loaded but not present in the lockfile",
+                    skill.manifest.id
+                )));
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -594,5 +678,139 @@ mod tests {
 
         lockfile.add_entry(entry);
         assert!(lockfile.entries.contains_key("test-skill"));
+    }
+
+    /// ENGINE E6: role scoping plus an append-only-by-verification lockfile.
+    mod e6 {
+        use super::*;
+
+        fn skill(id: &str, version: &str, commit: &str) -> Skill {
+            Skill {
+                manifest: SkillManifest {
+                    id: id.to_string(),
+                    name: id.to_string(),
+                    version: version.to_string(),
+                    description: format!("{id} skill"),
+                    author: "Warsha".to_string(),
+                    license: "MIT".to_string(),
+                    license_class: LicenseClass::Permissive,
+                    repository: String::new(),
+                    commit: commit.to_string(),
+                    dependencies: Vec::new(),
+                    provides: Vec::new(),
+                    required_permissions: Vec::new(),
+                    tags: vec!["test".to_string()],
+                },
+                content: format!("# {id}"),
+                loaded_at: Utc::now().to_rfc3339(),
+                source_path: PathBuf::from(format!("skills/{id}/SKILL.md")),
+            }
+        }
+
+        fn pack(role: Role, skills: &[&str]) -> RolePack {
+            RolePack::new(
+                role,
+                format!("{role:?} pack"),
+                skills.iter().map(|id| id.to_string()).collect(),
+            )
+        }
+
+        #[test]
+        fn role_packs_return_only_their_own_skills_and_fail_closed_on_a_gap() {
+            let mut registry = SkillRegistry::new();
+            registry
+                .register(skill("pm-writing", "1.0.0", "abc"))
+                .expect("registers");
+            registry
+                .register(skill("coder-rust", "1.0.0", "abc"))
+                .expect("registers");
+            registry.set_pack(pack(Role::PM, &["pm-writing"]));
+            registry.set_pack(pack(Role::Coder, &["coder-rust"]));
+
+            let pm = registry
+                .skills_for_role(Role::PM)
+                .expect("the PM pack resolves");
+            assert_eq!(pm.len(), 1);
+            assert_eq!(pm[0].manifest.id, "pm-writing");
+            let coder = registry
+                .skills_for_role(Role::Coder)
+                .expect("the Coder pack resolves");
+            assert_eq!(coder[0].manifest.id, "coder-rust");
+            assert!(
+                registry.skills_for_role(Role::QA).is_err(),
+                "a role without a pack must fail"
+            );
+
+            registry.set_pack(pack(Role::Designer, &["missing-skill"]));
+            assert!(
+                registry.skills_for_role(Role::Designer).is_err(),
+                "a pack naming a missing skill must fail"
+            );
+        }
+
+        #[test]
+        fn the_lockfile_round_trips_through_disk_and_verifies_the_registry() {
+            let mut registry = SkillRegistry::new();
+            registry
+                .register(skill("pm-writing", "1.0.0", "abc"))
+                .expect("registers");
+            registry
+                .register(skill("coder-rust", "2.1.0", "def"))
+                .expect("registers");
+            let lock = SkillsLockfile::from_registry(&registry);
+            assert_eq!(lock.entries.len(), 2);
+
+            let temp = tempfile::tempdir().expect("a temp dir");
+            let path = temp.path().join("skills.lock");
+            lock.save(&path).expect("the lock saves");
+            let loaded = SkillsLockfile::load(&path).expect("the lock loads");
+            assert_eq!(loaded.entries.len(), 2);
+            assert_eq!(loaded.entries["coder-rust"].version, "2.1.0");
+            loaded
+                .verify(&registry)
+                .expect("the loaded lock matches the registry");
+        }
+
+        #[test]
+        fn verification_fails_on_version_or_commit_drift_and_on_an_unlocked_skill() {
+            let mut registry = SkillRegistry::new();
+            registry
+                .register(skill("pm-writing", "1.0.0", "abc"))
+                .expect("registers");
+            let lock = SkillsLockfile::from_registry(&registry);
+
+            let mut drifted = SkillRegistry::new();
+            drifted
+                .register(skill("pm-writing", "1.0.1", "abc"))
+                .expect("registers");
+            assert!(
+                lock.verify(&drifted).is_err(),
+                "a version bump was accepted"
+            );
+
+            let mut moved = SkillRegistry::new();
+            moved
+                .register(skill("pm-writing", "1.0.0", "zzz"))
+                .expect("registers");
+            assert!(lock.verify(&moved).is_err(), "a commit change was accepted");
+
+            let mut extra = SkillRegistry::new();
+            extra
+                .register(skill("pm-writing", "1.0.0", "abc"))
+                .expect("registers");
+            extra
+                .register(skill("unlocked", "1.0.0", "abc"))
+                .expect("registers");
+            assert!(
+                lock.verify(&extra).is_err(),
+                "an unlocked skill was accepted"
+            );
+
+            let empty = SkillRegistry::new();
+            assert!(
+                lock.verify(&empty).is_err(),
+                "a missing locked skill was accepted"
+            );
+        }
     }
 }
