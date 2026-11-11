@@ -8,7 +8,7 @@ import {
   runAxe,
 } from '../harness';
 
-import { act, expectRpc, openV3 } from './support';
+import { act, expectRpc, openV3, auditViewportFit, describeViewportFit, viewportFitIsClean } from './support';
 
 const LOCALES = ['ar', 'en'] as const;
 const THEMES = ['light', 'dark'] as const;
@@ -306,6 +306,8 @@ test.describe('Home visual baselines (@visual)', () => {
               await expect(page.locator('[data-testid="home-error-banner"]')).toBeVisible();
             }
 
+            const fit = await auditViewportFit(page);
+            expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
             await expect(page).toHaveScreenshot(
               `home-${state}-${vp.name}-${locale}-${theme}.png`
             );

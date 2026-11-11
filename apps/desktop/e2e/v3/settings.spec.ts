@@ -9,7 +9,7 @@ import {
   runAxe,
 } from '../support/a11y';
 
-import { act, expectRpc, openV3, rpcCalls } from './support';
+import { act, expectRpc, openV3, rpcCalls, auditViewportFit, describeViewportFit, viewportFitIsClean } from './support';
 
 const VIEWPORTS = [
   { name: '1280x800', width: 1280, height: 800 },
@@ -1057,6 +1057,8 @@ test.describe('Settings v3', () => {
               viewport: { width: viewport.width, height: viewport.height },
             });
             await expect(page.locator(`[data-testid="settings-section-${section}"]`)).toBeVisible();
+            const fit = await auditViewportFit(page);
+            expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
             await expect(page).toHaveScreenshot(
               `settings-${section}-ready-${viewport.name}-${locale}-${theme}.png`
             );
@@ -1082,6 +1084,8 @@ test.describe('Settings v3', () => {
             },
           });
           await expect(page.locator('[data-testid="settings-section-models"]')).toBeVisible();
+          const fit = await auditViewportFit(page);
+          expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
           await expect(page).toHaveScreenshot(
             `settings-models-empty-${viewport.name}-${locale}-${theme}.png`
           );
@@ -1099,6 +1103,8 @@ test.describe('Settings v3', () => {
             },
           });
           await expect(page.locator('[data-testid="settings-section-devices"]')).toBeVisible();
+          const fit = await auditViewportFit(page);
+          expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
           await expect(page).toHaveScreenshot(
             `settings-devices-empty-${viewport.name}-${locale}-${theme}.png`
           );
@@ -1116,6 +1122,8 @@ test.describe('Settings v3', () => {
             },
           });
           await expect(page.locator('.w-banner--danger')).toBeVisible();
+          const fit = await auditViewportFit(page);
+          expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
           await expect(page).toHaveScreenshot(
             `settings-general-error-${viewport.name}-${locale}-${theme}.png`
           );
