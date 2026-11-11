@@ -359,10 +359,23 @@ async fn a_paired_device_is_a_session_but_not_the_owner() {
         assert_eq!(code, -32002, "{method} was reachable by a paired device");
     }
 
-    // `devices.pair` is a Session-policy method: a paired device CAN redeem / register a pairing.
-    rpc_ok(
+    // `devices.pair` is the owner's (security audit H2): a paired device cannot enrol
+    // another device, and the well-formed data is refused by authorization, not parsing.
+    let code = rpc_error_code(
         port,
         PHONE_SECRET,
+        "devices.pair",
+        json!([pairing_data(&project_id)]),
+    )
+    .await;
+    assert_eq!(
+        code, -32002,
+        "a paired device was allowed to enrol another device"
+    );
+    // The owner's enrolment path — and the CLI's, which holds this token — still works.
+    rpc_ok(
+        port,
+        OWNER,
         "devices.pair",
         json!([pairing_data(&project_id)]),
     )

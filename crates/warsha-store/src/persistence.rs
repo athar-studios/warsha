@@ -134,6 +134,16 @@ CREATE TABLE IF NOT EXISTS active_harness (
 /// Shown in place of a pairing secret by [`StoredPairing`]'s `Debug` impl.
 pub const REDACTED_SECRET: &str = "<redacted>";
 
+/// The pairing-expiry migration (audit H1), applied by [`SqliteStore::migrate`].
+///
+/// It lives in `migrations/` with the numbered files so the SQL is reviewable
+/// beside them, but `pairing_devices` belongs to *this* schema: the async
+/// `Store`'s sqlx migrator never creates the table, so it skips version 5 (see
+/// `crate::run_migrations`). `ALTER TABLE … ADD COLUMN` has no `IF NOT EXISTS`,
+/// so `migrate` applies the file only while the column is missing; the `UPDATE`
+/// inside is idempotent (`… WHERE expires_at IS NULL`).
+const PAIRING_EXPIRY_SQL: &str = include_str!("../migrations/005_pairing_expiry.sql");
+
 /// One derived preference as it is stored: the decayed score per project target.
 ///
 /// This is a snapshot, not a live value — `score` is whatever the pipeline
@@ -193,6 +203,9 @@ pub struct StoredPairing {
     pub created_at: u64,
     /// True once the owner revoked it; a revoked pairing keeps its row.
     pub revoked: bool,
+    /// Unix seconds after which the secret stops authenticating; `None` for a
+    /// record the legacy `pairing.create` path wrote.
+    pub expires_at: Option<u64>,
 }
 
 impl fmt::Debug for StoredPairing {
@@ -202,6 +215,7 @@ impl fmt::Debug for StoredPairing {
             .field("secret", &REDACTED_SECRET)
             .field("created_at", &self.created_at)
             .field("revoked", &self.revoked)
+            .field("expires_at", &self.expires_at)
             .finish()
     }
 }
@@ -373,12 +387,20 @@ impl SqliteStore {
         Ok(store)
     }
 
-    /// Create the M20 and Wave 2 tables if they do not exist yet.
+    /// Create the M20 and Wave 2 tables if they do not exist yet, then apply the
+    /// pairing-expiry migration.
     ///
     /// One transaction, so a failure half way through leaves no partial schema.
     pub fn migrate(&self) -> Result<()> {
         let transaction = self.conn.unchecked_transaction()?;
         transaction.execute_batch(SCHEMA_SQL)?;
+        // `SCHEMA_SQL` is `CREATE TABLE IF NOT EXISTS`, so a database created
+        // before audit H1 keeps its four-column `pairing_devices` row even after
+        // the schema text gains a column in a future release. 005 adds it (and
+        // grandfathers the rows a pre-H1 daemon paired) exactly once.
+        if !table_has_column(&transaction, "pairing_devices", "expires_at")? {
+            transaction.execute_batch(PAIRING_EXPIRY_SQL)?;
+        }
         transaction.commit()?;
         Ok(())
     }
@@ -528,16 +550,20 @@ impl SqliteStore {
     /// when was it cut off" stays answerable.
     pub fn save_pairing(&self, pairing: &StoredPairing) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO pairing_devices (device_id, secret, created_at, revoked) \
-             VALUES (?1, ?2, ?3, ?4) \
+            "INSERT INTO pairing_devices (device_id, secret, created_at, revoked, expires_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5) \
              ON CONFLICT(device_id) DO UPDATE SET \
              secret = excluded.secret, created_at = excluded.created_at, \
-             revoked = excluded.revoked",
+             revoked = excluded.revoked, expires_at = excluded.expires_at",
             params![
                 pairing.device_id,
                 pairing.secret,
                 sql_int(pairing.created_at, "pairing_devices.created_at")?,
                 i64::from(pairing.revoked),
+                pairing
+                    .expires_at
+                    .map(|expires_at| sql_int(expires_at, "pairing_devices.expires_at"))
+                    .transpose()?,
             ],
         )?;
         Ok(())
@@ -546,7 +572,7 @@ impl SqliteStore {
     /// Every pairing, active and revoked, oldest first.
     pub fn load_pairings(&self) -> Result<Vec<StoredPairing>> {
         let mut statement = self.conn.prepare(
-            "SELECT device_id, secret, created_at, revoked FROM pairing_devices \
+            "SELECT device_id, secret, created_at, revoked, expires_at FROM pairing_devices \
              ORDER BY created_at ASC, device_id ASC",
         )?;
         let rows = statement
@@ -556,17 +582,21 @@ impl SqliteStore {
                     row.get::<_, String>(1)?,
                     row.get::<_, i64>(2)?,
                     row.get::<_, i64>(3)?,
+                    row.get::<_, Option<i64>>(4)?,
                 ))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
 
         rows.into_iter()
-            .map(|(device_id, secret, created_at, revoked)| {
+            .map(|(device_id, secret, created_at, revoked, expires_at)| {
                 Ok(StoredPairing {
                     device_id,
                     secret,
                     created_at: unsigned_u64(created_at, "pairing_devices.created_at")?,
                     revoked: revoked != 0,
+                    expires_at: expires_at
+                        .map(|expires_at| unsigned_u64(expires_at, "pairing_devices.expires_at"))
+                        .transpose()?,
                 })
             })
             .collect()
@@ -1046,6 +1076,23 @@ fn sql_int(value: u64, field: &'static str) -> Result<i64> {
     })
 }
 
+/// Whether `table` has a column named `column`.
+///
+/// The table name is one of this module's own literals, never caller input: it is
+/// formatted into the PRAGMA because SQLite has no bound parameter for an
+/// identifier.
+fn table_has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
+    let mut statement = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// A stored `INTEGER` read back as a `u32`; a negative or oversized value is
 /// corrupt data, not something to clamp.
 fn unsigned_u32(value: i64, field: &'static str) -> Result<u32> {
@@ -1429,12 +1476,14 @@ mod tests {
             secret: "one-time-secret".to_string(),
             created_at: 1_700_000_000,
             revoked: false,
+            expires_at: Some(1_700_000_600),
         };
         let second = StoredPairing {
             device_id: "device-2".to_string(),
             secret: "another-secret".to_string(),
             created_at: 1_700_000_100,
             revoked: true,
+            expires_at: None,
         };
         store.save_pairing(&first).expect("the first row");
         store.save_pairing(&second).expect("the second row");
@@ -1454,6 +1503,103 @@ mod tests {
         assert_eq!(listed.len(), 2);
         assert!(listed[0].revoked);
         assert_eq!(listed[0].secret, "one-time-secret");
+        // The revoke rewrote the row without losing its deadline.
+        assert_eq!(listed[0].expires_at, Some(1_700_000_600));
+        assert_eq!(listed[1].expires_at, None);
+    }
+
+    /// Audit H1 / H1.2: the store keeps both shapes of expiry — a deadline and
+    /// the absence of one — across a real save/load, so a restart cannot silently
+    /// promote a limited secret to a permanent one or the reverse.
+    #[test]
+    fn save_and_load_pairings_preserves_the_expiry() {
+        let (store, _dir) = temp_store();
+        let expiring = StoredPairing {
+            device_id: "device-1".to_string(),
+            secret: "expiring-secret".to_string(),
+            created_at: 1_700_000_000,
+            revoked: false,
+            expires_at: Some(1_700_000_600),
+        };
+        let permanent = StoredPairing {
+            device_id: "device-2".to_string(),
+            secret: "legacy-secret".to_string(),
+            created_at: 1_700_000_100,
+            revoked: false,
+            expires_at: None,
+        };
+        store.save_pairing(&expiring).expect("the expiring row");
+        store.save_pairing(&permanent).expect("the legacy row");
+
+        let loaded = store.load_pairings().expect("the rows are read");
+        assert_eq!(loaded, vec![expiring, permanent]);
+        assert_eq!(loaded[0].expires_at, Some(1_700_000_600));
+        assert_eq!(loaded[1].expires_at, None);
+
+        // A rewrite replaces the deadline rather than keeping the old one.
+        let extended = StoredPairing {
+            expires_at: Some(1_700_001_200),
+            ..loaded[0].clone()
+        };
+        store.save_pairing(&extended).expect("the rewrite lands");
+        assert_eq!(
+            store.load_pairings().expect("the rows are read")[0].expires_at,
+            Some(1_700_001_200)
+        );
+    }
+
+    /// Audit H1 / H1.2: migration 005 applies to a database this binary has never
+    /// seen (empty) and to one a pre-H1 daemon already wrote, grandfathering its
+    /// rows with a 10-minute grace window.
+    #[test]
+    fn migration_005_applies_to_an_empty_and_a_legacy_database() {
+        // Empty: `migrate` creates the table and then 005 adds the column.
+        let (empty, _empty_dir) = temp_store();
+        assert!(
+            table_has_column(&empty.conn, "pairing_devices", "expires_at")
+                .expect("the schema is readable")
+        );
+        // A second migrate is a no-op (the column is already there) and does not
+        // re-run the grandfather UPDATE.
+        empty.migrate().expect("the second migration is a no-op");
+
+        // Legacy: a four-column table and a row written by the old code.
+        let dir = fresh_tempdir();
+        let path = dir.path().join("warsha.db");
+        let legacy = SqliteStore::open(&path.to_string_lossy()).expect("the store opens");
+        legacy
+            .connection()
+            .execute_batch(
+                "CREATE TABLE pairing_devices ( \
+                     device_id TEXT PRIMARY KEY, secret TEXT NOT NULL, \
+                     created_at INTEGER NOT NULL, revoked INTEGER NOT NULL \
+                 ); \
+                 INSERT INTO pairing_devices (device_id, secret, created_at, revoked) \
+                 VALUES ('legacy-device', 'legacy-secret', 1700000000, 0);",
+            )
+            .expect("the pre-H1 schema and row are written");
+        assert!(
+            !table_has_column(&legacy.conn, "pairing_devices", "expires_at")
+                .expect("the old schema is readable")
+        );
+
+        let before = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("the clock is after 1970")
+            .as_secs();
+        legacy.migrate().expect("migration 005 applies");
+        let rows = legacy.load_pairings().expect("the rows are readable");
+        assert_eq!(rows.len(), 1);
+        let expires_at = rows[0]
+            .expires_at
+            .expect("the legacy row was grandfathered without a deadline");
+        // Ten minutes of grace, measured against the clock at the migration
+        // (a second of slack either way for a slow test).
+        assert!(
+            (before + 599..=before + 601).contains(&expires_at),
+            "legacy row expires at {expires_at}, not ~10 minutes after {before}"
+        );
+        assert!(!rows[0].revoked);
     }
 
     #[test]
@@ -1463,6 +1609,7 @@ mod tests {
             secret: "super-secret-value".to_string(),
             created_at: 42,
             revoked: false,
+            expires_at: None,
         };
         let rendered = format!("{pairing:?}");
         assert!(rendered.contains("device-1"));

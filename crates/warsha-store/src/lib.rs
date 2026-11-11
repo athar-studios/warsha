@@ -233,7 +233,18 @@ impl Store {
     }
 
     async fn run_migrations(pool: &SqlitePool) -> Result<()> {
-        sqlx::migrate!("./migrations")
+        let mut migrator = sqlx::migrate!("./migrations");
+        // Version 5 (`005_pairing_expiry.sql`) is the settings schema's migration:
+        // `pairing_devices`, the table it alters, is created and owned by
+        // `persistence::SqliteStore`, not by these migrations. Applying it here would
+        // fail on a fresh database (no table) and on a daemon database where the
+        // settings store already added the column (duplicate column), so this
+        // migrator deliberately leaves it to `SqliteStore::migrate`.
+        migrator
+            .migrations
+            .to_mut()
+            .retain(|migration| migration.version != 5);
+        migrator
             .run(pool)
             .await
             .map_err(|e| StoreError::Migration(e.to_string()))?;
@@ -1033,6 +1044,10 @@ mod tests {
                 "003_run_version.sql",
                 &include_bytes!("../migrations/003_run_version.sql")[..],
             ),
+            (
+                "005_pairing_expiry.sql",
+                &include_bytes!("../migrations/005_pairing_expiry.sql")[..],
+            ),
         ] {
             assert!(
                 !bytes.contains(&b'\r'),
@@ -1043,12 +1058,15 @@ mod tests {
     }
 
     /// Checksum-stability proxy: the compile-time embedded migrator must
-    /// expose exactly versions 1, 2, and 3, with no CR in any embedded SQL.
+    /// expose exactly versions 1, 2, 3 and 5, with no CR in any embedded SQL.
+    ///
+    /// 5 is embedded (its checksum is pinned) but not applied by this store: see
+    /// `settings_owned_migration_is_left_to_the_settings_schema`.
     #[test]
     fn embedded_migrator_versions_are_lf_only() {
         let migrator = sqlx::migrate!("./migrations");
         let versions: Vec<i64> = migrator.iter().map(|m| m.version).collect();
-        assert_eq!(versions, vec![1, 2, 3]);
+        assert_eq!(versions, vec![1, 2, 3, 5]);
         for migration in migrator.iter() {
             assert!(
                 !migration.sql.contains('\r'),
@@ -1056,6 +1074,29 @@ mod tests {
                 migration.version
             );
         }
+    }
+
+    /// The async store does not own `pairing_devices`: it applies 001–003 only, and
+    /// version 5 is the settings schema's (see `run_migrations`). A future change
+    /// that stops filtering would fail here instead of at a daemon start.
+    #[tokio::test]
+    async fn settings_owned_migration_is_left_to_the_settings_schema() {
+        let store = temp_store().await;
+        let applied: Vec<i64> =
+            sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
+                .fetch_all(store.pool())
+                .await
+                .expect("the migration ledger is readable");
+        assert_eq!(applied, vec![1, 2, 3]);
+        let pairing_table: Option<String> =
+            sqlx::query_scalar("SELECT name FROM sqlite_master WHERE name = 'pairing_devices'")
+                .fetch_optional(store.pool())
+                .await
+                .expect("the schema is readable");
+        assert_eq!(
+            pairing_table, None,
+            "the async migrator created a table the settings schema owns"
+        );
     }
 
     #[tokio::test]

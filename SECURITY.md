@@ -110,13 +110,25 @@ Subscriptions are supported **only** by:
 ### Remote Access — partly built, and the encryption is the part that is not
 
 - **Pairing**: QR code with a one-time pairing secret — **built**. `PairingData` carries an X25519 static
-  public key, a one-time secret and a 10-minute expiry that is genuinely checked on use
+  public key, a one-time secret and a 10-minute expiry
   (`crates/warsha-remote/src/lib.rs:121-128` for the struct; `:150-161` mints the 32-byte secret and
-  `expires_at`; `:197-200` checks expiry).
+  `expires_at`; `:197-200` checks expiry). The daemon checks that expiry on use, not only at mint time:
+  `devices.pair-start` writes the offer's deadline beside the secret (`crates/warshad/src/lib.rs`,
+  `start_pairing`), the deadline is persisted (`crates/warsha-store/src/persistence.rs`, `save_pairing` /
+  `load_pairings`, and migration `005_pairing_expiry.sql`), and `Sessions::resolve` accepts a secret only
+  while `PhonePairing::is_active_at(now_epoch_secs())` holds — `!revoked && now < expires_at`
+  (`crates/warshad/src/auth.rs`, `resolve`/`resolve_at`; `crates/warsha-pipeline/src/run_modes.rs`).
+  `devices.pair` refuses an expired `PairingData` and writes neither a device row nor a pairing. Rows stored
+  before the expiry migration are grandfathered **once** with a 10-minute grace window (the `UPDATE` in
+  `005_pairing_expiry.sql`), so upgrading does not strand a phone the owner already paired; after that window
+  their secret is dead unless it was minted with its own deadline.
 - **Identity**: long-term device keypair with a revocable device list — **built** on the daemon side; a
   revoked pairing resolves no session even when it presents the right secret
-  (`crates/warshad/src/auth.rs:169-171`), and the registry keeps the revoked row with
-  `revoked = true` (`crates/warsha-store/src/persistence.rs:194-195`, `:526-540`).
+  (`crates/warshad/src/auth.rs`, `resolve`), and the registry keeps the revoked row with
+  `revoked = true` (`crates/warsha-store/src/persistence.rs`, `save_pairing` / `load_pairings`).
+  Enrolling a device is the owner's act: `devices.pair` is `Owner` (tier `Pairing`), so a paired device that
+  presents a caller-supplied `PairingData` is refused with `-32002`; the CLI's `warsha pair` authenticates
+  with the owner token from `config.toml`, which is the supported path.
 - **Handshake**: a Noise-style handshake over the `snow` crate — **not built**. `EncryptedChannel` is annotated
   `#[allow(dead_code)]` at `crates/warsha-remote/src/lib.rs:587-588`, and `process_handshake` is a stub
   that returns `Ok(false)` without running a handshake (`:656-659`). No session keys are derived today,
@@ -193,7 +205,7 @@ branch runs none of the above.
 | Local port hijack | Loopback bind by default (a wider `bind_host` is an owner opt-in), bearer token on every route but `/health`, `config.toml` at 0600 on Unix, single-instance lock on the data directory |
 | Network interception | **Not mitigated by Warsha today.** No TLS listener, and the E2E channel is unimplemented — stay on loopback, or add HTTPS/VPN yourself |
 | Malicious code execution | Owner-role check first, then the program allow-list. No container, no sandbox, no egress control |
-| Unauthorized gate approval | Session identity taken from the transport, per-method policy tiers and rate ceilings, revoked pairings resolve nothing. No second factor on the device |
+| Unauthorized gate approval | Session identity taken from the transport, per-method policy tiers and rate ceilings, revoked or expired pairings resolve nothing, and only the owner can enrol a device. No second factor on the device |
 | Subscription ToS violation | Official CLI subprocess only, no token extraction |
 
 ## Security Checklist for Contributors

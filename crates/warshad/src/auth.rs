@@ -166,9 +166,23 @@ impl Sessions {
     ///
     /// `pairings` is what the daemon holds at the moment of the call, so revoking a
     /// phone takes effect on its next request rather than on the next restart. An
-    /// empty token, an unknown token and a revoked device all answer `None`: the
-    /// daemon does not explain which one a caller guessed.
+    /// empty token, an unknown token, a revoked device and a pairing past the
+    /// deadline its offer was minted with all answer `None`: the daemon does not
+    /// explain which one a caller guessed (audit H1).
     pub fn resolve(&self, presented: &str, pairings: &[PhonePairing]) -> Option<Actor> {
+        self.resolve_at(presented, pairings, crate::now_epoch_secs())
+    }
+
+    /// [`Sessions::resolve`] judged at `now` (Unix seconds).
+    ///
+    /// Time is a parameter so the expiry is tested at an exact instant rather than
+    /// by sleeping; `resolve` is the only caller in production.
+    pub(crate) fn resolve_at(
+        &self,
+        presented: &str,
+        pairings: &[PhonePairing],
+        now: u64,
+    ) -> Option<Actor> {
         let presented = presented.trim();
         if presented.is_empty() {
             return None;
@@ -178,7 +192,7 @@ impl Sessions {
         }
         pairings
             .iter()
-            .filter(|pairing| pairing.is_active())
+            .filter(|pairing| pairing.is_active_at(now))
             .find(|pairing| constant_time_eq(pairing.secret.as_bytes(), presented.as_bytes()))
             .map(Actor::paired)
     }
@@ -359,7 +373,7 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
     },
     M {
         method: "devices.pair",
-        policy: Session,
+        policy: Owner,
         tier: Pairing,
     },
     // The method that *mints* a pairing, as opposed to `devices.pair`, which consumes one.
@@ -1408,6 +1422,7 @@ mod tests {
             "providers.add",
             "providers.remove",
             "budget.set",
+            "devices.pair",
             "devices.pair-start",
             "devices.revoke",
             "pairing.create",
@@ -1453,7 +1468,16 @@ mod tests {
         // Pairing and spend are the strictest ceilings, as the audit requires.
         assert_eq!(policy_of("pairing.create").expect("policy").tier, Pairing);
         assert_eq!(policy_of("devices.pair").expect("policy").tier, Pairing);
-        assert_eq!(policy_of("devices.pair").expect("policy").policy, Session);
+        // Audit H2: the redeeming half is owner-only (the CLI presents the owner
+        // token), so a paired device cannot enrol a second device. The tier stays
+        // `Pairing`; only the required role changed.
+        assert_eq!(policy_of("devices.pair").expect("policy").policy, Owner);
+        assert_eq!(
+            policy_of("devices.pair-start")
+                .expect("the pairing minter has a policy")
+                .policy,
+            Owner
+        );
         // The minting half of the pairing path is measured on the same ceiling as the
         // redeeming half — and the brief's own hazard, a paired phone creating its own
         // credential, is what the `Owner` policy above (asserted in the list walk) refuses.
@@ -2112,11 +2136,51 @@ mod tests {
         let phone = uuid();
         let mut revoked = pairing(&phone, "secret");
         revoked.revoked = true;
-        assert!(!revoked.is_active());
+        assert!(!revoked.is_active_at(1_700_000_000));
         assert_eq!(revoked.device_id, phone);
         let active = pairing(&phone, "secret");
-        assert!(active.is_active());
+        assert!(active.is_active_at(1_700_000_000));
         assert!(active.created_at <= Utc::now().timestamp() as u64);
+    }
+
+    /// Audit H1 / test 2: the session check is judged at an instant, so an expired
+    /// pairing authenticates nothing at that instant, a live one still does, and the
+    /// owner credential is unchanged by either.
+    #[test]
+    fn sessions_resolve_refuses_an_expired_pairing_at_that_instant() {
+        let phone = uuid();
+        let live_secret = "live-secret";
+        let expired_secret = "expired-secret";
+        let now = 1_800_000_000;
+        let pairings = vec![
+            PhonePairing::new_with_expiry(&phone, live_secret, now - 60, Some(now + 540)),
+            PhonePairing::new_with_expiry(&phone, expired_secret, now - 660, Some(now - 60)),
+        ];
+        let sessions = Sessions::new("owner-token", DeviceId::new());
+
+        let live = sessions
+            .resolve_at(live_secret, &pairings, now)
+            .expect("a live pairing did not resolve");
+        assert_eq!(live.role(), ActorRole::Paired);
+
+        assert!(
+            sessions
+                .resolve_at(expired_secret, &pairings, now)
+                .is_none(),
+            "an expired pairing resolved a session"
+        );
+        // At one second before its deadline the same secret still works, so the
+        // refusal is the clock and not the record.
+        assert!(sessions
+            .resolve_at(expired_secret, &pairings, now - 61)
+            .is_some());
+
+        // The owner token is not a pairing: it resolves the owner before any
+        // pairing is considered, expired or not.
+        let owner = sessions
+            .resolve_at("owner-token", &pairings, now)
+            .expect("the owner token stopped resolving");
+        assert_eq!(owner.role(), ActorRole::Owner);
     }
 
     #[test]

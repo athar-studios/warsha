@@ -338,6 +338,12 @@ pub const REDACTED_SECRET: &str = "<redacted>";
 /// `secret` is the one-time secret the QR carried. It is `Debug`-redacted so a
 /// stray `tracing::debug!("{:?}", pairing)` cannot put it in a log; the field is
 /// still serialised, because the pairing channel has to hand it to the device.
+///
+/// `expires_at` is the instant the *offer* that minted this pairing becomes stale
+/// (Unix seconds), carried across the store so a restarted daemon enforces the
+/// same deadline the QR was printed with (audit H1). `None` means the record was
+/// created without an offer — the legacy `pairing.create` RPC — and is therefore
+/// bounded only by revocation.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PhonePairing {
     /// Stable device id, minted by the M6 device flow.
@@ -348,22 +354,49 @@ pub struct PhonePairing {
     pub created_at: u64,
     /// True once the owner revoked it; a revoked device stays in the store.
     pub revoked: bool,
+    /// Unix seconds after which the secret stops authenticating; `None` for a
+    /// record the legacy path created without an expiry.
+    #[serde(default)]
+    pub expires_at: Option<u64>,
 }
 
 impl PhonePairing {
-    /// Build a pairing record.
+    /// Build a pairing record that expires only when revoked.
     pub fn new(device_id: impl Into<String>, secret: impl Into<String>, created_at: u64) -> Self {
+        Self::new_with_expiry(device_id, secret, created_at, None)
+    }
+
+    /// Build a pairing record with the offer's expiry.
+    ///
+    /// `expires_at` is copied from the pairing offer the secret was minted with, so
+    /// the stored record dies at the same instant the QR does.
+    pub fn new_with_expiry(
+        device_id: impl Into<String>,
+        secret: impl Into<String>,
+        created_at: u64,
+        expires_at: Option<u64>,
+    ) -> Self {
         Self {
             device_id: device_id.into(),
             secret: secret.into(),
             created_at,
             revoked: false,
+            expires_at,
         }
     }
 
-    /// True while the device is allowed to act.
-    pub fn is_active(&self) -> bool {
-        !self.revoked
+    /// Whether the offer's expiry has passed at `now` (Unix seconds).
+    ///
+    /// The comparison is `now >= expires_at`, so the deadline instant itself is
+    /// expired: a secret is never valid for one second longer than the QR says.
+    pub fn is_expired_at(&self, now: u64) -> bool {
+        self.expires_at.is_some_and(|expires_at| now >= expires_at)
+    }
+
+    /// True while the device is allowed to act at `now`: not revoked and not past
+    /// its expiry.
+    pub fn is_active_at(&self, now: u64) -> bool {
+        !self.revoked && !self.is_expired_at(now)
     }
 }
 
@@ -374,6 +407,7 @@ impl fmt::Debug for PhonePairing {
             .field("secret", &REDACTED_SECRET)
             .field("created_at", &self.created_at)
             .field("revoked", &self.revoked)
+            .field("expires_at", &self.expires_at)
             .finish()
     }
 }
@@ -389,12 +423,30 @@ pub trait PairingStore {
     /// Refuses a blank device id or secret, and refuses a device id that already
     /// has a record — including a revoked one, so re-pairing has to be an
     /// explicit, visible act with a fresh id rather than a silent resurrection.
+    ///
+    /// `expires_at` is the offer's deadline (Unix seconds), or `None` for a record
+    /// that is bounded only by revocation. The deadline is stored, not inferred, so
+    /// a restart enforces the same instant the QR was minted with.
+    fn create_with_expiry(
+        &mut self,
+        device_id: &str,
+        secret: &str,
+        created_at: u64,
+        expires_at: Option<u64>,
+    ) -> Result<PhonePairing, RunModeError>;
+
+    /// Record a new pairing with no expiry.
+    ///
+    /// The legacy entry point (`pairing.create`); new credentials come from a
+    /// pairing offer and go through [`PairingStore::create_with_expiry`].
     fn create(
         &mut self,
         device_id: &str,
         secret: &str,
         created_at: u64,
-    ) -> Result<PhonePairing, RunModeError>;
+    ) -> Result<PhonePairing, RunModeError> {
+        self.create_with_expiry(device_id, secret, created_at, None)
+    }
 
     /// Every pairing, active and revoked, in creation order.
     fn list(&self) -> Vec<PhonePairing>;
@@ -406,11 +458,14 @@ pub trait PairingStore {
     /// `false`, so "no record" can never read as "active".
     fn is_revoked(&self, device_id: &str) -> Result<bool, RunModeError>;
 
-    /// Every pairing that is still allowed to act.
-    fn active(&self) -> Vec<PhonePairing> {
+    /// Every pairing that is still allowed to act at `now`.
+    ///
+    /// Time is a parameter rather than a call to the clock so a caller (the
+    /// daemon's session check) judges every record at one instant.
+    fn active_at(&self, now: u64) -> Vec<PhonePairing> {
         self.list()
             .into_iter()
-            .filter(PhonePairing::is_active)
+            .filter(|pairing| pairing.is_active_at(now))
             .collect()
     }
 }
@@ -459,6 +514,7 @@ impl InMemoryPairingStore {
                 secret: pairing.secret.clone(),
                 created_at: pairing.created_at,
                 revoked: pairing.revoked,
+                expires_at: pairing.expires_at,
             })?;
         }
         Ok(())
@@ -479,6 +535,7 @@ impl InMemoryPairingStore {
                 secret: row.secret,
                 created_at: row.created_at,
                 revoked: row.revoked,
+                expires_at: row.expires_at,
             })
             .collect();
         Ok(Self { pairings })
@@ -486,11 +543,12 @@ impl InMemoryPairingStore {
 }
 
 impl PairingStore for InMemoryPairingStore {
-    fn create(
+    fn create_with_expiry(
         &mut self,
         device_id: &str,
         secret: &str,
         created_at: u64,
+        expires_at: Option<u64>,
     ) -> Result<PhonePairing, RunModeError> {
         let device_id = device_id.trim();
         if device_id.is_empty() {
@@ -505,7 +563,7 @@ impl PairingStore for InMemoryPairingStore {
             });
         }
 
-        let pairing = PhonePairing::new(device_id, secret, created_at);
+        let pairing = PhonePairing::new_with_expiry(device_id, secret, created_at, expires_at);
         self.pairings.push(pairing.clone());
         Ok(pairing)
     }
@@ -758,8 +816,9 @@ mod tests {
             .create("device-1", "one-time-secret", 1_700_000_000)
             .expect("first pairing");
         assert_eq!(created.device_id, "device-1");
-        assert!(created.is_active());
+        assert!(created.is_active_at(created.created_at));
         assert_eq!(created.created_at, 1_700_000_000);
+        assert_eq!(created.expires_at, None, "a bare create gained an expiry");
 
         store
             .create(" device-2 ", "another-secret", 1_700_000_100)
@@ -769,18 +828,60 @@ mod tests {
         // Creation order, and the id is stored trimmed.
         assert_eq!(listed[0].device_id, "device-1");
         assert_eq!(listed[1].device_id, "device-2");
-        assert_eq!(store.active().len(), 2);
+        assert_eq!(store.active_at(1_700_000_200).len(), 2);
 
         let revoked = store.revoke("device-1").expect("revoke");
         assert!(revoked.revoked);
-        assert!(!revoked.is_active());
+        assert!(!revoked.is_active_at(1_700_000_200));
         assert_eq!(store.is_revoked("device-1"), Ok(true));
         assert_eq!(store.is_revoked("device-2"), Ok(false));
-        assert_eq!(store.active().len(), 1);
+        assert_eq!(store.active_at(1_700_000_200).len(), 1);
 
         // Revocation marks the record; it does not delete it.
         assert_eq!(store.len(), 2);
         assert_eq!(store.list()[0].secret, "one-time-secret");
+    }
+
+    /// Audit H1: the store's liveness rule is the offer's deadline, judged at the
+    /// instant the caller names. A record is dead at the deadline and after it, and
+    /// a revoked record is dead at every instant.
+    #[test]
+    fn is_active_at_is_false_at_and_after_the_expiry_and_always_for_a_revoked_pairing() {
+        let expires_at = 1_700_000_600;
+        let pairing = PhonePairing::new_with_expiry(
+            "device-1",
+            "one-time-secret",
+            1_700_000_000,
+            Some(expires_at),
+        );
+
+        assert!(
+            pairing.is_active_at(1_700_000_000),
+            "a fresh pairing was inactive"
+        );
+        assert!(
+            pairing.is_active_at(expires_at - 1),
+            "a pairing expired one second early"
+        );
+        assert!(
+            !pairing.is_active_at(expires_at),
+            "the deadline instant itself was accepted"
+        );
+        assert!(!pairing.is_active_at(expires_at + 1));
+        assert!(pairing.is_expired_at(expires_at));
+        assert!(!pairing.is_expired_at(expires_at - 1));
+
+        // Revocation outranks the expiry: a revoked record is never active, even
+        // while it is still inside its window.
+        let mut revoked = pairing.clone();
+        revoked.revoked = true;
+        assert!(!revoked.is_active_at(1_700_000_000));
+        assert!(!revoked.is_active_at(expires_at - 1));
+
+        // A record with no expiry (the legacy create path) is active until revoked.
+        let unbounded = PhonePairing::new("device-2", "secret", 1_700_000_000);
+        assert!(unbounded.is_active_at(u64::MAX - 1));
+        assert!(!unbounded.is_expired_at(u64::MAX - 1));
     }
 
     #[test]
@@ -932,7 +1033,12 @@ mod tests {
         let (store, _dir) = temp_sqlite_store();
         let mut memory = InMemoryPairingStore::new();
         memory
-            .create("device-1", "one-time-secret", 1_700_000_000)
+            .create_with_expiry(
+                "device-1",
+                "one-time-secret",
+                1_700_000_000,
+                Some(1_700_000_600),
+            )
             .expect("the first pairing");
         memory
             .create("device-2", "another-secret", 1_700_000_100)
@@ -950,10 +1056,14 @@ mod tests {
         // allowed to act, and its secret is unchanged.
         assert_eq!(reloaded.is_revoked("device-1"), Ok(true));
         assert_eq!(reloaded.is_revoked("device-2"), Ok(false));
-        assert_eq!(reloaded.active().len(), 1);
+        // device-1 is revoked, device-2 has no expiry yet.
+        assert_eq!(reloaded.active_at(1_700_000_200).len(), 1);
         let first = reloaded.get("device-1").expect("the row exists");
         assert_eq!(first.secret, "one-time-secret");
         assert_eq!(first.created_at, 1_700_000_000);
+        // The stored deadline came back with the row.
+        assert_eq!(first.expires_at, Some(1_700_000_600));
+        assert!(!first.is_active_at(1_700_000_600));
         // The secret never prints on either side of the store.
         assert!(!format!("{first:?}").contains("one-time-secret"));
         let stored = store.load_pairings().expect("the rows are readable");

@@ -1172,9 +1172,11 @@ impl DaemonState {
     ///
     /// Read at the moment of the call rather than cached, so `pairing.revoke` takes
     /// effect on the phone's next request instead of at the next restart: a revocation
-    /// that only landed on a reboot is a revocation the owner cannot use.
+    /// that only landed on a reboot is a revocation the owner cannot use. The deadline
+    /// is judged at this call's clock too, so an expired pairing stops authenticating
+    /// without a restart (audit H1).
     async fn active_pairings(&self) -> Vec<PhonePairing> {
-        self.pairings.read().await.active()
+        self.pairings.read().await.active_at(now_epoch_secs())
     }
 
     /// Count one limiter refusal and write the aggregate line when it is due.
@@ -2868,7 +2870,22 @@ impl WarshaApiServer for WarshaRpc {
         ext: &RpcExtensions,
         pairing_data: warsha_remote::PairingData,
     ) -> RpcResult<()> {
+        // Owner-only (audit H2): a paired device must not be able to enrol another.
         self.authorize(ext, "devices.pair")?;
+
+        // A pairing consumes an offer, and the offer's deadline is the one the daemon
+        // enforces from then on (audit H1). Refuse a stale one before writing anything,
+        // so an expired QR leaves neither a device row nor a pairing record behind.
+        if pairing_data.is_expired() {
+            return Err(rpc_error(
+                "this pairing has expired; mint a fresh one from the daemon's pairing \
+                 screen (`devices.pair-start`) or with `warsha pair`"
+                    .to_string(),
+            ));
+        }
+        let expires_at = u64::try_from(pairing_data.expires_at.timestamp())
+            .map_err(|_| rpc_error("this pairing's expiry is before the Unix epoch".to_string()))?;
+
         let device = warsha_remote::DeviceIdentity {
             device_id: pairing_data.device_id,
             static_public: pairing_data.static_public,
@@ -2887,10 +2904,11 @@ impl WarshaApiServer for WarshaRpc {
             let mut pairings = self.state.pairings.write().await;
             if pairings.get(&pairing_data.device_id.to_string()).is_none() {
                 pairings
-                    .create(
+                    .create_with_expiry(
                         &pairing_data.device_id.to_string(),
                         &pairing_data.secret_token(),
                         now_epoch_secs(),
+                        Some(expires_at),
                     )
                     .map_err(|e| rpc_error(e.to_string()))?;
             }
@@ -2930,6 +2948,11 @@ impl WarshaApiServer for WarshaRpc {
         // relay as its own milestone.
         let offer = warsha_remote::PairingOffer::new(&device, &server_origin, None, loopback_only)
             .map_err(|error| rpc_error(error.to_string()))?;
+        // The stored pairing dies with the offer: the same deadline the QR carries is
+        // written beside the secret, so a restart cannot turn a 10-minute credential
+        // into a permanent one (audit H1).
+        let expires_at = u64::try_from(offer.expires_at().timestamp())
+            .map_err(|_| rpc_error("this pairing's expiry is before the Unix epoch".to_string()))?;
 
         // The secret itself is never logged: the origin and the expiry are what an owner
         // and a reviewer need, and a pairing line in a log is otherwise a bearer token in
@@ -2943,10 +2966,11 @@ impl WarshaApiServer for WarshaRpc {
         {
             let mut pairings = self.state.pairings.write().await;
             pairings
-                .create(
+                .create_with_expiry(
                     &device.device_id.to_string(),
                     &offer.pairing.secret_token(),
                     now_epoch_secs(),
+                    Some(expires_at),
                 )
                 .map_err(|error| rpc_error(error.to_string()))?;
         }
@@ -7251,6 +7275,196 @@ mod tests {
                 "{method} refused a paired device for the wrong reason"
             );
         }
+    }
+
+    // ---- Audit H1/H2: the pairing credential's lifecycle.
+
+    /// A pairing a phone could present, with the offer's 10-minute expiry.
+    fn fresh_pairing_data() -> warsha_remote::PairingData {
+        let device = warsha_remote::DeviceIdentity::generate("phone".to_string())
+            .expect("a device identity");
+        warsha_remote::PairingData::new(&device, None).expect("a pairing")
+    }
+
+    /// The same record with a deadline the caller names.
+    fn pairing_data_expiring_at(expires_at: chrono::DateTime<Utc>) -> warsha_remote::PairingData {
+        warsha_remote::PairingData {
+            expires_at,
+            ..fresh_pairing_data()
+        }
+    }
+
+    /// Audit H2 / test 3: enrolment is the owner's act. A paired actor gets the same
+    /// `-32002` any paired device gets for an owner method, and the CLI's path — the
+    /// owner token from `config.toml` — still pairs a phone.
+    #[tokio::test]
+    async fn devices_pair_refuses_a_paired_actor_and_the_owner_still_pairs() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state.clone());
+
+        let data = fresh_pairing_data();
+        let secret = data.secret_token();
+        let device_id = data.device_id;
+        let phone = uuid::Uuid::new_v4().to_string();
+
+        let refused = rpc
+            .pair_device(&paired_ext(&phone), data.clone())
+            .await
+            .expect_err("a paired device enrolled another device");
+        assert_eq!(
+            rpc_error_code(&refused),
+            auth::rpc_codes::FORBIDDEN,
+            "a paired device was refused enrolment for a reason other than the owner gate"
+        );
+        assert!(
+            state.pairings.read().await.is_empty(),
+            "the refused enrolment still wrote a pairing"
+        );
+        assert!(
+            !state
+                .devices
+                .list_devices()
+                .await
+                .iter()
+                .any(|device| device.device_id == device_id),
+            "the refused enrolment still wrote a device row"
+        );
+
+        rpc.pair_device(&owner_ext(), data)
+            .await
+            .expect("the owner's `warsha pair` path was refused");
+        let rows = state.pairings.read().await.list();
+        let actor = state
+            .sessions
+            .resolve_at(&secret, &rows, now_epoch_secs())
+            .expect("the owner's pairing does not authenticate");
+        assert_eq!(actor.role(), auth::ActorRole::Paired);
+    }
+
+    /// Audit H1 / test 4: an expired offer is refused before anything is written, so a
+    /// stale QR leaves no device and no credential behind.
+    #[tokio::test]
+    async fn devices_pair_refuses_expired_pairing_data_without_writing_anything() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state.clone());
+
+        let expired = pairing_data_expiring_at(Utc::now() - chrono::Duration::minutes(1));
+        let device_id = expired.device_id;
+        let error = rpc
+            .pair_device(&owner_ext(), expired)
+            .await
+            .expect_err("an expired pairing was redeemed");
+        assert_eq!(rpc_error_code(&error), -32000);
+        assert!(
+            error.message().contains("expired"),
+            "the refusal does not say the pairing expired: {error}"
+        );
+        assert!(state.pairings.read().await.is_empty());
+        assert!(
+            !state
+                .devices
+                .list_devices()
+                .await
+                .iter()
+                .any(|device| device.device_id == device_id),
+            "the refused pairing wrote a device row"
+        );
+        assert!(
+            state
+                .settings
+                .load_pairings()
+                .await
+                .expect("the stored pairings are readable")
+                .is_empty(),
+            "the refused pairing was persisted"
+        );
+    }
+
+    /// Audit H1 / test 5: `devices.pair-start` writes the offer's deadline beside the
+    /// secret, and the persisted record stops resolving at that instant.
+    #[tokio::test]
+    async fn start_pairing_persists_the_offer_expiry_and_the_secret_dies_with_it() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state.clone());
+        state
+            .pairing_origin
+            .set("http://127.0.0.1:9000".to_string())
+            .expect("the pairing origin is set once");
+
+        let offer = rpc
+            .start_pairing(&owner_ext())
+            .await
+            .expect("the daemon minted a pairing");
+        let expiry = u64::try_from(offer.expires_at().timestamp()).expect("the expiry is positive");
+        let secret = offer.pairing.secret_token();
+        let device_id = offer.pairing.device_id.to_string();
+
+        let persisted = state
+            .settings
+            .load_pairings()
+            .await
+            .expect("the stored pairings are readable");
+        let row = persisted
+            .get(&device_id)
+            .expect("the minted pairing was not persisted");
+        assert_eq!(
+            row.expires_at,
+            Some(expiry),
+            "the stored deadline is not the offer's"
+        );
+        assert!(row.is_active_at(expiry - 1));
+        assert!(!row.is_active_at(expiry));
+
+        let rows = persisted.list();
+        assert!(
+            state.sessions.resolve_at(&secret, &rows, expiry).is_none(),
+            "the stored secret still resolved at its deadline"
+        );
+        assert!(
+            state
+                .sessions
+                .resolve_at(&secret, &rows, expiry - 1)
+                .is_some(),
+            "the stored secret did not resolve inside its window"
+        );
+    }
+
+    /// Audit H1 / test 7: revocation still takes effect on the next request; the
+    /// expiry check must not have replaced it.
+    #[tokio::test]
+    async fn revoke_device_still_removes_access_on_the_next_request() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state.clone());
+
+        let data = fresh_pairing_data();
+        let secret = data.secret_token();
+        let device_id = data.device_id;
+        rpc.pair_device(&owner_ext(), data)
+            .await
+            .expect("the owner paired a phone");
+        assert_eq!(
+            state
+                .sessions
+                .resolve_at(&secret, &state.active_pairings().await, now_epoch_secs())
+                .map(|actor| actor.role()),
+            Some(auth::ActorRole::Paired),
+            "the paired secret did not authenticate before revocation"
+        );
+
+        rpc.revoke_device(&owner_ext(), device_id)
+            .await
+            .expect("the device is revoked");
+        assert!(
+            state
+                .sessions
+                .resolve_at(&secret, &state.active_pairings().await, now_epoch_secs())
+                .is_none(),
+            "a revoked pairing still authenticated on the next request"
+        );
     }
 
     #[tokio::test]
