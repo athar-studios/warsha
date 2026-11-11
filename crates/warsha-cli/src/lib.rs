@@ -1,5 +1,7 @@
 //! Warsha CLI — `warsha` binary
 
+pub mod mcp_serve;
+
 use clap::{Parser, Subcommand};
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HeaderMap, HeaderValue, HttpClient, HttpClientBuilder};
@@ -185,6 +187,12 @@ pub enum Commands {
         action: DeviceAction,
     },
 
+    /// Model Context Protocol (MCP) server
+    Mcp {
+        #[command(subcommand)]
+        action: McpAction,
+    },
+
     /// Start the daemon (internal)
     #[command(hide = true)]
     Daemon(DaemonArgs),
@@ -255,6 +263,12 @@ pub enum DeviceAction {
         /// Device ID
         id: String,
     },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum McpAction {
+    /// Start a stdio MCP server exposing read tools and run creation
+    Serve,
 }
 
 /// The language `warsha` writes its own human messages in.
@@ -411,6 +425,7 @@ impl CliApp {
             Commands::Doctor => self.cmd_doctor().await,
             Commands::Pair { qr_code } => self.cmd_pair(qr_code).await,
             Commands::Devices { action } => self.cmd_devices(action).await,
+            Commands::Mcp { action } => self.cmd_mcp(action).await,
             Commands::Daemon(args) => self.cmd_daemon(args).await,
         }
     }
@@ -849,6 +864,22 @@ impl CliApp {
             }
         }
         Ok(())
+    }
+
+    async fn cmd_mcp(&self, action: McpAction) -> Result<()> {
+        match action {
+            McpAction::Serve => mcp_serve::serve_stdio(&self.client).await,
+        }
+    }
+
+    /// Serve the MCP stdio protocol over arbitrary streams using this CLI's
+    /// authenticated daemon RPC client.
+    pub async fn serve_mcp<R, W>(&self, reader: R, writer: W) -> Result<()>
+    where
+        R: tokio::io::AsyncBufRead + Unpin + Send,
+        W: tokio::io::AsyncWrite + Unpin + Send,
+    {
+        mcp_serve::serve(reader, writer, &self.client).await
     }
 
     async fn cmd_daemon(&self, args: DaemonArgs) -> Result<()> {
