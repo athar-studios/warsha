@@ -12,6 +12,15 @@ use warsha_core::*;
 use crate::backend_kit::BackendKit;
 use crate::mcp_transport::{McpManager, McpTransportError};
 
+/// The one MCP server configuration the whole pipeline shares.
+///
+/// This registry record carries the persisted fields (project, role, enabled,
+/// timestamps); the launchable shape (`command`, `args`, `url`, `headers`,
+/// `transport`) lives on [`crate::mcp_transport::McpServerConfig`]. Until the
+/// two are merged, this module re-exports the launchable type under the same
+/// name so callers see a single `McpServerConfig`.
+pub use crate::mcp_transport::McpServerConfig;
+
 #[derive(Error, Debug)]
 pub enum McpError {
     #[error("MCP server not found: {0}")]
@@ -41,9 +50,12 @@ pub enum McpTransport {
     WebSocket,
 }
 
-/// MCP server configuration
+/// Persisted registry record for an MCP server.
+///
+/// Distinct from [`McpServerConfig`] (the launchable shape): this one carries
+/// identity and enablement, and the transport config is what gets launched.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct McpServerConfig {
+pub struct McpServerRecord {
     pub id: String,
     pub name: String,
     pub transport: McpTransport,
@@ -59,7 +71,7 @@ pub struct McpServerConfig {
     pub updated_at: String,
 }
 
-impl McpServerConfig {
+impl McpServerRecord {
     pub fn new_stdio(name: String, command: String, args: Vec<String>) -> Self {
         Self {
             id: Ulid::new().to_string(),
@@ -189,7 +201,7 @@ pub enum PermissionScope {
 /// MCP registry managing servers and permissions
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct McpRegistry {
-    pub servers: HashMap<String, McpServerConfig>,
+    pub servers: HashMap<String, McpServerRecord>,
     pub tools: HashMap<String, McpTool>, // server_id::tool_name -> tool
     pub permissions: HashMap<String, ToolPermissionEntry>, // server_id::tool_name::role -> permission
 }
@@ -199,7 +211,7 @@ impl McpRegistry {
         Self::default()
     }
 
-    pub fn add_server(&mut self, config: McpServerConfig) -> Result<()> {
+    pub fn add_server(&mut self, config: McpServerRecord) -> Result<()> {
         if self.servers.contains_key(&config.id) {
             return Err(McpError::ServerNotFound(format!(
                 "Server {} already exists",
@@ -222,7 +234,7 @@ impl McpRegistry {
         Ok(())
     }
 
-    pub fn get_server(&self, server_id: &str) -> Option<&McpServerConfig> {
+    pub fn get_server(&self, server_id: &str) -> Option<&McpServerRecord> {
         self.servers.get(server_id)
     }
 
@@ -230,7 +242,7 @@ impl McpRegistry {
         &self,
         project_id: Option<ProjectId>,
         role: Option<Role>,
-    ) -> Vec<&McpServerConfig> {
+    ) -> Vec<&McpServerRecord> {
         self.servers
             .values()
             .filter(|s| s.enabled)
@@ -482,7 +494,7 @@ mod tests {
 
     #[test]
     fn test_mcp_server_config() {
-        let config = McpServerConfig::new_stdio(
+        let config = McpServerRecord::new_stdio(
             "filesystem".to_string(),
             "npx".to_string(),
             vec![
@@ -500,7 +512,7 @@ mod tests {
     fn test_mcp_registry() {
         let mut registry = McpRegistry::new();
 
-        let config = McpServerConfig::new_stdio(
+        let config = McpServerRecord::new_stdio(
             "test-server".to_string(),
             "echo".to_string(),
             vec!["hello".to_string()],
