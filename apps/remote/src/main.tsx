@@ -12,6 +12,8 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { registerShellWorker } from './offline';
 import { applyStoredTheme } from './theme';
+// eslint-disable-next-line import/no-unresolved
+import '@warsha/ui/v3/tokens/tokens.css';
 import './index.css';
 
 // The owner's theme, then the document's language and direction: `data-theme` is what every token reads,
