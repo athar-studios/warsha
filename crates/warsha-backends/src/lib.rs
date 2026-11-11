@@ -138,6 +138,9 @@ pub struct CliBackend {
     pub env_vars: HashMap<String, String>,
 }
 
+/// The wall-clock bound a coding CLI gets before the backend gives up.
+pub const CODING_CLI_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
 impl CliBackend {
     pub fn new(name: &str, command: &str, args: Vec<String>) -> Self {
         Self {
@@ -150,6 +153,21 @@ impl CliBackend {
 
     pub fn check_installed(&self) -> bool {
         which(&self.command).is_ok()
+    }
+
+    /// The prompt handed to the coding CLI: the task, its files and its context.
+    fn task_prompt(task: &CodingTask) -> String {
+        let mut prompt = format!("{}\n\n{}", task.title.trim(), task.description.trim());
+        if !task.files.is_empty() {
+            prompt.push_str("\n\nFiles:\n");
+            for file in &task.files {
+                prompt.push_str(&format!("- {} ({:?})\n", file.path, file.action));
+            }
+        }
+        for (key, value) in &task.context {
+            prompt.push_str(&format!("- {key}: {value}\n"));
+        }
+        prompt.trim().to_string()
     }
 }
 
@@ -172,11 +190,20 @@ impl CodingBackend for CliBackend {
         }
 
         let start = std::time::Instant::now();
+        let prompt = Self::task_prompt(&task);
 
-        // Build command with task prompt
+        // The coding CLI receives the task as its last argument (after the
+        // backend-specific flags: `claude -p <prompt>`, `codex exec <prompt>`, …),
+        // runs in the sandbox directory, and inherits the caller's environment so
+        // its own authentication works. stdin is closed: a CLI waiting for one
+        // must fail rather than hang a run.
         let mut cmd = tokio::process::Command::new(&self.command);
-        cmd.args(&self.args);
-        cmd.current_dir(&sandbox.work_dir);
+        cmd.args(&self.args)
+            .arg(&prompt)
+            .current_dir(&sandbox.work_dir)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
 
         for (k, v) in &self.env_vars {
             cmd.env(k, v);
@@ -185,31 +212,81 @@ impl CodingBackend for CliBackend {
             cmd.env(k, v);
         }
 
-        // In real implementation, we'd pass the task as a prompt
-        // For now, just run a dummy command
-        let output = cmd
-            .arg("--version")
-            .output()
+        let output = tokio::time::timeout(CODING_CLI_TIMEOUT, cmd.output())
             .await
+            .map_err(|_| {
+                BackendError::Timeout(format!(
+                    "{} did not finish within {CODING_CLI_TIMEOUT:?}",
+                    self.name
+                ))
+            })?
             .map_err(|e| BackendError::ExecutionFailed(e.to_string()))?;
 
         let duration = start.elapsed().as_millis() as u64;
 
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(BackendError::ExecutionFailed(stderr.to_string()));
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let detail = if stderr.is_empty() { stdout } else { stderr };
+            return Err(BackendError::ExecutionFailed(if detail.is_empty() {
+                format!("{} exited with {:?}", self.name, output.status.code())
+            } else {
+                detail
+            }));
         }
+
+        // The result is the change the CLI actually made, not a claim: the diff
+        // and the changed paths come from git in the sandbox. A non-git sandbox
+        // reports no diff instead of failing a successful run.
+        let (diff, files_changed) = capture_changes(&sandbox.work_dir).await;
 
         Ok(CodingResult {
             task_id: task.id,
             success: true,
-            diff: None,
-            files_changed: vec![],
+            diff,
+            files_changed,
             usage: None,
             error: None,
             duration_ms: duration,
         })
     }
+}
+
+/// The diff and changed paths a run left in `work_dir`, or an empty pair when it
+/// is not a git repository. Read-only: it never stages, commits or cleans.
+async fn capture_changes(work_dir: &std::path::Path) -> (Option<String>, Vec<String>) {
+    let status = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(work_dir)
+        .args(["status", "--porcelain"])
+        .output()
+        .await;
+    let diff = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(work_dir)
+        .args(["diff", "HEAD"])
+        .output()
+        .await;
+
+    let mut files = Vec::new();
+    if let Ok(output) = status {
+        if output.status.success() {
+            for line in String::from_utf8_lossy(&output.stdout).lines() {
+                if let Some(path) = line.get(3..) {
+                    let path = path.trim();
+                    if !path.is_empty() {
+                        files.push(path.to_string());
+                    }
+                }
+            }
+        }
+    }
+    let diff = diff
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).to_string())
+        .filter(|diff| !diff.trim().is_empty());
+    (diff, files)
 }
 
 /// Factory for creating backends
@@ -307,5 +384,139 @@ mod tests {
     fn test_cli_backend_check() {
         let backend = CliBackend::new("test", "nonexistent-command-xyz", vec![]);
         assert!(!backend.is_available());
+    }
+
+    /// ENGINE E4: the coding CLI really receives the task, and the result is the
+    /// change it made (git diff/status), not a `--version` dummy.
+    mod e4 {
+        use super::*;
+        use std::process::Command;
+
+        fn task(title: &str, description: &str) -> CodingTask {
+            CodingTask {
+                id: Ulid::new(),
+                run_id: RunId::new(),
+                title: title.to_string(),
+                description: description.to_string(),
+                repo_path: PathBuf::from("."),
+                branch_name: "main".to_string(),
+                base_branch: "main".to_string(),
+                files: vec![TaskFile {
+                    path: "src/lib.rs".to_string(),
+                    content: String::new(),
+                    action: FileAction::Modify,
+                }],
+                context: HashMap::from([("project".to_string(), "Shop".to_string())]),
+            }
+        }
+
+        #[test]
+        fn the_prompt_names_the_task_files_and_context() {
+            let prompt = CliBackend::task_prompt(&task("Add a page", "Make the page render"));
+            assert!(prompt.contains("Add a page"));
+            assert!(prompt.contains("Make the page render"));
+            assert!(prompt.contains("src/lib.rs"));
+            assert!(prompt.contains("project: Shop"));
+        }
+
+        #[cfg(unix)]
+        fn fake_cli(dir: &std::path::Path, body: &str) -> PathBuf {
+            use std::os::unix::fs::PermissionsExt;
+            let path = dir.join("fake-coding-cli");
+            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("the fake CLI is written");
+            let mut permissions = std::fs::metadata(&path)
+                .expect("the script exists")
+                .permissions();
+            permissions.set_mode(0o755);
+            std::fs::set_permissions(&path, permissions).expect("the script is executable");
+            path
+        }
+
+        #[cfg(unix)]
+        fn git_repo(dir: &std::path::Path) {
+            for args in [
+                vec!["init", "-q"],
+                vec!["config", "user.email", "test@example.com"],
+                vec!["config", "user.name", "Test"],
+                vec!["add", "."],
+                vec!["commit", "-qm", "base"],
+            ] {
+                let status = Command::new("git")
+                    .current_dir(dir)
+                    .args(&args)
+                    .status()
+                    .expect("git runs");
+                assert!(status.success(), "git {args:?} failed");
+            }
+        }
+
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn a_fake_cli_receives_the_prompt_and_its_changes_are_reported() {
+            let temp = tempfile::tempdir().expect("a temp dir");
+            std::fs::write(temp.path().join("base.txt"), "base").expect("a base file");
+            git_repo(temp.path());
+            let cli = fake_cli(
+                temp.path(),
+                "printf '%s' \"$*\" > prompt.txt\nprintf 'changed' > base.txt\nprintf 'made' > made.txt",
+            );
+            let backend = CliBackend::new("fake", cli.to_str().expect("a utf8 path"), vec![]);
+            let sandbox = Sandbox::new(temp.path().to_path_buf());
+
+            let result = backend
+                .execute(task("Add a page", "Make the page render"), &sandbox)
+                .await
+                .expect("the fake CLI succeeds");
+
+            assert!(result.success);
+            assert!(
+                result.files_changed.iter().any(|path| path == "made.txt"),
+                "{:?}",
+                result.files_changed
+            );
+            assert!(
+                result.files_changed.iter().any(|path| path == "base.txt"),
+                "{:?}",
+                result.files_changed
+            );
+            let diff = result.diff.expect("a diff is captured");
+            assert!(diff.contains("base.txt"), "{diff}");
+            let prompt = std::fs::read_to_string(temp.path().join("prompt.txt"))
+                .expect("the prompt is recorded");
+            assert!(prompt.contains("Add a page"), "{prompt}");
+        }
+
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn a_failing_cli_is_an_execution_error_with_its_stderr() {
+            let temp = tempfile::tempdir().expect("a temp dir");
+            let cli = fake_cli(temp.path(), "echo 'boom: cannot proceed' >&2\nexit 3");
+            let backend = CliBackend::new("fake", cli.to_str().expect("a utf8 path"), vec![]);
+            let sandbox = Sandbox::new(temp.path().to_path_buf());
+
+            let error = backend
+                .execute(task("T", "D"), &sandbox)
+                .await
+                .expect_err("the CLI failed");
+
+            assert!(
+                matches!(error, BackendError::ExecutionFailed(_)),
+                "{error:?}"
+            );
+            assert!(error.to_string().contains("boom"), "{error}");
+        }
+
+        #[tokio::test]
+        async fn a_missing_command_is_not_installed() {
+            let backend = CliBackend::new("missing", "warsha-no-such-cli-xyz", vec![]);
+            let sandbox = Sandbox::new(PathBuf::from("."));
+
+            let error = backend
+                .execute(task("T", "D"), &sandbox)
+                .await
+                .expect_err("the CLI is missing");
+
+            assert!(matches!(error, BackendError::NotInstalled(_)), "{error:?}");
+        }
     }
 }
