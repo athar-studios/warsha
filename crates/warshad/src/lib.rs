@@ -605,7 +605,11 @@ impl Default for DaemonConfig {
             auth_token: String::new(), // Generated on first run
             allowed_origins: vec![
                 "http://localhost:5173".to_string(),
+                // Tauri v2 serves the webview from a custom scheme on Unix and from
+                // `http://tauri.localhost` on Windows; both are the app's own origin,
+                // not a public web origin, and a strict Origin check needs both.
                 "tauri://localhost".to_string(),
+                "http://tauri.localhost".to_string(),
             ],
             rate_limits: RateLimitConfig::default(),
             allowed_commands: Vec::new(),
@@ -936,6 +940,29 @@ where
         let token = bearer_token(req.headers());
 
         Box::pin(async move {
+            // A browser sends `Origin` on cross-origin requests, including the
+            // WebSocket upgrade a CORS layer cannot gate: jsonrpsee would accept the
+            // handshake before CORS ever saw it. A present-but-unlisted Origin is
+            // refused before the credential is read; an absent Origin (CLI, tests,
+            // same-origin) is allowed exactly as before (security audit LOW: no Origin
+            // check on the RPC WS).
+            if let Some(origin) = req.headers().get(axum::http::header::ORIGIN) {
+                let allowed = origin.to_str().ok().is_some_and(|value| {
+                    state
+                        .config
+                        .allowed_origins
+                        .iter()
+                        .any(|allowed| allowed == value)
+                });
+                if !allowed {
+                    return Ok(rpc_refusal(
+                        axum::http::StatusCode::FORBIDDEN,
+                        serde_json::json!({ "error": "origin not allowed" }),
+                        None,
+                    ));
+                }
+            }
+
             // The pairing store is read at the moment of the call, so revoking a
             // device takes effect on its next request rather than at the next start.
             let actor = state
@@ -11490,5 +11517,81 @@ mod pair_repair {
                 .expect_err("a paired device wrote a permission");
             assert_eq!(rpc_error_code(&set), auth::rpc_codes::FORBIDDEN);
         }
+    }
+}
+
+/// The RPC listener refuses a present-but-unlisted Origin — including the WebSocket
+/// upgrade a CORS layer cannot gate — while an absent Origin and the app origins
+/// still reach the auth check (security audit LOW: no Origin check on the RPC WS).
+#[cfg(test)]
+mod origin_guard {
+    use super::*;
+    use jsonrpsee::core::http_helpers::Body;
+    use std::future::Ready;
+    use std::task::{Context, Poll};
+    use tower::Service;
+
+    #[derive(Clone)]
+    struct Accepting;
+
+    impl tower::Service<HttpRequest<Body>> for Accepting {
+        type Response = HttpResponse;
+        type Error = BoxError;
+        type Future = Ready<std::result::Result<Self::Response, Self::Error>>;
+
+        fn poll_ready(
+            &mut self,
+            _cx: &mut Context<'_>,
+        ) -> Poll<std::result::Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn call(&mut self, _req: HttpRequest<Body>) -> Self::Future {
+            std::future::ready(Ok(HttpResponse::new(Body::empty())))
+        }
+    }
+
+    fn request(origin: Option<&str>) -> HttpRequest<Body> {
+        let mut builder = axum::http::Request::builder().uri("/").method("POST");
+        if let Some(origin) = origin {
+            builder = builder.header(axum::http::header::ORIGIN, origin);
+        }
+        builder.body(Body::empty()).expect("the request builds")
+    }
+
+    async fn status(service: &mut RpcAuthService<Accepting>, origin: Option<&str>) -> u16 {
+        Service::call(service, request(origin))
+            .await
+            .expect("the layer answers")
+            .status()
+            .as_u16()
+    }
+
+    #[tokio::test]
+    async fn an_unlisted_origin_is_refused_before_the_credential() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = crate::tests::test_state(temp.path()).await;
+        let mut service = RpcAuthService {
+            inner: Accepting,
+            state,
+        };
+        assert_eq!(status(&mut service, Some("http://evil.example")).await, 403);
+    }
+
+    #[tokio::test]
+    async fn the_app_origins_and_no_origin_reach_the_auth_check() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = crate::tests::test_state(temp.path()).await;
+        let mut service = RpcAuthService {
+            inner: Accepting,
+            state,
+        };
+        // No token is sent, so passing the origin guard means the auth refusal (401).
+        assert_eq!(status(&mut service, None).await, 401);
+        assert_eq!(status(&mut service, Some("tauri://localhost")).await, 401);
+        assert_eq!(
+            status(&mut service, Some("http://tauri.localhost")).await,
+            401
+        );
     }
 }
