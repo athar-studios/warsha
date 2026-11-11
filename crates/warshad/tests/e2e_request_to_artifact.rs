@@ -560,6 +560,7 @@ async fn daemon_state(data_dir: &Path) -> Arc<DaemonState> {
         crash_reports: Arc::new(RwLock::new(InMemoryCrashReportStore::new())),
         store_reviews: Arc::new(RwLock::new(InMemoryStoreReviewStore::new())),
         agent_loop: Arc::new(RwLock::new(AgentLoop::new())),
+        mcp_permissions: Arc::new(warsha_pipeline::StaticPermissions::new()),
         processes,
         mcp,
         previews,

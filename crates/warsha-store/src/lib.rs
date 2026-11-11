@@ -251,6 +251,45 @@ impl Store {
         Ok(())
     }
 
+    /// Upsert one MCP permission row (`server`, `tool`, `role`).
+    ///
+    /// The permission string is validated again by the table's CHECK constraint;
+    /// the daemon rejects anything but `allow`/`ask`/`deny` before this call.
+    pub async fn set_mcp_permission(
+        &self,
+        server: &str,
+        tool: &str,
+        role: &str,
+        permission: &str,
+        updated_at: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO mcp_permissions (server, tool, role, permission, updated_at)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(server, tool, role)
+             DO UPDATE SET permission = excluded.permission, updated_at = excluded.updated_at",
+        )
+        .bind(server)
+        .bind(tool)
+        .bind(role)
+        .bind(permission)
+        .bind(updated_at)
+        .execute(self.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// Every stored MCP permission row, in key order.
+    pub async fn load_mcp_permissions(&self) -> Result<Vec<(String, String, String, String)>> {
+        let rows = sqlx::query_as::<_, (String, String, String, String)>(
+            "SELECT server, tool, role, permission FROM mcp_permissions
+             ORDER BY server, tool, role",
+        )
+        .fetch_all(self.pool())
+        .await?;
+        Ok(rows)
+    }
+
     /// Borrow the underlying pool.
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
@@ -1058,7 +1097,7 @@ mod tests {
     }
 
     /// Checksum-stability proxy: the compile-time embedded migrator must
-    /// expose exactly versions 1, 2, 3 and 5, with no CR in any embedded SQL.
+    /// expose exactly versions 1, 2, 3, 4 and 5, with no CR in any embedded SQL.
     ///
     /// 5 is embedded (its checksum is pinned) but not applied by this store: see
     /// `settings_owned_migration_is_left_to_the_settings_schema`.
@@ -1066,7 +1105,7 @@ mod tests {
     fn embedded_migrator_versions_are_lf_only() {
         let migrator = sqlx::migrate!("./migrations");
         let versions: Vec<i64> = migrator.iter().map(|m| m.version).collect();
-        assert_eq!(versions, vec![1, 2, 3, 5]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 5]);
         for migration in migrator.iter() {
             assert!(
                 !migration.sql.contains('\r'),
@@ -1076,7 +1115,7 @@ mod tests {
         }
     }
 
-    /// The async store does not own `pairing_devices`: it applies 001–003 only, and
+    /// The async store does not own `pairing_devices`: it applies 001–004 only, and
     /// version 5 is the settings schema's (see `run_migrations`). A future change
     /// that stops filtering would fail here instead of at a daemon start.
     #[tokio::test]
@@ -1087,7 +1126,7 @@ mod tests {
                 .fetch_all(store.pool())
                 .await
                 .expect("the migration ledger is readable");
-        assert_eq!(applied, vec![1, 2, 3]);
+        assert_eq!(applied, vec![1, 2, 3, 4]);
         let pairing_table: Option<String> =
             sqlx::query_scalar("SELECT name FROM sqlite_master WHERE name = 'pairing_devices'")
                 .fetch_optional(store.pool())
@@ -1713,5 +1752,55 @@ mod tests {
                 .iter()
                 .any(|e| e.payload["action"] == "run_interrupted"));
         }
+    }
+
+    /// K6: upsert overwrites, the CHECK rejects an unknown permission, and all
+    /// three accepted values round-trip in key order.
+    #[tokio::test]
+    async fn mcp_permissions_upsert_check_and_round_trip() {
+        let temp = fresh_tempdir();
+        let store = Store::open_at(temp.path().join("permissions.db"))
+            .await
+            .expect("the test store opens");
+        store
+            .set_mcp_permission("srv", "tool", "agent", "allow", "2026-01-01T00:00:00Z")
+            .await
+            .expect("allow writes");
+        store
+            .set_mcp_permission("srv", "tool", "agent", "deny", "2026-01-02T00:00:00Z")
+            .await
+            .expect("the upsert writes");
+        store
+            .set_mcp_permission("srv", "other", "reviewer", "ask", "2026-01-03T00:00:00Z")
+            .await
+            .expect("ask writes");
+
+        let rows = store.load_mcp_permissions().await.expect("the rows load");
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    "srv".to_string(),
+                    "other".to_string(),
+                    "reviewer".to_string(),
+                    "ask".to_string()
+                ),
+                (
+                    "srv".to_string(),
+                    "tool".to_string(),
+                    "agent".to_string(),
+                    "deny".to_string()
+                ),
+            ],
+            "the upsert did not overwrite or the rows did not round-trip"
+        );
+
+        let refused = store
+            .set_mcp_permission("srv", "tool", "agent", "permit", "2026-01-04T00:00:00Z")
+            .await;
+        assert!(
+            refused.is_err(),
+            "the CHECK constraint accepted an unknown permission"
+        );
     }
 }

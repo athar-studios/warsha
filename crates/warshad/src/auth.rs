@@ -565,6 +565,18 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Owner,
         tier: Spend,
     },
+    // The permission table is the daemon's own security setting, so only the owner
+    // reads or writes it; a paired device must not be able to grant itself a tool.
+    M {
+        method: "mcp.permissions.list",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "mcp.permissions.set",
+        policy: Owner,
+        tier: Spend,
+    },
     // A preview is a dev server the daemon starts.
     M {
         method: "preview.start",

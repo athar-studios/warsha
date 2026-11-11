@@ -44,8 +44,9 @@ use warsha_pipeline::{
     ManagedProcess, McpConnection, McpManager, MessageBus, ModeManager, ModeTransition,
     PairingStore, PhonePairing, Preference, PreferenceSignal, PreferenceStore, ProcessManager,
     ProcessStatus, ProcessSummary, ProviderRouterAdapter, Routine, RoutineRegistry, RoutineRunner,
-    RoutineScheduler, RunMode, RunModeConfig, SlashCommand, SlashCommandRegistry, StoreReview,
-    StoreReviewStore, TodoItem, TodoList, WorkProtectionPolicy, AGENT_ROLE,
+    RoutineScheduler, RunMode, RunModeConfig, SlashCommand, SlashCommandRegistry,
+    StaticPermissions, StoreReview, StoreReviewStore, TodoItem, TodoList, WorkProtectionPolicy,
+    AGENT_ROLE,
 };
 use warsha_providers::{
     probe_endpoint, HealthCheck, KeychainSecretStore, OneClickProvider, ProviderRouter,
@@ -1060,6 +1061,8 @@ pub struct DaemonState {
     /// folded context is this process's working set, and a stale one replayed into a
     /// new daemon would be a memory the owner never approved keeping.
     pub agent_loop: Arc<RwLock<AgentLoop>>,
+    /// The MCP permission table consulted before every agent tool call.
+    pub mcp_permissions: Arc<StaticPermissions>,
     /// The one spawner: `process.*` drives it, the MCP stdio transport starts its
     /// server through it, and the live preview runs its dev server on it, so every
     /// child the daemon starts shows up in one `process.list`.
@@ -1248,6 +1251,30 @@ impl DaemonState {
             keychain,
         }
     }
+}
+
+/// One `server::tool::role` MCP permission row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpPermissionRow {
+    /// The MCP server the row names.
+    pub server: String,
+    /// The tool the row names.
+    pub tool: String,
+    /// The role the row names.
+    pub role: String,
+    /// `allow`, `ask` or `deny`.
+    pub permission: String,
+}
+
+/// The permission table plus the agent role's fail-closed default.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpPermissionsReply {
+    /// Every stored row, in key order.
+    pub rows: Vec<McpPermissionRow>,
+    /// The role every agent tool call is checked under.
+    pub agent_role: String,
+    /// The permission an unseen `server::tool` gets for [`McpPermissionsReply::agent_role`].
+    pub default_permission: String,
 }
 
 /// JSON-RPC API trait
@@ -1505,6 +1532,18 @@ pub trait WarshaApi {
         tool: String,
         arguments: serde_json::Value,
     ) -> RpcResult<warsha_pipeline::mcp::McpToolResult>;
+
+    #[method(name = "mcp.permissions.list", with_extensions)]
+    async fn list_mcp_permissions(&self) -> RpcResult<McpPermissionsReply>;
+
+    #[method(name = "mcp.permissions.set", with_extensions)]
+    async fn set_mcp_permission(
+        &self,
+        server: String,
+        tool: String,
+        role: String,
+        permission: String,
+    ) -> RpcResult<McpPermissionRow>;
 
     // Live preview dev server (PLAN.md M5b + M20)
     #[method(name = "preview.start", with_extensions)]
@@ -3653,6 +3692,59 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|error| rpc_error(error.to_string()))
     }
 
+    async fn list_mcp_permissions(&self, ext: &RpcExtensions) -> RpcResult<McpPermissionsReply> {
+        self.authorize(ext, "mcp.permissions.list").await?;
+        let rows = self
+            .state
+            .mcp_permissions
+            .snapshot()
+            .into_iter()
+            .map(|(server, tool, role, permission)| McpPermissionRow {
+                server,
+                tool,
+                role,
+                permission: permission.as_str().to_string(),
+            })
+            .collect();
+        Ok(McpPermissionsReply {
+            rows,
+            agent_role: warsha_pipeline::MCP_AGENT_ROLE.to_string(),
+            default_permission: warsha_pipeline::mcp_permission::ToolPermission::Ask
+                .as_str()
+                .to_string(),
+        })
+    }
+
+    async fn set_mcp_permission(
+        &self,
+        ext: &RpcExtensions,
+        server: String,
+        tool: String,
+        role: String,
+        permission: String,
+    ) -> RpcResult<McpPermissionRow> {
+        self.authorize(ext, "mcp.permissions.set").await?;
+        let permission = warsha_pipeline::mcp_permission::ToolPermission::parse_strict(&permission)
+            .map_err(rpc_error)?;
+        let updated_at = Utc::now().to_rfc3339();
+        // Save first, then update memory: a write that failed must not leave the
+        // running loop granting something the store does not hold.
+        self.state
+            .store
+            .set_mcp_permission(&server, &tool, &role, permission.as_str(), &updated_at)
+            .await
+            .map_err(|error| rpc_error(error.to_string()))?;
+        self.state
+            .mcp_permissions
+            .set(&server, &tool, &role, permission);
+        Ok(McpPermissionRow {
+            server,
+            tool,
+            role,
+            permission: permission.as_str().to_string(),
+        })
+    }
+
     // Live preview dev server (PLAN.md M5b + M20)
     async fn start_preview(
         &self,
@@ -5102,11 +5194,67 @@ const AGENT_METER_KEY: &str = "agent-loop";
 /// loop answers that no provider is routed for the agent role, and a tool request
 /// whose path leaves the workspace is refused — neither is a panic and neither is
 /// a silent no-op.
+/// The pipeline's permission-store seam over the daemon's SQLite store.
+///
+/// The orphan rule keeps the pipeline from implementing its own trait for the
+/// store type, so the daemon adapts it here: one place maps the stored strings
+/// through the total parser (unknown becomes `Ask`).
+struct DaemonPermissionStore {
+    store: Arc<Store>,
+}
+
+#[async_trait]
+impl warsha_pipeline::McpPermissionStore for DaemonPermissionStore {
+    async fn set_mcp_permission(
+        &self,
+        server: &str,
+        tool: &str,
+        role: &str,
+        permission: warsha_pipeline::mcp_permission::ToolPermission,
+        updated_at: &str,
+    ) -> std::result::Result<(), String> {
+        self.store
+            .set_mcp_permission(server, tool, role, permission.as_str(), updated_at)
+            .await
+            .map_err(|error| error.to_string())
+    }
+
+    async fn load_mcp_permissions(
+        &self,
+    ) -> std::result::Result<
+        Vec<(
+            String,
+            String,
+            String,
+            warsha_pipeline::mcp_permission::ToolPermission,
+        )>,
+        String,
+    > {
+        self.store
+            .load_mcp_permissions()
+            .await
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|(server, tool, role, permission)| {
+                        (
+                            server,
+                            tool,
+                            role,
+                            warsha_pipeline::mcp_permission::ToolPermission::parse(&permission),
+                        )
+                    })
+                    .collect()
+            })
+            .map_err(|error| error.to_string())
+    }
+}
+
 fn build_agent_loop(
     data_dir: &Path,
     allowed_commands: &[String],
     providers: Arc<RwLock<ProviderRouter>>,
     mcp: Arc<dyn McpManager>,
+    mcp_permissions: Arc<StaticPermissions>,
     backend_kit: Arc<RwLock<BackendKit>>,
 ) -> Arc<RwLock<AgentLoop>> {
     // The shipped work-protection policy enforces read-before-write, so the
@@ -5132,6 +5280,7 @@ fn build_agent_loop(
         AgentLoop::with_tool_executor(Box::new(tools))
             .with_router(Arc::new(router))
             .with_mcp(mcp)
+            .with_mcp_permissions(mcp_permissions)
             .with_backend_kit(backend_kit),
     ))
 }
@@ -5710,11 +5859,18 @@ pub async fn start_daemon_with_provider_factory(
     // providers and the owner's routing, so an Agent-mode turn reaches a model
     // rather than reporting that nothing is wired.
     let default_kit = Arc::new(RwLock::new(default_backend_kit("default")));
+    // The permission table is loaded before the loop exists, so a call's check
+    // cannot race the load. A read error leaves every unseen row at `Ask`.
+    let permission_store = DaemonPermissionStore {
+        store: store.clone(),
+    };
+    let mcp_permissions = Arc::new(StaticPermissions::load_from(&permission_store).await);
     let agent_loop = build_agent_loop(
         &config.data_dir,
         &config.allowed_commands,
         providers.clone(),
         mcp.clone(),
+        mcp_permissions.clone(),
         default_kit,
     );
 
@@ -5775,6 +5931,7 @@ pub async fn start_daemon_with_provider_factory(
         crash_reports: Arc::new(RwLock::new(InMemoryCrashReportStore::new())),
         store_reviews: Arc::new(RwLock::new(InMemoryStoreReviewStore::new())),
         agent_loop,
+        mcp_permissions,
         processes,
         mcp,
         previews,
@@ -7210,11 +7367,13 @@ mod tests {
         // providers and the owner's routing, so an Agent-mode turn reaches a model
         // rather than reporting that nothing is wired.
         let default_kit = Arc::new(RwLock::new(default_backend_kit("default")));
+        let mcp_permissions = Arc::new(StaticPermissions::new());
         let agent_loop = build_agent_loop(
             &config.data_dir,
             &config.allowed_commands,
             providers.clone(),
             mcp.clone(),
+            mcp_permissions.clone(),
             default_kit,
         );
 
@@ -7230,6 +7389,7 @@ mod tests {
             crash_reports: Arc::new(RwLock::new(InMemoryCrashReportStore::new())),
             store_reviews: Arc::new(RwLock::new(InMemoryStoreReviewStore::new())),
             agent_loop,
+            mcp_permissions,
             processes,
             mcp,
             previews,
@@ -9726,7 +9886,7 @@ mod tests {
         #[tokio::test]
         async fn runs_resume_resumes_paused_run_after_change_request() {
             let temp = crate::test_util::fresh_tempdir();
-            let (state, _store) = test_state(temp.path()).await;
+            let (state, _store) = crate::tests::test_state(temp.path()).await;
             let rpc = WarshaRpc::new(state);
             let owner = owner_ext();
 
@@ -10679,7 +10839,7 @@ mod tests {
         #[tokio::test]
         async fn install_refuses_a_command_outside_the_allow_list() {
             let temp = crate::test_util::fresh_tempdir();
-            let (state, _store) = test_state(temp.path()).await;
+            let (state, _store) = crate::tests::test_state(temp.path()).await;
             let rpc = WarshaRpc::new(state.clone());
             let owner = owner_ext();
             let manifest = serde_json::json!({
@@ -10710,7 +10870,7 @@ mod tests {
         #[tokio::test]
         async fn install_refuses_an_unpinned_package_launch() {
             let temp = crate::test_util::fresh_tempdir();
-            let (state, _store) = test_state(temp.path()).await;
+            let (state, _store) = crate::tests::test_state(temp.path()).await;
             let rpc = WarshaRpc::new(state.clone());
             let owner = owner_ext();
 
@@ -10753,7 +10913,7 @@ mod tests {
         #[tokio::test]
         async fn a_fresh_daemon_seeds_every_bundled_pack_disabled() {
             let temp = crate::test_util::fresh_tempdir();
-            let (state, _store) = test_state(temp.path()).await;
+            let (state, _store) = crate::tests::test_state(temp.path()).await;
             let rpc = WarshaRpc::new(state);
             let owner = owner_ext();
 
@@ -10773,7 +10933,7 @@ mod tests {
         #[tokio::test]
         async fn a_stored_row_the_policy_refuses_never_launches() {
             let temp = crate::test_util::fresh_tempdir();
-            let (state, _store) = test_state(temp.path()).await;
+            let (state, _store) = crate::tests::test_state(temp.path()).await;
             let row = wave2::plugin_row(&legacy_definition("curl")).expect("a row serialises");
             state
                 .settings
@@ -10807,7 +10967,7 @@ mod tests {
         #[tokio::test]
         async fn configure_refuses_before_filing_its_environment() {
             let temp = crate::test_util::fresh_tempdir();
-            let (state, _store) = test_state(temp.path()).await;
+            let (state, _store) = crate::tests::test_state(temp.path()).await;
             let row = wave2::plugin_row(&legacy_definition("curl")).expect("a row serialises");
             state
                 .settings
@@ -10995,6 +11155,7 @@ async fn health_reports_probed_capabilities() {
         crash_reports: state.crash_reports.clone(),
         store_reviews: state.store_reviews.clone(),
         agent_loop: state.agent_loop.clone(),
+        mcp_permissions: state.mcp_permissions.clone(),
         processes: state.processes.clone(),
         mcp: state.mcp.clone(),
         previews: state.previews.clone(),
@@ -11091,5 +11252,243 @@ mod pair_repair {
             &actor,
             &active_set(&[pairing(true, None)])
         ));
+    }
+
+    /// K6.2: the daemon RPC surface and the end-to-end table at the agent call site.
+    mod mcp_permission {
+        use super::*;
+        use warsha_pipeline::mcp_permission::ToolPermission;
+        use warsha_pipeline::McpPermissionSource;
+
+        fn owner_ext() -> RpcExtensions {
+            let mut ext = RpcExtensions::new();
+            ext.insert(Actor::owner(DeviceId::new()));
+            ext
+        }
+
+        fn paired_ext(device_id: &str) -> RpcExtensions {
+            let mut ext = RpcExtensions::new();
+            ext.insert(Actor::paired(&PhonePairing::new(
+                device_id,
+                "a-pairing-secret",
+                1_700_000_000,
+            )));
+            ext
+        }
+
+        async fn seed_pairing(state: &DaemonState, device_id: &str) {
+            state
+                .pairings
+                .write()
+                .await
+                .create_with_expiry(device_id, "a-pairing-secret", 1_700_000_000, None)
+                .expect("the test pairing is recorded once");
+        }
+
+        fn rpc_error_code(error: &jsonrpsee::types::ErrorObjectOwned) -> i32 {
+            error.code()
+        }
+
+        #[derive(Default)]
+        struct RecordingMcp {
+            calls: std::sync::Mutex<Vec<(String, String)>>,
+        }
+
+        impl RecordingMcp {
+            fn calls(&self) -> usize {
+                self.calls.lock().expect("the recording lock").len()
+            }
+        }
+
+        #[async_trait]
+        impl McpManager for RecordingMcp {
+            async fn connect(
+                &self,
+                _config: warsha_pipeline::mcp_transport::McpServerConfig,
+            ) -> std::result::Result<(), warsha_pipeline::McpTransportError> {
+                Ok(())
+            }
+            async fn disconnect(
+                &self,
+                _name: &str,
+            ) -> std::result::Result<(), warsha_pipeline::McpTransportError> {
+                Ok(())
+            }
+            async fn list(&self) -> Vec<warsha_pipeline::McpConnection> {
+                vec![warsha_pipeline::McpConnection {
+                    config: warsha_pipeline::mcp_transport::McpServerConfig {
+                        name: "srv".to_string(),
+                        transport: warsha_pipeline::mcp_transport::McpTransport::Stdio,
+                        command: Some("dummy".to_string()),
+                        args: vec![],
+                    },
+                    status: warsha_pipeline::McpStatus::Connected,
+                    process_id: Some("p1".to_string()),
+                    tools: vec!["tool".to_string()],
+                    tool_definitions: vec![],
+                }]
+            }
+            async fn send(
+                &self,
+                _name: &str,
+                _payload: &str,
+            ) -> std::result::Result<String, warsha_pipeline::McpTransportError> {
+                Ok(String::new())
+            }
+            async fn call_tool(
+                &self,
+                name: &str,
+                tool: &str,
+                _arguments: serde_json::Value,
+            ) -> std::result::Result<
+                warsha_pipeline::mcp::McpToolResult,
+                warsha_pipeline::McpTransportError,
+            > {
+                self.calls
+                    .lock()
+                    .expect("the recording lock")
+                    .push((name.to_string(), tool.to_string()));
+                Ok(warsha_pipeline::mcp::McpToolResult {
+                    content: vec![warsha_pipeline::mcp::McpContent::Text {
+                        text: "ok".to_string(),
+                    }],
+                    is_error: false,
+                })
+            }
+        }
+
+        fn approved_agent_loop(
+            permissions: Arc<StaticPermissions>,
+            mcp: Arc<RecordingMcp>,
+        ) -> AgentLoop {
+            let mut agent_loop = AgentLoop::new();
+            agent_loop
+                .approve_agent_mode("owner")
+                .expect("an approval is accepted");
+            agent_loop.with_mcp(mcp).with_mcp_permissions(permissions)
+        }
+
+        fn call_tool_input() -> String {
+            "call mcp srv/tool {\"msg\":\"hi\"}".to_string()
+        }
+
+        #[tokio::test]
+        async fn set_then_list_round_trips_and_memory_updates() {
+            let temp = crate::test_util::fresh_tempdir();
+            let (state, _store) = crate::tests::test_state(temp.path()).await;
+            let rpc = WarshaRpc::new(state);
+            let owner = owner_ext();
+
+            let row = rpc
+                .set_mcp_permission(
+                    &owner,
+                    "srv".to_string(),
+                    "tool".to_string(),
+                    warsha_pipeline::MCP_AGENT_ROLE.to_string(),
+                    "allow".to_string(),
+                )
+                .await
+                .expect("the owner sets a permission");
+            assert_eq!(row.permission, "allow");
+
+            let listed = rpc
+                .list_mcp_permissions(&owner)
+                .await
+                .expect("the owner lists permissions");
+            assert_eq!(listed.default_permission, "ask");
+            assert_eq!(listed.agent_role, warsha_pipeline::MCP_AGENT_ROLE);
+            assert_eq!(
+                listed.rows,
+                vec![McpPermissionRow {
+                    server: "srv".to_string(),
+                    tool: "tool".to_string(),
+                    role: warsha_pipeline::MCP_AGENT_ROLE.to_string(),
+                    permission: "allow".to_string(),
+                }]
+            );
+            // The running table changed with the store, before any restart.
+            assert_eq!(
+                rpc.state.mcp_permissions.check_permission(
+                    "srv",
+                    "tool",
+                    warsha_pipeline::MCP_AGENT_ROLE
+                ),
+                ToolPermission::Allow
+            );
+            // An unknown permission is rejected, not defaulted.
+            assert!(rpc
+                .set_mcp_permission(
+                    &owner,
+                    "srv".to_string(),
+                    "tool".to_string(),
+                    warsha_pipeline::MCP_AGENT_ROLE.to_string(),
+                    "permit".to_string(),
+                )
+                .await
+                .is_err());
+        }
+
+        #[tokio::test]
+        async fn default_ask_blocks_the_agent_and_allow_lets_it_through() {
+            let temp = crate::test_util::fresh_tempdir();
+            let (state, _store) = crate::tests::test_state(temp.path()).await;
+            let rpc = WarshaRpc::new(state);
+            let owner = owner_ext();
+            let mcp = Arc::new(RecordingMcp::default());
+            let mut agent_loop =
+                approved_agent_loop(rpc.state.mcp_permissions.clone(), mcp.clone());
+
+            let blocked = agent_loop.run_turn(&call_tool_input(), &[]).await;
+            assert!(
+                !blocked.tools[0].success,
+                "default Ask let the call through"
+            );
+            assert_eq!(mcp.calls(), 0, "default Ask reached the transport");
+            assert_eq!(agent_loop.ask_queue.len(), 1);
+
+            rpc.set_mcp_permission(
+                &owner,
+                "srv".to_string(),
+                "tool".to_string(),
+                warsha_pipeline::MCP_AGENT_ROLE.to_string(),
+                "allow".to_string(),
+            )
+            .await
+            .expect("the owner grants the tool");
+
+            let allowed = agent_loop.run_turn(&call_tool_input(), &[]).await;
+            assert!(
+                allowed.tools[0].success,
+                "allow did not let the call through"
+            );
+            assert_eq!(mcp.calls(), 1, "allow did not call exactly once");
+        }
+
+        #[tokio::test]
+        async fn a_paired_device_is_refused_both_permission_rpcs() {
+            let temp = crate::test_util::fresh_tempdir();
+            let (state, _store) = crate::tests::test_state(temp.path()).await;
+            let device = uuid::Uuid::new_v4().to_string();
+            seed_pairing(&state, &device).await;
+            let rpc = WarshaRpc::new(state);
+            let paired = paired_ext(&device);
+
+            let listed = rpc
+                .list_mcp_permissions(&paired)
+                .await
+                .expect_err("a paired device listed the permission table");
+            assert_eq!(rpc_error_code(&listed), auth::rpc_codes::FORBIDDEN);
+            let set = rpc
+                .set_mcp_permission(
+                    &paired,
+                    "srv".to_string(),
+                    "tool".to_string(),
+                    warsha_pipeline::MCP_AGENT_ROLE.to_string(),
+                    "allow".to_string(),
+                )
+                .await
+                .expect_err("a paired device wrote a permission");
+            assert_eq!(rpc_error_code(&set), auth::rpc_codes::FORBIDDEN);
+        }
     }
 }
