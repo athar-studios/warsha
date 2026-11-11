@@ -19,7 +19,7 @@
 | 4 | أذونات ملف الإعداد | DONE على Unix / BLOCKED على Windows | CLI `2942811` (0600 + اختبار)؛ daemon يكتب 0600 أصلًا؛ Windows ACL يحتاج runner |
 | 5 | فحوص Linux (Rust/JS/سلسلة التوريد) | DONE | Rust workspace 893/0/10 عند `697a586`؛ warshad 145/0/2 وCLI suite بعد آخر إصلاحين؛ JS 1349 اختبارًا + lint/typecheck؛ `cargo deny` 0؛ CP.5 صفر carve-outs؛ فاحص الإصدار 8/8 |
 | 6 | مراجعات KEEL المستقلة K5.11/PAIR.4/K9/K6/K8.3/CP.1 | BLOCKED | قناة تفويض الفريق تفشل (`internal_error`)؛ أُطلقت مراجعة subagent مستقلة كبديل موثّق، لا تُعد Team APPROVE |
-| 7 | ENGINE H1 + بقية E1 + ربط E2/E3/E5 + E7/E8 | NOT DONE | الشرائح المنفصلة منفّذة بأدلة؛ الربط بالـdaemon والتتبع الكامل لم يبدأ بعد |
+| 7 | ENGINE H1 + بقية E1 + ربط E2/E3/E5 + E7/E8 | IN PROGRESS | **E3 wiring DONE** (`42b9a93`): `runs.start` ينشئ worktree تحت `<data_dir>/worktrees` لمشروع له `repo_path`، و`runs.worktree` يبلّغه (Session)؛ فشل الإنشاء يلغي الـrun ويرجع خطأ. E2/E5 wiring وH1/E1/E7/E8 NOT DONE |
 | 8 | UI v3 موجات B/C/D + FNT + T1–T3 | NOT DONE | يلزم تحميل مواصفات الموجات من أدلة التشغيل الخاصة |
 | 9 | extensions + FIN (version/pilot/1.0-rc) | NOT DONE | FIN جزئي: مسار draft→promotion fail-closed |
 | 10 | التحقق على Windows | BLOCKED | لا runner مصرّح في هذه الجلسة |
@@ -29,7 +29,8 @@
 
 ## الأدلة المقاسة (أوامر إنجليزية)
 
-- `cargo test --workspace --all-targets --no-fail-fast` → exit 0، 36 suite، **893 passed / 0 failed / 10 ignored** (رأس `697a586`؛ آخر إصلاحين لمسا warshad/CLI فقط وأُعيد قياسهما: warshad **145/0/2**، CLI lib **14** + integration **4** + **7**).
+- `cargo test --workspace --all-targets --no-fail-fast` → exit 0، 36 suite، **893 passed / 0 failed / 10 ignored** (رأس `697a586`)؛ ثم **896/0/10** عند `5325a51` (بعد Origin/config/allowlist)؛ warshad lib **147/0/2** بعد E3 wiring؛ CLI lib **14** + integration **4** + **7**.
+- `node scripts/check-wire-contract.mjs` → `wire: 10 checks, 0 violations` بعد إضافة `runs.worktree`.
 - `pnpm lint && pnpm -r typecheck && pnpm -r test` → exit 0، **1349** اختبارًا (crypto 22، client 149، i18n 58، ui 309، remote 221، desktop 590) + mdbook.
 - `cargo deny --all-features check` → exit 0 (قبول مخاطر OD-S1c لـlibsqlite3-sys 0.30.1، ليس إصلاح CVE).
 - `cp5-stub-scan.sh` → `cp5: 0 uncarved production stubs` بلا carve-out.
@@ -38,7 +39,7 @@
 
 ## الفروع والكوميتات
 
-- `dev` المحلي = `2942811` (fast-forward من `15b99f9`).
+- `dev` المحلي = `42b9a93`؛ remote `warsha-dev dev` سيُحدَّث بعد هذه الدفعة (كان `e73cfeb`).
 - `warsha-dev` remote `dev` كان `15b99f9`؛ `285105e`/`361c38b`/`2942811` **لم تكن مدفوعة** قبل هذه الدفعة.
 - سلسلة KEEL/ENGINE المحلية: `decccde` → `4ab0aa8` → `2a2ba04` → `7fd3a7f` → `62c0b8a` → `1c545ef` → `25989d7` → `7efade5` → `d1cce2b` → `95935bc` → `701…`؛ ثم `285105e` (allowlist) → `361c38b` (Origin) → `2942811` (config 0600).
 - مرشّح التكامل `93ecfc8` وفرع الإصدار `81b2169` محليان.
