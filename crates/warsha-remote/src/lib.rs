@@ -587,7 +587,9 @@ pub struct EncryptedFrame {
 /// `transport` therefore stays `None`, and `write_message`/`read_message` fail with
 /// `Handshake("Handshake not complete")`. The only way to set `transport` is to pass
 /// `complete_handshake` a `HandshakeState` the caller built itself. Nothing in the
-/// daemon constructs one; relay traffic today is authenticated JSON-RPC, not ciphertext.
+/// daemon constructs one; the relay forwards `EncryptedFrame` values as JSON envelopes
+/// under bearer authentication today, with no ciphertext guarantee, and this channel
+/// encrypts and verifies nothing.
 #[allow(dead_code)]
 pub struct EncryptedChannel {
     transport: Option<TransportState>,
