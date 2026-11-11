@@ -8,7 +8,7 @@ import {
   runAxe,
 } from '../harness';
 
-import { act, expectRpc, openV3 } from './support';
+import { act, expectRpc, openV3, auditViewportFit, describeViewportFit, viewportFitIsClean } from './support';
 
 const LOCALES = ['ar', 'en'] as const;
 const THEMES = ['light', 'dark'] as const;
@@ -91,21 +91,32 @@ test.describe('Frame journeys', () => {
     await expect(inboxBtn).toHaveAttribute('aria-label', 'Decisions waiting: 1');
     await expect(page.locator('.v3-frame-inbox-badge')).toHaveText('1');
 
-    // When a run is at gate_b and gates.list answers all 4 pending gates, only gate_b is counted (1)
+    // When a run is at gate_b and gates.list answers all 4 pending gates, only gate_b is counted (1).
+    // The answer is per project: proj-ui holds the run at gate_b, and proj-store holds none, so the one
+    // waiting decision is gate_b at proj-ui's current stage — not two projects echoing one fixture.
     await openV3(page, '/', {
       lang: 'en',
       fixtures: {
         'runs.list': {
-          result: [
-            {
-              id: 'run-b',
-              projectId: 'proj-ui',
-              stage: 'gate_b',
-              status: 'awaiting_gate',
-              startedAt: '2026-10-01T00:00:00Z',
-              updatedAt: '2026-10-01T00:00:00Z',
-            },
-          ],
+          result: (params: unknown) => {
+            const projectId =
+              typeof params === 'object' && params !== null
+                ? ((params as Record<string, unknown>)['projectId'] ??
+                  (params as Record<string, unknown>)['project_id'] ??
+                  null)
+                : null;
+            if (projectId !== 'proj-ui') return [];
+            return [
+              {
+                id: 'run-b',
+                projectId: 'proj-ui',
+                stage: 'gate_b',
+                status: 'awaiting_gate',
+                startedAt: '2026-10-01T00:00:00Z',
+                updatedAt: '2026-10-01T00:00:00Z',
+              },
+            ];
+          },
         },
         'gates.list': {
           result: [
@@ -149,7 +160,11 @@ test.describe('Frame journeys', () => {
 test.describe('Frame action ids', () => {
   test('frame.skip-to-main focuses main landmark', async ({ page }) => {
     await openV3(page, '/');
-    await act(page, 'frame.skip-to-main');
+    // A skip link is a keyboard control: it is clipped to one pixel until it has focus (the visually
+    // hidden pattern), so the owner reaches it with Tab and activates it with Enter — which is the
+    // `onClick` path too. Clicking its 1px clipped box with a pointer is not a state any owner can be in.
+    await page.locator('[data-action="frame.skip-to-main"]').focus();
+    await page.keyboard.press('Enter');
     const focusedId = await page.evaluate(() => document.activeElement?.id);
     expect(focusedId).toBe('main');
   });
@@ -309,6 +324,8 @@ test.describe('Frame visual baselines (@visual)', () => {
               await expect(page.locator('[role="listbox"]')).toBeVisible();
             }
 
+            const fit = await auditViewportFit(page);
+            expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
             await expect(page).toHaveScreenshot(
               `frame-${state}-${vp.name}-${locale}-${theme}.png`
             );

@@ -121,7 +121,11 @@ export function FrameProjectSwitcher({
     });
   }, [projects, query, anonymousFallback]);
 
-  const triggerLabel = `${t('frame.project_switcher_label')}: ${displayName}`;
+  // The accessible name is built from the same words the trigger paints, so a screen reader and the
+  // screen cannot disagree (axe `label-content-name-mismatch`, measured in `en` on every v3 page).
+  const triggerLabel = [t('frame.project_switcher_label'), displayName, currentStatus?.label]
+    .filter((part): part is string => Boolean(part && part.trim() !== ''))
+    .join(' ');
 
   return (
     <div
@@ -172,6 +176,7 @@ export function FrameProjectSwitcher({
         >
           {displayName}
         </bdi>
+        {currentStatus && ' '}
         {currentStatus && <StatusPill status={currentStatus.status} label={currentStatus.label} />}
         <IconChevron
           size={16}
@@ -229,8 +234,8 @@ export function FrameProjectSwitcher({
               style={{
                 border: 'none',
                 background: 'transparent',
-                outline: 'none',
                 inlineSize: '100%',
+                minInlineSize: 0,
                 fontFamily: 'var(--w-font-sans)',
                 fontSize: 'var(--w-font-size-sm)',
                 color: 'var(--w-text)',

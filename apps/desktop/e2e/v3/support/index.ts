@@ -162,6 +162,14 @@ export async function openV3(
   const targetHash = `#${normalizedRoute}`;
   const origin = options.origin ?? '';
 
+  // A second `openV3` in one test must boot the app again, not navigate within the document: a
+  // same-document `goto` keeps the mounted tree, so the new fixtures (an error, an empty list) never
+  // reach the screen and the test reads the previous case's state. Leaving the document first makes
+  // every open a real reload.
+  if (page.url() !== 'about:blank') {
+    await page.goto('about:blank');
+  }
+
   await page.goto(`${origin}/?ui=v3${targetHash}`, { waitUntil: 'domcontentloaded' });
   await page.addStyleTag({ content: NO_MOTION_CSS });
 
@@ -228,3 +236,10 @@ export async function expectRpc(
 export async function rpcCalls(page: Page): Promise<{ method: string; params: unknown }[]> {
   return harnessRpcCalls(page);
 }
+
+export {
+  auditViewportFit,
+  describeViewportFit,
+  viewportFitIsClean,
+} from './viewportFit';
+export type { ViewportFitAudit, ViewportFitOptions } from './viewportFit';

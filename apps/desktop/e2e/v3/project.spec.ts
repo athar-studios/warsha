@@ -8,7 +8,7 @@ import {
   runAxe,
 } from '../harness';
 
-import { act, expectRpc, openV3, rpcCalls } from './support';
+import { act, expectRpc, openV3, rpcCalls, auditViewportFit, describeViewportFit, viewportFitIsClean } from './support';
 
 const LOCALES = ['ar', 'en'] as const;
 const THEMES = ['light', 'dark'] as const;
@@ -65,7 +65,7 @@ test.describe('Project journeys', () => {
 
     const card = page.locator('[data-testid="project-decision-card"]');
     await expect(card).toHaveCount(1);
-    await expect(card).toContainText('Should we approve the idea and brief?');
+    await expect(card).toContainText('Do we approve the idea and brief?');
 
     // Request-changes and reject remain hidden
     await expect(page.locator('[data-action="project.gate.changes.open"]')).toHaveCount(0);
@@ -83,10 +83,13 @@ test.describe('Project journeys', () => {
   });
 
   test('renders honest empty, error, and failed-run restart states', async ({ page }) => {
+    // The daemon answers an unknown project id with `-32000 "project not found: <id>"`
+    // (`crates/warshad/src/lib.rs` get_project mapping StoreError), and the screen reads that as the
+    // empty state rather than an error banner — a deleted project is not an outage.
     await openV3(page, '/p/missing-proj', {
       lang: 'en',
       fixtures: {
-        'projects.get': { result: null },
+        'projects.get': { error: 'project not found: missing-proj' },
       },
     });
     await expect(page.locator('[data-testid="project-empty"]')).toBeVisible();
@@ -356,10 +359,20 @@ test.describe('Project action ids', () => {
   });
 
   test('project.open-advanced switches app_mode to advanced on the same route', async ({ page }) => {
-    const report = await openV3(page, '/p/proj-ui', { lang: 'en', mode: 'simple' });
+    await openV3(page, '/p/proj-ui', { lang: 'en', mode: 'simple' });
     await act(page, 'project.open-advanced');
     await expect(page.locator('html')).toHaveAttribute('data-mode', 'advanced');
-    expect(report.configWrites).toContainEqual({ key: 'app_mode', value: 'advanced' });
+    // `set_config` is the Tauri shell's channel, so the write lands in the page-side stub record
+    // (`window.__WARSHA_STUB__.configWrites`), exactly as `frame.spec.ts` reads it.
+    const configWrites = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __WARSHA_STUB__?: { configWrites: { key: string; value: string }[] };
+          }
+        ).__WARSHA_STUB__?.configWrites ?? []
+    );
+    expect(configWrites).toContainEqual({ key: 'app_mode', value: 'advanced' });
     await expect(page).toHaveURL(/#\/p\/proj-ui$/);
   });
 
@@ -491,6 +504,8 @@ test.describe('Project visual baselines (@visual)', () => {
               await expect(page.locator('[data-testid="project-ready"]')).toBeVisible();
             }
 
+            const fit = await auditViewportFit(page);
+            expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
             await expect(page).toHaveScreenshot(
               `project-${state}-${vp.name}-${locale}-${theme}.png`
             );

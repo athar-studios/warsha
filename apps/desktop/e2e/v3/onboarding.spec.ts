@@ -10,7 +10,7 @@ import {
   runAxe,
 } from '../harness';
 
-import { act, expectRpc, openV3 } from './support';
+import { act, expectRpc, openV3, auditViewportFit, describeViewportFit, viewportFitIsClean } from './support';
 
 const LOCALES = ['ar', 'en'] as const;
 const THEMES = ['light', 'dark'] as const;
@@ -33,6 +33,27 @@ test.describe('Onboarding journeys', () => {
       config: { onboarding_complete: '' },
       fixtures: {
         'providers.list': { result: [] },
+        // The provider reports one model, so the journey can route it to every role. The default stub
+        // reports an empty catalogue (visual determinism), and `onboarding.model.use` has nothing to
+        // configure without a model — a real provider that works does report one.
+        'providers.check_models': {
+          result: {
+            provider: 'deep_seek',
+            new_models: [],
+            retained_count: 1,
+            total_count: 1,
+            updated_catalog: [
+              {
+                id: 'deepseek-v3',
+                name: 'DeepSeek V3',
+                provider: 'deep_seek',
+                context_window: 64000,
+                max_output: 8192,
+                pricing: { input_per_million_cents: 14, output_per_million_cents: 28 },
+              },
+            ],
+          },
+        },
       },
     });
 
@@ -88,7 +109,7 @@ test.describe('Onboarding journeys', () => {
     await expect(page.locator('[data-testid="onboarding-step-idea"]')).toBeVisible();
 
     // Type idea into composer
-    const textarea = page.locator('textarea[data-testid="onboarding-idea-input"]');
+    const textarea = page.locator('[data-testid="onboarding-idea-input"] textarea');
     await textarea.fill('متجر ورشة للأثاث\nتطبيق متكامل مع عربة تسوق ودفع إلكتروني');
 
     // Start project and run
@@ -129,10 +150,10 @@ test.describe('Onboarding journeys', () => {
     );
 
     // Fill custom fields
-    await page.locator('input[data-testid="onboarding-custom-name"]').fill('local-inference');
-    await page.locator('input[data-testid="onboarding-custom-url"]').fill('http://127.0.0.1:8080/v1');
-    await page.locator('input[data-testid="onboarding-custom-model"]').fill('qwen-custom');
-    await page.locator('input[data-testid="onboarding-api-key"]').fill(ACCEPTED_KEY);
+    await page.locator('[data-testid="onboarding-custom-name"] input').fill('local-inference');
+    await page.locator('[data-testid="onboarding-custom-url"] input').fill('http://127.0.0.1:8080/v1');
+    await page.locator('[data-testid="onboarding-custom-model"] input').fill('qwen-custom');
+    await page.locator('[data-testid="onboarding-api-key"] input').fill(ACCEPTED_KEY);
 
     // Save and test
     await act(page, 'onboarding.provider.save-test');
@@ -177,7 +198,7 @@ test.describe('Onboarding journeys', () => {
   }) => {
     await openV3(page, '/onboarding?step=provider', { lang: 'en' });
 
-    const keyInput = page.locator('input[data-testid="onboarding-api-key"]');
+    const keyInput = page.locator('[data-testid="onboarding-api-key"] input');
     await keyInput.fill(REJECTED_KEY);
     await act(page, 'onboarding.provider.save-test');
 
@@ -223,7 +244,7 @@ test.describe('Onboarding action ids', () => {
 
   test('onboarding.provider.save-test calls providers.add and providers.test', async ({ page }) => {
     await openV3(page, '/onboarding?step=provider');
-    await page.locator('input[data-testid="onboarding-api-key"]').fill(ACCEPTED_KEY);
+    await page.locator('[data-testid="onboarding-api-key"] input').fill(ACCEPTED_KEY);
     await act(page, 'onboarding.provider.save-test');
 
     await expectRpc(page, 'providers.add');
@@ -233,7 +254,7 @@ test.describe('Onboarding action ids', () => {
 
   test('onboarding.models.fetch calls providers.check_models', async ({ page }) => {
     await openV3(page, '/onboarding?step=provider');
-    await page.locator('input[data-testid="onboarding-api-key"]').fill(ACCEPTED_KEY);
+    await page.locator('[data-testid="onboarding-api-key"] input').fill(ACCEPTED_KEY);
     await act(page, 'onboarding.provider.save-test');
     await expect(page.locator('[data-testid="onboarding-test-success"]')).toBeVisible();
 
@@ -266,7 +287,7 @@ test.describe('Onboarding action ids', () => {
       },
     });
 
-    await page.locator('input[data-testid="onboarding-api-key"]').fill(ACCEPTED_KEY);
+    await page.locator('[data-testid="onboarding-api-key"] input').fill(ACCEPTED_KEY);
     await act(page, 'onboarding.provider.save-test');
     await expect(page.locator('[data-testid="onboarding-test-success"]')).toBeVisible();
 
@@ -297,7 +318,7 @@ test.describe('Onboarding action ids', () => {
   test('onboarding.start creates project, starts run, and navigates', async ({ page }) => {
     await openV3(page, '/onboarding?step=idea');
     await page
-      .locator('textarea[data-testid="onboarding-idea-input"]')
+      .locator('[data-testid="onboarding-idea-input"] textarea')
       .fill('متجر أدوات النجارة\nنظام لإدارة الطلبات والمخزون');
 
     await act(page, 'onboarding.start');
@@ -397,7 +418,7 @@ test.describe('Onboarding accessibility (@a11y)', () => {
 
     // Now navigate to step 3 and test keyboard traversal there
     await openV3(page, '/onboarding?step=idea');
-    const textarea = page.locator('textarea[data-testid="onboarding-idea-input"]');
+    const textarea = page.locator('[data-testid="onboarding-idea-input"] textarea');
     await textarea.focus();
     await expect(textarea).toBeFocused();
 
@@ -460,6 +481,8 @@ test.describe('Onboarding visual baselines (@visual)', () => {
               await expect(page.locator('[data-testid="onboarding-error-banner"]')).toBeVisible();
             }
 
+            const fit = await auditViewportFit(page);
+            expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
             await expect(page).toHaveScreenshot(
               `onboarding-${state}-${vp.name}-${locale}-${theme}.png`
             );
