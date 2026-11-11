@@ -8,6 +8,20 @@ on:
   # it adds no publish path of its own (the tag push path is unchanged).
   workflow_dispatch:
     inputs:
+      tag:
+        description: Existing v* tag to build or promote (required on dispatch)
+        required: true
+      publish:
+        description: Promote the verified draft to a public release
+        type: boolean
+        default: false
+      signing_scope:
+        description: Whether this release must ship signatures/updater metadata
+        type: choice
+        options:
+          - signed
+          - unsigned
+        default: signed
       release_repo:
         description: >-
           owner/repo that the generated winget/Homebrew/Scoop manifests point
@@ -54,15 +68,22 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Verify release version matches repository versions
+        env:
+          TAG_INPUT: ${{ inputs.tag }}
         run: |
-          node scripts/check-versions.mjs --expect "${GITHUB_REF_NAME#v}"
+          set -euo pipefail
+          TAG="${TAG_INPUT:-${GITHUB_REF#refs/tags/}}"
+          node scripts/check-versions.mjs --expect "${TAG#v}"
 
       - name: Extract version from tag
         id: version
+        env:
+          TAG_INPUT: ${{ inputs.tag }}
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
+          TAG="${TAG_INPUT:-${GITHUB_REF#refs/tags/}}"
           VERSION="${TAG#v}"
           # Quoted "${GITHUB_OUTPUT}" (SC2086) and one redirect for both writes
           # (SC2129): an unquoted output path word-splits on a runner whose temp
@@ -567,6 +588,18 @@ jobs:
           find release/desktop -mindepth 2 -type f -exec mv -t release/desktop/ {} +
           test -n "$(find release/desktop -type f -print -quit)"
 
+      # A rerun must never overwrite a release's assets: any release for this tag
+      # (draft or public) fails the job before the upload step can run.
+      - name: Reject an existing release for this tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view "${{ needs.prepare.outputs.tag }}" >/dev/null 2>&1; then
+            echo "::error::a release for ${{ needs.prepare.outputs.tag }} already exists; refusing to overwrite it"
+            exit 1
+          fi
+
       - name: Create draft release
         uses: softprops/action-gh-release@v2
         with:
@@ -585,6 +618,52 @@ jobs:
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ============================================================
+  # Promote the verified draft to a public release (separate, gated step)
+  # ============================================================
+  promote:
+    name: Promote Verified Draft
+    needs: [prepare, release]
+    # A tag push only creates the draft. Promotion requires an explicit dispatch
+    # with publish=true, and the `release` environment can require an approval.
+    if: ${{ inputs.publish == true }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout the tag (for the verifier)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - name: Download the draft's assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "${{ needs.prepare.outputs.tag }}" --dir dist
+
+      # Fail closed: a missing asset, a checksum mismatch, a tag/version mismatch
+      # or missing signing material leaves the draft unpublished.
+      - name: Verify the draft's assets
+        run: |
+          set -euo pipefail
+          node scripts/verify-release-artifacts.mjs \
+            --dir dist \
+            --tag "${{ needs.prepare.outputs.tag }}" \
+            --version "${{ needs.prepare.outputs.version }}" \
+            --scope "${{ inputs.signing_scope }}" \
+            --release-exists no
+
+      - name: Publish the verified release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release edit "${{ needs.prepare.outputs.tag }}" --draft=false --prerelease=false
 
   # ============================================================
   # Package Manager Manifests (prepare only)
