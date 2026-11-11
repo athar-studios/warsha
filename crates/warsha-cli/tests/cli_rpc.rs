@@ -65,6 +65,7 @@ fn cli_for(url: String, command: Commands) -> Cli {
         socket: None,
         url,
         token: None,
+        device_id: None,
         config: None,
     }
 }
