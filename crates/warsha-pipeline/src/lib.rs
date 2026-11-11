@@ -28,8 +28,12 @@ mod handoff;
 mod llm_cache;
 pub mod mcp;
 pub mod mcp_permission;
+pub mod worktree;
 pub use crate::mcp_permission::{
     AskEverything, McpPermissionSource, McpPermissionStore, StaticPermissions, MCP_AGENT_ROLE,
+};
+pub use crate::worktree::{
+    create_run_worktree, remove_run_worktree, worktree_path, RunWorktree, WorktreeError,
 };
 /// The MCP connection layer (PLAN.md M20), public as a module because
 /// [`McpTransport`] and [`McpServerConfig`] already name the M12 registry types
