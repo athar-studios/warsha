@@ -754,7 +754,7 @@ const LAUNCHER_SUBCOMMANDS: &[&str] = &["dlx", "exec", "x", "run", "tool"];
 pub fn require_pinned_launch(command: &str, args: &[String]) -> Checked<()> {
     let base = command
         .trim()
-        .rsplit(|c| c == '/' || c == '\\')
+        .rsplit(['/', '\\'])
         .next()
         .unwrap_or("")
         .trim()
@@ -762,7 +762,7 @@ pub fn require_pinned_launch(command: &str, args: &[String]) -> Checked<()> {
     let program = base
         .strip_suffix(".cmd")
         .or_else(|| base.strip_suffix(".exe"))
-        .unwrap_or_else(|| base.as_str());
+        .unwrap_or(base.as_str());
     if !PACKAGE_LAUNCHERS.contains(&program) {
         return Ok(());
     }
