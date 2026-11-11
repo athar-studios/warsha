@@ -64,6 +64,10 @@ pub struct Actor {
     /// The pairing's own name for the caller, for a log line and an error message.
     /// Never a secret.
     label: String,
+    /// The pairing's `device_id` exactly as the record carried it, including an id
+    /// that is not a UUID. The live pairing check compares this string, so a session
+    /// that is valid for reads is not refused just because its id is not a uuid.
+    pairing_device_id: Option<String>,
     role: ActorRole,
 }
 
@@ -73,6 +77,7 @@ impl Actor {
         Self {
             device_id: Some(local_device),
             label: "owner".to_string(),
+            pairing_device_id: None,
             role: ActorRole::Owner,
         }
     }
@@ -84,6 +89,7 @@ impl Actor {
                 .ok()
                 .map(DeviceId),
             label: format!("device:{}", pairing.device_id.trim()),
+            pairing_device_id: Some(pairing.device_id.trim().to_string()),
             role: ActorRole::Paired,
         }
     }
@@ -112,6 +118,14 @@ impl Actor {
     /// a real device id instead of being logged as somebody.
     pub fn device_id(&self) -> Option<DeviceId> {
         self.device_id
+    }
+
+    /// The identifier the pairing itself carried, verbatim.
+    ///
+    /// Unlike [`Actor::device_id`], this keeps an id that is not a UUID: the live
+    /// pairing check compares the record's own string, not a parsed identity.
+    pub fn pairing_device_id(&self) -> Option<&str> {
+        self.pairing_device_id.as_deref()
     }
 
     /// The caller's name for itself, for logs and errors.
@@ -395,9 +409,13 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Owner,
         tier: Pairing,
     },
+    // Owner, because the response carries every other device's plaintext secret;
+    // a paired device that could read it could impersonate the rest. No legitimate
+    // paired consumer exists (`devices.list` is the secret-free view), so this is
+    // the smallest fix (PAIR research finding 1).
     M {
         method: "pairing.list",
-        policy: Session,
+        policy: Owner,
         tier: Standard,
     },
     M {

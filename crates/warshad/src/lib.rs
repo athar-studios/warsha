@@ -5,7 +5,7 @@ use axum::{
     http::{header::AUTHORIZATION, HeaderMap},
     response::{IntoResponse, Json, Response},
     routing::get,
-    Router,
+    Extension, Router,
 };
 use base64::Engine as _;
 use chrono::Utc;
@@ -1167,6 +1167,24 @@ pub struct DaemonState {
     pub events: Arc<EventSequencer>,
 }
 
+/// Whether a paired actor's device is still in the active pairing set.
+///
+/// This is the predicate behind the per-request re-authorization: a WebSocket's
+/// extensions are frozen at upgrade, so the role alone can outlive the pairing.
+/// The owner always passes; a paired actor without a device id never does
+/// (PAIR research finding 2).
+fn paired_device_is_active(actor: &Actor, active: &[PhonePairing]) -> bool {
+    if actor.role() != ActorRole::Paired {
+        return true;
+    }
+    let Some(device) = actor.pairing_device_id() else {
+        return false;
+    };
+    active
+        .iter()
+        .any(|pairing| pairing.device_id.trim() == device)
+}
+
 impl DaemonState {
     /// The pairing records that may authenticate a session right now.
     ///
@@ -2284,7 +2302,7 @@ impl WarshaRpc {
     /// `-32001` for no verified session, `-32004` for a caller past a ceiling (the
     /// RPC form of the HTTP 429 the daemon's other listener answers with), and
     /// `-32002` for a caller that is verified but not the owner.
-    fn authorize(&self, ext: &RpcExtensions, method: &str) -> RpcResult<Actor> {
+    async fn authorize(&self, ext: &RpcExtensions, method: &str) -> RpcResult<Actor> {
         let policy = auth::policy_of(method)
             .ok_or_else(|| rpc_forbidden(format!("{method} is not a method this daemon serves")))?;
 
@@ -2309,6 +2327,14 @@ impl WarshaRpc {
         if !actor.role().covers(required) {
             return Err(rpc_forbidden(format!(
                 "{method} is the daemon owner's; this session is a paired device"
+            )));
+        }
+        // The transport verified the credential at the connection's start, and a
+        // WebSocket keeps that verdict frozen; re-read the store so a revoked or
+        // expired device is refused on its next message (PAIR research finding 2).
+        if !paired_device_is_active(&actor, &self.state.active_pairings().await) {
+            return Err(rpc_unauthenticated(format!(
+                "{method} needs a still-active pairing; this device was revoked or its pairing expired"
             )));
         }
         Ok(actor)
@@ -2366,7 +2392,7 @@ impl WarshaRpc {
             AgentMode::Agent => "agent.approve_mode",
             AgentMode::Plan => "agent.plan_mode",
         };
-        let actor = self.authorize(ext, method)?;
+        let actor = self.authorize(ext, method).await?;
         let approver = self.gate_approver(&actor, None, method)?.to_string();
 
         let mut agent_loop = self.state.agent_loop.write().await;
@@ -2480,7 +2506,7 @@ fn now_epoch_secs() -> u64 {
 #[async_trait]
 impl WarshaApiServer for WarshaRpc {
     async fn health(&self, ext: &RpcExtensions) -> RpcResult<HealthResponse> {
-        self.authorize(ext, "health")?;
+        self.authorize(ext, "health").await?;
         let capabilities = self.state.probe_capabilities().await;
         let status = if capabilities.daemon {
             "healthy".to_string()
@@ -2496,7 +2522,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn list_projects(&self, ext: &RpcExtensions) -> RpcResult<Vec<Project>> {
-        self.authorize(ext, "projects.list")?;
+        self.authorize(ext, "projects.list").await?;
         self.state
             .store
             .list_projects()
@@ -2511,7 +2537,7 @@ impl WarshaApiServer for WarshaRpc {
         description: String,
         language: String,
     ) -> RpcResult<Project> {
-        self.authorize(ext, "projects.create")?;
+        self.authorize(ext, "projects.create").await?;
         let project = Project {
             id: ProjectId::new(),
             name,
@@ -2531,7 +2557,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn get_project(&self, ext: &RpcExtensions, id: ProjectId) -> RpcResult<Project> {
-        self.authorize(ext, "projects.get")?;
+        self.authorize(ext, "projects.get").await?;
         self.state
             .store
             .get_project(id)
@@ -2545,7 +2571,7 @@ impl WarshaApiServer for WarshaRpc {
         project_id: ProjectId,
         idea: String,
     ) -> RpcResult<Run> {
-        self.authorize(ext, "runs.start")?;
+        self.authorize(ext, "runs.start").await?;
         let run = self
             .state
             .pipeline
@@ -2597,7 +2623,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn get_run(&self, ext: &RpcExtensions, run_id: RunId) -> RpcResult<Run> {
-        self.authorize(ext, "runs.get")?;
+        self.authorize(ext, "runs.get").await?;
         self.state
             .store
             .get_run(run_id)
@@ -2606,7 +2632,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn list_runs(&self, ext: &RpcExtensions, project_id: ProjectId) -> RpcResult<Vec<Run>> {
-        self.authorize(ext, "runs.list")?;
+        self.authorize(ext, "runs.list").await?;
         self.state
             .store
             .list_runs(project_id)
@@ -2615,7 +2641,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn get_events(&self, ext: &RpcExtensions, run_id: RunId) -> RpcResult<Vec<Event>> {
-        self.authorize(ext, "runs.events")?;
+        self.authorize(ext, "runs.events").await?;
         let token = self.state.config.auth_token.clone();
         let mut events = self
             .state
@@ -2637,7 +2663,7 @@ impl WarshaApiServer for WarshaRpc {
         stage: Stage,
         device_id: Option<DeviceId>,
     ) -> RpcResult<Run> {
-        let actor = self.authorize(ext, "gates.approve")?;
+        let actor = self.authorize(ext, "gates.approve").await?;
         let approver = self.gate_approver(&actor, device_id, "gates.approve")?;
         self.state
             .pipeline
@@ -2654,7 +2680,7 @@ impl WarshaApiServer for WarshaRpc {
         reason: String,
         device_id: Option<DeviceId>,
     ) -> RpcResult<Run> {
-        let actor = self.authorize(ext, "gates.reject")?;
+        let actor = self.authorize(ext, "gates.reject").await?;
         let approver = self.gate_approver(&actor, device_id, "gates.reject")?;
         self.state
             .pipeline
@@ -2671,7 +2697,7 @@ impl WarshaApiServer for WarshaRpc {
         notes: String,
         device_id: Option<DeviceId>,
     ) -> RpcResult<Run> {
-        let actor = self.authorize(ext, "gates.changes")?;
+        let actor = self.authorize(ext, "gates.changes").await?;
         let approver = self.gate_approver(&actor, device_id, "gates.changes")?;
         self.state
             .pipeline
@@ -2686,7 +2712,7 @@ impl WarshaApiServer for WarshaRpc {
         run_id: RunId,
         device_id: Option<DeviceId>,
     ) -> RpcResult<Vec<GateSummary>> {
-        self.authorize(ext, "gates.list")?;
+        self.authorize(ext, "gates.list").await?;
         // Accepted for the gates block's legacy param shape, and believed for nothing:
         // this read records no identity, so there is no session claim to compare it to
         // and no caller-named device that changes what is answered.
@@ -2719,7 +2745,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn list_providers(&self, ext: &RpcExtensions) -> RpcResult<Vec<ProviderRecord>> {
-        self.authorize(ext, "providers.list")?;
+        self.authorize(ext, "providers.list").await?;
         let stored = self
             .state
             .settings
@@ -2745,7 +2771,7 @@ impl WarshaApiServer for WarshaRpc {
         key: String,
         api_base: Option<String>,
     ) -> RpcResult<ProviderRecord> {
-        self.authorize(ext, "providers.add")?;
+        self.authorize(ext, "providers.add").await?;
         let name = name.trim().to_string();
         if name.is_empty() {
             return Err(provider_refusal("a provider needs a name"));
@@ -2846,7 +2872,7 @@ impl WarshaApiServer for WarshaRpc {
         name: String,
         model: Option<String>,
     ) -> RpcResult<HealthCheck> {
-        self.authorize(ext, "providers.test")?;
+        self.authorize(ext, "providers.test").await?;
         let provider = self
             .state
             .settings
@@ -2901,7 +2927,7 @@ impl WarshaApiServer for WarshaRpc {
         ext: &RpcExtensions,
         name: String,
     ) -> RpcResult<warsha_providers::ModelCatalogDiff> {
-        self.authorize(ext, "providers.check_models")?;
+        self.authorize(ext, "providers.check_models").await?;
         // A handle rather than a lock held across the catalog call (audit N-3): this
         // reaches the provider over the network, and a read guard kept through it would
         // make an owner's `providers.add` wait for a round trip it has nothing to do with.
@@ -2919,7 +2945,7 @@ impl WarshaApiServer for WarshaRpc {
         &self,
         ext: &RpcExtensions,
     ) -> RpcResult<Vec<warsha_remote::DeviceIdentity>> {
-        self.authorize(ext, "devices.list")?;
+        self.authorize(ext, "devices.list").await?;
         Ok(self.state.devices.list_devices().await)
     }
 
@@ -2929,7 +2955,7 @@ impl WarshaApiServer for WarshaRpc {
         pairing_data: warsha_remote::PairingData,
     ) -> RpcResult<()> {
         // Owner-only (audit H2): a paired device must not be able to enrol another.
-        self.authorize(ext, "devices.pair")?;
+        self.authorize(ext, "devices.pair").await?;
 
         // A pairing consumes an offer, and the offer's deadline is the one the daemon
         // enforces from then on (audit H1). Refuse a stale one before writing anything,
@@ -2979,7 +3005,7 @@ impl WarshaApiServer for WarshaRpc {
         // Owner-only, deliberately (see `crates/warshad/src/auth.rs`): this is the method
         // that mints the credential the daemon will later trust a caller as, so a caller
         // that is already only a paired device must not be able to hand out a second one.
-        self.authorize(ext, "devices.pair-start")?;
+        self.authorize(ext, "devices.pair-start").await?;
 
         // The address a phone is sent to, taken from the socket the daemon actually bound
         // and not from the configuration that asked for it: a link may never advertise an
@@ -3043,7 +3069,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn revoke_device(&self, ext: &RpcExtensions, device_id: DeviceId) -> RpcResult<()> {
-        self.authorize(ext, "devices.revoke")?;
+        self.authorize(ext, "devices.revoke").await?;
         self.state
             .devices
             .revoke_device(device_id)
@@ -3066,7 +3092,7 @@ impl WarshaApiServer for WarshaRpc {
         ext: &RpcExtensions,
         name: String,
     ) -> RpcResult<ProviderRecord> {
-        self.authorize(ext, "providers.remove")?;
+        self.authorize(ext, "providers.remove").await?;
         let provider = self
             .state
             .settings
@@ -3145,7 +3171,7 @@ impl WarshaApiServer for WarshaRpc {
     // only in memory was C2's second gap, and one kept only on disk is a preference
     // nobody honours.
     async fn list_roles(&self, ext: &RpcExtensions) -> RpcResult<Vec<RoleRoutingConfig>> {
-        self.authorize(ext, "roles.list")?;
+        self.authorize(ext, "roles.list").await?;
         let routings = self.state.role_routings.read().await;
         let mut configs: Vec<RoleRoutingConfig> = routings.values().cloned().collect();
         configs.sort_by(|left, right| left.role.cmp(&right.role));
@@ -3166,7 +3192,7 @@ impl WarshaApiServer for WarshaRpc {
     /// - the settings write succeeds before the in-memory table is replaced, so a
     ///   refused write leaves the daemon routing exactly what it was routing.
     async fn set_role(&self, ext: &RpcExtensions, config: RoleRoutingConfig) -> RpcResult<()> {
-        self.authorize(ext, "roles.set")?;
+        self.authorize(ext, "roles.set").await?;
         let (role, routing) = routing_for(&config).map_err(rpc_error)?;
         // Normalised through the core routing, so what is stored is what was honoured:
         // a caller who sent `INTAKE` or a target with a trailing space gets the same
@@ -3240,7 +3266,7 @@ impl WarshaApiServer for WarshaRpc {
         ext: &RpcExtensions,
         project_id: ProjectId,
     ) -> RpcResult<BudgetStatus> {
-        self.authorize(ext, "budget.show")?;
+        self.authorize(ext, "budget.show").await?;
         let runs = self
             .state
             .store
@@ -3264,7 +3290,7 @@ impl WarshaApiServer for WarshaRpc {
         project_id: ProjectId,
         cents: u64,
     ) -> RpcResult<()> {
-        self.authorize(ext, "budget.set")?;
+        self.authorize(ext, "budget.set").await?;
         let runs = self
             .state
             .store
@@ -3289,7 +3315,7 @@ impl WarshaApiServer for WarshaRpc {
         run_id: String,
         output_dir: String,
     ) -> RpcResult<String> {
-        self.authorize(ext, "backend.export")?;
+        self.authorize(ext, "backend.export").await?;
         // The kit is the project's, not the run's: the stored row is keyed by
         // project id, so a second run of one project exports the same schema
         // instead of starting a second, empty one. It is loaded (the daemon's copy,
@@ -3312,7 +3338,7 @@ impl WarshaApiServer for WarshaRpc {
         run_id: String,
         files: Vec<(String, String)>,
     ) -> RpcResult<String> {
-        self.authorize(ext, "handoff.create")?;
+        self.authorize(ext, "handoff.create").await?;
         let manager = HandoffManager::new();
         let captured: Vec<(&str, &str)> = files
             .iter()
@@ -3334,7 +3360,7 @@ impl WarshaApiServer for WarshaRpc {
         path: String,
         owner_wins: bool,
     ) -> RpcResult<String> {
-        self.authorize(ext, "handoff.apply")?;
+        self.authorize(ext, "handoff.apply").await?;
         let encoded = std::fs::read_to_string(&path).map_err(|e| {
             ErrorObject::owned(-32000, format!("could not read `{path}`: {e}"), None::<()>)
         })?;
@@ -3375,7 +3401,7 @@ impl WarshaApiServer for WarshaRpc {
         ext: &RpcExtensions,
         run_id: String,
     ) -> RpcResult<Vec<CrashReport>> {
-        self.authorize(ext, "postlaunch.crashes")?;
+        self.authorize(ext, "postlaunch.crashes").await?;
         let reports = self.state.crash_reports.read().await.list();
         let wanted = run_id.trim();
         // A blank run id asks for every report, which is what the crash screen
@@ -3395,7 +3421,7 @@ impl WarshaApiServer for WarshaRpc {
         ext: &RpcExtensions,
         store: String,
     ) -> RpcResult<Vec<StoreReview>> {
-        self.authorize(ext, "postlaunch.reviews")?;
+        self.authorize(ext, "postlaunch.reviews").await?;
         let reviews = self.state.store_reviews.read().await;
         let wanted = store.trim();
         Ok(if wanted.is_empty() {
@@ -3422,7 +3448,7 @@ impl WarshaApiServer for WarshaRpc {
     /// worse answer. What the next restart reads is then the previous conversation, and
     /// `agent.turn` is still the one place that says so.
     async fn agent_turn(&self, ext: &RpcExtensions, input: String) -> RpcResult<AgentTurnResult> {
-        self.authorize(ext, "agent.turn")?;
+        self.authorize(ext, "agent.turn").await?;
         // One turn at a time. The gate is the loop's own (one per daemon's
         // conversation) and covers prepare -> execute -> finish, so two owner
         // turns — desktop plus a paired device, or a retry — cannot run tools,
@@ -3477,7 +3503,7 @@ impl WarshaApiServer for WarshaRpc {
 
     /// Report which mode the loop is in, and how it got there.
     async fn agent_state(&self, ext: &RpcExtensions) -> RpcResult<AgentState> {
-        self.authorize(ext, "agent.state")?;
+        self.authorize(ext, "agent.state").await?;
         let agent_loop = self.state.agent_loop.read().await;
         Ok(AgentState {
             mode: agent_loop.mode(),
@@ -3497,7 +3523,7 @@ impl WarshaApiServer for WarshaRpc {
         args: Vec<String>,
         env: HashMap<String, String>,
     ) -> RpcResult<String> {
-        self.authorize(ext, "process.spawn")?;
+        self.authorize(ext, "process.spawn").await?;
         // Audit H-05: the owner's authority over a process table is not handed to a
         // caller that merely holds a token. The program has to be one the daemon's own
         // configuration allows, and the environment cannot carry a variable that
@@ -3516,7 +3542,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn stop_process(&self, ext: &RpcExtensions, id: String) -> RpcResult<()> {
-        self.authorize(ext, "process.stop")?;
+        self.authorize(ext, "process.stop").await?;
         self.state
             .processes
             .stop(&id)
@@ -3525,7 +3551,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn process_status(&self, ext: &RpcExtensions, id: String) -> RpcResult<ProcessStatus> {
-        self.authorize(ext, "process.status")?;
+        self.authorize(ext, "process.status").await?;
         self.state
             .processes
             .status(&id)
@@ -3534,7 +3560,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn list_processes(&self, ext: &RpcExtensions) -> RpcResult<Vec<ProcessSummary>> {
-        self.authorize(ext, "process.list")?;
+        self.authorize(ext, "process.list").await?;
         // `list` hands back the record without its child handle; the summary is the
         // same facts in a type an RPC result (which must be clonable) can carry.
         Ok(self
@@ -3552,7 +3578,7 @@ impl WarshaApiServer for WarshaRpc {
         ext: &RpcExtensions,
         config: warsha_pipeline::mcp_transport::McpServerConfig,
     ) -> RpcResult<()> {
-        self.authorize(ext, "mcp.connect")?;
+        self.authorize(ext, "mcp.connect").await?;
         // Audit H-05: an MCP server is a child process or an outbound endpoint, so the
         // same policy that bounds `process.spawn` bounds the transports here. A stdio
         // server's program is checked as a program; an HTTP or WebSocket server's URL
@@ -3585,7 +3611,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn disconnect_mcp(&self, ext: &RpcExtensions, name: String) -> RpcResult<()> {
-        self.authorize(ext, "mcp.disconnect")?;
+        self.authorize(ext, "mcp.disconnect").await?;
         self.state
             .mcp
             .disconnect(&name)
@@ -3594,7 +3620,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn list_mcp(&self, ext: &RpcExtensions) -> RpcResult<Vec<McpConnection>> {
-        self.authorize(ext, "mcp.list")?;
+        self.authorize(ext, "mcp.list").await?;
         Ok(self.state.mcp.list().await)
     }
 
@@ -3604,7 +3630,7 @@ impl WarshaApiServer for WarshaRpc {
         name: String,
         payload: String,
     ) -> RpcResult<String> {
-        self.authorize(ext, "mcp.send")?;
+        self.authorize(ext, "mcp.send").await?;
         self.state
             .mcp
             .send(&name, &payload)
@@ -3619,7 +3645,7 @@ impl WarshaApiServer for WarshaRpc {
         tool: String,
         arguments: serde_json::Value,
     ) -> RpcResult<warsha_pipeline::mcp::McpToolResult> {
-        self.authorize(ext, "mcp.call")?;
+        self.authorize(ext, "mcp.call").await?;
         self.state
             .mcp
             .call_tool(&name, &tool, arguments)
@@ -3634,7 +3660,7 @@ impl WarshaApiServer for WarshaRpc {
         project_id: String,
         command: String,
     ) -> RpcResult<LivePreview> {
-        self.authorize(ext, "preview.start")?;
+        self.authorize(ext, "preview.start").await?;
         // The command line is quote-aware split by the pipeline (no shell) via
         // `split_command`, so a program or argument with spaces survives quoting.
         // The policy judges the program the pipeline will start, which is its
@@ -3651,7 +3677,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn stop_preview(&self, ext: &RpcExtensions, project_id: String) -> RpcResult<()> {
-        self.authorize(ext, "preview.stop")?;
+        self.authorize(ext, "preview.stop").await?;
         self.state
             .previews
             .stop(&project_id)
@@ -3664,7 +3690,7 @@ impl WarshaApiServer for WarshaRpc {
         ext: &RpcExtensions,
         project_id: String,
     ) -> RpcResult<LivePreview> {
-        self.authorize(ext, "preview.status")?;
+        self.authorize(ext, "preview.status").await?;
         self.state
             .previews
             .status(&project_id)
@@ -3674,7 +3700,7 @@ impl WarshaApiServer for WarshaRpc {
 
     // Settings that survive a restart (PLAN.md M20)
     async fn list_run_modes(&self, ext: &RpcExtensions) -> RpcResult<Vec<RunModeConfig>> {
-        self.authorize(ext, "runmode.list")?;
+        self.authorize(ext, "runmode.list").await?;
         // Mode order, not insertion order: the caller renders a switch, and a
         // switch whose rows move when one of them is saved is a switch that
         // reorders itself under the pointer.
@@ -3690,7 +3716,7 @@ impl WarshaApiServer for WarshaRpc {
         ext: &RpcExtensions,
         config: RunModeConfig,
     ) -> RpcResult<RunModeConfig> {
-        self.authorize(ext, "runmode.set")?;
+        self.authorize(ext, "runmode.set").await?;
         // The rule a daemon has to pass before it binds is applied before the
         // config is stored: a mode that cannot be served is not a setting.
         config
@@ -3714,7 +3740,7 @@ impl WarshaApiServer for WarshaRpc {
         ext: &RpcExtensions,
         run_id: String,
     ) -> RpcResult<Option<BackendKit>> {
-        self.authorize(ext, "backend.get")?;
+        self.authorize(ext, "backend.get").await?;
         let (key, _project_name) = self.project_for_run(&run_id).await;
         // A project that never exported has no stored row, and reporting the
         // default as if it were one would invent a kit the owner never reviewed.
@@ -3735,7 +3761,7 @@ impl WarshaApiServer for WarshaRpc {
         run_id: String,
         kit: BackendKit,
     ) -> RpcResult<()> {
-        self.authorize(ext, "backend.set")?;
+        self.authorize(ext, "backend.set").await?;
         let (key, _project_name) = self.project_for_run(&run_id).await;
         self.remember_backend_kit(&key, &kit).await
     }
@@ -3745,7 +3771,7 @@ impl WarshaApiServer for WarshaRpc {
         ext: &RpcExtensions,
         project_id: String,
     ) -> RpcResult<Vec<Preference>> {
-        self.authorize(ext, "preferences.list")?;
+        self.authorize(ext, "preferences.list").await?;
         let preferences = self.state.stored_preferences.read().await;
         Ok(preferences
             .get(project_id.trim())
@@ -3761,7 +3787,7 @@ impl WarshaApiServer for WarshaRpc {
         // A write on the read surface (re-audit N-8): the session's role decides whether
         // it may write, the tier is spent on the way in, and the actor is the verified one
         // rather than absent. The signal itself is unchanged on the wire.
-        self.authorize(ext, "preferences.record")?;
+        self.authorize(ext, "preferences.record").await?;
         let project_id = signal.project_id.trim().to_string();
         {
             let mut store = self.state.preferences.write().await;
@@ -3797,7 +3823,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn list_pairings(&self, ext: &RpcExtensions) -> RpcResult<Vec<PhonePairing>> {
-        self.authorize(ext, "pairing.list")?;
+        self.authorize(ext, "pairing.list").await?;
         Ok(self.state.pairings.read().await.list())
     }
 
@@ -3807,7 +3833,7 @@ impl WarshaApiServer for WarshaRpc {
         device_id: String,
         secret: String,
     ) -> RpcResult<PhonePairing> {
-        self.authorize(ext, "pairing.create")?;
+        self.authorize(ext, "pairing.create").await?;
         let pairing = {
             let mut pairings = self.state.pairings.write().await;
             pairings
@@ -3823,7 +3849,7 @@ impl WarshaApiServer for WarshaRpc {
         ext: &RpcExtensions,
         device_id: String,
     ) -> RpcResult<PhonePairing> {
-        self.authorize(ext, "pairing.revoke")?;
+        self.authorize(ext, "pairing.revoke").await?;
         let pairing = {
             let mut pairings = self.state.pairings.write().await;
             pairings
@@ -3835,19 +3861,19 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn list_routines(&self, ext: &RpcExtensions) -> RpcResult<Vec<Routine>> {
-        self.authorize(ext, "routines.list")?;
+        self.authorize(ext, "routines.list").await?;
         let registry = self.state.routines.read().await;
         Ok(registry.list().into_iter().cloned().collect())
     }
 
     async fn get_routine(&self, ext: &RpcExtensions, id: String) -> RpcResult<Option<Routine>> {
-        self.authorize(ext, "routines.get")?;
+        self.authorize(ext, "routines.get").await?;
         let registry = self.state.routines.read().await;
         Ok(registry.get(&id).cloned())
     }
 
     async fn run_routine_now(&self, ext: &RpcExtensions, id: String) -> RpcResult<Routine> {
-        self.authorize(ext, "routines.run_now")?;
+        self.authorize(ext, "routines.run_now").await?;
         self.state
             .routine_scheduler
             .run_now(&id)
@@ -3861,7 +3887,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn pause_routine(&self, ext: &RpcExtensions, id: String) -> RpcResult<Routine> {
-        self.authorize(ext, "routines.pause")?;
+        self.authorize(ext, "routines.pause").await?;
         self.state
             .routine_scheduler
             .pause(&id)
@@ -3875,7 +3901,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn resume_routine(&self, ext: &RpcExtensions, id: String) -> RpcResult<Routine> {
-        self.authorize(ext, "routines.resume")?;
+        self.authorize(ext, "routines.resume").await?;
         self.state
             .routine_scheduler
             .resume(&id)
@@ -3894,7 +3920,7 @@ impl WarshaApiServer for WarshaRpc {
         run_id: Option<RunId>,
         since_seq: Option<u64>,
     ) -> RpcResult<RunStreamSync> {
-        self.authorize(ext, "runs.subscribe")?;
+        self.authorize(ext, "runs.subscribe").await?;
         // No cursor means "start from where the stream is now", so nothing is replayed;
         // `0` means "everything the ring still holds".
         let sync = self.state.events.sync(since_seq.unwrap_or(0), run_id).await;
@@ -3913,7 +3939,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn advance_run(&self, ext: &RpcExtensions, run_id: RunId) -> RpcResult<Run> {
-        self.authorize(ext, "runs.advance")?;
+        self.authorize(ext, "runs.advance").await?;
         // No mock routing is seeded here: W5's pipeline dispatch answers an unrouted
         // role with the deterministic `FakeProvider` (or the env-configured model), so
         // a fresh daemon with no provider still advances a run offline with rich stage
@@ -3975,7 +4001,7 @@ impl WarshaApiServer for WarshaRpc {
         run_id: RunId,
         reason: Option<String>,
     ) -> RpcResult<Run> {
-        self.authorize(ext, "runs.cancel")?;
+        self.authorize(ext, "runs.cancel").await?;
         let reason = Some(reason.unwrap_or_else(|| "Cancelled by user".to_string()));
         self.state
             .pipeline
@@ -3985,7 +4011,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn resume_run(&self, ext: &RpcExtensions, run_id: RunId) -> RpcResult<Run> {
-        self.authorize(ext, "runs.resume")?;
+        self.authorize(ext, "runs.resume").await?;
         self.state
             .pipeline
             .resume_run(run_id)
@@ -3999,7 +4025,7 @@ impl WarshaApiServer for WarshaRpc {
         run_id: RunId,
         prompt: String,
     ) -> RpcResult<Run> {
-        self.authorize(ext, "runs.followup")?;
+        self.authorize(ext, "runs.followup").await?;
         let trimmed = prompt.trim();
         if trimmed.is_empty() {
             return Err(ErrorObject::owned(
@@ -4089,7 +4115,7 @@ impl WarshaApiServer for WarshaRpc {
         ext: &RpcExtensions,
         run_id: RunId,
     ) -> RpcResult<Vec<Artifact>> {
-        self.authorize(ext, "runs.artifacts")?;
+        self.authorize(ext, "runs.artifacts").await?;
         let run = self.state.store.get_run(run_id).await.map_err(rpc_error)?;
         let mut artifacts: Vec<Artifact> = run.artifacts.values().cloned().collect();
         artifacts.sort_by(|left, right| left.name.cmp(&right.name));
@@ -4112,7 +4138,7 @@ impl WarshaApiServer for WarshaRpc {
     // filesystem failed.
 
     async fn list_harnesses(&self, ext: &RpcExtensions) -> RpcResult<Vec<HarnessDefinition>> {
-        self.authorize(ext, "harness.list")?;
+        self.authorize(ext, "harness.list").await?;
         let active_id = self
             .state
             .settings
@@ -4137,7 +4163,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn get_harness(&self, ext: &RpcExtensions, id: String) -> RpcResult<HarnessDefinition> {
-        self.authorize(ext, "harness.get")?;
+        self.authorize(ext, "harness.get").await?;
         let active_id = self
             .state
             .settings
@@ -4156,7 +4182,7 @@ impl WarshaApiServer for WarshaRpc {
         content: String,
         format: Option<String>,
     ) -> RpcResult<HarnessDefinition> {
-        self.authorize(ext, "harness.import")?;
+        self.authorize(ext, "harness.import").await?;
         let definition =
             wave2::parse_harness_import(&content, format.as_deref()).map_err(rpc_invalid_params)?;
         let row = wave2::harness_row(&definition).map_err(rpc_error)?;
@@ -4191,7 +4217,7 @@ impl WarshaApiServer for WarshaRpc {
         harness_id: String,
         project_id: Option<String>,
     ) -> RpcResult<()> {
-        self.authorize(ext, "harness.select")?;
+        self.authorize(ext, "harness.select").await?;
         self.stored_harness(&harness_id).await?;
         let key = project_id
             .as_deref()
@@ -4215,7 +4241,7 @@ impl WarshaApiServer for WarshaRpc {
     /// enumerate them) and `harness.get` is what tells a run that its selection is
     /// gone.
     async fn delete_harness(&self, ext: &RpcExtensions, id: String) -> RpcResult<()> {
-        self.authorize(ext, "harness.delete")?;
+        self.authorize(ext, "harness.delete").await?;
         let stored = self.stored_harness(&id).await?;
         if stored.is_preset {
             return Err(rpc_invalid_params(format!(
@@ -4252,7 +4278,7 @@ impl WarshaApiServer for WarshaRpc {
     /// not switch one back on. `skill_catalog()` remains the in-process registry the
     /// agent loop runs, built from exactly these rows with the disabled ones dropped.
     async fn list_skills(&self, ext: &RpcExtensions) -> RpcResult<Vec<SkillDefinition>> {
-        self.authorize(ext, "skills.list")?;
+        self.authorize(ext, "skills.list").await?;
         let rows = self.state.settings.list_skills().await.map_err(rpc_error)?;
         let mut skills = Vec::with_capacity(rows.len());
         for row in &rows {
@@ -4267,7 +4293,7 @@ impl WarshaApiServer for WarshaRpc {
         url_or_content: String,
         name: Option<String>,
     ) -> RpcResult<SkillDefinition> {
-        self.authorize(ext, "skills.import")?;
+        self.authorize(ext, "skills.import").await?;
         let definition = wave2::parse_skill_import(&url_or_content, name.as_deref())
             .map_err(rpc_invalid_params)?;
         let row = wave2::skill_row(&definition).map_err(rpc_error)?;
@@ -4303,7 +4329,7 @@ impl WarshaApiServer for WarshaRpc {
         id: String,
         enabled: bool,
     ) -> RpcResult<SkillDefinition> {
-        self.authorize(ext, "skills.toggle")?;
+        self.authorize(ext, "skills.toggle").await?;
         let row = self.stored_skill(&id).await?;
         if row.enabled != enabled {
             self.state
@@ -4327,7 +4353,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn delete_skill(&self, ext: &RpcExtensions, id: String) -> RpcResult<()> {
-        self.authorize(ext, "skills.delete")?;
+        self.authorize(ext, "skills.delete").await?;
         self.stored_skill(&id).await?;
         self.state
             .settings
@@ -4338,7 +4364,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn list_plugins(&self, ext: &RpcExtensions) -> RpcResult<Vec<PluginDefinition>> {
-        self.authorize(ext, "plugins.list")?;
+        self.authorize(ext, "plugins.list").await?;
         let rows = self
             .state
             .settings
@@ -4357,7 +4383,7 @@ impl WarshaApiServer for WarshaRpc {
         ext: &RpcExtensions,
         manifest_json_or_url: String,
     ) -> RpcResult<PluginDefinition> {
-        self.authorize(ext, "plugins.install")?;
+        self.authorize(ext, "plugins.install").await?;
         let mut definition =
             wave2::parse_plugin_manifest(&manifest_json_or_url).map_err(rpc_invalid_params)?;
         // KEEL K5b: the pack's program is judged before its environment is filed
@@ -4396,7 +4422,7 @@ impl WarshaApiServer for WarshaRpc {
         id: String,
         enabled: bool,
     ) -> RpcResult<PluginDefinition> {
-        self.authorize(ext, "plugins.toggle")?;
+        self.authorize(ext, "plugins.toggle").await?;
         let row = self.stored_plugin(&id).await?;
         let checked = wave2::plugin_definition(&row).map_err(rpc_error)?;
         // Enabling is the moment a row becomes a process. A row written before
@@ -4465,7 +4491,7 @@ impl WarshaApiServer for WarshaRpc {
         id: String,
         env: HashMap<String, String>,
     ) -> RpcResult<PluginDefinition> {
-        self.authorize(ext, "plugins.configure")?;
+        self.authorize(ext, "plugins.configure").await?;
         let mut row = self.stored_plugin(&id).await?;
         // KEEL K5b: judge the program and the variable names before a value is
         // filed in the keychain or the row is rewritten. A refused configure must
@@ -4508,7 +4534,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn remove_plugin(&self, ext: &RpcExtensions, id: String) -> RpcResult<()> {
-        self.authorize(ext, "plugins.remove")?;
+        self.authorize(ext, "plugins.remove").await?;
         let row = self.stored_plugin(&id).await?;
         // Keychain first, exactly as `providers.remove` does it: a row deleted while
         // its secrets stayed behind would be an address nothing could reach again.
@@ -4533,7 +4559,7 @@ impl WarshaApiServer for WarshaRpc {
         ext: &RpcExtensions,
         provider: Option<String>,
     ) -> RpcResult<Vec<CustomModelRecord>> {
-        self.authorize(ext, "models.list")?;
+        self.authorize(ext, "models.list").await?;
         let rows = self
             .state
             .settings
@@ -4570,7 +4596,7 @@ impl WarshaApiServer for WarshaRpc {
         display_name: Option<String>,
         context_window: Option<u32>,
     ) -> RpcResult<CustomModelRecord> {
-        self.authorize(ext, "models.add")?;
+        self.authorize(ext, "models.add").await?;
         if provider.trim().is_empty() || model_id.trim().is_empty() {
             return Err(rpc_invalid_params(
                 "models.add needs both a provider and a model id: the pair is the row's key",
@@ -4606,7 +4632,7 @@ impl WarshaApiServer for WarshaRpc {
         provider: String,
         model_id: String,
     ) -> RpcResult<()> {
-        self.authorize(ext, "models.remove")?;
+        self.authorize(ext, "models.remove").await?;
         self.state
             .settings
             .delete_custom_model(&provider, &model_id)
@@ -4616,7 +4642,7 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     async fn list_integrations(&self, ext: &RpcExtensions) -> RpcResult<Vec<IntegrationStatus>> {
-        self.authorize(ext, "integrations.list")?;
+        self.authorize(ext, "integrations.list").await?;
         self.integration_statuses().await
     }
 
@@ -4634,7 +4660,7 @@ impl WarshaApiServer for WarshaRpc {
         id: String,
         config: IntegrationConfig,
     ) -> RpcResult<IntegrationStatus> {
-        self.authorize(ext, "integrations.connect")?;
+        self.authorize(ext, "integrations.connect").await?;
         let id = id.trim().to_string();
         if id.is_empty() {
             return Err(rpc_invalid_params(
@@ -4741,7 +4767,7 @@ impl WarshaApiServer for WarshaRpc {
         ext: &RpcExtensions,
         id: String,
     ) -> RpcResult<IntegrationStatus> {
-        self.authorize(ext, "integrations.disconnect")?;
+        self.authorize(ext, "integrations.disconnect").await?;
         let row = self.stored_integration(&id).await?;
         for account in [
             wave2::integration_secret_account(&row.id),
@@ -4779,7 +4805,7 @@ impl WarshaApiServer for WarshaRpc {
         ext: &RpcExtensions,
         id: String,
     ) -> RpcResult<IntegrationTestResult> {
-        self.authorize(ext, "integrations.test")?;
+        self.authorize(ext, "integrations.test").await?;
         let row = self.stored_integration(&id).await?;
         let config = wave2::integration_config(&row).map_err(rpc_error)?;
         let has_token = self
@@ -4851,7 +4877,7 @@ impl WarshaApiServer for WarshaRpc {
         project_id: String,
         path: Option<String>,
     ) -> RpcResult<Vec<FileEntry>> {
-        self.authorize(ext, "files.tree")?;
+        self.authorize(ext, "files.tree").await?;
         let root = self.project_files_root(&project_id).await;
         let dir = match path.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
             Some(relative) => {
@@ -4869,7 +4895,7 @@ impl WarshaApiServer for WarshaRpc {
         project_id: String,
         path: String,
     ) -> RpcResult<FileContent> {
-        self.authorize(ext, "files.read")?;
+        self.authorize(ext, "files.read").await?;
         let root = self.project_files_root(&project_id).await;
         let joined = wave2::safe_join(&root, &path).map_err(rpc_invalid_params)?;
         let file = wave2::resolve_inside(&root, &joined).map_err(rpc_invalid_params)?;
@@ -6735,13 +6761,14 @@ fn looks_hashed_file_name(file_name: &str) -> bool {
 /// `runs.unsubscribe` commands down the socket.
 async fn events_handler(
     State(state): State<Arc<DaemonState>>,
+    Extension(actor): Extension<Actor>,
     Query(params): Query<EventStreamParams>,
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
     let last_event_id = last_event_id_header(&headers);
     ws.protocols([EVENTS_SUBPROTOCOL])
-        .on_upgrade(move |socket| handle_events_socket(socket, state, params, last_event_id))
+        .on_upgrade(move |socket| handle_events_socket(socket, state, actor, params, last_event_id))
 }
 
 /// The `/events` query string: an optional replay cursor and an optional run filter.
@@ -6900,6 +6927,7 @@ async fn handle_socket_command(
 async fn handle_events_socket(
     mut socket: axum::extract::ws::WebSocket,
     state: Arc<DaemonState>,
+    actor: Actor,
     params: EventStreamParams,
     last_event_id: Option<u64>,
 ) {
@@ -6954,6 +6982,10 @@ async fn handle_events_socket(
 
     // Send ping every 30 seconds to keep the connection alive.
     let mut ping_interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+    // A frozen upgrade identity does not outlive the pairing: a revoked or expired
+    // device loses the stream on the next tick (PAIR research finding 3).
+    let mut authority_interval = tokio::time::interval(tokio::time::Duration::from_secs(2));
+    authority_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     loop {
         tokio::select! {
@@ -7020,6 +7052,11 @@ async fn handle_events_socket(
                     // Ping/Pong/Binary carry no subscription intent.
                     Some(Ok(_)) => {}
                     Some(Err(_)) => break,
+                }
+            }
+            _ = authority_interval.tick() => {
+                if !paired_device_is_active(&actor, &state.active_pairings().await) {
+                    break;
                 }
             }
             _ = ping_interval.tick() => {
@@ -7256,6 +7293,19 @@ mod tests {
             1_700_000_000,
         )));
         ext
+    }
+
+    /// Put a pairing in the daemon's store so a paired session is live, not stale.
+    ///
+    /// `authorize` re-reads the store on every request (PAIR research finding 2), so a
+    /// test that expects a paired method to succeed has to represent a real pairing.
+    async fn seed_pairing(state: &DaemonState, device_id: &str) {
+        state
+            .pairings
+            .write()
+            .await
+            .create_with_expiry(device_id, "a-pairing-secret", 1_700_000_000, None)
+            .expect("the test pairing is recorded once");
     }
 
     /// The extensions of a request that never authenticated: an empty map, because
@@ -7687,6 +7737,7 @@ mod tests {
         let temp = crate::test_util::fresh_tempdir();
         let (state, store) = test_state(temp.path()).await;
         let run = stored_run_with_gate(&store, "Shop").await;
+        seed_pairing(&state, "a-phone-that-named-itself").await;
         let rpc = WarshaRpc::new(state);
 
         let error = rpc
@@ -7895,6 +7946,7 @@ mod tests {
         // A paired phone reads the very queue it is asked to decide (#25's auth
         // decision: `Session`/`Standard`, the `runs.list` class, not `Auth`).
         let phone = uuid::Uuid::new_v4().to_string();
+        seed_pairing(&rpc.state, &phone).await;
         let paired = rpc
             .list_gates(&paired_ext(&phone), run.id, None)
             .await
@@ -9107,6 +9159,7 @@ mod tests {
 
         // A second identity is not refused for the first one's flood.
         let phone = uuid::Uuid::new_v4().to_string();
+        seed_pairing(&rpc.state, &phone).await;
         rpc.list_projects(&paired_ext(&phone))
             .await
             .expect("one caller's ceiling is not another's");
@@ -9145,6 +9198,7 @@ mod tests {
         .await;
         let rpc = WarshaRpc::new(state);
         let phone = uuid::Uuid::new_v4().to_string();
+        seed_pairing(&rpc.state, &phone).await;
         let paired = paired_ext(&phone);
         let signal = || {
             PreferenceSignal::new(
@@ -9659,7 +9713,9 @@ mod tests {
 
             // Pause the run via interruption recovery and verify a paired session can resume it.
             store.recover_interrupted_runs().await.unwrap();
-            let paired = paired_ext(&DeviceId::new().to_string());
+            let device = DeviceId::new().to_string();
+            seed_pairing(&rpc.state, &device).await;
+            let paired = paired_ext(&device);
             let resumed = rpc
                 .resume_run(&paired, run.id)
                 .await
@@ -10972,3 +11028,68 @@ async fn health_reports_probed_capabilities() {
 // part of the crate, and an earlier declaration here would empty that region.
 #[cfg(test)]
 pub(crate) mod test_util;
+
+/// PAIR repair gates: Owner-only `pairing.list`, live WebSocket authority and the
+/// event stream after revocation (`packets/PAIR/brief.md`).
+#[cfg(test)]
+mod pair_repair {
+    use super::*;
+
+    fn pairing(revoked: bool, expires_at: Option<u64>) -> PhonePairing {
+        let mut pairing = PhonePairing::new_with_expiry(
+            "11111111-1111-4111-8111-111111111111",
+            "pair-repair-synthetic-secret",
+            1_000,
+            expires_at,
+        );
+        pairing.revoked = revoked;
+        pairing
+    }
+
+    /// What `DaemonState::active_pairings` would hand the predicate at this clock.
+    fn active_set(pairings: &[PhonePairing]) -> Vec<PhonePairing> {
+        pairings
+            .iter()
+            .filter(|pairing| pairing.is_active_at(now_epoch_secs()))
+            .cloned()
+            .collect()
+    }
+
+    #[test]
+    fn pairing_list_owner_only() {
+        let policy = auth::policy_of("pairing.list").expect("the method has a policy");
+        assert_eq!(
+            policy.policy,
+            Policy::Owner,
+            "pairing.list returns other devices' secrets and must be owner-only"
+        );
+    }
+
+    #[test]
+    fn ws_reauthorize() {
+        let active = pairing(false, None);
+        let actor = Actor::paired(&active);
+        assert!(paired_device_is_active(&actor, &active_set(&[active])));
+        assert!(!paired_device_is_active(
+            &actor,
+            &active_set(&[pairing(true, None)])
+        ));
+        assert!(!paired_device_is_active(
+            &actor,
+            &active_set(&[pairing(false, Some(1_001))])
+        ));
+        let owner = Actor::owner(DeviceId::new());
+        assert!(paired_device_is_active(&owner, &[]));
+    }
+
+    #[test]
+    fn events_subscription_revoked() {
+        let active = pairing(false, None);
+        let actor = Actor::paired(&active);
+        assert!(paired_device_is_active(&actor, &active_set(&[active])));
+        assert!(!paired_device_is_active(
+            &actor,
+            &active_set(&[pairing(true, None)])
+        ));
+    }
+}

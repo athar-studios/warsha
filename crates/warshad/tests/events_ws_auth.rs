@@ -636,9 +636,59 @@ async fn a_paired_phone_secret_opens_the_events_socket_through_the_subprotocol()
     daemon.shutdown().await;
 }
 
-// --------------------------------------------------------------------------------
-// The refusals.
-// --------------------------------------------------------------------------------
+/// A revoked device loses the stream even though its credential opened it: the
+/// authority tick re-reads the pairing store and closes the socket (PAIR research
+/// finding 3).
+#[tokio::test]
+async fn a_revoked_phone_loses_the_events_stream() {
+    let daemon = Daemon::start().await;
+    pair_a_phone(daemon.rpc(), "events-ws-phone", PHONE_SECRET).await;
+
+    let reply = open(
+        daemon.http(),
+        &Connect::to("/events").with_client_offering(PHONE_SECRET),
+    )
+    .await;
+    assert_eq!(
+        reply.status,
+        101,
+        "the pairing did not open the socket: {}",
+        reply.wire_text()
+    );
+    let mut socket = reply.into_socket();
+    socket.until_first_ping().await;
+
+    let status = rpc(
+        daemon.rpc(),
+        &[("Authorization", format!("Bearer {OWNER}"))],
+        "pairing.revoke",
+        json!(["events-ws-phone"]),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::OK,
+        "the owner could not revoke the pairing this test needs"
+    );
+
+    // The authority tick runs every two seconds; a revoked device must lose the
+    // socket within BEAT, allowing for frames already in flight.
+    let deadline = tokio::time::Instant::now() + BEAT;
+    let mut closed = false;
+    while tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_millis(500), socket.next()).await {
+            Ok(None) => {
+                closed = true;
+                break;
+            }
+            Ok(Some(_)) => continue,
+            Err(_) => continue,
+        }
+    }
+    assert!(closed, "a revoked device kept the event stream open");
+
+    daemon.shutdown().await;
+}
 
 impl Reply {
     /// The refusal `/events` gives a caller the middleware did not recognise: the status
