@@ -2,13 +2,18 @@
 
 ## Supported Versions
 
-**Nothing has been released.** The repository carries no git tag, so there is no published build to patch
-or to support. These are the version strings in the tree today:
+**One release is published: `v0.2.0` (2026-11-09), a normal public release with seven assets.** The tag
+`v0.2.0` exists; the tree has moved on to `0.2.1`, so the published build and the source head are not the
+same code. Treat `v0.2.0` as the only supported published build; source on `main` is work in progress. Two
+known labelling defects in that release: its Docker asset is labelled `0.1.0`, and its notes predate the
+current workflow. `release.yml` currently produces an intermediate **draft**; making a release public is a
+separate, gated promotion, so a draft is not a release.
 
 | Component | Version in the tree | Supported |
 | --------- | ------------------- | --------- |
-| Desktop app (`apps/desktop/src-tauri/tauri.conf.json:4`) | `0.2.0` | Source work on `main` only — no released build exists |
-| Rust crates (`Cargo.toml:18`) | `0.1.0` | Same |
+| Published release | `v0.2.0` (2026-11-09) | Yes — the only published build |
+| Desktop app (`apps/desktop/src-tauri/tauri.conf.json:4`) | `0.2.1` | Source head; not published |
+| Rust crates (`Cargo.toml:18`) | `0.2.1` | Source head; not published |
 
 ## Reporting a Vulnerability
 
@@ -129,10 +134,10 @@ Subscriptions are supported **only** by:
   Enrolling a device is the owner's act: `devices.pair` is `Owner` (tier `Pairing`), so a paired device that
   presents a caller-supplied `PairingData` is refused with `-32002`; the CLI's `warsha pair` authenticates
   with the owner token from `config.toml`, which is the supported path.
-- **Handshake**: a Noise-style handshake over the `snow` crate — **not built**. `EncryptedChannel` is annotated
-  `#[allow(dead_code)]` at `crates/warsha-remote/src/lib.rs:587-588`, and `process_handshake` is a stub
-  that returns `Ok(false)` without running a handshake (`:656-659`). No session keys are derived today,
-  so nothing is encrypted end-to-end, and the replay cache is a field nothing reads (`:594`).
+- **Handshake**: a Noise-style handshake over the `snow` crate — **not built**. The crypto stubs were
+  deleted (OD-R6, KEEL K7): there is no handshake channel or relay client in the tree today. No
+  session keys are derived, so nothing is encrypted end-to-end, and "the relay sees only ciphertext" is a
+  frame-layout goal, not a proof about the traffic.
 - **Relay**: **built as a forwarder** — `warsha-relay` checks the frame size and routes on the `to` device id,
   and has no key to decrypt with (`crates/warsha-relay/src/lib.rs:747`). Because no handshake exists, "the
   relay sees only ciphertext" is a property of the frame layout, not a proof about the traffic.
@@ -142,6 +147,29 @@ Subscriptions are supported **only** by:
   HTTPS or a tunnel you control.
 - **Network**: `warshad` listens on loopback only by default, and dials **out** to the relay when one is
   configured; the relay binary builds, but there is no live encrypted channel for it to carry yet.
+
+## Trust boundaries
+
+The daemon runs on the owner's machine, and the owner is the root of trust. These are the boundaries a
+caller crosses, and what enforces each one today:
+
+- **RunCommand (the agent's shell)**: an allow-list plus a command policy, not a sandbox. The child starts
+  with `env_clear()`, the trusted daemon `PATH`, a timeout and a bounded capture; arguments are not
+  constrained and interpreters on the list can run arbitrary code inside the agent workspace
+  (`crates/warsha-pipeline/src/command_policy.rs`, `process_spawn.rs`).
+- **MCP servers**: a server is a child process or an HTTP peer. Launch goes through the pinned-launcher
+  and `ProcessPolicy` checks, its environment is built not inherited, and every agent-initiated tool call
+  consults the `server::tool::role` permission table (default `Ask`) before the transport
+  (`crates/warsha-pipeline/src/mcp_permission.rs`, `mcp_transport.rs`).
+- **Plugins**: an installed manifest is a third-party definition. Install/toggle/configure run the launch
+  policy, secrets are filed in the OS keychain and resolved only for that child's spawn, and a non-stdio
+  manifest may not carry a program (`crates/warshad/src/wave2.rs`, `lib.rs`).
+- **Skills**: skill packs are content the agent loads into its context, not code the daemon executes; they
+  are scoped by role and shipped packs are pinned and seeded disabled
+  (`crates/warsha-pipeline/src/skills.rs`, `crates/warsha-core/src/plugin.rs`).
+- **Remote devices**: a paired device is a session, not the owner. `pairing.list`, permission writes and
+  every mutating settings RPC are `Owner`; a revoked or expired pairing is refused on its next request,
+  and `/events` closes for it (`crates/warshad/src/auth.rs`, `lib.rs`).
 
 ### Code Execution Control — an allow-list, not a sandbox
 

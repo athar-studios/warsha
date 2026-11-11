@@ -127,11 +127,11 @@ Desktop                          Relay                          Mobile
 ```
 
 `PairingData` carries an X25519 static public key, a one-time secret and a 10-minute expiry. The
-encrypted channel is **scaffolding, not encryption**: `EncryptedChannel::process_handshake` is a
-stub that returns `Ok(false)` (`crates/warsha-remote/src/lib.rs:656-659`) and no session keys are
-derived, so today's frames are not end-to-end encrypted. The phone opens the daemon's address with
-the bearer token instead, and on any network that is not your own machine it must sit behind HTTPS
-or a tunnel the owner controls (see [Security Model](security.md)).
+encrypted channel is **not built**: the crypto stubs were deleted (OD-R6, KEEL K7), so there is no
+handshake channel in the tree and no session keys are derived; today's frames are not end-to-end
+encrypted. The phone opens the daemon's address with the bearer token instead, and on any network that is
+not your own machine it must sit behind HTTPS or a tunnel the owner controls (see
+[Security Model](security.md)).
 
 ## Deployment
 

@@ -101,14 +101,10 @@ actually implemented.
 
 ### Noise XX Handshake — **not built**
 
-The pattern is chosen — `Noise_XX_25519_ChaChaPoly_BLAKE2s`, with `snow` as a real dependency — and the
-scaffold exists, but nothing runs:
-
-- `EncryptedChannel` is annotated `#[allow(dead_code)]` (`crates/warsha-remote/src/lib.rs:423-434`).
-- `process_handshake` is a stub: `// In real implementation, use snow's handshake state machine`, then
-  `Ok(false)` (`crates/warsha-remote/src/lib.rs:493-497`).
-- Because no handshake completes, `write_message`/`read_message` have no transport to use, and the
-  `replay_cache` field is never consulted (`crates/warsha-remote/src/lib.rs:432`, `:500-521`).
+The pattern was chosen (`Noise_XX_25519_ChaChaPoly_BLAKE2s`) and `snow` is a real dependency, but the
+crypto stubs were deleted (OD-R6, KEEL K7): the tree no longer contains a handshake channel, no session
+keys are derived, and the message writers have no transport to use. The relay forwards frames without
+decrypting them.
 
 ```text
 Initiator (Mobile)                    Responder (Desktop)
