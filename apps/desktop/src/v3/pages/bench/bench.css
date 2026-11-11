@@ -1,0 +1,21 @@
+/* apps/desktop/src/v3/pages/bench/bench.css — Advanced Workbench styles */
+
+.v3-bench-container {
+  display: flex;
+  flex-wrap: wrap;
+  min-height: calc(100vh - var(--w-space-10));
+  background-color: var(--w-bg);
+  color: var(--w-text);
+  font-family: var(--w-font-sans);
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.v3-bench-container input:focus-visible,
+.v3-bench-container textarea:focus-visible,
+.v3-bench-container select:focus-visible,
+.v3-bench-container button:focus-visible,
+.v3-bench-container a:focus-visible {
+  box-shadow: 0 0 0 var(--w-border-width-strong) var(--w-focus);
+}
