@@ -318,6 +318,13 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Session,
         tier: Auth,
     },
+    // Gate C evidence runs one owner-chosen test command in the run's worktree,
+    // judged by the same command policy as RunCommand; it is a spend, not a read.
+    M {
+        method: "gates.evidence",
+        policy: Owner,
+        tier: Spend,
+    },
     M {
         method: "gates.reject",
         policy: Session,

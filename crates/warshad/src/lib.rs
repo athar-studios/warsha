@@ -1343,6 +1343,14 @@ pub trait WarshaApi {
     #[method(name = "runs.worktree", with_extensions)]
     async fn run_worktree(&self, run_id: RunId) -> RpcResult<Option<RunWorktree>>;
 
+    #[method(name = "gates.evidence", with_extensions)]
+    async fn gate_evidence(
+        &self,
+        run_id: RunId,
+        program: String,
+        args: Vec<String>,
+    ) -> RpcResult<warsha_pipeline::GateEvidence>;
+
     #[method(name = "runs.get", with_extensions)]
     async fn get_run(&self, run_id: RunId) -> RpcResult<Run>;
 
@@ -2781,6 +2789,55 @@ impl WarshaApiServer for WarshaRpc {
     ) -> RpcResult<Option<RunWorktree>> {
         self.authorize(ext, "runs.worktree").await?;
         Ok(self.state.run_worktrees.read().await.get(&run_id).cloned())
+    }
+
+    /// Collect the diff, changed paths and one measured test run for Gate C.
+    async fn gate_evidence(
+        &self,
+        ext: &RpcExtensions,
+        run_id: RunId,
+        program: String,
+        args: Vec<String>,
+    ) -> RpcResult<warsha_pipeline::GateEvidence> {
+        self.authorize(ext, "gates.evidence").await?;
+        let run = self
+            .state
+            .store
+            .get_run(run_id)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        if run.current_stage != Stage::GateC {
+            return Err(ErrorObject::owned(
+                -32000,
+                format!(
+                    "gate evidence is for Gate C; the run is at {:?}",
+                    run.current_stage
+                ),
+                None::<()>,
+            ));
+        }
+        let work_dir =
+            {
+                let worktrees = self.state.run_worktrees.read().await;
+                match worktrees.get(&run_id) {
+                    Some(worktree) => worktree.path.clone(),
+                    None => return Err(ErrorObject::owned(
+                        -32000,
+                        "the run has no worktree; Gate C evidence needs a repository-backed run"
+                            .to_string(),
+                        None::<()>,
+                    )),
+                }
+            };
+        // The test program is the owner's, but it is still judged by the same
+        // command policy as RunCommand: no shell, the allow-list, no traversal.
+        let policy = CommandPolicy::from_config(&self.state.config.allowed_commands);
+        policy
+            .check_program(&program)
+            .map_err(|e| ErrorObject::owned(-32005, e.to_string(), None::<()>))?;
+        warsha_pipeline::collect_gate_evidence(&work_dir, "HEAD", &program, &args)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
     }
 
     async fn get_run(&self, ext: &RpcExtensions, run_id: RunId) -> RpcResult<Run> {
@@ -11898,5 +11955,165 @@ mod e2_wiring {
             .await
             .expect_err("an unknown run has no session");
         assert!(error.to_string().contains("no agent session"), "{error}");
+    }
+}
+
+/// ENGINE E5 wiring: `gates.evidence` returns Gate C evidence for a
+/// repository-backed run, with the test program judged by the command policy.
+#[cfg(test)]
+mod e5_wiring {
+    use super::*;
+    use std::process::Command;
+
+    fn owner() -> RpcExtensions {
+        let mut ext = RpcExtensions::new();
+        ext.insert(Actor::owner(DeviceId::new()));
+        ext
+    }
+
+    fn code(error: &jsonrpsee::types::ErrorObjectOwned) -> i32 {
+        error.code()
+    }
+
+    fn project(repo_path: Option<String>) -> Project {
+        Project {
+            id: ProjectId::new(),
+            name: "Evidence Project".to_string(),
+            description: "Test".to_string(),
+            language: "en".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            repo_path,
+            repo_url: None,
+        }
+    }
+
+    fn git_repo(dir: &std::path::Path) {
+        std::fs::write(dir.join("base.txt"), "base").expect("a base file");
+        for args in [
+            vec!["init", "-q"],
+            vec!["config", "user.email", "test@example.com"],
+            vec!["config", "user.name", "Test"],
+            vec!["add", "."],
+            vec!["commit", "-qm", "base"],
+        ] {
+            let status = Command::new("git")
+                .current_dir(dir)
+                .args(&args)
+                .status()
+                .expect("git runs");
+            assert!(status.success(), "git {args:?} failed");
+        }
+    }
+
+    async fn start(store: &Store, rpc: &WarshaRpc, project: &Project, gate_c: bool) -> Run {
+        let run = rpc
+            .start_run(&owner(), project.id, "Build a todo app".to_string())
+            .await
+            .expect("the run starts");
+        if gate_c {
+            let mut stored = store.get_run(run.id).await.expect("the run");
+            stored.current_stage = Stage::GateC;
+            store.update_run(&stored).await.expect("the stage moves");
+        }
+        run
+    }
+
+    #[tokio::test]
+    async fn evidence_carries_the_diff_and_the_policy_checked_test() {
+        let temp = crate::test_util::fresh_tempdir();
+        let repo = tempfile::tempdir().expect("a repo");
+        git_repo(repo.path());
+        let (state, store) = crate::tests::test_state(temp.path()).await;
+        let project = project(Some(repo.path().display().to_string()));
+        store.create_project(&project).await.expect("the project");
+        let rpc = WarshaRpc::new(state);
+        let run = start(&store, &rpc, &project, true).await;
+        let worktree = rpc
+            .run_worktree(&owner(), run.id)
+            .await
+            .expect("reported")
+            .expect("a worktree");
+        std::fs::write(worktree.path.join("base.txt"), "changed").expect("change");
+        std::fs::write(worktree.path.join("made.txt"), "made").expect("create");
+
+        let evidence = rpc
+            .gate_evidence(
+                &owner(),
+                run.id,
+                "git".to_string(),
+                vec!["--version".to_string()],
+            )
+            .await
+            .expect("the evidence is collected");
+
+        assert!(evidence.diff.contains("base.txt"), "{}", evidence.diff);
+        assert!(
+            evidence.files_changed.iter().any(|path| path == "made.txt"),
+            "{:?}",
+            evidence.files_changed
+        );
+        assert!(evidence.tests.success);
+        assert!(
+            evidence.tests.stdout.contains("git version"),
+            "{}",
+            evidence.tests.stdout
+        );
+    }
+
+    #[tokio::test]
+    async fn a_shell_program_is_refused_by_policy() {
+        let temp = crate::test_util::fresh_tempdir();
+        let repo = tempfile::tempdir().expect("a repo");
+        git_repo(repo.path());
+        let (state, store) = crate::tests::test_state(temp.path()).await;
+        let project = project(Some(repo.path().display().to_string()));
+        store.create_project(&project).await.expect("the project");
+        let rpc = WarshaRpc::new(state);
+        let run = start(&store, &rpc, &project, true).await;
+
+        let error = rpc
+            .gate_evidence(
+                &owner(),
+                run.id,
+                "sh".to_string(),
+                vec!["-c".to_string(), "true".to_string()],
+            )
+            .await
+            .expect_err("a shell is refused by the command policy");
+        assert_eq!(code(&error), auth::rpc_codes::POLICY_REFUSED);
+    }
+
+    #[tokio::test]
+    async fn evidence_needs_gate_c_and_a_worktree() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = crate::tests::test_state(temp.path()).await;
+        let project = project(None);
+        store.create_project(&project).await.expect("the project");
+        let rpc = WarshaRpc::new(state);
+
+        let not_gate_c = start(&store, &rpc, &project, false).await;
+        let error = rpc
+            .gate_evidence(
+                &owner(),
+                not_gate_c.id,
+                "git".to_string(),
+                vec!["--version".to_string()],
+            )
+            .await
+            .expect_err("a run outside Gate C has no evidence");
+        assert!(error.to_string().contains("Gate C"), "{error}");
+
+        let gate_c = start(&store, &rpc, &project, true).await;
+        let error = rpc
+            .gate_evidence(
+                &owner(),
+                gate_c.id,
+                "git".to_string(),
+                vec!["--version".to_string()],
+            )
+            .await
+            .expect_err("a run without a worktree has no evidence");
+        assert!(error.to_string().contains("no worktree"), "{error}");
     }
 }
