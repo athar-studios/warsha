@@ -1847,7 +1847,7 @@ mod tests {
                 "WARSHA_K5_MANIFEST_KEY".to_string(),
                 "manifest-value".to_string(),
             );
-            // A caller-supplied PATH is replaced by the fixed floor, not honoured.
+            // A caller-supplied PATH is replaced by the trusted daemon PATH, not honoured.
             env.insert("PATH".to_string(), "/tmp/attacker-bin".to_string());
 
             mcp.connect_with(
@@ -1865,14 +1865,10 @@ mod tests {
                 description.contains("WARSHA_K5_MANIFEST_KEY=manifest-value"),
                 "a manifest-named variable must reach the child: {description}"
             );
-            let minimal_path = crate::command_policy::MINIMAL_CHILD_ENV
-                .iter()
-                .find(|(key, _)| *key == "PATH")
-                .map(|(_, value)| *value)
-                .expect("the floor names a PATH");
+            let trusted_path = crate::command_policy::child_path();
             assert!(
-                description.contains(&format!("PATH={minimal_path}")),
-                "the child's PATH must be the minimal floor: {description}"
+                description.contains(&format!("PATH={trusted_path}")),
+                "the child's PATH must be the trusted daemon PATH: {description}"
             );
             assert!(
                 !description.contains("/tmp/attacker-bin"),

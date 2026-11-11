@@ -704,6 +704,17 @@ pub fn parse_plugin_manifest(manifest_json_or_url: &str) -> Checked<PluginDefini
             "the pack `{name}` is a stdio pack with no command, so there is nothing to launch"
         ));
     }
+    if transport != "stdio"
+        && imported
+            .command
+            .as_deref()
+            .map(|command| !command.trim().is_empty())
+            .unwrap_or(false)
+    {
+        return Err(format!(
+            "the pack `{name}` names the `{transport}` transport but carries a `command`; a non-stdio pack must not name a program to launch (KEEL K5 review, finding 1)"
+        ));
+    }
 
     Ok(PluginDefinition {
         id: first_non_empty(&[&imported.id, &slug(name)]).unwrap_or_else(|| slug(name)),
@@ -767,38 +778,98 @@ pub fn require_pinned_launch(command: &str, args: &[String]) -> Checked<()> {
         return Ok(());
     }
 
-    let packages: Vec<&str> = args
+    // Read the launcher's own grammar instead of filtering tokens blindly: a
+    // launcher option (`-y`, `--yes`, `--registry=…`) is not a package, an option
+    // that names one (`--package=…`, `-p …`) is checked, and every token after the
+    // package is a server argument, not another package (KEEL K5 review, finding 3).
+    let mut tokens = args
         .iter()
         .map(|arg| arg.trim())
-        .filter(|arg| {
-            !arg.is_empty() && !arg.starts_with('-') && !LAUNCHER_SUBCOMMANDS.contains(arg)
-        })
-        .collect();
-    if packages.is_empty() {
-        return Err(format!(
-            "the pack launches `{command}` but names no package; there is nothing pinned to run"
-        ));
-    }
-    for package in packages {
-        if !is_pinned_package(package) {
-            return Err(format!(
-                "the pack launches the unpinned package `{package}`; name the release it was tested with as `pkg@x.y.z`"
-            ));
+        .filter(|arg| !arg.is_empty());
+    let mut package: Option<&str> = None;
+    while let Some(token) = tokens.next() {
+        if LAUNCHER_SUBCOMMANDS.contains(&token) {
+            // `npm|pnpm|yarn run <script>` runs a local script, not a fetched package.
+            if token == "run" && matches!(program, "npm" | "pnpm" | "yarn") {
+                return Ok(());
+            }
+            continue;
         }
+        if let Some(value) = token.strip_prefix("--package=") {
+            package = Some(value);
+            break;
+        }
+        if token == "--package" || token == "-p" {
+            package = tokens.next();
+            break;
+        }
+        if token.starts_with('-') {
+            continue;
+        }
+        package = Some(token);
+        break;
     }
-    Ok(())
+
+    match package {
+        Some(package) => {
+            if !is_pinned_package(package) {
+                return Err(format!(
+                    "the pack launches the unpinned package `{package}`; name the release it was tested with as `pkg@x.y.z`"
+                ));
+            }
+            Ok(())
+        }
+        None => Err(format!(
+            "the pack launches `{command}` but names no package; there is nothing pinned to run"
+        )),
+    }
 }
 
 /// True for a package argument that names an exact release (`pkg@x.y.z`).
+///
+/// A range (`1.2.x`, `1.x`, `*`, `^1.2.3`) is not a pin: it lets the registry
+/// choose the code the daemon runs. Only `MAJOR.MINOR.PATCH` with an optional
+/// prerelease/build suffix is accepted (KEEL K5 review, finding 3).
 fn is_pinned_package(package: &str) -> bool {
-    let Some((_, version)) = package.rsplit_once('@') else {
+    let Some((name, version)) = package.rsplit_once('@') else {
         return false;
     };
-    version.starts_with(|c: char| c.is_ascii_digit())
-        && version.matches('.').count() >= 2
-        && version
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+'))
+    !name.trim().is_empty() && is_exact_semver(version)
+}
+
+/// True for a strict `MAJOR.MINOR.PATCH[-pre][+build]` version.
+fn is_exact_semver(version: &str) -> bool {
+    let (core_and_pre, build) = match version.split_once('+') {
+        Some((left, right)) => (left, Some(right)),
+        None => (version, None),
+    };
+    if let Some(build) = build {
+        if build.is_empty()
+            || !build
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-'))
+        {
+            return false;
+        }
+    }
+    let (core, pre) = match core_and_pre.split_once('-') {
+        Some((left, right)) => (left, Some(right)),
+        None => (core_and_pre, None),
+    };
+    if let Some(pre) = pre {
+        if pre.is_empty()
+            || !pre
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-'))
+        {
+            return false;
+        }
+    }
+    let parts: Vec<&str> = core.split('.').collect();
+    parts.len() == 3
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
 }
 
 /// The keychain account one plugin's environment variable is filed under.
@@ -1871,5 +1942,53 @@ mod tests {
             resolve_inside(&root, &escaped)
                 .expect_err("a path that resolves outside the project is refused");
         }
+    }
+}
+
+/// K5 repair gates: launcher pin grammar (finding 3) and the non-stdio command
+/// guard (finding 1).
+#[cfg(test)]
+mod k5_repair {
+    use super::*;
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values
+            .iter()
+            .map(|value| (*value).to_string())
+            .collect::<Vec<_>>()
+    }
+
+    #[test]
+    fn pin_grammar_rejects_ranges_and_accepts_exact_pins() {
+        assert!(require_pinned_launch("npx", &args(&["@scope/server@1.2.3"])).is_ok());
+        assert!(require_pinned_launch("npx", &args(&["@scope/server@1.2.x"])).is_err());
+        assert!(require_pinned_launch("npx", &args(&["@scope/server@1.x.x"])).is_err());
+        assert!(require_pinned_launch("npx", &args(&["@scope/server@*"])).is_err());
+        assert!(require_pinned_launch("npx", &args(&["@scope/server@^1.2.3"])).is_err());
+        assert!(require_pinned_launch("npx", &args(&["--package=@scope/server"])).is_err());
+        assert!(require_pinned_launch("npx", &args(&["--package=@scope/server@1.2.3"])).is_ok());
+        assert!(require_pinned_launch("npx", &args(&["-y", "@scope/server@1.2.3"])).is_ok());
+        assert!(require_pinned_launch(
+            "npx",
+            &args(&["@scope/server@1.2.3", "/allowed/root", "3000"])
+        )
+        .is_ok());
+        assert!(require_pinned_launch("pnpm", &args(&["run", "dev"])).is_ok());
+        assert!(require_pinned_launch("npx", &args(&[])).is_err());
+    }
+
+    #[test]
+    fn transport_bypass_rejects_a_non_stdio_command() {
+        let http_with_command =
+            r#"{"name":"x","transport":"http","command":"/bin/sh","args":["-c","id"]}"#;
+        assert!(
+            parse_plugin_manifest(http_with_command).is_err(),
+            "a non-stdio manifest must not carry a program to spawn"
+        );
+        let http_without_command = r#"{"name":"x","transport":"http"}"#;
+        assert!(parse_plugin_manifest(http_without_command).is_ok());
+        let stdio_pinned =
+            r#"{"name":"x","transport":"stdio","command":"npx","args":["pkg@1.2.3"]}"#;
+        assert!(parse_plugin_manifest(stdio_pinned).is_ok());
     }
 }

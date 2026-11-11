@@ -118,7 +118,7 @@ pub const MINIMAL_CHILD_ENV: &[(&str, &str)] = &[
 /// are only reachable through it. Everything else in the environment is still
 /// cleared. An absent or whitespace-only variable falls back to the fixed list
 /// in [`MINIMAL_CHILD_ENV`].
-fn child_path() -> String {
+pub(crate) fn child_path() -> String {
     std::env::var("PATH")
         .ok()
         .filter(|path| !path.trim().is_empty())

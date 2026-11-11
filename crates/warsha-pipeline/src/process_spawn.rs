@@ -49,11 +49,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncRead, AsyncWriteExt};
 use tokio::process::{Child, ChildStderr, ChildStdout, Command};
 use tokio::sync::Mutex;
 
-use crate::command_policy::MINIMAL_CHILD_ENV;
+use crate::command_policy::{child_path, MINIMAL_CHILD_ENV};
 
 /// Environment names a spawn may not hand to a child, whatever its caller asks.
 ///
@@ -87,6 +87,26 @@ const DENIED_CHILD_ENV_KEYS: &[&str] = &[
 /// newest lines and drops the oldest, so a server that outlives the daemon's
 /// patience cannot grow its memory without bound.
 pub const MAX_CAPTURED_LINES: usize = 500;
+
+/// The most bytes one captured line keeps before it is truncated.
+///
+/// [`BufReader::lines`] built a whole line before redacting, so a child that
+/// printed one 2 MiB line without a newline could grow the daemon's memory
+/// without bound (KEEL K5 independent review, finding 4). A line longer than
+/// this is cut and marked with [`TRUNCATION_MARKER`].
+pub const MAX_CAPTURED_LINE_BYTES: usize = 16 * 1024;
+
+/// The most bytes a stderr ring keeps; the oldest lines are dropped first.
+pub const MAX_CAPTURED_STDERR_BYTES: usize = 256 * 1024;
+
+/// The marker a line carries when it hit [`MAX_CAPTURED_LINE_BYTES`].
+pub const TRUNCATION_MARKER: &str = "…[truncated]";
+
+/// Values shorter than this are not treated as known secrets when masking env.
+///
+/// A resolved keychain secret is long; masking one-character values would
+/// mangle ordinary diagnostics without adding protection.
+const MIN_MASKED_ENV_VALUE_BYTES: usize = 8;
 
 /// How long [`LivePreviewManager::start`] waits for the dev server to print a URL.
 ///
@@ -386,6 +406,10 @@ fn command_for(program: &str, args: &[String], env: &HashMap<String, String>) ->
     for (key, value) in MINIMAL_CHILD_ENV {
         command.env(key, value);
     }
+    // The trusted daemon PATH carries the allow-listed toolchains (`~/.cargo/bin`,
+    // nvm, volta). PATH is not a secret; a caller-supplied PATH stays denied by
+    // `DENIED_CHILD_ENV_KEYS` below (KEEL K5 review, finding 5).
+    command.env("PATH", child_path());
     for (key, value) in env {
         let upper = key.trim().to_ascii_uppercase();
         if DENIED_CHILD_ENV_KEYS.contains(&upper.as_str()) || upper.starts_with("DYLD_") {
@@ -406,45 +430,206 @@ fn command_for(program: &str, args: &[String], env: &HashMap<String, String>) ->
 /// inherited, so this is where a dev server's log still reaches the daemon's
 /// console now that the manager holds the pipe.
 fn capture_stdout(id: String, stdout: ChildStdout, output: Arc<Mutex<VecDeque<String>>>) {
-    capture_lines(id, stdout, output, false);
+    capture_lines(id, stdout, output, false, Vec::new());
 }
 
 /// Capture `stderr` into `errors`, redacted, until the pipe closes.
 ///
-/// Redaction happens before the line is stored or logged, so neither the ring a
-/// test reads nor the daemon's own console can carry a token the server printed
-/// (KEEL K5a).
-fn capture_stderr(id: String, stderr: ChildStderr, errors: Arc<Mutex<VecDeque<String>>>) {
-    capture_lines(id, stderr, errors, true);
+/// Redaction happens before the line is stored or logged: the shape-based
+/// [`crate::guardrails::mask_secrets`] pass runs first, then every known value
+/// the child received through its environment is replaced with `***`. Neither
+/// the ring a test reads nor the daemon's console can carry a token the server
+/// printed (KEEL K5a and K5 repair finding 2).
+fn capture_stderr(
+    id: String,
+    stderr: ChildStderr,
+    errors: Arc<Mutex<VecDeque<String>>>,
+    mask_values: Vec<String>,
+) {
+    capture_lines(id, stderr, errors, true, mask_values);
 }
 
 /// Drain one piped stream into its bounded ring, redacting when asked.
-fn capture_lines<R>(id: String, reader: R, sink: Arc<Mutex<VecDeque<String>>>, redact: bool)
-where
+fn capture_lines<R>(
+    id: String,
+    reader: R,
+    sink: Arc<Mutex<VecDeque<String>>>,
+    redact: bool,
+    mask_values: Vec<String>,
+) where
     R: AsyncRead + Unpin + Send + 'static,
 {
     tokio::spawn(async move {
-        let mut lines = BufReader::new(reader).lines();
-        // A closed pipe and a broken read are both the end of the transcript; the
-        // exit status is what says how the child ended.
-        while let Ok(Some(line)) = lines.next_line().await {
-            let line = if redact {
-                crate::guardrails::mask_secrets(&line)
-            } else {
-                line
-            };
-            if redact {
-                tracing::warn!(process = %id, "{line}");
-            } else {
-                tracing::info!(process = %id, "{line}");
-            }
-            let mut captured = sink.lock().await;
-            if captured.len() == MAX_CAPTURED_LINES {
-                captured.pop_front();
-            }
-            captured.push_back(line);
-        }
+        drain_bounded(&id, reader, &sink, redact, &mask_values).await;
     });
+}
+
+/// The known secret values a child received through its environment.
+///
+/// The values come from the environment the caller handed the child (for a
+/// plugin, the resolved keychain references), so they are exactly the material
+/// that must never come back through `read_stderr` or the daemon log. Very short
+/// values are skipped: masking them would mangle diagnostics without protecting
+/// a credential.
+fn mask_values_for(env: &HashMap<String, String>) -> Vec<String> {
+    let mut values: Vec<String> = env
+        .values()
+        .map(|value| value.trim().to_string())
+        .filter(|value| value.len() >= MIN_MASKED_ENV_VALUE_BYTES)
+        .collect();
+    values.sort();
+    values.dedup();
+    values
+}
+
+/// Append `segment` to `line`, stopping at [`MAX_CAPTURED_LINE_BYTES`].
+fn append_bounded(line: &mut Vec<u8>, segment: &[u8], truncated: &mut bool) {
+    if line.len() >= MAX_CAPTURED_LINE_BYTES {
+        *truncated = true;
+        return;
+    }
+    let room = MAX_CAPTURED_LINE_BYTES - line.len();
+    if segment.len() <= room {
+        line.extend_from_slice(segment);
+    } else {
+        line.extend_from_slice(&segment[..room]);
+        *truncated = true;
+    }
+}
+
+/// Store one captured line, enforcing the line-count and byte caps of the ring.
+async fn push_captured(
+    sink: &Arc<Mutex<VecDeque<String>>>,
+    text: String,
+    total_bytes: &mut usize,
+    max_ring_bytes: usize,
+) {
+    let mut captured = sink.lock().await;
+    *total_bytes += text.len();
+    captured.push_back(text);
+    while *total_bytes > max_ring_bytes || captured.len() > MAX_CAPTURED_LINES {
+        let Some(dropped) = captured.pop_front() else {
+            break;
+        };
+        *total_bytes = total_bytes.saturating_sub(dropped.len());
+    }
+}
+
+/// Finish `line`: redact, log and store it, then clear the accumulator.
+#[allow(clippy::too_many_arguments)]
+async fn emit_line(
+    id: &str,
+    sink: &Arc<Mutex<VecDeque<String>>>,
+    line: &mut Vec<u8>,
+    truncated: &mut bool,
+    redact: bool,
+    mask_values: &[String],
+    total_bytes: &mut usize,
+    max_ring_bytes: usize,
+) {
+    if line.is_empty() && !*truncated {
+        return;
+    }
+    let mut text = String::from_utf8_lossy(line).into_owned();
+    if *truncated {
+        text.push_str(TRUNCATION_MARKER);
+    }
+    if redact {
+        text = crate::guardrails::mask_secrets(&text);
+        for value in mask_values {
+            if !value.is_empty() {
+                text = text.replace(value, "***");
+            }
+        }
+        tracing::warn!(process = %id, "{text}");
+    } else {
+        tracing::info!(process = %id, "{text}");
+    }
+    line.clear();
+    *truncated = false;
+    push_captured(sink, text, total_bytes, max_ring_bytes).await;
+}
+
+/// Read `reader` into `sink` with a per-line byte cap and a total ring byte cap.
+///
+/// This replaces `BufReader::lines()`, which built a whole line before masking:
+/// a single 2 MiB stderr line without a newline could grow the daemon's memory
+/// without bound (KEEL K5 review, finding 4). A line that reaches the cap is
+/// flushed immediately, so a no-newline stream stays bounded too.
+pub(crate) async fn drain_bounded<R>(
+    id: &str,
+    reader: R,
+    sink: &Arc<Mutex<VecDeque<String>>>,
+    redact: bool,
+    mask_values: &[String],
+) where
+    R: AsyncRead + Unpin,
+{
+    let mut reader = reader;
+    let mut chunk = [0u8; 8192];
+    let mut line: Vec<u8> = Vec::new();
+    let mut truncated = false;
+    let mut total_bytes = 0usize;
+    let max_ring_bytes = if redact {
+        MAX_CAPTURED_STDERR_BYTES
+    } else {
+        MAX_CAPTURED_LINE_BYTES * MAX_CAPTURED_LINES
+    };
+    loop {
+        let n = match tokio::io::AsyncReadExt::read(&mut reader, &mut chunk).await {
+            Ok(0) => break,
+            Ok(n) => n,
+            // A closed pipe and a broken read are both the end of the transcript;
+            // the exit status is what says how the child ended.
+            Err(_) => break,
+        };
+        let mut start = 0usize;
+        for i in 0..n {
+            if chunk[i] == b'\n' {
+                append_bounded(&mut line, &chunk[start..i], &mut truncated);
+                emit_line(
+                    id,
+                    sink,
+                    &mut line,
+                    &mut truncated,
+                    redact,
+                    mask_values,
+                    &mut total_bytes,
+                    max_ring_bytes,
+                )
+                .await;
+                start = i + 1;
+            }
+        }
+        append_bounded(&mut line, &chunk[start..n], &mut truncated);
+        if line.len() >= MAX_CAPTURED_LINE_BYTES {
+            // The line was cut at the cap and continues in the next segment; the
+            // marker is what tells a reader the text is not the whole line.
+            truncated = true;
+            emit_line(
+                id,
+                sink,
+                &mut line,
+                &mut truncated,
+                redact,
+                mask_values,
+                &mut total_bytes,
+                max_ring_bytes,
+            )
+            .await;
+        }
+    }
+    emit_line(
+        id,
+        sink,
+        &mut line,
+        &mut truncated,
+        redact,
+        mask_values,
+        &mut total_bytes,
+        max_ring_bytes,
+    )
+    .await;
 }
 
 /// Observe `process` once: settle a finished child, promote a live `Starting`.
@@ -544,7 +729,7 @@ impl ProcessManager for InMemoryProcessManager {
         }
         let errors = Arc::new(Mutex::new(VecDeque::new()));
         if let Some(stderr) = child.stderr.take() {
-            capture_stderr(id.clone(), stderr, errors.clone());
+            capture_stderr(id.clone(), stderr, errors.clone(), mask_values_for(env));
         }
         let entry = Entry {
             process: ManagedProcess {
@@ -640,7 +825,12 @@ impl ProcessManager for InMemoryProcessManager {
             capture_stdout(entry.process.id.clone(), stdout, entry.output.clone());
         }
         if let Some(stderr) = child.stderr.take() {
-            capture_stderr(entry.process.id.clone(), stderr, entry.errors.clone());
+            capture_stderr(
+                entry.process.id.clone(),
+                stderr,
+                entry.errors.clone(),
+                mask_values_for(&entry.env),
+            );
         }
         entry.process.child = Some(child);
         entry.process.status = ProcessStatus::Starting;
@@ -1820,7 +2010,8 @@ mod spawn_hardening {
     }
 
     /// A variable the parent inherited never reaches the child, and the child's
-    /// `PATH` is the fixed floor rather than an inherited or caller-supplied one.
+    /// `PATH` is the trusted daemon `PATH` rather than an inherited or
+    /// caller-supplied one (the accepted K4 policy; KEEL K5 review finding 5).
     #[tokio::test]
     async fn a_child_starts_from_a_cleared_environment_and_the_minimal_floor() {
         std::env::set_var(PARENT_MARKER, "leaked");
@@ -1847,11 +2038,7 @@ mod spawn_hardening {
             .await
             .expect("the probe starts");
         let lines = wait_for_stdout(&manager, &id, "ENVDUMP LOADER=").await;
-        let minimal_path = MINIMAL_CHILD_ENV
-            .iter()
-            .find(|(key, _)| *key == "PATH")
-            .map(|(_, value)| *value)
-            .expect("the floor names a PATH");
+        let trusted_path = child_path();
 
         assert!(
             lines
@@ -1872,8 +2059,8 @@ mod spawn_hardening {
         assert!(
             lines
                 .iter()
-                .any(|line| line.contains(&format!("ENVDUMP PATH={minimal_path}"))),
-            "the child's PATH must be the minimal floor, not the caller's: {lines:?}"
+                .any(|line| line.contains(&format!("ENVDUMP PATH={trusted_path}"))),
+            "the child's PATH must be the trusted daemon PATH, not the caller's: {lines:?}"
         );
         assert!(
             !lines.iter().any(|line| line.contains("/tmp/attacker-bin")),
@@ -1907,5 +2094,94 @@ mod spawn_hardening {
             "the captured transcript must never hold the secret: {transcript}"
         );
         manager.kill_all().await;
+    }
+}
+
+/// K5 repair gates: trusted PATH, byte-bounded capture, known-secret masking.
+#[cfg(test)]
+mod k5_repair {
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    fn command_path(command: &Command) -> Option<String> {
+        command
+            .as_std()
+            .get_envs()
+            .find(|(key, _)| key.to_string_lossy() == "PATH")
+            .and_then(|(_, value)| value.map(|value| value.to_string_lossy().into_owned()))
+    }
+
+    #[test]
+    fn pm_path_uses_the_trusted_daemon_path() {
+        assert!(!child_path().is_empty());
+        let mut caller = HashMap::new();
+        caller.insert("PATH".to_string(), "/caller/override".to_string());
+        let command = command_for("probe", &[], &caller);
+        assert_eq!(command_path(&command), Some(child_path()));
+        assert_ne!(command_path(&command).as_deref(), Some("/caller/override"));
+    }
+
+    #[test]
+    fn mask_values_come_from_the_child_environment() {
+        let mut env = HashMap::new();
+        env.insert(
+            "SERVICE_TOKEN".to_string(),
+            "k5-sentinel-secret-value-123".to_string(),
+        );
+        env.insert("SHORT".to_string(), "abc".to_string());
+        assert_eq!(
+            mask_values_for(&env),
+            vec!["k5-sentinel-secret-value-123".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn stderr_bytes_stay_within_the_caps() {
+        let mut input = vec![b'a'; 2 * 1024 * 1024];
+        input.push(b'\n');
+        let sink = Arc::new(Mutex::new(VecDeque::new()));
+        drain_bounded("probe", &input[..], &sink, true, &[]).await;
+        let captured = sink.lock().await;
+        assert!(!captured.is_empty());
+        let mut total = 0usize;
+        for line in captured.iter() {
+            assert!(
+                line.len() <= MAX_CAPTURED_LINE_BYTES + TRUNCATION_MARKER.len(),
+                "a captured line grew past the byte cap: {} bytes",
+                line.len()
+            );
+            total += line.len();
+        }
+        assert!(
+            total <= MAX_CAPTURED_STDERR_BYTES,
+            "the ring held {total} bytes, past the cap"
+        );
+        assert!(captured
+            .iter()
+            .any(|line| line.ends_with(TRUNCATION_MARKER)));
+    }
+
+    #[tokio::test]
+    async fn stderr_secret_is_masked_before_storage() {
+        let secret = "k5-sentinel-secret-value-123";
+        let transcript = format!("diagnostic before {secret} diagnostic after\n");
+        let sink = Arc::new(Mutex::new(VecDeque::new()));
+        drain_bounded(
+            "probe",
+            transcript.as_bytes(),
+            &sink,
+            true,
+            &[secret.to_string()],
+        )
+        .await;
+        let captured = sink.lock().await;
+        let joined = captured.iter().cloned().collect::<Vec<_>>().join("\n");
+        assert!(
+            !joined.contains(secret),
+            "the known secret survived masking: {joined}"
+        );
+        assert!(joined.contains("***"));
     }
 }

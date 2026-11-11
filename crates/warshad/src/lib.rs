@@ -4420,7 +4420,7 @@ impl WarshaApiServer for WarshaRpc {
         // Sync with MCP manager (F2). The child gets exactly the pack's resolved
         // environment on top of the process manager's floor; its failure is the
         // RPC's failure, not a warning in a log nobody reads.
-        if enabled {
+        if enabled && def.transport == "stdio" {
             if let Some(cmd) = &def.command {
                 if !cmd.trim().is_empty() {
                     let mcp_cfg = warsha_pipeline::mcp_transport::McpServerConfig::new_stdio(
@@ -4484,7 +4484,7 @@ impl WarshaApiServer for WarshaRpc {
         let def = wave2::plugin_definition(&updated).map_err(rpc_error)?;
         // Sync with MCP manager if enabled (F2), with the references resolved
         // against the keychain only now, for this one child.
-        if def.enabled {
+        if def.enabled && def.transport == "stdio" {
             if let Some(cmd) = &def.command {
                 if !cmd.trim().is_empty() {
                     let launch_env = self.resolved_plugin_env(&def).await?;
