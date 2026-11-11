@@ -221,8 +221,8 @@ Irreversible actions require **explicit human approval**:
 
 It does **not** run `cargo audit` or `pnpm audit` — neither step exists in any workflow file. And before
 repeating a "CI is green" claim, read its trigger: `ci.yml` fires on pushes and pull requests that target
-`main` only, and `release.yml` fires on a `v*` tag, which this repository has never had. Work on any other
-branch runs none of the above.
+`main` **or `dev`**, and `release.yml` fires on a `v*` tag (the repository has one published tag,
+`v0.2.0`). Work on any other branch runs none of the above.
 
 **Accepted advisory — RUSTSEC-2026-0459 (`libsqlite3-sys` 0.30.1).** The bundled SQLite is older than
 3.54.0. The vector is local (`AV:L`, `UI:P`): it requires the victim to open a database file together
