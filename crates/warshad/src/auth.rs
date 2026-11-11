@@ -304,6 +304,13 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Owner,
         tier: Spend,
     },
+    // The worktree path is local information, not a credential; a verified session
+    // that can read the run may read where its own checkout lives.
+    M {
+        method: "runs.worktree",
+        policy: Session,
+        tier: Standard,
+    },
     // Gates: audit H-03. A verified session decides, and the approver recorded is
     // that session's device — never a `device_id` in the params.
     M {

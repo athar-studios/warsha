@@ -1145,6 +1145,7 @@ async fn daemon_state(data_dir: &Path, provider_mode: RealOrMockProvider) -> Arc
         store_reviews: Arc::new(RwLock::new(InMemoryStoreReviewStore::new())),
         agent_loop,
         mcp_permissions: Arc::new(warsha_pipeline::StaticPermissions::new()),
+        run_worktrees: Arc::new(RwLock::new(std::collections::HashMap::new())),
         processes,
         mcp,
         previews,

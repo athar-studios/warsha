@@ -44,7 +44,7 @@ use warsha_pipeline::{
     ManagedProcess, McpConnection, McpManager, MessageBus, ModeManager, ModeTransition,
     PairingStore, PhonePairing, Preference, PreferenceSignal, PreferenceStore, ProcessManager,
     ProcessStatus, ProcessSummary, ProviderRouterAdapter, Routine, RoutineRegistry, RoutineRunner,
-    RoutineScheduler, RunMode, RunModeConfig, SlashCommand, SlashCommandRegistry,
+    RoutineScheduler, RunMode, RunModeConfig, RunWorktree, SlashCommand, SlashCommandRegistry,
     StaticPermissions, StoreReview, StoreReviewStore, TodoItem, TodoList, WorkProtectionPolicy,
     AGENT_ROLE,
 };
@@ -1090,6 +1090,8 @@ pub struct DaemonState {
     pub agent_loop: Arc<RwLock<AgentLoop>>,
     /// The MCP permission table consulted before every agent tool call.
     pub mcp_permissions: Arc<StaticPermissions>,
+    /// The per-run git worktrees created at `runs.start` (ENGINE E3 wiring).
+    pub run_worktrees: Arc<RwLock<HashMap<RunId, RunWorktree>>>,
     /// The one spawner: `process.*` drives it, the MCP stdio transport starts its
     /// server through it, and the live preview runs its dev server on it, so every
     /// child the daemon starts shows up in one `process.list`.
@@ -1334,6 +1336,9 @@ pub trait WarshaApi {
 
     #[method(name = "runs.start", with_extensions)]
     async fn start_run(&self, project_id: ProjectId, idea: String) -> RpcResult<Run>;
+
+    #[method(name = "runs.worktree", with_extensions)]
+    async fn run_worktree(&self, run_id: RunId) -> RpcResult<Option<RunWorktree>>;
 
     #[method(name = "runs.get", with_extensions)]
     async fn get_run(&self, run_id: RunId) -> RpcResult<Run>;
@@ -2685,7 +2690,65 @@ impl WarshaApiServer for WarshaRpc {
             "run start audit context"
         );
 
+        // ENGINE E3 wiring: a project that names a repository gets a per-run
+        // worktree, so two runs cannot edit one checkout. A run whose worktree
+        // cannot be created is cancelled rather than left to execute in the shared
+        // workspace — the failure is visible instead of silently sharing files.
+        let project = self
+            .state
+            .store
+            .get_project(project_id)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        if let Some(repo_path) = project
+            .repo_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+        {
+            let root = self.state.config.data_dir.join("worktrees");
+            match warsha_pipeline::create_run_worktree(
+                std::path::Path::new(repo_path),
+                &root,
+                &run.id.0.to_string(),
+                "HEAD",
+            )
+            .await
+            {
+                Ok(worktree) => {
+                    self.state
+                        .run_worktrees
+                        .write()
+                        .await
+                        .insert(run.id, worktree);
+                }
+                Err(error) => {
+                    let _ = self
+                        .state
+                        .pipeline
+                        .cancel_run(run.id, Some("worktree creation failed".to_string()))
+                        .await;
+                    return Err(ErrorObject::owned(
+                        -32000,
+                        format!(
+                            "the run was cancelled because its worktree could not be created: {error}"
+                        ),
+                        None::<()>,
+                    ));
+                }
+            }
+        }
+
         Ok(run)
+    }
+
+    async fn run_worktree(
+        &self,
+        ext: &RpcExtensions,
+        run_id: RunId,
+    ) -> RpcResult<Option<RunWorktree>> {
+        self.authorize(ext, "runs.worktree").await?;
+        Ok(self.state.run_worktrees.read().await.get(&run_id).cloned())
     }
 
     async fn get_run(&self, ext: &RpcExtensions, run_id: RunId) -> RpcResult<Run> {
@@ -5959,6 +6022,7 @@ pub async fn start_daemon_with_provider_factory(
         store_reviews: Arc::new(RwLock::new(InMemoryStoreReviewStore::new())),
         agent_loop,
         mcp_permissions,
+        run_worktrees: Arc::new(RwLock::new(HashMap::new())),
         processes,
         mcp,
         previews,
@@ -7417,6 +7481,7 @@ mod tests {
             store_reviews: Arc::new(RwLock::new(InMemoryStoreReviewStore::new())),
             agent_loop,
             mcp_permissions,
+            run_worktrees: Arc::new(RwLock::new(HashMap::new())),
             processes,
             mcp,
             previews,
@@ -11183,6 +11248,7 @@ async fn health_reports_probed_capabilities() {
         store_reviews: state.store_reviews.clone(),
         agent_loop: state.agent_loop.clone(),
         mcp_permissions: state.mcp_permissions.clone(),
+        run_worktrees: state.run_worktrees.clone(),
         processes: state.processes.clone(),
         mcp: state.mcp.clone(),
         previews: state.previews.clone(),
@@ -11593,5 +11659,101 @@ mod origin_guard {
             status(&mut service, Some("http://tauri.localhost")).await,
             401
         );
+    }
+}
+
+/// ENGINE E3 wiring: `runs.start` gives a repository-backed project a per-run
+/// worktree, and an unusable repository cancels the run instead of letting it
+/// execute in the shared workspace.
+#[cfg(test)]
+mod e3_wiring {
+    use super::*;
+    use std::process::Command;
+
+    fn owner() -> RpcExtensions {
+        let mut ext = RpcExtensions::new();
+        ext.insert(Actor::owner(DeviceId::new()));
+        ext
+    }
+
+    fn project(repo_path: Option<String>) -> Project {
+        Project {
+            id: ProjectId::new(),
+            name: "Worktree Project".to_string(),
+            description: "Test".to_string(),
+            language: "en".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            repo_path,
+            repo_url: None,
+        }
+    }
+
+    fn git_repo(dir: &std::path::Path) {
+        std::fs::write(dir.join("base.txt"), "base").expect("a base file");
+        for args in [
+            vec!["init", "-q"],
+            vec!["config", "user.email", "test@example.com"],
+            vec!["config", "user.name", "Test"],
+            vec!["add", "."],
+            vec!["commit", "-qm", "base"],
+        ] {
+            let status = Command::new("git")
+                .current_dir(dir)
+                .args(&args)
+                .status()
+                .expect("git runs");
+            assert!(status.success(), "git {args:?} failed");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_repository_backed_run_gets_its_own_worktree() {
+        let temp = crate::test_util::fresh_tempdir();
+        let repo = tempfile::tempdir().expect("a repo dir");
+        git_repo(repo.path());
+        let (state, store) = crate::tests::test_state(temp.path()).await;
+        let project = project(Some(repo.path().display().to_string()));
+        store.create_project(&project).await.expect("the project");
+        let rpc = WarshaRpc::new(state);
+
+        let run = rpc
+            .start_run(&owner(), project.id, "Build a todo app".to_string())
+            .await
+            .expect("the run starts");
+        let worktree = rpc
+            .run_worktree(&owner(), run.id)
+            .await
+            .expect("the worktree is reported")
+            .expect("the run has a worktree");
+
+        assert!(worktree.path.exists());
+        let check = Command::new("git")
+            .arg("-C")
+            .arg(&worktree.path)
+            .args(["rev-parse", "--is-inside-work-tree"])
+            .output()
+            .expect("git runs");
+        assert!(check.status.success());
+        assert_eq!(String::from_utf8_lossy(&check.stdout).trim(), "true");
+    }
+
+    #[tokio::test]
+    async fn an_unusable_repository_cancels_the_run() {
+        let temp = crate::test_util::fresh_tempdir();
+        let plain = tempfile::tempdir().expect("a plain dir");
+        let (state, store) = crate::tests::test_state(temp.path()).await;
+        let project = project(Some(plain.path().display().to_string()));
+        store.create_project(&project).await.expect("the project");
+        let rpc = WarshaRpc::new(state);
+
+        let error = rpc
+            .start_run(&owner(), project.id, "Build a todo app".to_string())
+            .await
+            .expect_err("a non-repository is refused");
+        assert!(error.to_string().contains("worktree"), "{error}");
+        let runs = store.list_runs(project.id).await.expect("the runs list");
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].status, RunStatus::Cancelled);
     }
 }

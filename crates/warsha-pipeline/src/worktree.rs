@@ -8,6 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// What can go wrong creating or removing a run worktree.
@@ -35,7 +36,7 @@ pub enum WorktreeError {
 pub type Result<T> = std::result::Result<T, WorktreeError>;
 
 /// A worktree created for one run.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunWorktree {
     /// Where the run's checkout lives.
     pub path: PathBuf,
