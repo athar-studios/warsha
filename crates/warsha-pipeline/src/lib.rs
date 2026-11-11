@@ -16,6 +16,7 @@ use warsha_providers::{
 use warsha_store::Store;
 
 mod agent_loop;
+pub mod agent_sessions;
 mod agent_tools;
 mod agent_workflow;
 mod backend_kit;
@@ -30,6 +31,7 @@ mod llm_cache;
 pub mod mcp;
 pub mod mcp_permission;
 pub mod worktree;
+pub use crate::agent_sessions::{AgentSessionError, RunAgentSessions};
 pub use crate::gate_evidence::{
     collect_gate_evidence, GateEvidence, GateEvidenceError, TestRun, GATE_EVIDENCE_CAPTURE_BYTES,
     GATE_EVIDENCE_TIMEOUT,
