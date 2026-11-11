@@ -106,7 +106,6 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
               width: '100%',
               minHeight: 'var(--w-control-height)',
               border: 'none',
-              outline: 'none',
               background: 'transparent',
               color: 'var(--w-text)',
               fontSize: 'var(--w-font-size-md)',

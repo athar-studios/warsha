@@ -120,8 +120,8 @@ export const TextArea = React.forwardRef<HTMLTextAreaElement, TextAreaProps>(
             className="w-textarea__input"
             style={{
               width: '100%',
+              minWidth: 0,
               border: 'none',
-              outline: 'none',
               background: 'transparent',
               color: 'var(--w-text)',
               fontSize: 'var(--w-font-size-md)',

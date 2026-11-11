@@ -223,8 +223,12 @@ export type WizardDrive =
 
 /** One method's answer for one case. */
 export interface RpcBehaviour {
-  /** Answer this instead of the default fixture. */
-  result?: unknown;
+  /**
+   * Answer this instead of the default fixture. A function is called with the request's `params`, so a
+   * case can answer two calls of one method differently — `runs.list` for two projects, say — without
+   * a second stub.
+   */
+  result?: unknown | ((params: unknown) => unknown);
   /** Answer a JSON-RPC error carrying this message (the daemon's own words, never UI copy). */
   error?: string;
   /** Wait this long before answering, so a screen's in-flight state is reachable. */
@@ -1288,7 +1292,11 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
   const override = daemon.fixtures[method];
   if (override !== undefined && (override.result !== undefined || override.error !== undefined)) {
     if (override.error !== undefined) return { ok: false, code: -32001, message: override.error };
-    return { ok: true, result: override.result };
+    const result =
+      typeof override.result === 'function'
+        ? (override.result as (params: unknown) => unknown)(params)
+        : override.result;
+    return { ok: true, result };
   }
 
   switch (method) {

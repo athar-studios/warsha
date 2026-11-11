@@ -35,11 +35,17 @@ function named(name: string): Viewport {
 /** The link a pairing QR would have produced: the daemon named in `server`, and its token. */
 const PAIRING_LINK = `${REMOTE_DAEMON_URL}/?server=${encodeURIComponent(REMOTE_DAEMON_URL)}&token=${REMOTE_TOKEN}`;
 
-/** The word the bench is currently using for a gate waiting on the owner. */
+/**
+ * The word the bench is currently using for a gate waiting on the owner.
+ *
+ * The two surfaces draw the state's mark differently — the desktop's v2 `Lamp` prints its glyph as a
+ * text character (`!`), the v3 `StatusPill` draws an `aria-hidden` icon — so the mark is dropped and
+ * the *word* is compared. The words are what must agree; an icon is a rendering, not a vocabulary.
+ */
 async function waitingWord(page: import('@playwright/test').Page): Promise<string> {
-  const lamp = page.locator('[data-state="waiting"]').first();
+  const lamp = page.locator('[data-status="waiting"], [data-state="waiting"]').first();
   await expect(lamp).toBeVisible();
-  return (await lamp.innerText()).trim().replace(/\s+/g, ' ');
+  return (await lamp.innerText()).trim().replace(/\s+/g, ' ').replace(/^[^\p{L}]+/u, '');
 }
 
 test('the language switch changes the catalog, the direction and the declared language', async ({
@@ -130,7 +136,7 @@ test('a gate is decided from the keyboard, and the decision reaches the daemon',
     search: `?server=${encodeURIComponent(REMOTE_DAEMON_URL)}&token=${REMOTE_TOKEN}&project=proj-store&run=run-gate-a`,
   });
 
-  const approve = page.locator('[data-gate-action="approve"]').first();
+  const approve = page.locator('[data-action="gate.approve"]').first();
   await expect(approve).toBeVisible();
   await approve.focus();
   await page.keyboard.press('Enter');
@@ -160,7 +166,7 @@ test('a dropped feed says so and keeps the queue', async ({ page }) => {
   // §7: a closed stream is not a lost queue. The way back is a real button, and the gate that was
   // waiting before the socket dropped is still on the bench.
   await expect(page.getByTestId('remote-reconnect-stream')).toBeVisible();
-  await expect(page.locator('[data-state="waiting"]').first()).toBeVisible();
+  await expect(page.locator('[data-status="waiting"]').first()).toBeVisible();
   expect(stubs.rpcMethods).toContain('health');
 });
 

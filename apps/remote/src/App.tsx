@@ -16,7 +16,6 @@
 // fallbacks are gone — a missing key is a failing catalog test, not English appearing inside Arabic.
 import type { ProjectId, RunId } from '@warsha/client';
 import { t, useDirection, useLocale } from '@warsha/i18n';
-import { Box, colorVar } from '@warsha/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Route, Routes, useSearchParams } from 'react-router-dom';
 
@@ -197,7 +196,7 @@ function Bench({ initialSession, store, api, openEvents }: AppProps) {
       api={api}
       openEvents={openEvents}
     >
-      <Box dir={dir} className="app" style={{ color: colorVar('text') }}>
+      <div dir={dir} className="app" style={{ color: 'var(--w-text)' }}>
         {/* §9: the keyboard gets into the bench without walking the chrome first. */}
         <a dir={dir} className="app-skip" href="#app-main">
           {t('app.skip_to_bench', {}, locale)}
@@ -223,7 +222,7 @@ function Bench({ initialSession, store, api, openEvents }: AppProps) {
         </div>
 
         <LocationSync />
-      </Box>
+      </div>
     </RemoteProvider>
   );
 }

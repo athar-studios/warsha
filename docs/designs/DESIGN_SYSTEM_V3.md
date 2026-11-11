@@ -88,8 +88,8 @@ Rules:
 ### 2.2 Typography
 
 - **UI family: IBM Plex Sans Arabic** (OFL-1.1; covers Arabic and Latin) — weights 400, 500, 600, 700.
-  **Code/IDs: IBM Plex Mono** 400, 500. Both are vendored as `woff2` in `packages/ui/src/v3/fonts/` with `@font-face`
-  (`local()` first, `font-display: swap`); the Google Fonts links leave both `index.html` files (offline Tauri app;
+  **Code/IDs: IBM Plex Mono** 400, 500. Both are bundled via `@fontsource` packages in `@warsha/ui/v3/fonts.css`
+  (OD-U2 = A); Google Fonts links leave both `index.html` files (offline Tauri app;
   matches the Linux capture host's pinned Plex). `THIRD_PARTY_NOTICES.md` gets the OFL row.
 - Scale (size / line-height, px):
 

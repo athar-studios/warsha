@@ -14,6 +14,8 @@ Last reviewed: 2026-11-02 (M16 and B0 design-skill intake).
 | **Goose** (agent engine) | Pinned git tag, currently a commented placeholder in the root [`Cargo.toml`](Cargo.toml); Renovate watches the tag | Apache-2.0 | Coding/agent engine and the future routines scheduler. Never forked, never modified. | [`aaif-goose/goose/LICENSE`](https://github.com/aaif-goose/goose/blob/main/LICENSE) |
 | **Activepieces Community Edition** | Optional external deployment, pinned tag recorded when enabled (see [`docs/launch/activepieces.md`](docs/launch/activepieces.md)) | MIT (core only) | Optional workflow-automation engine, off by default. **Warsha never uses, copies or links `packages/ee`.** | [`activepieces/activepieces/LICENSE`](https://github.com/activepieces/activepieces/blob/main/LICENSE) |
 | **mdBook** | `0.5.4`, installed as a cargo binary | MPL-2.0 | Builds the documentation site in [`docs/`](docs/). Build tool only; not distributed with Warsha. | [`rust-lang/mdBook/LICENSE`](https://github.com/rust-lang/mdBook/blob/main/LICENSE) |
+| **IBM Plex Sans Arabic** | `5.3.0` (`@fontsource/ibm-plex-sans-arabic`) | OFL-1.1 | UI typography for Design System v3 (ar + en). Bundled as woff2 assets. | [`fontsource/ibm-plex-sans-arabic/LICENSE`](https://github.com/fontsource/fontsource/blob/main/fonts/google/ibm-plex-sans-arabic/LICENSE) |
+| **IBM Plex Mono** | `5.3.0` (`@fontsource/ibm-plex-mono`) | OFL-1.1 | Code and ID typography for Design System v3. Bundled as woff2 assets. | [`fontsource/ibm-plex-mono/LICENSE`](https://github.com/fontsource/fontsource/blob/main/fonts/google/ibm-plex-mono/LICENSE) |
 
 ## Reviewed external design skills — reference material only, not bundled
 

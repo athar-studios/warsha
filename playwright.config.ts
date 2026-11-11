@@ -122,6 +122,7 @@ function browserEnv(): Record<string, string> {
   return env;
 }
 export default defineConfig({
+  globalSetup: './apps/desktop/e2e/support/global-setup.ts',
   testDir: 'apps',
   testMatch: /.*\.spec\.ts$/,
   fullyParallel: true,
