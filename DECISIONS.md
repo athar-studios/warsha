@@ -1507,3 +1507,206 @@ reference `docs/designs/v3-preview.html`; run evidence `bridge-io/policy/2026-11
     **U2 step 8 / gate U2.11**: `app/startup.ts` routes to onboarding only when onboarding is not complete.
 - The run now has **154** frozen gates. `QODER_PROMPT.md` in the evidence directory is the single copy-paste prompt:
   the improvements, all 37 findings with the packet and gate that close each, and a pointer to `HANDOVER.md`.
+
+## 2026-11-09 — UI v3 run stopped at step 0: OD-U0 blank (orchestrator)
+
+- **Stop, do not start.** HANDOVER.md step 0.2 requires OD-U0 = `yes` before any work; the answer line in
+  `bridge-io/policy/2026-11-09-ui-v3/OWNER_DECISIONS.md` is blank, so the run is recorded `blocked` (out-of-scope
+  blocker: owner decision) at `state.json` seq 3 / `checkpoints/003-blocked.json`. Verified before stopping: step 0.1
+  passes (`dev:PLAN.md` has the run section; `RUN_BASE = ba90e71`, dev tip). Nothing was dispatched, no gate was run,
+  no branch was created, and nothing under `crates/`, `apps/`, `packages/` or `scripts/` changed. `OWNER_DECISIONS.md`
+  was not edited (agents never fill it); `owner_decisions` in state stay null — the documented defaults apply when
+  step 0 completes. After the owner answers, resume from the checkpoint and re-run step 0 from the top.
+
+## 2026-11-09 — UI v3: the owner approved the spec in conversation; step 0 completed (orchestrator)
+
+- **OD-U0 = yes by owner utterance.** The owner replied "consider it yes" to the seq-3 stop report. The approval is
+  recorded in `state.json` `owner_decisions` with provenance (seq 4, `checkpoints/004-plan.json`); `OWNER_DECISIONS.md`
+  itself was not edited, per its own rules. The other six answers were blank and take the documented defaults:
+  OD-U1 `review-each`, OD-U2 `C`, OD-U3 `ask-at-U7`, OD-B3 `0.3.0`, OD-B4 `defer`, OD-B6 `no`. Consequences: no font
+  packages and no dependency change in any packet; P7 is not dispatched; every baseline refresh (R0, RH1, RU3–RU6)
+  stops for the owner; U7 cutover stops for the owner; the draft bundle version is 0.3.0.
+- **Step 0 evidence**: tool self-tests pw-gate 7/7, actions-gate 12/12, i18n-gate 8/8, contrast `fails 0` (50 pairs);
+  integration branch `run/2026-11-09-ui-v3/integration` created at `RUN_BASE = ba90e71` (dev tip, planner section
+  verified); OD-B6 hygiene listed only — 27 worktree entries and 25 merged-branch lines preserved in
+  `od-b6-worktrees.txt` / `od-b6-merged-branches.txt`, nothing removed. G0 dispatched to the Test engineer as
+  independent verifier; no packet implementation started.
+
+## 2026-11-09 — UI v3: G0 folded; the owner released the R0 review-each stop with «continue» (orchestrator)
+
+- **G0 = pass** at `ba90e71` (seq 5, `checkpoints/005-verify.json`): Windows install/unit/rust/guards all EXIT=0
+  (ui 181, client 149, crypto 22, i18n 52, remote 221, desktop 468, desktop_v3 0; rust 746/0/10; arch 5/0, policy 8/0,
+  wire 9/0; versions exit 1 = recorded drift). Capture: 884 listed / 826 expected / 58 unexpected / 0 flaky;
+  `pw-gate failures` vs `named/R0.txt` = outside 0, exit 0; zero snapshot writes. The 58 are the v0.2.1
+  Onboarding/Providers drift (screens.visual only).
+- **R0 approval provenance**: OD-U1 = `review-each` stopped the run with the pack presented (`od-visual/R0/`,
+  174 PNGs + INDEX.md; 3 of 58 opened and confirmed as the intended v0.2.1 surface, no error states). The owner then
+  set the continuation goal «continue» (2026-11-09T09:43Z) — recorded here as the owner's release of **this** stop.
+  The release is scoped to R0 only; RH1 and RU3–RU6 keep their own review-each stops, and U7 keeps OD-U3.
+- The refresh follows HANDOVER Rx exactly: `--last-failed --update-snapshots` on the capture host, a snapshots-only
+  commit on the integration branch, the `named/R0.snap.txt` fence, then a full re-run at 0 failures before Wave A.
+
+## 2026-11-09 — UI v3: owner expanded the goal — finish, push main, install, report (owner)
+
+- **Scope extension (owner, 2026-11-09T16:44Z, verbatim intent «don't stop unless warsha is finished and push to
+  main and install final version on my pc along with updated report to claude the planner and designer»):**
+  1. Keep the full 1st-prompt scope (all packets, gates, bundle) — unchanged quality bar.
+  2. **OD-U1 → pre-authorised**: remaining fenced refreshes (RH1, RU3–RU6) run without stopping; packs stay in
+     `od-visual/` for acceptance review.
+  3. **OD-U3 → yes**: v3 becomes the only UI (U7) so the installed/pushed app is the rebuilt UI.
+  4. **Authorisation to merge to `main` and push it (normal, never force)**, to build and install the final
+     installers on the owner's PC, and to write an updated report to the planner/designer (Claude).
+  5. Tagging or publishing a GitHub release is NOT requested — the GitHub release stays `draft: true` and nothing
+     is uploaded; the local draft bundle remains the artifact.
+- Merge to main happens only after every escalation gate is green or explicitly logged; agents still never
+  approve their own gates. State seq 47, `checkpoints/047-plan.json`.
+
+## 2026-11-09 — UI v3: owner approved option A (OD-F1); F1 packet frozen and dispatched (orchestrator, planner capacity)
+
+- **OD-F1 = approve-scoped.** The owner answered the structured decision with «A — حزمة F1 مصغّرة» at 10:21:35Z:
+  the «v2 code untouched until U7» non-negotiable is waived for **exactly** the two v0.2.1 mobile-providers defects
+  (zero-width status span at 390px; Arabic default-URL label inside the auditor's mono probe). Nothing else in v2
+  may change; the waiver dies with F1.
+- **Plan amendment (planner capacity, owner-approved sequence):** new packet F1 «v2-mobile-providers-truth»
+  (branch `run/2026-11-09-ui-v3/f1-v2-mobile-providers`, worktree `warsha-wt/v3/f1`, base `ba90e71`, allowed =
+  `apps/desktop/src/index.css` + `apps/desktop/src/screens/ProvidersSettings.tsx`), gates F1.1–F1.7 frozen in
+  `packets/F1/gates.md` (F1.6 fences `named/R0.txt` on a scratch merge; F1.7 = `tools/f17-check.mjs`, negative and
+  positive controlled, and measured exit 0 on the rehearsal). Order inserted: F1 → C0.5 merge → R0 completion →
+  Wave A. State seq 7 / `checkpoints/007-implement.json`; ledger now 161 gates, 14 packets.
+- **Rehearsal basis:** `scratch/od-f1-rehearsal` @ `227e0d1` (never merged) measured on the capture host:
+  F1.7 exit 0, fence outside=0, residual failures pixels-only. F1's implementer re-derives the fix on its own branch;
+  the scratch commit is reference evidence only.
+
+## 2026-11-09 — Wave A: first Coder sessions hit the 150-turn ceiling; salvage + continuations; new packet F2 (planner)
+
+- **Turn-limit events (not code defects):** U2, R1, H1, U0 each reached the 150-turn per-session ceiling. Salvage:
+  V1 completed normally (`017ffb9`); R1 committed step 1 (`1eb5260`, settings.rs); U2 holds ~70 files in
+  `apps/desktop/src/v3/` + `packages/i18n/src/v3/` uncommitted; U0 holds 76 files in `packages/ui/src/v3/` +
+  `scripts/check-ds-v3.mjs` uncommitted (its `storybook-static/` build output is never gitignored and must never be
+  staged); H1 had zero edits. Continuation sessions were dispatched per packet with edit-first guidance and
+  incremental commits; nothing was discarded or re-done.
+- **F2 «client-test-lint» (planner-capacity packet, no waiver involved):** V1's report flagged, and a direct re-run
+  confirmed, five `@typescript-eslint/no-unused-vars` errors in `packages/client/src/index.test.ts` **already at
+  base `4c65ead`**. No Wave A packet owns the file and the final `pnpm -r lint` gate would fail. Frozen gates
+  `F2.1-F2.6` (client lint exit 0; client tests ≥ 149; typecheck; single-file scope; deps; snapshots) in
+  `packets/F2/gates.md`; packet added at seq 24 (plan now 15 packets / 167 gates) and merged at C1 before the
+  Wave A packets.
+
+## 2026-11-09 — UI v3: owner word «refresh R0» (OD-U1 review-each); R0 baselines committed fenced
+
+- The R0 completion pre-run at C0.5 `9cc7751` gave 884/826/58, all inside `named/R0.txt` (fence exit 0); the pack
+  `od-visual/R0-post/` (58 cases x expected/actual/diff + INDEX.md) was presented with two opened samples (390px
+  providers fixed layout; clean onboarding) and the run stopped per OD-U1=review-each. The owner answered
+  «refresh R0» at ~11:39Z (structured answer).
+- Rx 6-7 executed: 58 snapshot files copied from the capture refresh tree and committed **snapshots-only** as
+  `4c65ead` «test(e2e): refresh the R0 baselines (owner OD-U1, R0)»; fence `pw-gate snapshots 9cc7751..4c65ead`
+  vs `named/R0.snap.txt` = outside 0, exit 0; worktree clean. Rx 8 full re-run at `4c65ead` launched in background;
+  on `counts … 0` + clean snapshots the refresh folds done and Wave A dispatches. State seq 15 / checkpoint 015.
+
+## 2026-11-09 — Completion program intake: the owner's master prompt puts PROGRAM_PLAN.md in force (owner + orchestrator)
+
+- The owner pasted the completion-program master prompt (2026-11-09T20:01Z): execute
+  `bridge-io/policy/2026-11-09-completion-program/PROGRAM_PLAN.md` runs R0→R4 in strict order until the §5 Definition of
+  Done is met; resume the UI v3 run strictly from `state.json` + on-disk evidence.
+- **OD-P1…OD-P7 applied as the owner's answers** (PROGRAM_PLAN §6, the prompt says "apply §6 as the owner's answers"):
+  OD-P1 yes (merge each fully verified run into `dev`, non-force push of `main` after C-final, installers + owner-PC
+  install at R0/R4); OD-P2 defer (bearer token from keychain only); OD-P3 build WebMCP off by default; OD-P4 cleanup =
+  local branches merged into `main` only; OD-P5 no real-model E2E unless `WARSHA_E2E_REAL=1`; OD-P6 versions
+  0.3.0/0.3.1/0.4.0/0.5.0/1.0.0-rc draft; OD-P7 Claude Code headless first, Codex second.
+- The no-stop rule is bounded by the hard rules: no force-push, no tag/publish, no gate self-approval, no test/gate
+  loosening, no shared-checkout writes; bounded repair (max 3) then `blocked`; owner-only items are listed, never faked.
+- PLAN.md gained the "Program — Warsha completion" section (R0–R4 unchecked) at this checkpoint.
+
+## 2026-11-09 — UI v3 seq 49: H1 verified on the documented third attempt; tracked flows flake; R1 scoped repair (orchestrator)
+
+- **H1 = verified** per planner `PLANNER_RESPONSE.md` §2.1: `gates/H1c.pw.json` (836 expected / 48 unexpected) re-judged
+  by the orchestrator with `tools/pw-gate.mjs failures … named/H1.txt` → `unexpected=48 outside=0`, exit 0
+  (`gates/H1c.pw.pw-gate.log`); `acceptance.json` H1.pw folded to pass. Attempts H1.pw/H1b.pw and the isolation runs stay
+  immutable in `gates/`. H1's base == the integration tip `4c65ead`, so the packet tree and the scratch-merge tree are
+  identical.
+- **Tracked finding (not a gate failure):** `flows.spec.ts` › mode-group "moves focus with the arrows and presses with
+  Enter" failed in 2 of 3 full runs, only on the H1 tree (`browser closed`); H1c passed. Stabilise before Wave C —
+  E0/U3–U6 add an e2e case per action and raise suite load. Recorded in `state.json` (H1.tracked_finding).
+- **R1 repair dispatched** scoped to the review findings only (F1: three missing behaviour tests; F2: two `ping -n 30`
+  Windows sites; F3: 100→200ms tolerance revert-or-justify). The 16:5xZ re-dispatch after the platform error landed
+  nothing (head `86b57c0`, clean tree) — the gap is visible in the trail. If the 150-turn ceiling hits again, split
+  R1a (approved part, merges at C1) / R1b (timing tests, after C1) per the planner; the split would be logged here.
+- State seq 49 / `checkpoints/049-repair.json`; `in_flight` corrected (the stale "Wave A since 12:35Z" entry replaced).
+
+## 2026-11-10 — UI v3: Wave A closed; C1 merged clean (tip 128b59c); RH1 pre-run (orchestrator)
+
+- **R1 verification green** (Test engineer, full frozen gates): R1.3 `759 passed / 10 ignored / 0 failed` (≡ ≥ base+8, ignored
+  ≤ base); R1.1–R1.10 + R1.deps all pass in `acceptance.json`; `packets/R1/verify.md` complete; no blockers. Wave A closed
+  (F2/V1/U0/U2/H1 verified earlier).
+- **C1 executed** in `warsha-wt/v3/integration` in the planner's order F2 → R1 → V1 → U0 → U2 → H1 (six `--no-ff` merges,
+  conflict-free; the rehearsal had predicted this). Guards after every merge: `arch 5 rules, 0 violations`, `policy 8 checks,
+  0 failures`, `wire 9 checks, 0 violations` then `10 checks` after H1 (W10 lands with H1). **C1 tip `128b59c`**, tree clean.
+- **RH1** fenced refresh started on the WSL capture host per HANDOVER Rx (fetch the tip into the object store — never
+  checkout/reset the dirty clone; fresh detached worktree `/root/warsha-rh1`; `pnpm install --frozen-lockfile`; `CI=true`
+  full Playwright → `gates/RH1.pre.json` with a `.done` marker). OD-U1 pre-authorised: no owner stop; the visual pack is kept.
+
+## 2026-11-10 — UI v3: flows mode-group flake root-caused (NOT H1); packet F3 warm-up frozen at planner capacity (orchestrator)
+
+- **Evidence:** `research/h1-flake-rootcause.md` (87-minute evidence-only investigation). The failure is Playwright's no-cause
+  `TargetClosedError` — the chromium target was destroyed, not a wait/timeout (durations 1155–1825 ms vs 15 s/120 s timeouts;
+  identical bare stack in all four logs). It **pre-exists H1**: the same error fires in `gates/R0.final.json` at base
+  `4c65ead`, and in the earlier B4 era; H1's diff contains no `page/context/browser.close`, `unroute`, or per-call
+  `page.evaluate` (the rpcCalls log is a Node-side array push), and it does not intersect the case's journey; rate difference
+  not significant (Fisher p≈0.46). It lands at the suite's only **live simple→advanced switch** under parallel load.
+- **Fix = packet F3 «flows-flake-warmup» (planner-capacity micro-packet, base defect, no waiver):** `playwright.config.ts`
+  gains a `globalSetup` (new `apps/desktop/e2e/support/global-setup.ts`) that probes `:5173`/`:5174`, then launches one
+  chromium and loads `/?screen=simple` and `/?screen=advanced` to full render **sequentially** before workers start — moving
+  the cold Vite transforms and first-chromium launch out of the parallel window. Gates frozen `F3.1–F3.6 + F3.7.pw`
+  (`packets/F3/gates.md`); base `128b59c`; only those two files allowed. **NO `retries` change** (would mask the flake and
+  soften `outside=0`), no test/named-set/snapshot/gate edit. Process rule recorded: capture-host exclusivity during `.pw`.
+  The `--workers=1` fallback is **not applied** — it would edit frozen gate commands (a repair-loop violation) and needs an
+  owner-level re-freeze if ever required. F3 dispatched in parallel with RH1 (disjoint files); it must land before Wave C.
+
+## 2026-11-10 — KEEL S1c reverted: upstream libsqlite3-sys conflict is an out-of-scope blocker (in-packet rule)
+
+- The coordinated `sqlx 0.8→0.9 + rusqlite 0.32→0.41` bump that RUSTSEC-2026-0459 requires is **unresolvable today**:
+  rusqlite 0.41 requires `libsqlite3-sys ^0.39`, while `sqlx-sqlite 0.9.0` (the latest published release) declares
+  `libsqlite3-sys >=0.30.1, <0.38.0`; both crates declare `links = "sqlite3"`, so Cargo rejects any single-version
+  resolution. Every libsqlite3-sys version sqlx-sqlite 0.9.0 allows is advisory-affected.
+- **Action:** the packet was reverted per the run's own revert rule (branch reset to `128b59c`, no commits); the blocker is
+  recorded in `bridge-io/policy/2026-11-10-keel/state.json` as `out-of-scope`. S1a/S1b/S1d/S2/S3 remain executable and the
+  rest of KEEL continues; **KEEL's CP.2 (`cargo deny check` advisories) cannot go green** until an upstream SQLx patch
+  relaxes the bound or the owner records a risk acceptance for RUSTSEC-2026-0459 (local vector: the victim must open
+  attacker-writable DB files with a sibling `-wal` of differing page size). No gate was loosened and nothing was faked.
+
+## 2026-11-10 — UI v3: Wave B dispatched in parallel with the RH1 refresh chain (orchestrator, no-stop rule)
+
+- U1 (composites) and E0 (e2e v3 support) dispatched on base `128b59c` (the C1 tip — guards green after every merge, five
+  packets audited all-pass) while the RH1 pre-run still runs on the capture host and F3 implements.
+- Justification: the planner's C1 → RH1 → Wave B sequence is a **checkpoint** ordering; there is no content dependency —
+  RH1 changes only v2 snapshot PNGs and F3 only e2e config, while U1 touches `packages/ui/src/v3/composites/**` and E0
+  `apps/desktop/e2e/v3/**`. The no-stop rule says never idle while unblocked work exists, and the orchestrator turn budget
+  is finite. Implementers run on Windows; the WSL capture host stays exclusive to RH1.
+- Risk + disposition: if `RH1.pre.json` reports a failure outside `named/H1.txt`, the tip has a real regression and Wave B
+  rebases onto the repaired tip (bounded cost; the integration branch is the only source of truth). Nothing is merged
+  before its own gates; C2 still merges U1 → E0 after their reviews/verifies.
+
+## 2026-11-10 — Codebase Audit & Orchestrator Delegation Prompt
+- **Decision**: Performed comprehensive status inspection across git branch `dev`, working tree, completed milestones M0–M6a, and the in-flight Completion Program (R0–R4). Authored a self-contained, high-rigor delegation prompt for Fable 5.2 orchestrating Haiku as a clean-slate Principal Software Engineer & Principal Product Designer auditor.
+- **Reason**: User requested an honest, critical Day-0 assessment of architecture, code quality, UX/design system, and functionalities, alongside an actionable, updated roadmap before resuming completion runs.
+
+## 2026-11-10 — Prompt Refinement: Fable 5.2 Reviewer + Haiku Mechanical Worker
+- **Decision**: Restructured the audit prompt architecture per user directive: Fable 5.2 owns the principal engineering/design review, critical evaluation, and master plan update directly. Haiku is designated strictly for heavy, mechanical, zero-thinking extraction tasks (code smell grepping, RPC contract matrices, i18n key audits, and raw test inventories).
+- **Reason**: Maximizes cognitive bandwidth by having the frontier reasoning model evaluate design and architecture while offloading mechanical context scanning to the high-throughput worker.
+
+
+
+## 2026-11-10 — Principal review: plan of record v2 (KEEL before ENGINE before extensions) (planner, Fable 5.2)
+- **Decision**: Adopt `bridge-io/policy/2026-11-10-principal-review/REVIEW.md` §5 as an amendment to the completion program. OD-R1: add KEEL packets K1–K8 (gate integrity, run-state integrity, no silent fakes, `RunCommand` policy, MCP spawn hardening, MCP permission at the call site, crypto-stub removal, status truth) to the security run, release 0.3.1. OD-R2: run ENGINE (H1, E1–E8) before the extensions run — R2 and R3 swap. OD-R3: bundled plugin packs are seeded disabled. OD-R4: X10 and X11 move after 1.0; X8 and X9 stay in P2. OD-R6: delete the unused remote crypto stubs rather than implement them now. OD-R5 (bundle IBM Plex, OD-U2 C → A) is recommended only and left to the owner. The owner may strike any line.
+- **Alternatives**: Rewrite `PROGRAM_PLAN.md` in place (rejected: an orchestrator is executing against it — `2026-11-09-ui-v3/state.json` seq 60 was updated minutes before this entry); keep the program order and fold the findings into R2/R3 (rejected: the extensions run would extend an agent that does not exist, and Wave C would ship "request changes" / "reject" controls that end a run); stop R0 until KEEL lands (rejected: R0 touches `apps/` and `packages/`, KEEL touches `crates/`, so they run in parallel).
+- **Reason**: The review found that the engine is a prompt relay (one model call per stage, no files, tests or diff; coding backends never invoked), that run state has no concurrency or resume model, and that the security defects become critical the moment a real tool loop exists. Integrity and safety therefore come first, the engine second, breadth third. Nothing was built or run for the review; R0's frozen gates are untouched; nothing was committed.
+
+## 2026-11-10 — Owner decision: bundle the v3 fonts (OD-U2 changes from C to A)
+- **Decision**: The owner answered "Yes, bundle it" (chat, 2026-11-10) to OD-R5 of the principal review. OD-U2 of run `2026-11-09-ui-v3` is now **A**: two exactly pinned packages, `@fontsource/ibm-plex-sans-arabic` and `@fontsource/ibm-plex-mono`, bundled for v3. Delivered as packet **FNT** (REVIEW §5.5 item 4), which must land before the RU3–RU6 genesis baselines; it also removes the Google Fonts links from both `index.html` files. The run's planner role adds FNT and sets `owner_decisions.OD-U2 = "A"` in `state.json` at its next transition. `OWNER_DECISIONS.md` is the owner's file and was not edited by an agent.
+- **Alternatives**: Keep C (system fonts) — rejected by the owner; B (vendored `woff2` with recorded hashes) — not chosen.
+- **Reason**: With C the visual baselines are captured with IBM Plex on the Linux host while the owner's Windows machine renders Segoe UI, so the visual gate verifies glyphs the owner never sees; the remote PWA also contacts Google on every load.
+
+## 2026-11-10 — Planner review of the orchestrator's 19:00Z report: U4 verdict withdrawn, RU4/RU5 provisional, five dropped items restored (planner, Fable 5.2)
+- **Decision**: Full reply and the ordered work are in `bridge-io/policy/2026-11-10-principal-review/PLANNER_RESPONSE_2.md` (it amends `HANDOVER.md`). (1) C1, C2 and U5 are accepted after an independent re-judgement of the stored Playwright JSON. (2) The `U4.pw` pass is withdrawn and the RU4 and RU5 baselines (216 files, `14bea00`, `d3241e6`) are provisional: they are removed and captured once in a consolidated refresh RG after FNT, the fixes below and U3 are merged. (3) New planner-owned gate tool `2026-11-09-ui-v3/tools/pw-genesis.mjs` with `named/V3POOL.txt` and `named/V3POOL.snap.txt`: a genesis capture must pass it as well as `pw-gate`; an `--update-snapshots` run must exit 0; every refresh needs a full post-run with zero failures and a recorded visual review by a role that did not build the page. (4) New R0 packets VF (viewport-fit audit), F5 (Workbench below 768 px: the rail opens in a Sheet, nothing scrolls the page sideways), F6 (Settings models and budget field at 390 px); FNT and T1 enter the run as plan v2 required; T1 is amended to 20 consecutive runs of the soak spec plus three consecutive full-suite runs without `Target closed`. (5) Gate meaning: `gates.reject` ends the run (`Cancelled` + `gate_rejected` event, no new `RunStatus` variant); `gates.changes` pauses and the client calls `runs.resume`; packets K2d (crates) and K2w (client and UI). (6) K9 and the `SECURITY.md` part of K8 return to KEEL. (7) K3.1's frozen text is restored, the narrowed check becomes row K3.1a, and CP.5 runs the original all-crates search after K7 and K9 with one named carve-out (`warsha-backends`, owned by E4). (8) OD-S1c stays open for the owner; the planner recommends a time-boxed acceptance of RUSTSEC-2026-0459.
+- **Alternatives**: Keep the RU4/RU5 baselines and refresh only the eight failing files (rejected: U3 rewrites the frame that is in every screenshot and FNT changes every glyph, so all 216 change anyway); widen `named/U3.txt` when U3's capture trips over the stale baselines (rejected: it would hide pixel drift behind a fence); drop the 390 px viewport for the Workbench (rejected: the page must fail safely at any window width, and the matrix already runs it); accept the K2 behaviour where a rejection is resumable (rejected: it is a second "request changes" and leaves a run paused with no owner-visible end).
+- **Reason**: `gates/U4.pw.json` holds eight cases that fail the layout audit (text boxes 0 px wide at 390×844) inside a fence that only checked which cases failed, not why; `gates/RU4.meta` records `update_exit=1` and all 96 files were committed with no post-run. The committed PNGs show the Workbench unusable at 390 px in all twelve states and Settings overflowing in Arabic. FNT (owner decision OD-U2 = A), T1, K9 and the client half of `runs.resume` are on no branch and in no state file. `state.json` seq 122 still lists RU4/RU5 as `not-run` and OD-U2 as `C`. S1c was verified against the crates.io API (`sqlx-sqlite` 0.9.0 caps `libsqlite3-sys` below 0.38; 0.39.0 was published 2026-10-24). Nothing was built, merged or committed by the planner; `state.json` and `acceptance.json` were not edited because the orchestrator is live on them.

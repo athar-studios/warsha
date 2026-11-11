@@ -3,8 +3,10 @@
 //!
 //! A [`PluginDefinition`] describes one MCP-style tool pack: how to launch it
 //! (transport, command, args, env), whether it is active, and the tools it
-//! exposes. [`bundled_plugins`] returns the seven community packs Warsha
-//! installs by default.
+//! exposes. [`bundled_plugins`] returns the seven community packs Warsha seeds
+//! on first run; each one is pinned to an exact package release and seeded
+//! **disabled**, so nothing is installed or launched until an operator turns it
+//! on (KEEL K5b / OD-R3).
 
 use serde::{Deserialize, Serialize};
 
@@ -61,8 +63,13 @@ pub fn bundled_plugins() -> Vec<PluginDefinition> {
     ]
 }
 
-fn npx_package(package: &str) -> Vec<String> {
-    vec![package.to_string()]
+/// The `pkg@x.y.z` launch argument for one pack.
+///
+/// A package manager resolves a bare name to whatever is newest at launch time;
+/// a bundled pack names the exact release Warsha was tested with so a remote
+/// publish cannot change what runs (KEEL K5b / OD-R3).
+fn pinned_package(package: &str, version: &str) -> Vec<String> {
+    vec![format!("{package}@{version}")]
 }
 
 fn tool(name: &str, description: &str) -> PluginToolDefinition {
@@ -89,9 +96,9 @@ fn github_mcp() -> PluginDefinition {
             .to_string(),
         transport: "stdio".to_string(),
         command: Some("npx".to_string()),
-        args: npx_package("@modelcontextprotocol/server-github"),
+        args: pinned_package("@modelcontextprotocol/server-github", "2025.4.8"),
         env,
-        enabled: true,
+        enabled: false,
         tools: vec![
             tool("create_issue", "Open an issue with title, body and labels."),
             tool(
@@ -129,7 +136,7 @@ fn slack_mcp() -> PluginDefinition {
             .to_string(),
         transport: "stdio".to_string(),
         command: Some("npx".to_string()),
-        args: npx_package("@modelcontextprotocol/server-slack"),
+        args: pinned_package("@modelcontextprotocol/server-slack", "2025.4.25"),
         env,
         enabled: false,
         tools: vec![
@@ -164,9 +171,9 @@ fn filesystem_mcp() -> PluginDefinition {
             .to_string(),
         transport: "stdio".to_string(),
         command: Some("npx".to_string()),
-        args: npx_package("@modelcontextprotocol/server-filesystem"),
+        args: pinned_package("@modelcontextprotocol/server-filesystem", "2.2.0"),
         env,
-        enabled: true,
+        enabled: false,
         tools: vec![
             tool("read_file", "Read a UTF-8 file inside an allowed root."),
             tool(
@@ -194,10 +201,12 @@ fn git_mcp() -> PluginDefinition {
              agent lanes — no raw shell."
             .to_string(),
         transport: "stdio".to_string(),
-        command: Some("npx".to_string()),
-        args: npx_package("@modelcontextprotocol/server-git"),
+        // `@modelcontextprotocol/server-git` is not published on npm; the
+        // reference server is the Python `mcp-server-git` run through uv.
+        command: Some("uvx".to_string()),
+        args: pinned_package("mcp-server-git", "2026.11.4"),
         env: std::collections::HashMap::new(),
-        enabled: true,
+        enabled: false,
         tools: vec![
             tool(
                 "git_status",
@@ -233,9 +242,9 @@ fn memory_mcp() -> PluginDefinition {
             .to_string(),
         transport: "stdio".to_string(),
         command: Some("npx".to_string()),
-        args: npx_package("@modelcontextprotocol/server-memory"),
+        args: pinned_package("@modelcontextprotocol/server-memory", "2.1.0"),
         env: std::collections::HashMap::new(),
-        enabled: true,
+        enabled: false,
         tools: vec![
             tool(
                 "create_entities",
@@ -270,9 +279,9 @@ fn sequential_thinking_mcp() -> PluginDefinition {
             .to_string(),
         transport: "stdio".to_string(),
         command: Some("npx".to_string()),
-        args: npx_package("@modelcontextprotocol/server-sequential-thinking"),
+        args: pinned_package("@modelcontextprotocol/server-sequential-thinking", "2.1.1"),
         env: std::collections::HashMap::new(),
-        enabled: true,
+        enabled: false,
         tools: vec![tool(
             "sequentialthinking",
             "Record, revise or branch a numbered reasoning step with a total-steps estimate.",
@@ -292,7 +301,7 @@ fn security_strix_pack() -> PluginDefinition {
             .to_string(),
         transport: "stdio".to_string(),
         command: Some("uvx".to_string()),
-        args: npx_package("strix-mcp"),
+        args: pinned_package("strix-agent", "1.7.0"),
         env: std::collections::HashMap::new(),
         enabled: false,
         tools: vec![
@@ -367,6 +376,67 @@ mod tests {
             let encoded = serde_json::to_string(&plugin).expect("encodes");
             let decoded: PluginDefinition = serde_json::from_str(&encoded).expect("decodes");
             assert_eq!(decoded, plugin);
+        }
+    }
+
+    /// KEEL K5b / OD-R3: a bundled pack names an exact release and arrives off.
+    ///
+    /// A package manager given a bare name installs whatever is newest on the
+    /// day it runs, so the pin is the difference between "what Warsha was tested
+    /// against" and "whatever a remote registry published this morning". And a
+    /// pack that arrives enabled would install and launch itself before the
+    /// operator ever agreed to it.
+    #[test]
+    fn bundled_packs_are_pinned_and_seeded_disabled() {
+        let expected = [
+            (
+                "github-mcp",
+                "npx",
+                "@modelcontextprotocol/server-github@2025.4.8",
+            ),
+            (
+                "slack-mcp",
+                "npx",
+                "@modelcontextprotocol/server-slack@2025.4.25",
+            ),
+            (
+                "filesystem-mcp",
+                "npx",
+                "@modelcontextprotocol/server-filesystem@2.2.0",
+            ),
+            ("git-mcp", "uvx", "mcp-server-git@2026.11.4"),
+            (
+                "memory-mcp",
+                "npx",
+                "@modelcontextprotocol/server-memory@2.1.0",
+            ),
+            (
+                "sequential-thinking-mcp",
+                "npx",
+                "@modelcontextprotocol/server-sequential-thinking@2.1.1",
+            ),
+            ("security-strix-pack", "uvx", "strix-agent@1.7.0"),
+        ];
+
+        let plugins = bundled_plugins();
+        assert_eq!(plugins.len(), expected.len());
+
+        for (plugin, (id, command, package)) in plugins.iter().zip(expected) {
+            assert_eq!(plugin.id, id);
+            assert!(
+                !plugin.enabled,
+                "bundled pack {id} must be seeded disabled until an operator enables it"
+            );
+            assert_eq!(
+                plugin.command.as_deref(),
+                Some(command),
+                "pack {id} launches with the wrong program"
+            );
+            assert_eq!(
+                plugin.args,
+                vec![package.to_string()],
+                "pack {id} must name an exact `pkg@x.y.z` release"
+            );
         }
     }
 }

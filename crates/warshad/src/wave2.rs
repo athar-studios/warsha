@@ -734,6 +734,73 @@ pub fn parse_plugin_manifest(manifest_json_or_url: &str) -> Checked<PluginDefini
     })
 }
 
+/// The launchers whose remaining arguments name a remote package.
+///
+/// A pack launched through one of these names a *package*, and a bare package
+/// name is whatever the registry published most recently. Checking the launcher
+/// rather than every command keeps the rule where "pinned" has a meaning:
+/// `cargo` runs the local toolchain, `npx` fetches the internet.
+const PACKAGE_LAUNCHERS: &[&str] = &["npx", "pnpm", "yarn", "bun", "bunx", "npm", "uvx", "pipx"];
+
+/// Subcommands that stand between a launcher and the package it runs.
+const LAUNCHER_SUBCOMMANDS: &[&str] = &["dlx", "exec", "x", "run", "tool"];
+
+/// Refuse a pack that would fetch an unpinned release, or nothing at all.
+///
+/// `npx @scope/server` installs whatever `@scope/server` was a minute ago; the
+/// daemon's own bundled packs pin `pkg@x.y.z` and an installed manifest has to
+/// meet the same bar (KEEL K5b / OD-R3). Commands that name no package runner
+/// are not this function's business and pass through.
+pub fn require_pinned_launch(command: &str, args: &[String]) -> Checked<()> {
+    let base = command
+        .trim()
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    let program = base
+        .strip_suffix(".cmd")
+        .or_else(|| base.strip_suffix(".exe"))
+        .unwrap_or(base.as_str());
+    if !PACKAGE_LAUNCHERS.contains(&program) {
+        return Ok(());
+    }
+
+    let packages: Vec<&str> = args
+        .iter()
+        .map(|arg| arg.trim())
+        .filter(|arg| {
+            !arg.is_empty() && !arg.starts_with('-') && !LAUNCHER_SUBCOMMANDS.contains(arg)
+        })
+        .collect();
+    if packages.is_empty() {
+        return Err(format!(
+            "the pack launches `{command}` but names no package; there is nothing pinned to run"
+        ));
+    }
+    for package in packages {
+        if !is_pinned_package(package) {
+            return Err(format!(
+                "the pack launches the unpinned package `{package}`; name the release it was tested with as `pkg@x.y.z`"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// True for a package argument that names an exact release (`pkg@x.y.z`).
+fn is_pinned_package(package: &str) -> bool {
+    let Some((_, version)) = package.rsplit_once('@') else {
+        return false;
+    };
+    version.starts_with(|c: char| c.is_ascii_digit())
+        && version.matches('.').count() >= 2
+        && version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+'))
+}
+
 /// The keychain account one plugin's environment variable is filed under.
 ///
 /// Namespaced by the pack so two packs that both want `GITHUB_TOKEN` hold two
@@ -1157,7 +1224,11 @@ pub async fn seed_bundled_records(settings: &SettingsStore) -> Result<()> {
     }
     if settings.list_plugins().await?.is_empty() {
         for definition in warsha_core::bundled_plugins() {
-            let row = plugin_row(&definition).map_err(DaemonError::Other)?;
+            let mut row = plugin_row(&definition).map_err(DaemonError::Other)?;
+            // OD-R3: a shipped pack is *offered*, not installed. A first run that
+            // seeded an enabled pack would fetch its package and start it before
+            // the owner ever agreed to the pack, its publisher or its version.
+            row.enabled = false;
             settings.save_plugin(&row).await?;
         }
     }
@@ -1379,6 +1450,45 @@ mod tests {
         parse_plugin_manifest(r#"{"name":"x","transport":"stdio"}"#)
             .expect_err("a stdio pack with no command launches nothing");
         parse_plugin_manifest("https://example.test/mcp.json").expect_err("no fetch seam exists");
+    }
+
+    #[test]
+    fn a_package_launcher_must_name_a_pinned_release() {
+        let args = |values: &[&str]| {
+            values
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect::<Vec<_>>()
+        };
+
+        require_pinned_launch(
+            "npx",
+            &args(&["@modelcontextprotocol/server-github@2025.4.8"]),
+        )
+        .expect("a pinned package runs");
+        require_pinned_launch("npx", &args(&["-y", "@scope/pkg@1.2.3"]))
+            .expect("flags do not change what is pinned");
+        require_pinned_launch("pnpm", &args(&["dlx", "pkg@1.2.3"]))
+            .expect("the dlx subcommand is not a package");
+        require_pinned_launch("uvx", &args(&["mcp-server-git@2026.11.4"]))
+            .expect("a pinned python package runs");
+        require_pinned_launch("/usr/local/bin/npx", &args(&["pkg@1.2.3"]))
+            .expect("a path to the launcher is still the launcher");
+        require_pinned_launch("cargo", &args(&["--version"]))
+            .expect("a local toolchain is not a package fetch");
+
+        for (command, children) in [
+            ("npx", vec!["@mcp/github"]),
+            ("npx", vec!["pkg@latest"]),
+            ("npx", vec!["pkg@1.2"]),
+            ("yarn", vec!["dlx", "pkg"]),
+            ("npx", Vec::new()),
+        ] {
+            assert!(
+                require_pinned_launch(command, &args(&children)).is_err(),
+                "`{command} {children:?}` must be refused as unpinned"
+            );
+        }
     }
 
     #[test]
@@ -1629,6 +1739,16 @@ mod tests {
         assert_eq!(
             settings.list_plugins().await.expect("plugins").len(),
             warsha_core::bundled_plugins().len()
+        );
+        let seeded = settings.list_plugins().await.expect("plugins");
+        assert!(
+            seeded.iter().all(|row| !row.enabled),
+            "every seeded pack must arrive disabled: {:?}",
+            seeded
+                .iter()
+                .filter(|row| row.enabled)
+                .map(|row| row.id.as_str())
+                .collect::<Vec<_>>()
         );
 
         // The owner deleted one of each. A restart must not put them back.

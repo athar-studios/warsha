@@ -1,15 +1,12 @@
 //! MCP transports — the connection layer behind `mcp.*` (PLAN.md M20).
 //!
-//! [`crate::mcp`] (M12) records *what* an MCP server is: its name, its transport,
-//! its command, its per-project permissions. This module is the other half — it
-//! opens the connection. The two are separate types on purpose, because the
-//! M12 record is a registry row and this one is a live session:
-//!
-//! ```text
-//! mcp::McpServerConfig        mcp_transport::McpServerConfig
-//!   transport: unit enum         transport: carries its url
-//!   permissions, project, env    exactly what a spawn needs
-//! ```
+//! [`crate::mcp`] (M12) records *what* an MCP server is — its name, its
+//! transport, its per-project permissions — in [`crate::mcp::McpServerRecord`].
+//! This module is the other half: it opens the connection. The launch type is
+//! the one [`McpServerConfig`] the whole pipeline shares; what a caller may not
+//! put on the wire (the environment a child is given, the bound on its reply)
+//! travels beside it in [`McpLaunchOptions`], because those are launch inputs,
+//! not part of a server's identity.
 //!
 //! What is real and what is not:
 //!
@@ -20,13 +17,20 @@
 //!   that reply carried travel on the connection, so `mcp.list` reports what the
 //!   server said it can do instead of an empty promise, and a server that is not
 //!   an MCP server is reported rather than recorded as connected.
+//! - **The child gets a named environment, never the daemon's.** The environment
+//!   in [`McpLaunchOptions`] is the only one the server sees, on top of the
+//!   process manager's fixed floor; the daemon resolves a pack's keychain
+//!   references and hands the result to [`McpManager::connect_with`], so a
+//!   variable nobody named never reaches the server (KEEL K5a).
 //! - **An answer is waited for, and only so long.** Each connection keeps a
 //!   cursor into its process's stdout ([`ProcessManager::read_stdout`]), and the
-//!   handshake reads one reply per request within [`RESPONSE_TIMEOUT`]. A server
-//!   that never answers fails `connect` with [`McpTransportError::Timeout`] and
-//!   is stopped with the connection it did not earn. Lines that are not JSON (a
-//!   server may log to stdout) and replies carrying another id are skipped, so a
-//!   chatty server is not mistaken for a silent one.
+//!   handshake reads one reply per request within the server's
+//!   [`McpLaunchOptions::response_timeout`] (30 s by default). A server that
+//!   never answers fails `connect` with [`McpTransportError::Timeout`], a server
+//!   that exits first fails with [`McpTransportError::Exited`], and a failed
+//!   connection is stopped with the child it did not earn. Lines that are not
+//!   JSON (a server may log to stdout) and replies carrying another id are
+//!   skipped, so a chatty server is not mistaken for a silent one.
 //!   [`McpManager::send`] stays the raw seam it was: one framed line out, the
 //!   frame back, and no waiting — a caller driving a method this client does not
 //!   is the caller's own protocol.
@@ -50,11 +54,17 @@ use crate::process_spawn::{ProcessError, ProcessManager, ProcessStatus};
 /// The MCP revision this client speaks, sent as `protocolVersion`.
 pub const MCP_PROTOCOL_VERSION: &str = "2024-11-05";
 
-/// How long a stdio server is given to answer one request.
+/// How long a stdio server is given to answer one request by default.
 ///
 /// The handshake is two requests, so a server that never answers costs the caller
 /// this once per request rather than hanging the daemon on a pipe that stays open.
-pub const RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
+/// A per-server launch may name its own bound in [`McpLaunchOptions`]; this is
+/// what a connection that names none uses (KEEL K5a).
+pub const DEFAULT_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The historical name of [`DEFAULT_RESPONSE_TIMEOUT`], kept for callers that
+/// spelled the bound out.
+pub const RESPONSE_TIMEOUT: Duration = DEFAULT_RESPONSE_TIMEOUT;
 
 /// How often the reply reader asks its process what it has printed.
 const RESPONSE_POLL_INTERVAL: Duration = Duration::from_millis(20);
@@ -163,6 +173,47 @@ impl McpServerConfig {
     /// True only for the transport that actually connects.
     pub fn is_wired(&self) -> bool {
         matches!(self.transport, McpTransport::Stdio)
+    }
+}
+
+/// What a launch adds to a [`McpServerConfig`]: the environment and the bound.
+///
+/// These are launch inputs rather than part of a server's identity: `mcp.connect`
+/// is a wire method and a wire caller has no business dictating a child's
+/// environment, while the daemon's plugin path resolves a pack's keychain
+/// references and passes exactly those variables here. The process manager's
+/// fixed floor still applies underneath, and it never inherits the daemon's own
+/// environment (KEEL K5a).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpLaunchOptions {
+    /// The variables the child is given, on top of the process manager's floor.
+    pub env: HashMap<String, String>,
+    /// How long one request may wait for its reply.
+    pub response_timeout: Duration,
+}
+
+impl Default for McpLaunchOptions {
+    fn default() -> Self {
+        McpLaunchOptions {
+            env: HashMap::new(),
+            response_timeout: DEFAULT_RESPONSE_TIMEOUT,
+        }
+    }
+}
+
+impl McpLaunchOptions {
+    /// Options that hand the child exactly `env` and keep the default bound.
+    pub fn with_env(env: HashMap<String, String>) -> Self {
+        McpLaunchOptions {
+            env,
+            response_timeout: DEFAULT_RESPONSE_TIMEOUT,
+        }
+    }
+
+    /// The same options under a different per-server bound.
+    pub fn with_response_timeout(mut self, timeout: Duration) -> Self {
+        self.response_timeout = timeout;
+        self
     }
 }
 
@@ -281,6 +332,20 @@ pub enum McpTransportError {
         /// How long it was given, in seconds.
         seconds: u64,
     },
+    /// The server process exited before answering.
+    ///
+    /// Reported as soon as the exit is observed rather than waiting out the
+    /// timeout: a process that is gone will never answer, and a refused pack
+    /// should fail while the owner is still looking at it (KEEL K5a/K5b).
+    #[error("MCP server `{name}` exited ({status}) before answering `{method}`")]
+    Exited {
+        /// The server that exited.
+        name: String,
+        /// The method that went unanswered.
+        method: String,
+        /// The terminal status the process reached.
+        status: String,
+    },
     /// The server answered, but not with something this client can use.
     #[error("MCP server `{name}` answered `{method}` with {problem}")]
     Protocol {
@@ -307,6 +372,21 @@ pub enum McpTransportError {
 pub trait McpManager: Send + Sync {
     /// Connect `config`'s server, or record it when its transport is not wired.
     async fn connect(&self, config: McpServerConfig) -> Result<(), McpTransportError>;
+
+    /// Connect the same server with the environment and bound it was launched
+    /// with.
+    ///
+    /// The default exists so implementations that record rather than launch keep
+    /// compiling: a transport with nothing to spawn has no environment to apply.
+    /// [`InMemoryMcpManager`] overrides it, and it is the only implementation that
+    /// starts a child.
+    async fn connect_with(
+        &self,
+        config: McpServerConfig,
+        _options: McpLaunchOptions,
+    ) -> Result<(), McpTransportError> {
+        self.connect(config).await
+    }
 
     /// Close the connection and stop the process behind it.
     async fn disconnect(&self, name: &str) -> Result<(), McpTransportError>;
@@ -340,6 +420,7 @@ pub struct InMemoryMcpManager {
     processes: Arc<dyn ProcessManager>,
     connections: Mutex<Vec<McpConnection>>,
     cursors: Mutex<HashMap<String, usize>>,
+    launches: Mutex<HashMap<String, McpLaunchOptions>>,
     next_request_id: AtomicU64,
 }
 
@@ -350,6 +431,7 @@ impl InMemoryMcpManager {
             processes,
             connections: Mutex::new(Vec::new()),
             cursors: Mutex::new(HashMap::new()),
+            launches: Mutex::new(HashMap::new()),
             next_request_id: AtomicU64::new(100),
         }
     }
@@ -379,6 +461,19 @@ impl InMemoryMcpManager {
             Ok(status) => McpStatus::Error(format!("process {process_id} is {}", status.as_str())),
             Err(_) => McpStatus::Error(format!("process {process_id} is gone")),
         }
+    }
+
+    /// How long this server is allowed to take for one reply.
+    ///
+    /// A connection that was recorded without a launch (an HTTP server, a test
+    /// double) uses the default; a stdio launch keeps the bound its caller named.
+    async fn response_timeout(&self, name: &str) -> Duration {
+        self.launches
+            .lock()
+            .await
+            .get(name)
+            .map(|options| options.response_timeout)
+            .unwrap_or(DEFAULT_RESPONSE_TIMEOUT)
     }
 
     /// Write one newline-framed JSON frame to a server's stdin.
@@ -435,10 +530,11 @@ impl InMemoryMcpManager {
 
     /// Send one request and wait for the reply that carries its id.
     ///
-    /// The wait is bounded by [`RESPONSE_TIMEOUT`]: a server that never answers is
-    /// an error the caller can act on, not a daemon parked on a pipe. A JSON-RPC
-    /// error is a reply, so it is reported as [`McpTransportError::Protocol`]
-    /// rather than waited past.
+    /// The wait is bounded by the server's own
+    /// [`McpLaunchOptions::response_timeout`] (30 s by default): a server that
+    /// never answers is an error the caller can act on, not a daemon parked on a
+    /// pipe. A JSON-RPC error is a reply, so it is reported as
+    /// [`McpTransportError::Protocol`] rather than waited past.
     async fn request(
         &self,
         name: &str,
@@ -446,11 +542,16 @@ impl InMemoryMcpManager {
         frame: &Value,
         method: &str,
     ) -> Result<Value, McpTransportError> {
-        self.request_with_timeout(name, process_id, frame, method, RESPONSE_TIMEOUT)
+        let timeout = self.response_timeout(name).await;
+        self.request_with_timeout(name, process_id, frame, method, timeout)
             .await
     }
 
     /// Send one request and wait for the reply with a specified timeout.
+    ///
+    /// Each poll also asks the process manager whether the child is still alive:
+    /// an exited server will never answer, and waiting out the timeout for it
+    /// would make a refused pack look like a slow one (KEEL K5b).
     async fn request_with_timeout(
         &self,
         name: &str,
@@ -480,6 +581,25 @@ impl InMemoryMcpManager {
                     });
                 }
                 return Ok(reply);
+            }
+            match self.processes.status(process_id).await {
+                Ok(status) if status.is_terminal() => {
+                    return Err(McpTransportError::Exited {
+                        name: name.to_string(),
+                        method: method.to_string(),
+                        status: status.as_str().to_string(),
+                    });
+                }
+                Ok(_) => {}
+                // A process the manager no longer tracks is as gone as one that
+                // exited; the transport reports it rather than waiting.
+                Err(_) => {
+                    return Err(McpTransportError::Exited {
+                        name: name.to_string(),
+                        method: method.to_string(),
+                        status: "gone".to_string(),
+                    });
+                }
             }
             if Instant::now() >= deadline {
                 return Err(McpTransportError::Timeout {
@@ -736,6 +856,14 @@ impl InMemoryMcpManager {
 #[async_trait]
 impl McpManager for InMemoryMcpManager {
     async fn connect(&self, config: McpServerConfig) -> Result<(), McpTransportError> {
+        self.connect_with(config, McpLaunchOptions::default()).await
+    }
+
+    async fn connect_with(
+        &self,
+        config: McpServerConfig,
+        options: McpLaunchOptions,
+    ) -> Result<(), McpTransportError> {
         let name = config.name.trim().to_string();
         if name.is_empty() {
             return Err(McpTransportError::EmptyName);
@@ -773,9 +901,11 @@ impl McpManager for InMemoryMcpManager {
         else {
             return Err(McpTransportError::MissingCommand(name));
         };
+        // The environment the caller named is the only one the child is handed;
+        // the process manager clears the daemon's own and applies its floor.
         let process_id = match self
             .processes
-            .spawn(command, &config.args, &HashMap::new())
+            .spawn(command, &config.args, &options.env)
             .await
         {
             Ok(process_id) => process_id,
@@ -792,6 +922,9 @@ impl McpManager for InMemoryMcpManager {
             }
         };
 
+        // The bound and the environment are remembered before the handshake, so
+        // the two requests it sends already honour the per-server timeout.
+        self.launches.lock().await.insert(name.clone(), options);
         match self.handshake(&name, &process_id).await {
             Ok((tools, tool_definitions)) => {
                 self.connections.lock().await.push(McpConnection {
@@ -810,6 +943,7 @@ impl McpManager for InMemoryMcpManager {
                 if let Err(stop) = self.processes.stop(&process_id).await {
                     tracing::warn!("could not stop the MCP server `{name}`: {stop}");
                 }
+                self.launches.lock().await.remove(&name);
                 self.connections.lock().await.push(McpConnection {
                     config,
                     status: McpStatus::Error(error.to_string()),
@@ -852,8 +986,10 @@ impl McpManager for InMemoryMcpManager {
 
         // The next connection under this name reads its server's output from the
         // start: a cursor into a stopped process's transcript would misplace every
-        // reply the new server sends.
+        // reply the new server sends. Its launch inputs go with the connection, so
+        // a reconnect starts from what its own caller names.
         self.cursors.lock().await.remove(name);
+        self.launches.lock().await.remove(name);
 
         let mut connections = self.connections.lock().await;
         if let Some(connection) = connections
@@ -931,7 +1067,8 @@ impl McpManager for InMemoryMcpManager {
         tool: &str,
         arguments: Value,
     ) -> Result<crate::mcp::McpToolResult, McpTransportError> {
-        self.call_tool_with_timeout(name, tool, arguments, RESPONSE_TIMEOUT)
+        let timeout = self.response_timeout(name).await;
+        self.call_tool_with_timeout(name, tool, arguments, timeout)
             .await
     }
 }
@@ -1589,5 +1726,227 @@ mod tests {
             "got {err:?}"
         );
         mcp.disconnect("bad").await.expect("the server closes");
+    }
+
+    /// KEEL K5a: what a launch hands a child, and how long it waits.
+    ///
+    /// The probes are ordinary tests that return immediately unless the marker
+    /// their parent passes names them, so a plain `cargo test` run costs a few
+    /// no-op functions and no ignored-test budget.
+    mod spawn_hardening {
+        use super::*;
+        use std::time::Instant;
+
+        const ENV_MARKER: &str = "WARSHA_K5_MCP_ENV_PROBE";
+        const SILENT_MARKER: &str = "WARSHA_K5_MCP_SILENT_PROBE";
+        const EXIT_MARKER: &str = "WARSHA_K5_MCP_EXIT_PROBE";
+        const DAEMON_ONLY: &str = "WARSHA_K5_DAEMON_ONLY";
+
+        /// A stdio server that answers `tools/list` with its whole environment.
+        ///
+        /// The dump is the description of its one tool, so the parent reads the
+        /// child's environment through the normal handshake rather than a side
+        /// channel the process manager would have to grow.
+        #[test]
+        fn env_probe() {
+            if std::env::var_os(ENV_MARKER).is_none() {
+                return;
+            }
+            // libtest writes `test <name> ... ` on stdout without a newline
+            // before a non-ignored test starts; this ends that line so every
+            // reply below is a clean JSON line.
+            println!();
+            let mut dump: Vec<String> = std::env::vars()
+                .map(|(key, value)| format!("{key}={value}"))
+                .collect();
+            dump.sort();
+            let dump = dump.join(";");
+            for line in std::io::stdin().lock().lines() {
+                let Ok(line) = line else { break };
+                let Ok(request) = serde_json::from_str::<Value>(&line) else {
+                    continue;
+                };
+                let Some(id) = request.get("id").cloned() else {
+                    continue;
+                };
+                let method = request.get("method").and_then(Value::as_str).unwrap_or("");
+                let result = match method {
+                    "initialize" => json!({
+                        "protocolVersion": MCP_PROTOCOL_VERSION,
+                        "capabilities": {},
+                        "serverInfo": { "name": "env-probe", "version": "1.0.0" },
+                    }),
+                    "tools/list" => json!({
+                        "tools": [{
+                            "name": "env",
+                            "description": format!("ENVDUMP {dump}"),
+                            "inputSchema": { "type": "object" },
+                        }],
+                    }),
+                    _ => json!({}),
+                };
+                println!(
+                    "{}",
+                    json!({ "jsonrpc": "2.0", "id": id, "result": result })
+                );
+            }
+        }
+
+        /// A stdio server that stays up and answers nothing.
+        #[test]
+        fn silent_probe() {
+            if std::env::var_os(SILENT_MARKER).is_none() {
+                return;
+            }
+            loop {
+                std::thread::park();
+            }
+        }
+
+        /// A stdio server that reads one frame and exits without answering.
+        #[test]
+        fn exit_probe() {
+            if std::env::var_os(EXIT_MARKER).is_none() {
+                return;
+            }
+            let mut line = String::new();
+            let _ = std::io::stdin().lock().read_line(&mut line);
+            std::process::exit(0);
+        }
+
+        /// A configuration pointing at one probe of this test binary.
+        fn probe_config(name: &str, probe: &str) -> McpServerConfig {
+            let exe = std::env::current_exe().expect("the test binary names itself");
+            McpServerConfig::new_stdio(
+                name,
+                exe.to_string_lossy().into_owned(),
+                vec![
+                    "--exact".to_string(),
+                    format!("mcp_transport::tests::spawn_hardening::{probe}"),
+                    "--nocapture".to_string(),
+                    "--test-threads".to_string(),
+                    "1".to_string(),
+                ],
+            )
+        }
+
+        fn manager() -> (Arc<dyn ProcessManager>, InMemoryMcpManager) {
+            let processes = InMemoryProcessManager::shared();
+            let mcp = InMemoryMcpManager::new(processes.clone());
+            (processes, mcp)
+        }
+
+        #[tokio::test]
+        async fn a_launch_hands_the_child_only_the_manifest_environment() {
+            let (_processes, mcp) = manager();
+            std::env::set_var(DAEMON_ONLY, "leak");
+
+            let mut env = HashMap::new();
+            env.insert(ENV_MARKER.to_string(), "1".to_string());
+            env.insert(
+                "WARSHA_K5_MANIFEST_KEY".to_string(),
+                "manifest-value".to_string(),
+            );
+            // A caller-supplied PATH is replaced by the fixed floor, not honoured.
+            env.insert("PATH".to_string(), "/tmp/attacker-bin".to_string());
+
+            mcp.connect_with(
+                probe_config("env", "env_probe"),
+                McpLaunchOptions::with_env(env),
+            )
+            .await
+            .expect("the env probe connects");
+
+            let connection = &mcp.list().await[0];
+            let description = &connection.tool_definitions[0].description;
+            std::env::remove_var(DAEMON_ONLY);
+
+            assert!(
+                description.contains("WARSHA_K5_MANIFEST_KEY=manifest-value"),
+                "a manifest-named variable must reach the child: {description}"
+            );
+            let minimal_path = crate::command_policy::MINIMAL_CHILD_ENV
+                .iter()
+                .find(|(key, _)| *key == "PATH")
+                .map(|(_, value)| *value)
+                .expect("the floor names a PATH");
+            assert!(
+                description.contains(&format!("PATH={minimal_path}")),
+                "the child's PATH must be the minimal floor: {description}"
+            );
+            assert!(
+                !description.contains("/tmp/attacker-bin"),
+                "a caller-supplied PATH must be refused: {description}"
+            );
+            assert!(
+                !description.contains(&format!("{DAEMON_ONLY}=leak")),
+                "the daemon's own environment must not be inherited: {description}"
+            );
+            assert!(
+                !description.contains("HOME="),
+                "the user profile must not be inherited: {description}"
+            );
+            mcp.disconnect("env").await.expect("the server closes");
+        }
+
+        #[tokio::test]
+        async fn a_response_timeout_is_per_server_with_a_thirty_second_default() {
+            assert_eq!(DEFAULT_RESPONSE_TIMEOUT, Duration::from_secs(30));
+            let (_processes, mcp) = manager();
+
+            let mut env = HashMap::new();
+            env.insert(SILENT_MARKER.to_string(), "1".to_string());
+            let started = Instant::now();
+            let error = mcp
+                .connect_with(
+                    probe_config("silent", "silent_probe"),
+                    McpLaunchOptions::with_env(env)
+                        .with_response_timeout(Duration::from_millis(250)),
+                )
+                .await
+                .expect_err("a silent server never completes the handshake");
+            let waited = started.elapsed();
+
+            assert!(
+                matches!(
+                    &error,
+                    McpTransportError::Timeout { method, .. } if method == "initialize"
+                ),
+                "got {error:?}"
+            );
+            assert!(
+                waited < Duration::from_secs(10),
+                "the per-server bound must win over the 30 s default; waited {waited:?}"
+            );
+        }
+
+        #[tokio::test]
+        async fn a_server_that_exits_is_reported_without_waiting_for_the_timeout() {
+            let (_processes, mcp) = manager();
+
+            let mut env = HashMap::new();
+            env.insert(EXIT_MARKER.to_string(), "1".to_string());
+            let started = Instant::now();
+            let error = mcp
+                .connect_with(
+                    probe_config("exits", "exit_probe"),
+                    McpLaunchOptions::with_env(env),
+                )
+                .await
+                .expect_err("a server that dies cannot complete the handshake");
+            let waited = started.elapsed();
+
+            assert!(
+                matches!(
+                    &error,
+                    McpTransportError::Exited { method, .. } if method == "initialize"
+                ),
+                "got {error:?}"
+            );
+            assert!(
+                waited < DEFAULT_RESPONSE_TIMEOUT,
+                "a gone process is reported, not waited on; waited {waited:?}"
+            );
+        }
     }
 }

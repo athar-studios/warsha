@@ -20,14 +20,21 @@
 //! - **The environment survives a restart.** [`ManagedProcess`] keeps exactly the
 //!   six documented fields, so the environment a spawn was given is stored beside
 //!   the record and replayed by [`ProcessManager::restart`].
-//! - **stdout is a pipe the manager owns.** stdin is piped (the MCP transport's
-//!   frame sink), and stdout is piped and captured per process: the MCP
-//!   handshake reads a reply and the live preview reads the URL a dev server
-//!   prints. stderr stays inherited, so a program's diagnostics still reach the
-//!   daemon's console, and a captured stdout line is re-emitted as a `tracing`
-//!   event for the same reason. A bounded ring ([`MAX_CAPTURED_LINES`]) keeps
-//!   the newest lines, so a chatty server cannot grow the daemon's memory
-//!   without bound.
+//! - **The environment is cleared, not inherited.** Every child starts from
+//!   `env_clear()` and the fixed [`MINIMAL_CHILD_ENV`] floor; the only other
+//!   variables it sees are the ones the caller named, and a caller cannot
+//!   replace `PATH` or hand a loader variable to the program. A provider key or
+//!   bearer token in the daemon's environment therefore cannot reach a child by
+//!   inheritance (KEEL K5a).
+//! - **stdout and stderr are pipes the manager owns.** stdin is piped (the MCP
+//!   transport's frame sink), stdout is captured per process (the MCP handshake
+//!   reads a reply and the live preview reads the URL a dev server prints), and
+//!   stderr is captured too, **redacted** through
+//!   [`crate::guardrails::mask_secrets`] and re-emitted as a `tracing` event
+//!   instead of being inherited. A server cannot put a token on the daemon's
+//!   console by logging it. A bounded ring ([`MAX_CAPTURED_LINES`]) keeps the
+//!   newest lines of each stream, so a chatty server cannot grow the daemon's
+//!   memory without bound.
 //! - **Children are reaped on request, not on drop.** [`ProcessManager::kill_all`]
 //!   kills and waits for every live child, and the daemon's shutdown is what
 //!   calls it: an OS child cannot be awaited in `Drop`, so an exit path has to
@@ -42,9 +49,37 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdout, Command};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
+use tokio::process::{Child, ChildStderr, ChildStdout, Command};
 use tokio::sync::Mutex;
+
+use crate::command_policy::MINIMAL_CHILD_ENV;
+
+/// Environment names a spawn may not hand to a child, whatever its caller asks.
+///
+/// These are the same loader/interpreter hooks the daemon's process policy
+/// refuses at the RPC seam; refusing them here as well means a caller that
+/// reaches the manager by another route still cannot turn an environment
+/// variable into code execution (KEEL K5a).
+const DENIED_CHILD_ENV_KEYS: &[&str] = &[
+    "PATH",
+    "LD_PRELOAD",
+    "LD_LIBRARY_PATH",
+    "DYLD_INSERT_LIBRARIES",
+    "DYLD_LIBRARY_PATH",
+    "NODE_OPTIONS",
+    "PYTHONPATH",
+    "PYTHONSTARTUP",
+    "PERL5OPT",
+    "RUBYOPT",
+    "GEM_PATH",
+    "CARGO",
+    "RUSTC_WRAPPER",
+    "RUSTC_WORKSPACE_WRAPPER",
+    "SHELL",
+    "BASH_ENV",
+    "ENV",
+];
 
 /// How many stdout lines the manager keeps per process.
 ///
@@ -292,6 +327,14 @@ pub trait ProcessManager: Send + Sync {
     /// the end is an empty list, not an error.
     async fn read_stdout(&self, id: &str, offset: usize) -> Result<Vec<String>, ProcessError>;
 
+    /// The stderr lines the process has printed, redacted, oldest first, from
+    /// `offset` on.
+    ///
+    /// Redaction happens when the line is captured, so the ring never held the
+    /// material a server printed and a caller cannot read it back by asking
+    /// again. The same offset rule as [`ProcessManager::read_stdout`] applies.
+    async fn read_stderr(&self, id: &str, offset: usize) -> Result<Vec<String>, ProcessError>;
+
     /// Kill and reap every child that is still alive, and report how many there were.
     ///
     /// This is the daemon's exit path: a child of the daemon outlives it unless
@@ -320,25 +363,40 @@ struct Entry {
     process: ManagedProcess,
     env: HashMap<String, String>,
     output: Arc<Mutex<VecDeque<String>>>,
+    errors: Arc<Mutex<VecDeque<String>>>,
 }
 
 /// The [`Command`] every spawn and restart builds.
 ///
 /// stdin and stdout are pipes the manager owns: stdin is the MCP transport's
 /// frame sink, and stdout is captured ([`ProcessManager::read_stdout`]) so a
-/// reply can be read and a printed URL can be found. stderr is inherited, so a
-/// program that logs its failures to stderr still reaches the console the daemon
-/// was started from.
+/// reply can be read and a printed URL can be found. stderr is piped as well and
+/// captured *redacted* ([`ProcessManager::read_stderr`]), so a program's
+/// diagnostics still reach the daemon's console without carrying a credential
+/// a caller could read back (KEEL K5a).
+///
+/// The environment is built, not inherited: `env_clear()` first, then the fixed
+/// [`MINIMAL_CHILD_ENV`] floor, then the caller's named variables except the
+/// loader hooks in [`DENIED_CHILD_ENV_KEYS`]. A variable already in the floor
+/// (`PATH`) cannot be replaced.
 fn command_for(program: &str, args: &[String], env: &HashMap<String, String>) -> Command {
     let mut command = Command::new(program);
     command.args(args);
+    command.env_clear();
+    for (key, value) in MINIMAL_CHILD_ENV {
+        command.env(key, value);
+    }
     for (key, value) in env {
+        let upper = key.trim().to_ascii_uppercase();
+        if DENIED_CHILD_ENV_KEYS.contains(&upper.as_str()) || upper.starts_with("DYLD_") {
+            continue;
+        }
         command.env(key, value);
     }
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit());
+        .stderr(Stdio::piped());
     command
 }
 
@@ -348,13 +406,39 @@ fn command_for(program: &str, args: &[String], env: &HashMap<String, String>) ->
 /// inherited, so this is where a dev server's log still reaches the daemon's
 /// console now that the manager holds the pipe.
 fn capture_stdout(id: String, stdout: ChildStdout, output: Arc<Mutex<VecDeque<String>>>) {
+    capture_lines(id, stdout, output, false);
+}
+
+/// Capture `stderr` into `errors`, redacted, until the pipe closes.
+///
+/// Redaction happens before the line is stored or logged, so neither the ring a
+/// test reads nor the daemon's own console can carry a token the server printed
+/// (KEEL K5a).
+fn capture_stderr(id: String, stderr: ChildStderr, errors: Arc<Mutex<VecDeque<String>>>) {
+    capture_lines(id, stderr, errors, true);
+}
+
+/// Drain one piped stream into its bounded ring, redacting when asked.
+fn capture_lines<R>(id: String, reader: R, sink: Arc<Mutex<VecDeque<String>>>, redact: bool)
+where
+    R: AsyncRead + Unpin + Send + 'static,
+{
     tokio::spawn(async move {
-        let mut lines = BufReader::new(stdout).lines();
+        let mut lines = BufReader::new(reader).lines();
         // A closed pipe and a broken read are both the end of the transcript; the
         // exit status is what says how the child ended.
         while let Ok(Some(line)) = lines.next_line().await {
-            tracing::info!(process = %id, "{line}");
-            let mut captured = output.lock().await;
+            let line = if redact {
+                crate::guardrails::mask_secrets(&line)
+            } else {
+                line
+            };
+            if redact {
+                tracing::warn!(process = %id, "{line}");
+            } else {
+                tracing::info!(process = %id, "{line}");
+            }
+            let mut captured = sink.lock().await;
             if captured.len() == MAX_CAPTURED_LINES {
                 captured.pop_front();
             }
@@ -458,6 +542,10 @@ impl ProcessManager for InMemoryProcessManager {
         if let Some(stdout) = child.stdout.take() {
             capture_stdout(id.clone(), stdout, output.clone());
         }
+        let errors = Arc::new(Mutex::new(VecDeque::new()));
+        if let Some(stderr) = child.stderr.take() {
+            capture_stderr(id.clone(), stderr, errors.clone());
+        }
         let entry = Entry {
             process: ManagedProcess {
                 id: id.clone(),
@@ -470,6 +558,7 @@ impl ProcessManager for InMemoryProcessManager {
             },
             env: env.clone(),
             output,
+            errors,
         };
         self.entries.lock().await.push(entry);
         Ok(id)
@@ -546,8 +635,12 @@ impl ProcessManager for InMemoryProcessManager {
         // banner is read from an empty log, because leaving the old lines behind
         // would let a preview report the URL of the server it replaced.
         entry.output = Arc::new(Mutex::new(VecDeque::new()));
+        entry.errors = Arc::new(Mutex::new(VecDeque::new()));
         if let Some(stdout) = child.stdout.take() {
             capture_stdout(entry.process.id.clone(), stdout, entry.output.clone());
+        }
+        if let Some(stderr) = child.stderr.take() {
+            capture_stderr(entry.process.id.clone(), stderr, entry.errors.clone());
         }
         entry.process.child = Some(child);
         entry.process.status = ProcessStatus::Starting;
@@ -563,6 +656,16 @@ impl ProcessManager for InMemoryProcessManager {
             .find(|entry| entry.process.id == id)
             .ok_or_else(|| ProcessError::NotFound(id.to_string()))?;
         let captured = entry.output.lock().await;
+        Ok(captured.iter().skip(offset).cloned().collect())
+    }
+
+    async fn read_stderr(&self, id: &str, offset: usize) -> Result<Vec<String>, ProcessError> {
+        let entries = self.entries.lock().await;
+        let entry = entries
+            .iter()
+            .find(|entry| entry.process.id == id)
+            .ok_or_else(|| ProcessError::NotFound(id.to_string()))?;
+        let captured = entry.errors.lock().await;
         Ok(captured.iter().skip(offset).cloned().collect())
     }
 
@@ -615,6 +718,18 @@ impl ProcessManager for InMemoryProcessManager {
         })?;
         Ok(())
     }
+}
+
+/// Split `"npm run dev"` into the program and its arguments.
+///
+/// Whitespace separates arguments, with no shell and no expansion. Quoting is
+/// honoured so a program or argument that contains a space survives as one
+/// token: `'…'` is literal, `"…"` groups with `\"` and `\\` escapes, and
+/// adjacent quoted/unquoted parts join (`a"b c"d` is the single token `ab cd`).
+/// An unterminated quote is [`ProcessError::UnterminatedQuote`]; empty or
+/// whitespace-only input is [`ProcessError::EmptyCommand`].
+pub fn split_command(command: &str) -> Result<(String, Vec<String>), ProcessError> {
+    LivePreviewManager::split_command(command)
 }
 
 /// One project's dev server, as the preview panel reads it.
@@ -1600,5 +1715,197 @@ mod tests {
             .stop("project-1")
             .await
             .expect("stopping a stopped preview succeeds");
+    }
+}
+
+/// KEEL K5a — the spawn floor a child is started from.
+///
+/// These probes spawn *this test binary* as a child, selected by `--exact`, and
+/// the child does nothing unless the parent handed it a marker in the environment
+/// it was spawned with. That keeps the probes real — an OS process reading an
+/// environment built by [`command_for`] — without depending on a shell, a Python
+/// interpreter or any other program the host may not have.
+#[cfg(test)]
+mod spawn_hardening {
+    use super::*;
+
+    /// Child-mode markers; the parent passes each one in the spawn environment.
+    const ENV_DUMP_MARKER: &str = "WARSHA_K5_ENV_DUMP";
+    const STDERR_MARKER: &str = "WARSHA_K5_STDERR";
+    /// A variable that exists in the *parent* test process and must not be
+    /// inherited by the child.
+    const PARENT_MARKER: &str = "WARSHA_K5_PARENT_MARKER";
+    /// A credential-shaped string, so redaction has something to remove.
+    const PROBE_SECRET: &str = "sk-ABCDEFGH12345678";
+
+    fn probe_process(test: &str) -> (String, Vec<String>) {
+        let exe = std::env::current_exe().expect("the test binary names itself");
+        (
+            exe.display().to_string(),
+            vec![
+                "--exact".to_string(),
+                test.to_string(),
+                "--nocapture".to_string(),
+                "--test-threads".to_string(),
+                "1".to_string(),
+            ],
+        )
+    }
+
+    /// Prints three facts about the environment the manager built.
+    ///
+    /// Harmless in a full test run: without the marker the parent passes it
+    /// returns immediately.
+    #[test]
+    fn environment_dump_probe() {
+        if std::env::var_os(ENV_DUMP_MARKER).is_none() {
+            return;
+        }
+        use std::io::Write;
+        let path = std::env::var("PATH").unwrap_or_default();
+        let parent = std::env::var_os(PARENT_MARKER).is_some();
+        let home = std::env::var_os("HOME").is_some() || std::env::var_os("USERPROFILE").is_some();
+        let loader = std::env::var_os("LD_PRELOAD").is_some()
+            || std::env::var_os("DYLD_INSERT_LIBRARIES").is_some();
+        let stdout = std::io::stdout();
+        let mut out = stdout.lock();
+        let _ = writeln!(out, "ENVDUMP PATH={path}");
+        let _ = writeln!(out, "ENVDUMP PARENT={parent}");
+        let _ = writeln!(out, "ENVDUMP HOME={home}");
+        let _ = writeln!(out, "ENVDUMP LOADER={loader}");
+        let _ = out.flush();
+    }
+
+    /// Writes a credential-shaped token to stderr.
+    #[test]
+    fn stderr_probe() {
+        if std::env::var_os(STDERR_MARKER).is_none() {
+            return;
+        }
+        use std::io::Write;
+        let stderr = std::io::stderr();
+        let mut out = stderr.lock();
+        let _ = writeln!(out, "probe failed with {PROBE_SECRET} while starting");
+        let _ = out.flush();
+    }
+
+    /// Poll until the child has printed a line with `prefix`, or fail after ~4 s.
+    async fn wait_for_stdout(manager: &dyn ProcessManager, id: &str, prefix: &str) -> Vec<String> {
+        for _ in 0..200 {
+            let lines = manager
+                .read_stdout(id, 0)
+                .await
+                .expect("the process is tracked");
+            if lines.iter().any(|line| line.starts_with(prefix)) {
+                return lines;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("process `{id}` printed no line starting `{prefix}`");
+    }
+
+    /// Poll until the child has printed something to stderr, or fail after ~4 s.
+    async fn wait_for_stderr(manager: &dyn ProcessManager, id: &str) -> Vec<String> {
+        for _ in 0..200 {
+            let lines = manager
+                .read_stderr(id, 0)
+                .await
+                .expect("the process is tracked");
+            if !lines.is_empty() {
+                return lines;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("process `{id}` printed nothing to stderr");
+    }
+
+    /// A variable the parent inherited never reaches the child, and the child's
+    /// `PATH` is the fixed floor rather than an inherited or caller-supplied one.
+    #[tokio::test]
+    async fn a_child_starts_from_a_cleared_environment_and_the_minimal_floor() {
+        std::env::set_var(PARENT_MARKER, "leaked");
+
+        struct Guard;
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                std::env::remove_var(PARENT_MARKER);
+            }
+        }
+        let _guard = Guard;
+
+        let manager = InMemoryProcessManager::new();
+        let (command, args) =
+            probe_process("process_spawn::spawn_hardening::environment_dump_probe");
+        let mut env = HashMap::new();
+        env.insert(ENV_DUMP_MARKER.to_string(), "1".to_string());
+        // A caller cannot replace the floor, and cannot smuggle a loader hook.
+        env.insert("PATH".to_string(), "/tmp/attacker-bin".to_string());
+        env.insert("LD_PRELOAD".to_string(), "/tmp/evil.so".to_string());
+
+        let id = manager
+            .spawn(&command, &args, &env)
+            .await
+            .expect("the probe starts");
+        let lines = wait_for_stdout(&manager, &id, "ENVDUMP LOADER=").await;
+        let minimal_path = MINIMAL_CHILD_ENV
+            .iter()
+            .find(|(key, _)| *key == "PATH")
+            .map(|(_, value)| *value)
+            .expect("the floor names a PATH");
+
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("ENVDUMP PARENT=false")),
+            "the daemon's own variables must not be inherited: {lines:?}"
+        );
+        assert!(
+            lines.iter().any(|line| line.contains("ENVDUMP HOME=false")),
+            "the user profile must not be inherited: {lines:?}"
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("ENVDUMP LOADER=false")),
+            "a loader hook must never reach the child: {lines:?}"
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains(&format!("ENVDUMP PATH={minimal_path}"))),
+            "the child's PATH must be the minimal floor, not the caller's: {lines:?}"
+        );
+        assert!(
+            !lines.iter().any(|line| line.contains("/tmp/attacker-bin")),
+            "a caller-supplied PATH must be refused: {lines:?}"
+        );
+        manager.kill_all().await;
+    }
+
+    /// What a server prints to stderr is captured with its credentials masked;
+    /// the captured transcript cannot be read back as the secret.
+    #[tokio::test]
+    async fn a_childs_stderr_is_captured_redacted_and_never_inherited() {
+        let manager = InMemoryProcessManager::new();
+        let (command, args) = probe_process("process_spawn::spawn_hardening::stderr_probe");
+        let mut env = HashMap::new();
+        env.insert(STDERR_MARKER.to_string(), "1".to_string());
+
+        let id = manager
+            .spawn(&command, &args, &env)
+            .await
+            .expect("the probe starts");
+        let lines = wait_for_stderr(&manager, &id).await;
+        let transcript = lines.join("\n");
+
+        assert!(
+            transcript.contains(crate::guardrails::REDACTED),
+            "the token must be masked in the captured transcript: {transcript}"
+        );
+        assert!(
+            !transcript.contains(PROBE_SECRET),
+            "the captured transcript must never hold the secret: {transcript}"
+        );
+        manager.kill_all().await;
     }
 }

@@ -1,5 +1,37 @@
 # PLAN.md — Warsha Milestones Checklist
 
+## Program — Warsha completion (2026-11-09, owner master prompt)
+
+The umbrella program is `bridge-io/policy/2026-11-09-completion-program/PROGRAM_PLAN.md` (planner: Claude Opus 5.5;
+orchestrator: Qoder Software Dev Team / Project manager). Owner decisions OD-P1…OD-P7 (§6) are in force as written:
+merge each fully verified run into `dev` + non-force push of `main` after C-final (OD-P1), installers + owner-PC install
+at R0/R4, versions 0.3.0 / 0.3.1 / 0.4.0 / 0.5.0 / 1.0.0-rc-draft (OD-P6). Nothing tagged, published or force-pushed.
+Definition of Done = PROGRAM_PLAN §5 matrix (design, code, function, system, security, release truth) + FIN1–FIN3 cleanup.
+
+- [ ] **R0** finish run `2026-11-09-ui-v3` (0.3.0 pushed and installed) · **R0.T** gate tools promoted into `scripts/`
+- [ ] **R1** SEC — dependency & supply-chain security (0.3.1): S1a–S1d, S2, S3
+- [ ] **R2** EXT — MCP (approval at call site, pinned launches, scoped secrets, Streamable HTTP, Warsha as MCP server), Plugins/connections, Skills real, WebMCP (off by default), backend kit through MCP (0.4.0): X0–X11
+- [ ] **R3** SH — self-hosting (0.5.0): SH1 attach repo + worktree, SH2 = P7 command policy, SH3 coding-CLI backend, SH4 Gate C branch, SH5 pilot
+- [ ] **R4** FIN — cleanup + full verification matrix + owner-PC install + `FINAL_REPORT.md` (1.0.0-rc, draft only): FIN1–FIN5
+
+### Amendment 2026-11-10 — plan of record v2 (principal review)
+
+Source: `bridge-io/policy/2026-11-10-principal-review/REVIEW.md` (scorecard, Day-0 critique, truth-vs-claims matrix,
+§5 plan with file targets); orchestrator prompt: `HANDOVER.md` in the same directory. Decisions OD-R1…OD-R6 are in
+REVIEW §5.7 and `DECISIONS.md` 2026-11-10; the owner may strike any. R0 continues unchanged under its frozen gates.
+
+**Caution on the labels below.** The "✅ DONE" headers on M10–M19 mean "types and unit tests exist", not "works end
+to end" — REVIEW §3 has the per-feature status; packet K8 re-labels them.
+
+New order: R0 UI v3 ∥ **KEEL** (0.3.1) → **ENGINE** (0.4.0) → extensions (0.5.0) → FIN (1.0.0-rc, draft only).
+
+- [ ] **P0 · KEEL** (with S1–S3, target 0.3.1, `crates/` from `128b59c`): **K1** gate decisions only at the run's current gate, bound to an artifact hash · **K2** run-state integrity (per-run lock, versioned updates, real cancel, `runs.resume`, change-request loop, restart recovery) · **K3** no silent fakes (`FakeProvider` fallback, `MockRoutineRunner`, scout mocks, constant `health`) · **K4** `RunCommand` policy (allow-list, cleared env, timeout, kill) · **K5** MCP spawn hardening (pinned packs, scoped secrets, `plugins.*` through the allow-list, errors surfaced) · **K6** MCP permission at the call site · **K7** remove the crypto stubs · **K8** status truth in PLAN/README · **K9** the three non-test `unwrap()` and the CLI stubs
+- [ ] Checkpoint KEEL: independent security review of K4 + K5 + K6, no open high finding; K1 + K2 merged before any release that ships "request changes" / "reject"
+- [ ] **P1 · ENGINE** (target 0.4.0): **H1** split `warshad/src/lib.rs` · **E1** background run executor (cancel, streaming, budget pre-check, real discovery, project language) · **E2** model-driven agent loop with tool calling, per run · **E3** repo attach + per-run worktree, files written by tools · **E4** coding-CLI backend · **E5** Gate C with diff, tests and preview · **E6** skills scoped per role, lock file · **E7** one SQLite stack · **E8** pilot
+- [ ] **P1 · UI v3** Waves B, C, D as planned, with the four amendments of REVIEW §5.5 · **FNT** bundle IBM Plex before RU3 (owner decision 2026-11-10: OD-U2 = A; Google Fonts links removed) · **T1** mode-switch root cause + soak test · **T2** Windows smoke capture proving the owner sees the baselined glyphs · **T3** mobile smoke test
+- [ ] **P2** (target 0.5.0): X3 Streamable HTTP · X1b/X4 approvals inbox + Connections page · X5 registry client · X7 plugin bundles · X8 `warsha mcp serve` · X9 WebMCP (off by default) · D1 micro-interactions · D2 sound cues (off by default) · D3 Arabic type-scale repair · RC1 remote channel truth
+- [ ] **FIN1–FIN5** (1.0.0-rc, draft only) · after 1.0: X10, X11, eco mode, post-launch collector, hosted relay
+
 ## M0 – Repo scaffold + CI ✅ DONE (validated 2026-10-28T22:38:39, all 14 checks green)
 - [x] Cargo + pnpm workspaces from §4 exist
 - [x] LICENSE (PolyForm Noncommercial 1.0.0)
@@ -587,18 +619,18 @@ should reuse `split_command`; remaining `TODO(M20 wiring)` sites (`RunView`, `Ad
 `SettingsScreen`, stale `ArtifactViewer`); the timing-fragile `sleep 30` process tests; harness stub
 shape drift (`postlaunch.*`, `backend.export`, `handoff.*`).
 
-## Run 2026-11-09 — UI v3: new design system «حِرفة», every page rebuilt, every control wired — PLANNED, awaiting OD-U0
+## Run 2026-11-09 — UI v3: new design system «حِرفة», every page rebuilt, every control wired — IN PROGRESS (Wave A closing, state seq 49)
 
-Run id `2026-11-09-ui-v3`, evidence `bridge-io/policy/2026-11-09-ui-v3/` (`state.json` seq 2, 154 frozen gates,
+Run id `2026-11-09-ui-v3`, evidence `bridge-io/policy/2026-11-09-ui-v3/` (`state.json` seq 49, 167 frozen gates,
 `HANDOVER.md` = the Qoder prompt, `PACKETS.md`, `OWNER_DECISIONS.md`). Spec: `docs/designs/DESIGN_SYSTEM_V3.md`,
 `docs/designs/UI_V3_PLAN.md`, visual reference `docs/designs/v3-preview.html`. Integration branch
 `run/2026-11-09-ui-v3/integration`; worktrees `C:/Users/Dragonfly/Downloads/warsha-wt/v3/<p>`. v3 is built beside v2
 (`?ui=v3`) and v2 stays the default — and its e2e suites stay green — until the cutover packet U7.
 
-- [ ] **Owner** approves the spec (OD-U0, hard stop) and answers OD-U1 (refresh mode), OD-U2 (fonts), OD-U3 (cutover), OD-B3 (version), OD-B4 (agent command policy), OD-B6 (hygiene)
-- [ ] **G0** + R0 (v0.2.1 drift on v2, fenced)
+- [x] **Owner** approves the spec (OD-U0 = yes) and answers OD-U1 (pre-authorised), OD-U2 (C), OD-U3 (yes), OD-B3 (0.3.0), OD-B4 (defer → R3/SH2), OD-B6 (no) — `state.json` `owner_decisions`, DECISIONS.md 2026-11-09
+- [x] **G0** + R0 (v0.2.1 drift on v2, fenced) — R0b 884/884/0, baselines committed `4c65ead` (OD-U1, `gates/R0b.counts.log`)
 - [ ] Wave A: **U0** DS foundation · **U2** v3 app infrastructure · **H1** harness truth + RPC log · **R1** Rust hygiene · **V1** release truth
-- [ ] **C1** merges + RH1
+- [x] **C1** merges + RH1 — integration tip `d598ad6` (F2→R1→V1→U0→U2→H1, guards green after each; 48 baselines refreshed fenced `outside=0`; post-run 884/884; state seq 73)
 - [ ] Wave B: **U1** DS composites · **E0** e2e v3 support · (**P7** if OD-B4 = approve)
 - [ ] **C2** merges
 - [ ] Wave C: **U3** Simple pages (frame, onboarding, home, projects, project, inbox) · **U4** Workbench · **U5** Settings · **U6** Remote PWA on v3
