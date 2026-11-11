@@ -3341,15 +3341,26 @@ impl WarshaApiServer for WarshaRpc {
     /// `agent.turn` is still the one place that says so.
     async fn agent_turn(&self, ext: &RpcExtensions, input: String) -> RpcResult<AgentTurnResult> {
         self.authorize(ext, "agent.turn")?;
-        // Prepare the turn under the write lock, drop the lock before executing
-        // commands or model calls so concurrent `agent.state` calls answer
-        // immediately, then commit the completed turn back under the lock.
+        // One turn at a time. The gate is the loop's own (one per daemon's
+        // conversation) and covers prepare -> execute -> finish, so two owner
+        // turns — desktop plus a paired device, or a retry — cannot run tools,
+        // commands or writes concurrently in the one `<data_dir>/workspace`, and
+        // the transcript cannot commit out of order.
+        let turn_gate = self.state.agent_loop.read().await.turn_lock();
+        let _turn = turn_gate.lock().await;
         let skills = self.active_skill_catalog().await;
         let prepared = {
             let mut agent_loop = self.state.agent_loop.write().await;
             agent_loop.prepare_turn(&input, &skills)
         };
-        let executed = prepared.execute().await;
+        // A read guard across execution: `agent.state` (also a read) still
+        // answers while the command runs, while `agent.plan_mode` /
+        // `agent.approve_mode` (writes) wait for it to finish. The guard is
+        // strictly the turn's — it is dropped before the turn commits.
+        let executed = {
+            let _read = self.state.agent_loop.read().await;
+            prepared.execute().await
+        };
         let (result, snapshot) = {
             let mut agent_loop = self.state.agent_loop.write().await;
             let result = agent_loop.finish_turn(executed);
@@ -4966,7 +4977,15 @@ fn build_agent_loop(
     // overwritten. A genuine create needs no prior read.
     let policy = WorkProtectionPolicy::default();
     let workspace_dir = data_dir.join(AGENT_WORKSPACE_DIR);
-    let _ = std::fs::create_dir_all(&workspace_dir);
+    if let Err(error) = std::fs::create_dir_all(&workspace_dir) {
+        // The turn still starts; every `RunCommand`/file tool that needs the
+        // workspace will fail its `current_dir`, so say why here instead of
+        // leaving only an opaque per-command spawn error.
+        warn!(
+            "the agent workspace `{}` could not be created: {error}",
+            workspace_dir.display()
+        );
+    }
     let command_policy = CommandPolicy::from_config(allowed_commands);
     let tools = FilesystemToolExecutor::new(workspace_dir)
         .with_read_before_write(policy.read_before_write)
@@ -9976,6 +9995,153 @@ mod tests {
             assert_eq!(turn_cargo.tools.len(), 1);
             assert!(turn_cargo.tools[0].success);
             assert!(turn_cargo.tools[0].output.contains("cargo"));
+
+            // `git` is in the default allow-list but not in this daemon's
+            // configured `["cargo"]`: a revert to `CommandPolicy::default()`
+            // would run it, so this half makes the test distinguish the wired
+            // configuration from the default.
+            let turn_git = rpc
+                .agent_turn(&owner, "run command git --version".to_string())
+                .await
+                .expect("turn completes with failed tool result");
+            assert_eq!(turn_git.tools.len(), 1);
+            assert!(
+                !turn_git.tools[0].success,
+                "git is default-allowed but was not configured, so it must be refused: {:?}",
+                turn_git.tools[0]
+            );
+            assert!(
+                turn_git.tools[0]
+                    .output
+                    .contains("not in the allowed commands list"),
+                "expected the configured allow-list refusal, got {:?}",
+                turn_git.tools[0].output
+            );
+        }
+
+        /// Two owner turns must not interleave: the turn gate covers
+        /// prepare → execute → finish, so the shorter turn finishes *after* the
+        /// longer one that started first. Without the gate both execute at once
+        /// and the shorter one finishes first.
+        #[tokio::test]
+        async fn two_concurrent_turns_are_serialized_by_the_turn_gate() {
+            let temp = crate::test_util::fresh_tempdir();
+            let (state, _store) = test_state_with(temp.path(), |config| {
+                config.allowed_commands = vec!["ping".to_string(), "sleep".to_string()];
+            })
+            .await;
+            let owner = owner_ext();
+
+            state
+                .agent_loop
+                .write()
+                .await
+                .approve_agent_mode("owner")
+                .expect("approve agent mode");
+
+            #[cfg(windows)]
+            let (long_cmd, short_cmd) = (
+                "run command ping -n 4 127.0.0.1".to_string(),
+                "run command ping -n 2 127.0.0.1".to_string(),
+            );
+            #[cfg(not(windows))]
+            let (long_cmd, short_cmd) = (
+                "run command sleep 2".to_string(),
+                "run command sleep 1".to_string(),
+            );
+
+            let started = std::time::Instant::now();
+            let long_rpc = WarshaRpc::new(state.clone());
+            let short_rpc = WarshaRpc::new(state.clone());
+            let long_owner = owner.clone();
+            let long = tokio::spawn(async move {
+                let result = long_rpc.agent_turn(&long_owner, long_cmd).await;
+                (result, started.elapsed())
+            });
+            // Let the first turn reach its command before the second asks for
+            // the gate, so the two are genuinely concurrent.
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            let short_owner = owner.clone();
+            let short = tokio::spawn(async move {
+                let result = short_rpc.agent_turn(&short_owner, short_cmd).await;
+                (result, started.elapsed())
+            });
+
+            let (long_result, long_at) = long.await.expect("long turn task");
+            let (short_result, short_at) = short.await.expect("short turn task");
+            for (label, result) in [("long", long_result), ("short", short_result)] {
+                let turn = result.expect("turn completes");
+                assert_eq!(turn.tools.len(), 1);
+                assert!(
+                    turn.tools[0].success,
+                    "{label} turn tool failed: {:?}",
+                    turn.tools[0]
+                );
+            }
+            assert!(
+                short_at > long_at,
+                "the second turn finished before the first, so turns interleaved: \
+                 long={long_at:?} short={short_at:?}"
+            );
+        }
+
+        /// The Plan barrier: a switch to Plan waits for a command that is already
+        /// executing, so a prepared turn cannot keep spending after the owner
+        /// asked for the read-only mode.
+        #[tokio::test]
+        async fn plan_mode_waits_for_an_in_flight_command() {
+            let temp = crate::test_util::fresh_tempdir();
+            let (state, _store) = test_state_with(temp.path(), |config| {
+                config.allowed_commands = vec!["ping".to_string(), "sleep".to_string()];
+            })
+            .await;
+            let rpc = WarshaRpc::new(state.clone());
+            let owner = owner_ext();
+
+            state
+                .agent_loop
+                .write()
+                .await
+                .approve_agent_mode("owner")
+                .expect("approve agent mode");
+
+            #[cfg(windows)]
+            let cmd_text = "run command ping -n 4 127.0.0.1".to_string();
+            #[cfg(not(windows))]
+            let cmd_text = "run command sleep 2".to_string();
+
+            let state_clone = state.clone();
+            let owner_clone = owner.clone();
+            let turn_handle = tokio::spawn(async move {
+                let rpc_bg = WarshaRpc::new(state_clone);
+                rpc_bg.agent_turn(&owner_clone, cmd_text).await
+            });
+
+            // Give the turn time to start its command (the read guard is held
+            // across execution from here).
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+            let start = std::time::Instant::now();
+            let transition = rpc
+                .return_agent_to_plan(&owner)
+                .await
+                .expect("plan_mode succeeds");
+            let waited = start.elapsed();
+
+            assert_eq!(transition.from, warsha_pipeline::AgentMode::Agent);
+            assert_eq!(transition.to, warsha_pipeline::AgentMode::Plan);
+            assert!(
+                waited >= std::time::Duration::from_millis(1500),
+                "plan_mode returned before the in-flight command finished: waited = {waited:?}"
+            );
+
+            let agent_state = rpc.agent_state(&owner).await.expect("state");
+            assert_eq!(agent_state.mode, warsha_pipeline::AgentMode::Plan);
+
+            turn_handle
+                .await
+                .expect("turn task finished")
+                .expect("agent_turn succeeded");
         }
     }
 }
