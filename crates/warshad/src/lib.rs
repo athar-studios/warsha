@@ -2120,6 +2120,64 @@ impl WarshaRpc {
         Ok(references)
     }
 
+    /// Judge a pack against the daemon's process policy before it is stored or
+    /// launched (KEEL K5b).
+    ///
+    /// Three questions, each answered by the same policy `process.spawn` and
+    /// `mcp.connect` are held to: is the program allowed, does it name a pinned
+    /// release rather than "whatever is newest", and is every environment name one
+    /// the daemon hands to a child at all. An HTTP pack launches nothing here and
+    /// has no program to judge.
+    fn check_plugin_launch(&self, definition: &PluginDefinition) -> RpcResult<()> {
+        if definition.transport != "stdio" {
+            return Ok(());
+        }
+        let command = definition.command.as_deref().unwrap_or("").trim();
+        let policy = self.process_policy();
+        policy.check_command(command).map_err(rpc_policy_refused)?;
+        wave2::require_pinned_launch(command, &definition.args).map_err(rpc_policy_refused)?;
+        for key in definition.env.keys() {
+            policy.check_env(key).map_err(rpc_policy_refused)?;
+        }
+        Ok(())
+    }
+
+    /// The environment a plugin launch gives its child, with references resolved.
+    ///
+    /// A row holds `${secrets:…}` addresses, not material; the values are read
+    /// here, at launch, so a token reaches exactly the one child that needs it and
+    /// never a settings row, a log line or an `mcp.list` reply (KEEL K5a/K5b).
+    ///
+    /// Only keychain references are resolved. `${env:…}` would smuggle the
+    /// daemon's own environment into a child — the inheritance this packet exists
+    /// to remove — and `${config:…}` has no daemon-wide value to substitute; both
+    /// are refused rather than guessed.
+    async fn resolved_plugin_env(
+        &self,
+        definition: &PluginDefinition,
+    ) -> RpcResult<HashMap<String, String>> {
+        let mut resolved = HashMap::with_capacity(definition.env.len());
+        for (key, value) in &definition.env {
+            let trimmed = value.trim();
+            let Some(account) = trimmed
+                .strip_prefix("${secrets:")
+                .and_then(|rest| rest.strip_suffix('}'))
+            else {
+                return Err(rpc_policy_refused(format!(
+                    "the pack `{}` wants `{key}` from `{trimmed}`; this daemon launches a pack only with keychain references (`${{secrets:…}}`) because it has no value for anything else",
+                    definition.id
+                )));
+            };
+            let secret = self.state.secrets.load(account).await.map_err(|error| {
+                rpc_error(format!(
+                    "the secret `{account}` for `{key}` could not be read from the OS keychain: {error}"
+                ))
+            })?;
+            resolved.insert(key.clone(), secret);
+        }
+        Ok(resolved)
+    }
+
     /// One integration's status, with the keychain consulted for what the row omits.
     ///
     /// `has_token` is "an entry exists", never "a token was read": the value is not
@@ -4267,6 +4325,9 @@ impl WarshaApiServer for WarshaRpc {
         self.authorize(ext, "plugins.install")?;
         let mut definition =
             wave2::parse_plugin_manifest(&manifest_json_or_url).map_err(rpc_invalid_params)?;
+        // KEEL K5b: the pack's program is judged before its environment is filed
+        // and before any row exists, so a refused pack leaves nothing behind.
+        self.check_plugin_launch(&definition)?;
         // A manifest may name a token outright, and this is the seam that decides
         // where it lives: the keychain holds the value, the row holds the reference.
         let env = self
@@ -4302,6 +4363,16 @@ impl WarshaApiServer for WarshaRpc {
     ) -> RpcResult<PluginDefinition> {
         self.authorize(ext, "plugins.toggle")?;
         let row = self.stored_plugin(&id).await?;
+        let checked = wave2::plugin_definition(&row).map_err(rpc_error)?;
+        // Enabling is the moment a row becomes a process. A row written before
+        // this check existed must not launch a program — or fetch a package — the
+        // policy would refuse today; disabling only stops a process and is always
+        // allowed (KEEL K5b).
+        let mut launch_env = HashMap::new();
+        if enabled {
+            self.check_plugin_launch(&checked)?;
+            launch_env = self.resolved_plugin_env(&checked).await?;
+        }
         if row.enabled != enabled {
             self.state
                 .settings
@@ -4311,7 +4382,9 @@ impl WarshaApiServer for WarshaRpc {
         }
         let updated = self.stored_plugin(&id).await?;
         let def = wave2::plugin_definition(&updated).map_err(rpc_error)?;
-        // Sync with MCP manager (F2)
+        // Sync with MCP manager (F2). The child gets exactly the pack's resolved
+        // environment on top of the process manager's floor; its failure is the
+        // RPC's failure, not a warning in a log nobody reads.
         if enabled {
             if let Some(cmd) = &def.command {
                 if !cmd.trim().is_empty() {
@@ -4322,7 +4395,10 @@ impl WarshaApiServer for WarshaRpc {
                     );
                     self.state
                         .mcp
-                        .connect(mcp_cfg)
+                        .connect_with(
+                            mcp_cfg,
+                            warsha_pipeline::mcp_transport::McpLaunchOptions::with_env(launch_env),
+                        )
                         .await
                         .map_err(|e| rpc_error(e.to_string()))?;
                 }
@@ -4356,6 +4432,12 @@ impl WarshaApiServer for WarshaRpc {
     ) -> RpcResult<PluginDefinition> {
         self.authorize(ext, "plugins.configure")?;
         let mut row = self.stored_plugin(&id).await?;
+        // KEEL K5b: judge the program and the variable names before a value is
+        // filed in the keychain or the row is rewritten. A refused configure must
+        // not leave half its environment stored.
+        let mut candidate = wave2::plugin_definition(&row).map_err(rpc_error)?;
+        candidate.env = env.clone();
+        self.check_plugin_launch(&candidate)?;
         let references = self.file_plugin_env(&id, &env).await?;
         row.env_json = serde_json::to_string(&references).map_err(rpc_error)?;
         self.state
@@ -4365,10 +4447,12 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(rpc_error)?;
         let updated = self.stored_plugin(&id).await?;
         let def = wave2::plugin_definition(&updated).map_err(rpc_error)?;
-        // Sync with MCP manager if enabled (F2)
+        // Sync with MCP manager if enabled (F2), with the references resolved
+        // against the keychain only now, for this one child.
         if def.enabled {
             if let Some(cmd) = &def.command {
                 if !cmd.trim().is_empty() {
+                    let launch_env = self.resolved_plugin_env(&def).await?;
                     let mcp_cfg = warsha_pipeline::mcp_transport::McpServerConfig::new_stdio(
                         &def.id,
                         cmd,
@@ -4376,7 +4460,10 @@ impl WarshaApiServer for WarshaRpc {
                     );
                     self.state
                         .mcp
-                        .connect(mcp_cfg)
+                        .connect_with(
+                            mcp_cfg,
+                            warsha_pipeline::mcp_transport::McpLaunchOptions::with_env(launch_env),
+                        )
                         .await
                         .map_err(|e| rpc_error(e.to_string()))?;
                 }
@@ -7139,6 +7226,39 @@ mod tests {
         error.code()
     }
 
+    /// A program the process floor can actually start.
+    ///
+    /// A child now starts with a cleared environment and the fixed minimal PATH,
+    /// so a test that wants a program to *start* cannot rely on `cargo` being
+    /// found. A program inside the daemon's data directory needs no lookup — it
+    /// is the daemon's own scope — and runs on every OS: a shell script on Unix
+    /// and, on Windows, a copy of this test binary run with `--list` so it lists
+    /// and exits instead of running the suite again.
+    fn fixture_program(data_dir: &Path) -> String {
+        #[cfg(windows)]
+        {
+            let target = data_dir.join("fixture-probe.exe");
+            std::fs::copy(
+                std::env::current_exe().expect("the test binary names itself"),
+                &target,
+            )
+            .expect("the fixture copies");
+            target.to_string_lossy().into_owned()
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let target = data_dir.join("fixture-probe.sh");
+            std::fs::write(&target, "#!/bin/sh\necho fixture-ok\n").expect("the fixture writes");
+            let mut permissions = std::fs::metadata(&target)
+                .expect("the fixture exists")
+                .permissions();
+            permissions.set_mode(0o755);
+            std::fs::set_permissions(&target, permissions).expect("the fixture is executable");
+            target.to_string_lossy().into_owned()
+        }
+    }
+
     // ---- Security audit S1a: identity, authorization and the policy floor.
 
     /// Every method the server registers has a policy, and every policy names a
@@ -7583,9 +7703,12 @@ mod tests {
     #[tokio::test]
     async fn process_and_mcp_control_refuse_an_unlisted_program_and_a_remote_transport() {
         let temp = crate::test_util::fresh_tempdir();
-        // Only `cargo` is admitted, by configuration rather than by a caller.
-        let (state, _store) = test_state_with(temp.path(), |config| {
-            config.allowed_commands = vec!["cargo".to_string()];
+        // Only the fixture program is admitted, by configuration rather than by a
+        // caller.
+        let fixture = fixture_program(temp.path());
+        let allowed = fixture.clone();
+        let (state, _store) = test_state_with(temp.path(), move |config| {
+            config.allowed_commands = vec![allowed];
         })
         .await;
         let rpc = WarshaRpc::new(state);
@@ -7626,12 +7749,7 @@ mod tests {
         // An allowed program is still startable: the policy restricts, it does not
         // disable the daemon's own workflow.
         let started = rpc
-            .spawn_process(
-                &ext,
-                "cargo".to_string(),
-                vec!["--version".to_string()],
-                HashMap::new(),
-            )
+            .spawn_process(&ext, fixture, vec!["--list".to_string()], HashMap::new())
             .await
             .expect("an allowed program starts");
         rpc.stop_process(&ext, started).await.ok();
@@ -9077,17 +9195,29 @@ mod tests {
     #[tokio::test]
     async fn toggle_plugin_returns_an_rpc_error_when_mcp_connect_fails() {
         let temp = crate::test_util::fresh_tempdir();
-        let (state, _store) = test_state(temp.path()).await;
+        let exe = std::env::current_exe()
+            .expect("the test binary names itself")
+            .to_string_lossy()
+            .into_owned();
+        let allowed = exe.clone();
+        let (state, _store) = test_state_with(temp.path(), move |config| {
+            config.allowed_commands = vec![allowed];
+        })
+        .await;
         let rpc = WarshaRpc::new(state);
         let owner = owner_ext();
-        let manifest = r#"{
+        // A program the policy allows that is not an MCP server: it lists and exits,
+        // so the handshake cannot complete and the failure has to surface.
+        let manifest = serde_json::json!({
             "name": "Bad MCP Plugin",
             "transport": "stdio",
-            "command": "definitely_nonexistent_binary_xyz_12345",
-            "enabled": false
-        }"#;
+            "command": exe,
+            "args": ["--list"],
+            "enabled": false,
+        })
+        .to_string();
         let installed = rpc
-            .install_plugin(&owner, manifest.to_string())
+            .install_plugin(&owner, manifest)
             .await
             .expect("plugin installs cleanly in disabled state");
         assert!(!installed.enabled);
@@ -9095,7 +9225,7 @@ mod tests {
         let err = rpc
             .toggle_plugin(&owner, installed.id, true)
             .await
-            .expect_err("enabling plugin with nonexistent binary must fail with an RPC error");
+            .expect_err("enabling a plugin whose server dies must fail with an RPC error");
         assert_eq!(rpc_error_code(&err), -32000);
     }
 
@@ -9211,17 +9341,27 @@ mod tests {
     #[tokio::test]
     async fn toggle_plugin_returns_an_rpc_error_when_mcp_disconnect_fails() {
         let temp = crate::test_util::fresh_tempdir();
-        let (state, _store) = test_state(temp.path()).await;
+        let exe = std::env::current_exe()
+            .expect("the test binary names itself")
+            .to_string_lossy()
+            .into_owned();
+        let allowed = exe.clone();
+        let (state, _store) = test_state_with(temp.path(), move |config| {
+            config.allowed_commands = vec![allowed];
+        })
+        .await;
         let rpc = WarshaRpc::new(state);
         let owner = owner_ext();
-        let manifest = r#"{
+        let manifest = serde_json::json!({
             "name": "Enabled Plugin For Disconnect",
             "transport": "stdio",
-            "command": "definitely_nonexistent_binary_for_disconnect",
-            "enabled": true
-        }"#;
+            "command": exe,
+            "args": ["--list"],
+            "enabled": true,
+        })
+        .to_string();
         let installed = rpc
-            .install_plugin(&owner, manifest.to_string())
+            .install_plugin(&owner, manifest)
             .await
             .expect("plugin installs cleanly in enabled state");
         assert!(installed.enabled);
@@ -9945,8 +10085,13 @@ mod tests {
         #[tokio::test]
         async fn agent_command_execution_obeys_daemon_allowed_commands_policy() {
             let temp = crate::test_util::fresh_tempdir();
-            let (state, _store) = test_state_with(temp.path(), |config| {
-                config.allowed_commands = vec!["cargo".to_string()];
+            // The process floor's PATH names no toolchain directory, so the program
+            // that must start lives inside the data directory and is admitted by
+            // configuration.
+            let fixture = fixture_program(temp.path());
+            let allowed = fixture.clone();
+            let (state, _store) = test_state_with(temp.path(), move |config| {
+                config.allowed_commands = vec![allowed];
             })
             .await;
             let rpc = WarshaRpc::new(state.clone());
@@ -9968,14 +10113,369 @@ mod tests {
             assert!(!turn_res.tools[0].success);
             assert!(turn_res.tools[0].output.contains("refused"));
 
-            // Allow-listed cargo --version succeeds
-            let turn_cargo = rpc
-                .agent_turn(&owner, "run command cargo --version".to_string())
+            // Allow-listed fixture program succeeds
+            let turn_ok = rpc
+                .agent_turn(&owner, format!("run command \"{fixture}\" --list"))
                 .await
                 .expect("turn completes with ok tool result");
-            assert_eq!(turn_cargo.tools.len(), 1);
-            assert!(turn_cargo.tools[0].success);
-            assert!(turn_cargo.tools[0].output.contains("cargo"));
+            assert_eq!(turn_ok.tools.len(), 1);
+            assert!(turn_ok.tools[0].success);
+            assert!(
+                turn_ok.tools[0].output.contains("fixture"),
+                "the allowed program's output is the turn's: {}",
+                turn_ok.tools[0].output
+            );
+        }
+    }
+
+    /// KEEL K5b: plugins go through the process policy, and a launch gets only the
+    /// environment its row names.
+    mod spawn_hardening {
+        use super::*;
+        use serde_json::Value;
+        use std::io::BufRead;
+
+        const ENV_MARKER: &str = "WARSHA_K5_WARSHA_ENV_PROBE";
+        const DAEMON_ONLY: &str = "WARSHA_K5_WARSHA_DAEMON_ONLY";
+
+        /// A stdio MCP server that answers `tools/list` with its whole environment.
+        ///
+        /// A plain test that returns immediately unless its parent passes the marker,
+        /// so this costs a no-op in an ordinary run and no ignored-test budget.
+        #[test]
+        fn env_probe() {
+            if std::env::var_os(ENV_MARKER).is_none() {
+                return;
+            }
+            // libtest writes `test <name> ... ` without a newline before a non-ignored
+            // test; end that line so every reply below is clean JSON.
+            println!();
+            let mut dump: Vec<String> = std::env::vars()
+                .map(|(key, value)| format!("{key}={value}"))
+                .collect();
+            dump.sort();
+            let dump = dump.join(";");
+            for line in std::io::stdin().lock().lines() {
+                let Ok(line) = line else { break };
+                let Ok(request) = serde_json::from_str::<Value>(&line) else {
+                    continue;
+                };
+                let Some(id) = request.get("id").cloned() else {
+                    continue;
+                };
+                let result = match request.get("method").and_then(Value::as_str).unwrap_or("") {
+                    "initialize" => serde_json::json!({
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "serverInfo": { "name": "warsha-env-probe", "version": "1.0.0" },
+                    }),
+                    "tools/list" => serde_json::json!({
+                        "tools": [{
+                            "name": "env",
+                            "description": format!("ENVDUMP {dump}"),
+                            "inputSchema": { "type": "object" },
+                        }],
+                    }),
+                    _ => serde_json::json!({}),
+                };
+                println!(
+                    "{}",
+                    serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": result })
+                );
+            }
+        }
+
+        /// Named so a Windows fixture copy's `--list` output contains `fixture`.
+        #[test]
+        fn fixture_marker() {}
+
+        fn test_binary() -> String {
+            std::env::current_exe()
+                .expect("the test binary names itself")
+                .to_string_lossy()
+                .into_owned()
+        }
+
+        /// A manifest that launches this test binary's env probe.
+        fn probe_manifest(exe: &str, enabled: bool, env: Value) -> String {
+            serde_json::json!({
+                "name": "K5 Probe",
+                "transport": "stdio",
+                "command": exe,
+                "args": [
+                    "--exact",
+                    "tests::spawn_hardening::env_probe",
+                    "--nocapture",
+                    "--test-threads",
+                    "1",
+                ],
+                "env": env,
+                "enabled": enabled,
+            })
+            .to_string()
+        }
+
+        fn legacy_definition(command: &str) -> PluginDefinition {
+            PluginDefinition {
+                id: "legacy-pack".to_string(),
+                name: "Legacy".to_string(),
+                description: "a row written before the policy checked installs".to_string(),
+                transport: "stdio".to_string(),
+                command: Some(command.to_string()),
+                args: Vec::new(),
+                env: HashMap::new(),
+                enabled: false,
+                tools: Vec::new(),
+                source: String::new(),
+            }
+        }
+
+        #[tokio::test]
+        async fn install_refuses_a_command_outside_the_allow_list() {
+            let temp = crate::test_util::fresh_tempdir();
+            let (state, _store) = test_state(temp.path()).await;
+            let rpc = WarshaRpc::new(state.clone());
+            let owner = owner_ext();
+            let manifest = serde_json::json!({
+                "name": "Off List",
+                "transport": "stdio",
+                "command": "curl",
+                "args": ["https://example.test/install.sh"],
+                "enabled": false,
+            })
+            .to_string();
+
+            let err = rpc
+                .install_plugin(&owner, manifest)
+                .await
+                .expect_err("a command outside the allow-list must be refused");
+            assert_eq!(rpc_error_code(&err), auth::rpc_codes::POLICY_REFUSED);
+            assert!(
+                state
+                    .settings
+                    .get_plugin("off-list")
+                    .await
+                    .expect("the catalog answers")
+                    .is_none(),
+                "a refused pack must leave no row behind"
+            );
+        }
+
+        #[tokio::test]
+        async fn install_refuses_an_unpinned_package_launch() {
+            let temp = crate::test_util::fresh_tempdir();
+            let (state, _store) = test_state(temp.path()).await;
+            let rpc = WarshaRpc::new(state.clone());
+            let owner = owner_ext();
+
+            let unpinned = serde_json::json!({
+                "name": "Unpinned",
+                "transport": "stdio",
+                "command": "npx",
+                "args": ["@modelcontextprotocol/server-github"],
+                "enabled": false,
+            })
+            .to_string();
+            let err = rpc
+                .install_plugin(&owner, unpinned)
+                .await
+                .expect_err("an unpinned package must be refused at install");
+            assert_eq!(rpc_error_code(&err), auth::rpc_codes::POLICY_REFUSED);
+            assert!(
+                state
+                    .settings
+                    .get_plugin("unpinned")
+                    .await
+                    .expect("the catalog answers")
+                    .is_none(),
+                "a refused pack must leave no row behind"
+            );
+
+            let pinned = serde_json::json!({
+                "name": "Pinned",
+                "transport": "stdio",
+                "command": "npx",
+                "args": ["-y", "@modelcontextprotocol/server-github@2025.4.8"],
+                "enabled": false,
+            })
+            .to_string();
+            rpc.install_plugin(&owner, pinned)
+                .await
+                .expect("a pinned package installs");
+        }
+
+        #[tokio::test]
+        async fn a_fresh_daemon_seeds_every_bundled_pack_disabled() {
+            let temp = crate::test_util::fresh_tempdir();
+            let (state, _store) = test_state(temp.path()).await;
+            let rpc = WarshaRpc::new(state);
+            let owner = owner_ext();
+
+            let plugins = rpc.list_plugins(&owner).await.expect("plugins list");
+            assert_eq!(plugins.len(), warsha_core::bundled_plugins().len());
+            let enabled: Vec<&str> = plugins
+                .iter()
+                .filter(|plugin| plugin.enabled)
+                .map(|plugin| plugin.id.as_str())
+                .collect();
+            assert!(
+                enabled.is_empty(),
+                "a fresh daemon must seed every bundled pack disabled, but enabled: {enabled:?}"
+            );
+        }
+
+        #[tokio::test]
+        async fn a_stored_row_the_policy_refuses_never_launches() {
+            let temp = crate::test_util::fresh_tempdir();
+            let (state, _store) = test_state(temp.path()).await;
+            let row = wave2::plugin_row(&legacy_definition("curl")).expect("a row serialises");
+            state
+                .settings
+                .save_plugin(&row)
+                .await
+                .expect("the row saves");
+            let rpc = WarshaRpc::new(state.clone());
+            let owner = owner_ext();
+
+            let err = rpc
+                .toggle_plugin(&owner, "legacy-pack".to_string(), true)
+                .await
+                .expect_err("a row the policy would refuse must not launch");
+            assert_eq!(rpc_error_code(&err), auth::rpc_codes::POLICY_REFUSED);
+            let stored = state
+                .settings
+                .get_plugin("legacy-pack")
+                .await
+                .expect("the catalog answers")
+                .expect("the row is still there");
+            assert!(
+                !stored.enabled,
+                "a refused enable must not store the pack as enabled"
+            );
+            assert!(
+                state.mcp.list().await.is_empty(),
+                "nothing may be spawned for a refused pack"
+            );
+        }
+
+        #[tokio::test]
+        async fn configure_refuses_before_filing_its_environment() {
+            let temp = crate::test_util::fresh_tempdir();
+            let (state, _store) = test_state(temp.path()).await;
+            let row = wave2::plugin_row(&legacy_definition("curl")).expect("a row serialises");
+            state
+                .settings
+                .save_plugin(&row)
+                .await
+                .expect("the row saves");
+            let rpc = WarshaRpc::new(state.clone());
+            let owner = owner_ext();
+
+            let mut env = HashMap::new();
+            env.insert(
+                "GITHUB_TOKEN".to_string(),
+                "material-never-filed".to_string(),
+            );
+            let err = rpc
+                .configure_plugin(&owner, "legacy-pack".to_string(), env)
+                .await
+                .expect_err("a pack the policy refuses cannot be configured");
+            assert_eq!(rpc_error_code(&err), auth::rpc_codes::POLICY_REFUSED);
+            assert!(
+                state
+                    .secrets
+                    .load("plugin:legacy-pack:GITHUB_TOKEN")
+                    .await
+                    .is_err(),
+                "a refused configure must not file the environment in the keychain"
+            );
+        }
+
+        #[tokio::test]
+        async fn a_launch_gets_only_the_named_keychain_secret() {
+            let temp = crate::test_util::fresh_tempdir();
+            let exe = test_binary();
+            let allowed = exe.clone();
+            let (state, _store) = test_state_with(temp.path(), move |config| {
+                config.allowed_commands = vec![allowed];
+            })
+            .await;
+            let rpc = WarshaRpc::new(state.clone());
+            let owner = owner_ext();
+
+            std::env::set_var(DAEMON_ONLY, "leak");
+            let manifest = probe_manifest(
+                &exe,
+                true,
+                serde_json::json!({
+                    ENV_MARKER: "1",
+                    "PROBE_SECRET": "material-secret-value",
+                }),
+            );
+            let installed = rpc
+                .install_plugin(&owner, manifest)
+                .await
+                .expect("the probe pack installs");
+            std::env::remove_var(DAEMON_ONLY);
+
+            let stored = state
+                .settings
+                .get_plugin(&installed.id)
+                .await
+                .expect("the catalog answers")
+                .expect("the row exists");
+            assert!(
+                !stored.env_json.contains("material-secret-value"),
+                "the row must hold a reference, not the token: {}",
+                stored.env_json
+            );
+
+            let toggled = rpc
+                .toggle_plugin(&owner, installed.id.clone(), true)
+                .await
+                .expect("the probe pack enables");
+            assert!(toggled.enabled);
+
+            let connections = state.mcp.list().await;
+            let connection = connections
+                .iter()
+                .find(|connection| connection.config.name == installed.id)
+                .expect("the pack is connected");
+            assert!(connection.status.is_connected(), "{connection:?}");
+            let description = connection
+                .tool_definitions
+                .first()
+                .expect("the probe lists one tool")
+                .description
+                .clone();
+            assert!(
+                description.contains("PROBE_SECRET=material-secret-value"),
+                "the keychain value must reach the child: {description}"
+            );
+            assert!(
+                description.contains(&format!("{ENV_MARKER}=1")),
+                "every named variable reaches the child: {description}"
+            );
+            assert!(
+                !description.contains(&format!("{DAEMON_ONLY}=leak")),
+                "the daemon's own environment must not be inherited: {description}"
+            );
+            assert!(
+                !description.contains("HOME="),
+                "the user profile must not be inherited: {description}"
+            );
+
+            let disabled = rpc
+                .toggle_plugin(&owner, installed.id.clone(), false)
+                .await
+                .expect("the pack disables and disconnects cleanly");
+            assert!(!disabled.enabled);
+            assert!(state
+                .mcp
+                .list()
+                .await
+                .iter()
+                .all(|connection| !connection.status.is_connected()));
         }
     }
 }
