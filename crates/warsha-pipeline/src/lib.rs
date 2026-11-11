@@ -22,6 +22,7 @@ mod backend_kit;
 mod build_cache;
 mod command_policy;
 mod evals;
+pub mod gate_evidence;
 mod gate_integrity;
 mod guardrails;
 mod handoff;
@@ -29,6 +30,10 @@ mod llm_cache;
 pub mod mcp;
 pub mod mcp_permission;
 pub mod worktree;
+pub use crate::gate_evidence::{
+    collect_gate_evidence, GateEvidence, GateEvidenceError, TestRun, GATE_EVIDENCE_CAPTURE_BYTES,
+    GATE_EVIDENCE_TIMEOUT,
+};
 pub use crate::mcp_permission::{
     AskEverything, McpPermissionSource, McpPermissionStore, StaticPermissions, MCP_AGENT_ROLE,
 };
