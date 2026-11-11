@@ -360,7 +360,7 @@ const INLINE_FONT_STACK = /fontFamily\s*:\s*(['"`])([^'"`]*)\1/;
 /** Font-family values that are CSS keywords or a token reference rather than a choice of typeface. */
 function isFamilyKeywordOrToken(value: string): boolean {
   const trimmed = value.trim().toLowerCase();
-  return CSS_KEYWORDS.has(trimmed) || trimmed.includes('var(--warsha-');
+  return CSS_KEYWORDS.has(trimmed) || trimmed.includes('var(--warsha-') || trimmed.includes('var(--w-');
 }
 
 /**
