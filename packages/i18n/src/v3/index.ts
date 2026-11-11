@@ -9,7 +9,6 @@ import arOnboarding from './ar/onboarding';
 import arProject from './ar/project';
 import arProjects from './ar/projects';
 import arSettings from './ar/settings';
-
 import enBench from './en/bench';
 import enCommon from './en/common';
 import enFrame from './en/frame';
