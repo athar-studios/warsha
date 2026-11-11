@@ -903,7 +903,11 @@ impl McpManager for InMemoryMcpManager {
         };
         // The environment the caller named is the only one the child is handed;
         // the process manager clears the daemon's own and applies its floor.
-        let process_id = match self.processes.spawn(command, &config.args, &options.env).await {
+        let process_id = match self
+            .processes
+            .spawn(command, &config.args, &options.env)
+            .await
+        {
             Ok(process_id) => process_id,
             Err(source) => {
                 let message = source.to_string();
@@ -920,10 +924,7 @@ impl McpManager for InMemoryMcpManager {
 
         // The bound and the environment are remembered before the handshake, so
         // the two requests it sends already honour the per-server timeout.
-        self.launches
-            .lock()
-            .await
-            .insert(name.clone(), options);
+        self.launches.lock().await.insert(name.clone(), options);
         match self.handshake(&name, &process_id).await {
             Ok((tools, tool_definitions)) => {
                 self.connections.lock().await.push(McpConnection {
@@ -1784,7 +1785,10 @@ mod tests {
                     }),
                     _ => json!({}),
                 };
-                println!("{}", json!({ "jsonrpc": "2.0", "id": id, "result": result }));
+                println!(
+                    "{}",
+                    json!({ "jsonrpc": "2.0", "id": id, "result": result })
+                );
             }
         }
 
@@ -1839,7 +1843,10 @@ mod tests {
 
             let mut env = HashMap::new();
             env.insert(ENV_MARKER.to_string(), "1".to_string());
-            env.insert("WARSHA_K5_MANIFEST_KEY".to_string(), "manifest-value".to_string());
+            env.insert(
+                "WARSHA_K5_MANIFEST_KEY".to_string(),
+                "manifest-value".to_string(),
+            );
             // A caller-supplied PATH is replaced by the fixed floor, not honoured.
             env.insert("PATH".to_string(), "/tmp/attacker-bin".to_string());
 

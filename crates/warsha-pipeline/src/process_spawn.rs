@@ -419,12 +419,8 @@ fn capture_stderr(id: String, stderr: ChildStderr, errors: Arc<Mutex<VecDeque<St
 }
 
 /// Drain one piped stream into its bounded ring, redacting when asked.
-fn capture_lines<R>(
-    id: String,
-    reader: R,
-    sink: Arc<Mutex<VecDeque<String>>>,
-    redact: bool,
-) where
+fn capture_lines<R>(id: String, reader: R, sink: Arc<Mutex<VecDeque<String>>>, redact: bool)
+where
     R: AsyncRead + Unpin + Send + 'static,
 {
     tokio::spawn(async move {
