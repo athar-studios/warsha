@@ -184,7 +184,7 @@ pub trait McpPermissionStore: Send + Sync {
 }
 
 #[cfg(test)]
-mod mcp_permission {
+mod tests {
     use super::*;
 
     fn rows() -> Vec<(String, String, String, ToolPermission)> {
