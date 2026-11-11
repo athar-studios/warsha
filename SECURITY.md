@@ -184,6 +184,23 @@ repeating a "CI is green" claim, read its trigger: `ci.yml` fires on pushes and 
 `main` only, and `release.yml` fires on a `v*` tag, which this repository has never had. Work on any other
 branch runs none of the above.
 
+**Accepted advisory — RUSTSEC-2026-0459 (`libsqlite3-sys` 0.30.1).** The bundled SQLite is older than
+3.54.0. The vector is local (`AV:L`, `UI:P`): it requires the victim to open a database file together
+with a `-wal` written by a less trusted party. The fix needs `libsqlite3-sys >= 0.39`, which cannot be
+resolved today: `sqlx-sqlite 0.9.0` caps the crate below `0.38` while `rusqlite 0.41` requires `^0.39`,
+and both declare the native `links = "sqlite3"` library, so Cargo accepts only one version. The owner
+accepted the risk temporarily (OD-S1c, `DECISIONS.md` 2026-11-10), and `deny.toml` carries the matching
+time-boxed `[advisories].ignore` entry.
+
+Exposure in this tree: every production SQLite open is `<data_dir>/warsha.db`, a file inside Warsha's
+own data directory — daemon start-up (`crates/warshad/src/lib.rs:5364-5373`), the library default
+(`crates/warsha-store/src/lib.rs:194-215`), and the settings seam
+(`crates/warsha-store/src/persistence.rs:365`). No RPC parameter, provider response, model output,
+project path or plugin manifest selects the database path, and `data_dir` can be changed only by the
+owner through daemon configuration. The residual exposure is a local process that can already write
+inside that directory. The ignore entry is removed at the first of: SQLx allowing `libsqlite3-sys
+0.39+`, packet E7 landing, or the 1.0.0-rc milestone.
+
 ## Threat Model
 
 | Threat | Mitigation in the code today |

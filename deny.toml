@@ -140,6 +140,15 @@
 #     - src-tauri: `warning[license-not-encountered]` for allow entries its graph
 #       does not resolve (measured today: NCSA, Unicode-DFS-2016).
 #   Both checks exit 0 (`advisories ok, bans ok, licenses ok, sources ok`).
+#
+#   ACCEPTED RISK — RUSTSEC-2026-0459 (`libsqlite3-sys` 0.30.1 bundles SQLite
+#   < 3.54.0). The owning decision is OD-S1c in `DECISIONS.md` (2026-11-10);
+#   the exposure analysis is the "Supply Chain" section of `SECURITY.md`.
+#   libsqlite3-sys >= 0.39 is unreachable today: `sqlx-sqlite 0.9.0` caps it
+#   below 0.38 and `rusqlite 0.41` requires ^0.39, and both declare
+#   `links = "sqlite3"`. The last entry below is time-boxed and must be removed
+#   at the first of: (a) SQLx allowing libsqlite3-sys 0.39+, (b) packet E7
+#   landing, (c) the 1.0.0-rc milestone.
 
 [advisories]
 version = 2
@@ -149,6 +158,7 @@ ignore = [
     { id = "RUSTSEC-2026-0370", reason = "Transitive unmaintained notice on zvariant 2.10.0 pulled in only via keyring 1.2.1 -> secret-service 2.0.2 -> zbus 1.9.3; paste (RUSTSEC-2024-0436) and number_prefix (RUSTSEC-2025-0119) were eliminated by narrowing image to png and removing unused indicatif." },
     { id = "RUSTSEC-2026-0372", reason = "Transitive unmaintained notice on zvariant_derive 2.10.0 pulled in only via keyring 1.2.1 -> secret-service 2.0.2 -> zbus 1.9.3 -> zvariant 2.10.0; paste (RUSTSEC-2024-0436) and number_prefix (RUSTSEC-2025-0119) were eliminated by narrowing image to png and removing unused indicatif." },
     { id = "RUSTSEC-2024-0370", reason = "Transitive unmaintained notice on proc-macro-error 1.0.4 pulled in only via tauri 2.12.5 -> gtk 0.18.2 -> glib 0.18.5 -> glib-macros 0.18.5 on the Linux target graph; no safe upstream upgrade exists in gtk 0.18." },
+    { id = "RUSTSEC-2026-0459", reason = "ACCEPTED RISK by owner (OD-S1c, DECISIONS.md 2026-11-10): libsqlite3-sys 0.30.1 bundles SQLite < 3.54.0; the vector is local (AV:L/UI:P) and requires opening an attacker-influenced database with a sibling -wal. The fix needs libsqlite3-sys >= 0.39, unreachable while sqlx-sqlite 0.9.0 caps it below 0.38 and rusqlite 0.41 requires ^0.39 (both link the native sqlite3 library). Every production open is <data_dir>/warsha.db inside Warsha's own data directory (SECURITY.md, Supply Chain). Remove this entry at the first of: (a) SQLx allowing libsqlite3-sys 0.39+, (b) packet E7 landing, (c) the 1.0.0-rc milestone." },
 ]
 
 [licenses]
