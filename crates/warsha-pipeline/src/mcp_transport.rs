@@ -42,7 +42,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -419,6 +419,10 @@ pub trait McpManager: Send + Sync {
 pub struct InMemoryMcpManager {
     processes: Arc<dyn ProcessManager>,
     connections: Mutex<Vec<McpConnection>>,
+    /// Names explicitly closed via `disconnect`, so a subsequent `connect` can
+    /// replace the stopped tombstone while a duplicate unwired registration still
+    /// refuses without a prior `disconnect`.
+    disconnected: Mutex<HashSet<String>>,
     cursors: Mutex<HashMap<String, usize>>,
     launches: Mutex<HashMap<String, McpLaunchOptions>>,
     next_request_id: AtomicU64,
@@ -430,6 +434,7 @@ impl InMemoryMcpManager {
         InMemoryMcpManager {
             processes,
             connections: Mutex::new(Vec::new()),
+            disconnected: Mutex::new(HashSet::new()),
             cursors: Mutex::new(HashMap::new()),
             launches: Mutex::new(HashMap::new()),
             next_request_id: AtomicU64::new(100),
@@ -870,13 +875,27 @@ impl McpManager for InMemoryMcpManager {
         }
         {
             let connections = self.connections.lock().await;
-            if connections
+            let was_disconnected = self.disconnected.lock().await.contains(&name);
+            if let Some(existing) = connections
                 .iter()
-                .any(|connection| connection.config.name == name)
+                .find(|connection| connection.config.name == name)
             {
-                return Err(McpTransportError::Duplicate(name));
+                // A live connection or an active unwired record blocks a duplicate
+                // connect; an explicitly disconnected server or a failed attempt is
+                // a tombstone and may be replaced.
+                let is_tombstone =
+                    was_disconnected || matches!(existing.status, McpStatus::Error(_));
+                if !is_tombstone {
+                    return Err(McpTransportError::Duplicate(name));
+                }
             }
         }
+        // Drop the stale tombstone before the new record is pushed.
+        self.disconnected.lock().await.remove(&name);
+        self.connections
+            .lock()
+            .await
+            .retain(|connection| connection.config.name != name);
 
         // The lock is not held across a spawn: starting a process is the slow step
         // and no other RPC should wait on it.
@@ -990,6 +1009,7 @@ impl McpManager for InMemoryMcpManager {
         // a reconnect starts from what its own caller names.
         self.cursors.lock().await.remove(name);
         self.launches.lock().await.remove(name);
+        self.disconnected.lock().await.insert(name.to_string());
 
         let mut connections = self.connections.lock().await;
         if let Some(connection) = connections
@@ -1943,6 +1963,39 @@ mod tests {
                 waited < DEFAULT_RESPONSE_TIMEOUT,
                 "a gone process is reported, not waited on; waited {waited:?}"
             );
+        }
+    }
+}
+
+/// Review-driven repairs: a disconnected or failed record is a tombstone, not a
+/// permanent duplicate.
+#[cfg(test)]
+mod review_repair {
+    use super::*;
+
+    fn manager() -> InMemoryMcpManager {
+        InMemoryMcpManager::new(crate::process_spawn::InMemoryProcessManager::shared())
+    }
+
+    #[tokio::test]
+    async fn a_disconnected_server_can_be_reconnected() {
+        let mcp = manager();
+        let config = McpServerConfig::new_http("srv", "https://mcp.example/mcp");
+        mcp.connect(config.clone()).await.expect("records");
+        mcp.disconnect("srv").await.expect("disconnects");
+        mcp.connect(config)
+            .await
+            .expect("a disconnected name can be connected again");
+    }
+
+    #[tokio::test]
+    async fn a_failed_connect_can_be_retried() {
+        let mcp = manager();
+        let config = McpServerConfig::new_stdio("bad", "/nonexistent-warsha-probe", vec![]);
+        assert!(mcp.connect(config.clone()).await.is_err());
+        match mcp.connect(config).await {
+            Err(McpTransportError::Spawn { .. }) => {}
+            other => panic!("a retry must reach spawn again, not Duplicate: {other:?}"),
         }
     }
 }

@@ -817,6 +817,16 @@ impl<S> Layer<S> for RpcAuthLayer {
     }
 }
 
+/// The app's own origins: the desktop webview on Unix and on Windows. They are
+/// always allowed whatever a `config.toml` lists, because an existing config that
+/// predates one of them must not lock its own app out of the daemon.
+const APP_ORIGINS: &[&str] = &["tauri://localhost", "http://tauri.localhost"];
+
+/// Whether a present `Origin` is one the RPC listener accepts.
+fn origin_allowed(configured: &[String], origin: &str) -> bool {
+    APP_ORIGINS.contains(&origin) || configured.iter().any(|allowed| allowed == origin)
+}
+
 /// Tower service for RPC authentication.
 /// Mirrors the pattern used by jsonrpsee's own `HostFilter` middleware layer.
 #[derive(Clone)]
@@ -947,13 +957,10 @@ where
             // same-origin) is allowed exactly as before (security audit LOW: no Origin
             // check on the RPC WS).
             if let Some(origin) = req.headers().get(axum::http::header::ORIGIN) {
-                let allowed = origin.to_str().ok().is_some_and(|value| {
-                    state
-                        .config
-                        .allowed_origins
-                        .iter()
-                        .any(|allowed| allowed == value)
-                });
+                let allowed = origin
+                    .to_str()
+                    .ok()
+                    .is_some_and(|value| origin_allowed(&state.config.allowed_origins, value));
                 if !allowed {
                     return Ok(rpc_refusal(
                         axum::http::StatusCode::FORBIDDEN,
@@ -11800,6 +11807,15 @@ mod origin_guard {
             state,
         };
         assert_eq!(status(&mut service, Some("http://evil.example")).await, 403);
+    }
+
+    #[test]
+    fn the_app_origins_are_always_allowed() {
+        let configured = vec!["http://localhost:5173".to_string()];
+        assert!(origin_allowed(&configured, "tauri://localhost"));
+        assert!(origin_allowed(&configured, "http://tauri.localhost"));
+        assert!(origin_allowed(&configured, "http://localhost:5173"));
+        assert!(!origin_allowed(&configured, "http://evil.example"));
     }
 
     #[tokio::test]

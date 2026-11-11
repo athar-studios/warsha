@@ -88,6 +88,9 @@ const DENIED_CHILD_ENV_KEYS: &[&str] = &[
 /// patience cannot grow its memory without bound.
 pub const MAX_CAPTURED_LINES: usize = 500;
 
+/// The wall-clock bound for one stdin write to a child.
+pub const STDIN_WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// The most bytes one captured line keeps before it is truncated.
 ///
 /// [`BufReader::lines`] built a whole line before redacting, so a child that
@@ -264,6 +267,9 @@ pub enum ProcessError {
         #[source]
         source: std::io::Error,
     },
+    /// Writing to the child's stdin did not finish in time.
+    #[error("process `{0}` did not accept stdin within the deadline")]
+    StdinTimeout(String),
     /// The process was signalled but could not be killed.
     #[error("could not stop process `{id}`: {source}")]
     Stop {
@@ -384,6 +390,9 @@ struct Entry {
     env: HashMap<String, String>,
     output: Arc<Mutex<VecDeque<String>>>,
     errors: Arc<Mutex<VecDeque<String>>>,
+    /// The child's stdin behind its own lock, so a blocked writer never holds the
+    /// entry list (review finding: `write_stdin` held `entries` across the write).
+    stdin: Arc<Mutex<Option<tokio::process::ChildStdin>>>,
 }
 
 /// The [`Command`] every spawn and restart builds.
@@ -429,8 +438,13 @@ fn command_for(program: &str, args: &[String], env: &HashMap<String, String>) ->
 /// Each line is also re-emitted as a `tracing` event: stdout used to be
 /// inherited, so this is where a dev server's log still reaches the daemon's
 /// console now that the manager holds the pipe.
-fn capture_stdout(id: String, stdout: ChildStdout, output: Arc<Mutex<VecDeque<String>>>) {
-    capture_lines(id, stdout, output, false, Vec::new());
+fn capture_stdout(
+    id: String,
+    stdout: ChildStdout,
+    output: Arc<Mutex<VecDeque<String>>>,
+    mask_values: Vec<String>,
+) {
+    capture_lines(id, stdout, output, false, mask_values);
 }
 
 /// Capture `stderr` into `errors`, redacted, until the pipe closes.
@@ -543,7 +557,16 @@ async fn emit_line(
         }
         tracing::warn!(process = %id, "{text}");
     } else {
-        tracing::info!(process = %id, "{text}");
+        // The ring keeps the raw protocol bytes because an MCP reply has to parse;
+        // the daemon log, however, must not carry a known secret a server printed on
+        // stdout. The ring remains owner-readable as before (tracked residual).
+        let mut logged = text.clone();
+        for value in mask_values {
+            if !value.is_empty() {
+                logged = logged.replace(value, "***");
+            }
+        }
+        tracing::info!(process = %id, "{logged}");
     }
     line.clear();
     *truncated = false;
@@ -725,12 +748,13 @@ impl ProcessManager for InMemoryProcessManager {
         // first line a caller reads cannot be lost to a late reader.
         let output = Arc::new(Mutex::new(VecDeque::new()));
         if let Some(stdout) = child.stdout.take() {
-            capture_stdout(id.clone(), stdout, output.clone());
+            capture_stdout(id.clone(), stdout, output.clone(), mask_values_for(env));
         }
         let errors = Arc::new(Mutex::new(VecDeque::new()));
         if let Some(stderr) = child.stderr.take() {
             capture_stderr(id.clone(), stderr, errors.clone(), mask_values_for(env));
         }
+        let stdin = child.stdin.take();
         let entry = Entry {
             process: ManagedProcess {
                 id: id.clone(),
@@ -744,6 +768,7 @@ impl ProcessManager for InMemoryProcessManager {
             env: env.clone(),
             output,
             errors,
+            stdin: Arc::new(Mutex::new(stdin)),
         };
         self.entries.lock().await.push(entry);
         Ok(id)
@@ -822,7 +847,12 @@ impl ProcessManager for InMemoryProcessManager {
         entry.output = Arc::new(Mutex::new(VecDeque::new()));
         entry.errors = Arc::new(Mutex::new(VecDeque::new()));
         if let Some(stdout) = child.stdout.take() {
-            capture_stdout(entry.process.id.clone(), stdout, entry.output.clone());
+            capture_stdout(
+                entry.process.id.clone(),
+                stdout,
+                entry.output.clone(),
+                mask_values_for(&entry.env),
+            );
         }
         if let Some(stderr) = child.stderr.take() {
             capture_stderr(
@@ -832,6 +862,9 @@ impl ProcessManager for InMemoryProcessManager {
                 mask_values_for(&entry.env),
             );
         }
+        // The restarted child gets a fresh stdin handle; a writer still holding
+        // the old one writes to the dead child instead of the entry list.
+        entry.stdin = Arc::new(Mutex::new(child.stdin.take()));
         entry.process.child = Some(child);
         entry.process.status = ProcessStatus::Starting;
         entry.process.started_at = Some(now_epoch_secs());
@@ -883,30 +916,33 @@ impl ProcessManager for InMemoryProcessManager {
     }
 
     async fn write_stdin(&self, id: &str, bytes: &[u8]) -> Result<(), ProcessError> {
-        let mut entries = self.entries.lock().await;
-        let entry = entries
-            .iter_mut()
-            .find(|entry| entry.process.id == id)
-            .ok_or_else(|| ProcessError::NotFound(id.to_string()))?;
-        refresh(&mut entry.process)?;
-        let Some(child) = entry.process.child.as_mut() else {
-            return Err(ProcessError::NotRunning(id.to_string()));
+        // Clone the per-entry stdin handle under the entry lock, then release it:
+        // a child that stops reading must not wedge `status`, `list`, `stop` or
+        // `kill_all` while its peer-controlled pipe is full.
+        let stdin = {
+            let entries = self.entries.lock().await;
+            entries
+                .iter()
+                .find(|entry| entry.process.id == id)
+                .map(|entry| entry.stdin.clone())
+                .ok_or_else(|| ProcessError::NotFound(id.to_string()))?
         };
-        let Some(stdin) = child.stdin.as_mut() else {
+        let mut guard = stdin.lock().await;
+        let Some(stdin) = guard.as_mut() else {
             return Err(ProcessError::StdInUnsupported(id.to_string()));
         };
-        stdin
-            .write_all(bytes)
-            .await
-            .map_err(|source| ProcessError::Write {
+        let write = async {
+            stdin.write_all(bytes).await?;
+            stdin.flush().await
+        };
+        match tokio::time::timeout(STDIN_WRITE_TIMEOUT, write).await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(source)) => Err(ProcessError::Write {
                 id: id.to_string(),
                 source,
-            })?;
-        stdin.flush().await.map_err(|source| ProcessError::Write {
-            id: id.to_string(),
-            source,
-        })?;
-        Ok(())
+            }),
+            Err(_) => Err(ProcessError::StdinTimeout(id.to_string())),
+        }
     }
 }
 
@@ -2183,5 +2219,31 @@ mod k5_repair {
             "the known secret survived masking: {joined}"
         );
         assert!(joined.contains("***"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_blocked_stdin_writer_does_not_block_the_entry_list() {
+        let manager = InMemoryProcessManager::shared();
+        let env: HashMap<String, String> = HashMap::new();
+        let id = manager
+            .spawn("sleep", &["30".to_string()], &env)
+            .await
+            .expect("sleep starts");
+        let writer = {
+            let manager = manager.clone();
+            let id = id.clone();
+            tokio::spawn(async move {
+                let payload = vec![b'x'; 8 * 1024 * 1024];
+                let _ = manager.write_stdin(&id, &payload).await;
+            })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let listed = tokio::time::timeout(std::time::Duration::from_secs(2), manager.list())
+            .await
+            .expect("the entry list answers while a writer is blocked");
+        assert_eq!(listed.len(), 1);
+        writer.abort();
+        let _ = manager.stop(&id).await;
     }
 }

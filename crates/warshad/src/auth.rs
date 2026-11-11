@@ -1148,8 +1148,22 @@ impl ProcessPolicy {
             .split('@')
             .next_back()
             .unwrap_or_default();
-        let host = host.split(':').next().unwrap_or_default();
-        if host == "localhost" || host.starts_with("127.") || host.starts_with("[::1") {
+        // An IPv6 literal is bracketed; strip the brackets before the port split,
+        // otherwise the first `:` inside the address truncates it.
+        let host = if let Some(rest) = host.strip_prefix('[') {
+            rest.split(']').next().unwrap_or_default()
+        } else {
+            host.split(':').next().unwrap_or_default()
+        };
+        // `127.example.com` starts with "127." but is not loopback: parse the host
+        // and require a real loopback address (or the literal `localhost`).
+        if host == "localhost" {
+            return Ok(());
+        }
+        if host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
+        {
             return Ok(());
         }
         Err(format!(
@@ -2169,6 +2183,12 @@ mod tests {
         assert!(policy
             .check_transport_url("http://user@127.0.0.1:9/mcp")
             .is_ok());
+        // A host that merely starts with "127." is not loopback, and an IPv6
+        // loopback literal is bracketed.
+        assert!(policy
+            .check_transport_url("http://127.example.com/mcp")
+            .is_err());
+        assert!(policy.check_transport_url("http://[::1]:9000/mcp").is_ok());
     }
 
     #[test]
