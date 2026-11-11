@@ -24,9 +24,9 @@ export const StageStrip: React.FC<StageStripProps> = ({
     <ol
       aria-label={t('bench.tab.overview')}
       data-testid="bench-stage-strip"
+      className="v3-bench-stage-strip"
       style={{
         display: 'flex',
-        flexWrap: 'wrap',
         gap: 'var(--w-space-1)',
         listStyle: 'none',
         margin: 0,

@@ -10,7 +10,7 @@ import { useT } from '@warsha/i18n/v3';
 // eslint-disable-next-line import/no-unresolved
 import '@warsha/ui/v3/tokens/tokens.css';
 // eslint-disable-next-line import/no-unresolved
-import { Banner, Button, Skeleton } from '@warsha/ui/v3';
+import { Banner, Button, IconFolder, Sheet, Skeleton } from '@warsha/ui/v3';
 import React, { useEffect, useMemo, useState } from 'react';
 
 import { useAction } from '../../actions';
@@ -51,6 +51,7 @@ import { PreviewTab } from './tabs/PreviewTab';
 import { TeamTab } from './tabs/TeamTab';
 import { TerminalTab } from './tabs/TerminalTab';
 import { type BenchTabId, BENCH_TABS } from './types';
+import { useNarrowViewport } from './useNarrowViewport';
 
 import './bench.css';
 
@@ -96,6 +97,15 @@ export default function BenchPage(): React.ReactElement {
     if (!client) return;
     client.listRunModes().then(setRunModes).catch(() => {});
   }, [client]);
+
+  // Below 768px the rail leaves the layout and opens from a labelled button (planner decision 4): the
+  // Workbench has no room for a 264px column beside the screen at 390, and squeezing the screen into
+  // what is left produced the unusable captures the 2026-11-10 review rejected.
+  const narrow = useNarrowViewport();
+  const [railOpen, setRailOpen] = useState(false);
+  const railOpenAction = useAction('bench.rail.open', async () => {
+    setRailOpen(true);
+  });
 
   // Aggregated runs per project for the rail
   const [runsByProject, setRunsByProject] = useState<Record<string, RunSummary[]>>({});
@@ -254,8 +264,45 @@ export default function BenchPage(): React.ReactElement {
   };
 
   const handleSelectRun = (pId: string, rId: string) => {
+    setRailOpen(false);
     navigate(`/p/${pId}/r/${rId}/${activeTab}`);
   };
+
+  /** The rail's props for one run selection, shared by the inline rail and the narrow Sheet. */
+  const railProps = (activeRunId: string) => ({
+    projects: projectsHook.data ?? [],
+    projectsStatus: projectsHook.status,
+    runsByProject,
+    activeProjectId: effectiveProjectId,
+    activeRunId,
+    onNewProject: () => navigate('/'),
+    onSelectRun: handleSelectRun,
+    onRetryProjects: () => projectsHook.reload(),
+  });
+
+  /**
+   * Where the rail goes: in the layout at 768px and up, behind one labelled button below it.
+   * The button is the action `bench.rail.open`; the Sheet owns focus, Escape and the return.
+   */
+  const renderRail = (activeRunId: string): React.ReactElement =>
+    narrow ? (
+      <div className="v3-bench-rail-opener">
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<IconFolder size={16} />}
+          data-action="bench.rail.open"
+          data-testid="bench-rail-open-btn"
+          onClick={() => {
+            void railOpenAction.run();
+          }}
+        >
+          {t('bench.rail.open')}
+        </Button>
+      </div>
+    ) : (
+      <BenchRail {...railProps(activeRunId)} />
+    );
 
   const handleReconnect = () => {
     eventsHook.reload();
@@ -327,17 +374,20 @@ export default function BenchPage(): React.ReactElement {
         data-density="compact"
         data-testid="bench-empty"
       >
-        <BenchRail
-          projects={projectsHook.data ?? []}
-          projectsStatus={projectsHook.status}
-          runsByProject={runsByProject}
-          activeProjectId={effectiveProjectId}
-          activeRunId=""
-          onNewProject={() => navigate('/')}
-          onSelectRun={handleSelectRun}
-          onRetryProjects={() => projectsHook.reload()}
-        />
-        <div style={{ flex: '999 1 0%', minInlineSize: '60%', padding: 'var(--w-space-4)' }}>
+        {renderRail('')}
+        {narrow && (
+          <Sheet
+            open={railOpen}
+            onClose={() => setRailOpen(false)}
+            title={t('bench.rail.title')}
+            closeLabel={t('common.close')}
+            side="start"
+            data-testid="bench-rail-sheet"
+          >
+            <BenchRail {...railProps('')} />
+          </Sheet>
+        )}
+        <div className="v3-bench-main">
           <Banner
             variant="info"
             action={
@@ -364,30 +414,23 @@ export default function BenchPage(): React.ReactElement {
       data-density="compact"
       data-testid="bench-container"
     >
-      <BenchRail
-        projects={projectsHook.data ?? []}
-        projectsStatus={projectsHook.status}
-        runsByProject={runsByProject}
-        activeProjectId={effectiveProjectId}
-        activeRunId={run.id}
-        onNewProject={() => navigate('/')}
-        onSelectRun={handleSelectRun}
-        onRetryProjects={() => projectsHook.reload()}
-      />
+      {renderRail(run.id)}
+      {narrow && (
+        <Sheet
+          open={railOpen}
+          onClose={() => setRailOpen(false)}
+          title={t('bench.rail.title')}
+          closeLabel={t('common.close')}
+          side="start"
+          data-testid="bench-rail-sheet"
+        >
+          <BenchRail {...railProps(run.id)} />
+        </Sheet>
+      )}
 
       <div
         className="v3-bench-main"
         data-testid="bench-main"
-        style={{
-          flex: '999 1 0%',
-          minInlineSize: '60%',
-          minWidth: 0,
-          padding: 'var(--w-space-4)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 'var(--w-space-3)',
-          boxSizing: 'border-box',
-        }}
       >
         <BenchHeader
           project={projectHook.data}

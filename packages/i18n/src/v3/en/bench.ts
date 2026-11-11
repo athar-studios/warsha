@@ -36,6 +36,7 @@ export default {
   'bench.error': 'Could not load run data',
   'bench.retry': 'Retry',
   'bench.rail.title': 'Projects and runs',
+  'bench.rail.open': 'Open projects and runs',
   'bench.rail.new_project': 'New project',
   'bench.rail.empty_runs': 'No runs for this project',
   'bench.rail.no_projects': 'No projects',

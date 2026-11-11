@@ -67,6 +67,7 @@ export const BenchHeader: React.FC<BenchHeaderProps> = ({
   return (
     <header
       data-testid="bench-header"
+      className="v3-bench-header"
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -125,11 +126,12 @@ export const BenchHeader: React.FC<BenchHeaderProps> = ({
       </div>
 
       <div
+        className="v3-bench-header-actions"
         style={{
-          marginInlineStart: 'auto',
           display: 'flex',
           alignItems: 'center',
           gap: 'var(--w-space-2)',
+          flexWrap: 'wrap',
         }}
       >
         <IconButton

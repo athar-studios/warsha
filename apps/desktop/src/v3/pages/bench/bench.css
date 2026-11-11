@@ -12,10 +12,86 @@
   overflow-x: hidden;
 }
 
+/* The screen column. Sized here, not inline, so the narrow breakpoint can release the floor the
+ * inline `minInlineSize: 60%` used to keep: at 390 that floor is what squeezed the bench. */
+.v3-bench-main {
+  flex: 1 1 0%;
+  min-inline-size: 0;
+  inline-size: 100%;
+  padding: var(--w-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-space-3);
+  box-sizing: border-box;
+}
+
+/* The narrow rail's door: one labelled control where the rail used to sit. */
+.v3-bench-rail-opener {
+  display: flex;
+  align-items: center;
+  padding-inline: var(--w-space-3);
+  padding-block-start: var(--w-space-3);
+  box-sizing: border-box;
+  max-inline-size: 100%;
+}
+
+.v3-bench-header-actions {
+  margin-inline-start: auto;
+}
+
+.v3-bench-stage-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--w-space-1);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  padding-block: var(--w-space-2);
+  box-sizing: border-box;
+}
+
+.v3-bench-tabs {
+  min-inline-size: 0;
+}
+
 .v3-bench-container input:focus-visible,
 .v3-bench-container textarea:focus-visible,
 .v3-bench-container select:focus-visible,
 .v3-bench-container button:focus-visible,
 .v3-bench-container a:focus-visible {
   box-shadow: 0 0 0 var(--w-border-width-strong) var(--w-focus);
+}
+
+/*
+ * Below 768px (planner decision 4, 2026-11-10): the rail leaves the layout — `BenchPage` renders the
+ * action `bench.rail.open` and a Sheet instead — the header actions wrap onto their own line, and the
+ * stage strip and tab list scroll inside their own tracks. The page itself never scrolls sideways.
+ */
+@media (max-width: 767px) {
+  .v3-bench-container {
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .v3-bench-main {
+    inline-size: 100%;
+    padding: var(--w-space-3);
+  }
+
+  .v3-bench-header-actions {
+    margin-inline-start: 0;
+    inline-size: 100%;
+    flex-wrap: wrap;
+  }
+
+  .v3-bench-stage-strip {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+  }
+
+  .v3-bench-tabs {
+    max-inline-size: 100%;
+  }
 }

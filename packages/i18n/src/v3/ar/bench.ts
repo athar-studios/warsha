@@ -36,6 +36,7 @@ export default {
   'bench.error': 'تعذر تحميل بيانات التشغيل',
   'bench.retry': 'إعادة المحاولة',
   'bench.rail.title': 'المشاريع والتشغيلات',
+  'bench.rail.open': 'فتح المشاريع والتشغيلات',
   'bench.rail.new_project': 'مشروع جديد',
   'bench.rail.empty_runs': 'لا توجد تشغيلات لهذا المشروع',
   'bench.rail.no_projects': 'لا توجد مشاريع',

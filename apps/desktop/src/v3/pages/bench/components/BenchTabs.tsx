@@ -54,6 +54,7 @@ export const BenchTabs: React.FC<BenchTabsProps> = ({ activeTab, onChange }) => 
       role="tablist"
       aria-label={t('bench.tab.overview')}
       data-testid="bench-tabs"
+      className="v3-bench-tabs"
       style={{
         display: 'flex',
         alignItems: 'center',

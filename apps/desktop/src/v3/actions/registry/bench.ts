@@ -1,6 +1,7 @@
 import type { ActionDef } from '../types';
 
 export const ACTIONS: readonly ActionDef[] = [
+  { id: 'bench.rail.open', labelKey: 'bench.rail.open', effect: 'state' },
   { id: 'bench.project.new', labelKey: 'bench.action.project_new', effect: 'nav', route: '/' },
   { id: 'bench.run.select', labelKey: 'bench.action.run_select', effect: 'nav' },
   { id: 'bench.run.start', labelKey: 'bench.action.run_start', effect: 'rpc', rpc: ['runs.start'] },

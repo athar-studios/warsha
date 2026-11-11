@@ -15,7 +15,7 @@ import {
   runAxe,
 } from '../harness';
 
-import { act, expectRpc, openV3 } from './support';
+import { act, expectRpc, openV3, auditViewportFit, describeViewportFit, viewportFitIsClean } from './support';
 
 const BENCH_URL = '/p/proj-ui/r/run-code/overview';
 const GATE_WAITING_URL = '/p/proj-store/r/run-gate-a/overview';
@@ -473,6 +473,46 @@ test.describe('Workbench (U4) — Action ID contracts', () => {
   });
 });
 
+test.describe('Narrow Workbench (below 768px)', () => {
+  const PHONE = { width: 390, height: 844 } as const;
+
+  test('bench.rail.open moves the rail into a Sheet, and a run choice closes it', async ({ page }) => {
+    await openV3(page, BENCH_URL, { lang: 'en', mode: 'advanced', viewport: PHONE });
+
+    // The rail left the layout: it is neither painted nor reachable beside the screen at 390.
+    await expect(page.locator('[data-testid="bench-rail"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="bench-rail-open-btn"]')).toBeVisible();
+
+    await act(page, 'bench.rail.open');
+    const sheet = page.locator('[data-testid="bench-rail-sheet"]');
+    await expect(sheet).toBeVisible();
+    await expect(sheet.locator('[data-testid="bench-rail"]')).toBeVisible();
+
+    // Choosing the other project's run from the Sheet navigates and hands the screen back.
+    const runButton = sheet.locator('[data-action="bench.run.select"]').first();
+    await expect(runButton).toBeVisible();
+    await runButton.click();
+    await expect(sheet).toHaveCount(0);
+    await expect(page).toHaveURL(/#\/p\/[^/]+\/r\/[^/]+\/overview$/);
+  });
+
+  test('the decision card keeps its primary action on screen at 390x844', async ({ page }) => {
+    await openV3(page, GATE_WAITING_URL, { lang: 'en', mode: 'advanced', viewport: PHONE });
+
+    const approve = page.locator('[data-testid="bench-gate-approve-btn"]');
+    await expect(approve).toBeVisible();
+    const box = await approve.boundingBox();
+    expect(box, 'the primary decision action has no box').not.toBeNull();
+    expect(box!.x, 'the approve button starts outside the phone viewport').toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width, 'the approve button runs past the phone viewport').toBeLessThanOrEqual(
+      PHONE.width
+    );
+    expect(box!.y + box!.height, 'the approve button sits below the phone viewport').toBeLessThanOrEqual(
+      PHONE.height
+    );
+  });
+});
+
 test.describe('@a11y Workbench axe and keyboard', () => {
   for (const lang of ['ar', 'en'] as const) {
     for (const theme of ['light', 'dark'] as const) {
@@ -524,6 +564,8 @@ test.describe('@visual Workbench tabs & states', () => {
             const clips = await auditClipping(page, '[data-testid="bench-container"]');
             expect.soft(clipsAreClean(clips), describeClips(clips)).toBe(true);
 
+            const fit = await auditViewportFit(page);
+            expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
             await expect(page).toHaveScreenshot(
               `bench-${tab}-${viewport.name}-${lang}-${theme}.png`
             );
@@ -541,6 +583,8 @@ test.describe('@visual Workbench tabs & states', () => {
           const layout = await auditLayout(page, '[data-testid="bench-container"]', theme);
           expect.soft(auditIsClean(layout), describeAudit(layout)).toBe(true);
 
+          const fit = await auditViewportFit(page);
+          expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
           await expect(page).toHaveScreenshot(
             `bench-gate-waiting-${viewport.name}-${lang}-${theme}.png`
           );
@@ -558,6 +602,8 @@ test.describe('@visual Workbench tabs & states', () => {
           const layout = await auditLayout(page, '[data-testid="bench-error"]', theme);
           expect.soft(auditIsClean(layout), describeAudit(layout)).toBe(true);
 
+          const fit = await auditViewportFit(page);
+          expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
           await expect(page).toHaveScreenshot(
             `bench-error-${viewport.name}-${lang}-${theme}.png`
           );
