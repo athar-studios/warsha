@@ -1400,47 +1400,5 @@ mod tests;
 /// K5 repair gates: launcher pin grammar (finding 3) and the non-stdio command
 /// guard (finding 1).
 #[cfg(test)]
-mod k5_repair {
-    use super::*;
-
-    fn args(values: &[&str]) -> Vec<String> {
-        values
-            .iter()
-            .map(|value| (*value).to_string())
-            .collect::<Vec<_>>()
-    }
-
-    #[test]
-    fn pin_grammar_rejects_ranges_and_accepts_exact_pins() {
-        assert!(require_pinned_launch("npx", &args(&["@scope/server@1.2.3"])).is_ok());
-        assert!(require_pinned_launch("npx", &args(&["@scope/server@1.2.x"])).is_err());
-        assert!(require_pinned_launch("npx", &args(&["@scope/server@1.x.x"])).is_err());
-        assert!(require_pinned_launch("npx", &args(&["@scope/server@*"])).is_err());
-        assert!(require_pinned_launch("npx", &args(&["@scope/server@^1.2.3"])).is_err());
-        assert!(require_pinned_launch("npx", &args(&["--package=@scope/server"])).is_err());
-        assert!(require_pinned_launch("npx", &args(&["--package=@scope/server@1.2.3"])).is_ok());
-        assert!(require_pinned_launch("npx", &args(&["-y", "@scope/server@1.2.3"])).is_ok());
-        assert!(require_pinned_launch(
-            "npx",
-            &args(&["@scope/server@1.2.3", "/allowed/root", "3000"])
-        )
-        .is_ok());
-        assert!(require_pinned_launch("pnpm", &args(&["run", "dev"])).is_ok());
-        assert!(require_pinned_launch("npx", &args(&[])).is_err());
-    }
-
-    #[test]
-    fn transport_bypass_rejects_a_non_stdio_command() {
-        let http_with_command =
-            r#"{"name":"x","transport":"http","command":"/bin/sh","args":["-c","id"]}"#;
-        assert!(
-            parse_plugin_manifest(http_with_command).is_err(),
-            "a non-stdio manifest must not carry a program to spawn"
-        );
-        let http_without_command = r#"{"name":"x","transport":"http"}"#;
-        assert!(parse_plugin_manifest(http_without_command).is_ok());
-        let stdio_pinned =
-            r#"{"name":"x","transport":"stdio","command":"npx","args":["pkg@1.2.3"]}"#;
-        assert!(parse_plugin_manifest(stdio_pinned).is_ok());
-    }
-}
+#[path = "wave2_k5_tests.rs"]
+mod k5_repair;

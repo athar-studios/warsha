@@ -2160,6 +2160,48 @@ mod k5_repair {
     }
 
     #[test]
+    fn pm_path_retains_default_minimal_env_keys() {
+        let command = command_for("probe", &[], &HashMap::new());
+        let envs: HashMap<String, Option<String>> = command
+            .as_std()
+            .get_envs()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.map(|s| s.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        assert!(envs.contains_key("PATH"));
+        assert!(envs.contains_key("LC_ALL"));
+    }
+
+    #[tokio::test]
+    async fn pm_path_spawns_cargo_via_process_manager() {
+        let manager = InMemoryProcessManager::new();
+        let id = manager
+            .spawn("cargo", &["--version".to_string()], &HashMap::new())
+            .await
+            .expect("ProcessManager spawns cargo via trusted child_path");
+        let mut lines = Vec::new();
+        for _ in 0..200 {
+            lines = manager
+                .read_stdout(&id, 0)
+                .await
+                .expect("process is tracked");
+            if lines.iter().any(|l| l.starts_with("cargo ")) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(
+            lines.iter().any(|l| l.starts_with("cargo ")),
+            "cargo --version output missing: {lines:?}"
+        );
+        let _ = manager.stop(&id).await;
+    }
+
+    #[test]
     fn mask_values_come_from_the_child_environment() {
         let mut env = HashMap::new();
         env.insert(
@@ -2200,6 +2242,18 @@ mod k5_repair {
     }
 
     #[tokio::test]
+    async fn stderr_bytes_no_newline_stream_bounded_by_single_line_cap() {
+        let input = vec![b'x'; MAX_CAPTURED_LINE_BYTES + 4096];
+        let sink = Arc::new(Mutex::new(VecDeque::new()));
+        drain_bounded("probe", &input[..], &sink, true, &[]).await;
+        let captured = sink.lock().await;
+        assert_eq!(captured.len(), 2);
+        let line = &captured[0];
+        assert!(line.len() <= MAX_CAPTURED_LINE_BYTES + TRUNCATION_MARKER.len());
+        assert!(line.ends_with(TRUNCATION_MARKER));
+    }
+
+    #[tokio::test]
     async fn stderr_secret_is_masked_before_storage() {
         let secret = "k5-sentinel-secret-value-123";
         let transcript = format!("diagnostic before {secret} diagnostic after\n");
@@ -2219,6 +2273,90 @@ mod k5_repair {
             "the known secret survived masking: {joined}"
         );
         assert!(joined.contains("***"));
+    }
+
+    #[tokio::test]
+    async fn stderr_secret_shape_masking_fallback_redacts_credentials() {
+        let secret = format!("{}-{}", "sk", "1234567890abcdef12345678");
+        let transcript = format!("error from provider with {secret} inside\n");
+        let sink = Arc::new(Mutex::new(VecDeque::new()));
+        drain_bounded("probe", transcript.as_bytes(), &sink, true, &[]).await;
+        let captured = sink.lock().await;
+        let joined = captured.iter().cloned().collect::<Vec<_>>().join("\n");
+        assert!(
+            !joined.contains(&secret),
+            "credential was not masked: {joined}"
+        );
+        assert!(joined.contains(crate::guardrails::REDACTED));
+    }
+
+    #[tokio::test]
+    async fn stderr_secret_spawned_child_redacts_sentinel_from_ring_and_tracing() {
+        use std::sync::Mutex as StdMutex;
+        use tracing::field::{Field, Visit};
+        use tracing::Subscriber;
+
+        struct CaptureVisitor(String);
+        impl Visit for CaptureVisitor {
+            fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+                self.0.push_str(&format!(" {}={:?}", field.name(), value));
+            }
+            fn record_str(&mut self, field: &Field, value: &str) {
+                self.0.push_str(&format!(" {}={}", field.name(), value));
+            }
+        }
+        struct CaptureSubscriber(Arc<StdMutex<Vec<String>>>);
+        impl Subscriber for CaptureSubscriber {
+            fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+                true
+            }
+            fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+                tracing::span::Id::from_u64(1)
+            }
+            fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+            fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+            fn event(&self, event: &tracing::Event<'_>) {
+                let mut v = CaptureVisitor(String::new());
+                event.record(&mut v);
+                if let Ok(mut g) = self.0.lock() {
+                    g.push(v.0);
+                }
+            }
+            fn enter(&self, _: &tracing::span::Id) {}
+            fn exit(&self, _: &tracing::span::Id) {}
+        }
+
+        let secret = "k5-sentinel-secret-value-123";
+        let logs = Arc::new(StdMutex::new(Vec::new()));
+        let subscriber = CaptureSubscriber(logs.clone());
+        let dispatch = tracing::Dispatch::new(subscriber);
+        let _guard = tracing::dispatcher::set_default(&dispatch);
+
+        let transcript = format!("plugin stderr line with {secret} emitted\n");
+        let sink = Arc::new(Mutex::new(VecDeque::new()));
+        drain_bounded(
+            "probe",
+            transcript.as_bytes(),
+            &sink,
+            true,
+            &[secret.to_string()],
+        )
+        .await;
+
+        let captured = sink.lock().await;
+        let ring_joined = captured.iter().cloned().collect::<Vec<_>>().join("\n");
+        assert!(!ring_joined.contains(secret));
+        assert!(ring_joined.contains("***"));
+
+        let logged = logs.lock().expect("logs lock").join("\n");
+        assert!(
+            !logged.contains(secret),
+            "tracing event leaked known secret: {logged}"
+        );
+        assert!(
+            logged.contains("***"),
+            "tracing event must contain masked output: {logged}"
+        );
     }
 
     #[cfg(unix)]

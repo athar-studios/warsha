@@ -4764,11 +4764,13 @@ impl WarshaApiServer for WarshaRpc {
                         .map_err(|e| rpc_error(e.to_string()))?;
                 }
             }
-        } else if def
-            .command
-            .as_deref()
-            .map(|c| !c.trim().is_empty())
-            .unwrap_or(false)
+        } else if !enabled
+            && def.transport == "stdio"
+            && def
+                .command
+                .as_deref()
+                .map(|c| !c.trim().is_empty())
+                .unwrap_or(false)
         {
             self.state
                 .mcp
@@ -7277,6 +7279,9 @@ async fn handle_events_socket(
     loop {
         tokio::select! {
             received = rx.recv() => {
+                if !paired_device_is_active(&actor, &state.active_pairings().await) {
+                    break;
+                }
                 match received {
                     Ok(frame) => {
                         // A monotonic filter: never resend a frame the replay (or an
@@ -7321,6 +7326,9 @@ async fn handle_events_socket(
             incoming = socket.recv() => {
                 match incoming {
                     Some(Ok(axum::extract::ws::Message::Text(text))) => {
+                        if !paired_device_is_active(&actor, &state.active_pairings().await) {
+                            break;
+                        }
                         let replies = handle_socket_command(
                             text.as_str(),
                             &state,
@@ -11350,6 +11358,25 @@ mod pair_repair {
             .collect()
     }
 
+    fn paired_ext(device_id: &str) -> RpcExtensions {
+        let mut ext = RpcExtensions::new();
+        ext.insert(Actor::paired(&PhonePairing::new(
+            device_id,
+            "a-pairing-secret",
+            1_700_000_000,
+        )));
+        ext
+    }
+
+    async fn seed_pairing(state: &DaemonState, device_id: &str) {
+        state
+            .pairings
+            .write()
+            .await
+            .create_with_expiry(device_id, "a-pairing-secret", 1_700_000_000, None)
+            .expect("the test pairing is recorded once");
+    }
+
     #[test]
     fn pairing_list_owner_only() {
         let policy = auth::policy_of("pairing.list").expect("the method has a policy");
@@ -11377,6 +11404,24 @@ mod pair_repair {
         assert!(paired_device_is_active(&owner, &[]));
     }
 
+    #[tokio::test]
+    async fn ws_reauthorize_rejects_revoked_or_expired_device_rpc() {
+        let dir = crate::test_util::fresh_tempdir();
+        let (state, _store) = crate::tests::test_state(dir.path()).await;
+        let rpc = WarshaRpc::new(state.clone());
+        let device_id = "test-ws-reauth-phone";
+        seed_pairing(&state, device_id).await;
+
+        let paired = paired_ext(device_id);
+        assert!(rpc.authorize(&paired, "health").await.is_ok());
+
+        // Revoke the pairing:
+        assert!(state.pairings.write().await.revoke(device_id).is_ok());
+        let err = rpc.authorize(&paired, "health").await.unwrap_err();
+        assert_eq!(err.code(), -32001);
+        assert!(err.message().contains("needs a still-active pairing"));
+    }
+
     #[test]
     fn events_subscription_revoked() {
         let active = pairing(false, None);
@@ -11386,6 +11431,119 @@ mod pair_repair {
             &actor,
             &active_set(&[pairing(true, None)])
         ));
+    }
+
+    #[tokio::test]
+    async fn events_subscription_revoked_does_not_replay_since_seq() {
+        let dir = crate::test_util::fresh_tempdir();
+        let (state, _store) = crate::tests::test_state(dir.path()).await;
+        let device_id = "test-events-revoked-phone";
+        seed_pairing(&state, device_id).await;
+
+        let event = Event {
+            id: ulid::Ulid::new(),
+            run_id: RunId::new(),
+            stage: Stage::Idea,
+            role: None,
+            kind: EventKind::StageStarted,
+            payload: serde_json::json!({ "test": "data" }),
+            cost_cents: None,
+            tokens: None,
+            created_at: Utc::now(),
+            device_id: None,
+        };
+        state.events.publish(event).await;
+        assert_eq!(state.events.current_seq(), 1);
+
+        // Active pairing: sync gives frames
+        let sync_before = state.events.sync(0, None).await;
+        assert_eq!(sync_before.frames.len(), 1);
+
+        // Revoke device:
+        assert!(state.pairings.write().await.revoke(device_id).is_ok());
+        let paired = paired_ext(device_id);
+        let active_set = state.active_pairings().await;
+        assert!(!paired_device_is_active(
+            paired.get::<Actor>().expect("actor"),
+            &active_set
+        ));
+    }
+
+    /// K5.6: transport dispatch on install/toggle/configure never spawns a non-stdio command.
+    mod k5_repair {
+        use super::*;
+
+        fn owner_ext() -> RpcExtensions {
+            let mut ext = RpcExtensions::new();
+            ext.insert(Actor::owner(DeviceId::new()));
+            ext
+        }
+
+        fn legacy_http_row(id: &str) -> StoredPlugin {
+            StoredPlugin {
+                id: id.to_string(),
+                name: "Legacy HTTP".to_string(),
+                description: "test".to_string(),
+                transport: "http".to_string(),
+                command: Some("sh".to_string()),
+                args_json: serde_json::to_string(&vec!["-c", "sleep 5"]).expect("args json"),
+                env_json: "{}".to_string(),
+                enabled: false,
+                tools_json: "[]".to_string(),
+                source: "user".to_string(),
+            }
+        }
+
+        #[tokio::test]
+        async fn transport_bypass_install_refuses_http_with_command() {
+            let dir = crate::test_util::fresh_tempdir();
+            let (state, _store) = crate::tests::test_state(dir.path()).await;
+            let rpc = WarshaRpc::new(state.clone());
+            let bad = r#"{"name":"bad-http","transport":"http","command":"sh","args":["-c","id"]}"#;
+            assert!(rpc
+                .install_plugin(&owner_ext(), bad.to_string())
+                .await
+                .is_err());
+            assert!(state.processes.list().await.is_empty());
+        }
+
+        #[tokio::test]
+        async fn transport_bypass_toggle_never_spawns_non_stdio_command() {
+            let dir = crate::test_util::fresh_tempdir();
+            let (state, _store) = crate::tests::test_state(dir.path()).await;
+            state
+                .settings
+                .save_plugin(&legacy_http_row("legacy-http-toggle"))
+                .await
+                .expect("seed legacy row");
+            let rpc = WarshaRpc::new(state.clone());
+            let toggled = rpc
+                .toggle_plugin(&owner_ext(), "legacy-http-toggle".to_string(), true)
+                .await
+                .expect("toggle succeeds without spawning");
+            assert!(toggled.enabled);
+            assert!(state.processes.list().await.is_empty());
+        }
+
+        #[tokio::test]
+        async fn transport_bypass_configure_never_spawns_non_stdio_command() {
+            let dir = crate::test_util::fresh_tempdir();
+            let (state, _store) = crate::tests::test_state(dir.path()).await;
+            let mut row = legacy_http_row("legacy-http-cfg");
+            row.enabled = true;
+            state
+                .settings
+                .save_plugin(&row)
+                .await
+                .expect("seed legacy enabled row");
+            let rpc = WarshaRpc::new(state.clone());
+            let configured = rpc
+                .configure_plugin(&owner_ext(), "legacy-http-cfg".to_string(), HashMap::new())
+                .await
+                .expect("configure succeeds without spawning");
+            assert_eq!(configured.transport, "http");
+            assert!(state.processes.list().await.is_empty());
+        }
     }
 
     /// K6.2: the daemon RPC surface and the end-to-end table at the agent call site.
