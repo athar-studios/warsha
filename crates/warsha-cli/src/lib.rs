@@ -428,7 +428,7 @@ impl CliApp {
         };
 
         let content = toml::to_string_pretty(&config)?;
-        std::fs::write(config_dir.join("config.toml"), content)?;
+        write_private_config(&config_dir.join("config.toml"), &content)?;
 
         self.output(init_done_message(lang))?;
         Ok(())
@@ -1077,6 +1077,21 @@ fn budget_percent(spent_cents: u64, budget_cents: Option<u64>) -> u64 {
         Some(limit) if limit > 0 => spent_cents.saturating_mul(100) / limit,
         _ => 0,
     }
+}
+
+/// Write the CLI's configuration and make it owner-only on Unix (0600).
+///
+/// The file later carries the daemon auth token, so its mode matters even when
+/// the token is still empty: a world-readable file is an invitation to write a
+/// token into it. Windows ACLs remain a separately tracked hardening item.
+fn write_private_config(path: &std::path::Path, content: &str) -> Result<()> {
+    std::fs::write(path, content)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(())
 }
 
 /// Parse a device id from `--device-id` or `config.toml`.
@@ -1955,5 +1970,34 @@ mod k9 {
         assert!(en.to_lowercase().contains("polling"), "{en}");
         let ar = following_message(CliLang::Arabic);
         assert!(!ar.contains("غير متوفر"), "{ar}");
+    }
+}
+
+/// The CLI's configuration is owner-only on Unix: the file later carries the
+/// daemon auth token, and a world-readable token file is a token leak waiting
+/// for a token.
+#[cfg(test)]
+mod config_permissions {
+    use super::*;
+
+    #[test]
+    fn the_cli_config_is_owner_only() {
+        let temp = tempfile::tempdir().expect("a temp dir");
+        let path = temp.path().join("config.toml");
+        write_private_config(&path, "auth_token = \"\"\n").expect("the config is written");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("the file reads"),
+            "auth_token = \"\"\n"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path)
+                .expect("the file exists")
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o600, "the config is readable by other users");
+        }
     }
 }
