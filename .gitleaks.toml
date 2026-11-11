@@ -172,4 +172,15 @@ regexes = [
   # characters, not a key. Exempted by its exact value only: any other
   # value in that position still fires.
   '''^canary-secret-12345$''',
+  # crates/warsha-pipeline/src/process_spawn.rs (KEEL K5 repair, commit decccde)
+  # — the stderr-masking test's synthetic sentinel. It exists to be printed by a
+  # fake child and then asserted ABSENT from the ring; it is not a credential for
+  # any service. Exempted by its exact literal only.
+  '''^k5-sentinel-secret-value-123$''',
+  # crates/warsha-store/src/persistence.rs (H1H2, commit b0805b2) — the pairing
+  # persistence tests' two synthetic secrets, used to prove an expired record
+  # stays expired and a legacy record stays active across save/load. Exact
+  # literals only; any other value still fires.
+  '''^expiring-secret$''',
+  '''^legacy-secret$''',
 ]
