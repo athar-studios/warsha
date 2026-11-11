@@ -13,6 +13,8 @@ import App from './App';
 import { registerShellWorker } from './offline';
 import { applyStoredTheme } from './theme';
 // eslint-disable-next-line import/no-unresolved
+import '@warsha/ui/v3/fonts.css';
+// eslint-disable-next-line import/no-unresolved
 import '@warsha/ui/v3/tokens/tokens.css';
 import './index.css';
 

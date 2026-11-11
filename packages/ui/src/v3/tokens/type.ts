@@ -1,4 +1,4 @@
-// Design System v3 — Typography Tokens (DESIGN_SYSTEM_V3.md §2.2, OD-U2 = C)
+// Design System v3 — Typography Tokens (DESIGN_SYSTEM_V3.md §2.2, OD-U2 = A)
 
 export const fontFamilies = {
   sans: '"IBM Plex Sans Arabic", "Segoe UI", "Noto Sans Arabic", Tahoma, system-ui, sans-serif',

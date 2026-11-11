@@ -9,6 +9,7 @@
     "./tokens": "./src/tokens/index.ts",
     "./tokens/tokens.css": "./src/tokens/tokens.css",
     "./v3": "./src/v3/index.ts",
+    "./v3/fonts.css": "./src/v3/fonts.css",
     "./v3/tokens/tokens.css": "./src/v3/tokens/tokens.css",
     "./package.json": "./package.json"
   },
@@ -21,6 +22,8 @@
     "build-storybook": "storybook build"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "@fontsource/ibm-plex-sans-arabic": "5.3.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0"
   },

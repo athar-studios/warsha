@@ -1,0 +1,12 @@
+/* Design System v3 — Bundled Fonts (IBM Plex Sans Arabic & IBM Plex Mono) */
+/* OFL-1.1 licensed, bundled via @fontsource */
+
+/* IBM Plex Sans Arabic: weights 400, 500, 600, 700 */
+@import '@fontsource/ibm-plex-sans-arabic/400.css';
+@import '@fontsource/ibm-plex-sans-arabic/500.css';
+@import '@fontsource/ibm-plex-sans-arabic/600.css';
+@import '@fontsource/ibm-plex-sans-arabic/700.css';
+
+/* IBM Plex Mono: weights 400, 500 */
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
