@@ -1085,11 +1085,30 @@ fn budget_percent(spent_cents: u64, budget_cents: Option<u64>) -> u64 {
 /// the token is still empty: a world-readable file is an invitation to write a
 /// token into it. Windows ACLs remain a separately tracked hardening item.
 fn write_private_config(path: &std::path::Path, content: &str) -> Result<()> {
-    std::fs::write(path, content)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    use std::io::Write;
+    let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("config.toml");
+    let temporary = parent.join(format!(".{name}.tmp-{}", std::process::id()));
+    let write = || -> std::io::Result<()> {
+        let mut file = std::fs::File::create(&temporary)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
+        file.write_all(content.as_bytes())?;
+        file.sync_all()
+    };
+    if let Err(error) = write() {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error.into());
+    }
+    if let Err(error) = std::fs::rename(&temporary, path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error.into());
     }
     Ok(())
 }

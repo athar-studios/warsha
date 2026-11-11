@@ -6490,6 +6490,40 @@ async fn wait_for_shutdown_signal() -> std::io::Result<()> {
     }
 }
 
+/// Write a configuration file atomically, owner-only on Unix.
+///
+/// The file carries the owner token, so it is created 0600 before any content is
+/// written, and it is renamed into place so a concurrent reader sees either the
+/// old file or the complete new one, never a truncated TOML document.
+fn write_private_file(path: &Path, content: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("config.toml");
+    let temporary = parent.join(format!(".{name}.tmp-{}", std::process::id()));
+    let write = || -> std::io::Result<()> {
+        let mut file = std::fs::File::create(&temporary)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
+        file.write_all(content.as_bytes())?;
+        file.sync_all()
+    };
+    if let Err(error) = write() {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error);
+    }
+    if let Err(error) = std::fs::rename(&temporary, path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error);
+    }
+    Ok(())
+}
+
 pub async fn load_or_create_config(config_path: Option<&Path>) -> Result<DaemonConfig> {
     let config_dir = dirs::config_dir()
         .map(|d| d.join("warsha"))
@@ -6515,16 +6549,10 @@ pub async fn load_or_create_config(config_path: Option<&Path>) -> Result<DaemonC
             ..Default::default()
         };
 
-        // Save config with 0600 permissions
+        // Save atomically with 0600 permissions: a concurrent reader (the desktop,
+        // a smoke harness) must never parse a half-written file.
         let content = toml::to_string_pretty(&config)?;
-        std::fs::write(path, content)?;
-
-        // Set permissions (Unix only)
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-        }
+        write_private_file(path, &content)?;
 
         // A brand-new daemon has just minted the one owner token it will never show
         // again, because after this the file already holds it. Printing it directly to stderr
