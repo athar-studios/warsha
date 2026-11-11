@@ -5,7 +5,7 @@
 
 ## الحالة باختصار
 
-- **DONE** (منفّذ ومقاس): إصلاحات KEEL الأمنية (K4/H1H2/K5/PAIR/K7/K8/K9 وK6)، رقعة الإصدار fail-closed، شرائح ENGINE (E1b/E2/E3/E4/E5/E5a/E6)، إصلاح Origin على RPC، تقييد ملف config إلى 0600 على Unix، وفحوص المساحة كاملة.
+- **DONE** (منفّذ ومقاس): إصلاحات KEEL الأمنية (K4/H1H2/K5/PAIR/K7/K8/K9 وK6)، رقعة الإصدار fail-closed، شرائح ENGINE (E1b/E2/E3/E4/E5/E5a/E6)، إصلاح Origin على RPC، تقوية CSP للـdesktop (إزالة `unsafe-eval` وإضافة `object-src/base-uri/frame-ancestors`)، تقييد ملف config إلى 0600 على Unix، وفحوص المساحة كاملة.
 - **BLOCKED** (خارجي فقط): مراجعات الفريق المستقلة (قناة التفويض معطّلة)، Windows native verification (لا runner مصرّح)، staging load test (لا staging معزول)، الإصدار العام (يتطلب موافقة نشر منفصلة وبيئة/توقيع).
 - **NOT DONE**: ENGINE H1 وبقية E1 وربط E2/E3/E5 بالـdaemon وE7/E8؛ UI v3 موجات B/C/D وFNT وT1–T3؛ extensions؛ FIN (version sweep/pilot/1.0-rc)؛ CSP/رمز webview؛ Windows ACL.
 
@@ -54,7 +54,8 @@
 ## التعرّض المتبقي والتدوير
 
 - **تدوير: لا شيء مطلوب من الأدلة الحالية.** توكن smoke الموجود في `/tmp` وُلّد تلقائيًا بواسطة daemon في ملف 0600، وهو اختباري disposable وليس توكن المالك (لا تُطبع قيمته).
-- **متبقٍ:** CSP `unsafe-inline/eval` وتسليم رمز المالك للـwebview (يحتاج فحصًا وتطبيقًا)، Windows config ACL، رمز relay في query، مفاتيح كاش بلا هوية، وثغرات LOW المعلّمة في التدقيق.
+- **CSP:** أُزيل `unsafe-eval` (لا استخدام `eval`/`new Function`/wasm في المصادر) وأُضيف `object-src 'none'; base-uri 'self'; frame-ancestors 'none'`؛ أبقينا `unsafe-inline` للسكربتات لأن Tauri IPC يحتاجه ولم يتوفر اختبار عرض حقيقي. **رمز المالك ما زال يصل للـwebview عبر `get_config`** بالتصميم الحالي؛ الإصلاح الجذري = وكيل RPC داخل Tauri (NOT DONE).
+- **متبقٍ:** Windows config ACL، رمز relay في query، مفاتيح كاش بلا هوية، وثغرات LOW المعلّمة في التدقيق.
 - **تغييرات مضيف:** تثبيت `mdbook 0.5.4` في `~/.cargo/bin` سابقًا؛ متغيرات OPENSSL لكل أمر؛ worktrees محلية؛ إضافة remote `warsha-dev`؛ `gh` موجود/مصادَق مسبقًا في `~/.local/bin`.
 
 ## خطوات مالك فقط (إن لزم)
