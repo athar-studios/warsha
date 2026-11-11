@@ -158,6 +158,15 @@ ignore = [
     { id = "RUSTSEC-2026-0370", reason = "Transitive unmaintained notice on zvariant 2.10.0 pulled in only via keyring 1.2.1 -> secret-service 2.0.2 -> zbus 1.9.3; paste (RUSTSEC-2024-0436) and number_prefix (RUSTSEC-2025-0119) were eliminated by narrowing image to png and removing unused indicatif." },
     { id = "RUSTSEC-2026-0372", reason = "Transitive unmaintained notice on zvariant_derive 2.10.0 pulled in only via keyring 1.2.1 -> secret-service 2.0.2 -> zbus 1.9.3 -> zvariant 2.10.0; paste (RUSTSEC-2024-0436) and number_prefix (RUSTSEC-2025-0119) were eliminated by narrowing image to png and removing unused indicatif." },
     { id = "RUSTSEC-2024-0370", reason = "Transitive unmaintained notice on proc-macro-error 1.0.4 pulled in only via tauri 2.12.5 -> gtk 0.18.2 -> glib 0.18.5 -> glib-macros 0.18.5 on the Linux target graph; no safe upstream upgrade exists in gtk 0.18." },
+    # SCOPING LIMITATION: cargo-deny 0.20.2 cannot scope an ignore to a version
+    # (a `version` key fails with `error[unexpected-keys]`, only `id` and
+    # `reason` are accepted), so the entry below suppresses RUSTSEC-2026-0459 at
+    # advisory-ID scope, not for 0.30.1 alone. The version is enforced instead by
+    # gate S1c.4a: `cargo tree -i libsqlite3-sys` must show exactly one version,
+    # 0.30.1 (the tree prints one block per dependent root; both are 0.30.1).
+    # End conditions from OD-S1c — remove this entry at the first of:
+    # (a) SQLx allowing libsqlite3-sys 0.39+, (b) packet E7 landing,
+    # (c) the 1.0.0-rc milestone.
     { id = "RUSTSEC-2026-0459", reason = "ACCEPTED RISK by owner (OD-S1c, DECISIONS.md 2026-11-10): libsqlite3-sys 0.30.1 bundles SQLite < 3.54.0; the vector is local (AV:L/UI:P) and requires opening an attacker-influenced database with a sibling -wal. The fix needs libsqlite3-sys >= 0.39, unreachable while sqlx-sqlite 0.9.0 caps it below 0.38 and rusqlite 0.41 requires ^0.39 (both link the native sqlite3 library). Every production open is <data_dir>/warsha.db inside Warsha's own data directory (SECURITY.md, Supply Chain). Remove this entry at the first of: (a) SQLx allowing libsqlite3-sys 0.39+, (b) packet E7 landing, (c) the 1.0.0-rc milestone." },
 ]
 

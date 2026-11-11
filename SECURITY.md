@@ -193,13 +193,14 @@ accepted the risk temporarily (OD-S1c, `DECISIONS.md` 2026-11-10), and `deny.tom
 time-boxed `[advisories].ignore` entry.
 
 Exposure in this tree: every production SQLite open is `<data_dir>/warsha.db`, a file inside Warsha's
-own data directory — daemon start-up (`crates/warshad/src/lib.rs:5364-5373`), the library default
-(`crates/warsha-store/src/lib.rs:194-215`), and the settings seam
-(`crates/warsha-store/src/persistence.rs:365`). No RPC parameter, provider response, model output,
-project path or plugin manifest selects the database path, and `data_dir` can be changed only by the
-owner through daemon configuration. The residual exposure is a local process that can already write
-inside that directory. The ignore entry is removed at the first of: SQLx allowing `libsqlite3-sys
-0.39+`, packet E7 landing, or the 1.0.0-rc milestone.
+own data directory — daemon start-up (`crates/warshad/src/lib.rs:5465-5473`: `db_path` at 5465,
+`SettingsStore::open` at 5472, `Store::open_at` at 5473), the library default
+(`crates/warsha-store/src/lib.rs:196-201`) and pool open (`crates/warsha-store/src/lib.rs:205-222`),
+and the settings seam (`crates/warsha-store/src/persistence.rs:365`). No RPC parameter, provider
+response, model output, project path or plugin manifest selects the database path, and `data_dir` can
+be changed only by the owner through daemon configuration. The residual exposure is a local process
+that can already write inside that directory. The ignore entry is removed at the first of: SQLx
+allowing `libsqlite3-sys 0.39+`, packet E7 landing, or the 1.0.0-rc milestone.
 
 ## Threat Model
 
