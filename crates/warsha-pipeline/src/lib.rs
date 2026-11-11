@@ -207,6 +207,13 @@ pub enum PipelineError {
     NoProviderRouted(Role),
     #[error("Invalid stage transition: {0:?} -> {1:?}")]
     InvalidTransition(Stage, Stage),
+    #[error("Budget exceeded: spent {spent_cents} of {budget_cents} cents")]
+    BudgetExceeded {
+        /// The run's budget.
+        budget_cents: u64,
+        /// What it has already spent.
+        spent_cents: u64,
+    },
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
     #[error("Other: {0}")]
@@ -406,6 +413,23 @@ impl<S: SettingsProvider> PipelineEngine<S> {
     }
 
     /// Advance to the next stage (serialized per-run via `exec_lock`).
+    /// Refuse to advance or execute when the run's budget is already exhausted.
+    ///
+    /// The stage that spent the last cents still records them and emits
+    /// `BudgetExceeded`; this is the floor under the next advance, so a run cannot
+    /// keep executing stages after its budget is gone.
+    fn ensure_budget(run: &Run) -> Result<()> {
+        if let Some(budget_cents) = run.budget_cents {
+            if run.spent_cents >= budget_cents {
+                return Err(PipelineError::BudgetExceeded {
+                    budget_cents,
+                    spent_cents: run.spent_cents,
+                });
+            }
+        }
+        Ok(())
+    }
+
     pub async fn advance_stage(&self, run_id: RunId) -> Result<Run> {
         let ctrl = self.control_for(run_id).await;
         let _exec_guard = ctrl.exec_lock.lock().await;
@@ -426,6 +450,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                     run.status
                 )));
             }
+            Self::ensure_budget(&run)?;
 
             let current = run.current_stage;
             let next = current
@@ -501,6 +526,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             if latest.status == RunStatus::Cancelled {
                 return Err(PipelineError::Other("Run is cancelled".to_string()));
             }
+            Self::ensure_budget(&latest)?;
         }
 
         // Build context from previous artifacts (plus optional change-request feedback)
@@ -2059,5 +2085,106 @@ mod tests {
 
         let run = engine.advance_stage(run.id).await.unwrap();
         assert_eq!(run.current_stage, Stage::Design);
+    }
+
+    /// ENGINE E1 slice: an exhausted budget stops the next advance and stage run.
+    mod e1_budget {
+        use super::*;
+
+        fn project() -> Project {
+            Project {
+                id: ProjectId::new(),
+                name: "Budget Project".to_string(),
+                description: "Test".to_string(),
+                language: "en".to_string(),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                repo_path: None,
+                repo_url: None,
+            }
+        }
+
+        #[tokio::test]
+        async fn an_exhausted_budget_refuses_the_next_advance() {
+            let store = temp_store().await;
+            let engine =
+                PipelineEngine::new(store.clone(), setup_providers_with_mock(), setup_settings());
+            let project = project();
+            store.create_project(&project).await.unwrap();
+            let mut run = engine
+                .start_run(project.id, "Build a todo app")
+                .await
+                .unwrap();
+            run.current_stage = Stage::PrdSpec;
+            run.budget_cents = Some(100);
+            run.spent_cents = 100;
+            store.update_run(&run).await.unwrap();
+
+            let error = engine
+                .advance_stage(run.id)
+                .await
+                .expect_err("an exhausted budget advanced");
+
+            assert!(
+                matches!(
+                    error,
+                    PipelineError::BudgetExceeded {
+                        budget_cents: 100,
+                        spent_cents: 100
+                    }
+                ),
+                "{error:?}"
+            );
+            let stored = store.get_run(run.id).await.unwrap();
+            assert_eq!(
+                stored.current_stage,
+                Stage::PrdSpec,
+                "the stage moved despite the budget"
+            );
+        }
+
+        #[tokio::test]
+        async fn a_run_with_remaining_budget_still_advances() {
+            let store = temp_store().await;
+            let engine =
+                PipelineEngine::new(store.clone(), setup_providers_with_mock(), setup_settings());
+            let project = project();
+            store.create_project(&project).await.unwrap();
+            let mut run = engine
+                .start_run(project.id, "Build a todo app")
+                .await
+                .unwrap();
+            run.current_stage = Stage::PrdSpec;
+            run.budget_cents = Some(100);
+            run.spent_cents = 99;
+            store.update_run(&run).await.unwrap();
+
+            let run = engine
+                .advance_stage(run.id)
+                .await
+                .expect("99 of 100 still advances");
+            assert_eq!(run.current_stage, Stage::GateB);
+        }
+
+        #[tokio::test]
+        async fn a_run_without_a_budget_advances() {
+            let store = temp_store().await;
+            let engine =
+                PipelineEngine::new(store.clone(), setup_providers_with_mock(), setup_settings());
+            let project = project();
+            store.create_project(&project).await.unwrap();
+            let mut run = engine
+                .start_run(project.id, "Build a todo app")
+                .await
+                .unwrap();
+            run.current_stage = Stage::PrdSpec;
+            store.update_run(&run).await.unwrap();
+
+            let run = engine
+                .advance_stage(run.id)
+                .await
+                .expect("no budget is not a ceiling");
+            assert_eq!(run.current_stage, Stage::GateB);
+        }
     }
 }
