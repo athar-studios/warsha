@@ -617,6 +617,18 @@ impl ProcessManager for InMemoryProcessManager {
     }
 }
 
+/// Split `"npm run dev"` into the program and its arguments.
+///
+/// Whitespace separates arguments, with no shell and no expansion. Quoting is
+/// honoured so a program or argument that contains a space survives as one
+/// token: `'…'` is literal, `"…"` groups with `\"` and `\\` escapes, and
+/// adjacent quoted/unquoted parts join (`a"b c"d` is the single token `ab cd`).
+/// An unterminated quote is [`ProcessError::UnterminatedQuote`]; empty or
+/// whitespace-only input is [`ProcessError::EmptyCommand`].
+pub fn split_command(command: &str) -> Result<(String, Vec<String>), ProcessError> {
+    LivePreviewManager::split_command(command)
+}
+
 /// One project's dev server, as the preview panel reads it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LivePreview {
