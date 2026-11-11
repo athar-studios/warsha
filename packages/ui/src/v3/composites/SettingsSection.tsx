@@ -46,6 +46,7 @@ export const SettingsSection: React.FC<SettingsSectionProps> = ({
           alignItems: 'flex-start',
           justifyContent: 'space-between',
           gap: 'var(--w-space-3)',
+          flexWrap: 'wrap',
         }}
       >
         <div>

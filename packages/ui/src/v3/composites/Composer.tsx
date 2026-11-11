@@ -82,8 +82,8 @@ export const Composer: React.FC<ComposerProps> = ({
         rows={variant === 'advanced' ? 4 : 3}
         style={{
           width: '100%',
+          minWidth: 0,
           border: 'none',
-          outline: 'none',
           backgroundColor: 'transparent',
           color: 'var(--w-text)',
           fontFamily: 'var(--w-font-sans)',

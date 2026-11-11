@@ -182,8 +182,8 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                 style={{
                   border: 'none',
                   background: 'transparent',
-                  outline: 'none',
                   width: '100%',
+                  minWidth: 0,
                   fontFamily: 'var(--w-font-sans)',
                   fontSize: 'var(--w-font-size-sm)',
                   color: 'var(--w-text)',

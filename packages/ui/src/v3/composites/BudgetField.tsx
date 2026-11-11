@@ -131,8 +131,8 @@ export const BudgetField: React.FC<BudgetFieldProps> = ({
           style={{
             border: 'none',
             background: 'transparent',
-            outline: 'none',
             width: '100%',
+            minWidth: 0,
             fontFamily: 'var(--w-font-mono)',
             fontSize: 'var(--w-font-size-md)',
             color: 'var(--w-text)',

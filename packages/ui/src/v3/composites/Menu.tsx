@@ -230,7 +230,6 @@ export const Menu: React.FC<MenuProps> = ({
                   fontSize: 'var(--w-font-size-sm)',
                   textAlign: 'start',
                   width: '100%',
-                  outline: 'none',
                   boxSizing: 'border-box',
                   transition: 'background-color var(--w-dur-fast) var(--w-ease)',
                 }}

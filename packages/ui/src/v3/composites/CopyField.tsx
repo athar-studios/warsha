@@ -93,13 +93,12 @@ export const CopyField: React.FC<CopyFieldProps> = ({
           dir={ltr ? 'ltr' : undefined}
           style={{
             flex: 1,
+            minWidth: 0,
             border: 'none',
             background: 'transparent',
-            outline: 'none',
             fontFamily: ltr ? 'var(--w-font-mono)' : 'inherit',
             fontSize: 'var(--w-font-size-sm)',
             color: 'var(--w-text)',
-            minWidth: 0,
           }}
           data-testid="copy-field-input"
         />

@@ -111,8 +111,8 @@ export const TextField = React.forwardRef<HTMLInputElement, TextFieldProps>(
             className="w-field__input"
             style={{
               flex: 1,
+              minWidth: 0,
               border: 'none',
-              outline: 'none',
               background: 'transparent',
               color: 'var(--w-text)',
               fontSize: 'var(--w-font-size-md)',
