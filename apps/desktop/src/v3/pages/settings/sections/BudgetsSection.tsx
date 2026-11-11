@@ -160,7 +160,7 @@ export function BudgetsSection(): React.ReactElement {
                     </div>
                   </div>
                   <div className="v3-settings-row-actions">
-                    <div style={{ minWidth: 'var(--w-space-10)', maxWidth: '100%' }}>
+                    <div className="v3-settings-budget-field">
                       <TextField
                         type="number"
                         min="1"

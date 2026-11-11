@@ -302,7 +302,7 @@ export function GeneralSection(): React.ReactElement {
           gap: 'var(--w-space-3)',
         }}
       >
-        <div style={{ flex: '1 1 var(--w-nav-width)', maxWidth: '100%' }}>
+        <div className="v3-settings-budget-field">
           <TextField
             type="number"
             min="1"

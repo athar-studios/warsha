@@ -285,3 +285,63 @@
   border-block-end: var(--w-border-width) solid var(--w-line);
 }
 
+
+/* A provider URL or model id: machine text that wraps inside the plate instead of widening it. */
+.v3-settings-uri {
+  overflow-wrap: anywhere;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+/* A budget value's field: it may shrink with the row, so the number never paints outside its box. */
+.v3-settings-budget-field {
+  flex: 1 1 var(--w-space-10);
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+/*
+ * Below 768px the settings plate is one column (planner decision 4, 2026-11-10; F6): the nav stops
+ * holding 264px, the content stops holding a 300px floor, and a row's actions take a line of their own.
+ * Together with `.w-field__input { min-width: 0 }` this keeps the models section and its URLs inside a
+ * 390px phone in Arabic.
+ */
+@media (max-width: 767px) {
+  .v3-settings-root {
+    flex-direction: column;
+    gap: var(--w-space-5);
+    padding-inline: var(--w-space-3);
+  }
+
+  .v3-settings-nav {
+    flex: 0 0 auto;
+    inline-size: 100%;
+  }
+
+  .v3-settings-content {
+    min-width: 0;
+    inline-size: 100%;
+  }
+
+  .v3-settings-row {
+    padding-inline: var(--w-space-3);
+  }
+
+  .v3-settings-row-main {
+    flex-basis: 100%;
+  }
+
+  .v3-settings-row-meta {
+    flex-wrap: wrap;
+  }
+
+  .v3-settings-row-actions {
+    flex: 1 1 100%;
+    min-inline-size: 0;
+    flex-wrap: wrap;
+  }
+
+  .v3-settings-budget-field {
+    flex: 1 1 100%;
+  }
+}
