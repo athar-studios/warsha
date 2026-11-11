@@ -130,10 +130,18 @@ pub(crate) async fn collect_gate_evidence_with_timeout(
         .map(str::to_string)
         .collect();
     let tests = run_tests(work_dir, test_program, test_args, timeout).await?;
+    // Evidence is shown to a reviewer and may be logged or exported: a credential
+    // a test or a diff prints must not travel with it. This is the same shape-based
+    // pass the daemon's logs use; it is an extra layer, not a promise that a
+    // non-credential-shaped secret is caught.
     Ok(GateEvidence {
-        diff,
+        diff: crate::guardrails::mask_secrets(&diff),
         files_changed,
-        tests,
+        tests: TestRun {
+            stdout: crate::guardrails::mask_secrets(&tests.stdout),
+            stderr: crate::guardrails::mask_secrets(&tests.stderr),
+            ..tests
+        },
     })
 }
 
@@ -355,5 +363,34 @@ mod e5 {
             ),
             "{error:?}"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_credential_shaped_secret_in_the_test_output_is_redacted() {
+        let repo = temp_repo();
+        let (program, args) = sh("echo sk-live-abcdef0123456789");
+        let evidence = collect_gate_evidence(repo.path(), "HEAD", &program, &args)
+            .await
+            .expect("the evidence is collected");
+        assert!(!evidence.tests.stdout.contains("sk-live-abcdef0123456789"));
+        assert!(evidence.tests.stdout.contains(crate::guardrails::REDACTED));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_credential_shaped_secret_in_the_diff_is_redacted() {
+        let repo = temp_repo();
+        std::fs::write(
+            repo.path().join("base.txt"),
+            "token sk-live-abcdef0123456789",
+        )
+        .expect("the file changes");
+        let (program, args) = sh("true");
+        let evidence = collect_gate_evidence(repo.path(), "HEAD", &program, &args)
+            .await
+            .expect("the evidence is collected");
+        assert!(!evidence.diff.contains("sk-live-abcdef0123456789"));
+        assert!(evidence.diff.contains(crate::guardrails::REDACTED));
     }
 }
