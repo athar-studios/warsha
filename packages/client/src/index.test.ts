@@ -3,12 +3,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  ALL_ROLES,
   createClient,
   decodeBackendKit,
   decodeDeviceSummary,
-  decodeModelCatalogDiff,
-  decodeModelInfo,
   decodeProjectSummary,
   decodeRoutine,
   decodeRunSummary,
@@ -23,8 +20,6 @@ import {
   type DeviceId,
   type GateState,
   type GateSummary,
-  type ModelCatalogDiff,
-  type ModelInfo,
   type PairingData,
   type PreferenceSignal,
   type ProjectId,
