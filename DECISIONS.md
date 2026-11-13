@@ -1710,3 +1710,32 @@ reference `docs/designs/v3-preview.html`; run evidence `bridge-io/policy/2026-11
 - **Decision**: Full reply and the ordered work are in `bridge-io/policy/2026-11-10-principal-review/PLANNER_RESPONSE_2.md` (it amends `HANDOVER.md`). (1) C1, C2 and U5 are accepted after an independent re-judgement of the stored Playwright JSON. (2) The `U4.pw` pass is withdrawn and the RU4 and RU5 baselines (216 files, `14bea00`, `d3241e6`) are provisional: they are removed and captured once in a consolidated refresh RG after FNT, the fixes below and U3 are merged. (3) New planner-owned gate tool `2026-11-09-ui-v3/tools/pw-genesis.mjs` with `named/V3POOL.txt` and `named/V3POOL.snap.txt`: a genesis capture must pass it as well as `pw-gate`; an `--update-snapshots` run must exit 0; every refresh needs a full post-run with zero failures and a recorded visual review by a role that did not build the page. (4) New R0 packets VF (viewport-fit audit), F5 (Workbench below 768 px: the rail opens in a Sheet, nothing scrolls the page sideways), F6 (Settings models and budget field at 390 px); FNT and T1 enter the run as plan v2 required; T1 is amended to 20 consecutive runs of the soak spec plus three consecutive full-suite runs without `Target closed`. (5) Gate meaning: `gates.reject` ends the run (`Cancelled` + `gate_rejected` event, no new `RunStatus` variant); `gates.changes` pauses and the client calls `runs.resume`; packets K2d (crates) and K2w (client and UI). (6) K9 and the `SECURITY.md` part of K8 return to KEEL. (7) K3.1's frozen text is restored, the narrowed check becomes row K3.1a, and CP.5 runs the original all-crates search after K7 and K9 with one named carve-out (`warsha-backends`, owned by E4). (8) OD-S1c stays open for the owner; the planner recommends a time-boxed acceptance of RUSTSEC-2026-0459.
 - **Alternatives**: Keep the RU4/RU5 baselines and refresh only the eight failing files (rejected: U3 rewrites the frame that is in every screenshot and FNT changes every glyph, so all 216 change anyway); widen `named/U3.txt` when U3's capture trips over the stale baselines (rejected: it would hide pixel drift behind a fence); drop the 390 px viewport for the Workbench (rejected: the page must fail safely at any window width, and the matrix already runs it); accept the K2 behaviour where a rejection is resumable (rejected: it is a second "request changes" and leaves a run paused with no owner-visible end).
 - **Reason**: `gates/U4.pw.json` holds eight cases that fail the layout audit (text boxes 0 px wide at 390×844) inside a fence that only checked which cases failed, not why; `gates/RU4.meta` records `update_exit=1` and all 96 files were committed with no post-run. The committed PNGs show the Workbench unusable at 390 px in all twelve states and Settings overflowing in Arabic. FNT (owner decision OD-U2 = A), T1, K9 and the client half of `runs.resume` are on no branch and in no state file. `state.json` seq 122 still lists RU4/RU5 as `not-run` and OD-U2 as `C`. S1c was verified against the crates.io API (`sqlx-sqlite` 0.9.0 caps `libsqlite3-sys` below 0.38; 0.39.0 was published 2026-10-24). Nothing was built, merged or committed by the planner; `state.json` and `acceptance.json` were not edited because the orchestrator is live on them.
+
+## 2026-11-13 — dev repair after f474776: restore dev lib.rs, CSP delta, bundled fonts (full-stack engineer)
+- **Decision**: (1) Repair `warsha-dev/dev` from `f474776` by restoring `crates/warshad/src/lib.rs`
+  from `f0920e9` and re-applying only the CSP delta, rather than reverting the merge. (2) Keep
+  loopback **wildcard** ports in the Tauri CSP (`http://127.0.0.1:*`, `ws://127.0.0.1:*`) instead of
+  fixed 8765/8766: `http_port`/`rpc_port` are configurable and the desktop sets `http_port = 0`
+  (ephemeral) in places, so a fixed-port policy would break those runs; the wildcard stays
+  loopback-only. (3) Remove the Google Fonts `<link>`s `467594a` added to `apps/remote/index.html`
+  instead of extending CSP with font origins: owner decision OD-U2 = A bundles IBM Plex via
+  `@fontsource` in `@warsha/ui/v3/fonts.css` and removes the Google links from both `index.html`
+  files; `font-src 'self'` covers the bundled files. (4) Keep `'unsafe-inline'` in the remote
+  `style-src` (Vite dev HMR injects `<style>` tags; production React `style` props are CSSOM writes
+  and CSP does not govern them). (5) Build the Windows token-file DACL explicitly — owner SID from
+  the process token, one `FILE_ALL_ACCESS` ACE, protected DACL — and apply it to the temp file
+  before content; `pdacl: None` with `DACL_SECURITY_INFORMATION` writes a NULL DACL (everyone full
+  access), and `windows` 0.59 exports no `GetCurrentProcessToken`.
+- **Alternatives**: Revert the merge commit (rejected: owner forbade reverts/reset and the CSP intent
+  is worth keeping); fixed 8765/8766 (rejected: breaks configured/ephemeral ports); extend CSP with
+  fonts.googleapis.com/gstatic.com (rejected: contradicts OD-U2 = A and keeps a third-party request
+  on every load); drop `unsafe-inline` from remote `style-src` (rejected: breaks Vite dev HMR; not
+  required by acceptance); keep the original ACL shape (rejected: does not compile against
+  `windows` 0.59 and its NULL DACL grants everyone access).
+- **Reason**: `f474776`'s tree is `467594a`'s tree, whose `lib.rs` is main-based and reverts 29 dev
+  commits; `cargo check -p warshad` fails with 22 errors. Restoring `f0920e9`'s `lib.rs` is the only
+  way back to the dev public API (`probe_capabilities`, `HealthCapabilities`, `McpPermissionsReply`,
+  `DaemonPermissionStore`, `run_worktree`, `gate_evidence`, `agent_turn_run`, `resume_run`,
+  `build_agent_loop_in`, `write_private_file`). Verified `cargo check -p warshad`,
+  `cargo check --workspace` and `cargo clippy -D warnings` exit 0; the ACL compiles for
+  `x86_64-pc-windows-msvc`. Nothing pushed.

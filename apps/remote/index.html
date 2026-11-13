@@ -9,9 +9,6 @@
     -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>ورشة — Warsha Remote</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;500;700&family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="manifest" href="/manifest.webmanifest">
     <!--
       The manifest is the install candidate; these three are what a manifest cannot carry. iOS ignores
@@ -34,7 +31,19 @@
     <meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0e0e0e" media="(prefers-color-scheme: dark)">
     <meta name="description" content="ورشة — طاولة العمل عن بُعد">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' data: blob:; style-src 'self' data: blob: 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:8765 ws://127.0.0.1:8766 http://localhost:8765 ws://localhost:8766; frame-ancestors 'none'; form-action 'self';">
+    <!--
+      The policy is mirrored by warshad's response middleware (`crates/warshad/src/lib.rs`), so the
+      bundle is held to one rule set whether it is served by the daemon or opened from another host.
+      The fonts are the ones bundled by `@warsha/ui/v3/fonts.css` (`@fontsource/ibm-plex-sans-arabic`
+      and `@fontsource/ibm-plex-mono`, owner decision OD-U2 = A): same-origin files, so `font-src
+      'self'` is all they need and no third-party font origin is allowed. `'unsafe-inline'` stays in
+      `style-src` because Vite's dev server injects `<style>` tags for HMR — the built bundle's React
+      `style` props are CSSOM writes, which CSP does not govern. `connect-src 'self'` covers the
+      daemon's own origin, including the `ws:` upgrade of it, and the loopback pairs cover a bundle
+      served elsewhere (Vite dev, the desktop). `frame-ancestors` is header-only and is enforced by
+      the daemon's middleware; it is kept here so the two strings read the same.
+    -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' data: blob:; style-src 'self' data: blob: 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:8765 ws://127.0.0.1:8766 http://localhost:8765 ws://localhost:8766; frame-ancestors 'none'; form-action 'self';">
   </head>
   <body>
     <div id="root"></div>

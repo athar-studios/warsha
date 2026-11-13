@@ -6477,3 +6477,36 @@ hypotheses left in this triage.
 - **Measured**: `pnpm -F @warsha/client test` 90/90; `pnpm -F warsha-desktop test` 387/387 (41 files);
   `pnpm -F @warsha/i18n test` 52/52; `pnpm -F warsha-desktop typecheck` exit 0; eslint clean on all
   changed files. Nothing committed or pushed.
+
+## 2026-11-13 — dev repair after f474776: lib.rs restored from f0920e9, CSP delta re-applied
+- **Why**: `f474776` on `warsha-dev/dev` is tree-identical to `467594a` (tree `3244827`), whose
+  `crates/warshad/src/lib.rs` is a main-based copy (8997 lines) that silently reverted 29 dev commits
+  to that file (12197 lines at `f0920e9`). `cargo check -p warshad` on `f474776` exits 101 with 22
+  errors, all in that file: first `E0433` (`MockRoutineRunner` not found, lib.rs:5480:35), then
+  `E0609` (`webhook_url` read on `Result`, 4578:14), `E0308` (`integration_status`, 2083:12),
+  `E0599` (`active`, 1177:36). The dev `wave2.rs` returns `Result` while the main-based `lib.rs`
+  expects infallible values.
+- **Repair** (branch `repair/dev-csp-f474776` from `f474776`): restored
+  `crates/warshad/src/lib.rs` from `f0920e9` (`git checkout f0920e9 -- …`) and re-applied the CSP
+  delta by hand as 5 hunks: `HeaderValue` import; the CSP/`nosniff`/`DENY` response middleware;
+  `.layer(csp_middleware)`; the Windows token-file ACL; and its call in `write_private_file`. The
+  ACL was rewritten against `windows` 0.59 because the original did not compile and inverted its
+  intent: `OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY)` (no `GetCurrentProcessToken` export),
+  `GetTokenInformation(TokenOwner)` read as `TOKEN_OWNER` from an aligned `usize` buffer,
+  `GetLengthSid`, an explicit owner-only DACL (`InitializeAcl` + `AddAccessAllowedAce` with
+  `FILE_ALL_ACCESS`) set with `PROTECTED_DACL_SECURITY_INFORMATION` — never `pdacl: None` with
+  `DACL_SECURITY_INFORMATION` (a NULL DACL grants everyone full access) and no
+  `transmute<&[u8], PSID>`. It runs on the temp file before the content and the rename preserves it.
+- **CSP**: `apps/desktop/src-tauri/tauri.conf.json` keeps no `unsafe-inline`/`unsafe-eval`, restores
+  `object-src 'none'; base-uri 'self'; frame-ancestors 'none';`, and keeps loopback **wildcard**
+  ports (`http://127.0.0.1:*`, `ws://127.0.0.1:*`, `localhost:*`) because `http_port`/`rpc_port`
+  are configurable and the desktop sets `http_port = 0` for ephemeral ports — fixed 8765/8766 would
+  break those runs. `apps/remote/index.html`: removed the Google Fonts links `467594a` added (they
+  contradict owner decision OD-U2 = A; the fonts are already bundled by
+  `@warsha/ui/v3/fonts.css`) and added `font-src 'self'`; the meta policy is byte-identical to
+  warshad's response header.
+- **Measured**: `cargo check -p warshad` exit 0; `cargo check --workspace` exit 0;
+  `cargo clippy -p warshad --all-targets -- -D warnings` exit 0; `rustfmt --check` clean; the ACL
+  function typechecks for `x86_64-pc-windows-msvc` in an isolated crate with the same `windows`
+  features. `cargo test` and `pnpm -r typecheck lint test build` are left to the test pass. Branch
+  not pushed.
