@@ -83,10 +83,16 @@ Subscriptions are supported **only** by:
   `:6088`), and every RPC method reads its caller from the authenticated transport rather than from
   the params the caller sends (`crates/warshad/src/lib.rs:2176`, `authorize(&RpcExtensions, …)`; the
   RPC auth layer is `:914-960`).
-- On first run the daemon generates a 32-byte token from the OS RNG and writes it into `config.toml`, which
-  is then set to `0600` **on Unix only** — the permission call sits inside `#[cfg(unix)]`
-  (`crates/warshad/src/lib.rs:5866-5867`). On Windows nothing in the code sets the ACL; the file inherits
-  whatever the profile directory grants.
+- On first run the daemon generates a 32-byte token from the OS RNG and writes it into `config.toml` through
+  `write_private_file` (`crates/warshad/src/lib.rs`), which restricts a temporary file **before** any content
+  is written and then renames it into place. On Unix the restriction is `0600` (`set_permissions`, inside
+  `#[cfg(unix)]`). On Windows it is an explicit single-owner DACL — the process token's owner SID with
+  `FILE_ALL_ACCESS` and no other ACE — written with `SetNamedSecurityInfoW(…,
+  PROTECTED_DACL_SECURITY_INFORMATION)`, so the profile directory's inheritable entries are **not** added
+  (`restrict_file_to_owner`, `#[cfg(windows)]`). That is not inheritance and not a NULL DACL. The Windows
+  branch has no test on any host in this tree: proving it needs a second principal to attempt the read, and
+  no Windows host runs this suite, so it is documented rather than proven there; the Unix mode is pinned by
+  `write_private_file_leaves_a_file_its_owner_alone_can_read_and_write`.
 - Inbound requests are rate-limited per verified identity, and the answer past a ceiling carries a
   `Retry-After` (`crates/warshad/src/lib.rs:953`, `:2189`).
 - **One Content-Security-Policy, on every answer the routes and the bundle produce.** The HTTP listener's
@@ -209,6 +215,15 @@ caller crosses, and what enforces each one today:
 - The code states its own limit, and this document repeats it: that policy is **defense-in-depth, not a
   sandbox**. A caller who already holds the owner credential is not confined by a list of program names, and
   arguments are not inspected (`crates/warshad/src/auth.rs:728-735`). Anything Warsha runs, runs as you.
+- **The list bounds which programs run, not what an allow-listed program does.** An allow-listed toolchain is
+  trusted *as a program*: `npm run …`, `node -e …`, `python -m …` and `cargo build` execute project code by
+  design, and inspecting their arguments would turn the allow-list into a different, larger policy rather than
+  a sandbox. One argument shape is narrowed, because it names a **second** program instead of describing what
+  the first one should do: git's config-key overrides — `git -c alias.<name>=!<cmd>`, `--config`/`--config-env`,
+  and the `core.pager`/`filter.*` keys — are refused by the command policy's git grammar (R-SEC-2,
+  `crates/warsha-pipeline/src/command_policy.rs`), with the empty form (`git -c core.fsmonitor=`) kept as the
+  neutralisation a gate-evidence command relies on. That refusal is the one narrowed exception; everything
+  else a listed program does with its own arguments is the program's behaviour, not the gate's.
 - **Working-directory confinement** is real for the agent file tools
   (`crates/warsha-pipeline/src/agent_tools.rs:292`) and separate git branches per run are how work is laid out
   for review (`crates/warsha-git/src/lib.rs:104`). Both are review boundaries, not security boundaries.

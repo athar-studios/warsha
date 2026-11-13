@@ -6719,6 +6719,15 @@ async fn wait_for_shutdown_signal() -> std::io::Result<()> {
 /// widen it. `SetNamedSecurityInfoW` with `pdacl: None` alongside
 /// `DACL_SECURITY_INFORMATION` would write a NULL DACL — full access for everyone —
 /// so the ACL is built explicitly from the process token's owner SID.
+///
+/// **Untested on Windows, recorded rather than assumed** (R-KEEL checkpoint row 18). The
+/// property this function exists for — a second principal can open the token file and be
+/// refused — needs a second principal to attempt the read, and no Windows host in this
+/// tree runs the suite, so there is no `#[cfg(windows)]` test here. What the tree does
+/// prove is the other half of the same claim on Unix
+/// (`write_private_file_leaves_a_file_its_owner_alone_can_read_and_write`: the finished
+/// file is `0600`), and that this function is wired *before* the content is written, in
+/// the unix-neutral body of [`write_private_file`].
 #[cfg(windows)]
 fn restrict_file_to_owner(path: &Path) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
@@ -10414,6 +10423,48 @@ mod tests {
             0,
             "tracing subscriber saw the auth token: {:?}",
             capture.lines()
+        );
+    }
+
+    /// The owner-only write is the only thing that keeps the daemon token's file out of
+    /// other accounts' reach on Unix, and nothing asserted it (R-KEEL checkpoint row 18).
+    /// `write_private_file` sets the mode on the temporary file **before** any content and
+    /// renames it into place, so this reads the finished file: mode `0600`, the new
+    /// content, no temporary left behind. The target starts out `0666` on purpose, so the
+    /// mode asserted is the write's rather than a fresh file's default or a directory's.
+    #[cfg(unix)]
+    #[test]
+    fn write_private_file_leaves_a_file_its_owner_alone_can_read_and_write() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = crate::test_util::fresh_tempdir();
+        let path = temp.path().join("config.toml");
+        std::fs::write(&path, "auth_token = \"stale\"\n").expect("a permissive file to replace");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666))
+            .expect("the permissive mode is set");
+
+        write_private_file(&path, "auth_token = \"probe\"\n").expect("the private file writes");
+
+        let mode = std::fs::metadata(&path)
+            .expect("the finished file")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "the private file must be readable and writable by its owner alone: mode was {mode:o}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("the finished file reads"),
+            "auth_token = \"probe\"\n",
+            "the rename must carry the new content, not the file it replaced"
+        );
+        let temporary = temp
+            .path()
+            .join(format!(".config.toml.tmp-{}", std::process::id()));
+        assert!(
+            !temporary.exists(),
+            "the temporary file {temporary:?} must not survive the rename"
         );
     }
 
