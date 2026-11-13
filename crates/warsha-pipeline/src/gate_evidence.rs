@@ -8,13 +8,12 @@
 
 use crate::command_policy::CommandPolicy;
 use std::path::Path;
-use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-/// The most bytes kept from each of stdout and stderr.
+/// The most bytes kept combined from stdout and stderr.
 pub const GATE_EVIDENCE_CAPTURE_BYTES: usize = 64 * 1024;
 /// The wall-clock bound a Gate C test command gets.
 pub const GATE_EVIDENCE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
@@ -149,23 +148,52 @@ pub(crate) async fn collect_gate_evidence_with_timeout(
 }
 
 async fn git_capped(work_dir: &Path, args: &[&str]) -> Result<(String, bool)> {
-    let output = tokio::process::Command::new("git")
-        .arg("-C")
-        .arg(work_dir)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output()
-        .await?;
-    if !output.status.success() {
+    // Daemon-authored infrastructure, not an agent command: its own allow-list
+    // that always admits `git`, so a narrowed owner policy cannot break Gate C.
+    // `-c core.fsmonitor=` and `diff --no-ext-diff` neutralise the repository
+    // configuration the agent can write, which would otherwise name the program
+    // git runs. Global options must precede the subcommand; subcommand options
+    // must follow it.
+    let policy = CommandPolicy::from_config(&["git".to_string()])
+        .with_timeout(GATE_EVIDENCE_TIMEOUT)
+        .with_output_cap(GATE_EVIDENCE_CAPTURE_BYTES);
+    let Some((subcommand, rest)) = args.split_first() else {
+        return Err(GateEvidenceError::Invalid {
+            field: "git arguments",
+            value: String::new(),
+        });
+    };
+    let work_dir_arg = work_dir.to_str().ok_or_else(|| {
+        std::io::Error::other(format!("non-unicode work dir {}", work_dir.display()))
+    })?;
+    let mut argv: Vec<String> = vec![
+        "-c".to_string(),
+        "core.fsmonitor=".to_string(),
+        "-C".to_string(),
+        work_dir_arg.to_string(),
+        (*subcommand).to_string(),
+    ];
+    if *subcommand == "diff" {
+        argv.push("--no-ext-diff".to_string());
+    }
+    argv.extend(rest.iter().map(|arg| (*arg).to_string()));
+
+    let output = policy
+        .execute("git", &argv, work_dir)
+        .await
+        .map_err(|e| GateEvidenceError::Io(std::io::Error::other(e.to_string())))?;
+    if !output.success {
         return Err(GateEvidenceError::Io(std::io::Error::other(format!(
             "git {} failed in {}",
             args.join(" "),
             work_dir.display()
         ))));
     }
-    Ok(cap_string(output.stdout))
+    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+    if output.truncated {
+        text.push_str(TRUNCATION_MARKER);
+    }
+    Ok((text, output.truncated))
 }
 
 async fn run_tests(
@@ -220,22 +248,10 @@ async fn run_tests(
     }
 }
 
-fn cap_string(bytes: Vec<u8>) -> (String, bool) {
-    if bytes.len() > GATE_EVIDENCE_CAPTURE_BYTES {
-        // Slice at the cap and let the lossy conversion handle a split UTF-8 tail:
-        // `String::truncate` would panic on a multi-byte boundary (Arabic diffs).
-        let mut text = String::from_utf8_lossy(&bytes[..GATE_EVIDENCE_CAPTURE_BYTES]).into_owned();
-        text.push_str(TRUNCATION_MARKER);
-        (text, true)
-    } else {
-        (String::from_utf8_lossy(&bytes).into_owned(), false)
-    }
-}
-
 #[cfg(test)]
 mod e5 {
     use super::*;
-    use std::process::Command;
+    use std::process::{Command, Stdio};
 
     fn git_repo(dir: &Path) {
         for args in [
