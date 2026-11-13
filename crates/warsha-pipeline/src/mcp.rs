@@ -167,7 +167,12 @@ pub struct McpResource {
     pub text: Option<String>,
 }
 
-/// Tool permission state
+/// Tool permission state of the test-only registry model
+///
+/// This is the second model of the same name: the one a run obeys is
+/// [`crate::mcp_permission::ToolPermission`] (`Allow`/`Ask`/`Deny`), and the
+/// table that holds *this* one is compiled for tests
+/// (see [`McpRegistry::permissions`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolPermission {
@@ -177,7 +182,7 @@ pub enum ToolPermission {
     Revoked,
 }
 
-/// Tool permission entry
+/// Tool permission entry, test-only (see [`ToolPermission`])
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolPermissionEntry {
     pub tool_name: String,
@@ -190,6 +195,7 @@ pub struct ToolPermissionEntry {
     pub scope: PermissionScope,
 }
 
+/// How far a test-only registry grant reaches
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PermissionScope {
@@ -198,12 +204,22 @@ pub enum PermissionScope {
     Session, // Current run only
 }
 
-/// MCP registry managing servers and permissions
+/// MCP registry managing servers and their tools
+///
+/// The permission table this registry used to carry is test-only (see
+/// [`McpRegistry::permissions`]): the gate a daemon run obeys is
+/// [`crate::mcp_permission::McpPermissionSource`], and a second model with the
+/// same name must not be reachable from a production path.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct McpRegistry {
     pub servers: HashMap<String, McpServerRecord>,
     pub tools: HashMap<String, McpTool>, // server_id::tool_name -> tool
-    pub permissions: HashMap<String, ToolPermissionEntry>, // server_id::tool_name::role -> permission
+    /// The test-only permission table: `server_id::tool_name::role`.
+    ///
+    /// Compiled for tests only, so the second permission model cannot be wired
+    /// into a run by mistake: the live gate is [`crate::mcp_permission`].
+    #[cfg(test)]
+    pub permissions: HashMap<String, ToolPermissionEntry>,
 }
 
 impl McpRegistry {
@@ -229,6 +245,7 @@ impl McpRegistry {
         // Also remove associated tools and permissions
         self.tools
             .retain(|k, _| !k.starts_with(&format!("{}::", server_id)));
+        #[cfg(test)]
         self.permissions
             .retain(|k, _| !k.starts_with(&format!("{}::", server_id)));
         Ok(())
@@ -269,6 +286,10 @@ impl McpRegistry {
     }
 
     /// Check if tool is allowed for role
+    ///
+    /// Test-only: the table it reads is compiled for tests, because the gate a
+    /// run obeys is [`crate::mcp_permission::McpPermissionSource`].
+    #[cfg(test)]
     pub fn check_permission(&self, server_id: &str, tool_name: &str, role: Role) -> ToolPermission {
         let key = format!("{}::{}::{}", server_id, tool_name, role as i32);
         self.permissions
@@ -278,6 +299,10 @@ impl McpRegistry {
     }
 
     /// Request approval for a tool
+    ///
+    /// Test-only: the table it reads is compiled for tests, because the gate a
+    /// run obeys is [`crate::mcp_permission::McpPermissionSource`].
+    #[cfg(test)]
     pub fn request_approval(
         &mut self,
         server_id: &str,
@@ -300,6 +325,10 @@ impl McpRegistry {
     }
 
     /// Grant approval
+    ///
+    /// Test-only: the table it reads is compiled for tests, because the gate a
+    /// run obeys is [`crate::mcp_permission::McpPermissionSource`].
+    #[cfg(test)]
     pub fn grant_approval(
         &mut self,
         server_id: &str,
@@ -322,6 +351,10 @@ impl McpRegistry {
     }
 
     /// Deny approval
+    ///
+    /// Test-only: the table it reads is compiled for tests, because the gate a
+    /// run obeys is [`crate::mcp_permission::McpPermissionSource`].
+    #[cfg(test)]
     pub fn deny_approval(&mut self, server_id: &str, tool_name: &str, role: Role) -> Result<()> {
         let key = format!("{}::{}::{}", server_id, tool_name, role as i32);
         let entry = self
@@ -334,6 +367,10 @@ impl McpRegistry {
     }
 
     /// Revoke permission
+    ///
+    /// Test-only: the table it reads is compiled for tests, because the gate a
+    /// run obeys is [`crate::mcp_permission::McpPermissionSource`].
+    #[cfg(test)]
     pub fn revoke_permission(
         &mut self,
         server_id: &str,
@@ -352,6 +389,11 @@ impl McpRegistry {
 }
 
 /// MCP client for daemon to connect to servers
+///
+/// Test fixture: nothing in the daemon constructs one (the only caller is this
+/// module's own test), and its permission gate is the test-only [`ToolPermission`]
+/// table. A real tool call is gated by
+/// [`crate::mcp_permission::McpPermissionSource`].
 pub struct McpClient {
     pub registry: McpRegistry,
     pub manager: Option<Arc<dyn McpManager>>,
@@ -412,29 +454,34 @@ impl McpClient {
             (server, call.tool_name.clone())
         };
 
-        // Check permission
-        let perm = self
-            .registry
-            .check_permission(&server_id, &tool_name, call.caller_role);
-        match perm {
-            ToolPermission::Allowed => {}
-            ToolPermission::Pending => {
-                return Err(McpError::ApprovalRequired(format!(
-                    "Tool {} requires approval",
-                    call.tool_name
-                )))
-            }
-            ToolPermission::Denied => {
-                return Err(McpError::PermissionDenied(format!(
-                    "Tool {} is denied",
-                    call.tool_name
-                )))
-            }
-            ToolPermission::Revoked => {
-                return Err(McpError::PermissionDenied(format!(
-                    "Tool {} access revoked",
-                    call.tool_name
-                )))
+        // Permission is a test-only gate on this client: the table it reads
+        // exists in test builds only (see `McpRegistry::permissions`), and the
+        // gate a real tool call obeys is `crate::mcp_permission`.
+        #[cfg(test)]
+        {
+            let perm = self
+                .registry
+                .check_permission(&server_id, &tool_name, call.caller_role);
+            match perm {
+                ToolPermission::Allowed => {}
+                ToolPermission::Pending => {
+                    return Err(McpError::ApprovalRequired(format!(
+                        "Tool {} requires approval",
+                        call.tool_name
+                    )))
+                }
+                ToolPermission::Denied => {
+                    return Err(McpError::PermissionDenied(format!(
+                        "Tool {} is denied",
+                        call.tool_name
+                    )))
+                }
+                ToolPermission::Revoked => {
+                    return Err(McpError::PermissionDenied(format!(
+                        "Tool {} access revoked",
+                        call.tool_name
+                    )))
+                }
             }
         }
 

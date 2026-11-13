@@ -365,6 +365,40 @@ pub enum McpTransportError {
         #[source]
         source: ProcessError,
     },
+    /// A failed handshake whose child also survived the cleanup stop.
+    ///
+    /// The handshake failure stays the primary cause and the source; the stop
+    /// failure is named in the message because a child that outlives its failed
+    /// launch is a process nothing will address again, and a caller that reads
+    /// only the error text would otherwise never see it.
+    #[error("{handshake}; the child also failed to stop: {stop}")]
+    HandshakeCleanup {
+        /// Why the handshake failed.
+        #[source]
+        handshake: Box<McpTransportError>,
+        /// Why the cleanup stop failed.
+        stop: ProcessError,
+    },
+}
+
+/// Fold a cleanup stop failure into the handshake error that caused it.
+///
+/// With a clean stop the handshake error is returned unchanged, and so is a stop
+/// that reports the child already gone — `NotRunning`/`NotFound` are what the
+/// cleanup wanted, the same way [`McpManager::disconnect`] reads them. Only a
+/// child that is still there is named, so the text never claims a survivor that
+/// is not one.
+fn with_cleanup_failure(
+    error: McpTransportError,
+    stopped: std::result::Result<(), ProcessError>,
+) -> McpTransportError {
+    match stopped {
+        Ok(()) | Err(ProcessError::NotRunning(_)) | Err(ProcessError::NotFound(_)) => error,
+        Err(stop) => McpTransportError::HandshakeCleanup {
+            handshake: Box::new(error),
+            stop,
+        },
+    }
 }
 
 /// Connect, list, address and close MCP servers.
@@ -958,10 +992,14 @@ impl McpManager for InMemoryMcpManager {
             Err(error) => {
                 // A server that will not handshake is not a connection: the child
                 // goes with the attempt, so a wrong command does not leave a
-                // process running that nothing will ever address again.
-                if let Err(stop) = self.processes.stop(&process_id).await {
+                // process running that nothing will ever address again. A stop
+                // that fails anyway is not swallowed into a log line — the child
+                // it left behind travels on the error the caller reads.
+                let stopped = self.processes.stop(&process_id).await;
+                if let Err(stop) = &stopped {
                     tracing::warn!("could not stop the MCP server `{name}`: {stop}");
                 }
+                let error = with_cleanup_failure(error, stopped);
                 self.launches.lock().await.remove(&name);
                 self.connections.lock().await.push(McpConnection {
                     config,
@@ -1962,6 +2000,163 @@ mod tests {
             assert!(
                 waited < DEFAULT_RESPONSE_TIMEOUT,
                 "a gone process is reported, not waited on; waited {waited:?}"
+            );
+        }
+
+        /// A process manager whose `stop` always fails.
+        ///
+        /// A child of this host cannot refuse the stop signal, so the one failure
+        /// the cleanup has to report — a child that outlives its failed launch —
+        /// is injected at the manager boundary the transport already holds.
+        /// Everything else goes to the real manager, so the child is a real
+        /// process with a real ladder of stdout replies.
+        struct RefusesToStop(Arc<dyn ProcessManager>);
+
+        #[async_trait::async_trait]
+        impl ProcessManager for RefusesToStop {
+            async fn spawn(
+                &self,
+                command: &str,
+                args: &[String],
+                env: &HashMap<String, String>,
+            ) -> std::result::Result<String, ProcessError> {
+                self.0.spawn(command, args, env).await
+            }
+
+            async fn stop(&self, id: &str) -> std::result::Result<(), ProcessError> {
+                Err(ProcessError::Stop {
+                    id: id.to_string(),
+                    source: std::io::Error::other("the probe refused to stop"),
+                })
+            }
+
+            async fn status(&self, id: &str) -> std::result::Result<ProcessStatus, ProcessError> {
+                self.0.status(id).await
+            }
+
+            async fn list(&self) -> Vec<crate::process_spawn::ManagedProcess> {
+                self.0.list().await
+            }
+
+            async fn restart(&self, id: &str) -> std::result::Result<String, ProcessError> {
+                self.0.restart(id).await
+            }
+
+            async fn read_stdout(
+                &self,
+                id: &str,
+                offset: usize,
+            ) -> std::result::Result<Vec<String>, ProcessError> {
+                self.0.read_stdout(id, offset).await
+            }
+
+            async fn read_stderr(
+                &self,
+                id: &str,
+                offset: usize,
+            ) -> std::result::Result<Vec<String>, ProcessError> {
+                self.0.read_stderr(id, offset).await
+            }
+
+            async fn kill_all(&self) -> usize {
+                self.0.kill_all().await
+            }
+
+            async fn write_stdin(
+                &self,
+                id: &str,
+                bytes: &[u8],
+            ) -> std::result::Result<(), ProcessError> {
+                self.0.write_stdin(id, bytes).await
+            }
+        }
+
+        /// A handshake failure whose child stops cleanly reports the handshake only.
+        #[tokio::test]
+        async fn a_handshake_failure_stops_its_child_and_reports_only_that_failure() {
+            let (processes, mcp) = manager();
+
+            let mut env = HashMap::new();
+            env.insert(SILENT_MARKER.to_string(), "1".to_string());
+            let error = mcp
+                .connect_with(
+                    probe_config("silent_cleanup", "silent_probe"),
+                    McpLaunchOptions::with_env(env)
+                        .with_response_timeout(Duration::from_millis(250)),
+                )
+                .await
+                .expect_err("a silent server never completes the handshake");
+
+            assert!(
+                matches!(
+                    &error,
+                    McpTransportError::Timeout { method, .. } if method == "initialize"
+                ),
+                "a clean stop must leave the handshake error alone: {error:?}"
+            );
+            let text = error.to_string();
+            assert!(
+                !text.contains("failed to stop"),
+                "a child that stopped is not reported as surviving: {text}"
+            );
+            let statuses: Vec<ProcessStatus> = processes
+                .list()
+                .await
+                .iter()
+                .map(|process| process.status)
+                .collect();
+            assert_eq!(
+                statuses,
+                vec![ProcessStatus::Stopped],
+                "the failed launch must not leave the child running"
+            );
+        }
+
+        /// A handshake failure whose child survives the stop reports both facts.
+        #[tokio::test]
+        async fn a_handshake_failure_names_a_child_that_survives_the_cleanup_stop() {
+            let processes = InMemoryProcessManager::shared();
+            let stubborn: Arc<dyn ProcessManager> = Arc::new(RefusesToStop(processes.clone()));
+            let mcp = InMemoryMcpManager::new(stubborn);
+
+            let mut env = HashMap::new();
+            env.insert(SILENT_MARKER.to_string(), "1".to_string());
+            let error = mcp
+                .connect_with(
+                    probe_config("silent_stuck", "silent_probe"),
+                    McpLaunchOptions::with_env(env)
+                        .with_response_timeout(Duration::from_millis(250)),
+                )
+                .await
+                .expect_err("a silent server never completes the handshake");
+
+            match &error {
+                McpTransportError::HandshakeCleanup { handshake, .. } => assert!(
+                    matches!(
+                        handshake.as_ref(),
+                        McpTransportError::Timeout { method, .. } if method == "initialize"
+                    ),
+                    "the handshake failure stays the primary cause: {handshake:?}"
+                ),
+                other => panic!("both facts must reach the caller, got {other:?}"),
+            }
+            let text = error.to_string();
+            assert!(
+                text.contains("did not answer `initialize`"),
+                "the handshake failure must still be named: {text}"
+            );
+            assert!(
+                text.contains("the child also failed to stop")
+                    && text.contains("the probe refused to stop"),
+                "the stop failure must be named too: {text}"
+            );
+
+            // The child is still there because the stop was refused: the record
+            // the caller reads now says so, and the test still has to end it.
+            assert_eq!(
+                processes.kill_all().await,
+                1,
+                "the surviving child is left for the exit path, not silently gone"
             );
         }
     }
