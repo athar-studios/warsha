@@ -459,6 +459,11 @@ mod e5 {
                 evidence.tests.stdout
             );
         }
+
+        assert!(evidence.tests.success);
+        assert!(!evidence.tests.stdout.is_empty());
+        assert!(evidence.tests.stdout.contains("PATH="));
+        assert!(evidence.tests.stdout.contains("TERM=dumb"));
     }
 
     #[cfg(unix)]
@@ -509,6 +514,72 @@ mod e5 {
         assert!(
             gone,
             "grandchild process {grandchild} survived the timeout: process group was not killed"
+        );
+    }
+
+    /// The vectors measured in the CP2 review: a repository the agent can write
+    /// names the program `git diff`/`git status` execute (`diff.external`,
+    /// `core.fsmonitor`). Evidence collection must not run them — and must still
+    /// report the real diff, so a neutralisation that silently collected nothing
+    /// would not pass.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn repo_config_hooks_do_not_run_during_evidence_collection() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let repo = temp_repo();
+        let marker = repo.path().join("hook.ran");
+        let hook = repo.path().join("hook.sh");
+        std::fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\n", marker.display()))
+            .expect("the hook is written");
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755))
+            .expect("the hook is executable");
+        let hook_path = hook.to_str().expect("the hook path is unicode");
+
+        for (key, value) in [("diff.external", hook_path), ("core.fsmonitor", hook_path)] {
+            let status = Command::new("git")
+                .current_dir(repo.path())
+                .args(["config", key, value])
+                .status()
+                .expect("git config runs");
+            assert!(status.success(), "git config {key} failed");
+        }
+        std::fs::write(repo.path().join("base.txt"), "changed").expect("the file changes");
+
+        let (program, args) = sh("true");
+        let policy = CommandPolicy::from_config(std::slice::from_ref(&program));
+        let evidence = collect_gate_evidence(&policy, repo.path(), "HEAD", &program, &args)
+            .await
+            .expect("the evidence is collected");
+
+        assert!(
+            !marker.exists(),
+            "a repository-configured hook ran while collecting evidence"
+        );
+        assert!(
+            evidence.diff.contains("-base") && evidence.diff.contains("+changed"),
+            "the diff itself must still be collected:\n{}",
+            evidence.diff
+        );
+        assert!(evidence.files_changed.iter().any(|path| path == "base.txt"));
+
+        // Control: in the same repository a plain `git diff` does run the
+        // configured program, so the assertion above is not vacuous.
+        // `core.fsmonitor` is disabled for the control because its trigger needs
+        // index-extension state and is not deterministic in every environment;
+        // `diff.external` is, and it is the same repository-config-named-program
+        // vector.
+        let status = Command::new("git")
+            .current_dir(repo.path())
+            .args(["-c", "core.fsmonitor=", "diff", "HEAD"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .expect("the control git diff runs");
+        assert!(status.success(), "the control git diff failed");
+        assert!(
+            marker.exists(),
+            "the control `git diff` did not run the configured hook: this test can no longer prove the vector is live"
         );
     }
 }
