@@ -35,6 +35,8 @@ use tracing::{error, info, warn};
 use warsha_backends::BackendFactory;
 use warsha_core::*;
 use warsha_git::GitHubClient;
+use warsha_pipeline::mcp_permission::{McpPermissionSource, ToolPermission};
+use warsha_pipeline::MCP_AGENT_ROLE;
 use warsha_pipeline::{
     AgentLoop, AgentMode, AgentTurnResult, AskUserQueue, BackendKind, BackendKit, CommandPolicy,
     CrashReport, CrashReportStore, FilesystemToolExecutor, HandoffBundle, HandoffManager,
@@ -2265,6 +2267,14 @@ impl WarshaRpc {
     /// daemon's own environment into a child — the inheritance this packet exists
     /// to remove — and `${config:…}` has no daemon-wide value to substitute; both
     /// are refused rather than guessed.
+    ///
+    /// The *account* a pack may name is bounded too (R-KEEL row 5): a reference must
+    /// equal [`wave2::plugin_env_account`] for this pack and this variable, so a
+    /// manifest cannot read `plugin:other-pack:TOKEN`, a provider's key or an
+    /// integration's token by writing its address into its own row. The comparison is
+    /// against the account string the daemon itself composes when it files a value,
+    /// and it runs **before** the keychain is touched: a foreign address is refused
+    /// without a read.
     async fn resolved_plugin_env(
         &self,
         definition: &PluginDefinition,
@@ -2281,6 +2291,13 @@ impl WarshaRpc {
                     definition.id
                 )));
             };
+            let own_account = wave2::plugin_env_account(&definition.id, key);
+            if account != own_account {
+                return Err(rpc_policy_refused(format!(
+                    "the pack `{}` wants `{key}` from the keychain account `{account}`; a pack may read only its own account (`{own_account}`), so this launch is refused",
+                    definition.id
+                )));
+            }
             let secret = self.state.secrets.load(account).await.map_err(|error| {
                 rpc_error(format!(
                     "the secret `{account}` for `{key}` could not be read from the OS keychain: {error}"
@@ -3880,6 +3897,12 @@ impl WarshaApiServer for WarshaRpc {
         payload: String,
     ) -> RpcResult<String> {
         self.authorize(ext, "mcp.send").await?;
+        // The raw seam is not a way around the permission table (R-KEEL row 6): a
+        // `tools/call` frame is exactly the call `mcp.call` and the agent loop both
+        // consult the table for, so it is refused before a byte reaches a child's
+        // stdin. Every other method is the caller's own protocol and passes through
+        // unchanged.
+        refuse_a_permission_governed_frame(&payload)?;
         self.state
             .mcp
             .send(&name, &payload)
@@ -3887,6 +3910,17 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|error| rpc_error(error.to_string()))
     }
 
+    /// Call one MCP tool on the owner's behalf (`mcp.call`).
+    ///
+    /// The table is consulted here exactly as the agent loop consults it (KEEL K6,
+    /// R-KEEL row 6); without this, `mcp.call` would be the one path that reaches the
+    /// transport with no `(server, tool, role)` check at all. The role is
+    /// [`MCP_AGENT_ROLE`] and not a distinct `rpc` role on purpose: `agent` is the only
+    /// role the daemon checks MCP calls under, so a second string would match none of
+    /// the owner's existing rows and put every `mcp.call` at the default `Ask` — one
+    /// table split into two rather than a boundary. There is no interactive approval on
+    /// this path (the agent loop's ask queue belongs to the agent's turn), so `Ask` is
+    /// refused with the grant the owner has to make rather than queued.
     async fn call_mcp(
         &self,
         ext: &RpcExtensions,
@@ -3895,6 +3929,23 @@ impl WarshaApiServer for WarshaRpc {
         arguments: serde_json::Value,
     ) -> RpcResult<warsha_pipeline::mcp::McpToolResult> {
         self.authorize(ext, "mcp.call").await?;
+        match self
+            .state
+            .mcp_permissions
+            .check_permission(&name, &tool, MCP_AGENT_ROLE)
+        {
+            ToolPermission::Allow => {}
+            ToolPermission::Deny => {
+                return Err(rpc_policy_refused(format!(
+                    "denied by MCP permission {name}::{tool}"
+                )))
+            }
+            ToolPermission::Ask => {
+                return Err(rpc_policy_refused(format!(
+                    "`{name}::{tool}` is ask-gated for role `{MCP_AGENT_ROLE}` and `mcp.call` has no approval queue; grant it with mcp.permissions.set {{ server: \"{name}\", tool: \"{tool}\", role: \"{MCP_AGENT_ROLE}\", permission: \"allow\" }}"
+                )))
+            }
+        }
         self.state
             .mcp
             .call_tool(&name, &tool, arguments)
@@ -5257,6 +5308,27 @@ fn rpc_rate_limited(retry_after_secs: u64) -> ErrorObjectOwned {
 /// A command or transport the daemon will not start (audit H-05).
 fn rpc_policy_refused(message: impl Into<String>) -> ErrorObjectOwned {
     ErrorObject::owned(auth::rpc_codes::POLICY_REFUSED, message.into(), None::<()>)
+}
+
+/// Refuse an `mcp.send` payload that carries a `tools/call` frame (R-KEEL row 6).
+///
+/// The transport writes the payload one frame per line, so every line is parsed as a
+/// frame and its `method` compared after decoding rather than substring-searched: a
+/// text search would miss `"tools\u002fcall"` or a `\/` escape that the child's own
+/// parser decodes back into the governed method. A line that is not JSON is left to
+/// the transport — it is not a frame this check could misread as a call.
+fn refuse_a_permission_governed_frame(payload: &str) -> RpcResult<()> {
+    for line in payload.lines() {
+        let Ok(frame) = serde_json::from_str::<serde_json::Value>(line.trim()) else {
+            continue;
+        };
+        if frame.get("method").and_then(serde_json::Value::as_str) == Some("tools/call") {
+            return Err(rpc_policy_refused(
+                "`mcp.send` may not write a `tools/call` frame: that method is gated by the MCP permission table, and `mcp.call` is the path that consults it",
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// The slash commands `skills.list` reports: `/review`, `/refactor`, `/test`,
@@ -7618,6 +7690,23 @@ mod tests {
         configure: impl FnOnce(&mut DaemonConfig),
         custom_settings: Option<Arc<SettingsStore>>,
     ) -> (Arc<DaemonState>, Arc<Store>) {
+        test_state_with_seams(data_dir, configure, custom_settings, None, None).await
+    }
+
+    /// The same state with the two seams a repair test has to observe replaced.
+    ///
+    /// `secrets` is what lets a test count keychain reads — R-KEEL row 5 says the
+    /// refusal of a foreign account must happen *before* that account is read, which
+    /// no observable state proves on its own — and `mcp` is what lets a test count
+    /// transport calls, which is how row 6 proves a refused RPC never reached one.
+    /// Both default to the real test doubles.
+    pub(super) async fn test_state_with_seams(
+        data_dir: &Path,
+        configure: impl FnOnce(&mut DaemonConfig),
+        custom_settings: Option<Arc<SettingsStore>>,
+        secrets: Option<Arc<dyn SecretStore>>,
+        mcp: Option<Arc<dyn McpManager>>,
+    ) -> (Arc<DaemonState>, Arc<Store>) {
         std::fs::create_dir_all(data_dir).expect("the data directory is made");
         let mut config = DaemonConfig {
             data_dir: data_dir.to_path_buf(),
@@ -7687,7 +7776,10 @@ mod tests {
         let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared_with_policy(
             CommandPolicy::from_config(&config.allowed_commands),
         );
-        let mcp: Arc<dyn McpManager> = Arc::new(InMemoryMcpManager::new(processes.clone()));
+        let mcp: Arc<dyn McpManager> = match mcp {
+            Some(mcp) => mcp,
+            None => Arc::new(InMemoryMcpManager::new(processes.clone())),
+        };
         let previews = Arc::new(LivePreviewManager::new(processes.clone()));
 
         // The agent loop's two seams, wired to the real thing: its file tools run
@@ -7738,7 +7830,7 @@ mod tests {
             pairings: Arc::new(RwLock::new(InMemoryPairingStore::new())),
             // A state built by hand is a state under test: no OS keychain is
             // reached, and a test that adds a provider can read its key back.
-            secrets: Arc::new(InMemorySecretStore::new()),
+            secrets: secrets.unwrap_or_else(|| Arc::new(InMemorySecretStore::new())),
             routines,
             routine_scheduler,
             sessions,
@@ -9228,6 +9320,19 @@ mod tests {
                 .expect("the frame is written"),
             frame
         );
+
+        // `mcp.call` consults the permission table like every other path to the
+        // transport (K6, R-KEEL row 6), and an empty table is `Ask`, so this owner
+        // grants the tool the way the desktop would before the call below.
+        rpc.set_mcp_permission(
+            &owner_ext(),
+            "files".to_string(),
+            PROBE_TOOL.to_string(),
+            warsha_pipeline::MCP_AGENT_ROLE.to_string(),
+            "allow".to_string(),
+        )
+        .await
+        .expect("the owner grants the probe tool");
 
         let call_res = rpc
             .call_mcp(
@@ -11458,6 +11563,232 @@ mod tests {
                 .iter()
                 .all(|connection| !connection.status.is_connected()));
         }
+
+        /// A keychain seam that records which accounts were read.
+        ///
+        /// `InMemorySecretStore` cannot answer "was this account read at all", which is
+        /// the half of R-KEEL row 5 a refusal on its own does not prove: a daemon that
+        /// read the foreign account and *then* refused would pass every other assertion
+        /// in this module. It delegates everything to the in-memory store, so a test can
+        /// still seed an account and read one back.
+        #[derive(Debug, Default)]
+        struct CountingSecretStore {
+            inner: InMemorySecretStore,
+            loads: std::sync::Mutex<Vec<String>>,
+        }
+
+        impl CountingSecretStore {
+            fn loads(&self) -> Vec<String> {
+                self.loads
+                    .lock()
+                    .expect("the load log is not poisoned")
+                    .clone()
+            }
+        }
+
+        #[async_trait]
+        impl SecretStore for CountingSecretStore {
+            async fn store(&self, account: &str, key: &str) -> warsha_providers::Result<()> {
+                self.inner.store(account, key).await
+            }
+
+            async fn load(&self, account: &str) -> warsha_providers::Result<String> {
+                self.loads
+                    .lock()
+                    .expect("the load log is not poisoned")
+                    .push(account.to_string());
+                self.inner.load(account).await
+            }
+
+            async fn delete(&self, account: &str) -> warsha_providers::Result<()> {
+                self.inner.delete(account).await
+            }
+        }
+
+        /// The probe manifest with an id the test chose, so the pack's own keychain
+        /// account (`plugin:{id}:{KEY}`) is known before the install derives anything.
+        fn probe_manifest_with_id(exe: &str, id: &str, env: Value) -> String {
+            let mut manifest: Value =
+                serde_json::from_str(&probe_manifest(exe, false, env)).expect("a JSON manifest");
+            manifest["id"] = serde_json::json!(id);
+            manifest.to_string()
+        }
+
+        #[tokio::test]
+        async fn a_pack_may_name_its_own_keychain_account() {
+            let temp = crate::test_util::fresh_tempdir();
+            let exe = test_binary();
+            let allowed = exe.clone();
+            let secrets = Arc::new(CountingSecretStore::default());
+            // Filed the way `plugins.install` files material: under the pack's own
+            // account. The row below names that address instead of the value.
+            secrets
+                .store(
+                    "plugin:own-account-pack:PROBE_SECRET",
+                    "own-account-material",
+                )
+                .await
+                .expect("the own account is filed");
+            let injected = secrets.clone();
+            let (state, _store) = test_state_with_seams(
+                temp.path(),
+                move |config| {
+                    config.allowed_commands = vec![allowed];
+                },
+                None,
+                Some(injected as Arc<dyn SecretStore>),
+                None,
+            )
+            .await;
+            let rpc = WarshaRpc::new(state.clone());
+            let owner = owner_ext();
+
+            let manifest = probe_manifest_with_id(
+                &exe,
+                "own-account-pack",
+                serde_json::json!({
+                    ENV_MARKER: "1",
+                    "PROBE_SECRET": "${secrets:plugin:own-account-pack:PROBE_SECRET}",
+                }),
+            );
+            let installed = rpc
+                .install_plugin(&owner, manifest)
+                .await
+                .expect("the probe pack installs");
+            assert_eq!(installed.id, "own-account-pack");
+            let stored = state
+                .settings
+                .get_plugin(&installed.id)
+                .await
+                .expect("the catalog answers")
+                .expect("the row exists");
+            assert!(
+                stored
+                    .env_json
+                    .contains("${secrets:plugin:own-account-pack:PROBE_SECRET}"),
+                "a reference is stored as the owner wrote it: {}",
+                stored.env_json
+            );
+
+            let toggled = rpc
+                .toggle_plugin(&owner, installed.id.clone(), true)
+                .await
+                .expect("a pack naming its own account launches");
+            assert!(toggled.enabled);
+
+            let connection = state
+                .mcp
+                .list()
+                .await
+                .into_iter()
+                .find(|connection| connection.config.name == installed.id)
+                .expect("the pack is connected");
+            assert!(connection.status.is_connected(), "{connection:?}");
+            let description = connection
+                .tool_definitions
+                .first()
+                .expect("the probe lists one tool")
+                .description
+                .clone();
+            assert!(
+                description.contains("PROBE_SECRET=own-account-material"),
+                "the own account's value must reach the child: {description}"
+            );
+            // Two accounts are read: the one the manifest named and the one the install
+            // filed for `ENV_MARKER` (material is filed under the pack's own account,
+            // never stored in the row). Both belong to this pack.
+            let mut loaded = secrets.loads();
+            loaded.sort();
+            assert_eq!(
+                loaded,
+                vec![
+                    "plugin:own-account-pack:PROBE_SECRET".to_string(),
+                    format!("plugin:own-account-pack:{ENV_MARKER}"),
+                ],
+                "the launch reads exactly the accounts this pack filed for itself"
+            );
+
+            rpc.toggle_plugin(&owner, installed.id.clone(), false)
+                .await
+                .expect("the pack disables and disconnects cleanly");
+        }
+
+        #[tokio::test]
+        async fn a_pack_cannot_read_another_packs_keychain_account() {
+            let temp = crate::test_util::fresh_tempdir();
+            let exe = test_binary();
+            let allowed = exe.clone();
+            let secrets = Arc::new(CountingSecretStore::default());
+            // The foreign account holds a value: a daemon that read it before refusing
+            // would have the material in hand, and the load log below would show it.
+            secrets
+                .store("plugin:other-pack:TOKEN", "foreign-material")
+                .await
+                .expect("the foreign account is filed");
+            let injected = secrets.clone();
+            let (state, _store) = test_state_with_seams(
+                temp.path(),
+                move |config| {
+                    config.allowed_commands = vec![allowed];
+                },
+                None,
+                Some(injected as Arc<dyn SecretStore>),
+                None,
+            )
+            .await;
+            let rpc = WarshaRpc::new(state.clone());
+            let owner = owner_ext();
+
+            let manifest = probe_manifest_with_id(
+                &exe,
+                "greedy-pack",
+                serde_json::json!({ "PROBE_SECRET": "${secrets:plugin:other-pack:TOKEN}" }),
+            );
+            let installed = rpc
+                .install_plugin(&owner, manifest)
+                .await
+                .expect("the reference is stored as written, so the install succeeds");
+            assert!(
+                secrets.loads().is_empty(),
+                "filing a reference must not read a keychain account: {:?}",
+                secrets.loads()
+            );
+
+            let err = rpc
+                .toggle_plugin(&owner, installed.id.clone(), true)
+                .await
+                .expect_err("a pack naming another pack's account must be refused");
+            assert_eq!(rpc_error_code(&err), auth::rpc_codes::POLICY_REFUSED);
+            assert!(
+                err.message().contains("plugin:other-pack:TOKEN"),
+                "the refusal names the offending account, got: {}",
+                err.message()
+            );
+            assert!(
+                err.message().contains("plugin:greedy-pack:PROBE_SECRET"),
+                "the refusal names the pack's own account, got: {}",
+                err.message()
+            );
+            assert!(
+                secrets.loads().is_empty(),
+                "the refusal must happen before any keychain read: {:?}",
+                secrets.loads()
+            );
+            assert!(
+                state.mcp.list().await.is_empty(),
+                "nothing may be launched for a refused pack"
+            );
+            assert!(
+                !state
+                    .settings
+                    .get_plugin(&installed.id)
+                    .await
+                    .expect("the catalog answers")
+                    .expect("the row exists")
+                    .enabled,
+                "a refused enable must not leave the pack stored as enabled"
+            );
+        }
     }
 
     /// R-KEEL checkpoint row 9: the CSP headers are read off a real response.
@@ -11905,11 +12236,16 @@ mod pair_repair {
         #[derive(Default)]
         struct RecordingMcp {
             calls: std::sync::Mutex<Vec<(String, String)>>,
+            sends: std::sync::Mutex<Vec<(String, String)>>,
         }
 
         impl RecordingMcp {
             fn calls(&self) -> usize {
                 self.calls.lock().expect("the recording lock").len()
+            }
+
+            fn sends(&self) -> Vec<(String, String)> {
+                self.sends.lock().expect("the recording lock").clone()
             }
         }
 
@@ -11943,10 +12279,14 @@ mod pair_repair {
             }
             async fn send(
                 &self,
-                _name: &str,
-                _payload: &str,
+                name: &str,
+                payload: &str,
             ) -> std::result::Result<String, warsha_pipeline::McpTransportError> {
-                Ok(String::new())
+                self.sends
+                    .lock()
+                    .expect("the recording lock")
+                    .push((name.to_string(), payload.to_string()));
+                Ok(payload.to_string())
             }
             async fn call_tool(
                 &self,
@@ -12102,6 +12442,177 @@ mod pair_repair {
                 .await
                 .expect_err("a paired device wrote a permission");
             assert_eq!(rpc_error_code(&set), auth::rpc_codes::FORBIDDEN);
+        }
+
+        /// A daemon whose MCP transport is a recorder, so a test can say whether the
+        /// transport was reached at all — the property R-KEEL row 6 is about.
+        async fn state_with_recording_mcp(
+            data_dir: &Path,
+            mcp: Arc<RecordingMcp>,
+        ) -> Arc<DaemonState> {
+            let (state, _store) = crate::tests::test_state_with_seams(
+                data_dir,
+                |_| {},
+                None,
+                None,
+                Some(mcp as Arc<dyn McpManager>),
+            )
+            .await;
+            state
+        }
+
+        #[tokio::test]
+        async fn call_mcp_refuses_a_denied_tool_and_never_reaches_the_transport() {
+            let temp = crate::test_util::fresh_tempdir();
+            let mcp = Arc::new(RecordingMcp::default());
+            let state = state_with_recording_mcp(temp.path(), mcp.clone()).await;
+            let rpc = WarshaRpc::new(state);
+            let owner = owner_ext();
+            rpc.set_mcp_permission(
+                &owner,
+                "srv".to_string(),
+                "tool".to_string(),
+                warsha_pipeline::MCP_AGENT_ROLE.to_string(),
+                "deny".to_string(),
+            )
+            .await
+            .expect("the owner denies the tool");
+
+            let err = rpc
+                .call_mcp(
+                    &owner,
+                    "srv".to_string(),
+                    "tool".to_string(),
+                    serde_json::json!({}),
+                )
+                .await
+                .expect_err("a denied tool must not be callable over RPC");
+            assert_eq!(rpc_error_code(&err), auth::rpc_codes::POLICY_REFUSED);
+            assert!(
+                err.message().contains("denied by MCP permission srv::tool"),
+                "the refusal names the denied row, got: {}",
+                err.message()
+            );
+            assert_eq!(mcp.calls(), 0, "a denied RPC call reached the transport");
+        }
+
+        #[tokio::test]
+        async fn call_mcp_reaches_the_transport_once_when_allowed() {
+            let temp = crate::test_util::fresh_tempdir();
+            let mcp = Arc::new(RecordingMcp::default());
+            let state = state_with_recording_mcp(temp.path(), mcp.clone()).await;
+            let rpc = WarshaRpc::new(state);
+            let owner = owner_ext();
+            rpc.set_mcp_permission(
+                &owner,
+                "srv".to_string(),
+                "tool".to_string(),
+                warsha_pipeline::MCP_AGENT_ROLE.to_string(),
+                "allow".to_string(),
+            )
+            .await
+            .expect("the owner grants the tool");
+
+            let result = rpc
+                .call_mcp(
+                    &owner,
+                    "srv".to_string(),
+                    "tool".to_string(),
+                    serde_json::json!({ "msg": "hi" }),
+                )
+                .await
+                .expect("an allowed tool is called");
+            assert!(!result.is_error);
+            assert_eq!(mcp.calls(), 1, "allow did not call exactly once");
+        }
+
+        #[tokio::test]
+        async fn call_mcp_refuses_a_tool_with_no_row() {
+            let temp = crate::test_util::fresh_tempdir();
+            let mcp = Arc::new(RecordingMcp::default());
+            let state = state_with_recording_mcp(temp.path(), mcp.clone()).await;
+            let rpc = WarshaRpc::new(state);
+            let owner = owner_ext();
+
+            // No row: the table defaults to Ask, and there is no approval queue on this
+            // path, so the honest answer is a refusal that names the grant to make.
+            let err = rpc
+                .call_mcp(
+                    &owner,
+                    "srv".to_string(),
+                    "tool".to_string(),
+                    serde_json::json!({}),
+                )
+                .await
+                .expect_err("a tool with no row must not be called over RPC");
+            assert_eq!(rpc_error_code(&err), auth::rpc_codes::POLICY_REFUSED);
+            assert!(
+                err.message().contains("ask-gated")
+                    && err.message().contains("mcp.permissions.set"),
+                "the refusal explains the default and the grant, got: {}",
+                err.message()
+            );
+            assert_eq!(
+                mcp.calls(),
+                0,
+                "an ask-gated RPC call reached the transport"
+            );
+        }
+
+        #[tokio::test]
+        async fn send_mcp_refuses_a_tools_call_frame_and_writes_any_other() {
+            let temp = crate::test_util::fresh_tempdir();
+            let mcp = Arc::new(RecordingMcp::default());
+            let state = state_with_recording_mcp(temp.path(), mcp.clone()).await;
+            let rpc = WarshaRpc::new(state);
+            let owner = owner_ext();
+
+            // Every spelling the child's parser would read as `tools/call`: the plain
+            // frame, the JSON escape, and a second frame smuggled onto a later line.
+            let refused_frames = [
+                r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"tool","arguments":{}}}"#,
+                r#"{"jsonrpc":"2.0","id":8,"method":"tools\u002fcall","params":{}}"#,
+                "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/list\"}\n{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/call\",\"params\":{}}",
+            ];
+            for payload in refused_frames {
+                let err = rpc
+                    .send_mcp(&owner, "srv".to_string(), payload.to_string())
+                    .await
+                    .expect_err("a tools/call frame must not be written");
+                assert_eq!(rpc_error_code(&err), auth::rpc_codes::POLICY_REFUSED);
+                assert!(
+                    err.message().contains("tools/call"),
+                    "the refusal names the governed method, got: {}",
+                    err.message()
+                );
+            }
+            assert!(
+                mcp.sends().is_empty(),
+                "a refused frame reached the transport: {:?}",
+                mcp.sends()
+            );
+
+            // Every other method is the caller's own protocol and passes unchanged.
+            let frames = [
+                r#"{"jsonrpc":"2.0","id":11,"method":"tools/list"}"#,
+                r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+            ];
+            for payload in frames {
+                assert_eq!(
+                    rpc.send_mcp(&owner, "srv".to_string(), payload.to_string())
+                        .await
+                        .expect("another method passes through"),
+                    payload
+                );
+            }
+            assert_eq!(
+                mcp.sends(),
+                frames
+                    .iter()
+                    .map(|payload| ("srv".to_string(), payload.to_string()))
+                    .collect::<Vec<_>>(),
+                "each allowed frame reaches the transport exactly once, unchanged"
+            );
         }
     }
 }
