@@ -4787,7 +4787,10 @@ impl WarshaApiServer for WarshaRpc {
             self.check_plugin_launch(&checked)?;
             launch_env = self.resolved_plugin_env(&checked).await?;
         }
-        if row.enabled != enabled {
+        // Whether this call is the one that rewrites the row — the flag the rollback below
+        // keys on, because a toggle to the state the row already has wrote nothing to undo.
+        let flipped = row.enabled != enabled;
+        if flipped {
             self.state
                 .settings
                 .toggle_plugin(&id)
@@ -4807,14 +4810,35 @@ impl WarshaApiServer for WarshaRpc {
                         cmd,
                         def.args.clone(),
                     );
-                    self.state
+                    if let Err(error) = self
+                        .state
                         .mcp
                         .connect_with(
                             mcp_cfg,
                             warsha_pipeline::mcp_transport::McpLaunchOptions::with_env(launch_env),
                         )
                         .await
-                        .map_err(|e| rpc_error(e.to_string()))?;
+                    {
+                        // The row was persisted before the spawn, so a connect that fails
+                        // would leave it saying `enabled` with no process behind it, and
+                        // nothing re-derives that until the next toggle (R-KEEL
+                        // checkpoint row 16). Restore the state the row had before this
+                        // call — and still return the connect's own error, which is the
+                        // RPC's contract. A rollback that fails too is named inside that
+                        // error rather than swallowed.
+                        let rollback = if flipped {
+                            self.state.settings.toggle_plugin(&id).await.err()
+                        } else {
+                            None
+                        };
+                        return Err(match rollback {
+                            None => rpc_error(error.to_string()),
+                            Some(rollback_error) => rpc_error(format!(
+                                "{error} (the row could not be put back the way it was: \
+                                 {rollback_error})"
+                            )),
+                        });
+                    }
                 }
             }
         } else if !enabled
@@ -4855,6 +4879,10 @@ impl WarshaApiServer for WarshaRpc {
         candidate.env = env.clone();
         self.check_plugin_launch(&candidate)?;
         let references = self.file_plugin_env(&id, &env).await?;
+        // The row is about to lose its previous environment, so keep it: a connect with the
+        // new one that fails must not leave the row describing a child that was never
+        // started (R-KEEL checkpoint row 16, the `configure` half).
+        let previous_env_json = row.env_json.clone();
         row.env_json = serde_json::to_string(&references).map_err(rpc_error)?;
         self.state
             .settings
@@ -4874,14 +4902,30 @@ impl WarshaApiServer for WarshaRpc {
                         cmd,
                         def.args.clone(),
                     );
-                    self.state
+                    if let Err(error) = self
+                        .state
                         .mcp
                         .connect_with(
                             mcp_cfg,
                             warsha_pipeline::mcp_transport::McpLaunchOptions::with_env(launch_env),
                         )
                         .await
-                        .map_err(|e| rpc_error(e.to_string()))?;
+                    {
+                        // Put the previous environment back: the caller still gets the
+                        // connect's error, but the row is not left naming an environment
+                        // whose child never started. The keychain entries the new
+                        // environment filed stay, for the next configure of those keys to
+                        // overwrite — the same rule a key this call stopped naming follows.
+                        row.env_json = previous_env_json;
+                        let rollback = self.state.settings.save_plugin(&row).await.err();
+                        return Err(match rollback {
+                            None => rpc_error(error.to_string()),
+                            Some(rollback_error) => rpc_error(format!(
+                                "{error} (the previous environment could not be restored: \
+                                 {rollback_error})"
+                            )),
+                        });
+                    }
                 }
             }
         }
@@ -6035,7 +6079,17 @@ fn origin_is_loopback(origin: &str) -> bool {
 /// remote meta can be the same bytes; without them both directives fall back to
 /// `default-src 'self'`, which would let same-origin plugin content and a same-origin
 /// `<base>` override stand.
-pub const REMOTE_CSP: &str = "default-src 'self' data: blob:; script-src 'self' data: blob:; style-src 'self' data: blob: 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:8765 ws://127.0.0.1:8766 http://localhost:8765 ws://localhost:8766; frame-ancestors 'none'; form-action 'self'; object-src 'none'; base-uri 'self';";
+///
+/// `script-src` names `'self'` and nothing else. It carried `data:` and `blob:` until R-KEEL
+/// checkpoint row 15 measured what that admits: a document able to mint a `blob:`/`data:`
+/// URL could run script from it, which is the inline hole the absent `'unsafe-inline'` was
+/// meant to keep shut. Nothing in the bundle loads script or a worker through either scheme
+/// — the one worker registered is `/sw.js`, a same-origin URL, and a worker's script is
+/// bounded by `worker-src` falling back to `script-src`, so `script-src 'self'` covers it. The
+/// schemes stay in `img-src` (the pairing QR is a `data:image/png`, an artifact export is a
+/// `blob:`) and in `style-src`, where they are governed by those directives and not by this
+/// one.
+pub const REMOTE_CSP: &str = "default-src 'self' data: blob:; script-src 'self'; style-src 'self' data: blob: 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:8765 ws://127.0.0.1:8766 http://localhost:8765 ws://localhost:8766; frame-ancestors 'none'; form-action 'self'; object-src 'none'; base-uri 'self';";
 
 /// The daemon's HTTP surface, assembled once so the listener and the test that asserts
 /// its headers drive the same app.
@@ -6665,6 +6719,15 @@ async fn wait_for_shutdown_signal() -> std::io::Result<()> {
 /// widen it. `SetNamedSecurityInfoW` with `pdacl: None` alongside
 /// `DACL_SECURITY_INFORMATION` would write a NULL DACL — full access for everyone —
 /// so the ACL is built explicitly from the process token's owner SID.
+///
+/// **Untested on Windows, recorded rather than assumed** (R-KEEL checkpoint row 18). The
+/// property this function exists for — a second principal can open the token file and be
+/// refused — needs a second principal to attempt the read, and no Windows host in this
+/// tree runs the suite, so there is no `#[cfg(windows)]` test here. What the tree does
+/// prove is the other half of the same claim on Unix
+/// (`write_private_file_leaves_a_file_its_owner_alone_can_read_and_write`: the finished
+/// file is `0600`), and that this function is wired *before* the content is written, in
+/// the unix-neutral body of [`write_private_file`].
 #[cfg(windows)]
 fn restrict_file_to_owner(path: &Path) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
@@ -10156,6 +10219,130 @@ mod tests {
         assert_eq!(rpc_error_code(&err), -32000);
     }
 
+    /// R-KEEL checkpoint row 16: the row was written *before* the spawn, so a connect that
+    /// failed left it claiming `enabled` with no process behind it until the next toggle.
+    /// It is still the caller's error (the RPC contract above), but the row goes back.
+    #[tokio::test]
+    async fn a_failed_toggle_connect_leaves_the_row_disabled() {
+        let temp = crate::test_util::fresh_tempdir();
+        let exe = std::env::current_exe()
+            .expect("the test binary names itself")
+            .to_string_lossy()
+            .into_owned();
+        let allowed = exe.clone();
+        let (state, _store) = test_state_with(temp.path(), move |config| {
+            config.allowed_commands = vec![allowed];
+        })
+        .await;
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+        let manifest = serde_json::json!({
+            "name": "Bad MCP Plugin",
+            "transport": "stdio",
+            "command": exe,
+            "args": ["--list"],
+            "enabled": false,
+        })
+        .to_string();
+        let installed = rpc
+            .install_plugin(&owner, manifest)
+            .await
+            .expect("plugin installs cleanly in disabled state");
+
+        let err = rpc
+            .toggle_plugin(&owner, installed.id.clone(), true)
+            .await
+            .expect_err("enabling a plugin whose server dies must fail with an RPC error");
+        assert_eq!(rpc_error_code(&err), -32000);
+
+        let stored = state
+            .settings
+            .get_plugin(&installed.id)
+            .await
+            .expect("the catalog answers")
+            .expect("the row is still there");
+        assert!(
+            !stored.enabled,
+            "a failed connect must put the row back to disabled, not leave it enabled with no process"
+        );
+        assert!(
+            state
+                .mcp
+                .list()
+                .await
+                .iter()
+                .all(|connection| !connection.status.is_connected()),
+            "a failed connect must not leave a connected server behind"
+        );
+    }
+
+    /// The `configure` half of row 16: the new environment was persisted before the child
+    /// started, so a failed connect left the row naming an environment whose process never
+    /// existed. The caller keeps the connect's error; the row keeps its old environment.
+    #[tokio::test]
+    async fn a_failed_configure_connect_leaves_the_previous_environment() {
+        let temp = crate::test_util::fresh_tempdir();
+        let exe = std::env::current_exe()
+            .expect("the test binary names itself")
+            .to_string_lossy()
+            .into_owned();
+        let allowed = exe.clone();
+        let (state, _store) = test_state_with(temp.path(), move |config| {
+            config.allowed_commands = vec![allowed];
+        })
+        .await;
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+        // Enabled but not connected: `install` files the row without spawning it, which is
+        // the state `configure` re-launches from.
+        let manifest = serde_json::json!({
+            "name": "Configured Bad MCP Plugin",
+            "transport": "stdio",
+            "command": exe,
+            "args": ["--list"],
+            "enabled": true,
+        })
+        .to_string();
+        let installed = rpc
+            .install_plugin(&owner, manifest)
+            .await
+            .expect("plugin installs cleanly in enabled state");
+        let before = state
+            .settings
+            .get_plugin(&installed.id)
+            .await
+            .expect("the catalog answers")
+            .expect("the row exists")
+            .env_json;
+
+        let mut env = HashMap::new();
+        env.insert(
+            "GITHUB_TOKEN".to_string(),
+            "material-never-launched".to_string(),
+        );
+        let err = rpc
+            .configure_plugin(&owner, installed.id.clone(), env)
+            .await
+            .expect_err("configuring a pack whose server dies must fail with an RPC error");
+        assert_eq!(rpc_error_code(&err), -32000);
+
+        let after = state
+            .settings
+            .get_plugin(&installed.id)
+            .await
+            .expect("the catalog answers")
+            .expect("the row is still there")
+            .env_json;
+        assert_eq!(
+            after, before,
+            "a failed connect must restore the previous environment instead of leaving the new one filed"
+        );
+        assert!(
+            !after.contains("GITHUB_TOKEN"),
+            "the environment whose child never started must not remain in the row: {after}"
+        );
+    }
+
     #[tokio::test]
     async fn preview_policy_allows_allow_listed_quoted_path_with_spaces() {
         let temp = crate::test_util::fresh_tempdir();
@@ -10236,6 +10423,48 @@ mod tests {
             0,
             "tracing subscriber saw the auth token: {:?}",
             capture.lines()
+        );
+    }
+
+    /// The owner-only write is the only thing that keeps the daemon token's file out of
+    /// other accounts' reach on Unix, and nothing asserted it (R-KEEL checkpoint row 18).
+    /// `write_private_file` sets the mode on the temporary file **before** any content and
+    /// renames it into place, so this reads the finished file: mode `0600`, the new
+    /// content, no temporary left behind. The target starts out `0666` on purpose, so the
+    /// mode asserted is the write's rather than a fresh file's default or a directory's.
+    #[cfg(unix)]
+    #[test]
+    fn write_private_file_leaves_a_file_its_owner_alone_can_read_and_write() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = crate::test_util::fresh_tempdir();
+        let path = temp.path().join("config.toml");
+        std::fs::write(&path, "auth_token = \"stale\"\n").expect("a permissive file to replace");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666))
+            .expect("the permissive mode is set");
+
+        write_private_file(&path, "auth_token = \"probe\"\n").expect("the private file writes");
+
+        let mode = std::fs::metadata(&path)
+            .expect("the finished file")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "the private file must be readable and writable by its owner alone: mode was {mode:o}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("the finished file reads"),
+            "auth_token = \"probe\"\n",
+            "the rename must carry the new content, not the file it replaced"
+        );
+        let temporary = temp
+            .path()
+            .join(format!(".config.toml.tmp-{}", std::process::id()));
+        assert!(
+            !temporary.exists(),
+            "the temporary file {temporary:?} must not survive the rename"
         );
     }
 
