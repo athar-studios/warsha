@@ -135,16 +135,55 @@ jobs:
           archive="${RUNNER_TEMP}/${asset}"
           curl -sSfL --retry 3 -o "${archive}" \
             "https://github.com/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}/${asset}"
-          # sha256sum on Linux and on Git-for-Windows (MSYS coreutils); macOS
-          # ships no sha256sum but does ship shasum. Anything else fails the leg.
-          if command -v sha256sum >/dev/null 2>&1; then
+          # Pick a verifier by CAPABILITY, not by name: prove it accepts a correct
+          # digest AND rejects a wrong one. Accepting alone is not enough — the
+          # macOS image ships a busybox-style `sha256sum` that takes only
+          # `[-bctwz] [files...]` (the leg logged `usage: sha256sum [-bctwz]
+          # [files ...]`), and for it `-c FILE` does NOT verify: it silently
+          # hashes FILE and exits 0, which reads as "checksum OK" for any input.
+          # So the probe feeds each candidate both a right and a wrong digest and
+          # keeps the first that says OK then FAILED. Order:
+          #   1. `sha256sum -c` from a stdin check line (GNU coreutils: Linux,
+          #      Git-for-Windows);
+          #   2. `shasum -a 256 -c` from a check FILE (macOS Perl shasum). `-c` is
+          #      the short form of `--check`; the long form is not accepted
+          #      everywhere, which is how the old `shasum -a 256 --check` line
+          #      fell through and reported a bogus mismatch on a correct asset.
+          # Anything else fails the leg loudly; no verifier means no install.
+          write_check_file() { printf '%s  %s\n' "$1" "$2" > "$3"; }
+          probe_file="${RUNNER_TEMP}/.sha256-probe"
+          printf 'probe\n' > "${probe_file}"
+          good_sha="$( (sha256sum "${probe_file}" 2>/dev/null || shasum -a 256 "${probe_file}" 2>/dev/null) | cut -d' ' -f1)"
+          # A digest that differs from good_sha in every hex digit: no hash
+          # collision can make it valid, so "accepts" is unambiguous.
+          bad_sha="$(printf '%s' "${good_sha}" | tr '0-9a-f' '1a-f0')"
+          verifies_stdin() {
+            printf '%s  %s\n' "${good_sha}" "${probe_file}" | sha256sum -c >/dev/null 2>&1 || return 1
+            if printf '%s  %s\n' "${bad_sha}" "${probe_file}" | sha256sum -c >/dev/null 2>&1; then
+              return 1
+            fi
+            return 0
+          }
+          verifies_shasum() {
+            write_check_file "${good_sha}" "${probe_file}" "${probe_file}.sha256"
+            shasum -a 256 -c "${probe_file}.sha256" >/dev/null 2>&1 || return 1
+            write_check_file "${bad_sha}" "${probe_file}" "${probe_file}.sha256"
+            if shasum -a 256 -c "${probe_file}.sha256" >/dev/null 2>&1; then
+              return 1
+            fi
+            return 0
+          }
+          if command -v sha256sum >/dev/null 2>&1 && verifies_stdin; then
+            checksum_kind=stdin
             checksum_verify=(sha256sum --check)
-          elif command -v shasum >/dev/null 2>&1; then
-            checksum_verify=(shasum -a 256 --check)
+          elif command -v shasum >/dev/null 2>&1 && verifies_shasum; then
+            checksum_kind=file
+            checksum_verify=(shasum -a 256 -c)
           else
-            echo "::error::cargo-deny: neither sha256sum nor shasum found on ${target}"
+            echo "::error::cargo-deny: no usable sha256 verifier found on ${target} (need GNU sha256sum or shasum -c)"
             exit 1
           fi
+          rm -f "${probe_file}" "${probe_file}.sha256"
           # Let the tool compare the digest itself, exactly as the green
           # `Secret scan (gitleaks)` leg does. Parsing stdout is not an option on
           # Windows: RUNNER_TEMP is a backslash path (`D:\a\_temp`) and BOTH
@@ -154,16 +193,50 @@ jobs:
           #   -> \eb3a5fb11d4b50febbbb25d373c55fe6bdcc760640a18ce3c01e3f92ab4ef7be
           # That is run 41924821106's `got \975a2..., expected 975a2...` — the two
           # digests were equal, so the string compare could never succeed.
-          printf '%s  %s\n' "${expected_sha}" "${archive}" | "${checksum_verify[@]}" || {
-            echo "::error::${asset} checksum mismatch against pinned ${expected_sha} for ${target}"
-            exit 1
-          }
+          if [ "${checksum_kind}" = stdin ]; then
+            printf '%s  %s\n' "${expected_sha}" "${archive}" | "${checksum_verify[@]}" || {
+              echo "::error::${asset} checksum mismatch against pinned ${expected_sha} for ${target}"
+              exit 1
+            }
+          else
+            checkfile="${RUNNER_TEMP}/${asset}.sha256"
+            write_check_file "${expected_sha}" "${archive}" "${checkfile}"
+            "${checksum_verify[@]}" "${checkfile}" || {
+              echo "::error::${asset} checksum mismatch against pinned ${expected_sha} for ${target}"
+              exit 1
+            }
+            rm -f "${checkfile}"
+          fi
           bindir="${HOME}/.cargo-deny-bin"
           rm -rf "${bindir}"
           mkdir -p "${bindir}"
           # Each asset wraps one top-level directory, so strip it: the unix
           # assets carry `cargo-deny`, the Windows one carries `cargo-deny.exe`.
-          tar -xzf "${archive}" -C "${bindir}" --strip-components=1
+          #
+          # Two portability defects lived here, both measured on the Windows
+          # runner (run 43291164448): GNU tar reads the leading `D:` of a
+          # `D:\a\_temp/...` argument as a REMOTE host and dies with
+          # `tar (child): Cannot connect to D: resolve failed`, `tar: Child
+          # returned status 128`, exit 2 — reproduced locally with a
+          # `D:/a/_temp/x.tar.gz` argument. It is a remote-host misparse, not a
+          # missing file: the same path opens fine once tar is told the colon is
+          # literal.
+          #   - `--force-local` makes tar treat `D:` as a local path prefix; it is
+          #     accepted by GNU tar on both colon and colon-free paths (verified
+          #     locally), but NOT by bsdtar, which macOS ships as `tar`.
+          #   - `cd` into the archive's directory and pass its BASE NAME, which
+          #     has no colon at all, so it works whatever the tarball flavour is.
+          # Use `--force-local` only when the tarball supports it, and always
+          # have the base-name form underneath it. Extraction staying spelled
+          # exactly `-xzf … -C … --strip-components=1` is part of the contract.
+          archive_dir="$(dirname "${archive}")"
+          archive_name="$(basename "${archive}")"
+          if tar --force-local --version >/dev/null 2>&1; then
+            tar --force-local -xzf "${archive}" -C "${bindir}" --strip-components=1
+          else
+            ( cd "${archive_dir}" \
+              && tar -xzf "${archive_name}" -C "${bindir}" --strip-components=1 )
+          fi
           chmod +x "${bindir}/cargo-deny"*
           if [ -x "${bindir}/cargo-deny" ]; then
             deny_bin="${bindir}/cargo-deny"
