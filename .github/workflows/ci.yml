@@ -136,24 +136,56 @@ jobs:
           curl -sSfL --retry 3 -o "${archive}" \
             "https://github.com/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}/${asset}"
           # Pick a verifier by CAPABILITY, not by name: prove it accepts a correct
-          # digest AND rejects a wrong one. Accepting alone is not enough — the
-          # macOS image ships a busybox-style `sha256sum` that takes only
-          # `[-bctwz] [files...]` (the leg logged `usage: sha256sum [-bctwz]
-          # [files ...]`), and for it `-c FILE` does NOT verify: it silently
-          # hashes FILE and exits 0, which reads as "checksum OK" for any input.
-          # So the probe feeds each candidate both a right and a wrong digest and
-          # keeps the first that says OK then FAILED. Order:
+          # digest AND rejects a wrong one. Accepting alone is not enough, and
+          # neither is a probe that disagrees with production. The macOS image
+          # ships a busybox-style `sha256sum` (real busybox 1.37, measured):
+          # `[-c[sw]] [FILE]...` is accepted and DOES verify — right digest `OK`
+          # exit 0, wrong digest `FAILED` exit 1 — while the LONG `--check` is
+          # rejected outright with `unrecognized option '--check'`, exit 1,
+          # spilling `usage:` onto the log. The old step probed `-c` and then
+          # ran `--check`, so the probe passed and production died as
+          # "checksum mismatch" against a correct digest. Probe and production
+          # therefore use the SAME invocation: `-c`. It is accepted by GNU
+          # coreutils, uutils coreutils and busybox, and it is what
+          # verifies_stdin tests. Order:
           #   1. `sha256sum -c` from a stdin check line (GNU coreutils: Linux,
           #      Git-for-Windows);
-          #   2. `shasum -a 256 -c` from a check FILE (macOS Perl shasum). `-c` is
-          #      the short form of `--check`; the long form is not accepted
-          #      everywhere, which is how the old `shasum -a 256 --check` line
-          #      fell through and reported a bogus mismatch on a correct asset.
+          #   2. `shasum -a 256 -c` from a check FILE (macOS Perl shasum).
           # Anything else fails the leg loudly; no verifier means no install.
-          write_check_file() { printf '%s  %s\n' "$1" "$2" > "$3"; }
+          #
+          # Escaping: GNU coreutils, uutils and shasum PREFIX THE DIGEST with `\`
+          # when the file name contains a backslash, and double every backslash
+          # in the name (busybox does neither). Bytes from GNU, verified locally:
+          #   sha256sum 'a\b'          -> \2d7116...4881  a\\b
+          # so a check line built naively from `cut -d' ' -f1` on a
+          # `D:\a\_temp` path carries a stray `\` and GNU rejects it as
+          # "no properly formatted checksum lines found" — which flips
+          # selection to the shasum branch. Reproduce the escaping exactly
+          # instead: strip the marker to get the bare digest, then re-apply it
+          # to digest and name only when the name really holds a backslash (a
+          # POSIX `case` glob tests that, so the shell needs no external tool).
+          write_check_file() {
+            _sha="${1#\\}"
+            case "$2" in
+              *\\*)
+                _name="$(printf '%s' "$2" | sed 's/\\/\\\\/g')"
+                printf '\\%s  %s\n' "${_sha}" "${_name}" > "$3"
+                ;;
+              *)
+                printf '%s  %s\n' "${_sha}" "$2" > "$3"
+                ;;
+            esac
+          }
           probe_file="${RUNNER_TEMP}/.sha256-probe"
           printf 'probe\n' > "${probe_file}"
           good_sha="$( (sha256sum "${probe_file}" 2>/dev/null || shasum -a 256 "${probe_file}" 2>/dev/null) | cut -d' ' -f1)"
+          # Strip the escape marker that GNU coreutils / uutils / shasum put in
+          # front of the digest for a name containing a backslash, which on
+          # Windows is every probe file (`D:\a\_temp\...`). Without this, every
+          # probe check line is malformed and the sha256sum branch is never
+          # selected. `${var#\\}` is a POSIX pattern prefix strip, so it removes
+          # nothing when no marker is present.
+          good_sha="${good_sha#\\}"
           # A digest that differs from good_sha in every hex digit: no hash
           # collision can make it valid, so "accepts" is unambiguous.
           bad_sha="$(printf '%s' "${good_sha}" | tr '0-9a-f' '1a-f0')"
@@ -175,7 +207,8 @@ jobs:
           }
           if command -v sha256sum >/dev/null 2>&1 && verifies_stdin; then
             checksum_kind=stdin
-            checksum_verify=(sha256sum --check)
+            # Same invocation the probe just proved: `-c`, never `--check`.
+            checksum_verify=(sha256sum -c)
           elif command -v shasum >/dev/null 2>&1 && verifies_shasum; then
             checksum_kind=file
             checksum_verify=(shasum -a 256 -c)

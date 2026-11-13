@@ -3,7 +3,9 @@
 - Packet: `R0-2` (baseline green)
 - Lane: R0-FIX · Implementer: Coder
 - Worktree: `zl-r0-2-gates`, based on `57d8de3`
-- Report written at: `01d3401` (the only commit this packet lands)
+- Commits landed by this packet: `01d3401` (workflow), `78e4429` (this report) and
+  the review-fix commit `fix(ci): use the same sha256sum form the probe tests`
+  that follows it (§10)
 - Push/PR: **not done** — PM owns integration; no branch of ours was pushed.
 
 ## 1. Headline
@@ -14,7 +16,10 @@ reproduce on our tree at all** (causes 1, 2 and 5 are properties of the stale
 public branches and/or of a newer `.gitleaks.toml`/ignore set our tree already
 carries), and **two are genuine portability defects in `.github/workflows/ci.yml`
 that affect every branch, ours included** (causes 3 and 4). Those two are fixed
-here; the fix is verified locally under three simulated runner environments.
+here; the fix is verified locally under **seven scenario runs** across the runner
+shapes that matter (GNU/Linux, busybox-style macOS `sha256sum`, bsdtar macOS `tar`,
+the Perl-`shasum`-only branch, and the Windows backslash `RUNNER_TEMP` shape),
+including tampered-pin negatives on **both** verifier branches (§4).
 
 Nothing was weakened: no test deleted, skipped or narrowed, no threshold moved,
 no `continue-on-error`, no job or matrix entry removed, no `eslint-disable`.
@@ -115,19 +120,27 @@ usage: sha256sum [-bctwz] [files ...]
          for aarch64-apple-darwin
 ```
 
-Diagnosis: the pinned digest is **correct**. Downloading all four assets and
-hashing them locally gives exactly the four pinned values, including
-`aarch64-apple-darwin → fe67d82a…a72090c3`. The image's `sha256sum` is a
-busybox-style build that accepts only `[-bctwz] [files...]` and has **no check
-mode**; for it `-c FILE` does not verify, it just hashes the file and exits 0.
-The old step picked `sha256sum` purely because the *name* existed, so the
-"mismatch" was a comparison that never ran. `shasum -a 256 -c` works on that
-image and is now the macOS path.
+Diagnosis: the pinned digest is **correct**. Downloading the assets and hashing
+them locally reproduces the pinned `aarch64-apple-darwin → fe67d82a…a72090c3`
+value. The image's `sha256sum` is a busybox-style build: it **accepts `-c` and
+does verify** (right digest `OK` exit 0, wrong digest `FAILED` exit 1), and it
+**rejects the long `--check` form** as an unrecognized option, exit 1. The old
+step probed with the short form and then ran the **long** form, so the probe
+passed and the real verification died with that usage error — which surfaced as
+"checksum mismatch" against a *correct* digest. The failure came from the long
+form, not from a missing check mode; probe and production must therefore use the
+same short form, `-c`, which GNU coreutils, uutils coreutils and busybox all
+accept. `shasum -a 256 -c` remains the second candidate and is now the macOS
+path of record only when `sha256sum` is absent or fails the probe.
 
 Fix: the verifier is selected **by capability** — each candidate is fed a
 correct digest (must pass) *and* a wrong digest (must fail), and only the first
-that does both is used. Order is GNU `sha256sum -c` from a stdin check line,
-then `shasum -a 256 -c` from a check file, then a loud failure.
+that does both is used. Order is `sha256sum -c` from a stdin check line, then
+`shasum -a 256 -c` from a check file, then a loud failure. The stored production
+invocation is `sha256sum -c` — the **same** short form the probe exercises; it
+is no longer `--check`. On a busybox-style `sha256sum` the step now passes
+through the `sha256sum` branch (exit 0, checksum `OK`); with the old long form
+it died. §4 records the re-verification.
 
 ### Cause 4 — Windows `Install cargo-deny 0.20.2` — **genuine, OURS, FIXED**
 
@@ -197,29 +210,66 @@ warranted and **no allowlist entry was added by this packet**.
 
 ## 4. The `ci.yml` fix — verification matrix
 
-The step's `run:` script was extracted from the committed workflow and executed
-locally under four environments. `RUNNER_TEMP`, `GITHUB_PATH` and
-`CARGO_DENY_VERSION` were supplied as CI does.
+The step's `run:` script was **extracted from the committed workflow** (not
+re-typed) and executed locally under seven scenario runs. `RUNNER_TEMP`,
+`GITHUB_PATH`, `HOME` and `CARGO_DENY_VERSION` were supplied as CI does, and each
+run recorded the selected branch (`sha256sum` vs `shasum`) so a pass cannot be a
+silent fallback. Downloads are served by a `curl` stand-in from a local fixture
+asset pinned to its real digest: the step's own logic is unchanged, only the
+network is local.
 
-| Scenario | Emulated by | Exit | Result |
-| --- | --- | --- | --- |
-| GNU tar + GNU `sha256sum` (Linux) | native | **0** | checksum `OK`, pin asserted |
-| busybox `sha256sum`, GNU tar (macOS) | faithful `sha256sum` shim (`[-bctwz]` only, `-c` hashes instead of verifying) | **0** | falls through to `shasum -a 256 -c`, checksum `OK` |
-| bsdtar as `tar` (macOS flavour) | `tar` shim rejecting `--force-local` | **0** | falls back to `cd` + base name, extracts |
-| Tampered pin, GNU path | pin replaced with zeros | **1** | `checksum mismatch` — verification still bites |
-| Tampered pin, macOS-shim path | pin replaced with zeros | **1** | `checksum mismatch` — verification still bites |
+The busybox shim is **faithful, measured against real busybox 1.37.0** present on
+this host: it **verifies** with `-c` (right digest `OK` exit 0, wrong digest
+`FAILED` exit 1), **rejects `--check`** with `unrecognized option '--check'` and
+exit 1, and does not backslash-escape file names (unlike GNU). Busybox's own
+`--help` prints `Usage: sha256sum [-c[sw]] [FILE]...`, confirming `-c` is the
+supported form.
 
-The Windows `D:` failure was reproduced and resolved in isolation:
+| # | Scenario | Emulated by | Branch taken | Exit | Result |
+| --- | --- | --- | --- | --- | --- |
+| S1 | GNU/Linux native | `/usr/bin/gnusha256sum` + GNU tar | `sha256sum` | **0** | checksum `OK`, pin asserted, extraction ok |
+| S2 | busybox `sha256sum` (macOS shape) | faithful shim: verifies with `-c`, rejects `--check` | `sha256sum` | **0** | checksum `OK` — **old code exited 1 here** |
+| S3 | bsdtar-like `tar` (macOS flavour) | `tar` shim rejecting `--force-local` | `sha256sum` | **0** | `cd` + base name fallback, extracts |
+| S4 | Tampered pin, `sha256sum` branch | pin replaced with zeros (GNU) | `sha256sum` | **1** | `checksum mismatch` |
+| S4b | Tampered pin, `sha256sum` branch | pin replaced with zeros (busybox shim) | `sha256sum` | **1** | `checksum mismatch` |
+| S5 | `shasum -a 256 -c` branch positive | `PATH` with no `sha256sum` | `shasum` | **0** | checksum `OK`, extraction ok |
+| S5b | Tampered pin, `shasum` branch | pin zeros, `PATH` with no `sha256sum` | `shasum` | **1** | `checksum mismatch` |
+| S6 | Windows shape (`RUNNER_TEMP` = `D:\a\_temp`) | `RUNNER_TEMP` containing real backslashes | `sha256sum` | **0** | clean **64-char** digest |
+
+Verification still bites on **both** branches (S4/S4b and S5b), so the fix did not
+trade correctness for green.
+
+Two old-vs-new controls, run on the identical shims:
+
+| Control | Old code (`78e4429`) | New code |
+| --- | --- | --- |
+| busybox `sha256sum` (S2) | `SELECTED_BRANCH=stdin`, then `sha256sum: unrecognized option '--check'` → `::error::… checksum mismatch against pinned <correct sha>`, exit 1 | branch `stdin`, `-c` verifies, exit 0 |
+| Windows shape (S6) | `good_sha` 65 chars, leading `\`, `SELECTED_BRANCH=file` (perl-shasum dependency) | `good_sha` 64 chars clean, `SELECTED_BRANCH=stdin` |
+
+The Windows control matters for a second reason found while fixing it: GNU
+coreutils, uutils and shasum all escape a name containing a backslash **and**
+prefix the digest with `\`; busybox does neither. A backslash-prefixed digest
+with an *unescaped* name is rejected outright as
+`no properly formatted checksum lines found`. So the fix strips the marker from
+`good_sha` *and* makes the check-line writer re-apply GNU's escaping to digest
+and name together, which is what keeps selection on `sha256sum` on Windows.
+
+The Windows `D:` tar failure remains reproduced and resolved in isolation:
 
 ```
 tar -tzf "D:/a/_temp/x.tar.gz"            -> tar (child): Cannot connect to D: resolve failed   (exit 2)
 tar --force-local -tzf "D:/a/_temp/x.tgz" -> wrap/ wrap/payload.bin                              (exit 0)
 ```
 
-Scope of the change: `.github/workflows/ci.yml` only, `+84 −11`. YAML parses,
-**6 jobs** unchanged, the step keeps its name and its pinned digests, and the
-diff contains **zero** edits to `jobs:`, `runs-on:`, `matrix:` or
-`continue-on-error`.
+Scope of the change: `.github/workflows/ci.yml` only. Against `57d8de3` the
+workflow diff is `+84 −11` (the original fix); against `78e4429` this review pass
+adds the probe/production form change, the digest de-escaping and the check-line
+escaping. YAML parses, **6 jobs** unchanged, the step keeps its name and its
+five pinned digests, and exactly **one `run:` leaf** differs from `57d8de3`
+(checked structurally, per job and per step: `strategy`, `runs-on`,
+`permissions`, `timeout-minutes`, `needs`, `if` and step `name`/`uses`/`with` are
+all identical). No `continue-on-error` was added — the only occurrence is the
+pre-existing `actionlint` container step's `false`, unchanged from base.
 
 ## 5. Remote-state measurement
 
@@ -228,7 +278,7 @@ decision.
 
 | Ref | SHA |
 | --- | --- |
-| our HEAD (`zl-r0-2-gates`) | `01d3401` (base `57d8de3`) |
+| our HEAD (`zl-r0-2-gates`) | `01d3401` workflow → `78e4429` report → review-fix commit (§10); base `57d8de3` |
 | `origin` (public `athar-studios/warsha`) `dev` | `15b99f9d354f1bc59149a04aebcf01b7151e517b` |
 | `origin` `main` | `939a173ff94d6de5aeb6b4827c57143b247d09e1` |
 | `warsha-dev` (private) `dev` | `f47477619e406e1f51aa610b8fc0d69a506e5b86` |
@@ -289,16 +339,22 @@ for the PM/owner**, not blockers I can clear:
 
 ## 9. Proposed next step
 
-Open **one draft PR against `dev`** (never `main`) from a branch carrying
-`01d3401`, under owner approval, and let `gh pr checks` confirm the macOS and
-Windows `Install cargo-deny 0.20.2` legs against real runners. That is the only
-way to convert §4's local simulation into CI evidence. The PR should also be the
-vehicle for causing the authoritative `dev` choice in §8(1) to be recorded.
+Open **one draft PR against `dev`** (never `main`) from a branch carrying the
+three commits in §10, under owner approval, and let `gh pr checks` confirm the
+macOS and Windows `Install cargo-deny 0.20.2` legs against real runners. That is
+the only way to convert §4's local simulation into CI evidence. The PR should
+also be the vehicle for causing the authoritative `dev` choice in §8(1) to be
+recorded.
 
 ## 10. Commits landed by this packet
 
-| Commit | Subject |
-| --- | --- |
-| `01d3401` | `fix(ci): make the cargo-deny install portable on macOS and Windows` |
+| Commit | Subject | Files |
+| --- | --- | --- |
+| `01d3401` | `fix(ci): make the cargo-deny install portable on macOS and Windows` | `.github/workflows/ci.yml` |
+| `78e4429` | `docs(zadloop): add R0-2 report (gates green, 3 of 5 causes stale-base, 2 fixed)` | `docs/zadloop/packets/R0-2-report.md` |
+| (review fix) | `fix(ci): use the same sha256sum form the probe tests` | `.github/workflows/ci.yml`, this report |
 
-No other file changed relative to `57d8de3`.
+Relative to `57d8de3` the packet changes **two** files —
+`.github/workflows/ci.yml` and this report — across the three commits above, and
+nothing else. The earlier "only commit / no other file changed" wording was
+wrong: the packet lands two commits before the review fix, not one.
