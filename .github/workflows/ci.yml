@@ -206,11 +206,11 @@ jobs:
             return 0
           }
           if command -v sha256sum >/dev/null 2>&1 && verifies_stdin; then
-            checksum_kind=stdin
+            checksum_kind="stdin"
             # Same invocation the probe just proved: `-c`, never `--check`.
             checksum_verify=(sha256sum -c)
           elif command -v shasum >/dev/null 2>&1 && verifies_shasum; then
-            checksum_kind=file
+            checksum_kind="file"
             checksum_verify=(shasum -a 256 -c)
           else
             echo "::error::cargo-deny: no usable sha256 verifier found on ${target} (need GNU sha256sum or shasum -c)"
@@ -285,7 +285,27 @@ jobs:
               ;;
           esac
           echo "cargo-deny ${CARGO_DENY_VERSION} installed for ${target} from a checksum-verified asset"
-          echo "${bindir}" >> "${GITHUB_PATH}"
+          # GITHUB_PATH must carry a path the NEXT step's shell can resolve, and
+          # that shell invokes the NATIVE `cargo.exe` — which does not understand
+          # POSIX paths. Under Git Bash on the Windows runner `$HOME` is POSIX
+          # form (`/c/Users/runneradmin`), so appending `${bindir}` verbatim put
+          # an entry on PATH that native cargo cannot resolve: run 43412167979
+          # died in `Run cargo-deny` with `error: no such command: 'deny'`, exit
+          # 101, even though this install step passed (checksum verified,
+          # extraction worked) — only the handoff was broken. Convert to a
+          # Windows path with `cygpath`, which ships with the same Git Bash/MSYS
+          # environment whose `uname` matched `os_tag="pc-windows-msvc"` above.
+          # A failed conversion fails the leg loudly: silently falling back to
+          # the POSIX form would reproduce exactly the failure this avoids.
+          if [ "${os_tag}" = "pc-windows-msvc" ]; then
+            bindir_for_path="$(cygpath -w "${bindir}")" || {
+              echo "::error::cargo-deny: cygpath failed for ${bindir}"
+              exit 1
+            }
+          else
+            bindir_for_path="${bindir}"
+          fi
+          echo "${bindir_for_path}" >> "${GITHUB_PATH}"
 
       # `--all-features` is kept because it is what the old action passed by
       # default (its `arguments` input defaults to it), so the fetched graph is
