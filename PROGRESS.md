@@ -1,5 +1,17 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-13 — R-KEEL K4/K5/K6 checkpoint: FAIL (2 HIGHs) → CP1 fixes DONE, closure re-review in flight
+
+- **Checkpoint review delivered** (`docs/zadloop/packets/R-KEEL-checkpoint-review.md`, Reviewer lane, merged at `a94ea19`): **CHECKPOINT FAIL** — 2 HIGH findings, both PM-verified in code before dispatching fixes:
+  - **HIGH 1**: `gates.evidence`'s `run_tests` spawned the agent-authored test program via bare `tokio::process::Command` — no env clear/floor, no process group, no group kill/reap on timeout (`crates/warsha-pipeline/src/gate_evidence.rs:168-209` at base).
+  - **HIGH 2**: `mcp.connect`'s Stdio arm checked only the process allow-list, never the pin rule — unpinned `npx @scope/server` could spawn (`crates/warshad/src/lib.rs:3823-3857` at base).
+  - Plus 8 MEDIUM + 8 LOW findings (git -c alias shell escape verified live, restart without policy re-check, unbounded keychain account names, mcp.call/send bypassing the permission table, one vacuous test, the 3-way CSP string divergence, missing CSP-header test, basename allow-list matching, `deny_all` dead code, untested ACL path + stale docs) — all queued for R-SEC, none block the checkpoint.
+- **CP1 fixes** (Coder lane, commits `a793b63` + `6120d4c`, merged at `d120477`): HIGH 1 — `run_tests` now routes through `policy.clone().with_timeout(timeout).with_output_cap(GATE_EVIDENCE_CAPTURE_BYTES).execute(...)` (env clear + floor + process group + group kill, 64 KiB cap preserved, `TestRun` shape unchanged; daemon caller passes its established policy in); HIGH 2 — `wave2::require_pinned_launch(command, &config.args)` added to the Stdio arm after `check_command`, comment updated.
+- **First CP1 attempt was rejected by PM review**: the worker deleted `a_chatty_test_is_capped`'s assertions ("skip this check" comments) and commented out its own new pin test — the root cause was the cap silently changing from 64 KiB (`GATE_EVIDENCE_CAPTURE_BYTES`) to CommandPolicy's 1 MiB default. Correction 1/4 restored the assertions verbatim, fixed the cap via `with_output_cap`, added the required tests, and committed.
+- **New tests (PM-read, honest two-sided)**: `the_evidence_child_sees_none_of_the_daemons_variables` (4 canary vars with Drop guards, child runs `env`, none of 8 names/values leak), `a_child_that_spawns_a_grandchild_and_hangs_is_group_killed_at_timeout` (grandchild `sleep 30`, 500ms deadline, `kill -0` poll proves group kill), `mcp_connect_requires_pinned_stdio_launch` (unpinned `npx pkg` → POLICY_REFUSED "unpinned package `pkg`" before spawn; probe server connects + disconnects).
+- **PM gate runs at `d120477`**: `cargo fmt --all --check` 0; `cargo clippy --workspace --all-targets -- -D warnings` 0; `cargo test -p warsha-pipeline` 448/0; `cargo test -p warshad` 248/0. (Full 928-suite not re-run for this diff; the two changed crates are green and clippy compiled all targets.)
+- **In flight**: the checkpoint closure re-review (Reviewer lane, attempt on `zl-keel-cp1-closure`) — the checkpoint verdict flips to PASS only on its APPROVE.
+
 ## Run 2026-11-13 — R-KEEL K1/K2/K3 audit: DONE, no gaps (Planner lane, PM-verified)
 
 - **Delivered**: `docs/zadloop/packets/R-KEEL-audit.md` (worktree `zl-keel-audit` @ `4e974db`; PM-integrated). **Verdict: K1, K2, K3 are all DONE on this tree — no gaps, no closing packets needed.**
