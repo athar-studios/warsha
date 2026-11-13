@@ -16,7 +16,7 @@ reproduce on our tree at all** (causes 1, 2 and 5 are properties of the stale
 public branches and/or of a newer `.gitleaks.toml`/ignore set our tree already
 carries), and **two are genuine portability defects in `.github/workflows/ci.yml`
 that affect every branch, ours included** (causes 3 and 4). Those two are fixed
-here; the fix is verified locally under **seven scenario runs** across the runner
+here; the fix is verified locally under **eight scenario runs** across the runner
 shapes that matter (GNU/Linux, busybox-style macOS `sha256sum`, bsdtar macOS `tar`,
 the Perl-`shasum`-only branch, and the Windows backslash `RUNNER_TEMP` shape),
 including tampered-pin negatives on **both** verifier branches (§4).
@@ -211,7 +211,7 @@ warranted and **no allowlist entry was added by this packet**.
 ## 4. The `ci.yml` fix — verification matrix
 
 The step's `run:` script was **extracted from the committed workflow** (not
-re-typed) and executed locally under seven scenario runs. `RUNNER_TEMP`,
+re-typed) and executed locally under eight scenario runs. `RUNNER_TEMP`,
 `GITHUB_PATH`, `HOME` and `CARGO_DENY_VERSION` were supplied as CI does, and each
 run recorded the selected branch (`sha256sum` vs `shasum`) so a pass cannot be a
 silent fallback. Downloads are served by a `curl` stand-in from a local fixture
@@ -227,7 +227,7 @@ supported form.
 
 | # | Scenario | Emulated by | Branch taken | Exit | Result |
 | --- | --- | --- | --- | --- | --- |
-| S1 | GNU/Linux native | `/usr/bin/gnusha256sum` + GNU tar | `sha256sum` | **0** | checksum `OK`, pin asserted, extraction ok |
+| S1 | GNU/Linux native | GNU coreutils `sha256sum` (9.12) + GNU tar | `sha256sum` | **0** | checksum `OK`, pin asserted, extraction ok |
 | S2 | busybox `sha256sum` (macOS shape) | faithful shim: verifies with `-c`, rejects `--check` | `sha256sum` | **0** | checksum `OK` — **old code exited 1 here** |
 | S3 | bsdtar-like `tar` (macOS flavour) | `tar` shim rejecting `--force-local` | `sha256sum` | **0** | `cd` + base name fallback, extracts |
 | S4 | Tampered pin, `sha256sum` branch | pin replaced with zeros (GNU) | `sha256sum` | **1** | `checksum mismatch` |
