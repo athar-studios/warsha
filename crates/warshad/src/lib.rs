@@ -10787,6 +10787,69 @@ mod tests {
         }
     }
 
+    mod runs_start_budget {
+        use super::*;
+
+        /// P-E1a: the start-time refusal surfaces through `runs.start`, and the
+        /// owner's remedy — `budget.set` — makes the next `runs.start` succeed.
+        #[tokio::test]
+        async fn runs_start_refuses_over_budget_project_and_succeeds_after_budget_set() {
+            let temp = crate::test_util::fresh_tempdir();
+            let (state, store) = test_state(temp.path()).await;
+            let rpc = WarshaRpc::new(state);
+            let owner = owner_ext();
+
+            let project = rpc
+                .create_project(
+                    &owner,
+                    "Budget Start Project".to_string(),
+                    "Test start-time budget refusal".to_string(),
+                    "en".to_string(),
+                )
+                .await
+                .expect("project created");
+            let run = rpc
+                .start_run(&owner, project.id, "Budgeted project".to_string())
+                .await
+                .expect("first run starts");
+
+            // The project's newest run has spent its whole budget.
+            let (mut stored, version) = store.get_run_versioned(run.id).await.unwrap();
+            stored.budget_cents = Some(100);
+            stored.spent_cents = 100;
+            stored.status = RunStatus::Paused;
+            store.update_run_cas(&stored, version).await.unwrap();
+
+            // runs.start is refused with the pipeline's message naming both numbers.
+            let err = rpc
+                .start_run(&owner, project.id, "Second run".to_string())
+                .await
+                .expect_err("runs.start must refuse an over-budget project");
+            assert!(
+                err.message().contains("Project budget exhausted"),
+                "unexpected error: {}",
+                err.message()
+            );
+            assert!(
+                err.message().contains("spent 100 of 100 cents"),
+                "the refusal must name the spent and the budget: {}",
+                err.message()
+            );
+
+            // budget.set raises the budget; the retried runs.start now succeeds and
+            // the new run carries the raised budget.
+            rpc.set_budget(&owner, project.id, 500)
+                .await
+                .expect("budget.set succeeds");
+            let second = rpc
+                .start_run(&owner, project.id, "Second run".to_string())
+                .await
+                .expect("runs.start succeeds after budget.set");
+            assert_eq!(second.budget_cents, Some(500));
+            assert_eq!(second.spent_cents, 0);
+        }
+    }
+
     mod runs_followup {
         use super::*;
 
