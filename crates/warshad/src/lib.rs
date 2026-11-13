@@ -2265,6 +2265,14 @@ impl WarshaRpc {
     /// daemon's own environment into a child — the inheritance this packet exists
     /// to remove — and `${config:…}` has no daemon-wide value to substitute; both
     /// are refused rather than guessed.
+    ///
+    /// The *account* a pack may name is bounded too (R-KEEL row 5): a reference must
+    /// equal [`wave2::plugin_env_account`] for this pack and this variable, so a
+    /// manifest cannot read `plugin:other-pack:TOKEN`, a provider's key or an
+    /// integration's token by writing its address into its own row. The comparison is
+    /// against the account string the daemon itself composes when it files a value,
+    /// and it runs **before** the keychain is touched: a foreign address is refused
+    /// without a read.
     async fn resolved_plugin_env(
         &self,
         definition: &PluginDefinition,
@@ -2281,6 +2289,13 @@ impl WarshaRpc {
                     definition.id
                 )));
             };
+            let own_account = wave2::plugin_env_account(&definition.id, key);
+            if account != own_account {
+                return Err(rpc_policy_refused(format!(
+                    "the pack `{}` wants `{key}` from the keychain account `{account}`; a pack may read only its own account (`{own_account}`), so this launch is refused",
+                    definition.id
+                )));
+            }
             let secret = self.state.secrets.load(account).await.map_err(|error| {
                 rpc_error(format!(
                     "the secret `{account}` for `{key}` could not be read from the OS keychain: {error}"
@@ -7618,6 +7633,23 @@ mod tests {
         configure: impl FnOnce(&mut DaemonConfig),
         custom_settings: Option<Arc<SettingsStore>>,
     ) -> (Arc<DaemonState>, Arc<Store>) {
+        test_state_with_seams(data_dir, configure, custom_settings, None, None).await
+    }
+
+    /// The same state with the two seams a repair test has to observe replaced.
+    ///
+    /// `secrets` is what lets a test count keychain reads — R-KEEL row 5 says the
+    /// refusal of a foreign account must happen *before* that account is read, which
+    /// no observable state proves on its own — and `mcp` is what lets a test count
+    /// transport calls, which is how row 6 proves a refused RPC never reached one.
+    /// Both default to the real test doubles.
+    pub(super) async fn test_state_with_seams(
+        data_dir: &Path,
+        configure: impl FnOnce(&mut DaemonConfig),
+        custom_settings: Option<Arc<SettingsStore>>,
+        secrets: Option<Arc<dyn SecretStore>>,
+        mcp: Option<Arc<dyn McpManager>>,
+    ) -> (Arc<DaemonState>, Arc<Store>) {
         std::fs::create_dir_all(data_dir).expect("the data directory is made");
         let mut config = DaemonConfig {
             data_dir: data_dir.to_path_buf(),
@@ -7687,7 +7719,10 @@ mod tests {
         let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared_with_policy(
             CommandPolicy::from_config(&config.allowed_commands),
         );
-        let mcp: Arc<dyn McpManager> = Arc::new(InMemoryMcpManager::new(processes.clone()));
+        let mcp: Arc<dyn McpManager> = match mcp {
+            Some(mcp) => mcp,
+            None => Arc::new(InMemoryMcpManager::new(processes.clone())),
+        };
         let previews = Arc::new(LivePreviewManager::new(processes.clone()));
 
         // The agent loop's two seams, wired to the real thing: its file tools run
@@ -7738,7 +7773,7 @@ mod tests {
             pairings: Arc::new(RwLock::new(InMemoryPairingStore::new())),
             // A state built by hand is a state under test: no OS keychain is
             // reached, and a test that adds a provider can read its key back.
-            secrets: Arc::new(InMemorySecretStore::new()),
+            secrets: secrets.unwrap_or_else(|| Arc::new(InMemorySecretStore::new())),
             routines,
             routine_scheduler,
             sessions,
@@ -11457,6 +11492,232 @@ mod tests {
                 .await
                 .iter()
                 .all(|connection| !connection.status.is_connected()));
+        }
+
+        /// A keychain seam that records which accounts were read.
+        ///
+        /// `InMemorySecretStore` cannot answer "was this account read at all", which is
+        /// the half of R-KEEL row 5 a refusal on its own does not prove: a daemon that
+        /// read the foreign account and *then* refused would pass every other assertion
+        /// in this module. It delegates everything to the in-memory store, so a test can
+        /// still seed an account and read one back.
+        #[derive(Debug, Default)]
+        struct CountingSecretStore {
+            inner: InMemorySecretStore,
+            loads: std::sync::Mutex<Vec<String>>,
+        }
+
+        impl CountingSecretStore {
+            fn loads(&self) -> Vec<String> {
+                self.loads
+                    .lock()
+                    .expect("the load log is not poisoned")
+                    .clone()
+            }
+        }
+
+        #[async_trait]
+        impl SecretStore for CountingSecretStore {
+            async fn store(&self, account: &str, key: &str) -> warsha_providers::Result<()> {
+                self.inner.store(account, key).await
+            }
+
+            async fn load(&self, account: &str) -> warsha_providers::Result<String> {
+                self.loads
+                    .lock()
+                    .expect("the load log is not poisoned")
+                    .push(account.to_string());
+                self.inner.load(account).await
+            }
+
+            async fn delete(&self, account: &str) -> warsha_providers::Result<()> {
+                self.inner.delete(account).await
+            }
+        }
+
+        /// The probe manifest with an id the test chose, so the pack's own keychain
+        /// account (`plugin:{id}:{KEY}`) is known before the install derives anything.
+        fn probe_manifest_with_id(exe: &str, id: &str, env: Value) -> String {
+            let mut manifest: Value =
+                serde_json::from_str(&probe_manifest(exe, false, env)).expect("a JSON manifest");
+            manifest["id"] = serde_json::json!(id);
+            manifest.to_string()
+        }
+
+        #[tokio::test]
+        async fn a_pack_may_name_its_own_keychain_account() {
+            let temp = crate::test_util::fresh_tempdir();
+            let exe = test_binary();
+            let allowed = exe.clone();
+            let secrets = Arc::new(CountingSecretStore::default());
+            // Filed the way `plugins.install` files material: under the pack's own
+            // account. The row below names that address instead of the value.
+            secrets
+                .store(
+                    "plugin:own-account-pack:PROBE_SECRET",
+                    "own-account-material",
+                )
+                .await
+                .expect("the own account is filed");
+            let injected = secrets.clone();
+            let (state, _store) = test_state_with_seams(
+                temp.path(),
+                move |config| {
+                    config.allowed_commands = vec![allowed];
+                },
+                None,
+                Some(injected as Arc<dyn SecretStore>),
+                None,
+            )
+            .await;
+            let rpc = WarshaRpc::new(state.clone());
+            let owner = owner_ext();
+
+            let manifest = probe_manifest_with_id(
+                &exe,
+                "own-account-pack",
+                serde_json::json!({
+                    ENV_MARKER: "1",
+                    "PROBE_SECRET": "${secrets:plugin:own-account-pack:PROBE_SECRET}",
+                }),
+            );
+            let installed = rpc
+                .install_plugin(&owner, manifest)
+                .await
+                .expect("the probe pack installs");
+            assert_eq!(installed.id, "own-account-pack");
+            let stored = state
+                .settings
+                .get_plugin(&installed.id)
+                .await
+                .expect("the catalog answers")
+                .expect("the row exists");
+            assert!(
+                stored
+                    .env_json
+                    .contains("${secrets:plugin:own-account-pack:PROBE_SECRET}"),
+                "a reference is stored as the owner wrote it: {}",
+                stored.env_json
+            );
+
+            let toggled = rpc
+                .toggle_plugin(&owner, installed.id.clone(), true)
+                .await
+                .expect("a pack naming its own account launches");
+            assert!(toggled.enabled);
+
+            let connection = state
+                .mcp
+                .list()
+                .await
+                .into_iter()
+                .find(|connection| connection.config.name == installed.id)
+                .expect("the pack is connected");
+            assert!(connection.status.is_connected(), "{connection:?}");
+            let description = connection
+                .tool_definitions
+                .first()
+                .expect("the probe lists one tool")
+                .description
+                .clone();
+            assert!(
+                description.contains("PROBE_SECRET=own-account-material"),
+                "the own account's value must reach the child: {description}"
+            );
+            // Two accounts are read: the one the manifest named and the one the install
+            // filed for `ENV_MARKER` (material is filed under the pack's own account,
+            // never stored in the row). Both belong to this pack.
+            let mut loaded = secrets.loads();
+            loaded.sort();
+            assert_eq!(
+                loaded,
+                vec![
+                    "plugin:own-account-pack:PROBE_SECRET".to_string(),
+                    format!("plugin:own-account-pack:{ENV_MARKER}"),
+                ],
+                "the launch reads exactly the accounts this pack filed for itself"
+            );
+
+            rpc.toggle_plugin(&owner, installed.id.clone(), false)
+                .await
+                .expect("the pack disables and disconnects cleanly");
+        }
+
+        #[tokio::test]
+        async fn a_pack_cannot_read_another_packs_keychain_account() {
+            let temp = crate::test_util::fresh_tempdir();
+            let exe = test_binary();
+            let allowed = exe.clone();
+            let secrets = Arc::new(CountingSecretStore::default());
+            // The foreign account holds a value: a daemon that read it before refusing
+            // would have the material in hand, and the load log below would show it.
+            secrets
+                .store("plugin:other-pack:TOKEN", "foreign-material")
+                .await
+                .expect("the foreign account is filed");
+            let injected = secrets.clone();
+            let (state, _store) = test_state_with_seams(
+                temp.path(),
+                move |config| {
+                    config.allowed_commands = vec![allowed];
+                },
+                None,
+                Some(injected as Arc<dyn SecretStore>),
+                None,
+            )
+            .await;
+            let rpc = WarshaRpc::new(state.clone());
+            let owner = owner_ext();
+
+            let manifest = probe_manifest_with_id(
+                &exe,
+                "greedy-pack",
+                serde_json::json!({ "PROBE_SECRET": "${secrets:plugin:other-pack:TOKEN}" }),
+            );
+            let installed = rpc
+                .install_plugin(&owner, manifest)
+                .await
+                .expect("the reference is stored as written, so the install succeeds");
+            assert!(
+                secrets.loads().is_empty(),
+                "filing a reference must not read a keychain account: {:?}",
+                secrets.loads()
+            );
+
+            let err = rpc
+                .toggle_plugin(&owner, installed.id.clone(), true)
+                .await
+                .expect_err("a pack naming another pack's account must be refused");
+            assert_eq!(rpc_error_code(&err), auth::rpc_codes::POLICY_REFUSED);
+            assert!(
+                err.message().contains("plugin:other-pack:TOKEN"),
+                "the refusal names the offending account, got: {}",
+                err.message()
+            );
+            assert!(
+                err.message().contains("plugin:greedy-pack:PROBE_SECRET"),
+                "the refusal names the pack's own account, got: {}",
+                err.message()
+            );
+            assert!(
+                secrets.loads().is_empty(),
+                "the refusal must happen before any keychain read: {:?}",
+                secrets.loads()
+            );
+            assert!(
+                state.mcp.list().await.is_empty(),
+                "nothing may be launched for a refused pack"
+            );
+            assert!(
+                !state
+                    .settings
+                    .get_plugin(&installed.id)
+                    .await
+                    .expect("the catalog answers")
+                    .expect("the row exists")
+                    .enabled,
+                "a refused enable must not leave the pack stored as enabled"
+            );
         }
     }
 
