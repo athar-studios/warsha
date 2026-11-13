@@ -2843,7 +2843,7 @@ impl WarshaApiServer for WarshaRpc {
         policy
             .check_program(&program)
             .map_err(|e| ErrorObject::owned(-32005, e.to_string(), None::<()>))?;
-        warsha_pipeline::collect_gate_evidence(&work_dir, "HEAD", &program, &args)
+        warsha_pipeline::collect_gate_evidence(&policy, &work_dir, "HEAD", &program, &args)
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
     }
@@ -3827,9 +3827,10 @@ impl WarshaApiServer for WarshaRpc {
     ) -> RpcResult<()> {
         self.authorize(ext, "mcp.connect").await?;
         // Audit H-05: an MCP server is a child process or an outbound endpoint, so the
-        // same policy that bounds `process.spawn` bounds the transports here. A stdio
-        // server's program is checked as a program; an HTTP or WebSocket server's URL
-        // is checked as a transport — TLS anywhere, plain http/ws only on loopback.
+        // same policy that bounds `process.spawn` bounds the transports here, and
+        // stdio launches are restricted to pinned packages. An HTTP or WebSocket
+        // server's URL is checked as a transport — TLS anywhere, plain http/ws only
+        // on loopback.
         let policy = self.process_policy();
         match &config.transport {
             warsha_pipeline::mcp_transport::McpTransport::Stdio => {
@@ -3837,6 +3838,7 @@ impl WarshaApiServer for WarshaRpc {
                     rpc_policy_refused("a stdio MCP server names no program to start")
                 })?;
                 policy.check_command(command).map_err(rpc_policy_refused)?;
+                wave2::require_pinned_launch(command, &config.args).map_err(rpc_policy_refused)?;
             }
             transport => {
                 let url = transport.url().ok_or_else(|| {
@@ -9088,6 +9090,50 @@ mod tests {
             .process_status(&owner_ext(), "proc-404".to_string())
             .await
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn mcp_connect_requires_pinned_stdio_launch() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (command, args) = probe_command("mcp_probe_server");
+        // The policy must allow 'npx' and the probe command.
+        let allowed_probe = command.clone();
+        let (state, _store) = test_state_with(temp.path(), move |config| {
+            config.allowed_commands = vec!["npx".to_string(), allowed_probe];
+        })
+        .await;
+        let rpc = WarshaRpc::new(state);
+
+        // (a) Unpinned npx launch: refused by wave2::require_pinned_launch BEFORE spawn.
+        let unpinned_res = rpc
+            .connect_mcp(
+                &owner_ext(),
+                warsha_pipeline::mcp_transport::McpServerConfig::new_stdio(
+                    "unpinned",
+                    "npx".to_string(),
+                    vec!["pkg".to_string()],
+                ),
+            )
+            .await;
+        let err = unpinned_res.expect_err("an unpinned npx launch must be refused");
+        assert_eq!(rpc_error_code(&err), auth::rpc_codes::POLICY_REFUSED);
+        assert!(
+            err.message().contains("unpinned package `pkg`"),
+            "expected unpinned package message, got: {}",
+            err.message()
+        );
+
+        // (b) Pinned / safe launch: connects successfully using probe server.
+        rpc.connect_mcp(
+            &owner_ext(),
+            warsha_pipeline::mcp_transport::McpServerConfig::new_stdio("pinned", command, args),
+        )
+        .await
+        .expect("a valid probe command should connect");
+
+        rpc.disconnect_mcp(&owner_ext(), "pinned".to_string())
+            .await
+            .expect("the server disconnects");
     }
 
     #[tokio::test]
