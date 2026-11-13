@@ -35,6 +35,8 @@ use tracing::{error, info, warn};
 use warsha_backends::BackendFactory;
 use warsha_core::*;
 use warsha_git::GitHubClient;
+use warsha_pipeline::mcp_permission::{McpPermissionSource, ToolPermission};
+use warsha_pipeline::MCP_AGENT_ROLE;
 use warsha_pipeline::{
     AgentLoop, AgentMode, AgentTurnResult, AskUserQueue, BackendKind, BackendKit, CommandPolicy,
     CrashReport, CrashReportStore, FilesystemToolExecutor, HandoffBundle, HandoffManager,
@@ -3895,6 +3897,12 @@ impl WarshaApiServer for WarshaRpc {
         payload: String,
     ) -> RpcResult<String> {
         self.authorize(ext, "mcp.send").await?;
+        // The raw seam is not a way around the permission table (R-KEEL row 6): a
+        // `tools/call` frame is exactly the call `mcp.call` and the agent loop both
+        // consult the table for, so it is refused before a byte reaches a child's
+        // stdin. Every other method is the caller's own protocol and passes through
+        // unchanged.
+        refuse_a_permission_governed_frame(&payload)?;
         self.state
             .mcp
             .send(&name, &payload)
@@ -3902,6 +3910,17 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|error| rpc_error(error.to_string()))
     }
 
+    /// Call one MCP tool on the owner's behalf (`mcp.call`).
+    ///
+    /// The table is consulted here exactly as the agent loop consults it (KEEL K6,
+    /// R-KEEL row 6); without this, `mcp.call` would be the one path that reaches the
+    /// transport with no `(server, tool, role)` check at all. The role is
+    /// [`MCP_AGENT_ROLE`] and not a distinct `rpc` role on purpose: `agent` is the only
+    /// role the daemon checks MCP calls under, so a second string would match none of
+    /// the owner's existing rows and put every `mcp.call` at the default `Ask` — one
+    /// table split into two rather than a boundary. There is no interactive approval on
+    /// this path (the agent loop's ask queue belongs to the agent's turn), so `Ask` is
+    /// refused with the grant the owner has to make rather than queued.
     async fn call_mcp(
         &self,
         ext: &RpcExtensions,
@@ -3910,6 +3929,23 @@ impl WarshaApiServer for WarshaRpc {
         arguments: serde_json::Value,
     ) -> RpcResult<warsha_pipeline::mcp::McpToolResult> {
         self.authorize(ext, "mcp.call").await?;
+        match self
+            .state
+            .mcp_permissions
+            .check_permission(&name, &tool, MCP_AGENT_ROLE)
+        {
+            ToolPermission::Allow => {}
+            ToolPermission::Deny => {
+                return Err(rpc_policy_refused(format!(
+                    "denied by MCP permission {name}::{tool}"
+                )))
+            }
+            ToolPermission::Ask => {
+                return Err(rpc_policy_refused(format!(
+                    "`{name}::{tool}` is ask-gated for role `{MCP_AGENT_ROLE}` and `mcp.call` has no approval queue; grant it with mcp.permissions.set {{ server: \"{name}\", tool: \"{tool}\", role: \"{MCP_AGENT_ROLE}\", permission: \"allow\" }}"
+                )))
+            }
+        }
         self.state
             .mcp
             .call_tool(&name, &tool, arguments)
@@ -5272,6 +5308,27 @@ fn rpc_rate_limited(retry_after_secs: u64) -> ErrorObjectOwned {
 /// A command or transport the daemon will not start (audit H-05).
 fn rpc_policy_refused(message: impl Into<String>) -> ErrorObjectOwned {
     ErrorObject::owned(auth::rpc_codes::POLICY_REFUSED, message.into(), None::<()>)
+}
+
+/// Refuse an `mcp.send` payload that carries a `tools/call` frame (R-KEEL row 6).
+///
+/// The transport writes the payload one frame per line, so every line is parsed as a
+/// frame and its `method` compared after decoding rather than substring-searched: a
+/// text search would miss `"tools\u002fcall"` or a `\/` escape that the child's own
+/// parser decodes back into the governed method. A line that is not JSON is left to
+/// the transport — it is not a frame this check could misread as a call.
+fn refuse_a_permission_governed_frame(payload: &str) -> RpcResult<()> {
+    for line in payload.lines() {
+        let Ok(frame) = serde_json::from_str::<serde_json::Value>(line.trim()) else {
+            continue;
+        };
+        if frame.get("method").and_then(serde_json::Value::as_str) == Some("tools/call") {
+            return Err(rpc_policy_refused(
+                "`mcp.send` may not write a `tools/call` frame: that method is gated by the MCP permission table, and `mcp.call` is the path that consults it",
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// The slash commands `skills.list` reports: `/review`, `/refactor`, `/test`,
@@ -9264,6 +9321,19 @@ mod tests {
             frame
         );
 
+        // `mcp.call` consults the permission table like every other path to the
+        // transport (K6, R-KEEL row 6), and an empty table is `Ask`, so this owner
+        // grants the tool the way the desktop would before the call below.
+        rpc.set_mcp_permission(
+            &owner_ext(),
+            "files".to_string(),
+            PROBE_TOOL.to_string(),
+            warsha_pipeline::MCP_AGENT_ROLE.to_string(),
+            "allow".to_string(),
+        )
+        .await
+        .expect("the owner grants the probe tool");
+
         let call_res = rpc
             .call_mcp(
                 &owner_ext(),
@@ -12166,11 +12236,16 @@ mod pair_repair {
         #[derive(Default)]
         struct RecordingMcp {
             calls: std::sync::Mutex<Vec<(String, String)>>,
+            sends: std::sync::Mutex<Vec<(String, String)>>,
         }
 
         impl RecordingMcp {
             fn calls(&self) -> usize {
                 self.calls.lock().expect("the recording lock").len()
+            }
+
+            fn sends(&self) -> Vec<(String, String)> {
+                self.sends.lock().expect("the recording lock").clone()
             }
         }
 
@@ -12204,10 +12279,14 @@ mod pair_repair {
             }
             async fn send(
                 &self,
-                _name: &str,
-                _payload: &str,
+                name: &str,
+                payload: &str,
             ) -> std::result::Result<String, warsha_pipeline::McpTransportError> {
-                Ok(String::new())
+                self.sends
+                    .lock()
+                    .expect("the recording lock")
+                    .push((name.to_string(), payload.to_string()));
+                Ok(payload.to_string())
             }
             async fn call_tool(
                 &self,
@@ -12363,6 +12442,177 @@ mod pair_repair {
                 .await
                 .expect_err("a paired device wrote a permission");
             assert_eq!(rpc_error_code(&set), auth::rpc_codes::FORBIDDEN);
+        }
+
+        /// A daemon whose MCP transport is a recorder, so a test can say whether the
+        /// transport was reached at all — the property R-KEEL row 6 is about.
+        async fn state_with_recording_mcp(
+            data_dir: &Path,
+            mcp: Arc<RecordingMcp>,
+        ) -> Arc<DaemonState> {
+            let (state, _store) = crate::tests::test_state_with_seams(
+                data_dir,
+                |_| {},
+                None,
+                None,
+                Some(mcp as Arc<dyn McpManager>),
+            )
+            .await;
+            state
+        }
+
+        #[tokio::test]
+        async fn call_mcp_refuses_a_denied_tool_and_never_reaches_the_transport() {
+            let temp = crate::test_util::fresh_tempdir();
+            let mcp = Arc::new(RecordingMcp::default());
+            let state = state_with_recording_mcp(temp.path(), mcp.clone()).await;
+            let rpc = WarshaRpc::new(state);
+            let owner = owner_ext();
+            rpc.set_mcp_permission(
+                &owner,
+                "srv".to_string(),
+                "tool".to_string(),
+                warsha_pipeline::MCP_AGENT_ROLE.to_string(),
+                "deny".to_string(),
+            )
+            .await
+            .expect("the owner denies the tool");
+
+            let err = rpc
+                .call_mcp(
+                    &owner,
+                    "srv".to_string(),
+                    "tool".to_string(),
+                    serde_json::json!({}),
+                )
+                .await
+                .expect_err("a denied tool must not be callable over RPC");
+            assert_eq!(rpc_error_code(&err), auth::rpc_codes::POLICY_REFUSED);
+            assert!(
+                err.message().contains("denied by MCP permission srv::tool"),
+                "the refusal names the denied row, got: {}",
+                err.message()
+            );
+            assert_eq!(mcp.calls(), 0, "a denied RPC call reached the transport");
+        }
+
+        #[tokio::test]
+        async fn call_mcp_reaches_the_transport_once_when_allowed() {
+            let temp = crate::test_util::fresh_tempdir();
+            let mcp = Arc::new(RecordingMcp::default());
+            let state = state_with_recording_mcp(temp.path(), mcp.clone()).await;
+            let rpc = WarshaRpc::new(state);
+            let owner = owner_ext();
+            rpc.set_mcp_permission(
+                &owner,
+                "srv".to_string(),
+                "tool".to_string(),
+                warsha_pipeline::MCP_AGENT_ROLE.to_string(),
+                "allow".to_string(),
+            )
+            .await
+            .expect("the owner grants the tool");
+
+            let result = rpc
+                .call_mcp(
+                    &owner,
+                    "srv".to_string(),
+                    "tool".to_string(),
+                    serde_json::json!({ "msg": "hi" }),
+                )
+                .await
+                .expect("an allowed tool is called");
+            assert!(!result.is_error);
+            assert_eq!(mcp.calls(), 1, "allow did not call exactly once");
+        }
+
+        #[tokio::test]
+        async fn call_mcp_refuses_a_tool_with_no_row() {
+            let temp = crate::test_util::fresh_tempdir();
+            let mcp = Arc::new(RecordingMcp::default());
+            let state = state_with_recording_mcp(temp.path(), mcp.clone()).await;
+            let rpc = WarshaRpc::new(state);
+            let owner = owner_ext();
+
+            // No row: the table defaults to Ask, and there is no approval queue on this
+            // path, so the honest answer is a refusal that names the grant to make.
+            let err = rpc
+                .call_mcp(
+                    &owner,
+                    "srv".to_string(),
+                    "tool".to_string(),
+                    serde_json::json!({}),
+                )
+                .await
+                .expect_err("a tool with no row must not be called over RPC");
+            assert_eq!(rpc_error_code(&err), auth::rpc_codes::POLICY_REFUSED);
+            assert!(
+                err.message().contains("ask-gated")
+                    && err.message().contains("mcp.permissions.set"),
+                "the refusal explains the default and the grant, got: {}",
+                err.message()
+            );
+            assert_eq!(
+                mcp.calls(),
+                0,
+                "an ask-gated RPC call reached the transport"
+            );
+        }
+
+        #[tokio::test]
+        async fn send_mcp_refuses_a_tools_call_frame_and_writes_any_other() {
+            let temp = crate::test_util::fresh_tempdir();
+            let mcp = Arc::new(RecordingMcp::default());
+            let state = state_with_recording_mcp(temp.path(), mcp.clone()).await;
+            let rpc = WarshaRpc::new(state);
+            let owner = owner_ext();
+
+            // Every spelling the child's parser would read as `tools/call`: the plain
+            // frame, the JSON escape, and a second frame smuggled onto a later line.
+            let refused_frames = [
+                r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"tool","arguments":{}}}"#,
+                r#"{"jsonrpc":"2.0","id":8,"method":"tools\u002fcall","params":{}}"#,
+                "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/list\"}\n{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/call\",\"params\":{}}",
+            ];
+            for payload in refused_frames {
+                let err = rpc
+                    .send_mcp(&owner, "srv".to_string(), payload.to_string())
+                    .await
+                    .expect_err("a tools/call frame must not be written");
+                assert_eq!(rpc_error_code(&err), auth::rpc_codes::POLICY_REFUSED);
+                assert!(
+                    err.message().contains("tools/call"),
+                    "the refusal names the governed method, got: {}",
+                    err.message()
+                );
+            }
+            assert!(
+                mcp.sends().is_empty(),
+                "a refused frame reached the transport: {:?}",
+                mcp.sends()
+            );
+
+            // Every other method is the caller's own protocol and passes unchanged.
+            let frames = [
+                r#"{"jsonrpc":"2.0","id":11,"method":"tools/list"}"#,
+                r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+            ];
+            for payload in frames {
+                assert_eq!(
+                    rpc.send_mcp(&owner, "srv".to_string(), payload.to_string())
+                        .await
+                        .expect("another method passes through"),
+                    payload
+                );
+            }
+            assert_eq!(
+                mcp.sends(),
+                frames
+                    .iter()
+                    .map(|payload| ("srv".to_string(), payload.to_string()))
+                    .collect::<Vec<_>>(),
+                "each allowed frame reaches the transport exactly once, unchanged"
+            );
         }
     }
 }
