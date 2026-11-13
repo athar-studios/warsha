@@ -96,9 +96,9 @@ This document tracks the high-level completion status of Warsha's completion pro
   - **Files:** warshad/src/lib.rs, warsha-pipeline/src/lib.rs
   - **Status:** Seam ready, wiring pending
   
-- [ ] **E3: projects.attach RPC** - Add method to attach existing git repos
+- [x] **E3: projects.attach RPC** - Add method to attach existing git repos
   - **Files:** warshad/src/lib.rs, warsha-core/src/lib.rs
-  - **Status:** Git helpers done (verify_clean_git_repo, init_project_repo), attach RPC pending
+  - **Status:** DONE (P-E3, commit `77f04dc`): `projects.attach` validates the path with the same probe `create_run_worktree` uses, refuses a project that already has a repo (no silent overwrite), and updates `repo_path` with no schema change; Owner/Standard auth; 3 tests in `mod e3_wiring`
   
 - [ ] **E3: Merge worktree seam** - Move worktree management from worktree to main
   - **Files:** .qoder/worktrees/.../worktree.rs → warsha-pipeline/src/worktree.rs

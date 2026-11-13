@@ -149,6 +149,7 @@ Not yet in the router (only `/health` is registered, `:500`). The contract to be
 | `projects.list` | — | `Project[]` |
 | `projects.create` | `name: string, description: string, language: string` | `Project` |
 | `projects.get` | `id: ProjectId` (UUID string) | `Project` |
+| `projects.attach` | `project_id: ProjectId, repo_path: string` | `Project` |
 | `runs.start` | `project_id: ProjectId, idea: string` | `Run` |
 | `runs.get` | `run_id: RunId` (ULID string) | `Run` |
 | `runs.list` | `project_id: ProjectId` | `Run[]` |
