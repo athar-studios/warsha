@@ -6180,8 +6180,11 @@ pub async fn start_daemon_with_provider_factory(
 
     // One spawner for the daemon: the MCP stdio transport starts its server
     // through it and the live preview runs its dev server on it, so `process.list`
-    // is the one place that names every child.
-    let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared();
+    // is the one place that names every child. It carries the configured
+    // allow-list, so a restart re-checks the program the RPC edges admitted.
+    let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared_with_policy(
+        CommandPolicy::from_config(&config.allowed_commands),
+    );
     let mcp: Arc<dyn McpManager> = Arc::new(InMemoryMcpManager::new(processes.clone()));
     let previews = Arc::new(LivePreviewManager::new(processes.clone()));
 
@@ -7679,8 +7682,11 @@ mod tests {
 
         // One spawner for the daemon: the MCP stdio transport starts its server
         // through it and the live preview runs its dev server on it, so `process.list`
-        // is the one place that names every child.
-        let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared();
+        // is the one place that names every child. It carries the configured
+        // allow-list, so a restart re-checks the program the RPC edges admitted.
+        let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared_with_policy(
+            CommandPolicy::from_config(&config.allowed_commands),
+        );
         let mcp: Arc<dyn McpManager> = Arc::new(InMemoryMcpManager::new(processes.clone()));
         let previews = Arc::new(LivePreviewManager::new(processes.clone()));
 

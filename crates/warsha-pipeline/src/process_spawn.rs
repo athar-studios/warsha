@@ -20,6 +20,12 @@
 //! - **The environment survives a restart.** [`ManagedProcess`] keeps exactly the
 //!   six documented fields, so the environment a spawn was given is stored beside
 //!   the record and replayed by [`ProcessManager::restart`].
+//! - **A restart re-checks the policy.** The manager holds the command policy it
+//!   was built with, and [`ProcessManager::restart`] judges the stored program and
+//!   its arguments again before it re-spawns, so a configuration narrowed after a
+//!   spawn cannot re-launch a program the daemon would now refuse (KEEL checkpoint
+//!   finding M4). The check runs before the running child is touched, so a refused
+//!   restart leaves the process as it was.
 //! - **The environment is cleared, not inherited.** Every child starts from
 //!   `env_clear()` and the fixed [`MINIMAL_CHILD_ENV`] floor; the only other
 //!   variables it sees are the ones the caller named, and a caller cannot
@@ -53,7 +59,7 @@ use tokio::io::{AsyncRead, AsyncWriteExt};
 use tokio::process::{Child, ChildStderr, ChildStdout, Command};
 use tokio::sync::Mutex;
 
-use crate::command_policy::{child_path, MINIMAL_CHILD_ENV};
+use crate::command_policy::{child_path, CommandPolicy, MINIMAL_CHILD_ENV};
 
 /// Environment names a spawn may not hand to a child, whatever its caller asks.
 ///
@@ -315,6 +321,14 @@ pub enum ProcessError {
     /// A project already has a live dev server.
     #[error("project `{0}` already has a running preview")]
     PreviewAlreadyRunning(String),
+    /// The command policy refuses the stored command, so it may not be re-spawned.
+    #[error("process `{id}` cannot restart: {reason}")]
+    PolicyRefused {
+        /// The process whose stored command was refused.
+        id: String,
+        /// The policy's own refusal message.
+        reason: String,
+    },
     /// No preview is tracked for that project.
     #[error("no preview for project `{0}`")]
     PreviewNotFound(String),
@@ -342,6 +356,11 @@ pub trait ProcessManager: Send + Sync {
 
     /// Kill the process if it is alive and start the same command again under
     /// the same id, with the same arguments and the same environment.
+    ///
+    /// The stored command is judged again by the policy the manager was built
+    /// with before anything is spawned, and a refused command leaves the running
+    /// child alone: a policy narrowed after a spawn cannot re-launch a program the
+    /// daemon would now refuse.
     async fn restart(&self, id: &str) -> Result<String, ProcessError>;
 
     /// The stdout lines the process has printed, oldest first, from `offset` on.
@@ -700,6 +719,12 @@ fn refresh(process: &mut ManagedProcess) -> Result<(), ProcessError> {
 pub struct InMemoryProcessManager {
     entries: Mutex<Vec<Entry>>,
     next_id: AtomicU64,
+    /// The policy a [`ProcessManager::restart`] re-checks before it re-spawns.
+    ///
+    /// It is set at construction and never absent: a manager always judges a
+    /// restart against *some* policy, so no caller can build one that skips the
+    /// check (KEEL checkpoint finding M4).
+    policy: Arc<CommandPolicy>,
 }
 
 impl Default for InMemoryProcessManager {
@@ -709,11 +734,21 @@ impl Default for InMemoryProcessManager {
 }
 
 impl InMemoryProcessManager {
-    /// An empty manager: no processes, the next id is `proc-1`.
+    /// An empty manager that re-checks `restart` against the shipped safe list.
+    ///
+    /// An unset configuration means `DEFAULT_ALLOWED_COMMANDS`, the same rule
+    /// [`CommandPolicy::from_config`] applies, so a manager built with no explicit
+    /// policy is never unrestricted.
     pub fn new() -> Self {
+        InMemoryProcessManager::with_policy(CommandPolicy::from_config(&[]))
+    }
+
+    /// An empty manager that re-checks `restart` against `policy`.
+    pub fn with_policy(policy: CommandPolicy) -> Self {
         InMemoryProcessManager {
             entries: Mutex::new(Vec::new()),
             next_id: AtomicU64::new(1),
+            policy: Arc::new(policy),
         }
     }
 
@@ -721,6 +756,12 @@ impl InMemoryProcessManager {
     /// process RPC, the MCP transports and the live preview.
     pub fn shared() -> Arc<dyn ProcessManager> {
         Arc::new(InMemoryProcessManager::new())
+    }
+
+    /// The daemon's own manager: one instance, re-checking a restart against the
+    /// owner's configured allow-list.
+    pub fn shared_with_policy(policy: CommandPolicy) -> Arc<dyn ProcessManager> {
+        Arc::new(InMemoryProcessManager::with_policy(policy))
     }
 }
 
@@ -829,6 +870,16 @@ impl ProcessManager for InMemoryProcessManager {
             .iter_mut()
             .find(|entry| entry.process.id == id)
             .ok_or_else(|| ProcessError::NotFound(id.to_string()))?;
+
+        // The program and its arguments are judged again before the running child
+        // is touched: a policy narrowed after the spawn refuses here, and the
+        // process keeps running rather than being killed into a refused restart.
+        self.policy
+            .check_invocation(&entry.process.command, &entry.process.args)
+            .map_err(|error| ProcessError::PolicyRefused {
+                id: entry.process.id.clone(),
+                reason: error.to_string(),
+            })?;
 
         if let Some(mut child) = entry.process.child.take() {
             let _ = child.start_kill();
@@ -1385,6 +1436,19 @@ mod tests {
         )
     }
 
+    /// A manager whose policy admits the platform shell.
+    ///
+    /// [`long_running`] is a shell and the shipped default list refuses shells,
+    /// so a restart test whose re-check is meant to pass needs a policy that
+    /// admits the program the test spawns.
+    fn shell_manager() -> InMemoryProcessManager {
+        #[cfg(windows)]
+        let policy = CommandPolicy::from_config(&["cmd".to_string()]);
+        #[cfg(not(windows))]
+        let policy = CommandPolicy::from_config(&["sh".to_string()]);
+        InMemoryProcessManager::with_policy(policy)
+    }
+
     /// Poll until the process settles, or fail the test after ~4 seconds.
     async fn wait_for_terminal(manager: &dyn ProcessManager, id: &str) -> ProcessStatus {
         for _ in 0..200 {
@@ -1559,7 +1623,7 @@ mod tests {
 
     #[tokio::test]
     async fn restart_keeps_the_id_and_starts_a_new_child() {
-        let manager = InMemoryProcessManager::new();
+        let manager = shell_manager();
         let (command, args) = long_running();
         let id = manager
             .spawn(&command, &args, &HashMap::new())
@@ -1579,7 +1643,7 @@ mod tests {
 
     #[tokio::test]
     async fn restart_replays_the_environment_it_was_spawned_with() {
-        let manager = InMemoryProcessManager::new();
+        let manager = shell_manager();
         let (command, args) = long_running();
         let mut env = HashMap::new();
         env.insert("WARSHA_TEST_MARKER".to_string(), "1".to_string());
@@ -1597,6 +1661,75 @@ mod tests {
             ProcessStatus::Running
         );
         manager.stop(&id).await.expect("the process stops");
+    }
+
+    /// KEEL checkpoint finding M4: `restart` re-spawned the stored command with no
+    /// policy re-check, so a record could re-launch a program the daemon would now
+    /// refuse. The manager holds the policy, so the re-check cannot be forgotten by
+    /// a caller; it runs before the running child is touched, so a refusal leaves
+    /// the process as it was. A command the policy admits still restarts.
+    #[tokio::test]
+    async fn restart_rechecks_the_policy_before_respawning() {
+        // The shipped policy refuses a shell, and `spawn` is gated at the RPC edge,
+        // so this record exists exactly as one does after a narrowing.
+        let manager = InMemoryProcessManager::new();
+        let (command, args) = long_running();
+        let expected = CommandPolicy::default()
+            .check_invocation(&command, &args)
+            .expect_err("the shipped policy refuses this program");
+        let id = manager
+            .spawn(&command, &args, &HashMap::new())
+            .await
+            .expect("the record exists");
+
+        let error = manager
+            .restart(&id)
+            .await
+            .expect_err("a program the policy refuses cannot be re-spawned");
+        match error {
+            ProcessError::PolicyRefused {
+                id: refused,
+                reason,
+            } => {
+                assert_eq!(refused, id, "the refusal names the process");
+                assert_eq!(
+                    reason,
+                    expected.to_string(),
+                    "the refusal carries the policy's own message"
+                );
+                assert!(
+                    reason.contains(&command),
+                    "the refusal names the program: {reason}"
+                );
+            }
+            other => panic!("expected PolicyRefused, got {other:?}"),
+        }
+        assert_eq!(
+            manager.status(&id).await.expect("the process is tracked"),
+            ProcessStatus::Running,
+            "a refused restart leaves the running child alone"
+        );
+        assert_eq!(manager.list().await.len(), 1, "no second record was made");
+        manager.stop(&id).await.expect("the process stops");
+
+        // Control: the same command, under a policy that admits it, restarts.
+        let admitting = shell_manager();
+        let id = admitting
+            .spawn(&command, &args, &HashMap::new())
+            .await
+            .expect("the process starts");
+        assert_eq!(
+            admitting
+                .restart(&id)
+                .await
+                .expect("an admitted program restarts"),
+            id
+        );
+        assert_eq!(
+            admitting.status(&id).await.expect("the process is tracked"),
+            ProcessStatus::Running
+        );
+        admitting.stop(&id).await.expect("the process stops");
     }
 
     #[tokio::test]
