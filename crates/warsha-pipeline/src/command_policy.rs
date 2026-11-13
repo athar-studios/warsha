@@ -557,8 +557,13 @@ pub(crate) fn program_name(command: &str) -> String {
         .to_string()
 }
 
-/// Read up to `cap` bytes from a child stream; if any additional byte arrives,
-/// record `truncated = true` and close the stream.
+/// Read up to `cap` bytes from a child stream, then drain the rest.
+///
+/// Reaching the cap does not close the pipe: the remaining bytes are read and
+/// discarded until EOF, so `truncated = true` reports the cut without killing
+/// the producer (`SIGPIPE` would make a passing command look failed). Draining
+/// only reads, so the wait is still bounded by the child's own exit or the
+/// caller's timeout.
 async fn read_stream_capped<R: tokio::io::AsyncRead + Unpin>(
     pipe: Option<R>,
     cap: usize,
@@ -568,16 +573,24 @@ async fn read_stream_capped<R: tokio::io::AsyncRead + Unpin>(
     };
     let mut buf = Vec::new();
     let mut chunk = [0u8; 8192];
+    let mut truncated = false;
     loop {
-        if buf.len() >= cap {
-            let mut probe = [0u8; 1];
-            let extra = matches!(reader.read(&mut probe).await, Ok(n) if n > 0);
-            return (buf, extra);
-        }
-        let max_read = (cap - buf.len()).min(chunk.len());
+        let max_read = if buf.len() >= cap {
+            chunk.len()
+        } else {
+            (cap - buf.len()).min(chunk.len())
+        };
         match reader.read(&mut chunk[..max_read]).await {
-            Ok(0) | Err(_) => return (buf, false),
-            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+            Ok(0) | Err(_) => return (buf, truncated),
+            Ok(n) => {
+                if buf.len() >= cap {
+                    truncated = true;
+                } else {
+                    let keep = (cap - buf.len()).min(n);
+                    buf.extend_from_slice(&chunk[..keep]);
+                    truncated |= keep < n;
+                }
+            }
         }
     }
 }
@@ -1041,6 +1054,54 @@ async fn defaults_and_output_cap_are_enforced() {
     assert!(output
         .format_text()
         .contains("[output truncated at 1 MiB cap]"));
+}
+
+/// The cap is a reporting bound, not a signal: a producer that writes past it
+/// must finish on its own account. Closing the pipe at the cap kills the writer
+/// with `SIGPIPE`, so a command that exits 0 would be recorded as a failure —
+/// this pins the drain-and-discard behaviour that replaced the early close.
+#[cfg(test)]
+#[cfg(unix)]
+#[tokio::test]
+async fn a_producer_past_the_cap_exits_zero_and_is_only_truncated() {
+    let temp = crate::test_util::fresh_tempdir();
+    let cap = 4096;
+    // 204 800 bytes is past both the cap and a pipe buffer, so a reader that
+    // closes at the cap is certain to break this producer's pipe. `dd` (unlike
+    // coreutils `head`) reports the broken pipe instead of exiting 0.
+    let policy = CommandPolicy::from_config(&["sh".to_string()]).with_output_cap(cap);
+
+    let output = policy
+        .execute(
+            "sh",
+            &[
+                "-c".to_string(),
+                "dd if=/dev/zero bs=8192 count=25 2>/dev/null".to_string(),
+            ],
+            temp.path(),
+        )
+        .await
+        .expect("allow-listed command should run");
+
+    assert_eq!(
+        output.exit_code,
+        Some(0),
+        "the producer was killed instead of drained to its own exit"
+    );
+    assert!(
+        output.success,
+        "output past the cap must not turn a passing command into a failure"
+    );
+    assert!(
+        output.truncated,
+        "output exceeding cap should be marked truncated"
+    );
+    assert_eq!(
+        output.stdout.len(),
+        cap,
+        "retained stdout should be exactly the cap"
+    );
+    assert!(output.stderr.is_empty());
 }
 
 /// The cap is a combined budget: a stream that is only stderr is still capped
