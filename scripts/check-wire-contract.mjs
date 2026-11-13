@@ -30,7 +30,7 @@
 //
 // Output contract (see docs/ARCH_RULES.md):
 //   `<CHECK-ID>: <file>:<line> <offence>` on stdout, one line per violation, exit 1;
-//   `wire: 10 checks, 0 violations` on stdout and exit 0 otherwise.
+//   `wire: 11 checks, 0 violations` on stdout and exit 0 otherwise.
 //
 // Four sources, compared until they agree:
 //   daemon   — every `#[method(name = "…")]` in crates/warshad/src/lib.rs (whitespace-tolerant,
@@ -48,6 +48,19 @@
 //              method the client can send must have a stub (W9, DECISIONS.md 2026-11-08 D8) — a
 //              client method that reaches the e2e lane unstubbed renders §7's error state, which
 //              is how the 2026-11-07 "32 visual failures" class shipped;
+//
+// W11 is the same kind of claim as the four above — one fact asserted in several files that nobody
+// ever compared. It reads the Content-Security-Policy the daemon sends (the `REMOTE_CSP` const in
+// crates/warshad/src/lib.rs), the one apps/remote/index.html declares in its
+// `<meta http-equiv="Content-Security-Policy">`, and the desktop webview's copy in
+// apps/desktop/src-tauri/tauri.conf.json. The daemon and the remote meta must be byte-identical (the
+// daemon serves that bundle, so the header and the tag are one policy); the webview's JSON-embedded
+// copy is compared at DIRECTIVE level, because it legitimately names the `ipc:` and wildcard-loopback
+// sources Tauri adds; and all three must state `object-src 'none'`, `base-uri 'self'` and
+// `frame-ancestors 'none'`, with no `'unsafe-inline'`/`'unsafe-eval'` in `script-src`. It exists
+// because R-KEEL checkpoint row 8 measured the three strings drifting — `object-src`/`base-uri` were
+// in tauri.conf.json only, so the daemon and the meta fell back to `default-src 'self'` — while a
+// comment in each of them said the strings "read the same". A comment is not a check.
 //
 // The param rules, and the measurements that settled them (DECISIONS.md 2026-11-03, #40 WITHDRAWN +
 // restated; #54 for the renames): the earlier plan to require client keys to equal the daemon's
@@ -122,6 +135,8 @@ const CLIENT_FILE = 'packages/client/src/index.ts';
 const HARNESS_FILE = 'apps/desktop/e2e/harness.ts';
 const REMOTE_BENCH_FILE = 'apps/remote/src/bench.tsx';
 const REMOTE_HARNESS_FILE = 'apps/remote/e2e/harness.ts';
+const REMOTE_INDEX_FILE = 'apps/remote/index.html';
+const TAURI_CONF_FILE = 'apps/desktop/src-tauri/tauri.conf.json';
 
 const CHECK_IDS = [
   ['W1', 'client-method-unregistered'],
@@ -134,6 +149,7 @@ const CHECK_IDS = [
   ['W8', 'param-name-drift'],
   ['W9', 'client-method-without-harness-stub'],
   ['W10', 'remote-bench-api-without-harness-stub'],
+  ['W11', 'csp-parity'],
 ];
 
 // The one-edit flip: when true, the KNOWN_* sets below are ignored and every parsed name and
@@ -608,6 +624,55 @@ function parseRemoteReachableStubs(remoteHarnessText, root) {
   return stubs;
 }
 
+// ---------------------------------------------------------------------------------------- CSP parity
+
+/** Split one policy into `directive → its sources`, the shape W11 reads. */
+function parseCspDirectives(policy) {
+  const directives = new Map();
+  for (const part of policy.split(';')) {
+    const trimmed = part.trim();
+    if (trimmed === '') continue;
+    const [name, ...sources] = trimmed.split(/\s+/);
+    directives.set(name.toLowerCase(), sources);
+  }
+  return directives;
+}
+
+/** The daemon's canonical string: the `REMOTE_CSP` const its middleware sends. */
+function parseDaemonCsp(text) {
+  const match = /pub const REMOTE_CSP: &str = "([^"]*)";/.exec(text);
+  return match === null ? null : { policy: match[1], line: lineOf(text, match.index) };
+}
+
+/** The remote bundle's `<meta http-equiv="Content-Security-Policy" content="…">`. */
+function parseRemoteCsp(text) {
+  const tag = /<meta\s[^>]*http-equiv=["']Content-Security-Policy["'][^>]*>/i.exec(text);
+  if (tag === null) return null;
+  // A policy value is full of `'` (`'self'`, `'none'`), so the value is matched against ITS OWN
+  // delimiter: a `["'][^"']*["']` pair would stop at the first `'self'` inside a `"…"` value and
+  // report a truncated policy as the string the bundle declares.
+  const content = /content="([^"]*)"|content='([^']*)'/i.exec(tag[0]);
+  if (content === null) return null;
+  const policy = content[1] ?? content[2] ?? '';
+  return { policy, line: lineOf(text, tag.index) };
+}
+
+/**
+ * The desktop webview's `app.security.csp`. Parsed as the JSON it is rather than with a regex over
+ * the file, so a second `csp` key elsewhere in the config cannot be mistaken for this one.
+ */
+function parseTauriCsp(text) {
+  let policy;
+  try {
+    policy = JSON.parse(text)?.app?.security?.csp;
+  } catch {
+    return null;
+  }
+  if (typeof policy !== 'string' || policy.trim() === '') return null;
+  const at = text.indexOf(JSON.stringify(policy));
+  return { policy, line: at < 0 ? 1 : lineOf(text, at) };
+}
+
 // ------------------------------------------------------------------------------------------- checks
 
 /**
@@ -651,6 +716,8 @@ function run(root, opts = {}) {
   const harnessText = readIfExists(path.join(root, HARNESS_FILE));
   const remoteBenchText = readIfExists(path.join(root, REMOTE_BENCH_FILE));
   const remoteHarnessText = readIfExists(path.join(root, REMOTE_HARNESS_FILE));
+  const remoteIndexText = readIfExists(path.join(root, REMOTE_INDEX_FILE));
+  const tauriConfText = readIfExists(path.join(root, TAURI_CONF_FILE));
 
   // W6, the integrity half: a missing source or a parser that matches nothing would let the
   // other checks pass vacuously. The two daemon-side views are also counted against each other.
@@ -858,6 +925,81 @@ function run(root, opts = {}) {
     );
   }
 
+  // W11: one Content-Security-Policy across the three surfaces that carry it (R-KEEL checkpoint
+  // row 8). The daemon's header and the remote bundle's meta tag are ONE policy — the daemon serves
+  // that bundle — so they are compared byte for byte; the webview's JSON-embedded copy states the
+  // same RULES with Tauri's own sources, so it is compared directive by directive. Every surface is
+  // reported when it cannot be read at all: a check that silently read nothing would certify the
+  // parity it never saw, which is the failure mode this check was added for.
+  const cspSurfaces = [
+    ['daemon', DAEMON_FILE, daemonText === null ? null : parseDaemonCsp(daemonText)],
+    ['remote bundle meta', REMOTE_INDEX_FILE, remoteIndexText === null ? null : parseRemoteCsp(remoteIndexText)],
+    ['desktop webview', TAURI_CONF_FILE, tauriConfText === null ? null : parseTauriCsp(tauriConfText)],
+  ];
+  for (const [label, file, parsed] of cspSurfaces) {
+    if (parsed === null) {
+      raise(
+        'W11',
+        file,
+        1,
+        `the ${label} Content-Security-Policy string was not found (the parity check cannot read it, so it must not report the three surfaces equal)`
+      );
+    }
+  }
+  const [daemonCsp, remoteCsp] = cspSurfaces.map(([, , parsed]) => parsed);
+  if (daemonCsp !== null && remoteCsp !== null && daemonCsp.policy !== remoteCsp.policy) {
+    raise(
+      'W11',
+      REMOTE_INDEX_FILE,
+      remoteCsp.line,
+      `the remote meta CSP is not byte-identical to the daemon's REMOTE_CSP (${remoteCsp.policy.length} vs ${daemonCsp.policy.length} chars) — the daemon serves this bundle, so the header and the tag are one policy`
+    );
+  }
+  // The three rules a fallback would hide, plus the two sources that undo `script-src`.
+  const requiredDirectives = [
+    ['object-src', "'none'"],
+    ['base-uri', "'self'"],
+    ['frame-ancestors', "'none'"],
+  ];
+  const forbiddenSources = ["'unsafe-inline'", "'unsafe-eval'"];
+  for (const [label, file, parsed] of cspSurfaces) {
+    if (parsed === null) continue;
+    const directives = parseCspDirectives(parsed.policy);
+    for (const [name, expected] of requiredDirectives) {
+      const sources = directives.get(name);
+      if (sources === undefined) {
+        raise(
+          'W11',
+          file,
+          parsed.line,
+          `the ${label} CSP states no ${name} directive, so it falls back to default-src instead of \`${name} ${expected}\``
+        );
+      } else if (sources.join(' ') !== expected) {
+        raise(
+          'W11',
+          file,
+          parsed.line,
+          `the ${label} CSP states \`${name} ${sources.join(' ')}\` where every surface must state \`${name} ${expected}\``
+        );
+      }
+    }
+    const scriptSrc = directives.get('script-src');
+    if (scriptSrc === undefined) {
+      raise('W11', file, parsed.line, `the ${label} CSP states no script-src directive (nothing then bounds the script it loads)`);
+      continue;
+    }
+    for (const forbidden of forbiddenSources) {
+      if (scriptSrc.includes(forbidden)) {
+        raise(
+          'W11',
+          file,
+          parsed.line,
+          `the ${label} CSP admits ${forbidden} in script-src (the inline/eval hole every surface refuses)`
+        );
+      }
+    }
+  }
+
   const checkNum = (id) => {
     const m = /^W(\d+)$/.exec(id);
     return m ? Number(m[1]) : 999;
@@ -881,6 +1023,15 @@ function writeTree(base, files) {
   }
 }
 
+// The three CSP surfaces (W11) in the clean fixture: the daemon's const and the remote meta carry
+// the same bytes, and the webview's JSON copy states the same three rules plus one source Tauri
+// adds — the shape the real tree has. A fixture that omitted any of them would make W11 report the
+// clean tree dirty, which is how the check proves it reads all three rather than one.
+const FIXTURE_CSP =
+  "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self';";
+const FIXTURE_WEBVIEW_CSP =
+  "default-src 'self'; script-src 'self'; connect-src 'self' ipc:; object-src 'none'; base-uri 'self'; frame-ancestors 'none';";
+
 // A tree whose four sources agree. It exercises every parse mode in one clean sweep: two
 // single-line attributes, one multi-line attribute (the mode a naive line regex drops), a name
 // reached through a same-file const, an `rpc<T>` generic call, a double-quoted `rpc("a.b")` literal,
@@ -893,6 +1044,7 @@ function cleanFixture() {
   return {
     [DAEMON_FILE]: [
       'pub struct DaemonState;',
+      `pub const REMOTE_CSP: &str = "${FIXTURE_CSP}";`,
       'pub trait WarshaApi {',
       '    #[method(name = "alpha.read", with_extensions)]',
       '    async fn read(&self) -> RpcResult<String>;',
@@ -1009,6 +1161,21 @@ function cleanFixture() {
       'export const REMOTE_DEFAULT_FIXTURES = {};',
       '',
     ].join('\n'),
+    // The three CSP surfaces (W11), consistent on purpose: the daemon's const and the remote meta
+    // carry the same bytes, and the webview's JSON copy states the same three rules with a source
+    // Tauri adds — the shape the real tree has.
+    [REMOTE_INDEX_FILE]: [
+      '<!doctype html>',
+      '<html lang="ar"><head>',
+      `  <meta http-equiv="Content-Security-Policy" content="${FIXTURE_CSP}">`,
+      '</head><body><div id="root"></div></body></html>',
+      '',
+    ].join('\n'),
+    [TAURI_CONF_FILE]: `${JSON.stringify(
+      { app: { security: { csp: FIXTURE_WEBVIEW_CSP } } },
+      null,
+      2
+    )}\n`,
   };
 }
 
@@ -1364,6 +1531,48 @@ const MUTATIONS = [
       );
     },
   },
+  {
+    name: 'csp-meta-drops-base-uri',
+    ids: ['W11'],
+    expect: /remote bundle meta CSP states no base-uri directive/,
+    mutate: (f) => {
+      // The exact row-8 shape: a directive present in one surface and absent from the meta, where it
+      // silently falls back to `default-src 'self'`. Only the meta loses it, so the daemon's copy is
+      // still canonical and the check has to read the HTML to see the drift.
+      f[REMOTE_INDEX_FILE] = f[REMOTE_INDEX_FILE].replace("base-uri 'self'; ", '');
+    },
+  },
+  {
+    name: 'csp-webview-drops-object-src',
+    ids: ['W11'],
+    expect: /desktop webview CSP states no object-src directive/,
+    mutate: (f) => {
+      // The webview's copy is inside JSON and legitimately differs in its sources, so it is checked
+      // directive by directive. This mutant removes `object-src` from the JSON only: a regex over the
+      // file could pass it, a parse cannot.
+      f[TAURI_CONF_FILE] = f[TAURI_CONF_FILE].replace("object-src 'none'; ", '');
+    },
+  },
+  {
+    name: 'csp-meta-bytes-drift',
+    ids: ['W11'],
+    expect: /remote meta CSP is not byte-identical to the daemon's REMOTE_CSP/,
+    mutate: (f) => {
+      // Directive-level parity everywhere, one byte different in the meta: the two strings the
+      // daemon serves as header and as tag must be ONE policy, not two policies that agree today.
+      f[REMOTE_INDEX_FILE] = f[REMOTE_INDEX_FILE].replace("default-src 'self';", "default-src 'self' data:;");
+    },
+  },
+  {
+    name: 'csp-script-src-reopens-inline',
+    ids: ['W11'],
+    expect: /remote bundle meta CSP admits 'unsafe-inline' in script-src/,
+    mutate: (f) => {
+      // `'unsafe-inline'` in script-src is the hole the whole policy exists to keep shut; it is
+      // refused on every surface, not only where the daemon sends a header.
+      f[REMOTE_INDEX_FILE] = f[REMOTE_INDEX_FILE].replace("script-src 'self';", "script-src 'self' 'unsafe-inline';");
+    },
+  },
 ];
 
 function selfTest() {
@@ -1581,7 +1790,7 @@ function selfTest() {
     writeTree(dir, MUTATIONS.reduce((files, m) => ((m.mutate(files), files)), cleanFixture()));
     for (const v of run(dir, { requireNoKnownDrift: true }).violations) {
       const rendered = `${v.id}: ${v.file}:${v.line} ${v.offence}`;
-      if (!/^W(10|[1-9]): [^:\n]+:\d+ \S/.test(rendered) || path.isAbsolute(v.file)) {
+      if (!/^W(11|10|[1-9]): [^:\n]+:\d+ \S/.test(rendered) || path.isAbsolute(v.file)) {
         failed = true;
         console.log(`self-test message format: FAILED — ${rendered}`);
       }
