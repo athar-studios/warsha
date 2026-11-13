@@ -2373,8 +2373,11 @@ mod tests {
         };
 
         /// A provider that records the system prompt the pipeline actually sent.
-        struct RecordingProvider {
-            captured: Arc<std::sync::Mutex<Option<String>>>,
+        ///
+        /// `pub(super)` so the `e1_discovery` module below records the prompt it
+        /// sends instead of restating this provider.
+        pub(super) struct RecordingProvider {
+            pub(super) captured: Arc<std::sync::Mutex<Option<String>>>,
         }
 
         #[async_trait::async_trait]
@@ -2465,7 +2468,7 @@ mod tests {
         }
 
         /// A project whose language the test names, stored in `store`.
-        async fn project_in(store: &Arc<Store>, language: &str) -> Project {
+        pub(super) async fn project_in(store: &Arc<Store>, language: &str) -> Project {
             let project = Project {
                 id: ProjectId::new(),
                 name: "Language Project".to_string(),
@@ -2624,6 +2627,357 @@ mod tests {
                 engine.project_language(ProjectId::new()).await,
                 "en",
                 "a missing project row must render English, not fail"
+            );
+        }
+    }
+
+    /// ENGINE E1 slice: the run's prompts come from the *harness's* stored data,
+    /// not from a canned map.
+    ///
+    /// What is real data today, pinned below:
+    ///
+    /// * the active harness per project (`settings.get_active_harness`), its stored
+    ///   definition (`settings.get_harness` → `data_json`) and the `prompt_template`
+    ///   its stage for the run's role carries — a harness template is the text the
+    ///   provider receives;
+    /// * the enabled skills (`settings.list_skills`), prepended to that text.
+    ///
+    /// What is still static, pinned as such rather than redesigned:
+    ///
+    /// * the walk is `Stage::all()`/`Stage::next()`, and the stage → role map is
+    ///   `prompts::role_for_stage`; the harness is consulted *by role* for the
+    ///   current stage, so its `stages` vector is a lookup table and not the run's
+    ///   itinerary, and its `gate`/`auto_advance`/`rules` fields never reach the walk;
+    /// * a harness with no template for the run's role falls back to the built-in
+    ///   prompt (`prompts::get_prompt`), and `"autonomous-factory"` is the harness
+    ///   the pipeline falls back to when no harness is active. That fallback is a
+    ///   built-in *template*, not a fabricated answer: the role still has to be
+    ///   routed, and an unrouted role fails with `NoProviderRouted` below.
+    mod e1_discovery {
+        use super::e1_language::{project_in, RecordingProvider};
+        use super::*;
+        use crate::prompts::get_prompt;
+        use crate::settings::StoredHarness;
+        use std::sync::Mutex;
+
+        /// Text only the harness template stored by these tests carries. The canned
+        /// Researcher prompt cannot produce it, so a prompt carrying it proves the
+        /// harness row was read.
+        const HARNESS_BRIEF: &str =
+            "HARNESS-DISCOVERY-BRIEF: research exactly what this harness asks for.";
+
+        /// Text only the built-in `prompts/researcher.md` carries.
+        const CANNED_BRIEF: &str = "You are the **Researcher Agent** for Warsha";
+
+        /// Which harness the run's project points at.
+        enum ActiveHarness {
+            /// No active harness: the pipeline's `"autonomous-factory"` fallback decides.
+            Unset,
+            /// The active harness id whose row this is.
+            Stored(StoredHarness),
+            /// An active harness id with no row behind it.
+            MissingRow(&'static str),
+        }
+
+        fn harness_stage(role: Role, template: Option<String>) -> HarnessStage {
+            HarnessStage {
+                id: format!("{:?}", role).to_lowercase(),
+                role,
+                name: format!("{:?}", role),
+                prompt_template: template,
+                gate: None,
+                auto_advance: true,
+            }
+        }
+
+        fn harness_row(id: &str, stages: Vec<HarnessStage>) -> StoredHarness {
+            let definition = HarnessDefinition {
+                id: id.to_string(),
+                version: "1.0.0".to_string(),
+                name: "Discovery Harness".to_string(),
+                description: "A harness whose own stages and templates the run must read"
+                    .to_string(),
+                stages,
+                rules: HarnessRules {
+                    max_repair_iterations: 1,
+                    budget_cap_cents: None,
+                    allow_parallel_subagents: false,
+                    require_verification_receipt: false,
+                },
+                preset: false,
+                active: false,
+                created_at: Utc::now(),
+            };
+            StoredHarness {
+                id: id.to_string(),
+                version: "1.0.0".to_string(),
+                name: "Discovery Harness".to_string(),
+                description: "A harness whose own stages and templates the run must read"
+                    .to_string(),
+                data_json: serde_json::to_string(&definition).expect("a harness definition"),
+                is_preset: false,
+                created_at: 1_735_689_600,
+            }
+        }
+
+        /// The harness's own Researcher template: the role marker real templates
+        /// carry, then text no built-in prompt has.
+        fn research_template() -> String {
+            format!("---\nrole: researcher\nstage: research\n---\n\n{HARNESS_BRIEF}")
+        }
+
+        /// Start a run whose project points at `active`, drive it to the first
+        /// executed stage (`Research`, with Gate A approved on the way), and answer
+        /// with the system prompt the provider received.
+        async fn prompt_at_research(store: &Arc<Store>, active: ActiveHarness) -> String {
+            let project = project_in(store, "en").await;
+            let settings = SettingsStore::new();
+            match active {
+                ActiveHarness::Unset => {}
+                ActiveHarness::Stored(harness) => {
+                    settings
+                        .save_harness(&harness)
+                        .await
+                        .expect("the harness is stored");
+                    settings
+                        .set_active_harness(&project.id.0.to_string(), &harness.id)
+                        .await
+                        .expect("the harness is active");
+                }
+                ActiveHarness::MissingRow(id) => {
+                    settings
+                        .set_active_harness(&project.id.0.to_string(), id)
+                        .await
+                        .expect("the harness id is active");
+                }
+            }
+
+            let captured = Arc::new(Mutex::new(None::<String>));
+            let mut router = ProviderRouter::new();
+            router.register_provider(Box::new(RecordingProvider {
+                captured: captured.clone(),
+            }));
+            router.set_role_routing(RoleRouting {
+                role: Role::Researcher,
+                targets: vec![RoutingTarget {
+                    provider_id: "recording".to_string(),
+                    model_id: "recording-model".to_string(),
+                    weight: 100,
+                }],
+                fallback_enabled: false,
+                budget_cents_per_run: None,
+            });
+            let engine = PipelineEngine::new(
+                store.clone(),
+                Arc::new(RwLock::new(router)),
+                Arc::new(settings),
+            );
+
+            let run = engine
+                .start_run(project.id, "Build a todo app")
+                .await
+                .expect("a run starts");
+            let at_gate = engine
+                .advance_stage(run.id)
+                .await
+                .expect("advance to Gate A");
+            assert_eq!(at_gate.current_stage, Stage::GateA);
+            engine
+                .approve_gate(run.id, Stage::GateA, DeviceId::new())
+                .await
+                .expect("Gate A approves");
+            let executed = engine
+                .advance_stage(run.id)
+                .await
+                .expect("the research stage executes");
+            assert_eq!(executed.current_stage, Stage::Research);
+
+            let prompt = captured
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone();
+            prompt.expect("the provider received a prompt")
+        }
+
+        /// P-E1b: the harness's `prompt_template` for the run's stage is the text
+        /// the provider receives — not the built-in role prompt.
+        ///
+        /// The discrimination is structural: `HARNESS_BRIEF` exists only in the
+        /// harness row this test stores and `CANNED_BRIEF` only in
+        /// `prompts/researcher.md`, so a canned-map answer cannot pass both
+        /// assertions.
+        #[tokio::test]
+        async fn a_harness_prompt_template_drives_discovery_instead_of_the_canned_map() {
+            let store = temp_store().await;
+            let harness = harness_row(
+                "discovery-harness",
+                vec![harness_stage(Role::Researcher, Some(research_template()))],
+            );
+            let prompt = prompt_at_research(&store, ActiveHarness::Stored(harness)).await;
+
+            assert!(
+                prompt.contains(HARNESS_BRIEF),
+                "the harness's own template never reached the provider: {prompt}"
+            );
+            assert!(
+                !prompt.contains(CANNED_BRIEF),
+                "the canned role prompt was used although the harness has a template: {prompt}"
+            );
+            // Without this, the negative assertion above could pass vacuously.
+            assert!(
+                get_prompt(Role::Researcher).contains(CANNED_BRIEF),
+                "the built-in Researcher prompt moved; {CANNED_BRIEF} is no longer in it"
+            );
+        }
+
+        /// P-E1b: the K3 provider-truth posture on the discovery path. A harness
+        /// whose Researcher stage nothing can serve — the harness names the role,
+        /// the routing has no route for it — fails the advance with the explicit
+        /// [`PipelineError::NoProviderRouted`]; the run pauses with a
+        /// `provider_required` event and no research artifact is fabricated, so the
+        /// harness template is never answered by a built-in stub.
+        #[tokio::test]
+        async fn an_unroutable_role_fails_closed_in_discovery_with_no_provider_routed() {
+            let store = temp_store().await;
+            let project = project_in(&store, "en").await;
+            let harness = harness_row(
+                "discovery-harness",
+                vec![harness_stage(Role::Researcher, Some(research_template()))],
+            );
+            let settings = SettingsStore::new();
+            settings
+                .save_harness(&harness)
+                .await
+                .expect("the harness is stored");
+            settings
+                .set_active_harness(&project.id.0.to_string(), &harness.id)
+                .await
+                .expect("the harness is active");
+            let engine = PipelineEngine::new(
+                store.clone(),
+                Arc::new(RwLock::new(ProviderRouter::new())),
+                Arc::new(settings),
+            );
+
+            let run = engine
+                .start_run(project.id, "Build a todo app")
+                .await
+                .expect("a run starts");
+            engine
+                .advance_stage(run.id)
+                .await
+                .expect("advance to Gate A");
+            engine
+                .approve_gate(run.id, Stage::GateA, DeviceId::new())
+                .await
+                .expect("Gate A approves");
+
+            let error = engine
+                .advance_stage(run.id)
+                .await
+                .expect_err("an unrouted role was answered anyway");
+            assert!(
+                matches!(error, PipelineError::NoProviderRouted(Role::Researcher)),
+                "the unrouted role must fail with the explicit error, got: {error:?}"
+            );
+
+            let stored = store.get_run(run.id).await.expect("the run is readable");
+            assert_eq!(
+                stored.status,
+                RunStatus::Paused,
+                "an unrouted role must pause the run, not leave it running"
+            );
+            assert!(
+                !stored.artifacts.contains_key("research"),
+                "an unrouted stage fabricated a research artifact"
+            );
+            let events = store.get_events(run.id).await.expect("the run's events");
+            let required = events
+                .iter()
+                .find(|event| event.payload["action"] == "provider_required")
+                .expect("no provider_required event was recorded");
+            assert_eq!(required.payload["role"], "researcher");
+        }
+
+        /// P-E1b boundary: the harness's `stages` vector is a lookup table keyed by
+        /// role, not the run's itinerary. A harness naming only a role this run
+        /// never resolves (`Role::QA`; the walk maps `ReviewQaSecurity` to
+        /// `Role::Reviewer`) leaves the run on the built-in prompt: the harness data
+        /// is real, but it neither adds nor skips a stage.
+        #[tokio::test]
+        async fn a_harness_stage_the_walk_never_uses_does_not_hijack_discovery() {
+            let store = temp_store().await;
+            let harness = harness_row(
+                "discovery-harness",
+                vec![harness_stage(
+                    Role::QA,
+                    Some("HARNESS-QA-ONLY: emit the verification receipt.".to_string()),
+                )],
+            );
+            let prompt = prompt_at_research(&store, ActiveHarness::Stored(harness)).await;
+
+            assert!(
+                prompt.contains(CANNED_BRIEF),
+                "the run left the built-in prompt although the harness has no Researcher \
+                 stage: {prompt}"
+            );
+            assert!(
+                !prompt.contains("HARNESS-QA-ONLY"),
+                "a harness stage for another role reached this stage's prompt: {prompt}"
+            );
+            assert_eq!(
+                crate::prompts::role_for_stage(Stage::Research),
+                Some(Role::Researcher),
+                "the stage this run executes is no longer mapped to Researcher"
+            );
+        }
+
+        /// P-E1b: the `"autonomous-factory"` fallback and the missing-data fallback
+        /// render the built-in role prompt, and that is distinguishable from the
+        /// harness path — which never renders `CANNED_BRIEF`.
+        #[tokio::test]
+        async fn the_autonomous_factory_fallback_renders_the_built_in_prompt_in_discovery() {
+            // (a) No active harness: the pipeline's `"autonomous-factory"` fallback
+            // decides, and that harness's Researcher stage carries no template.
+            let store = temp_store().await;
+            let prompt = prompt_at_research(&store, ActiveHarness::Unset).await;
+            assert!(
+                prompt.contains(CANNED_BRIEF),
+                "the fallback harness never rendered the built-in prompt: {prompt}"
+            );
+            assert!(
+                !prompt.contains(HARNESS_BRIEF),
+                "a harness template appeared with no harness active: {prompt}"
+            );
+
+            // (b) An active harness id with no row behind it: same built-in prompt,
+            // and the run still executes instead of failing.
+            let store = temp_store().await;
+            let prompt =
+                prompt_at_research(&store, ActiveHarness::MissingRow("no-such-harness")).await;
+            assert!(
+                prompt.contains(CANNED_BRIEF),
+                "a missing harness row did not fall back to the built-in prompt: {prompt}"
+            );
+
+            // (c) A row whose `data_json` does not parse: the stage lookup finds
+            // nothing and the run stays on the built-in prompt. The catalog keeps
+            // such a row visible as a stageless harness (`wave2::harness_definition`),
+            // so this is that documented degradation, not a role-resolution error.
+            let mut damaged = harness_row(
+                "discovery-harness",
+                vec![harness_stage(Role::Researcher, Some(research_template()))],
+            );
+            damaged.data_json = "{ not a harness definition".to_string();
+            let store = temp_store().await;
+            let prompt = prompt_at_research(&store, ActiveHarness::Stored(damaged)).await;
+            assert!(
+                prompt.contains(CANNED_BRIEF),
+                "an unreadable harness row did not fall back to the built-in prompt: {prompt}"
+            );
+            assert!(
+                !prompt.contains(HARNESS_BRIEF),
+                "a template was read out of an unreadable harness row: {prompt}"
             );
         }
     }
