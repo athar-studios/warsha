@@ -11454,6 +11454,91 @@ mod tests {
         }
     }
 
+    /// R-KEEL checkpoint row 9: the CSP headers are read off a real response.
+    ///
+    /// The middleware's whole point was unverified by construction: deleting
+    /// `.layer(csp_middleware)` or any one of the three header inserts left the suite
+    /// green, because no test ever read a header off the wire. This drives [`http_app`] —
+    /// the app the listener actually serves — through its whole stack, on the one route
+    /// that needs no credential and on the static fallback, so both places a response can
+    /// come from are covered. Every assertion is an equality against the canonical value
+    /// ([`REMOTE_CSP`], `nosniff`, `DENY`), which is what makes a dropped layer or a
+    /// drifted string a failure rather than a pass.
+    ///
+    /// The app is driven in process rather than over a socket on purpose: the other test
+    /// in this binary that starts a daemon (`the_startup_listener_lines_are_written_once`)
+    /// counts its startup lines through a thread-scoped subscriber, and a second daemon
+    /// starting in parallel makes that capture flaky — measured: a socket-level version of
+    /// this test left it red in 2 of 3 full runs, while 4 of 4 runs without this test were
+    /// green. Driving the router keeps the same assertion without adding a second caller
+    /// of the callsite that test counts.
+    #[tokio::test]
+    async fn the_http_listener_sends_the_canonical_csp_and_framing_headers() {
+        use tower::ServiceExt as _;
+
+        let temp = crate::test_util::fresh_tempdir();
+        let bundle = temp.path().join("bundle");
+        std::fs::create_dir_all(&bundle).expect("the bundle directory");
+        std::fs::write(
+            bundle.join("index.html"),
+            "<div id=\"root\">csp probe</div>",
+        )
+        .expect("the bundle shell");
+        let (state, _store) = test_state_with(temp.path(), |config| {
+            config.remote_assets_dir = Some(bundle);
+        })
+        .await;
+
+        // `/health` is the router's own route; `/index.html` is the static fallback.
+        for path in ["/health", "/index.html"] {
+            let mut request = axum::http::Request::builder()
+                .uri(path)
+                .body(axum::body::Body::empty())
+                .expect("a request the listener would receive");
+            // What `axum::serve(…into_make_service_with_connect_info())` supplies to the
+            // auth layer: without it the ceiling has no peer to key on and the extractor
+            // answers before the CSP layer runs.
+            request
+                .extensions_mut()
+                .insert(ConnectInfo(std::net::SocketAddr::from((
+                    [127, 0, 0, 1],
+                    40_000,
+                ))));
+            let response = http_app(state.clone())
+                .oneshot(request)
+                .await
+                .expect("the app answers");
+            assert_eq!(
+                response.status(),
+                axum::http::StatusCode::OK,
+                "{path} answered HTTP {}",
+                response.status()
+            );
+            let header = |name: &str| {
+                response
+                    .headers()
+                    .get(name)
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_string)
+            };
+            assert_eq!(
+                header("content-security-policy").as_deref(),
+                Some(REMOTE_CSP),
+                "{path} did not carry the canonical policy: the CSP middleware is not layered, \
+                 or its string is not the one `apps/remote/index.html` declares"
+            );
+            assert_eq!(
+                header("x-content-type-options").as_deref(),
+                Some("nosniff"),
+                "{path} did not carry `X-Content-Type-Options: nosniff`"
+            );
+            assert_eq!(
+                header("x-frame-options").as_deref(),
+                Some("DENY"),
+                "{path} did not carry `X-Frame-Options: DENY`"
+            );
+        }
+    }
 }
 
 #[cfg(test)]
