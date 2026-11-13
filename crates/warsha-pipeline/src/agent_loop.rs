@@ -1199,9 +1199,16 @@ mod tests {
     }
 
     /// An Agent-mode loop whose tools run against `dir`.
+    ///
+    /// A new executor denies every command (KEEL checkpoint finding L11), so the
+    /// loop installs an explicit allow-list: `cargo` is admitted and no shell is,
+    /// which is the pair `agent_mode_refuses_disallowed_run_command_via_tool_layer`
+    /// relies on.
     fn tool_loop(dir: &Path) -> AgentLoop {
-        let mut agent_loop =
-            AgentLoop::with_tool_executor(Box::new(FilesystemToolExecutor::new(dir)));
+        let mut agent_loop = AgentLoop::with_tool_executor(Box::new(
+            FilesystemToolExecutor::new(dir)
+                .with_command_policy(crate::CommandPolicy::from_config(&["cargo".to_string()])),
+        ));
         agent_loop
             .approve_agent_mode("owner")
             .expect("an approval is accepted");
@@ -2263,14 +2270,35 @@ mod tests {
             assert!(question.question.contains("mcp.permissions.set"));
         }
 
+        /// R-KEEL row 13: the deny-first half is what makes the lookup observable.
+        /// One dispatch of the same server/tool/args satisfies the allow half with
+        /// the lookup deleted; the denied turn does not — its dispatch would reach
+        /// the transport and fail the emptiness check. The allow half then runs the
+        /// same call against the same table with the row flipped, so the two turns
+        /// differ in nothing but the permission.
         #[tokio::test]
         async fn allow_calls_the_transport_exactly_once() {
-            let table = StaticPermissions::new();
-            table.set("test_srv", "echo", MCP_AGENT_ROLE, ToolPermission::Allow);
+            let table = Arc::new(StaticPermissions::new());
+            table.set("test_srv", "echo", MCP_AGENT_ROLE, ToolPermission::Deny);
             let mcp = Arc::new(RecordingMcp::default());
             let mut agent_loop = approved_loop()
                 .with_mcp(mcp.clone())
-                .with_mcp_permissions(Arc::new(table));
+                .with_mcp_permissions(table.clone());
+
+            // Deny first: the same call is refused by the table and never reaches
+            // the transport.
+            let denied = agent_loop
+                .run_turn(&call(Some("test_srv")), &catalog())
+                .await;
+            assert!(!denied.tools[0].success);
+            assert!(denied.tools[0].output.contains("denied by MCP permission"));
+            assert!(
+                mcp.calls().is_empty(),
+                "the permission lookup was not consulted: a denied call reached the transport"
+            );
+
+            // Then the same row is allowed and the same call reaches it once.
+            table.set("test_srv", "echo", MCP_AGENT_ROLE, ToolPermission::Allow);
             let turn = agent_loop
                 .run_turn(&call(Some("test_srv")), &catalog())
                 .await;

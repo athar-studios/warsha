@@ -275,13 +275,20 @@ impl FilesystemToolExecutor {
     ///
     /// Nothing is created or checked here, so construction cannot fail: the
     /// directory is made by the first write and a read or a command in a directory
-    /// that does not exist reports an io or spawn failure. Command execution
-    /// defaults to [`CommandPolicy::default`].
+    /// that does not exist reports an io or spawn failure.
+    ///
+    /// **Command execution fails closed**: a new executor carries
+    /// [`CommandPolicy::deny_all`], so `RunCommand` refuses every program until a
+    /// caller installs an allow-list with [`Self::with_command_policy`] (KEEL
+    /// checkpoint finding L11). An executor built somewhere the configuration was
+    /// not threaded through therefore runs nothing rather than the permissive
+    /// [`CommandPolicy::default`] list; the daemon installs its configured list in
+    /// exactly one place (`warshad::build_agent_loop`).
     pub fn new(working_dir: impl Into<PathBuf>) -> Self {
         Self {
             working_dir: working_dir.into(),
             read_guard: None,
-            command_policy: CommandPolicy::default(),
+            command_policy: CommandPolicy::deny_all(),
         }
     }
 
@@ -695,9 +702,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn default_executor_refuses_shells_and_unlisted_commands() {
+    async fn an_allowlisted_executor_refuses_shells_and_unlisted_commands() {
         let temp = fresh_tempdir();
-        let exec = executor(temp.path());
+        // The executor's `new` is deny-all (see
+        // `a_new_executor_denies_every_command_until_an_allowlist_is_installed`), so a
+        // policy that admits a toolchain but no shell is installed explicitly: that is
+        // what makes a shell refusal `ShellRefused` rather than merely unlisted.
+        let exec = executor(temp.path())
+            .with_command_policy(CommandPolicy::from_config(&["cargo".to_string()]));
 
         for shell in ["sh", "bash", "cmd", "powershell", "pwsh"] {
             let result = exec
@@ -726,6 +738,52 @@ mod tests {
             "unexpected output: {}",
             unlisted.output
         );
+    }
+
+    /// R-KEEL row 11: a fresh executor is fail-closed, so an executor built without
+    /// the daemon's configuration runs nothing instead of the permissive default
+    /// list. The programs checked are `DEFAULT_ALLOWED_COMMANDS` entries, i.e. what
+    /// a default-allowed executor would have run.
+    #[tokio::test]
+    async fn a_new_executor_denies_every_command_until_an_allowlist_is_installed() {
+        let temp = fresh_tempdir();
+        let denied = executor(temp.path());
+
+        assert!(
+            denied.command_policy().allowed().is_empty(),
+            "a new executor installed an allow-list: {:?}",
+            denied.command_policy().allowed()
+        );
+        for program in ["cargo", "npm", "git"] {
+            assert!(
+                matches!(
+                    denied.command_policy().check_program(program),
+                    Err(CommandPolicyError::NotAllowed { .. })
+                ),
+                "`{program}` was not refused by the default policy"
+            );
+            let result = denied
+                .execute(&AgentTool::RunCommand {
+                    command: program.to_string(),
+                    args: vec!["--version".to_string()],
+                })
+                .await;
+            assert!(!result.success, "`{program}` ran on a default executor");
+            assert!(
+                result.output.contains("not in the allowed commands list"),
+                "unexpected refusal for `{program}`: {}",
+                result.output
+            );
+        }
+
+        // The explicit list is what opens the door, and only for its own entries.
+        let allowed = executor(temp.path())
+            .with_command_policy(CommandPolicy::from_config(&["cargo".to_string()]));
+        assert!(allowed.command_policy().check_program("cargo").is_ok());
+        assert!(matches!(
+            allowed.command_policy().check_program("npm"),
+            Err(CommandPolicyError::NotAllowed { .. })
+        ));
     }
 
     #[tokio::test]
