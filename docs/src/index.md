@@ -358,8 +358,10 @@ Idea → Gate A → Research → PRD Spec → Gate B → Design → Plan Tasks �
       In your operating system's native credential store (Windows Credential Manager, macOS Keychain, Linux Secret
       Service), under the <code>warsha-provider</code> service, one account per provider. They are never written into
       Warsha's own config file, its SQLite database, its logs or its crash output. The <code>config.toml</code> that
-      holds the daemon's access token is <code>0600</code> on Unix; on Windows that permission is not set by any code,
-      so the file inherits whatever your profile directory grants.
+      holds the daemon's access token is restricted <em>before</em> any content is written: <code>0600</code> on Unix,
+      and on Windows an explicit single-owner DACL — the owner's SID with <code>FILE_ALL_ACCESS</code> and no other
+      ACE, written with <code>PROTECTED_DACL_SECURITY_INFORMATION</code> — so the profile directory's inheritable
+      entries are <strong>not</strong> added to it.
     </p>
   </div>
 
