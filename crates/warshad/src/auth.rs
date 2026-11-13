@@ -283,6 +283,12 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Session,
         tier: Standard,
     },
+    // Mutates a project's repository, like `projects.create`, so it is the owner's.
+    M {
+        method: "projects.attach",
+        policy: Owner,
+        tier: Standard,
+    },
     M {
         method: "runs.list",
         policy: Session,

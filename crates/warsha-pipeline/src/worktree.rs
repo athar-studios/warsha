@@ -126,6 +126,15 @@ pub async fn remove_run_worktree(repo: &Path, worktree: &RunWorktree) -> Result<
     Ok(())
 }
 
+/// Validate that `repo` is a usable git work tree.
+///
+/// This is the exact probe [`create_run_worktree`] runs before it asks git for a
+/// checkout, exported so a caller that records a repository path (the daemon's
+/// `projects.attach`) accepts nothing `runs.start` would then fail on.
+pub async fn validate_repository(repo: &Path) -> Result<()> {
+    ensure_repository(repo).await
+}
+
 async fn ensure_repository(repo: &Path) -> Result<()> {
     let output = tokio::process::Command::new("git")
         .arg("-C")
