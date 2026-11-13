@@ -1,5 +1,13 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-13 — P-E1b (discovery pinning): DONE, merged (PM-verified); OD-E1b logged — E1 IS NOW FULLY CLOSED
+
+- **P-E1b delivered** (Coder, commit `31d2198`, merged at `0b9b2da`; OD-E1b logged at `32a7627`): test-only packet pinning that harness data drives the run's prompts. The worker's map (now the record): REAL per stage — the active-harness id (per-project map, "autonomous-factory" fallback), the harness row's role→template lookup, the skills preamble, the render with the project language; STILL STATIC (kept, pinned as such) — the walk (`Stage::all()`), stage→role, the canned templates, and the harness fields a run never consults (stages membership/order, gate, auto_advance, rules, preset, active). Four new tests with structural discrimination: the harness template drives discovery (marker exists only in the harness row; the negative is non-vacuous), the unroutable role fails closed with `NoProviderRouted` (Paused, no fabricated artifact, `provider_required` event), a harness stage the walk never uses does not hijack discovery (the boundary), and the three fallback cases render the built-in prompt. Discrimination: `harness_stage = None` forced in production → the pinning test failed; reverted.
+- **OD-E1b** (PM decision): an unparseable harness row keeps degrading to the built-in prompt — the daemon documents that as deliberate (wave2.rs:109-124); failing runs closed would contradict a recorded decision. The degradation is now pinned by its own test.
+- **PM gate runs**: e1_discovery 4/4; pipeline 469/0/7 (baseline 465 + 4); warshad 262/0 (unchanged — production untouched); clippy 0; fmt 0.
+- **E1 status: FULLY CLOSED** — cancel DONE, streaming DONE, budget start-time DONE (P-E1a), real discovery pinned (P-E1b), project language DONE (P-E1c).
+- **Next**: P-E3 (projects.attach) → P-E2 (retire the legacy loop) → P-E4 (CLI into the Code stage) → P-E6 (skills wiring) → P-E5 (preview) → P-E8 (pilot); P-H1 (the split) and P-E7 (SQLite unification) on separate tracks.
+
 ## Run 2026-11-13 — P-E1a (budget start-time refusal): DONE, merged (PM-verified); OD-E1a logged
 
 - **OD-E1a** (PM decision, DECISIONS.md): on start, a run REFUSES if the project's spent has reached its budget — fail-closed, matching the resume refusal's `spent >= budget` semantics; no confirm flag, no wire change; unbudgeted projects keep today's semantics.
