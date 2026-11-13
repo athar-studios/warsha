@@ -750,8 +750,9 @@ describe('Advanced Workbench (U4)', () => {
       expect(screen.getByTestId('bench-container')).toBeInTheDocument();
     });
 
-    const main = container.querySelector('main');
-    expect(main?.getAttribute('data-ready')).toBe('true');
+    await waitFor(() => {
+      expect(container.querySelector('main')?.getAttribute('data-ready')).toBe('true');
+    });
     expect(screen.getByTestId('bench-stage-strip')).toBeInTheDocument();
     expect(screen.getByTestId('bench-tabs')).toBeInTheDocument();
   });
