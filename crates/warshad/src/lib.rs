@@ -4787,7 +4787,10 @@ impl WarshaApiServer for WarshaRpc {
             self.check_plugin_launch(&checked)?;
             launch_env = self.resolved_plugin_env(&checked).await?;
         }
-        if row.enabled != enabled {
+        // Whether this call is the one that rewrites the row — the flag the rollback below
+        // keys on, because a toggle to the state the row already has wrote nothing to undo.
+        let flipped = row.enabled != enabled;
+        if flipped {
             self.state
                 .settings
                 .toggle_plugin(&id)
@@ -4807,14 +4810,35 @@ impl WarshaApiServer for WarshaRpc {
                         cmd,
                         def.args.clone(),
                     );
-                    self.state
+                    if let Err(error) = self
+                        .state
                         .mcp
                         .connect_with(
                             mcp_cfg,
                             warsha_pipeline::mcp_transport::McpLaunchOptions::with_env(launch_env),
                         )
                         .await
-                        .map_err(|e| rpc_error(e.to_string()))?;
+                    {
+                        // The row was persisted before the spawn, so a connect that fails
+                        // would leave it saying `enabled` with no process behind it, and
+                        // nothing re-derives that until the next toggle (R-KEEL
+                        // checkpoint row 16). Restore the state the row had before this
+                        // call — and still return the connect's own error, which is the
+                        // RPC's contract. A rollback that fails too is named inside that
+                        // error rather than swallowed.
+                        let rollback = if flipped {
+                            self.state.settings.toggle_plugin(&id).await.err()
+                        } else {
+                            None
+                        };
+                        return Err(match rollback {
+                            None => rpc_error(error.to_string()),
+                            Some(rollback_error) => rpc_error(format!(
+                                "{error} (the row could not be put back the way it was: \
+                                 {rollback_error})"
+                            )),
+                        });
+                    }
                 }
             }
         } else if !enabled
@@ -4855,6 +4879,10 @@ impl WarshaApiServer for WarshaRpc {
         candidate.env = env.clone();
         self.check_plugin_launch(&candidate)?;
         let references = self.file_plugin_env(&id, &env).await?;
+        // The row is about to lose its previous environment, so keep it: a connect with the
+        // new one that fails must not leave the row describing a child that was never
+        // started (R-KEEL checkpoint row 16, the `configure` half).
+        let previous_env_json = row.env_json.clone();
         row.env_json = serde_json::to_string(&references).map_err(rpc_error)?;
         self.state
             .settings
@@ -4874,14 +4902,30 @@ impl WarshaApiServer for WarshaRpc {
                         cmd,
                         def.args.clone(),
                     );
-                    self.state
+                    if let Err(error) = self
+                        .state
                         .mcp
                         .connect_with(
                             mcp_cfg,
                             warsha_pipeline::mcp_transport::McpLaunchOptions::with_env(launch_env),
                         )
                         .await
-                        .map_err(|e| rpc_error(e.to_string()))?;
+                    {
+                        // Put the previous environment back: the caller still gets the
+                        // connect's error, but the row is not left naming an environment
+                        // whose child never started. The keychain entries the new
+                        // environment filed stay, for the next configure of those keys to
+                        // overwrite — the same rule a key this call stopped naming follows.
+                        row.env_json = previous_env_json;
+                        let rollback = self.state.settings.save_plugin(&row).await.err();
+                        return Err(match rollback {
+                            None => rpc_error(error.to_string()),
+                            Some(rollback_error) => rpc_error(format!(
+                                "{error} (the previous environment could not be restored: \
+                                 {rollback_error})"
+                            )),
+                        });
+                    }
                 }
             }
         }
@@ -10164,6 +10208,130 @@ mod tests {
             .await
             .expect_err("enabling a plugin whose server dies must fail with an RPC error");
         assert_eq!(rpc_error_code(&err), -32000);
+    }
+
+    /// R-KEEL checkpoint row 16: the row was written *before* the spawn, so a connect that
+    /// failed left it claiming `enabled` with no process behind it until the next toggle.
+    /// It is still the caller's error (the RPC contract above), but the row goes back.
+    #[tokio::test]
+    async fn a_failed_toggle_connect_leaves_the_row_disabled() {
+        let temp = crate::test_util::fresh_tempdir();
+        let exe = std::env::current_exe()
+            .expect("the test binary names itself")
+            .to_string_lossy()
+            .into_owned();
+        let allowed = exe.clone();
+        let (state, _store) = test_state_with(temp.path(), move |config| {
+            config.allowed_commands = vec![allowed];
+        })
+        .await;
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+        let manifest = serde_json::json!({
+            "name": "Bad MCP Plugin",
+            "transport": "stdio",
+            "command": exe,
+            "args": ["--list"],
+            "enabled": false,
+        })
+        .to_string();
+        let installed = rpc
+            .install_plugin(&owner, manifest)
+            .await
+            .expect("plugin installs cleanly in disabled state");
+
+        let err = rpc
+            .toggle_plugin(&owner, installed.id.clone(), true)
+            .await
+            .expect_err("enabling a plugin whose server dies must fail with an RPC error");
+        assert_eq!(rpc_error_code(&err), -32000);
+
+        let stored = state
+            .settings
+            .get_plugin(&installed.id)
+            .await
+            .expect("the catalog answers")
+            .expect("the row is still there");
+        assert!(
+            !stored.enabled,
+            "a failed connect must put the row back to disabled, not leave it enabled with no process"
+        );
+        assert!(
+            state
+                .mcp
+                .list()
+                .await
+                .iter()
+                .all(|connection| !connection.status.is_connected()),
+            "a failed connect must not leave a connected server behind"
+        );
+    }
+
+    /// The `configure` half of row 16: the new environment was persisted before the child
+    /// started, so a failed connect left the row naming an environment whose process never
+    /// existed. The caller keeps the connect's error; the row keeps its old environment.
+    #[tokio::test]
+    async fn a_failed_configure_connect_leaves_the_previous_environment() {
+        let temp = crate::test_util::fresh_tempdir();
+        let exe = std::env::current_exe()
+            .expect("the test binary names itself")
+            .to_string_lossy()
+            .into_owned();
+        let allowed = exe.clone();
+        let (state, _store) = test_state_with(temp.path(), move |config| {
+            config.allowed_commands = vec![allowed];
+        })
+        .await;
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+        // Enabled but not connected: `install` files the row without spawning it, which is
+        // the state `configure` re-launches from.
+        let manifest = serde_json::json!({
+            "name": "Configured Bad MCP Plugin",
+            "transport": "stdio",
+            "command": exe,
+            "args": ["--list"],
+            "enabled": true,
+        })
+        .to_string();
+        let installed = rpc
+            .install_plugin(&owner, manifest)
+            .await
+            .expect("plugin installs cleanly in enabled state");
+        let before = state
+            .settings
+            .get_plugin(&installed.id)
+            .await
+            .expect("the catalog answers")
+            .expect("the row exists")
+            .env_json;
+
+        let mut env = HashMap::new();
+        env.insert(
+            "GITHUB_TOKEN".to_string(),
+            "material-never-launched".to_string(),
+        );
+        let err = rpc
+            .configure_plugin(&owner, installed.id.clone(), env)
+            .await
+            .expect_err("configuring a pack whose server dies must fail with an RPC error");
+        assert_eq!(rpc_error_code(&err), -32000);
+
+        let after = state
+            .settings
+            .get_plugin(&installed.id)
+            .await
+            .expect("the catalog answers")
+            .expect("the row is still there")
+            .env_json;
+        assert_eq!(
+            after, before,
+            "a failed connect must restore the previous environment instead of leaving the new one filed"
+        );
+        assert!(
+            !after.contains("GITHUB_TOKEN"),
+            "the environment whose child never started must not remain in the row: {after}"
+        );
     }
 
     #[tokio::test]
