@@ -2964,9 +2964,21 @@ impl WarshaApiServer for WarshaRpc {
         policy
             .check_program(&program)
             .map_err(|e| ErrorObject::owned(-32005, e.to_string(), None::<()>))?;
-        warsha_pipeline::collect_gate_evidence(&policy, &work_dir, "HEAD", &program, &args)
+        let evidence =
+            warsha_pipeline::collect_gate_evidence(&policy, &work_dir, "HEAD", &program, &args)
+                .await
+                .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        // The preview joins the diff and the tests (ENGINE E5). It is read from what
+        // the manager already tracks for the run's project — the only key a preview
+        // has — and never started: a project with no preview is the explicit `None`
+        // the caller sees, not an error and not a server launched to fill the gap.
+        let preview = self
+            .state
+            .previews
+            .status(&run.project_id.to_string())
             .await
-            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+            .ok();
+        Ok(evidence.with_preview(preview))
     }
 
     async fn get_run(&self, ext: &RpcExtensions, run_id: RunId) -> RpcResult<Run> {
@@ -14453,5 +14465,164 @@ mod e5_wiring {
             .await
             .expect_err("a run without a worktree has no evidence");
         assert!(error.to_string().contains("no worktree"), "{error}");
+    }
+
+    /// The address `tests::preview_probe` prints. That fixture constant is private
+    /// to the `tests` module, so the same value is spelled here.
+    const PROBE_URL: &str = "http://127.0.0.1:5199/";
+
+    /// The command line that starts one `tests::preview_probe` dev server — the
+    /// same probe the preview RPC tests run, named from this module.
+    fn preview_probe_line() -> String {
+        let exe = std::env::current_exe().expect("the test binary names itself");
+        format!(
+            "{} --exact tests::preview_probe --ignored --nocapture",
+            exe.display()
+        )
+    }
+
+    /// A state whose process policy admits the probe as a preview and `git` as the
+    /// Gate C test program.
+    async fn state_that_admits_the_preview(
+        data_dir: &std::path::Path,
+        command: &str,
+    ) -> (Arc<DaemonState>, Arc<Store>) {
+        let program = command
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        crate::tests::test_state_with_seams(
+            data_dir,
+            move |config| config.allowed_commands = vec!["git".to_string(), program],
+            None,
+            None,
+            None,
+        )
+        .await
+    }
+
+    /// The preview joins the diff and the tests: a dev server the owner already runs
+    /// for the run's project is recorded, with the URL it printed.
+    #[tokio::test]
+    async fn evidence_carries_the_url_of_a_running_preview() {
+        let temp = crate::test_util::fresh_tempdir();
+        let repo = tempfile::tempdir().expect("a repo");
+        git_repo(repo.path());
+        let command = preview_probe_line();
+        let (state, store) = state_that_admits_the_preview(temp.path(), &command).await;
+        let project = project(Some(repo.path().display().to_string()));
+        store.create_project(&project).await.expect("the project");
+        let rpc = WarshaRpc::new(state);
+        let run = start(&store, &rpc, &project, true).await;
+
+        // The preview the panel starts: one per project, started before evidence.
+        let started = rpc
+            .start_preview(&owner(), project.id.to_string(), command)
+            .await
+            .expect("the preview starts");
+        assert_eq!(started.url.as_deref(), Some(PROBE_URL));
+
+        let evidence = rpc
+            .gate_evidence(
+                &owner(),
+                run.id,
+                "git".to_string(),
+                vec!["--version".to_string()],
+            )
+            .await
+            .expect("the evidence is collected");
+
+        let preview = evidence
+            .preview
+            .expect("the running preview is part of the evidence");
+        assert_eq!(preview.url.as_deref(), Some(PROBE_URL));
+        assert_eq!(preview.status, ProcessStatus::Running);
+        assert_eq!(preview.project_id, project.id.to_string());
+        assert_eq!(preview.process_id, started.process_id);
+
+        // Read-only: the evidence reported the preview that was already running.
+        let after = rpc
+            .preview_status(&owner(), project.id.to_string())
+            .await
+            .expect("the preview is still tracked");
+        assert_eq!(after.process_id, started.process_id);
+        assert_eq!(after.status, ProcessStatus::Running);
+
+        rpc.stop_preview(&owner(), project.id.to_string())
+            .await
+            .expect("the preview stops");
+    }
+
+    /// No preview is an explicit `None` in the evidence, not an error and not a
+    /// field that disappears from the response.
+    #[tokio::test]
+    async fn evidence_without_a_preview_carries_an_explicit_none() {
+        let temp = crate::test_util::fresh_tempdir();
+        let repo = tempfile::tempdir().expect("a repo");
+        git_repo(repo.path());
+        let (state, store) = crate::tests::test_state(temp.path()).await;
+        let project = project(Some(repo.path().display().to_string()));
+        store.create_project(&project).await.expect("the project");
+        let rpc = WarshaRpc::new(state);
+        let run = start(&store, &rpc, &project, true).await;
+
+        let evidence = rpc
+            .gate_evidence(
+                &owner(),
+                run.id,
+                "git".to_string(),
+                vec!["--version".to_string()],
+            )
+            .await
+            .expect("a run with no preview still has Gate C evidence");
+
+        assert!(
+            evidence.preview.is_none(),
+            "a preview appeared without one being started"
+        );
+        let value = serde_json::to_value(&evidence).expect("the evidence serialises");
+        assert!(
+            value.get("preview").is_some_and(serde_json::Value::is_null),
+            "an absent preview must be an explicit null: {value}"
+        );
+    }
+
+    /// The read-only pin: collecting evidence never starts a dev server.
+    #[tokio::test]
+    async fn evidence_collection_never_starts_a_preview() {
+        let temp = crate::test_util::fresh_tempdir();
+        let repo = tempfile::tempdir().expect("a repo");
+        git_repo(repo.path());
+        let (state, store) = crate::tests::test_state(temp.path()).await;
+        let project = project(Some(repo.path().display().to_string()));
+        store.create_project(&project).await.expect("the project");
+        let rpc = WarshaRpc::new(state.clone());
+        let run = start(&store, &rpc, &project, true).await;
+
+        rpc.gate_evidence(
+            &owner(),
+            run.id,
+            "git".to_string(),
+            vec!["--version".to_string()],
+        )
+        .await
+        .expect("the evidence is collected");
+
+        // The manager is the state the pin reads: the project was never started, and
+        // it is still not started after the evidence was collected.
+        let previews = state.previews.list().await;
+        assert!(
+            previews.is_empty(),
+            "evidence collection started a preview: {previews:?}"
+        );
+        assert!(
+            state
+                .previews
+                .status(&project.id.to_string())
+                .await
+                .is_err(),
+            "evidence collection registered a preview for the run's project"
+        );
     }
 }
