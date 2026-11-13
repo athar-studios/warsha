@@ -1086,10 +1086,12 @@ pub struct DaemonState {
     ///
     /// `agent.turn`, the only RPC that ran a turn on it, is retired by OD-E2 and
     /// refuses: a turn is one run's own loop (`agent.turn_run`). What this loop still
-    /// serves is the record the agent RPCs read and change — `agent.state` answers it,
-    /// `agent.approve_mode` / `agent.plan_mode` move it — and the restart snapshot
-    /// below. Its two seams are wired by [`build_agent_loop`] — file tools inside
-    /// `<data_dir>/workspace`, model calls through the daemon's provider router.
+    /// serves is the record the agent RPCs read and change when they carry no run id
+    /// — `agent.state` answers it, `agent.approve_mode` / `agent.plan_mode` move it —
+    /// and the restart snapshot below. With a run id (OD-E2b) those same three RPCs
+    /// answer and move that run's own loop instead. Its two seams are wired by
+    /// [`build_agent_loop`] — file tools inside `<data_dir>/workspace`, model calls
+    /// through the daemon's provider router.
     ///
     /// What the conversation *is* — the mode it reached, who approved each switch,
     /// the todos and the unanswered questions — is written to the daemon's settings
@@ -1104,8 +1106,10 @@ pub struct DaemonState {
     /// The per-run git worktrees created at `runs.start` (ENGINE E3 wiring).
     pub run_worktrees: Arc<RwLock<HashMap<RunId, RunWorktree>>>,
     /// The per-run agent sessions (ENGINE E2 wiring). A run's turn uses its own loop
-    /// and workspace; the global loop stays for the mode record (`agent.state`,
-    /// `agent.approve_mode`, `agent.plan_mode`), with `agent.turn` retired and refusing.
+    /// and workspace, and since OD-E2b the mode RPCs reach that loop too — `run_id`
+    /// on `agent.state`, `agent.approve_mode` and `agent.plan_mode` — so the plan →
+    /// approve → execute flow runs per run. Without a run id those RPCs keep serving
+    /// the daemon-wide record above, with `agent.turn` retired and refusing.
     pub agent_sessions: Arc<RunAgentSessions>,
     /// The one spawner: `process.*` drives it, the MCP stdio transport starts its
     /// server through it, and the live preview runs its dev server on it, so every
@@ -1547,14 +1551,17 @@ pub trait WarshaApi {
     #[method(name = "agent.turn_run", with_extensions)]
     async fn agent_turn_run(&self, run_id: RunId, input: String) -> RpcResult<AgentTurnResult>;
 
+    /// Approve Agent mode — for one run's loop when `run_id` names one, else for the
+    /// daemon-wide record (OD-E2b; the parameter is optional and the wire stays
+    /// backward compatible).
     #[method(name = "agent.approve_mode", with_extensions)]
-    async fn approve_agent_mode(&self) -> RpcResult<ModeTransition>;
+    async fn approve_agent_mode(&self, run_id: Option<RunId>) -> RpcResult<ModeTransition>;
 
     #[method(name = "agent.plan_mode", with_extensions)]
-    async fn return_agent_to_plan(&self) -> RpcResult<ModeTransition>;
+    async fn return_agent_to_plan(&self, run_id: Option<RunId>) -> RpcResult<ModeTransition>;
 
     #[method(name = "agent.state", with_extensions)]
-    async fn agent_state(&self) -> RpcResult<AgentState>;
+    async fn agent_state(&self, run_id: Option<RunId>) -> RpcResult<AgentState>;
 
     // Process spawning and MCP transports (PLAN.md M20) — real child processes
     #[method(name = "process.spawn", with_extensions)]
@@ -2502,16 +2509,49 @@ impl WarshaRpc {
     /// because an approval the next daemon does not know about is an approval that lets
     /// a tool run under a name no audit trail carries (audit H-03).
     ///
+    /// The same rule applies to a run's loop, but the record is a different one:
+    /// `run_id` names it (OD-E2b), and the switch happens on the loop the run's turns
+    /// run in, which is held by the session registry for the run's lifetime. The
+    /// settings snapshot is the daemon-wide conversation's, so it is neither written
+    /// nor rolled back here: a run's loop does not outlive this process, and a restart
+    /// starts it in Plan again, so there is no approval a restart could honour that
+    /// this process had not already applied.
+    ///
     /// The approver is never taken from the params. [`Self::gate_approver`] is what says
     /// so, and it is shared with the gate methods for exactly that reason: one rule, in
     /// one place, with one refusal code.
-    async fn agent_switch(&self, ext: &RpcExtensions, to: AgentMode) -> RpcResult<ModeTransition> {
+    async fn agent_switch(
+        &self,
+        ext: &RpcExtensions,
+        to: AgentMode,
+        run_id: Option<RunId>,
+    ) -> RpcResult<ModeTransition> {
         let method = match to {
             AgentMode::Agent => "agent.approve_mode",
             AgentMode::Plan => "agent.plan_mode",
         };
         let actor = self.authorize(ext, method).await?;
         let approver = self.gate_approver(&actor, None, method)?.to_string();
+
+        if let Some(run_id) = run_id {
+            let transition = match to {
+                // A switch into Agent mode is the one that needs the name: the mode
+                // manager refuses a blank approver itself, so this cannot invent one.
+                AgentMode::Agent => {
+                    self.state
+                        .agent_sessions
+                        .approve_agent_mode(run_id, approver.as_str())
+                        .await
+                }
+                AgentMode::Plan => self.state.agent_sessions.return_to_plan_mode(run_id).await,
+            }
+            .map_err(|error| rpc_error(error.to_string()))?;
+            info!(
+                run_id = %run_id.0,
+                "{method} recorded on the run's own loop for the device the session authenticated"
+            );
+            return Ok(transition);
+        }
 
         let mut agent_loop = self.state.agent_loop.write().await;
         let before = AgentLoopSnapshot::of(&agent_loop);
@@ -3792,22 +3832,57 @@ impl WarshaApiServer for WarshaRpc {
     /// routes to a configured provider — was unreachable from the desktop. The approver
     /// recorded is the authenticated device, and a blank one is refused by the mode
     /// manager itself.
-    async fn approve_agent_mode(&self, ext: &RpcExtensions) -> RpcResult<ModeTransition> {
-        self.agent_switch(ext, AgentMode::Agent).await
+    ///
+    /// `run_id` is OD-E2b: present, the approval is that run's own loop — the one
+    /// `agent.turn_run` executes on, so the plan → approve → execute flow reaches Agent
+    /// mode over the wire; absent, this is the daemon-wide record it always was.
+    async fn approve_agent_mode(
+        &self,
+        ext: &RpcExtensions,
+        run_id: Option<RunId>,
+    ) -> RpcResult<ModeTransition> {
+        self.agent_switch(ext, AgentMode::Agent, run_id).await
     }
 
     /// Return the conversation to Plan mode.
     ///
     /// The read-only direction is always allowed, which is why an owner can end Agent
     /// mode without another approval — and why the daemon can be put back to a state
-    /// that cannot edit or spend by any session that can reach it.
-    async fn return_agent_to_plan(&self, ext: &RpcExtensions) -> RpcResult<ModeTransition> {
-        self.agent_switch(ext, AgentMode::Plan).await
+    /// that cannot edit or spend by any session that can reach it. A `run_id` returns
+    /// that run's own loop instead, by the same rule.
+    async fn return_agent_to_plan(
+        &self,
+        ext: &RpcExtensions,
+        run_id: Option<RunId>,
+    ) -> RpcResult<ModeTransition> {
+        self.agent_switch(ext, AgentMode::Plan, run_id).await
     }
 
     /// Report which mode the loop is in, and how it got there.
-    async fn agent_state(&self, ext: &RpcExtensions) -> RpcResult<AgentState> {
+    ///
+    /// A `run_id` answers for that run's own loop — the mode its next `agent.turn_run`
+    /// runs in, its approvals and its todos — so the read agrees with a run-scoped
+    /// `agent.approve_mode`; without one this is the daemon-wide record, unchanged.
+    async fn agent_state(
+        &self,
+        ext: &RpcExtensions,
+        run_id: Option<RunId>,
+    ) -> RpcResult<AgentState> {
         self.authorize(ext, "agent.state").await?;
+        if let Some(run_id) = run_id {
+            let state = self
+                .state
+                .agent_sessions
+                .state(run_id)
+                .await
+                .map_err(|error| rpc_error(error.to_string()))?;
+            return Ok(AgentState {
+                mode: state.mode,
+                approvals: state.approvals,
+                todos: state.todos,
+                model_wired: state.model_wired,
+            });
+        }
         let agent_loop = self.state.agent_loop.read().await;
         Ok(AgentState {
             mode: agent_loop.mode(),
@@ -8022,13 +8097,13 @@ mod tests {
         error.code()
     }
 
-    /// A run with its own approved loop, for the per-run turn tests.
+    /// A run whose own loop the owner approved over the wire, for the per-run turn tests.
     ///
     /// `agent.turn` — the daemon-wide conversation — is retired (OD-E2), so a turn is
-    /// a run's own loop. `runs.start` builds that loop in Plan mode and the wire has no
-    /// per-run mode RPC yet, so the test replaces the session with the same
-    /// [`build_agent_loop_in`] loop approved into Agent mode. The workspace is the one
-    /// the run got: it names no repository, so it is the daemon's agent workspace.
+    /// a run's own loop. `runs.start` builds that loop in Plan mode, and OD-E2b is the
+    /// wire path out of it: `agent.approve_mode` with the run's id moves the loop the
+    /// run's next turn executes on. The workspace is the one the run got: it names no
+    /// repository, so it is the daemon's agent workspace.
     async fn approved_agent_run(state: &Arc<DaemonState>, store: &Arc<Store>) -> RunId {
         let project = Project {
             id: ProjectId::new(),
@@ -8046,17 +8121,9 @@ mod tests {
             .start_run(&owner_ext(), project.id, "An agent turn".to_string())
             .await
             .expect("the run starts");
-        let mut agent = agent_loop_for_run(state);
-        agent
-            .approve_agent_mode("owner")
-            .expect("the approval is accepted");
-        // `runs.start` already inserted the run's Plan-mode loop; the approved one is
-        // the same builder, so replacing it changes nothing but the mode.
-        state.agent_sessions.remove(run.id);
-        state
-            .agent_sessions
-            .insert(run.id, agent)
-            .expect("the run's session");
+        rpc.approve_agent_mode(&owner_ext(), Some(run.id))
+            .await
+            .expect("the owner approves the run's loop");
         run.id
     }
 
@@ -11330,7 +11397,7 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
             let start = std::time::Instant::now();
-            let state_res = rpc.agent_state(&owner).await;
+            let state_res = rpc.agent_state(&owner, None).await;
             let elapsed = start.elapsed();
 
             assert!(
@@ -11388,7 +11455,10 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(60)).await;
 
             for _ in 0..5 {
-                let st = rpc.agent_state(&owner).await.expect("agent_state query");
+                let st = rpc
+                    .agent_state(&owner, None)
+                    .await
+                    .expect("agent_state query");
                 assert_eq!(st.mode, warsha_pipeline::AgentMode::Agent);
                 // The running turn's todo lives in the run's own loop, so the
                 // daemon-wide record has none to show.
@@ -11410,7 +11480,7 @@ mod tests {
             assert_eq!(turn_res.todos[0].status, warsha_pipeline::TodoStatus::Done);
 
             let final_state = rpc
-                .agent_state(&owner)
+                .agent_state(&owner, None)
                 .await
                 .expect("final agent_state query");
             assert!(final_state.todos.is_empty());
@@ -11551,10 +11621,11 @@ mod tests {
             );
         }
 
-        /// The mode RPCs answer the daemon-wide record, and a turn is a run's own
-        /// loop, so a switch to Plan no longer waits for a command that is already
-        /// executing: the barrier left with the retired `agent.turn`. The follow-up
-        /// packet that binds the mode RPCs to a run brings one back.
+        /// The mode RPCs answer the daemon-wide record when they carry no run id, and
+        /// a turn is a run's own loop, so a switch to Plan no longer waits for a
+        /// command that is already executing: the barrier left with the retired
+        /// `agent.turn`. OD-E2b puts it back where it belongs — a `run_id` makes the
+        /// switch take the run's own session lock, which the turn holds throughout.
         #[tokio::test]
         async fn plan_mode_answers_while_a_runs_command_runs() {
             let temp = crate::test_util::fresh_tempdir();
@@ -11590,7 +11661,7 @@ mod tests {
 
             let start = std::time::Instant::now();
             let transition = rpc
-                .return_agent_to_plan(&owner)
+                .return_agent_to_plan(&owner, None)
                 .await
                 .expect("plan_mode succeeds");
             let waited = start.elapsed();
@@ -11602,7 +11673,7 @@ mod tests {
                 "plan_mode waited for a run's command: waited = {waited:?}"
             );
 
-            let agent_state = rpc.agent_state(&owner).await.expect("state");
+            let agent_state = rpc.agent_state(&owner, None).await.expect("state");
             assert_eq!(agent_state.mode, warsha_pipeline::AgentMode::Plan);
 
             turn_handle
@@ -13818,6 +13889,320 @@ mod e2_wiring {
             .await
             .expect_err("an unknown run has no session");
         assert!(error.to_string().contains("no agent session"), "{error}");
+    }
+
+    // ---- ENGINE E2b (OD-E2b): the mode RPCs reach one run's own loop.
+    //
+    // `agent.approve_mode` / `agent.plan_mode` / `agent.state` take an optional
+    // `run_id`: present, they operate on that run's loop (the one `agent.turn_run`
+    // executes on); absent, they are the daemon-wide record they always were. The
+    // tests below are the two-sided proof — the per-run flow executes, one run's
+    // approval does not reach another run or the daemon loop, and the old behavior
+    // without a run id is unchanged.
+
+    /// OD-E2b's acceptance test: a run moves Plan → Approved → Agent over the wire,
+    /// and the command its Plan turn proposed executes on the next turn.
+    #[tokio::test]
+    async fn approving_a_run_over_the_wire_executes_its_next_turn() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = crate::tests::test_state(temp.path()).await;
+        let project = project();
+        store.create_project(&project).await.expect("the project");
+        let rpc = WarshaRpc::new(state);
+        let owner = owner();
+
+        let run = rpc
+            .start_run(&owner, project.id, "Write the note".to_string())
+            .await
+            .expect("the run starts");
+
+        // The turn a run starts with plans and executes nothing.
+        let input = "write file notes/wire.md: approved over the wire";
+        let planned = rpc
+            .agent_turn_run(&owner, run.id, input.to_string())
+            .await
+            .expect("the plan turn runs");
+        assert_eq!(planned.mode, AgentMode::Plan);
+        assert!(planned.tools.is_empty(), "{:?}", planned.tools);
+        let written = temp.path().join("workspace").join("notes").join("wire.md");
+        assert!(!written.exists(), "a Plan turn wrote {}", written.display());
+
+        // The owner approves THAT run's loop, over the wire.
+        let transition = rpc
+            .approve_agent_mode(&owner, Some(run.id))
+            .await
+            .expect("the run's loop is approved");
+        assert_eq!(transition.to, AgentMode::Agent);
+        assert!(
+            transition.is_owner_approved(),
+            "the approval must name the authenticated device: {transition:?}"
+        );
+
+        // The read agrees with the write: the same run's state is Agent and carries
+        // the switch the approval recorded.
+        let run_state = rpc
+            .agent_state(&owner, Some(run.id))
+            .await
+            .expect("the run's state is served");
+        assert_eq!(run_state.mode, AgentMode::Agent);
+        assert_eq!(
+            run_state
+                .approvals
+                .last()
+                .map(|switch| switch.approved_by.as_str()),
+            Some(transition.approved_by.as_str())
+        );
+
+        // ...and the run's next turn executes; the real file layer wrote the file.
+        let executed = rpc
+            .agent_turn_run(&owner, run.id, input.to_string())
+            .await
+            .expect("the approved turn runs");
+        assert_eq!(executed.mode, AgentMode::Agent);
+        assert_eq!(executed.tools.len(), 1);
+        assert!(
+            executed.tools[0].success,
+            "unexpected tool: {:?}",
+            executed.tools[0]
+        );
+        assert_eq!(
+            std::fs::read_to_string(&written).expect("the file is readable"),
+            "approved over the wire"
+        );
+
+        // The daemon-wide record is not what was approved: it is still in Plan.
+        assert_eq!(
+            rpc.agent_state(&owner, None)
+                .await
+                .expect("the daemon-wide record")
+                .mode,
+            AgentMode::Plan
+        );
+    }
+
+    /// The isolation pair: one run's approval is that run's alone.
+    #[tokio::test]
+    async fn approving_one_run_leaves_the_other_run_and_the_daemon_loop_in_plan() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = crate::tests::test_state(temp.path()).await;
+        let project = project();
+        store.create_project(&project).await.expect("the project");
+        let rpc = WarshaRpc::new(state);
+        let owner = owner();
+
+        let first = rpc
+            .start_run(&owner, project.id, "First".to_string())
+            .await
+            .expect("the first run starts");
+        let second = rpc
+            .start_run(&owner, project.id, "Second".to_string())
+            .await
+            .expect("the second run starts");
+
+        rpc.approve_agent_mode(&owner, Some(first.id))
+            .await
+            .expect("the first run's loop is approved");
+
+        let first_input = "write file notes/first.md: one";
+        let second_input = "write file notes/second.md: two";
+        let first_turn = rpc
+            .agent_turn_run(&owner, first.id, first_input.to_string())
+            .await
+            .expect("the approved run turns");
+        let second_turn = rpc
+            .agent_turn_run(&owner, second.id, second_input.to_string())
+            .await
+            .expect("the unapproved run turns");
+
+        assert_eq!(first_turn.mode, AgentMode::Agent);
+        assert_eq!(first_turn.tools.len(), 1);
+        assert!(first_turn.tools[0].success);
+        // The run that was not approved is still a plan, and its proposed write never
+        // reached the file layer.
+        assert_eq!(second_turn.mode, AgentMode::Plan);
+        assert!(second_turn.tools.is_empty(), "{:?}", second_turn.tools);
+        assert!(
+            second_turn.response.contains("Plan (nothing executed)"),
+            "{}",
+            second_turn.response
+        );
+        let workspace = temp.path().join("workspace").join("notes");
+        assert!(workspace.join("first.md").is_file());
+        assert!(
+            !workspace.join("second.md").exists(),
+            "one run's approval let another run's command run"
+        );
+        assert_eq!(
+            rpc.agent_state(&owner, Some(second.id))
+                .await
+                .expect("the second run's state")
+                .mode,
+            AgentMode::Plan
+        );
+        assert_eq!(
+            rpc.agent_state(&owner, None)
+                .await
+                .expect("the daemon-wide record")
+                .mode,
+            AgentMode::Plan
+        );
+    }
+
+    /// The compatibility pin at the wire: no run id, no change — the daemon-wide loop
+    /// is the record `agent.approve_mode` moves, exactly as before OD-E2b.
+    #[tokio::test]
+    async fn without_a_run_id_the_daemon_loop_is_the_one_that_switches() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = crate::tests::test_state(temp.path()).await;
+        let project = project();
+        store.create_project(&project).await.expect("the project");
+        let rpc = WarshaRpc::new(state);
+        let owner = owner();
+
+        let run = rpc
+            .start_run(&owner, project.id, "Untouched".to_string())
+            .await
+            .expect("the run starts");
+
+        let transition = rpc
+            .approve_agent_mode(&owner, None)
+            .await
+            .expect("the daemon-wide record is approved");
+        assert_eq!(transition.to, AgentMode::Agent);
+        assert_eq!(
+            rpc.agent_state(&owner, None)
+                .await
+                .expect("the daemon-wide record")
+                .mode,
+            AgentMode::Agent
+        );
+
+        // The run's own loop was not part of that switch: it still plans, and its
+        // proposed write does not run.
+        assert_eq!(
+            rpc.agent_state(&owner, Some(run.id))
+                .await
+                .expect("the run's state")
+                .mode,
+            AgentMode::Plan
+        );
+        let planned = rpc
+            .agent_turn_run(&owner, run.id, "write file notes/global.md: no".to_string())
+            .await
+            .expect("the run's turn runs");
+        assert_eq!(planned.mode, AgentMode::Plan);
+        assert!(planned.tools.is_empty(), "{:?}", planned.tools);
+        assert!(!temp
+            .path()
+            .join("workspace")
+            .join("notes")
+            .join("global.md")
+            .exists());
+
+        // The read-only direction is unchanged too.
+        let back = rpc
+            .return_agent_to_plan(&owner, None)
+            .await
+            .expect("the daemon-wide record returns to plan");
+        assert_eq!(back.to, AgentMode::Plan);
+    }
+
+    /// A run can be put back into Plan over the wire, and its next turn executes
+    /// nothing again.
+    #[tokio::test]
+    async fn a_run_returns_to_plan_over_the_wire() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = crate::tests::test_state(temp.path()).await;
+        let project = project();
+        store.create_project(&project).await.expect("the project");
+        let rpc = WarshaRpc::new(state);
+        let owner = owner();
+
+        let run = rpc
+            .start_run(&owner, project.id, "Return".to_string())
+            .await
+            .expect("the run starts");
+        // The daemon-wide record goes to Agent as well, so the return below has to be
+        // shown to move the run's loop and not that one.
+        rpc.approve_agent_mode(&owner, None)
+            .await
+            .expect("the daemon-wide record is approved");
+        rpc.approve_agent_mode(&owner, Some(run.id))
+            .await
+            .expect("the run's loop is approved");
+        assert_eq!(
+            rpc.agent_state(&owner, Some(run.id))
+                .await
+                .expect("the run's state")
+                .mode,
+            AgentMode::Agent
+        );
+
+        let back = rpc
+            .return_agent_to_plan(&owner, Some(run.id))
+            .await
+            .expect("the run's loop returns to plan");
+        assert_eq!(back.from, AgentMode::Agent);
+        assert_eq!(back.to, AgentMode::Plan);
+        assert_eq!(
+            rpc.agent_state(&owner, Some(run.id))
+                .await
+                .expect("the run's state")
+                .mode,
+            AgentMode::Plan
+        );
+        assert_eq!(
+            rpc.agent_state(&owner, None)
+                .await
+                .expect("the daemon-wide record")
+                .mode,
+            AgentMode::Agent,
+            "a run's return to plan moved the daemon-wide record"
+        );
+
+        let planned = rpc
+            .agent_turn_run(&owner, run.id, "write file notes/back.md: no".to_string())
+            .await
+            .expect("the run's turn runs");
+        assert_eq!(planned.mode, AgentMode::Plan);
+        assert!(planned.tools.is_empty(), "{:?}", planned.tools);
+        assert!(!temp
+            .path()
+            .join("workspace")
+            .join("notes")
+            .join("back.md")
+            .exists());
+    }
+
+    /// An unknown run id is a clean refusal that names the run, on all three RPCs.
+    #[tokio::test]
+    async fn an_unknown_run_is_refused_by_the_run_scoped_mode_rpcs() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = crate::tests::test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner();
+        let unknown = RunId::new();
+        let named = unknown.0.to_string();
+
+        let refusals = [
+            rpc.approve_agent_mode(&owner, Some(unknown))
+                .await
+                .expect_err("an unknown run is not approved"),
+            rpc.return_agent_to_plan(&owner, Some(unknown))
+                .await
+                .expect_err("an unknown run is not returned to plan"),
+            rpc.agent_state(&owner, Some(unknown))
+                .await
+                .expect_err("an unknown run has no state"),
+        ];
+        for error in refusals {
+            let message = error.to_string();
+            assert!(message.contains("no agent session"), "{message}");
+            assert!(
+                message.contains(&named),
+                "the error did not name {named}: {message}"
+            );
+        }
     }
 }
 
