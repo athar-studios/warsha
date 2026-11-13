@@ -1082,13 +1082,14 @@ pub struct DaemonState {
     /// Store reviews, in arrival order. Nothing fetches one yet: the store API
     /// client is PLAN.md M17's remaining half.
     pub store_reviews: Arc<RwLock<InMemoryStoreReviewStore>>,
-    /// The agent loop behind `agent.turn`.
+    /// The daemon-wide agent loop — the legacy single conversation.
     ///
-    /// One loop per daemon: the mode manager, the todo list, the `ask_user` queue,
-    /// the message bus and the transcript are a run's conversation, and the loop's
-    /// own compactor is what keeps the transcript bounded. Its two seams are wired
-    /// by [`build_agent_loop`] — file tools inside `<data_dir>/workspace`, model
-    /// calls through the daemon's provider router.
+    /// `agent.turn`, the only RPC that ran a turn on it, is retired by OD-E2 and
+    /// refuses: a turn is one run's own loop (`agent.turn_run`). What this loop still
+    /// serves is the record the agent RPCs read and change — `agent.state` answers it,
+    /// `agent.approve_mode` / `agent.plan_mode` move it — and the restart snapshot
+    /// below. Its two seams are wired by [`build_agent_loop`] — file tools inside
+    /// `<data_dir>/workspace`, model calls through the daemon's provider router.
     ///
     /// What the conversation *is* — the mode it reached, who approved each switch,
     /// the todos and the unanswered questions — is written to the daemon's settings
@@ -1102,8 +1103,9 @@ pub struct DaemonState {
     pub mcp_permissions: Arc<StaticPermissions>,
     /// The per-run git worktrees created at `runs.start` (ENGINE E3 wiring).
     pub run_worktrees: Arc<RwLock<HashMap<RunId, RunWorktree>>>,
-    /// The per-run agent sessions (ENGINE E2 wiring). The global loop stays for
-    /// `agent.turn`; a run's turn uses its own loop and workspace.
+    /// The per-run agent sessions (ENGINE E2 wiring). A run's turn uses its own loop
+    /// and workspace; the global loop stays for the mode record (`agent.state`,
+    /// `agent.approve_mode`, `agent.plan_mode`), with `agent.turn` retired and refusing.
     pub agent_sessions: Arc<RunAgentSessions>,
     /// The one spawner: `process.*` drives it, the MCP stdio transport starts its
     /// server through it, and the live preview runs its dev server on it, so every
@@ -2034,7 +2036,7 @@ impl From<GateState> for GateSummaryState {
 ///
 /// C2's promise is that the conversation survives a restart, and a promise nobody can
 /// read is not one: this is what a caller compares after starting a second daemon over
-/// the same data directory. `agent.turn` also answers its todos, but it cannot answer
+/// the same data directory. A turn also answers its todos, but it cannot answer
 /// the approval history without running a turn — and running a turn in Agent mode is
 /// spend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2842,8 +2844,8 @@ impl WarshaApiServer for WarshaRpc {
 
         // ENGINE E2 wiring: each run gets its own loop bound to its own checkout
         // (the worktree when it has one, else the daemon workspace), inserted under
-        // the run id. `agent.turn_run` runs the turn there; `agent.turn` keeps the
-        // legacy single conversation.
+        // the run id. `agent.turn_run` runs the turn there; `agent.turn`, the legacy
+        // single conversation, is retired by OD-E2 and refuses.
         let workspace = match self.state.run_worktrees.read().await.get(&run.id) {
             Some(worktree) => worktree.path.clone(),
             None => self.state.config.data_dir.join(AGENT_WORKSPACE_DIR),
@@ -3743,54 +3745,30 @@ impl WarshaApiServer for WarshaRpc {
     // value in the params. It is the device the transport authenticated, and a session
     // whose pairing names no device is refused instead of being recorded under a name
     // the daemon invented.
-    /// Run one turn of the owner's conversation, and store what it changed.
+    /// The retired daemon-wide turn: refuse, and name the method that replaced it.
     ///
-    /// The turn is the only way a todo, an answer or a mode note is recorded over the
-    /// wire, so the snapshot is taken while the loop's write lock is still held — the
-    /// state that is stored is exactly the state that answered. A store that fails is
-    /// warned about rather than turned into a refusal: the turn ran, and in Agent mode it
-    /// may have spent; reporting an error after a call the owner asked for would be the
-    /// worse answer. What the next restart reads is then the previous conversation, and
-    /// `agent.turn` is still the one place that says so.
-    async fn agent_turn(&self, ext: &RpcExtensions, input: String) -> RpcResult<AgentTurnResult> {
+    /// The per-run loop is the one loop story (ENGINE E2, OD-E2), so this method no
+    /// longer runs a turn. It stays on the wire because callers still name it —
+    /// `packages/client`'s `agentTurn`, the desktop bench action and the e2e harness
+    /// stub all do — and the smallest change the evidence supports is a refusal they
+    /// can act on instead of a `-32601` they would read as a wiring bug. `authorize`
+    /// runs first and its policy row stays, so the caller who may ask receives the
+    /// migration message rather than a policy error.
+    async fn agent_turn(&self, ext: &RpcExtensions, _input: String) -> RpcResult<AgentTurnResult> {
         self.authorize(ext, "agent.turn").await?;
-        // One turn at a time. The gate is the loop's own (one per daemon's
-        // conversation) and covers prepare -> execute -> finish, so two owner
-        // turns — desktop plus a paired device, or a retry — cannot run tools,
-        // commands or writes concurrently in the one `<data_dir>/workspace`, and
-        // the transcript cannot commit out of order.
-        let turn_gate = self.state.agent_loop.read().await.turn_lock();
-        let _turn = turn_gate.lock().await;
-        let skills = self.active_skill_catalog().await;
-        let prepared = {
-            let mut agent_loop = self.state.agent_loop.write().await;
-            agent_loop.prepare_turn(&input, &skills)
-        };
-        // A read guard across execution: `agent.state` (also a read) still
-        // answers while the command runs, while `agent.plan_mode` /
-        // `agent.approve_mode` (writes) wait for it to finish. The guard is
-        // strictly the turn's — it is dropped before the turn commits.
-        let executed = {
-            let _read = self.state.agent_loop.read().await;
-            prepared.execute().await
-        };
-        let (result, snapshot) = {
-            let mut agent_loop = self.state.agent_loop.write().await;
-            let result = agent_loop.finish_turn(executed);
-            (result, AgentLoopSnapshot::of(&agent_loop))
-        };
-        if let Err(error) = self.store_agent(&snapshot).await {
-            warn!("the agent conversation could not be stored, so it continues from the last turn that was: {error}");
-        }
-        Ok(result)
+        Err(ErrorObject::owned(
+            -32000,
+            "agent.turn is retired: start a run and use agent.turn_run with its run id",
+            None::<()>,
+        ))
     }
 
     /// Run one turn in one run's own loop and workspace.
     ///
-    /// The legacy `agent.turn` above is one conversation per daemon; this is the
-    /// per-run loop (ENGINE E2), so two runs cannot share context, todos, asks or
-    /// mode state. The session is created at `runs.start`; a run that predates it
-    /// has no session and is refused rather than silently using the legacy loop.
+    /// This is the one turn a daemon runs (ENGINE E2), so two runs cannot share
+    /// context, todos, asks or mode state. The session is created at `runs.start`;
+    /// a run that predates it has no session and is refused. `agent.turn`, the one
+    /// conversation per daemon, is retired by OD-E2 and refuses.
     async fn agent_turn_run(
         &self,
         ext: &RpcExtensions,
@@ -3808,7 +3786,7 @@ impl WarshaApiServer for WarshaRpc {
 
     /// Approve Agent mode for the session that asks.
     ///
-    /// Plan mode is what `agent.turn` starts in, and the M18 rule is absolute: nothing
+    /// Plan mode is what a turn starts in, and the M18 rule is absolute: nothing
     /// edits a file or runs a tool until the owner approves. Until now the only caller
     /// that could approve was in-process, which meant Agent mode — the mode this daemon
     /// routes to a configured provider — was unreachable from the desktop. The approver
@@ -5592,7 +5570,8 @@ const AGENT_WORKSPACE_DIR: &str = "workspace";
 /// `ProviderRouterAdapter` takes as its `project_id`.
 const AGENT_METER_KEY: &str = "agent-loop";
 
-/// The agent loop behind `agent.turn`: the real filesystem tool layer under the
+/// The daemon-wide agent loop (`agent.state` / `agent.approve_mode` / `agent.plan_mode`
+/// — its turn RPC `agent.turn` is retired): the real filesystem tool layer under the
 /// daemon's data directory, and the real provider router behind the model call,
 /// routed as [`AGENT_ROLE`].
 ///
@@ -6415,8 +6394,8 @@ pub async fn start_daemon_with_provider_factory(
 
     // The conversation the last daemon was having, if any: the mode it reached, who
     // approved each switch, the todos and the questions. Restored before the RPC
-    // surface opens, so the first `agent.turn` after a restart is the next turn of
-    // one conversation rather than the first turn of a new one.
+    // surface opens, so a restart reads back the conversation it was having rather
+    // than a blank record.
     if let Some(snapshot) = seed_agent_snapshot(&settings).await? {
         let mut guard = agent_loop.write().await;
         snapshot.restore(&mut guard);
@@ -8043,6 +8022,57 @@ mod tests {
         error.code()
     }
 
+    /// A run with its own approved loop, for the per-run turn tests.
+    ///
+    /// `agent.turn` — the daemon-wide conversation — is retired (OD-E2), so a turn is
+    /// a run's own loop. `runs.start` builds that loop in Plan mode and the wire has no
+    /// per-run mode RPC yet, so the test replaces the session with the same
+    /// [`build_agent_loop_in`] loop approved into Agent mode. The workspace is the one
+    /// the run got: it names no repository, so it is the daemon's agent workspace.
+    async fn approved_agent_run(state: &Arc<DaemonState>, store: &Arc<Store>) -> RunId {
+        let project = Project {
+            id: ProjectId::new(),
+            name: "Agent Turn Project".to_string(),
+            description: "Test".to_string(),
+            language: "en".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            repo_path: None,
+            repo_url: None,
+        };
+        store.create_project(&project).await.expect("the project");
+        let rpc = WarshaRpc::new(state.clone());
+        let run = rpc
+            .start_run(&owner_ext(), project.id, "An agent turn".to_string())
+            .await
+            .expect("the run starts");
+        let mut agent = agent_loop_for_run(state);
+        agent
+            .approve_agent_mode("owner")
+            .expect("the approval is accepted");
+        // `runs.start` already inserted the run's Plan-mode loop; the approved one is
+        // the same builder, so replacing it changes nothing but the mode.
+        state.agent_sessions.remove(run.id);
+        state
+            .agent_sessions
+            .insert(run.id, agent)
+            .expect("the run's session");
+        run.id
+    }
+
+    /// The loop `runs.start` gives a run with no repository: the daemon's agent
+    /// workspace, the configured command policy, and the daemon's router and MCP seams.
+    fn agent_loop_for_run(state: &DaemonState) -> AgentLoop {
+        build_agent_loop_in(
+            &state.config.data_dir.join(AGENT_WORKSPACE_DIR),
+            &state.config.allowed_commands,
+            state.providers.clone(),
+            state.mcp.clone(),
+            state.mcp_permissions.clone(),
+            Arc::new(RwLock::new(default_backend_kit("run"))),
+        )
+    }
+
     /// A program the process floor can actually start.
     ///
     /// A child now starts with a cleared environment and the fixed minimal PATH,
@@ -9099,21 +9129,23 @@ mod tests {
         );
     }
 
+    /// The retired `agent.turn` was the only turn this proved, so it is proved on the
+    /// run's own loop instead: plan first, and only the owner's approval reaches Agent.
     #[tokio::test]
-    async fn agent_turn_plans_first_and_executes_after_the_owner_approves() {
+    async fn a_run_turn_plans_first_and_executes_after_the_owner_approves() {
         use warsha_pipeline::AgentMode;
 
         let temp = crate::test_util::fresh_tempdir();
         let (state, _store) = test_state(temp.path()).await;
-        let rpc = WarshaRpc::new(state.clone());
+        // The catalog `agent.turn_run` hands the loop, from the same daemon.
+        let skills = WarshaRpc::new(state.clone()).active_skill_catalog().await;
+        // The loop a run works in: the daemon's router behind the model call and the
+        // filesystem tools under the run's workspace.
+        let mut agent = agent_loop_for_run(&state);
 
-        let planned = rpc
-            .agent_turn(
-                &owner_ext(),
-                "/review the diff of @file src/main.rs".to_string(),
-            )
-            .await
-            .expect("a plan turn answers");
+        let planned = agent
+            .run_turn("/review the diff of @file src/main.rs", &skills)
+            .await;
         assert_eq!(planned.mode, AgentMode::Plan);
         assert_eq!(
             planned
@@ -9125,20 +9157,14 @@ mod tests {
         assert_eq!(planned.mentions.len(), 1);
         assert_eq!(planned.todos.len(), 1);
         assert!(planned.tools.is_empty());
-        assert!(!state.agent_loop.read().await.mode_manager.can_edit());
+        assert!(!agent.mode_manager.can_edit());
 
         // Agent mode is only reachable through the owner's approval.
-        state
-            .agent_loop
-            .write()
-            .await
+        agent
             .approve_agent_mode("owner")
             .expect("the approval is accepted");
 
-        let executed = rpc
-            .agent_turn(&owner_ext(), "now apply it".to_string())
-            .await
-            .expect("an agent turn answers");
+        let executed = agent.run_turn("now apply it", &skills).await;
         assert_eq!(executed.mode, AgentMode::Agent);
         assert_eq!(executed.command, None);
         assert_eq!(executed.todos.len(), 2);
@@ -9150,24 +9176,22 @@ mod tests {
         assert!(executed.tools.is_empty());
     }
 
+    /// The tool turn, on the run's own loop: the run's workspace is where the tools
+    /// write, and a path out of it is refused.
     #[tokio::test]
-    async fn agent_turn_runs_a_tool_inside_the_agent_workspace() {
+    async fn a_run_turn_runs_a_tool_inside_the_runs_workspace() {
         use warsha_pipeline::AgentMode;
 
         let temp = crate::test_util::fresh_tempdir();
         let data_dir = temp.path().join("data");
-        let (state, _store) = test_state(&data_dir).await;
+        let (state, store) = test_state(&data_dir).await;
         let rpc = WarshaRpc::new(state.clone());
-        state
-            .agent_loop
-            .write()
-            .await
-            .approve_agent_mode("owner")
-            .expect("the approval is accepted");
+        let run_id = approved_agent_run(&state, &store).await;
 
         let executed = rpc
-            .agent_turn(
+            .agent_turn_run(
                 &owner_ext(),
+                run_id,
                 "write file notes/hello.md: written by the agent".to_string(),
             )
             .await
@@ -9190,7 +9214,11 @@ mod tests {
 
         // A path that leaves the workspace is refused, not written.
         let refused = rpc
-            .agent_turn(&owner_ext(), "write file ../escape.md: no".to_string())
+            .agent_turn_run(
+                &owner_ext(),
+                run_id,
+                "write file ../escape.md: no".to_string(),
+            )
             .await
             .expect("a refused tool turn still answers");
         assert_eq!(refused.tools.len(), 1);
@@ -11270,13 +11298,15 @@ mod tests {
         #[tokio::test]
         async fn a_second_agent_state_call_answers_while_a_command_runs() {
             let temp = crate::test_util::fresh_tempdir();
-            let (state, _store) = test_state_with(temp.path(), |config| {
+            let (state, store) = test_state_with(temp.path(), |config| {
                 config.allowed_commands = vec!["ping".to_string(), "sleep".to_string()];
             })
             .await;
             let rpc = WarshaRpc::new(state.clone());
             let owner = owner_ext();
-
+            // The turn is a run's own loop (`agent.turn` is retired by OD-E2); the
+            // mode `agent.state` answers is still the daemon-wide record.
+            let run_id = approved_agent_run(&state, &store).await;
             state
                 .agent_loop
                 .write()
@@ -11293,7 +11323,7 @@ mod tests {
             let owner_clone = owner.clone();
             let turn_handle = tokio::spawn(async move {
                 let rpc_bg = WarshaRpc::new(state_clone);
-                rpc_bg.agent_turn(&owner_clone, cmd_text).await
+                rpc_bg.agent_turn_run(&owner_clone, run_id, cmd_text).await
             });
 
             // Give the turn time to prepare and enter child command execution
@@ -11313,7 +11343,7 @@ mod tests {
             let turn_res = turn_handle
                 .await
                 .expect("turn task finished")
-                .expect("agent_turn succeeded");
+                .expect("the run's turn succeeded");
             assert_eq!(turn_res.tools.len(), 1);
             assert!(
                 turn_res.tools[0].success,
@@ -11322,15 +11352,19 @@ mod tests {
             );
         }
 
+        /// A run's todos are the run's: the turn's finished todo comes back on the
+        /// run's own result, and repeated reads of the daemon-wide record answer
+        /// without deadlocking and without showing it.
         #[tokio::test]
-        async fn concurrent_agent_state_queries_observe_todos_without_deadlock() {
+        async fn concurrent_agent_state_queries_answer_while_a_run_turn_keeps_its_todos() {
             let temp = crate::test_util::fresh_tempdir();
-            let (state, _store) = test_state_with(temp.path(), |config| {
+            let (state, store) = test_state_with(temp.path(), |config| {
                 config.allowed_commands = vec!["ping".to_string(), "sleep".to_string()];
             })
             .await;
             let rpc = WarshaRpc::new(state.clone());
             let owner = owner_ext();
+            let run_id = approved_agent_run(&state, &store).await;
 
             state
                 .agent_loop
@@ -11348,7 +11382,7 @@ mod tests {
             let owner_clone = owner.clone();
             let turn_handle = tokio::spawn(async move {
                 let rpc_bg = WarshaRpc::new(state_clone);
-                rpc_bg.agent_turn(&owner_clone, cmd_text).await
+                rpc_bg.agent_turn_run(&owner_clone, run_id, cmd_text).await
             });
 
             tokio::time::sleep(std::time::Duration::from_millis(60)).await;
@@ -11356,9 +11390,12 @@ mod tests {
             for _ in 0..5 {
                 let st = rpc.agent_state(&owner).await.expect("agent_state query");
                 assert_eq!(st.mode, warsha_pipeline::AgentMode::Agent);
+                // The running turn's todo lives in the run's own loop, so the
+                // daemon-wide record has none to show.
                 assert!(
-                    !st.todos.is_empty(),
-                    "todos should contain active turn todo"
+                    st.todos.is_empty(),
+                    "a run's turn wrote the daemon-wide record: {:?}",
+                    st.todos
                 );
                 tokio::time::sleep(std::time::Duration::from_millis(15)).await;
             }
@@ -11366,19 +11403,17 @@ mod tests {
             let turn_res = turn_handle
                 .await
                 .expect("turn task finished")
-                .expect("turn succeeded");
+                .expect("the run's turn succeeded");
             assert_eq!(turn_res.tools.len(), 1);
             assert!(turn_res.tools[0].success);
+            assert_eq!(turn_res.todos.len(), 1);
+            assert_eq!(turn_res.todos[0].status, warsha_pipeline::TodoStatus::Done);
 
             let final_state = rpc
                 .agent_state(&owner)
                 .await
                 .expect("final agent_state query");
-            assert_eq!(final_state.todos.len(), 1);
-            assert_eq!(
-                final_state.todos[0].status,
-                warsha_pipeline::TodoStatus::Done
-            );
+            assert!(final_state.todos.is_empty());
         }
 
         #[tokio::test]
@@ -11389,23 +11424,19 @@ mod tests {
             // policy can allow a program.
             let fixture = fixture_program(temp.path());
             let allowed = fixture.clone();
-            let (state, _store) = test_state_with(temp.path(), move |config| {
+            let (state, store) = test_state_with(temp.path(), move |config| {
                 config.allowed_commands = vec!["cargo".to_string(), allowed];
             })
             .await;
             let rpc = WarshaRpc::new(state.clone());
             let owner = owner_ext();
-
-            state
-                .agent_loop
-                .write()
-                .await
-                .approve_agent_mode("owner")
-                .expect("approve agent mode");
+            // The run's loop is built from this daemon's configuration, which is what
+            // makes the per-run turn the one under test.
+            let run_id = approved_agent_run(&state, &store).await;
 
             // Shell execution must be refused by the wired CommandPolicy
             let turn_res = rpc
-                .agent_turn(&owner, "run command sh -c id".to_string())
+                .agent_turn_run(&owner, run_id, "run command sh -c id".to_string())
                 .await
                 .expect("turn completes with failed tool result");
             assert_eq!(turn_res.tools.len(), 1);
@@ -11414,7 +11445,7 @@ mod tests {
 
             // Allow-listed cargo --version succeeds
             let turn_cargo = rpc
-                .agent_turn(&owner, "run command cargo --version".to_string())
+                .agent_turn_run(&owner, run_id, "run command cargo --version".to_string())
                 .await
                 .expect("turn completes with ok tool result");
             assert_eq!(turn_cargo.tools.len(), 1);
@@ -11426,7 +11457,7 @@ mod tests {
             // to `CommandPolicy::default()` would run it, so this half makes the
             // test distinguish the wired configuration from the default.
             let turn_git = rpc
-                .agent_turn(&owner, "run command git --version".to_string())
+                .agent_turn_run(&owner, run_id, "run command git --version".to_string())
                 .await
                 .expect("turn completes with failed tool result");
             assert_eq!(turn_git.tools.len(), 1);
@@ -11446,7 +11477,7 @@ mod tests {
             // A program admitted by configuration inside the data directory runs
             // under the same policy; the allow-list is not limited to bare names.
             let turn_ok = rpc
-                .agent_turn(&owner, format!("run command \"{fixture}\" --list"))
+                .agent_turn_run(&owner, run_id, format!("run command \"{fixture}\" --list"))
                 .await
                 .expect("turn completes with ok tool result");
             assert_eq!(turn_ok.tools.len(), 1);
@@ -11458,25 +11489,19 @@ mod tests {
             );
         }
 
-        /// Two owner turns must not interleave: the turn gate covers
+        /// Two turns in one run must not interleave: the run's session covers
         /// prepare → execute → finish, so the shorter turn finishes *after* the
-        /// longer one that started first. Without the gate both execute at once
-        /// and the shorter one finishes first.
+        /// longer one that started first. Without the session lock both execute at
+        /// once and the shorter one finishes first.
         #[tokio::test]
         async fn two_concurrent_turns_are_serialized_by_the_turn_gate() {
             let temp = crate::test_util::fresh_tempdir();
-            let (state, _store) = test_state_with(temp.path(), |config| {
+            let (state, store) = test_state_with(temp.path(), |config| {
                 config.allowed_commands = vec!["ping".to_string(), "sleep".to_string()];
             })
             .await;
             let owner = owner_ext();
-
-            state
-                .agent_loop
-                .write()
-                .await
-                .approve_agent_mode("owner")
-                .expect("approve agent mode");
+            let run_id = approved_agent_run(&state, &store).await;
 
             #[cfg(windows)]
             let (long_cmd, short_cmd) = (
@@ -11494,7 +11519,7 @@ mod tests {
             let short_rpc = WarshaRpc::new(state.clone());
             let long_owner = owner.clone();
             let long = tokio::spawn(async move {
-                let result = long_rpc.agent_turn(&long_owner, long_cmd).await;
+                let result = long_rpc.agent_turn_run(&long_owner, run_id, long_cmd).await;
                 (result, started.elapsed())
             });
             // Let the first turn reach its command before the second asks for
@@ -11502,7 +11527,9 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             let short_owner = owner.clone();
             let short = tokio::spawn(async move {
-                let result = short_rpc.agent_turn(&short_owner, short_cmd).await;
+                let result = short_rpc
+                    .agent_turn_run(&short_owner, run_id, short_cmd)
+                    .await;
                 (result, started.elapsed())
             });
 
@@ -11524,18 +11551,20 @@ mod tests {
             );
         }
 
-        /// The Plan barrier: a switch to Plan waits for a command that is already
-        /// executing, so a prepared turn cannot keep spending after the owner
-        /// asked for the read-only mode.
+        /// The mode RPCs answer the daemon-wide record, and a turn is a run's own
+        /// loop, so a switch to Plan no longer waits for a command that is already
+        /// executing: the barrier left with the retired `agent.turn`. The follow-up
+        /// packet that binds the mode RPCs to a run brings one back.
         #[tokio::test]
-        async fn plan_mode_waits_for_an_in_flight_command() {
+        async fn plan_mode_answers_while_a_runs_command_runs() {
             let temp = crate::test_util::fresh_tempdir();
-            let (state, _store) = test_state_with(temp.path(), |config| {
+            let (state, store) = test_state_with(temp.path(), |config| {
                 config.allowed_commands = vec!["ping".to_string(), "sleep".to_string()];
             })
             .await;
             let rpc = WarshaRpc::new(state.clone());
             let owner = owner_ext();
+            let run_id = approved_agent_run(&state, &store).await;
 
             state
                 .agent_loop
@@ -11553,11 +11582,10 @@ mod tests {
             let owner_clone = owner.clone();
             let turn_handle = tokio::spawn(async move {
                 let rpc_bg = WarshaRpc::new(state_clone);
-                rpc_bg.agent_turn(&owner_clone, cmd_text).await
+                rpc_bg.agent_turn_run(&owner_clone, run_id, cmd_text).await
             });
 
-            // Give the turn time to start its command (the read guard is held
-            // across execution from here).
+            // Give the turn time to start its command.
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
             let start = std::time::Instant::now();
@@ -11570,8 +11598,8 @@ mod tests {
             assert_eq!(transition.from, warsha_pipeline::AgentMode::Agent);
             assert_eq!(transition.to, warsha_pipeline::AgentMode::Plan);
             assert!(
-                waited >= std::time::Duration::from_millis(1500),
-                "plan_mode returned before the in-flight command finished: waited = {waited:?}"
+                waited < std::time::Duration::from_millis(1500),
+                "plan_mode waited for a run's command: waited = {waited:?}"
             );
 
             let agent_state = rpc.agent_state(&owner).await.expect("state");
@@ -11580,7 +11608,7 @@ mod tests {
             turn_handle
                 .await
                 .expect("turn task finished")
-                .expect("agent_turn succeeded");
+                .expect("the run's turn succeeded");
         }
     }
 
@@ -13790,6 +13818,96 @@ mod e2_wiring {
             .await
             .expect_err("an unknown run has no session");
         assert!(error.to_string().contains("no agent session"), "{error}");
+    }
+}
+
+/// ENGINE E2 (OD-E2): the legacy daemon-wide `agent.turn` is retired. It refuses
+/// with a migration error naming the per-run method, its policy row still gates the
+/// refusal, and `agent.turn_run` still runs a turn end to end.
+#[cfg(test)]
+mod e2_legacy_retired {
+    use super::*;
+
+    fn owner() -> RpcExtensions {
+        let mut ext = RpcExtensions::new();
+        ext.insert(Actor::owner(DeviceId::new()));
+        ext
+    }
+
+    fn project() -> Project {
+        Project {
+            id: ProjectId::new(),
+            name: "Retired Loop Project".to_string(),
+            description: "Test".to_string(),
+            language: "en".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            repo_path: None,
+            repo_url: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn agent_turn_refuses_with_the_migration_message() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = crate::tests::test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+
+        let error = rpc
+            .agent_turn(&owner(), "hello".to_string())
+            .await
+            .expect_err("the retired turn refuses");
+        let message = error.to_string();
+        assert!(message.contains("agent.turn is retired"), "{message}");
+        // The refusal names what to use instead: a run's own loop.
+        assert!(message.contains("agent.turn_run"), "{message}");
+        // `authorize` ran first and its row still admits the owner, so what a caller
+        // receives is the migration message and not a policy refusal.
+        assert_ne!(
+            error.code(),
+            auth::rpc_codes::FORBIDDEN,
+            "the refusal must be the migration message, not a policy error: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn agent_turn_still_needs_an_authenticated_owner() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = crate::tests::test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+
+        // No actor at all: the policy row refuses before the retirement message, which
+        // is what shows the row is still the gate it was and not a leftover.
+        let error = rpc
+            .agent_turn(&RpcExtensions::new(), "hello".to_string())
+            .await
+            .expect_err("an unauthenticated session is refused");
+        assert_eq!(error.code(), auth::rpc_codes::UNAUTHENTICATED, "{error}");
+        assert!(!error.to_string().contains("is retired"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn the_per_run_method_still_runs_a_turn() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = crate::tests::test_state(temp.path()).await;
+        let project = project();
+        store.create_project(&project).await.expect("the project");
+        let rpc = WarshaRpc::new(state);
+
+        let run = rpc
+            .start_run(&owner(), project.id, "Build a todo app".to_string())
+            .await
+            .expect("the run starts");
+        let turn = rpc
+            .agent_turn_run(&owner(), run.id, "hello".to_string())
+            .await
+            .expect("the run's turn runs");
+        assert_eq!(turn.mode, AgentMode::Plan);
+        assert!(
+            turn.response.contains("Plan (nothing executed)"),
+            "{}",
+            turn.response
+        );
     }
 }
 

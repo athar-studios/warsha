@@ -275,23 +275,46 @@ async fn pairing_is_bounded_before_anything_else() {
 #[tokio::test]
 async fn paid_work_is_bounded_before_it_can_spend() {
     let mut limits = tiers();
-    limits.spend = tight(2);
+    // `runs.start` is spend-tier too, so the burst holds it plus the two turns this
+    // test gets: the call after them is the one the ceiling has to refuse.
+    limits.spend = tight(3);
     let daemon = Daemon::start(limits).await;
     let port = daemon.rpc();
+    // The paid turn is a run's own loop: `agent.turn`, the daemon-wide one, is retired
+    // (OD-E2) and refuses — so the spend tier is measured where a turn still spends.
+    let run = owned_run(port).await;
 
     for _ in 0..2 {
         // A plan-mode turn parses and plans; it is the daemon's spend-tier method, and
         // the mock provider behind it means no key, no network, no bill.
-        rpc_ok(port, OWNER, "agent.turn", json!(["/review the diff"])).await;
+        rpc_ok(
+            port,
+            OWNER,
+            "agent.turn_run",
+            json!([run, "/review the diff"]),
+        )
+        .await;
     }
 
-    let code = rpc_code(port, OWNER, "agent.turn", json!(["/review the diff"])).await;
+    let code = rpc_code(
+        port,
+        OWNER,
+        "agent.turn_run",
+        json!([run, "/review the diff"]),
+    )
+    .await;
     assert_eq!(
         code, -32004,
         "a caller past the spend ceiling reached the model path"
     );
     let message = {
-        let (_status, body) = rpc(port, OWNER, "agent.turn", json!(["/review the diff"])).await;
+        let (_status, body) = rpc(
+            port,
+            OWNER,
+            "agent.turn_run",
+            json!([run, "/review the diff"]),
+        )
+        .await;
         body["error"]["message"]
             .as_str()
             .unwrap_or_default()
