@@ -8,13 +8,12 @@
 
 use crate::command_policy::CommandPolicy;
 use std::path::Path;
-use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-/// The most bytes kept from each of stdout and stderr.
+/// The most bytes kept combined from stdout and stderr.
 pub const GATE_EVIDENCE_CAPTURE_BYTES: usize = 64 * 1024;
 /// The wall-clock bound a Gate C test command gets.
 pub const GATE_EVIDENCE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
@@ -149,23 +148,52 @@ pub(crate) async fn collect_gate_evidence_with_timeout(
 }
 
 async fn git_capped(work_dir: &Path, args: &[&str]) -> Result<(String, bool)> {
-    let output = tokio::process::Command::new("git")
-        .arg("-C")
-        .arg(work_dir)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output()
-        .await?;
-    if !output.status.success() {
+    // Daemon-authored infrastructure, not an agent command: its own allow-list
+    // that always admits `git`, so a narrowed owner policy cannot break Gate C.
+    // `-c core.fsmonitor=` and `diff --no-ext-diff` neutralise the repository
+    // configuration the agent can write, which would otherwise name the program
+    // git runs. Global options must precede the subcommand; subcommand options
+    // must follow it.
+    let policy = CommandPolicy::from_config(&["git".to_string()])
+        .with_timeout(GATE_EVIDENCE_TIMEOUT)
+        .with_output_cap(GATE_EVIDENCE_CAPTURE_BYTES);
+    let Some((subcommand, rest)) = args.split_first() else {
+        return Err(GateEvidenceError::Invalid {
+            field: "git arguments",
+            value: String::new(),
+        });
+    };
+    let work_dir_arg = work_dir.to_str().ok_or_else(|| {
+        std::io::Error::other(format!("non-unicode work dir {}", work_dir.display()))
+    })?;
+    let mut argv: Vec<String> = vec![
+        "-c".to_string(),
+        "core.fsmonitor=".to_string(),
+        "-C".to_string(),
+        work_dir_arg.to_string(),
+        (*subcommand).to_string(),
+    ];
+    if *subcommand == "diff" {
+        argv.push("--no-ext-diff".to_string());
+    }
+    argv.extend(rest.iter().map(|arg| (*arg).to_string()));
+
+    let output = policy
+        .execute("git", &argv, work_dir)
+        .await
+        .map_err(|e| GateEvidenceError::Io(std::io::Error::other(e.to_string())))?;
+    if !output.success {
         return Err(GateEvidenceError::Io(std::io::Error::other(format!(
             "git {} failed in {}",
             args.join(" "),
             work_dir.display()
         ))));
     }
-    Ok(cap_string(output.stdout))
+    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+    if output.truncated {
+        text.push_str(TRUNCATION_MARKER);
+    }
+    Ok((text, output.truncated))
 }
 
 async fn run_tests(
@@ -220,22 +248,10 @@ async fn run_tests(
     }
 }
 
-fn cap_string(bytes: Vec<u8>) -> (String, bool) {
-    if bytes.len() > GATE_EVIDENCE_CAPTURE_BYTES {
-        // Slice at the cap and let the lossy conversion handle a split UTF-8 tail:
-        // `String::truncate` would panic on a multi-byte boundary (Arabic diffs).
-        let mut text = String::from_utf8_lossy(&bytes[..GATE_EVIDENCE_CAPTURE_BYTES]).into_owned();
-        text.push_str(TRUNCATION_MARKER);
-        (text, true)
-    } else {
-        (String::from_utf8_lossy(&bytes).into_owned(), false)
-    }
-}
-
 #[cfg(test)]
 mod e5 {
     use super::*;
-    use std::process::Command;
+    use std::process::{Command, Stdio};
 
     fn git_repo(dir: &Path) {
         for args in [
@@ -443,6 +459,11 @@ mod e5 {
                 evidence.tests.stdout
             );
         }
+
+        assert!(evidence.tests.success);
+        assert!(!evidence.tests.stdout.is_empty());
+        assert!(evidence.tests.stdout.contains("PATH="));
+        assert!(evidence.tests.stdout.contains("TERM=dumb"));
     }
 
     #[cfg(unix)]
@@ -493,6 +514,72 @@ mod e5 {
         assert!(
             gone,
             "grandchild process {grandchild} survived the timeout: process group was not killed"
+        );
+    }
+
+    /// The vectors measured in the CP2 review: a repository the agent can write
+    /// names the program `git diff`/`git status` execute (`diff.external`,
+    /// `core.fsmonitor`). Evidence collection must not run them — and must still
+    /// report the real diff, so a neutralisation that silently collected nothing
+    /// would not pass.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn repo_config_hooks_do_not_run_during_evidence_collection() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let repo = temp_repo();
+        let marker = repo.path().join("hook.ran");
+        let hook = repo.path().join("hook.sh");
+        std::fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\n", marker.display()))
+            .expect("the hook is written");
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755))
+            .expect("the hook is executable");
+        let hook_path = hook.to_str().expect("the hook path is unicode");
+
+        for (key, value) in [("diff.external", hook_path), ("core.fsmonitor", hook_path)] {
+            let status = Command::new("git")
+                .current_dir(repo.path())
+                .args(["config", key, value])
+                .status()
+                .expect("git config runs");
+            assert!(status.success(), "git config {key} failed");
+        }
+        std::fs::write(repo.path().join("base.txt"), "changed").expect("the file changes");
+
+        let (program, args) = sh("true");
+        let policy = CommandPolicy::from_config(std::slice::from_ref(&program));
+        let evidence = collect_gate_evidence(&policy, repo.path(), "HEAD", &program, &args)
+            .await
+            .expect("the evidence is collected");
+
+        assert!(
+            !marker.exists(),
+            "a repository-configured hook ran while collecting evidence"
+        );
+        assert!(
+            evidence.diff.contains("-base") && evidence.diff.contains("+changed"),
+            "the diff itself must still be collected:\n{}",
+            evidence.diff
+        );
+        assert!(evidence.files_changed.iter().any(|path| path == "base.txt"));
+
+        // Control: in the same repository a plain `git diff` does run the
+        // configured program, so the assertion above is not vacuous.
+        // `core.fsmonitor` is disabled for the control because its trigger needs
+        // index-extension state and is not deterministic in every environment;
+        // `diff.external` is, and it is the same repository-config-named-program
+        // vector.
+        let status = Command::new("git")
+            .current_dir(repo.path())
+            .args(["-c", "core.fsmonitor=", "diff", "HEAD"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .expect("the control git diff runs");
+        assert!(status.success(), "the control git diff failed");
+        assert!(
+            marker.exists(),
+            "the control `git diff` did not run the configured hook: this test can no longer prove the vector is live"
         );
     }
 }
