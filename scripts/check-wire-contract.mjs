@@ -958,7 +958,7 @@ function run(root, opts = {}) {
       `the remote meta CSP is not byte-identical to the daemon's REMOTE_CSP (${remoteCsp.policy.length} vs ${daemonCsp.policy.length} chars) — the daemon serves this bundle, so the header and the tag are one policy`
     );
   }
-  // The three rules a fallback would hide, plus the two sources that undo `script-src`.
+  // The three rules a fallback would hide, plus the sources that undo `script-src`.
   const requiredDirectives = [
     ['object-src', "'none'"],
     ['base-uri', "'self'"],
