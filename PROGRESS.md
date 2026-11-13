@@ -1,5 +1,12 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-13 — R0-3 Renovate triage (reading phase): DELIVERED (Fast lane, PM-verified)
+
+- **Delivered**: `docs/zadloop/packets/R0-3-triage.md` (454 lines; worktree `zl-r0-3-triage` faulted on a transport error right after writing it — PM verified and integrated). Read-only phase: no GitHub mutations, no dependency changes, nothing pushed.
+- **Measured (worker + PM spot-verified)**: all 5 PRs (#5/#12/#13/#14/#16) based on stale `main` @ `939a173`, MERGEABLE/UNSTABLE. Red-check matrix: 5 base-tree causes + **2 PR-own breakages** — #13's `packages/crypto` build fails `TS2580 Buffer` (vitest 4 no longer supplies the transitive `@types/node`), #16's `cargo metadata` aborts (`sqlx 0.9.0` keeps the removed `runtime-tokio-rustls` feature). Two packet corrections: the CI lint red is in `packages/client/src/index.test.ts` (not `index.ts`) and exists on `main` only (5 symbols occur 0 times on our tree); the ubuntu cargo-deny red on PR bases is a real unignored `error[vulnerability]` (RUSTSEC-2026-0459, libsqlite3-sys 0.30.1) because `939a173`/`15b99f9` carry no ignore — our tree has the OD-S1c ignore and passes. gix evidence: `cargo tree -i gix` → "did not match any packages", `Cargo.lock` gix count 0 on every ref — #5 is manifest hygiene, not a security fix.
+- **Proposed decisions (owner + PM decide after R0-2)**: #14 merge-after-R0-2 (first, 1 file); #12 merge-after-R0-2; #5 merge-as-hygiene or delete the dead `Cargo.toml:65` declaration (owner pick); #13 close-with-successor `R1-DEPS-vitest4`; #16 close-with-successor `R1-DEPS-split`. Measured caveat: re-targeting to `origin/dev` (`15b99f9`) does NOT turn anything green — only dev with the R0-FIX commits clears causes 1–2.
+- **Transport fault handling**: both in-flight workers (R0-2 Coder, R0-3 Fast) died on `EAI_AGAIN router.sayl.site`; R0-3's deliverable survived on disk and was verified; R0-2 left nothing and was resumed via correction 1/4 (same worker) with the leads + environment lessons fed back. Network confirmed back before resuming.
+
 ## Run 2026-11-13 — R0-1 validation of da7732c: PASS (Tester lane, PM-verified)
 
 - **Delivered**: `docs/zadloop/packets/R0-1-report.md` (worktree `zl-r0-1-validate` @ `da7732c`). Disposition: replace `f474776` on `dev` with the `da7732c` tree under owner approval — the owner already picked `da7732c` as the R0-FIX base.
