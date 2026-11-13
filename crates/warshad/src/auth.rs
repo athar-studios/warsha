@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 use warsha_core::DeviceId;
-use warsha_pipeline::PhonePairing;
+use warsha_pipeline::{PhonePairing, SHELL_COMMANDS};
 use warsha_remote::constant_time_eq;
 use warsha_remote::rate_limit::{Quota, RateLimiter, RefusalMeter};
 
@@ -973,6 +973,14 @@ impl Default for RateGovernor {
 /// allow-list that admits `sh` admits whatever `sh` is told to run, which is not a
 /// restriction but a rename. An owner who wants one adds it by name, and that is a
 /// visible change to a configuration file rather than a property of the RPC.
+///
+/// Absence from the list is not the only guard: [`ProcessPolicy::check_command`]
+/// refuses a [`SHELL_COMMANDS`] program **as a shell**, after the allow-list check,
+/// which is the order `warsha_pipeline::CommandPolicy` uses. The refusal names the
+/// shell rule instead of reading like a missing list entry, so an edit that widens
+/// `allowed_commands` has to be read as "admits a shell" rather than "admits one
+/// more tool" (KEEL checkpoint finding L12; the parity between the two policies is
+/// pinned by `process_policy_and_pipeline_policy_refuse_and_admit_the_same_programs`).
 #[derive(Debug, Clone)]
 pub struct ProcessPolicy {
     allowed: Vec<String>,
@@ -1082,7 +1090,11 @@ impl ProcessPolicy {
         }
 
         // A path inside the daemon's own data directory is the daemon's own scope:
-        // the agent workspace and anything it built there.
+        // the agent workspace, the binaries the daemon bundled under it, and anything
+        // it built there. This exemption is the daemon's own and has no counterpart in
+        // `warsha_pipeline::CommandPolicy` — a rooted path is in scope here because the
+        // daemon itself put the program there, not because the pipeline policy agrees
+        // — so the parity test below feeds both policies non-rooted inputs only.
         //
         // The test is made on *resolved* paths, and a `..` is refused before it is ever
         // compared (audit N-2). `std::path::Path::starts_with` walks the components as
@@ -1109,6 +1121,18 @@ impl ProcessPolicy {
             .any(|entry| entry == command || program_name(entry) == program);
         if allowed {
             return Ok(());
+        }
+        // The shell branch the pipeline policy has and this one did not (KEEL
+        // checkpoint finding L12): a shell that is not allow-listed is refused for
+        // being a shell, not for being an unexplained name. The order is
+        // `CommandPolicy`'s — the allow-list is consulted first, so an owner who
+        // names a shell still gets it — and `SHELL_COMMANDS` is imported from the
+        // pipeline crate rather than copied, so the two policies cannot drift on
+        // which programs count as shells.
+        if SHELL_COMMANDS.contains(&program.as_str()) {
+            return Err(format!(
+                "shell `{program}` is refused: a process allow-list that admits a shell admits whatever the shell is told to run; the owner can name one in `allowed_commands` if they want it"
+            ));
         }
         Err(format!(
             "`{program}` is not in the daemon's allowed commands; add it to `allowed_commands` in the daemon configuration if the owner wants it run"
@@ -1390,3 +1414,99 @@ pub mod rpc_codes {
 #[cfg(test)]
 #[path = "auth_tests.rs"]
 mod tests;
+
+/// Parity between the daemon's process policy and the pipeline's command policy
+/// (KEEL checkpoint finding L12).
+///
+/// The two lists are two implementations of one rule — which programs the agent's
+/// work may start — and the K4 test named
+/// `agent_command_execution_obeys_daemon_allowed_commands_policy` exercises the
+/// *pipeline* policy, not [`ProcessPolicy`]. Merging them is out of scope, so this
+/// feeds the SAME inputs to both and asserts they agree: the daemon cannot start
+/// what the agent's own tool layer would refuse, and cannot refuse what the tool
+/// layer would run.
+#[cfg(test)]
+mod policy_parity_tests {
+    use super::*;
+    use warsha_pipeline::{CommandPolicy, CommandPolicyError};
+
+    #[test]
+    fn process_policy_and_pipeline_policy_refuse_and_admit_the_same_programs() {
+        let dir = crate::test_util::fresh_tempdir();
+        let data_dir = dir.path().join("warsha");
+        std::fs::create_dir_all(&data_dir).expect("the data directory is made");
+        let daemon = ProcessPolicy::from_config(&[], &data_dir);
+        let pipeline = CommandPolicy::from_config(&[]);
+
+        // Shells: refused by both, and the daemon's refusal names the shell rule —
+        // that message is the observable the added shell branch exists for.
+        for shell in ["sh", "bash", "cmd", "powershell", "pwsh"] {
+            let refused = daemon
+                .check_command(shell)
+                .expect_err("the daemon admitted a shell");
+            assert!(
+                refused.contains("shell"),
+                "the daemon refused `{shell}` as something other than a shell: {refused}"
+            );
+            assert!(
+                matches!(
+                    pipeline.check_command(shell),
+                    Err(CommandPolicyError::ShellRefused { .. })
+                ),
+                "the pipeline admitted or mis-classified the shell `{shell}`"
+            );
+        }
+
+        // An unlisted program: refused by both.
+        for unlisted in ["rm", "curl", "wget", "python"] {
+            assert!(
+                daemon.check_command(unlisted).is_err(),
+                "the daemon admitted the unlisted `{unlisted}`"
+            );
+            assert!(
+                matches!(
+                    pipeline.check_command(unlisted),
+                    Err(CommandPolicyError::NotAllowed { .. })
+                ),
+                "the pipeline admitted the unlisted `{unlisted}`"
+            );
+        }
+
+        // A listed program with shell syntax in the program token: refused by both.
+        // Every character used here is in both metacharacter sets, so the pair fails
+        // on the same rule rather than on one list being narrower.
+        for injection in ["npm;id", "cargo|cat", "git&whoami", "`git`", "npm>out"] {
+            assert!(
+                daemon.check_command(injection).is_err(),
+                "the daemon admitted the program token `{injection}`"
+            );
+            assert!(
+                matches!(
+                    pipeline.check_command(injection),
+                    Err(CommandPolicyError::ShellSyntax { .. })
+                ),
+                "the pipeline admitted the program token `{injection}`"
+            );
+        }
+
+        // The allow-listed program both admit — bare, dotted and path-spelled (the
+        // basename rule of R-KEEL row 10 lives on both sides).
+        for admitted in ["npm", "./npm", "/tmp/whatever/npm"] {
+            assert!(
+                daemon.check_command(admitted).is_ok(),
+                "the daemon refused the allowed `{admitted}`"
+            );
+            assert!(
+                pipeline.check_command(admitted).is_ok(),
+                "the pipeline refused the allowed `{admitted}`"
+            );
+        }
+
+        // And the ordering both share: an owner who names a shell gets it, because
+        // the allow-list is consulted before the shell branch.
+        let owner_daemon = ProcessPolicy::from_config(&["sh".to_string()], &data_dir);
+        let owner_pipeline = CommandPolicy::from_config(&["sh".to_string()]);
+        assert!(owner_daemon.check_command("sh").is_ok());
+        assert!(owner_pipeline.check_command("sh").is_ok());
+    }
+}
