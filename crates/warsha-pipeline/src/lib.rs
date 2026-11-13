@@ -225,6 +225,16 @@ pub enum PipelineError {
         /// What it has already spent.
         spent_cents: u64,
     },
+    #[error(
+        "Project budget exhausted: spent {spent_cents} of {budget_cents} cents; raise the \
+         budget before starting another run"
+    )]
+    ProjectBudgetExhausted {
+        /// The budget the project carries.
+        budget_cents: u64,
+        /// What the project has already spent against it.
+        spent_cents: u64,
+    },
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
     #[error("Other: {0}")]
@@ -330,9 +340,43 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         PipelineEngine::new(store, providers, Arc::new(SettingsStore::new()))
     }
 
-    /// Start a new run for a project
+    /// The budget a project already carries, read the way the daemon's
+    /// `budget.show` (`show_budget` in `crates/warshad/src/lib.rs`) reads it: the
+    /// newest run's budget and spend.
+    ///
+    /// Budget data is per-run (`runs.budget_cents` / `runs.spent_cents`); there is
+    /// no project or global budget row and no default budget in settings, and the
+    /// RPC layer calls the newest run's row "the project's budget". A project with
+    /// no runs yet carries no budget.
+    async fn project_budget_state(&self, project_id: ProjectId) -> Result<(Option<u64>, u64)> {
+        let runs = self.store.list_runs(project_id).await?;
+        Ok(match runs.first() {
+            Some(newest) => (newest.budget_cents, newest.spent_cents),
+            None => (None, 0),
+        })
+    }
+
+    /// Start a new run for a project.
+    ///
+    /// A project that has already spent its whole budget cannot start another run:
+    /// the refusal is the same fail-closed `spent >= budget` floor `resume_run`
+    /// applies, and it happens before the run row exists, so a refused start leaves
+    /// no orphan run behind. The new run inherits the budget the project carries so
+    /// the ceiling the owner set is not dropped on the next run; a project with no
+    /// budget stays unbudgeted, which is allowed.
     pub async fn start_run(&self, project_id: ProjectId, idea: &str) -> Result<Run> {
         let _project = self.store.get_project(project_id).await?;
+
+        let (project_budget_cents, project_spent_cents) =
+            self.project_budget_state(project_id).await?;
+        if let Some(budget_cents) = project_budget_cents {
+            if project_spent_cents >= budget_cents {
+                return Err(PipelineError::ProjectBudgetExhausted {
+                    budget_cents,
+                    spent_cents: project_spent_cents,
+                });
+            }
+        }
 
         let mut run = Run {
             id: RunId::new(),
@@ -343,7 +387,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             status: RunStatus::Running,
-            budget_cents: None,
+            budget_cents: project_budget_cents,
             spent_cents: 0,
         };
 
@@ -2198,6 +2242,100 @@ mod tests {
                 .await
                 .expect("99 of 100 still advances");
             assert_eq!(run.current_stage, Stage::GateB);
+        }
+
+        /// P-E1a: a project that already spent its whole budget cannot start a run,
+        /// and the refusal leaves no run row behind (no orphan rows).
+        #[tokio::test]
+        async fn a_project_that_spent_its_budget_refuses_a_new_run() {
+            let store = temp_store().await;
+            let engine =
+                PipelineEngine::new(store.clone(), setup_providers_with_mock(), setup_settings());
+            let project = project();
+            store.create_project(&project).await.unwrap();
+            let mut first = engine
+                .start_run(project.id, "Build a todo app")
+                .await
+                .unwrap();
+            first.budget_cents = Some(100);
+            first.spent_cents = 100;
+            store.update_run(&first).await.unwrap();
+
+            let error = engine
+                .start_run(project.id, "Build a second app")
+                .await
+                .expect_err("an exhausted project budget started another run");
+
+            assert!(
+                matches!(
+                    &error,
+                    PipelineError::ProjectBudgetExhausted {
+                        budget_cents: 100,
+                        spent_cents: 100
+                    }
+                ),
+                "{error:?}"
+            );
+            let message = error.to_string();
+            assert!(
+                message.contains("spent 100 of 100 cents"),
+                "the refusal must name the spent and the budget: {message}"
+            );
+
+            let runs = store.list_runs(project.id).await.unwrap();
+            assert_eq!(runs.len(), 1, "the refused start created a run row");
+            assert_eq!(runs[0].id, first.id);
+        }
+
+        /// P-E1a: a project under its budget still starts, and the new run inherits
+        /// the budget the project carries instead of dropping it to `None`.
+        #[tokio::test]
+        async fn a_project_under_budget_starts_a_run_carrying_the_budget() {
+            let store = temp_store().await;
+            let engine =
+                PipelineEngine::new(store.clone(), setup_providers_with_mock(), setup_settings());
+            let project = project();
+            store.create_project(&project).await.unwrap();
+            let mut first = engine
+                .start_run(project.id, "Build a todo app")
+                .await
+                .unwrap();
+            first.budget_cents = Some(100);
+            first.spent_cents = 40;
+            store.update_run(&first).await.unwrap();
+
+            let second = engine
+                .start_run(project.id, "Build a second app")
+                .await
+                .expect("99 of 100 starts, 40 of 100 certainly does");
+
+            assert_eq!(second.budget_cents, Some(100));
+            assert_eq!(second.spent_cents, 0);
+            let stored = store.get_run(second.id).await.unwrap();
+            assert_eq!(stored.budget_cents, Some(100));
+        }
+
+        /// P-E1a: unbudgeted stays unbudgeted — the refusal only fires over a budget
+        /// that exists.
+        #[tokio::test]
+        async fn a_project_without_a_budget_starts_an_unbudgeted_run() {
+            let store = temp_store().await;
+            let engine =
+                PipelineEngine::new(store.clone(), setup_providers_with_mock(), setup_settings());
+            let project = project();
+            store.create_project(&project).await.unwrap();
+            let first = engine
+                .start_run(project.id, "Build a todo app")
+                .await
+                .unwrap();
+            assert_eq!(first.budget_cents, None);
+
+            let second = engine
+                .start_run(project.id, "Build a second app")
+                .await
+                .expect("no budget is not a ceiling on starting");
+
+            assert_eq!(second.budget_cents, None);
         }
 
         #[tokio::test]
