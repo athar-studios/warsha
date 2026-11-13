@@ -1199,9 +1199,16 @@ mod tests {
     }
 
     /// An Agent-mode loop whose tools run against `dir`.
+    ///
+    /// A new executor denies every command (KEEL checkpoint finding L11), so the
+    /// loop installs an explicit allow-list: `cargo` is admitted and no shell is,
+    /// which is the pair `agent_mode_refuses_disallowed_run_command_via_tool_layer`
+    /// relies on.
     fn tool_loop(dir: &Path) -> AgentLoop {
-        let mut agent_loop =
-            AgentLoop::with_tool_executor(Box::new(FilesystemToolExecutor::new(dir)));
+        let mut agent_loop = AgentLoop::with_tool_executor(Box::new(
+            FilesystemToolExecutor::new(dir)
+                .with_command_policy(crate::CommandPolicy::from_config(&["cargo".to_string()])),
+        ));
         agent_loop
             .approve_agent_mode("owner")
             .expect("an approval is accepted");
