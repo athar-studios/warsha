@@ -335,6 +335,72 @@ mod e5 {
         assert!(evidence.tests.stdout.ends_with(TRUNCATION_MARKER));
     }
 
+    /// The half `a_chatty_test_is_capped` cannot see: its pipeline absorbs the
+    /// signal, so it exits 0 either way. Here the command itself writes past the
+    /// cap, so a reader that closes the pipe kills it with `SIGPIPE` — and the
+    /// pass would be recorded as a failure.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_over_cap_passing_test_is_recorded_as_passing_and_truncated() {
+        let repo = temp_repo();
+        // 204 800 bytes is past both the 64 KiB cap and a pipe buffer; `dd`
+        // (unlike coreutils `head`) reports the broken pipe as a failure.
+        let (program, args) = sh("dd if=/dev/zero bs=8192 count=25 2>/dev/null");
+        let policy = CommandPolicy::from_config(std::slice::from_ref(&program));
+
+        let evidence = collect_gate_evidence(&policy, repo.path(), "HEAD", &program, &args)
+            .await
+            .expect("an over-cap test must not fail evidence collection");
+
+        assert_eq!(
+            evidence.tests.exit_code,
+            Some(0),
+            "the test command was killed instead of drained to its own exit"
+        );
+        assert!(
+            evidence.tests.success,
+            "a passing test that printed over the cap was recorded as failed"
+        );
+        assert!(evidence.tests.truncated);
+        assert!(evidence.tests.stdout.ends_with(TRUNCATION_MARKER));
+        assert!(
+            evidence.tests.stdout.len() <= GATE_EVIDENCE_CAPTURE_BYTES + TRUNCATION_MARKER.len()
+        );
+    }
+
+    /// The same defect on the `git_capped` path, where it is louder: a non-zero
+    /// git status is a hard error, so a diff over the cap used to fail the whole
+    /// evidence call. A large diff must arrive truncated instead.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_over_cap_diff_is_collected_truncated_not_failed() {
+        let repo = temp_repo();
+        // Far past both the cap and a pipe buffer, so git is still writing when
+        // a reader that closes at the cap takes its pipe away (a diff only a
+        // little over the cap can finish inside the freed pipe buffer and hide
+        // the defect).
+        let big = "x".repeat(GATE_EVIDENCE_CAPTURE_BYTES * 64);
+        std::fs::write(repo.path().join("base.txt"), &big).expect("the file changes");
+        let (program, args) = sh("true");
+        let policy = CommandPolicy::from_config(std::slice::from_ref(&program));
+
+        let evidence = collect_gate_evidence(&policy, repo.path(), "HEAD", &program, &args)
+            .await
+            .expect("an over-cap diff must not fail evidence collection");
+
+        assert!(
+            evidence.diff.contains("diff --git a/base.txt b/base.txt"),
+            "the real diff must still be collected:\n{}",
+            &evidence.diff[..evidence.diff.len().min(200)]
+        );
+        assert!(
+            evidence.diff.ends_with(TRUNCATION_MARKER),
+            "an over-cap diff should be marked truncated"
+        );
+        assert!(evidence.diff.len() <= GATE_EVIDENCE_CAPTURE_BYTES + TRUNCATION_MARKER.len());
+        assert!(evidence.tests.success);
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn a_hanging_test_times_out() {
