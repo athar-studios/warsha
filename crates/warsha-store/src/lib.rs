@@ -233,18 +233,12 @@ impl Store {
     }
 
     async fn run_migrations(pool: &SqlitePool) -> Result<()> {
-        let mut migrator = sqlx::migrate!("./migrations");
-        // Version 5 (`005_pairing_expiry.sql`) is the settings schema's migration:
-        // `pairing_devices`, the table it alters, is created and owned by
-        // `persistence::SqliteStore`, not by these migrations. Applying it here would
-        // fail on a fresh database (no table) and on a daemon database where the
-        // settings store already added the column (duplicate column), so this
-        // migrator deliberately leaves it to `SqliteStore::migrate`.
-        migrator
-            .migrations
-            .to_mut()
-            .retain(|migration| migration.version != 5);
-        migrator
+        // Every migration in `migrations/` is applied here, in version order.
+        // The pairing-expiry column used to be a separate step (005) that this
+        // migrator had to skip, because the table it altered was created by the
+        // synchronous settings store; 006 creates that table with the column in
+        // it, so there is one owner and nothing to skip.
+        migration_migrator()
             .run(pool)
             .await
             .map_err(|e| StoreError::Migration(e.to_string()))?;
@@ -820,6 +814,16 @@ impl Store {
     }
 }
 
+// ---------------------------------------------------------------- migrations
+
+/// The migrations this binary ships, embedded at build time.
+///
+/// One place, so the store and its tests can never disagree about which
+/// versions exist.
+fn migration_migrator() -> sqlx::migrate::Migrator {
+    sqlx::migrate!("./migrations")
+}
+
 // ------------------------------------------------------------ settings schema
 
 /// Repair the one settings table shape `006_settings.sql` cannot migrate.
@@ -1123,10 +1127,6 @@ mod tests {
                 &include_bytes!("../migrations/003_run_version.sql")[..],
             ),
             (
-                "005_pairing_expiry.sql",
-                &include_bytes!("../migrations/005_pairing_expiry.sql")[..],
-            ),
-            (
                 "006_settings.sql",
                 &include_bytes!("../migrations/006_settings.sql")[..],
             ),
@@ -1140,15 +1140,16 @@ mod tests {
     }
 
     /// Checksum-stability proxy: the compile-time embedded migrator must
-    /// expose exactly versions 1, 2, 3, 4, 5 and 6, with no CR in any embedded SQL.
+    /// expose exactly versions 1, 2, 3, 4 and 6, with no CR in any embedded SQL.
     ///
-    /// 5 is embedded (its checksum is pinned) but not applied by this store: see
-    /// `settings_schema_is_created_by_the_async_migrator`.
+    /// 5 is deliberately absent: the pairing-expiry column it added is part of
+    /// 006 now (P-E7), and no database can have recorded it, because the
+    /// migrator skipped it from the release that introduced it.
     #[test]
     fn embedded_migrator_versions_are_lf_only() {
-        let migrator = sqlx::migrate!("./migrations");
+        let migrator = migration_migrator();
         let versions: Vec<i64> = migrator.iter().map(|m| m.version).collect();
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 6]);
         for migration in migrator.iter() {
             assert!(
                 !migration.sql.contains('\r'),
@@ -1158,10 +1159,11 @@ mod tests {
         }
     }
 
-    /// The async migrator now owns the settings schema (006), and version 5 stays
-    /// out of it (see `run_migrations`). The two tables that would collide are
-    /// both present and distinct: `providers` is 001's, `configured_providers` is
-    /// 006's — the same-file trap DECISIONS.md records.
+    /// The async migrator owns the settings schema (006), and there is no
+    /// skipped version left: the ledger is exactly what the migrator runs. The
+    /// two tables that would collide are both present and distinct: `providers`
+    /// is 001's, `configured_providers` is 006's — the same-file trap
+    /// DECISIONS.md records.
     #[tokio::test]
     async fn settings_schema_is_created_by_the_async_migrator() {
         let store = temp_store().await;

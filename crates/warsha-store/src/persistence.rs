@@ -134,15 +134,26 @@ CREATE TABLE IF NOT EXISTS active_harness (
 /// Shown in place of a pairing secret by [`StoredPairing`]'s `Debug` impl.
 pub const REDACTED_SECRET: &str = "<redacted>";
 
-/// The pairing-expiry migration (audit H1), applied by [`SqliteStore::migrate`].
+/// The pairing-expiry step (audit H1), applied by [`SqliteStore::migrate`].
 ///
-/// It lives in `migrations/` with the numbered files so the SQL is reviewable
-/// beside them, but `pairing_devices` belongs to *this* schema: the async
-/// `Store`'s sqlx migrator never creates the table, so it skips version 5 (see
-/// `crate::run_migrations`). `ALTER TABLE … ADD COLUMN` has no `IF NOT EXISTS`,
-/// so `migrate` applies the file only while the column is missing; the `UPDATE`
-/// inside is idempotent (`… WHERE expires_at IS NULL`).
-const PAIRING_EXPIRY_SQL: &str = include_str!("../migrations/005_pairing_expiry.sql");
+/// It used to be `migrations/005_pairing_expiry.sql`. P-E7 gave the settings
+/// schema to the async migrator (`006_settings.sql`), which creates
+/// `pairing_devices` with the column already in it; a migration that runs on
+/// both a fresh and an existing database cannot be an `ALTER TABLE`, so the SQL
+/// lives here for as long as this store does. `ALTER TABLE … ADD COLUMN` has no
+/// `IF NOT EXISTS`, so `migrate` applies this only while the column is missing;
+/// the `UPDATE` inside is idempotent (`… WHERE expires_at IS NULL`).
+const PAIRING_EXPIRY_SQL: &str = "\
+ALTER TABLE pairing_devices ADD COLUMN expires_at INTEGER;
+
+-- Grandfather rows written before this migration with a 10-minute grace window:
+-- an owner upgrading a daemon can still use a phone that was paired under the old
+-- code, and the secret can never outlive that window. The `WHERE` makes the
+-- statement idempotent if it is ever applied again.
+UPDATE pairing_devices
+   SET expires_at = CAST(strftime('%s', 'now') AS INTEGER) + 600
+ WHERE expires_at IS NULL;
+";
 
 /// One derived preference as it is stored: the decayed score per project target.
 ///
@@ -1069,7 +1080,7 @@ impl SqliteStore {
 
 /// A `u64` as the `INTEGER` SQLite stores, without wrapping a corrupt value into
 /// a negative one.
-fn sql_int(value: u64, field: &'static str) -> Result<i64> {
+pub(crate) fn sql_int(value: u64, field: &'static str) -> Result<i64> {
     i64::try_from(value).map_err(|_| StoreError::CorruptId {
         field,
         value: value.to_string(),
@@ -1095,7 +1106,7 @@ fn table_has_column(conn: &Connection, table: &str, column: &str) -> Result<bool
 
 /// A stored `INTEGER` read back as a `u32`; a negative or oversized value is
 /// corrupt data, not something to clamp.
-fn unsigned_u32(value: i64, field: &'static str) -> Result<u32> {
+pub(crate) fn unsigned_u32(value: i64, field: &'static str) -> Result<u32> {
     u32::try_from(value).map_err(|_| StoreError::CorruptId {
         field,
         value: value.to_string(),
@@ -1103,7 +1114,7 @@ fn unsigned_u32(value: i64, field: &'static str) -> Result<u32> {
 }
 
 /// A stored `INTEGER` read back as a `u64`.
-fn unsigned_u64(value: i64, field: &'static str) -> Result<u64> {
+pub(crate) fn unsigned_u64(value: i64, field: &'static str) -> Result<u64> {
     u64::try_from(value).map_err(|_| StoreError::CorruptId {
         field,
         value: value.to_string(),
