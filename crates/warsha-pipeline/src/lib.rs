@@ -623,8 +623,10 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             format!("{}{}", skill_preamble, base_prompt)
         };
 
-        // Render the prompt with context
-        let prompt = self.render_prompt(&prompt_template, &context);
+        // Render the prompt with context, in the language of the run's project
+        // (the project row decides; "en" when it has no language).
+        let language = self.project_language(run.project_id).await;
+        let prompt = self.render_prompt(&prompt_template, &context, &language);
 
         // Call the provider while watching the live cancellation channel.
         let providers = {
@@ -1429,8 +1431,32 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         self.build_context_with_feedback(run, None)
     }
 
+    /// The language this run's prompts are rendered in: its project row's `language`.
+    ///
+    /// Read at render time, not cached on the engine, because a resumed run
+    /// (`resume_run` after a restart) rebuilds its state from the store and must
+    /// render exactly like the process that started it.
+    ///
+    /// This is presentation, not a correctness gate: a project row that cannot be
+    /// read, or one whose `language` is empty or blank, falls back to `"en"` rather
+    /// than failing the stage.
+    async fn project_language(&self, project_id: ProjectId) -> String {
+        const DEFAULT_LANGUAGE: &str = "en";
+        match self.store.get_project(project_id).await {
+            Ok(project) => {
+                let language = project.language.trim();
+                if language.is_empty() {
+                    DEFAULT_LANGUAGE.to_string()
+                } else {
+                    language.to_string()
+                }
+            }
+            Err(_) => DEFAULT_LANGUAGE.to_string(),
+        }
+    }
+
     /// Simple template rendering - replace {{key}} with values
-    fn render_prompt(&self, template: &str, context: &serde_json::Value) -> String {
+    fn render_prompt(&self, template: &str, context: &serde_json::Value, language: &str) -> String {
         let mut result = template.to_string();
 
         // Replace {{idea}} with the original idea
@@ -1505,13 +1531,10 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             result = result.replace("{{code}}", code);
         }
 
-        // Replace {{language}} with project language
-        let _ = context
-            .get("idea")
-            .and_then(|v| v.get("stage"))
-            .and_then(|v| v.as_str());
-        // This is a simplification - in reality we'd get language from project
-        result = result.replace("{{language}}", "en");
+        // Replace {{language}} with the run project's language. The caller resolves
+        // this from the project row ([`PipelineEngine::project_language`]) and falls
+        // back to "en" when that row is missing or its language is blank.
+        result = result.replace("{{language}}", language);
 
         // Inject change-request feedback if present
         if let Some(feedback) = context
@@ -2196,6 +2219,274 @@ mod tests {
                 .await
                 .expect("no budget is not a ceiling");
             assert_eq!(run.current_stage, Stage::GateB);
+        }
+    }
+
+    /// ENGINE E1 slice: the prompt is rendered in the *project's* language.
+    ///
+    /// The renderer used to hardcode `"en"` for `{{language}}`, so an Arabic
+    /// project still received English prompts. These tests pin the rendered value
+    /// to the project row and pin the safe `"en"` fallback.
+    mod e1_language {
+        use super::*;
+        use crate::settings::StoredHarness;
+        use warsha_providers::{
+            ChatChoice, ChatResponse, ChatStreamChunk, HealthCheck, ModelInfo, ProviderError,
+        };
+
+        /// A provider that records the system prompt the pipeline actually sent.
+        struct RecordingProvider {
+            captured: Arc<std::sync::Mutex<Option<String>>>,
+        }
+
+        #[async_trait::async_trait]
+        impl ChatProvider for RecordingProvider {
+            fn id(&self) -> &str {
+                "recording"
+            }
+
+            fn kind(&self) -> ProviderKind {
+                ProviderKind::CustomOpenAICompatible
+            }
+
+            async fn list_models(&self) -> std::result::Result<Vec<ModelInfo>, ProviderError> {
+                Ok(vec![ModelInfo {
+                    id: "recording-model".to_string(),
+                    name: "Recording Model".to_string(),
+                    provider: "recording".to_string(),
+                    context_window: 8192,
+                    max_output: 4096,
+                    pricing: ModelPricing {
+                        input_per_million_cents: 0,
+                        output_per_million_cents: 0,
+                    },
+                }])
+            }
+
+            async fn health(&self) -> std::result::Result<HealthCheck, ProviderError> {
+                Ok(HealthCheck {
+                    healthy: true,
+                    latency_ms: Some(0),
+                    error: None,
+                })
+            }
+
+            async fn chat(
+                &self,
+                request: ChatRequest,
+            ) -> std::result::Result<ChatResponse, ProviderError> {
+                if let Some(message) = request.messages.first() {
+                    let mut guard = self
+                        .captured
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    *guard = Some(message.content.clone());
+                }
+                Ok(ChatResponse {
+                    id: "recording-response".to_string(),
+                    model: "recording-model".to_string(),
+                    choices: vec![ChatChoice {
+                        index: 0,
+                        message: ChatMessage {
+                            role: MessageRole::Assistant,
+                            content: "# Research Report\n\nRecorded content.".to_string(),
+                        },
+                        finish_reason: Some("stop".to_string()),
+                    }],
+                    usage: TokenUsage {
+                        input: 10,
+                        output: 5,
+                        total: 15,
+                    },
+                })
+            }
+
+            async fn chat_stream(
+                &self,
+                _request: ChatRequest,
+            ) -> std::result::Result<
+                Box<
+                    dyn futures::Stream<Item = std::result::Result<ChatStreamChunk, ProviderError>>
+                        + Send
+                        + Unpin,
+                >,
+                ProviderError,
+            > {
+                Err(ProviderError::Other(
+                    "streaming is not part of this test".to_string(),
+                ))
+            }
+
+            fn cost_of(
+                &self,
+                _model: &str,
+                _usage: &TokenUsage,
+            ) -> std::result::Result<u64, ProviderError> {
+                Ok(1)
+            }
+        }
+
+        /// A project whose language the test names, stored in `store`.
+        async fn project_in(store: &Arc<Store>, language: &str) -> Project {
+            let project = Project {
+                id: ProjectId::new(),
+                name: "Language Project".to_string(),
+                description: "A project whose language decides how prompts render".to_string(),
+                language: language.to_string(),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                repo_path: None,
+                repo_url: None,
+            };
+            store.create_project(&project).await.expect("a project");
+            project
+        }
+
+        /// Settings whose active harness puts `{{language}}` in the Researcher prompt,
+        /// the one stage a test reaches with two advances and one gate approval.
+        async fn settings_with_language_template(project_id: ProjectId) -> Arc<SettingsStore> {
+            let settings = SettingsStore::new();
+            let definition = HarnessDefinition {
+                id: "language-harness".to_string(),
+                version: "1.0.0".to_string(),
+                name: "Language Harness".to_string(),
+                description: "Renders the problem statement in the project's language".to_string(),
+                stages: vec![HarnessStage {
+                    id: "research".to_string(),
+                    role: Role::Researcher,
+                    name: "Research".to_string(),
+                    prompt_template: Some(
+                        "---\nrole: researcher\nstage: research\n---\n\n\
+                         Research the idea and answer in Language: `{{language}}`."
+                            .to_string(),
+                    ),
+                    gate: None,
+                    auto_advance: true,
+                }],
+                rules: HarnessRules {
+                    max_repair_iterations: 1,
+                    budget_cap_cents: None,
+                    allow_parallel_subagents: false,
+                    require_verification_receipt: false,
+                },
+                preset: false,
+                active: false,
+                created_at: Utc::now(),
+            };
+            settings
+                .save_harness(&StoredHarness {
+                    id: "language-harness".to_string(),
+                    version: "1.0.0".to_string(),
+                    name: "Language Harness".to_string(),
+                    description: "Renders prompts in the project's language".to_string(),
+                    data_json: serde_json::to_string(&definition).expect("a harness definition"),
+                    is_preset: false,
+                    created_at: 1_735_689_600,
+                })
+                .await
+                .expect("the harness is stored");
+            settings
+                .set_active_harness(&project_id.0.to_string(), "language-harness")
+                .await
+                .expect("the harness is active");
+            Arc::new(settings)
+        }
+
+        /// The system prompt the pipeline sent for the run's first executed stage.
+        ///
+        /// The run executes the Researcher stage, whose harness template carries
+        /// `{{language}}`, so the captured prompt shows what the project's language
+        /// resolved to.
+        async fn first_executed_prompt(store: &Arc<Store>, language: &str) -> String {
+            let project = project_in(store, language).await;
+
+            let captured = Arc::new(std::sync::Mutex::new(None::<String>));
+            let mut router = ProviderRouter::new();
+            router.register_provider(Box::new(RecordingProvider {
+                captured: captured.clone(),
+            }));
+            router.set_role_routing(RoleRouting {
+                role: Role::Researcher,
+                targets: vec![RoutingTarget {
+                    provider_id: "recording".to_string(),
+                    model_id: "recording-model".to_string(),
+                    weight: 100,
+                }],
+                fallback_enabled: false,
+                budget_cents_per_run: None,
+            });
+            let engine = PipelineEngine::new(
+                store.clone(),
+                Arc::new(RwLock::new(router)),
+                settings_with_language_template(project.id).await,
+            );
+            let run = engine
+                .start_run(project.id, "Build a todo app")
+                .await
+                .expect("a run starts");
+            let at_gate = engine
+                .advance_stage(run.id)
+                .await
+                .expect("advance to Gate A");
+            assert_eq!(at_gate.current_stage, Stage::GateA);
+            engine
+                .approve_gate(run.id, Stage::GateA, DeviceId::new())
+                .await
+                .expect("Gate A approves");
+            let executed = engine
+                .advance_stage(run.id)
+                .await
+                .expect("the research stage executes");
+            assert_eq!(executed.current_stage, Stage::Research);
+
+            let prompt = captured
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone()
+                .expect("the provider received a prompt");
+            prompt
+        }
+
+        #[tokio::test]
+        async fn a_run_prompt_uses_the_project_language_not_english() {
+            let store = temp_store().await;
+            let prompt = first_executed_prompt(&store, "ar").await;
+
+            assert!(
+                prompt.contains("Language: `ar`"),
+                "the project's language never reached the template: {prompt}"
+            );
+            assert!(
+                !prompt.contains("Language: `en`"),
+                "the prompt still hardcoded English: {prompt}"
+            );
+            assert!(
+                !prompt.contains("{{language}}"),
+                "the placeholder was left unrendered: {prompt}"
+            );
+        }
+
+        #[tokio::test]
+        async fn a_run_prompt_falls_back_to_english_when_the_project_language_is_missing() {
+            // A blank language row: no panic, English.
+            let store = temp_store().await;
+            let prompt = first_executed_prompt(&store, "").await;
+            assert!(
+                prompt.contains("Language: `en`"),
+                "a blank language did not fall back to English: {prompt}"
+            );
+
+            // A project row that is not there at all: same fallback, still no panic.
+            let engine = PipelineEngine::new(
+                store.clone(),
+                setup_providers_with_mock(),
+                settings_with_language_template(ProjectId::new()).await,
+            );
+            assert_eq!(
+                engine.project_language(ProjectId::new()).await,
+                "en",
+                "a missing project row must render English, not fail"
+            );
         }
     }
 }
