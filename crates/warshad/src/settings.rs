@@ -1,32 +1,28 @@
 //! The daemon's durable settings — the M20 records, in the file the daemon
 //! already owns (PLAN.md M20).
 //!
-//! `warsha-store` holds these rows through a synchronous [`SqliteStore`], and the
-//! pipeline records know how to project themselves into it: taste
+//! `warsha-store` holds these rows through its asynchronous settings repository,
+//! and the pipeline records know how to project themselves into it: taste
 //! preferences, backend kits, run modes and phone pairings. The configured
-//! providers live here too — a provider's *configuration*, never its key, which is
-//! the OS keychain's. This module is the
-//! seam between those two facts and the daemon, which is async:
+//! providers live here too — a provider's *configuration*, never its key, which
+//! is the OS keychain's. This module is the seam between those two facts and the
+//! daemon's RPC handlers:
 //!
-//! - **Every call moves to a blocking thread.** [`SqliteStore`] owns one
-//!   `rusqlite` connection and runs its statements on the caller's thread, so
-//!   calling it from an RPC would park a runtime worker on the file. Each method
-//!   here hands its job to `tokio::task::spawn_blocking` instead and awaits the
-//!   result, which is what keeps the daemon answering while a setting is written.
-//! - **One connection per call, deliberately.** A `rusqlite` connection is `Send`
-//!   but not `Sync`, so one shared handle could not be handed to two blocking
-//!   threads anyway; and a `Mutex` around it would make every settings read wait
-//!   behind every write. WAL mode plus the store's 5-second busy timeout is what
-//!   makes short-lived connections cheap and safe against the async pool writing
-//!   the same file.
+//! - **One pool, awaited on the runtime.** The rows go through
+//!   [`SettingsRepo`], a handle over a `sqlx` pool, so a settings read or write
+//!   is an `await` rather than a moved-to-a-blocking-thread `rusqlite`
+//!   connection. Opening the store creates that pool once and applies the
+//!   schema; every call after it clones the handle.
 //! - **The file is the one `<data_dir>/warsha.db`.** The rows live beside the
 //!   projects, runs and events rather than in a second database, because a
 //!   settings file that can be lost separately from the project it configures is
-//!   a second source of truth.
+//!   a second source of truth. The pool's connections are set to WAL with a
+//!   five-second busy timeout, which is what lets them share the file with the
+//!   store's own pool without a lock error.
 //! - **Two settings are documents, not rows.** The daemon's role routing table and
 //!   the agent loop's conversation state are read and written whole and never
 //!   queried, so they are JSON documents in the same data directory
-//!   ([`SettingsStore::save_document]` / [`SettingsStore::load_document]`), each
+//!   ([`SettingsStore::save_document`] / [`SettingsStore::load_document`]), each
 //!   written as a temp file and a rename. They sit next to `warsha.db` rather than
 //!   somewhere else for the same reason the rows do: one directory is the install.
 //! - **A read is a read, not a cache.** Nothing here remembers what it loaded:
@@ -46,7 +42,7 @@ use warsha_pipeline::{
     BackendKit, InMemoryPairingStore, InMemoryPreferenceStore, Preference, RunMode, RunModeConfig,
 };
 use warsha_store::{
-    SqliteStore, StoreError, StoredCustomModel, StoredHarness, StoredIntegration, StoredPlugin,
+    SettingsRepo, StoreError, StoredCustomModel, StoredHarness, StoredIntegration, StoredPlugin,
     StoredProvider, StoredSkill,
 };
 
@@ -56,7 +52,7 @@ pub enum SettingsError {
     /// The settings database could not be read or written.
     #[error("settings store: {0}")]
     Store(#[from] StoreError),
-    /// The blocking task that owns the connection did not come back.
+    /// The blocking task that owns a document write did not come back.
     #[error("settings task: {0}")]
     Task(#[from] tokio::task::JoinError),
     /// The data directory cannot name a database file.
@@ -83,11 +79,13 @@ pub type SettingsResult<T> = std::result::Result<T, SettingsError>;
 
 /// The daemon's settings file.
 ///
-/// Cheap to clone — it is a path, not a connection — so the daemon holds one for
-/// every RPC and each call opens what it needs on a blocking thread.
+/// Cheap to clone — a path and a repository handle over one pool, not a
+/// connection — so the daemon holds one for every RPC and each call awaits the
+/// shared pool.
 #[derive(Debug, Clone)]
 pub struct SettingsStore {
     path: String,
+    repo: Option<SettingsRepo>,
 }
 
 impl SettingsStore {
@@ -95,31 +93,33 @@ impl SettingsStore {
     ///
     /// The migration is idempotent, so this runs on every start; a path that
     /// cannot be opened fails the start rather than the first setting the owner
-    /// changes. The async `Store` opens the same file: its migrations and these
-    /// five tables do not overlap — which is why the configured providers' table is
-    /// `configured_providers` and not `providers`, the name the async schema's
-    /// migration already created.
+    /// changes. The async `Store` opens the same file: its migrations create the
+    /// settings tables now (`006_settings.sql`), and the configured providers'
+    /// table is `configured_providers` rather than `providers`, the name the
+    /// async schema already used — which is what keeps one file's two schemas
+    /// apart.
     pub async fn open(path: &Path) -> SettingsResult<Self> {
         let path = path
             .to_str()
             .ok_or_else(|| SettingsError::Path(path.display().to_string()))?
             .to_string();
-        let settings = SettingsStore { path };
-        settings
-            .run(|store| {
-                store.migrate()?;
-                Ok(())
-            })
-            .await?;
-        Ok(settings)
+        let repo = SettingsRepo::open(&path).await?;
+        repo.migrate().await?;
+        Ok(Self {
+            path,
+            repo: Some(repo),
+        })
     }
 
     /// A store pointed at a database file without running migrations.
     ///
-    /// Intended for tests asserting error behavior against corrupt or unreachable databases.
+    /// Intended for tests asserting error behavior against corrupt or unreachable
+    /// databases: there is no pool to hand out, so every call opens one and fails
+    /// the way a per-call connection did.
     pub fn open_unvalidated(path: &Path) -> Self {
         Self {
             path: path.display().to_string(),
+            repo: None,
         }
     }
 
@@ -136,6 +136,21 @@ impl SettingsStore {
         Path::new(&self.path)
             .parent()
             .map_or_else(|| PathBuf::from("."), PathBuf::from)
+    }
+
+    /// The settings repository for this call.
+    ///
+    /// A store opened through [`SettingsStore::open`] carries one pool for the
+    /// whole process; a store built with [`SettingsStore::open_unvalidated`] has
+    /// none, so the call opens one and the failure lands on the caller — which is
+    /// what a test pointing the daemon at a corrupt file is asserting.
+    async fn repo(&self) -> SettingsResult<SettingsRepo> {
+        match &self.repo {
+            Some(repo) => Ok(repo.clone()),
+            None => SettingsRepo::open(&self.path)
+                .await
+                .map_err(SettingsError::from),
+        }
     }
 
     /// Store one whole JSON document beside the database, replacing what was there.
@@ -181,8 +196,8 @@ impl SettingsStore {
 
     /// Run one file job on a blocking thread.
     ///
-    /// Same reason as [`SettingsStore::run`]: a disk write does not get to park a
-    /// runtime worker on the daemon's request path.
+    /// A document write is a file write, not a settings row: it does not get to
+    /// park a runtime worker on the daemon's request path.
     async fn run_blocking<T, F>(job: F) -> SettingsResult<T>
     where
         F: FnOnce() -> SettingsResult<T> + Send + 'static,
@@ -199,36 +214,27 @@ impl SettingsStore {
         &self,
         project_ids: Vec<String>,
     ) -> SettingsResult<Vec<(String, BackendKit)>> {
-        self.run(move |store| {
-            let mut kits = Vec::new();
-            for project_id in &project_ids {
-                if let Some(kit) = BackendKit::load_from_store(store, project_id)? {
-                    kits.push((project_id.clone(), kit));
-                }
+        let store = self.repo().await?;
+        let mut kits = Vec::new();
+        for project_id in &project_ids {
+            if let Some(kit) = BackendKit::load_from_store(&store, project_id).await? {
+                kits.push((project_id.clone(), kit));
             }
-            Ok(kits)
-        })
-        .await
+        }
+        Ok(kits)
     }
 
     /// One project's stored backend kit.
     pub async fn load_backend_kit(&self, project_id: &str) -> SettingsResult<Option<BackendKit>> {
-        let project_id = project_id.to_string();
-        self.run(move |store| {
-            BackendKit::load_from_store(store, &project_id).map_err(SettingsError::from)
-        })
-        .await
+        let store = self.repo().await?;
+        Ok(BackendKit::load_from_store(&store, project_id).await?)
     }
 
     /// Store one project's backend kit, replacing the row it had.
     pub async fn save_backend_kit(&self, project_id: &str, kit: &BackendKit) -> SettingsResult<()> {
-        let project_id = project_id.to_string();
-        let kit = kit.clone();
-        self.run(move |store| {
-            kit.save_to_store(store, &project_id)?;
-            Ok(())
-        })
-        .await
+        let store = self.repo().await?;
+        kit.save_to_store(&store, project_id).await?;
+        Ok(())
     }
 
     /// Every run mode that has a saved row, in `RunMode::all` order.
@@ -236,36 +242,27 @@ impl SettingsStore {
     /// A mode that was never saved is absent: `RunModeConfig::for_mode` is what a
     /// caller starts from, and storing that guess would freeze it.
     pub async fn load_run_modes(&self) -> SettingsResult<Vec<RunModeConfig>> {
-        self.run(|store| {
-            let mut configs = Vec::new();
-            for mode in RunMode::all() {
-                if let Some(config) = RunModeConfig::load_from_store(store, mode)? {
-                    configs.push(config);
-                }
+        let store = self.repo().await?;
+        let mut configs = Vec::new();
+        for mode in RunMode::all() {
+            if let Some(config) = RunModeConfig::load_from_store(&store, mode).await? {
+                configs.push(config);
             }
-            Ok(configs)
-        })
-        .await
+        }
+        Ok(configs)
     }
 
     /// Store one run mode's config, replacing the row it had.
     pub async fn save_run_mode(&self, config: &RunModeConfig) -> SettingsResult<()> {
-        let config = config.clone();
-        self.run(move |store| {
-            config.save_to_store(store)?;
-            Ok(())
-        })
-        .await
+        let store = self.repo().await?;
+        config.save_to_store(&store).await?;
+        Ok(())
     }
 
     /// A project's stored preferences, highest score first.
     pub async fn load_preferences(&self, project_id: &str) -> SettingsResult<Vec<Preference>> {
-        let project_id = project_id.to_string();
-        self.run(move |store| {
-            InMemoryPreferenceStore::load_from_store(store, &project_id)
-                .map_err(SettingsError::from)
-        })
-        .await
+        let store = self.repo().await?;
+        Ok(InMemoryPreferenceStore::load_from_store(&store, project_id).await?)
     }
 
     /// The stored preferences of the projects named, as `(project_id, rows)` pairs.
@@ -276,103 +273,87 @@ impl SettingsStore {
         &self,
         project_ids: Vec<String>,
     ) -> SettingsResult<Vec<(String, Vec<Preference>)>> {
-        self.run(move |store| {
-            let mut rows = Vec::new();
-            for project_id in &project_ids {
-                let preferences = InMemoryPreferenceStore::load_from_store(store, project_id)?;
-                if !preferences.is_empty() {
-                    rows.push((project_id.clone(), preferences));
-                }
+        let store = self.repo().await?;
+        let mut rows = Vec::new();
+        for project_id in &project_ids {
+            let preferences = InMemoryPreferenceStore::load_from_store(&store, project_id).await?;
+            if !preferences.is_empty() {
+                rows.push((project_id.clone(), preferences));
             }
-            Ok(rows)
-        })
-        .await
+        }
+        Ok(rows)
     }
 
     /// Project a run's signal log into the preferences table.
     pub async fn save_preferences(&self, memory: InMemoryPreferenceStore) -> SettingsResult<()> {
-        self.run(move |store| {
-            memory.save_to_store(store)?;
-            Ok(())
-        })
-        .await
+        let store = self.repo().await?;
+        memory.save_to_store(&store).await?;
+        Ok(())
     }
 
     /// Every stored pairing, including the revoked ones.
     pub async fn load_pairings(&self) -> SettingsResult<InMemoryPairingStore> {
-        self.run(|store| InMemoryPairingStore::load_from_store(store).map_err(SettingsError::from))
-            .await
+        let store = self.repo().await?;
+        Ok(InMemoryPairingStore::load_from_store(&store).await?)
     }
 
     /// Store every pairing the daemon holds, revocation included.
     pub async fn save_pairings(&self, pairings: InMemoryPairingStore) -> SettingsResult<()> {
-        self.run(move |store| {
-            pairings.save_to_store(store)?;
-            Ok(())
-        })
-        .await
+        let store = self.repo().await?;
+        pairings.save_to_store(&store).await?;
+        Ok(())
     }
 
     /// Every configured provider, oldest first.
     pub async fn load_providers(&self) -> SettingsResult<Vec<StoredProvider>> {
-        self.run(|store| store.load_providers().map_err(SettingsError::from))
-            .await
+        let store = self.repo().await?;
+        Ok(store.load_providers().await?)
     }
 
     /// One provider by name, or `None` if not configured.
     pub async fn load_provider(&self, name: &str) -> SettingsResult<Option<StoredProvider>> {
-        let name = name.to_string();
-        self.run(move |store| store.load_provider(&name).map_err(SettingsError::from))
-            .await
+        let store = self.repo().await?;
+        Ok(store.load_provider(name).await?)
     }
 
     /// Save one provider configuration to the settings store.
     pub async fn save_provider(&self, provider: &StoredProvider) -> SettingsResult<()> {
-        let provider = provider.clone();
-        self.run(move |store| {
-            store.save_provider(&provider)?;
-            Ok(())
-        })
-        .await
+        let store = self.repo().await?;
+        store.save_provider(provider).await?;
+        Ok(())
     }
 
     /// Delete one provider by name, returning true if it existed.
     pub async fn delete_provider(&self, name: &str) -> SettingsResult<bool> {
-        let name = name.to_string();
-        self.run(move |store| store.delete_provider(&name).map_err(SettingsError::from))
-            .await
+        let store = self.repo().await?;
+        Ok(store.delete_provider(name).await?)
     }
 
     // -------------------------------------------------------------- harnesses
 
     /// Insert or replace one harness definition, keyed by its id.
     pub async fn save_harness(&self, harness: &StoredHarness) -> SettingsResult<()> {
-        let harness = harness.clone();
-        self.run(move |store| {
-            store.save_harness(&harness)?;
-            Ok(())
-        })
-        .await
+        let store = self.repo().await?;
+        store.save_harness(harness).await?;
+        Ok(())
     }
 
     /// One harness by id, or `None` when no such row exists.
     pub async fn get_harness(&self, id: &str) -> SettingsResult<Option<StoredHarness>> {
-        let id = id.to_string();
-        self.run(move |store| store.load_harness(&id).map_err(SettingsError::from))
-            .await
+        let store = self.repo().await?;
+        Ok(store.load_harness(id).await?)
     }
 
     /// Every harness, presets and user-authored alike, oldest first.
     pub async fn list_harnesses(&self) -> SettingsResult<Vec<StoredHarness>> {
-        self.run(|store| store.load_harnesses().map_err(SettingsError::from))
-            .await
+        let store = self.repo().await?;
+        Ok(store.load_harnesses().await?)
     }
 
     /// Delete one harness by id, returning true if it existed.
     pub async fn delete_harness(&self, id: &str) -> SettingsResult<bool> {
-        let id = id.to_string();
-        self.run(move |store| store.delete_harness(&id).map_err(SettingsError::from))
-            .await
+        let store = self.repo().await?;
+        Ok(store.delete_harness(id).await?)
     }
 
     /// Point a project at a harness, replacing any previous selection.
@@ -381,127 +362,98 @@ impl SettingsStore {
         project_id: &str,
         harness_id: &str,
     ) -> SettingsResult<()> {
-        let project_id = project_id.to_string();
-        let harness_id = harness_id.to_string();
-        self.run(move |store| {
-            store.set_active_harness(&project_id, &harness_id)?;
-            Ok(())
-        })
-        .await
+        let store = self.repo().await?;
+        store.set_active_harness(project_id, harness_id).await?;
+        Ok(())
     }
 
     /// The harness id a project currently runs with, if one was selected.
     pub async fn get_active_harness(&self, project_id: &str) -> SettingsResult<Option<String>> {
-        let project_id = project_id.to_string();
-        self.run(move |store| {
-            store
-                .get_active_harness(&project_id)
-                .map_err(SettingsError::from)
-        })
-        .await
+        let store = self.repo().await?;
+        Ok(store.get_active_harness(project_id).await?)
     }
 
     /// Clear a project's harness selection, returning true if there was one.
     pub async fn clear_active_harness(&self, project_id: &str) -> SettingsResult<bool> {
-        let project_id = project_id.to_string();
-        self.run(move |store| {
-            store
-                .clear_active_harness(&project_id)
-                .map_err(SettingsError::from)
-        })
-        .await
+        let store = self.repo().await?;
+        Ok(store.clear_active_harness(project_id).await?)
     }
 
     // ---------------------------------------------------------------- skills
 
     /// Insert or replace one skill, keyed by its id.
     pub async fn save_skill(&self, skill: &StoredSkill) -> SettingsResult<()> {
-        let skill = skill.clone();
-        self.run(move |store| {
-            store.save_skill(&skill)?;
-            Ok(())
-        })
-        .await
+        let store = self.repo().await?;
+        store.save_skill(skill).await?;
+        Ok(())
     }
 
     /// One skill by id.
     pub async fn get_skill(&self, id: &str) -> SettingsResult<Option<StoredSkill>> {
-        let id = id.to_string();
-        self.run(move |store| store.load_skill(&id).map_err(SettingsError::from))
-            .await
+        let store = self.repo().await?;
+        Ok(store.load_skill(id).await?)
     }
 
     /// Every skill, by name, whether enabled or not.
     pub async fn list_skills(&self) -> SettingsResult<Vec<StoredSkill>> {
-        self.run(|store| store.load_skills().map_err(SettingsError::from))
-            .await
+        let store = self.repo().await?;
+        Ok(store.load_skills().await?)
     }
 
     /// Delete one skill by id, returning true if it existed.
     pub async fn delete_skill(&self, id: &str) -> SettingsResult<bool> {
-        let id = id.to_string();
-        self.run(move |store| store.delete_skill(&id).map_err(SettingsError::from))
-            .await
+        let store = self.repo().await?;
+        Ok(store.delete_skill(id).await?)
     }
 
     /// Flip a skill's enabled flag, answering with the new state or `None`
     /// when the skill does not exist.
     pub async fn toggle_skill(&self, id: &str) -> SettingsResult<Option<bool>> {
-        let id = id.to_string();
-        self.run(move |store| store.toggle_skill(&id).map_err(SettingsError::from))
-            .await
+        let store = self.repo().await?;
+        Ok(store.toggle_skill(id).await?)
     }
 
     // --------------------------------------------------------------- plugins
 
     /// Insert or replace one MCP plugin pack, keyed by its id.
     pub async fn save_plugin(&self, plugin: &StoredPlugin) -> SettingsResult<()> {
-        let plugin = plugin.clone();
-        self.run(move |store| {
-            store.save_plugin(&plugin)?;
-            Ok(())
-        })
-        .await
+        let store = self.repo().await?;
+        store.save_plugin(plugin).await?;
+        Ok(())
     }
 
     /// One plugin pack by id.
     pub async fn get_plugin(&self, id: &str) -> SettingsResult<Option<StoredPlugin>> {
-        let id = id.to_string();
-        self.run(move |store| store.load_plugin(&id).map_err(SettingsError::from))
-            .await
+        let store = self.repo().await?;
+        Ok(store.load_plugin(id).await?)
     }
 
     /// Every plugin pack, by name, whether enabled or not.
     pub async fn list_plugins(&self) -> SettingsResult<Vec<StoredPlugin>> {
-        self.run(|store| store.load_plugins().map_err(SettingsError::from))
-            .await
+        let store = self.repo().await?;
+        Ok(store.load_plugins().await?)
     }
 
     /// Delete one plugin pack by id, returning true if it existed.
     pub async fn delete_plugin(&self, id: &str) -> SettingsResult<bool> {
-        let id = id.to_string();
-        self.run(move |store| store.delete_plugin(&id).map_err(SettingsError::from))
-            .await
+        let store = self.repo().await?;
+        Ok(store.delete_plugin(id).await?)
     }
 
     /// Flip a plugin's enabled flag, answering with the new state or `None`
     /// when the pack does not exist.
     pub async fn toggle_plugin(&self, id: &str) -> SettingsResult<Option<bool>> {
-        let id = id.to_string();
-        self.run(move |store| store.toggle_plugin(&id).map_err(SettingsError::from))
-            .await
+        let store = self.repo().await?;
+        Ok(store.toggle_plugin(id).await?)
     }
 
     // --------------------------------------------------------- custom models
 
     /// Insert or replace one custom model, keyed by `(provider, model_id)`.
     pub async fn save_custom_model(&self, model: &StoredCustomModel) -> SettingsResult<()> {
-        let model = model.clone();
-        self.run(move |store| {
-            store.save_custom_model(&model)?;
-            Ok(())
-        })
-        .await
+        let store = self.repo().await?;
+        store.save_custom_model(model).await?;
+        Ok(())
     }
 
     /// One custom model by provider and model id.
@@ -510,20 +462,14 @@ impl SettingsStore {
         provider: &str,
         model_id: &str,
     ) -> SettingsResult<Option<StoredCustomModel>> {
-        let provider = provider.to_string();
-        let model_id = model_id.to_string();
-        self.run(move |store| {
-            store
-                .load_custom_model(&provider, &model_id)
-                .map_err(SettingsError::from)
-        })
-        .await
+        let store = self.repo().await?;
+        Ok(store.load_custom_model(provider, model_id).await?)
     }
 
     /// Every custom model, by provider then model id.
     pub async fn list_custom_models(&self) -> SettingsResult<Vec<StoredCustomModel>> {
-        self.run(|store| store.load_custom_models().map_err(SettingsError::from))
-            .await
+        let store = self.repo().await?;
+        Ok(store.load_custom_models().await?)
     }
 
     /// Delete one custom model, returning true if it existed.
@@ -532,14 +478,8 @@ impl SettingsStore {
         provider: &str,
         model_id: &str,
     ) -> SettingsResult<bool> {
-        let provider = provider.to_string();
-        let model_id = model_id.to_string();
-        self.run(move |store| {
-            store
-                .delete_custom_model(&provider, &model_id)
-                .map_err(SettingsError::from)
-        })
-        .await
+        let store = self.repo().await?;
+        Ok(store.delete_custom_model(provider, model_id).await?)
     }
 
     /// Flip a custom model's enabled flag, answering with the new state or
@@ -549,14 +489,8 @@ impl SettingsStore {
         provider: &str,
         model_id: &str,
     ) -> SettingsResult<Option<bool>> {
-        let provider = provider.to_string();
-        let model_id = model_id.to_string();
-        self.run(move |store| {
-            store
-                .toggle_custom_model(&provider, &model_id)
-                .map_err(SettingsError::from)
-        })
-        .await
+        let store = self.repo().await?;
+        Ok(store.toggle_custom_model(provider, model_id).await?)
     }
 
     // ------------------------------------------------------------ integrations
@@ -571,51 +505,27 @@ impl SettingsStore {
         integration: &StoredIntegration,
         config_json: Option<&str>,
     ) -> SettingsResult<()> {
-        let integration = integration.clone();
-        let config_json = config_json.map(str::to_string);
-        self.run(move |store| {
-            store.save_integration(&integration, config_json.as_deref())?;
-            Ok(())
-        })
-        .await
+        let store = self.repo().await?;
+        store.save_integration(integration, config_json).await?;
+        Ok(())
     }
 
     /// One integration by id.
     pub async fn get_integration(&self, id: &str) -> SettingsResult<Option<StoredIntegration>> {
-        let id = id.to_string();
-        self.run(move |store| store.load_integration(&id).map_err(SettingsError::from))
-            .await
+        let store = self.repo().await?;
+        Ok(store.load_integration(id).await?)
     }
 
     /// Every integration, by name.
     pub async fn list_integrations(&self) -> SettingsResult<Vec<StoredIntegration>> {
-        self.run(|store| store.load_integrations().map_err(SettingsError::from))
-            .await
+        let store = self.repo().await?;
+        Ok(store.load_integrations().await?)
     }
 
     /// Delete one integration by id, returning true if it existed.
     pub async fn delete_integration(&self, id: &str) -> SettingsResult<bool> {
-        let id = id.to_string();
-        self.run(move |store| store.delete_integration(&id).map_err(SettingsError::from))
-            .await
-    }
-
-    /// Run one settings job on a blocking thread, over its own connection.
-    ///
-    /// The job owns the connection for its whole life, so a closure that panics
-    /// cannot hand a half-used connection to the next call: the failure arrives as
-    /// [`SettingsError::Task`] and the next call opens a fresh one.
-    async fn run<T, F>(&self, job: F) -> SettingsResult<T>
-    where
-        F: FnOnce(&SqliteStore) -> SettingsResult<T> + Send + 'static,
-        T: Send + 'static,
-    {
-        let path = self.path.clone();
-        tokio::task::spawn_blocking(move || {
-            let store = SqliteStore::open(&path)?;
-            job(&store)
-        })
-        .await?
+        let store = self.repo().await?;
+        Ok(store.delete_integration(id).await?)
     }
 }
 
