@@ -4,33 +4,34 @@ Date: 2026-11-13. Owner: Mohamed. Report in Arabic; code/docs/commits/PRs in Eng
 
 ## Current milestone / packet
 
-- **R0-FIX. R0-1 DONE** (da7732c validated, PM-verified). **R0-3 DONE** (Renovate triage reading phase, PM-verified). **R0-2 DONE** (gates green + ci.yml portability fix; independent review found a HIGH probe/production form drift → repaired at `43c3271` → closure re-review APPROVE → merged at `98d337a`).
-- Repair branch `repair/dev-csp-f474776` now at `55b657c` = `f474776` (broken remote merge) → `da7732c` (lib.rs restore + CSP delta) → docs/R0-1/R0-3/R0-2 commits. All local gates green at the R0-2 head: cargo 928/0/10, JS 1552, deny 0, arch/policy/wire 0 violations, gitleaks clean, verify-release 8/8.
-- **Next step**: push `repair/dev-csp-f474776` to the PRIVATE remote `warsha-dev` and open the draft PR vs `dev` there (dev @ warsha-dev = `f474776`, the broken merge — this PR is the repair). Then watch `gh pr checks` for the real macOS/Windows proof of the ci.yml fix. NEVER force-push; NEVER touch `main`; the public repo's dev/main stay untouched (reconciliation is an owner decision).
-- Then: Renovate decisions to the owner (per R0-3: #14/#12 merge-after-R0-2, #13/#16 close-with-successor, #5 hygiene-or-delete the dead `gix` line); then R-KEEL packets.
+- **R0-FIX**: repair complete and pushed; draft PR #2 (warsha-dev, `repair/dev-csp-f474776` → `dev`) CLEAN/MERGEABLE. First CI run `43412167979` proved macOS/ubuntu/gitleaks green; the three actionable failures were fixed by R0-2b (`9e794f9` + `af3023e`); the CI re-run `43417968261` started NO jobs — account billing failure (owner-gated, see blockers).
+- **R-KEEL MILESTONE: DONE** (all PM-verified). K1/K2/K3 audit: DONE, no gaps (`docs/zadloop/packets/R-KEEL-audit.md`). K4/K5/K6 checkpoint: first review found 2 HIGHs → CP1 fixed them (with one PM-rejected weakening attempt, corrected) → closure review 1 found the git_capped half still open (repo-config hook vectors, verified live) → CP2 hardened the evidence git calls → closure review 2: **CHECKPOINT PASS, no open HIGH** → its N1 finding (cap-by-closing-pipe kills producers) → CP3 fixed with drain-and-discard. Full gate table at the merged head `bfe8859`: cargo **935/0/10** (+7 security tests), fmt/clippy/deny 0, arch/policy/wire 0 violations. JS side untouched (1552 baseline holds).
+- Repair branch `repair/dev-csp-f474776` now at `07701c2` (R0-FIX + R0-2b + R-KEEL evidence and fixes), pushed to warsha-dev.
+- **Next step**: R-SEC residual packets (the 8 MEDIUM + 8 LOW checkpoint backlog + the residual git textconv/filter vectors), or the owner's call on the billing alternatives to unblock the PR #2 merge.
 
 ## Branches / worktrees in flight
 
 | What | Ref / path | SHA |
 |---|---|---|
-| Shared checkout | `repair/dev-csp-f474776` @ `/home/moe/Downloads/Warsha` | `55b657c` |
+| Shared checkout | `repair/dev-csp-f474776` @ `/home/moe/Downloads/Warsha` | `07701c2` |
 | Backup of owner's uncommitted CSP work | `backup/csp-worktree-2026-11-13` | `56dd902` (parent `f0920e9`) |
 | Local `dev` | `dev` (checked out at `~/Downloads/warsha-wt/keel/k5`) | `f0920e9` |
-| R0-2 branch (merged) | `zl-r0-2-gates` | `bc5bb16` |
-| Remote `warsha-dev` | `dev` = `f474776` (broken), `main` = `2f042d1` | — |
+| Merged R-KEEL branches | `zl-r0-2b-ci-followup`, `zl-keel-audit`, `zl-keel-checkpoint`, `zl-keel-cp1-highs`, `zl-keel-cp1-closure`, `zl-keel-cp2-githarden`, `zl-keel-cp2-closure`, `zl-keel-cp3-truncation` | merged at `4b2aac9`…`bfe8859` |
+| Remote `warsha-dev` | `dev` = `f474776` (broken), `main` = `2f042d1`; PR #2 head = `07701c2` | — |
 | Remote `origin` (public) | `dev` = `15b99f9`, `main` = `939a173` | — |
-| Done worktrees (ask before removing) | `zl-r0-1-validate`, `zl-r0-3-triage`, `zl-phase0-recon`, `zl-r0-packets`, `zl-r0-1-validate/.../zl-r0-2-gates` (nested — accidental path, functional) | — |
+| Done worktrees (ask before removing) | `zl-r0-1-validate`, `zl-r0-3-triage`, `zl-phase0-recon`, `zl-r0-packets`, plus the nested zl-keel-* chain under `.agents/worktrees/` | — |
 
 ## Verified vs claimed
 
-- **Verified by PM**: R0-1 full gate table (16/16); R0-3 success commands + spot-checks (gix/deny/lint counts across refs); R0-2 full gate table re-run myself (cargo 928/0/10 from my own full log — the delegation_verify harness could not capture the long cargo-test command twice, recorded as exit-null; repaired by my own run; pnpm 1552 from my own log; all quick gates via delegation_verify); the ci.yml diff read in full at both `01d3401` and `43c3271`; YAML parse; merge `98d337a` clean.
-- **Verified by Reviewer lane (independent)**: the capability probe + escaping logic re-run against real GNU 9.12 / busybox 1.37.0 / uutils 0.10.0 / shasum 6.04 with old-code controls; fail-closed on every branch; structural invariants (one changed leaf, digests identical).
-- **Not run**: actionlint (absent); `cp5-stub-scan.sh` (absent from tree — stale doc mention); `pnpm visual` (out of scope); macOS/Windows CI legs (need the draft PR).
+- **Verified by PM (own runs)**: R0-1/R0-2/R0-2b gate tables (16/16; the delegation_verify exit-null cases repaired by my own full-log runs); R-KEEL: spot-reads of every enforcement point (ensure_gate_decidable, dispatch_chat, state_lock, git_capped, read_stream_capped) + my own test re-runs matching every reported count (gate_integrity 4, run_integrity 7, provider_truth 4, status_truth 6, runs_resume 4; pipeline 448→449→452; warshad 248; workspace 935/0/10 at `bfe8859`); the git repo-config hook vectors reproduced live in /tmp (diff.external ran on plain `git diff`; the neutralized form did not).
+- **Verified by Reviewer lane (independent)**: the K4/K5/K6 checkpoint chain (3 reviews, 3 HIGHs found and closed, each with live probes and discrimination controls); the ci.yml probe logic against real GNU/busybox/uutils/shasum.
+- **Rejected by PM review**: one CP1 attempt that deleted a test's assertions and commented out its own new test (weakening) — corrected on attempt 2 with the cap contract restored verbatim.
+- **Not run**: actionlint/shellcheck locally (absent; CI is the gate — blocked on billing); `pnpm visual`; Windows/macOS CI legs for the R-KEEL commits (blocked on billing); `cp5-stub-scan.sh` (absent from tree — stale doc mention).
 
 ## Exact next 3 commands
 
 1. `gh run list -R athar-studios/warsha-dev --limit 2` (check whether billing was fixed; if yes, `gh workflow run ci.yml -R athar-studios/warsha-dev --ref repair/dev-csp-f474776` and watch for green, then merge PR #2 non-force).
-2. R-KEEL audit in flight: on settle, `delegation_review` + read `docs/zadloop/packets/R-KEEL-audit.md`; dispatch implementation packets for whatever K1/K2/K3 gaps it proves.
+2. Dispatch the first R-SEC residual packet (the checkpoint backlog: start with the CSP string divergence + the missing CSP-header test, then the mcp.call/send permission-table consultation and the keychain account scoping).
 3. Present the owner bundle: billing fix (or CI-on-public-repo approval, or proceed-local-only), CodeQL/GHAS enablement (paid, private repo), Renovate decisions per R0-3 (#14→#12 merge-after-green; #13/#16 close-with-successor; #5 upgrade-vs-delete the dead `gix` line).
 
 ## Open blockers / owner questions
