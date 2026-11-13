@@ -248,6 +248,9 @@ impl Store {
             .run(pool)
             .await
             .map_err(|e| StoreError::Migration(e.to_string()))?;
+        let mut transaction = pool.begin().await?;
+        repair_settings_expiry(&mut transaction).await?;
+        transaction.commit().await?;
         Ok(())
     }
 
@@ -817,6 +820,42 @@ impl Store {
     }
 }
 
+// ------------------------------------------------------------ settings schema
+
+/// Repair the one settings table shape `006_settings.sql` cannot migrate.
+///
+/// `CREATE TABLE IF NOT EXISTS` leaves an existing table alone, so a database a
+/// pre-audit-H1 daemon wrote keeps its four-column `pairing_devices`, and SQLite
+/// has no `ALTER TABLE … ADD COLUMN IF NOT EXISTS` to bring it forward inside
+/// the migration. This is that guarded step: while the column is missing it is
+/// added, and the rows the older daemon paired are grandfathered with the same
+/// 10-minute grace window 005 applied, so an owner upgrading can still use a
+/// phone that was paired under the old code and no secret outlives that window.
+///
+/// It is deliberately conditional on the column's absence: a pairing row with a
+/// `NULL` deadline written after the column existed means "revocation only", and
+/// a repair that ran unconditionally would silently give it one.
+async fn repair_settings_expiry(connection: &mut sqlx::SqliteConnection) -> Result<()> {
+    let has_expiry: Option<String> =
+        sqlx::query_scalar("SELECT name FROM pragma_table_info('pairing_devices') WHERE name = ?")
+            .bind("expires_at")
+            .fetch_optional(&mut *connection)
+            .await?;
+    if has_expiry.is_none() {
+        sqlx::query("ALTER TABLE pairing_devices ADD COLUMN expires_at INTEGER")
+            .execute(&mut *connection)
+            .await?;
+        sqlx::query(
+            "UPDATE pairing_devices \
+                SET expires_at = CAST(strftime('%s', 'now') AS INTEGER) + 600 \
+              WHERE expires_at IS NULL",
+        )
+        .execute(&mut *connection)
+        .await?;
+    }
+    Ok(())
+}
+
 // --------------------------------------------------------------- row mapping
 
 fn column_text(row: &sqlx::sqlite::SqliteRow, column: &'static str) -> Result<String> {
@@ -1087,6 +1126,10 @@ mod tests {
                 "005_pairing_expiry.sql",
                 &include_bytes!("../migrations/005_pairing_expiry.sql")[..],
             ),
+            (
+                "006_settings.sql",
+                &include_bytes!("../migrations/006_settings.sql")[..],
+            ),
         ] {
             assert!(
                 !bytes.contains(&b'\r'),
@@ -1097,15 +1140,15 @@ mod tests {
     }
 
     /// Checksum-stability proxy: the compile-time embedded migrator must
-    /// expose exactly versions 1, 2, 3, 4 and 5, with no CR in any embedded SQL.
+    /// expose exactly versions 1, 2, 3, 4, 5 and 6, with no CR in any embedded SQL.
     ///
     /// 5 is embedded (its checksum is pinned) but not applied by this store: see
-    /// `settings_owned_migration_is_left_to_the_settings_schema`.
+    /// `settings_schema_is_created_by_the_async_migrator`.
     #[test]
     fn embedded_migrator_versions_are_lf_only() {
         let migrator = sqlx::migrate!("./migrations");
         let versions: Vec<i64> = migrator.iter().map(|m| m.version).collect();
-        assert_eq!(versions, vec![1, 2, 3, 4, 5]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6]);
         for migration in migrator.iter() {
             assert!(
                 !migration.sql.contains('\r'),
@@ -1115,26 +1158,36 @@ mod tests {
         }
     }
 
-    /// The async store does not own `pairing_devices`: it applies 001–004 only, and
-    /// version 5 is the settings schema's (see `run_migrations`). A future change
-    /// that stops filtering would fail here instead of at a daemon start.
+    /// The async migrator now owns the settings schema (006), and version 5 stays
+    /// out of it (see `run_migrations`). The two tables that would collide are
+    /// both present and distinct: `providers` is 001's, `configured_providers` is
+    /// 006's — the same-file trap DECISIONS.md records.
     #[tokio::test]
-    async fn settings_owned_migration_is_left_to_the_settings_schema() {
+    async fn settings_schema_is_created_by_the_async_migrator() {
         let store = temp_store().await;
         let applied: Vec<i64> =
             sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
                 .fetch_all(store.pool())
                 .await
                 .expect("the migration ledger is readable");
-        assert_eq!(applied, vec![1, 2, 3, 4]);
-        let pairing_table: Option<String> =
-            sqlx::query_scalar("SELECT name FROM sqlite_master WHERE name = 'pairing_devices'")
-                .fetch_optional(store.pool())
-                .await
-                .expect("the schema is readable");
+        assert_eq!(applied, vec![1, 2, 3, 4, 6]);
+
+        let tables: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM sqlite_master \
+             WHERE type = 'table' AND name IN ('pairing_devices', 'providers', 'configured_providers') \
+             ORDER BY name ASC",
+        )
+        .fetch_all(store.pool())
+        .await
+        .expect("the schema is readable");
         assert_eq!(
-            pairing_table, None,
-            "the async migrator created a table the settings schema owns"
+            tables,
+            vec![
+                "configured_providers".to_string(),
+                "pairing_devices".to_string(),
+                "providers".to_string(),
+            ],
+            "the settings tables and the async schema's `providers` share one file"
         );
     }
 
