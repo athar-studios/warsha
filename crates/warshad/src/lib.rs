@@ -6035,7 +6035,17 @@ fn origin_is_loopback(origin: &str) -> bool {
 /// remote meta can be the same bytes; without them both directives fall back to
 /// `default-src 'self'`, which would let same-origin plugin content and a same-origin
 /// `<base>` override stand.
-pub const REMOTE_CSP: &str = "default-src 'self' data: blob:; script-src 'self' data: blob:; style-src 'self' data: blob: 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:8765 ws://127.0.0.1:8766 http://localhost:8765 ws://localhost:8766; frame-ancestors 'none'; form-action 'self'; object-src 'none'; base-uri 'self';";
+///
+/// `script-src` names `'self'` and nothing else. It carried `data:` and `blob:` until R-KEEL
+/// checkpoint row 15 measured what that admits: a document able to mint a `blob:`/`data:`
+/// URL could run script from it, which is the inline hole the absent `'unsafe-inline'` was
+/// meant to keep shut. Nothing in the bundle loads script or a worker through either scheme
+/// — the one worker registered is `/sw.js`, a same-origin URL, and a worker's script is
+/// bounded by `worker-src` falling back to `script-src`, so `script-src 'self'` covers it. The
+/// schemes stay in `img-src` (the pairing QR is a `data:image/png`, an artifact export is a
+/// `blob:`) and in `style-src`, where they are governed by those directives and not by this
+/// one.
+pub const REMOTE_CSP: &str = "default-src 'self' data: blob:; script-src 'self'; style-src 'self' data: blob: 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:8765 ws://127.0.0.1:8766 http://localhost:8765 ws://localhost:8766; frame-ancestors 'none'; form-action 'self'; object-src 'none'; base-uri 'self';";
 
 /// The daemon's HTTP surface, assembled once so the listener and the test that asserts
 /// its headers drive the same app.

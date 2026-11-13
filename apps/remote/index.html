@@ -49,9 +49,14 @@
       the daemon's middleware; it is kept here so the two strings read the same. `object-src 'none'`
       and `base-uri 'self'` are stated rather than inherited from `default-src 'self'`: they are what
       refuses plugin content and a `<base>` override outright. `'unsafe-inline'`/`'unsafe-eval'` are
-      absent from `script-src` in every copy and must stay absent.
+      absent from `script-src` in every copy and must stay absent, and `data:`/`blob:` are absent
+      from it too (R-KEEL checkpoint row 15): a document able to mint one of those URLs could run
+      script from it, which is the inline hole the absence of `'unsafe-inline'` exists to shut. The
+      schemes stay in `img-src` (the pairing QR is a `data:image/png`) and `style-src`; the one
+      worker this bundle registers is `/sw.js`, a same-origin URL, and a worker's script is bounded
+      by `worker-src` falling back to `script-src`, so `script-src 'self'` covers it.
     -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' data: blob:; style-src 'self' data: blob: 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:8765 ws://127.0.0.1:8766 http://localhost:8765 ws://localhost:8766; frame-ancestors 'none'; form-action 'self'; object-src 'none'; base-uri 'self';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self'; style-src 'self' data: blob: 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:8765 ws://127.0.0.1:8766 http://localhost:8765 ws://localhost:8766; frame-ancestors 'none'; form-action 'self'; object-src 'none'; base-uri 'self';">
   </head>
   <body>
     <div id="root"></div>

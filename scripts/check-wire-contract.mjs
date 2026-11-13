@@ -57,7 +57,10 @@
 // daemon serves that bundle, so the header and the tag are one policy); the webview's JSON-embedded
 // copy is compared at DIRECTIVE level, because it legitimately names the `ipc:` and wildcard-loopback
 // sources Tauri adds; and all three must state `object-src 'none'`, `base-uri 'self'` and
-// `frame-ancestors 'none'`, with no `'unsafe-inline'`/`'unsafe-eval'` in `script-src`. It exists
+// `frame-ancestors 'none'`, with no `'unsafe-inline'`/`'unsafe-eval'` in `script-src` and no
+// `data:`/`blob:` there either (row 15: a document that can mint one of those URLs can run script
+// from it, so the schemes re-open the hole the missing `'unsafe-inline'` was supposed to shut —
+// they stay in `img-src`/`style-src`, which this check does not narrow). It exists
 // because R-KEEL checkpoint row 8 measured the three strings drifting — `object-src`/`base-uri` were
 // in tauri.conf.json only, so the daemon and the meta fell back to `default-src 'self'` — while a
 // comment in each of them said the strings "read the same". A comment is not a check.
@@ -961,7 +964,11 @@ function run(root, opts = {}) {
     ['base-uri', "'self'"],
     ['frame-ancestors', "'none'"],
   ];
-  const forbiddenSources = ["'unsafe-inline'", "'unsafe-eval'"];
+  // The sources that undo `script-src`: the two inline/eval keywords, and the two schemes a
+  // document can mint for itself (row 15 — `data:`/`blob:` are script reached through a URL the
+  // page builds, so they re-admit what `'unsafe-inline'` would). Only `script-src` is narrowed:
+  // both schemes remain legal in `img-src` and `style-src`, where the uses actually live.
+  const forbiddenSources = ["'unsafe-inline'", "'unsafe-eval'", 'data:', 'blob:'];
   for (const [label, file, parsed] of cspSurfaces) {
     if (parsed === null) continue;
     const directives = parseCspDirectives(parsed.policy);
@@ -994,7 +1001,7 @@ function run(root, opts = {}) {
           'W11',
           file,
           parsed.line,
-          `the ${label} CSP admits ${forbidden} in script-src (the inline/eval hole every surface refuses)`
+          `the ${label} CSP admits ${forbidden} in script-src (a source that re-admits the script the inline/eval rule keeps shut)`
         );
       }
     }
@@ -1571,6 +1578,20 @@ const MUTATIONS = [
       // `'unsafe-inline'` in script-src is the hole the whole policy exists to keep shut; it is
       // refused on every surface, not only where the daemon sends a header.
       f[REMOTE_INDEX_FILE] = f[REMOTE_INDEX_FILE].replace("script-src 'self';", "script-src 'self' 'unsafe-inline';");
+    },
+  },
+  {
+    name: 'csp-script-src-readmits-blob',
+    ids: ['W11'],
+    expect: /desktop webview CSP admits blob: in script-src/,
+    mutate: (f) => {
+      // Row 15's shape, planted on all three surfaces so byte parity stays intact and the
+      // forbidden-source rule is the only thing that can catch it: a document able to mint a
+      // `blob:` URL would run script from it. The webview is the surface named in `expect`, which
+      // is what proves the rule reaches the JSON-embedded copy too.
+      for (const file of [DAEMON_FILE, REMOTE_INDEX_FILE, TAURI_CONF_FILE]) {
+        f[file] = f[file].replace("script-src 'self';", "script-src 'self' blob:;");
+      }
     },
   },
 ];

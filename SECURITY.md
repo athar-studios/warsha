@@ -104,13 +104,17 @@ Subscriptions are supported **only** by:
   app itself produces. The canonical string (`crates/warshad/src/lib.rs`, `REMOTE_CSP`) is:
 
   ```text
-  default-src 'self' data: blob:; script-src 'self' data: blob:; style-src 'self' data: blob: 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:8765 ws://127.0.0.1:8766 http://localhost:8765 ws://localhost:8766; frame-ancestors 'none'; form-action 'self'; object-src 'none'; base-uri 'self';
+  default-src 'self' data: blob:; script-src 'self'; style-src 'self' data: blob: 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:8765 ws://127.0.0.1:8766 http://localhost:8765 ws://localhost:8766; frame-ancestors 'none'; form-action 'self'; object-src 'none'; base-uri 'self';
   ```
 
   `object-src 'none'` and `base-uri 'self'` are stated rather than left to `default-src 'self'`, so
   same-origin plugin content and a same-origin `<base>` override are refused. `'unsafe-inline'` and
   `'unsafe-eval'` are absent from `script-src`; the one `'unsafe-inline'` is in `style-src`, for Vite's
-  dev-server HMR `<style>` injection.
+  dev-server HMR `<style>` injection. `data:` and `blob:` are absent from `script-src` too: a document that
+  can mint one of those URLs could run script from it, which re-opens the hole the missing `'unsafe-inline'`
+  keeps shut. The schemes remain in `img-src` (the pairing QR is a `data:image/png`) and `style-src`, where
+  they are governed by those directives; the one worker the remote bundle registers is `/sw.js`, a
+  same-origin URL, and a worker's script is bounded by `worker-src` falling back to `script-src`.
 - **There is no TLS in the daemon.** No `rustls`, `openssl` or `native-tls` dependency exists anywhere under
   `crates/`, so `warshad` serves no `https://` or `wss://` listener. What *is* implemented is a transport
   rule for the endpoints the daemon **dials out to** — MCP servers, provider APIs, a relay: `https`/`wss` are
