@@ -89,6 +89,28 @@ Subscriptions are supported **only** by:
   whatever the profile directory grants.
 - Inbound requests are rate-limited per verified identity, and the answer past a ceiling carries a
   `Retry-After` (`crates/warshad/src/lib.rs:953`, `:2189`).
+- **One Content-Security-Policy, on every answer the routes and the bundle produce.** The HTTP listener's
+  middleware puts the same policy on `/health`, `/events`, the static bundle and the SPA fallback —
+  together with `X-Content-Type-Options: nosniff` and `X-Frame-Options: DENY` (the half of
+  `frame-ancestors` a `<meta>` tag cannot state for itself). The one answer that does not carry it is a
+  refusal the auth layer writes itself (its 401 and its 429): that layer sits outside the CSP layer so a
+  preflight is answered before authentication, and the refusal is JSON. `apps/remote/index.html` declares
+  the identical bytes in its `<meta http-equiv="Content-Security-Policy">`, and the desktop webview
+  carries the same directives in `apps/desktop/src-tauri/tauri.conf.json` — its copy is JSON-embedded and
+  names the `ipc:` and wildcard-loopback sources Tauri adds, so that surface is directive-level parity,
+  not byte parity. The parity is checked, not asserted in prose: `scripts/check-wire-contract.mjs` reads
+  all three surfaces and fails on a drifted directive, and the in-crate test
+  `the_http_listener_sends_the_canonical_csp_and_framing_headers` reads the headers off a response the
+  app itself produces. The canonical string (`crates/warshad/src/lib.rs`, `REMOTE_CSP`) is:
+
+  ```text
+  default-src 'self' data: blob:; script-src 'self' data: blob:; style-src 'self' data: blob: 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:8765 ws://127.0.0.1:8766 http://localhost:8765 ws://localhost:8766; frame-ancestors 'none'; form-action 'self'; object-src 'none'; base-uri 'self';
+  ```
+
+  `object-src 'none'` and `base-uri 'self'` are stated rather than left to `default-src 'self'`, so
+  same-origin plugin content and a same-origin `<base>` override are refused. `'unsafe-inline'` and
+  `'unsafe-eval'` are absent from `script-src`; the one `'unsafe-inline'` is in `style-src`, for Vite's
+  dev-server HMR `<style>` injection.
 - **There is no TLS in the daemon.** No `rustls`, `openssl` or `native-tls` dependency exists anywhere under
   `crates/`, so `warshad` serves no `https://` or `wss://` listener. What *is* implemented is a transport
   rule for the endpoints the daemon **dials out to** — MCP servers, provider APIs, a relay: `https`/`wss` are

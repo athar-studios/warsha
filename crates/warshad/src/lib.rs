@@ -5948,6 +5948,109 @@ fn origin_is_loopback(origin: &str) -> bool {
     host.parse::<IpAddr>().is_ok_and(|addr| addr.is_loopback())
 }
 
+/// The canonical Content-Security-Policy: the one string the daemon's HTTP routes and its
+/// static bundle answer with, and the one `apps/remote/index.html` declares in its
+/// `<meta http-equiv="Content-Security-Policy">`.
+///
+/// Three surfaces carry this policy and they are held to it as one rule set:
+/// this daemon (the header, [`REMOTE_CSP`]), the remote bundle (the meta tag) and the
+/// desktop webview (`apps/desktop/src-tauri/tauri.conf.json`, whose JSON-embedded copy
+/// differs only in the sources Tauri adds — `ipc:` and the wildcard loopback ports).
+/// The parity is not a comment: `scripts/check-wire-contract.mjs` reads all three and
+/// fails on a drifted directive, and the in-crate test
+/// `the_http_listener_sends_the_canonical_csp_and_framing_headers` asserts this exact
+/// string on a real response. `object-src 'none'` and `base-uri 'self'` are last so the
+/// remote meta can be the same bytes; without them both directives fall back to
+/// `default-src 'self'`, which would let same-origin plugin content and a same-origin
+/// `<base>` override stand.
+pub const REMOTE_CSP: &str = "default-src 'self' data: blob:; script-src 'self' data: blob:; style-src 'self' data: blob: 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:8765 ws://127.0.0.1:8766 http://localhost:8765 ws://localhost:8766; frame-ancestors 'none'; form-action 'self'; object-src 'none'; base-uri 'self';";
+
+/// The daemon's HTTP surface, assembled once so the listener and the test that asserts
+/// its headers drive the same app.
+///
+/// In layer order, outermost first: CORS (a browser preflight carries no `Authorization`
+/// header, so it has to be answered before the auth layer refuses it), the auth/ceiling
+/// layer (a bounded answer for every route, a verified caller for every route but
+/// `/health`), and the CSP/framing headers, applied closest to the routes so every answer
+/// the handlers and the static fallback produce carries [`REMOTE_CSP`]. A refusal the auth
+/// layer writes itself (its 401 and its 429) is the one answer that does not pass through
+/// them — it is JSON, and it is the documented order rather than an oversight.
+fn http_app(state: Arc<DaemonState>) -> Router {
+    // The same origin list as the RPC server, from the configuration the state carries.
+    let cors = CorsLayer::new()
+        .allow_origin(
+            state
+                .config
+                .allowed_origins
+                .iter()
+                .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
+                .collect::<Vec<axum::http::HeaderValue>>(),
+        )
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    // CSP middleware: [`REMOTE_CSP`] is the policy, byte for byte the one
+    // `apps/remote/index.html` declares in its `<meta http-equiv="Content-Security-Policy">`,
+    // so a bundle served from here with or without that tag is held to one rule set, and
+    // `apps/desktop/src-tauri/tauri.conf.json` carries the same directives for the
+    // webview. The rule set is canonical in one place on purpose: it was documented as
+    // "the same" while the daemon and the meta were missing `object-src 'none'` and
+    // `base-uri 'self'` (R-KEEL checkpoint rows 8 and 9), and a comment is not a check —
+    // `scripts/check-wire-contract.mjs` now reads all three surfaces and refuses a
+    // drifted directive. The fonts are the ones bundled by `@warsha/ui/v3/fonts.css`
+    // (`@fontsource/ibm-plex-sans-arabic` and `@fontsource/ibm-plex-mono`, owner
+    // decision OD-U2 = A), so `font-src 'self'` is all they need. `style-src` keeps
+    // 'unsafe-inline' because Vite's dev server injects `<style>` tags for HMR; the
+    // built bundle's React `style` props are CSSOM writes, which CSP does not govern.
+    // `connect-src` keeps the loopback pairs for a bundle served elsewhere (Vite dev,
+    // the desktop) and `'self'` covers the daemon's own origin, including the `ws:`
+    // upgrade of it.
+    let csp_middleware = tower::ServiceBuilder::new().map_response(|mut response: Response| {
+        if let Ok(header_value) = HeaderValue::from_str(REMOTE_CSP) {
+            response
+                .headers_mut()
+                .insert("Content-Security-Policy", header_value);
+        }
+        // The policy above is the only script source; stop the webview from
+        // second-guessing a response's content type.
+        if let Ok(header_value) = HeaderValue::from_str("nosniff") {
+            response
+                .headers_mut()
+                .insert("X-Content-Type-Options", header_value);
+        }
+        // `frame-ancestors` is ignored in a meta tag, so this is the half of the
+        // framing rule a document cannot state for itself.
+        if let Ok(header_value) = HeaderValue::from_str("DENY") {
+            response
+                .headers_mut()
+                .insert("X-Frame-Options", header_value);
+        }
+        response
+    });
+
+    // Auth middleware: a bounded ceiling on every route, and a verified bearer token
+    // on every route except /health (security audit H-01, H-03, H-04).
+    let auth_middleware = axum::middleware::from_fn_with_state(state.clone(), auth_handler_inner);
+
+    // `/health` and `/events` are real routes, so they match before any fallback and
+    // keep their existing handlers whatever the static surface does; `/rpc` lives on
+    // the other listener and is refused from the static path by name
+    // ([`is_reserved_static_path`]). The fallback is mounted only when a bundle is
+    // configured: with none, an unmatched path 404s exactly as it did before.
+    let app = Router::new()
+        .route("/health", get(health_handler))
+        .route("/events", get(events_handler));
+    let app = if state.config.remote_assets_dir.is_some() {
+        app.fallback(static_asset_handler)
+    } else {
+        app
+    };
+    app.layer(csp_middleware)
+        .layer(auth_middleware)
+        .layer(cors)
+        .with_state(state)
+}
+
 /// Start the daemon and return a handle for management.
 /// Accepts `http_port` and `ws_port` of 0 to let the OS choose ports.
 pub async fn start_daemon(config: DaemonConfig) -> Result<DaemonHandle> {
@@ -6304,63 +6407,10 @@ pub async fn start_daemon_with_provider_factory(
         SocketAddr::new(bind, actual_rpc_port)
     );
 
-    // Start HTTP/WebSocket server. The same origin list as the RPC server, parsed above.
-    let cors = CorsLayer::new()
-        .allow_origin(allowed_origins)
-        .allow_methods(Any)
-        .allow_headers(Any);
-
-    // CSP middleware: the policy below is the one `apps/remote/index.html` declares in
-    // its `<meta http-equiv="Content-Security-Policy">`, so a bundle served from here
-    // with or without that tag is held to one rule set. The fonts are the ones bundled
-    // by `@warsha/ui/v3/fonts.css` (`@fontsource/ibm-plex-sans-arabic` and
-    // `@fontsource/ibm-plex-mono`, owner decision OD-U2 = A), so `font-src 'self'` is
-    // all they need. `style-src` keeps 'unsafe-inline' because Vite's dev server
-    // injects `<style>` tags for HMR; the built bundle's React `style` props are CSSOM
-    // writes, which CSP does not govern. `connect-src` keeps the loopback pairs for a
-    // bundle served elsewhere (Vite dev, the desktop) and `'self'` covers the daemon's
-    // own origin, including the `ws:` upgrade of it.
-    let csp_middleware = tower::ServiceBuilder::new()
-        .map_response(|mut response: Response| {
-            let csp_value = "default-src 'self' data: blob:; script-src 'self' data: blob:; style-src 'self' data: blob: 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:8765 ws://127.0.0.1:8766 http://localhost:8765 ws://localhost:8766; frame-ancestors 'none'; form-action 'self';";
-            if let Ok(header_value) = HeaderValue::from_str(csp_value) {
-                response.headers_mut().insert("Content-Security-Policy", header_value);
-            }
-            // The policy above is the only script source; stop the webview from
-            // second-guessing a response's content type.
-            if let Ok(header_value) = HeaderValue::from_str("nosniff") {
-                response.headers_mut().insert("X-Content-Type-Options", header_value);
-            }
-            // `frame-ancestors` is ignored in a meta tag, so this is the half of the
-            // framing rule a document cannot state for itself.
-            if let Ok(header_value) = HeaderValue::from_str("DENY") {
-                response.headers_mut().insert("X-Frame-Options", header_value);
-            }
-            response
-        });
-
-    // Auth middleware: a bounded ceiling on every route, and a verified bearer token
-    // on every route except /health (security audit H-01, H-03, H-04).
-    let auth_middleware = axum::middleware::from_fn_with_state(state.clone(), auth_handler_inner);
-
-    // `/health` and `/events` are real routes, so they match before any fallback and
-    // keep their existing handlers whatever the static surface does; `/rpc` lives on
-    // the other listener and is refused from the static path by name
-    // ([`is_reserved_static_path`]). The fallback is mounted only when a bundle is
-    // configured: with none, an unmatched path 404s exactly as it did before.
-    let app = Router::new()
-        .route("/health", get(health_handler))
-        .route("/events", get(events_handler));
-    let app = if state.config.remote_assets_dir.is_some() {
-        app.fallback(static_asset_handler)
-    } else {
-        app
-    };
-    let app = app
-        .layer(csp_middleware)
-        .layer(auth_middleware)
-        .layer(cors)
-        .with_state(state.clone());
+    // The HTTP/WebSocket app: its routes, the static fallback, the CSP and framing headers
+    // and the auth/ceiling layer, assembled by [`http_app`] so the listener and the test
+    // that asserts those headers drive exactly one app.
+    let app = http_app(state.clone());
 
     // The same host as the RPC listener: a phone that can reach one must be able to
     // reach the other, and a daemon split across a loopback and a LAN address would be a
@@ -11403,6 +11453,7 @@ mod tests {
                 .all(|connection| !connection.status.is_connected()));
         }
     }
+
 }
 
 #[cfg(test)]
