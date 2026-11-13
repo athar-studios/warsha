@@ -29,17 +29,19 @@ Date: 2026-11-13. Owner: Mohamed. Report in Arabic; code/docs/commits/PRs in Eng
 
 ## Exact next 3 commands
 
-1. `git push warsha-dev repair/dev-csp-f474776` (push the repair branch to the private remote).
-2. `gh pr create -R athar-studios/warsha-dev --base dev --head repair/dev-csp-f474776 --draft --title "fix: repair dev after f474776 (CSP restore + gates green + CI portability)" --body-file <drafted>` (open the draft PR).
-3. `gh pr checks <n> -R athar-studios/warsha-dev --watch` (CI green incl. macOS/Windows Install cargo-deny legs) → report to owner → merge non-force only when gates + CI + Reviewer APPROVE are green.
+1. `gh run list -R athar-studios/warsha-dev --limit 2` (check whether billing was fixed; if yes, `gh workflow run ci.yml -R athar-studios/warsha-dev --ref repair/dev-csp-f474776` and watch for green, then merge PR #2 non-force).
+2. R-KEEL audit in flight: on settle, `delegation_review` + read `docs/zadloop/packets/R-KEEL-audit.md`; dispatch implementation packets for whatever K1/K2/K3 gaps it proves.
+3. Present the owner bundle: billing fix (or CI-on-public-repo approval, or proceed-local-only), CodeQL/GHAS enablement (paid, private repo), Renovate decisions per R0-3 (#14→#12 merge-after-green; #13/#16 close-with-successor; #5 upgrade-vs-delete the dead `gix` line).
 
 ## Open blockers / owner questions
 
-1. Renovate decisions (owner-gated): #14 → #12 merge order after R0-2; #13 close-with-successor `R1-DEPS-vitest4`; #16 close-with-successor `R1-DEPS-split`; #5 upgrade-vs-delete the dead `gix` declaration.
-2. Public/private `dev` reconciliation (owner decision; both tips are stale vs our branch).
-3. `cp5-stub-scan.sh` provenance: absent from this tree; retire the baseline or restore the script (PM decision pending owner input).
-4. No authorised Windows runner for the Windows ACL execution path; no staging env; no signing certs — stay BLOCKED when reached.
-5. No publish/tag/release/force-push without separate approval (OD-P1 promotion only at R-FIN).
+1. **CI billing (BLOCKING the R0-FIX merge)**: run `43417968261` on `4b2aac9` started no jobs — "recent account payments have failed or your spending limit needs to be increased". Owner must fix billing/limit (§7 spending — agent cannot decide). Alternatives offered: fix billing (recommended); run CI on the public repo (free minutes + CodeQL, but exposes the unpushed dev history publicly — visibility decision); or proceed on local gates only.
+2. CodeQL ×2 on the private repo: "Advanced Security must be enabled" — paid on private repos, pre-existing on every historical private run, passing on the public repo. Owner decision.
+3. Renovate decisions (owner-gated, per R0-3 evidence): #14 → #12 merge-after-green; #13 close-with-successor `R1-DEPS-vitest4`; #16 close-with-successor `R1-DEPS-split`; #5 upgrade-vs-delete the dead `gix` declaration.
+4. Public/private `dev` reconciliation (owner decision; both tips stale vs the repair branch).
+5. `cp5-stub-scan.sh` provenance: absent from this tree; retire the baseline or restore the script.
+6. No authorised Windows runner for the Windows ACL execution path; no staging env; no signing certs — stay BLOCKED when reached.
+7. No publish/tag/release/force-push without separate approval (OD-P1 promotion only at R-FIN).
 
 ## Lane health
 
