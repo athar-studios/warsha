@@ -1,5 +1,12 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-13 — R0-1 validation of da7732c: PASS (Tester lane, PM-verified)
+
+- **Delivered**: `docs/zadloop/packets/R0-1-report.md` (worktree `zl-r0-1-validate` @ `da7732c`). Disposition: replace `f474776` on `dev` with the `da7732c` tree under owner approval — the owner already picked `da7732c` as the R0-FIX base.
+- **Measured (PM re-ran every gate in the worktree and saw it pass)**: tree equality `467594a^{tree}` == `f474776^{tree}` == `324482701dec1d2ba0310450898e0acf67a662de`; lib.rs 12197/8997/12330 lines at `f0920e9`/`f474776`/`da7732c`; diff `f0920e9..da7732c` = exactly 7 paths, the 4 product files +150/−4; lib.rs delta exactly 5 hunks; fonts grep 0, tauri unsafe grep 0, `Content-Security-Policy` count 2, `Win32_Security_Authorization` count 1; `cargo check -p warshad`, `cargo check --workspace`, `cargo clippy -p warshad --all-targets -- -D warnings`, `cargo fmt --all --check` all exit 0; `check-arch.mjs` 5 rules 0 violations; `gitleaks` no leaks (367 commits); CSP meta/header byte-identity re-verified by PM with `cmp` (301 chars).
+- **Not in R0-1's gate set**: full `cargo test --workspace` and the pnpm gates (they are R0-2's B1–B12); Windows ACL execution (no authorised runner — known BLOCKED, do not fake).
+- **Next**: R0-2 (Coder, gates green on the repair tree) ∥ R0-3 (Fast, Renovate triage reading) dispatched in parallel with disjoint scopes; PR/CI steps follow PM review.
+
 ## Run 2026-11-13 — ZadLoop Delegate session: Phase 0 recon, R0-FIX packets, owner picks da7732c (PM)
 
 - **Delivered**: `docs/zadloop/packets/` — R0-FIX packet specs (planner lane, read-only): `README.md` (index, base facts, R0-1 → (R0-2 ∥ R0-3) order) + `R0-1-validate-repair-and-reconcile.md` + `R0-2-baseline-gates-green.md` + `R0-3-renovate-triage.md`. Each = one logical change with file targets, out-of-scope, exact acceptance commands, constraints. PM-verified: 4 files present; `git diff --stat f0920e9..da7732c -- <4 CSP files>` = 150 insertions / 4 deletions exactly.
