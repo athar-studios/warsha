@@ -1347,6 +1347,12 @@ pub trait WarshaApi {
     #[method(name = "projects.get", with_extensions)]
     async fn get_project(&self, id: ProjectId) -> RpcResult<Project>;
 
+    // ENGINE E3: a project's repository is not only a `projects.create` argument.
+    // A project created without one can gain a repository later, as a project
+    // operation, instead of being stranded repo-less for good.
+    #[method(name = "projects.attach", with_extensions)]
+    async fn attach_project(&self, project_id: ProjectId, repo_path: String) -> RpcResult<Project>;
+
     #[method(name = "runs.start", with_extensions)]
     async fn start_run(&self, project_id: ProjectId, idea: String) -> RpcResult<Run>;
 
@@ -2673,6 +2679,62 @@ impl WarshaApiServer for WarshaRpc {
             .get_project(id)
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+    }
+
+    /// Attach an existing repository to a project (ENGINE E3).
+    ///
+    /// The path is validated with the same probe `create_run_worktree` runs before it
+    /// asks git for a checkout, so `projects.attach` cannot record a path that
+    /// `runs.start` would then fail (and cancel a run) on.
+    ///
+    /// A project that already names a repository is refused rather than overwritten:
+    /// re-attaching is a decision the owner makes on purpose, and a silent replacement
+    /// would move every future run of the project onto a different checkout while the
+    /// runs already started keep their old worktrees — the half-attach the E3 packet
+    /// forbids. Detaching first is the explicit route to a different repository.
+    async fn attach_project(
+        &self,
+        ext: &RpcExtensions,
+        project_id: ProjectId,
+        repo_path: String,
+    ) -> RpcResult<Project> {
+        self.authorize(ext, "projects.attach").await?;
+        let mut project = self
+            .state
+            .store
+            .get_project(project_id)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        if let Some(existing) = project
+            .repo_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+        {
+            return Err(ErrorObject::owned(
+                -32000,
+                format!(
+                    "project {} already has the repository `{existing}`; \
+                     it must be detached before another is attached",
+                    project_id.0
+                ),
+                None::<()>,
+            ));
+        }
+        let path = repo_path.trim();
+        warsha_pipeline::worktree::validate_repository(std::path::Path::new(path))
+            .await
+            .map_err(|e| {
+                ErrorObject::owned(-32000, format!("cannot attach `{path}`: {e}"), None::<()>)
+            })?;
+        project.repo_path = Some(path.to_string());
+        project.updated_at = Utc::now();
+        self.state
+            .store
+            .update_project(&project)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        Ok(project)
     }
 
     async fn start_run(
@@ -13280,6 +13342,133 @@ mod e3_wiring {
         let runs = store.list_runs(project.id).await.expect("the runs list");
         assert_eq!(runs.len(), 1);
         assert_eq!(runs[0].status, RunStatus::Cancelled);
+    }
+
+    // ---- P-E3: `projects.attach`.
+    //
+    // Before this RPC a project's repository could only be named at
+    // `projects.create` time, so a project created without one was stranded: no
+    // later operation could give it a checkout, and `runs.start`'s worktree path
+    // never ran for it. These tests are the three claims the RPC has to hold — the
+    // repository lands on the row, an unusable path is refused and changes nothing,
+    // and a project that already has one is not silently moved.
+
+    #[tokio::test]
+    async fn attaching_an_existing_repository_records_it_on_the_project() {
+        let temp = crate::test_util::fresh_tempdir();
+        let repo = tempfile::tempdir().expect("a repo dir");
+        git_repo(repo.path());
+        let (state, store) = crate::tests::test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+
+        // The shape `projects.create` always makes: no repository.
+        let project = rpc
+            .create_project(
+                &owner(),
+                "Attach Project".to_string(),
+                "Test".to_string(),
+                "en".to_string(),
+            )
+            .await
+            .expect("the project is created");
+        assert_eq!(project.repo_path, None);
+
+        let path = repo.path().display().to_string();
+        let attached = rpc
+            .attach_project(&owner(), project.id, path.clone())
+            .await
+            .expect("the repository attaches");
+        assert_eq!(attached.repo_path.as_deref(), Some(path.as_str()));
+
+        // The response is not the claim: the row carries the path, both through the
+        // read RPC and through the store a later `runs.start` reads it from.
+        let read_back = rpc
+            .get_project(&owner(), project.id)
+            .await
+            .expect("the project reads back");
+        assert_eq!(read_back.repo_path.as_deref(), Some(path.as_str()));
+        let stored = store
+            .get_project(project.id)
+            .await
+            .expect("the project row");
+        assert_eq!(stored.repo_path.as_deref(), Some(path.as_str()));
+    }
+
+    #[tokio::test]
+    async fn attaching_a_path_that_is_not_a_repository_is_refused_and_changes_nothing() {
+        let temp = crate::test_util::fresh_tempdir();
+        let plain = tempfile::tempdir().expect("a plain dir");
+        let missing = temp.path().join("no-such-repository");
+        let (state, store) = crate::tests::test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let project = rpc
+            .create_project(
+                &owner(),
+                "Attach Project".to_string(),
+                "Test".to_string(),
+                "en".to_string(),
+            )
+            .await
+            .expect("the project is created");
+
+        // A real directory that is not a git repository, and a path that is not there
+        // at all. Neither may attach, and neither may leave the row touched.
+        for path in [
+            plain.path().display().to_string(),
+            missing.display().to_string(),
+        ] {
+            let error = rpc
+                .attach_project(&owner(), project.id, path.clone())
+                .await
+                .expect_err("an unusable path is refused");
+            assert!(
+                error.to_string().contains(&path),
+                "the error names the refused path `{path}`: {error}"
+            );
+            let stored = store
+                .get_project(project.id)
+                .await
+                .expect("the project row");
+            assert_eq!(
+                stored.repo_path, None,
+                "a refused attach half-attached {path}"
+            );
+            assert_eq!(
+                stored.updated_at, project.updated_at,
+                "a refused attach touched the project row"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_project_that_already_has_a_repository_refuses_a_second_attach() {
+        let temp = crate::test_util::fresh_tempdir();
+        let first = tempfile::tempdir().expect("a first repo");
+        git_repo(first.path());
+        let second = tempfile::tempdir().expect("a second repo");
+        git_repo(second.path());
+        let (state, store) = crate::tests::test_state(temp.path()).await;
+        let project = project(Some(first.path().display().to_string()));
+        store.create_project(&project).await.expect("the project");
+        let rpc = WarshaRpc::new(state);
+
+        let error = rpc
+            .attach_project(&owner(), project.id, second.path().display().to_string())
+            .await
+            .expect_err("a project with a repository refuses a second one");
+        assert!(
+            error.to_string().contains("already has the repository"),
+            "the refusal says the project is already attached: {error}"
+        );
+
+        let stored = store
+            .get_project(project.id)
+            .await
+            .expect("the project row");
+        assert_eq!(
+            stored.repo_path, project.repo_path,
+            "the existing repository was overwritten"
+        );
     }
 }
 
