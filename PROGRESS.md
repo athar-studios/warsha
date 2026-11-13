@@ -1,5 +1,13 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-13 — R-KEEL K1/K2/K3 audit: DONE, no gaps (Planner lane, PM-verified)
+
+- **Delivered**: `docs/zadloop/packets/R-KEEL-audit.md` (worktree `zl-keel-audit` @ `4e974db`; PM-integrated). **Verdict: K1, K2, K3 are all DONE on this tree — no gaps, no closing packets needed.**
+- **PM verification**: read the enforcement points myself (`ensure_gate_decidable` at `crates/warsha-pipeline/src/gate_integrity.rs:15` — the audit corrected the packet's wrong crate attribution; `dispatch_chat` at `warsha-pipeline/src/lib.rs:824-848` — unrouted roles reach `NoProviderRouted`, the env-key path is a real env provider not a fake, `FakeProvider` only on explicit `WARSHA_LLM_PROVIDER=fake` opt-in; the per-run `state_lock` + cancel guard in `warshad` `runs.followup` at `lib.rs:4337-4338`) and re-ran the frozen gate tests myself, matching the audit's counts: gate_integrity 4/4, run_integrity 7/7, provider_truth 4/4, status_truth 6/6, runs_resume 4/4, cas 5/5 — all pass.
+- **Key evidence (from the audit, spot-verified)**: K1 — `ensure_gate_decidable` enforces gate-is-current + Running + Pending for all three ops; daemon `gates.approve/reject/changes` delegate with no bypass; artifact hash computed at decision time and stored on the `GateDecision` event. K2 — all six sub-items wired in the daemon (state_lock in advance + followup; CAS on followup and all pipeline advance/resume/cancel paths; real cancel with commit guard + followup refusal; `runs.resume` registered; changes→pause→resume-re-enters; restart recovery on startup). K3 — `MockRoutineRunner` is `#[cfg(test)]`-only; production uses `UnavailableRoutineRunner`; scout seams report `CatalogUnavailable`; `health` serves probed capabilities.
+- **Non-gap observations for other lanes**: `MockProvider` registered on the daemon path (explicit-routing only; label invites confusion); K1's hash binding is detection-evidence rather than prevention.
+- **Next**: the K4+K5+K6 checkpoint security review (Reviewer lane) is in flight — it completes the R-KEEL exit criteria; then R-SEC residuals.
+
 ## Run 2026-11-13 — R0-2b CI follow-up fixes: DONE; CI re-run BLOCKED on account billing (PM)
 
 - **Delivered**: `9e794f9` (fix(ci): quote `checksum_kind` literals — SC2209; Windows-form GITHUB_PATH via `cygpath -w`, fail-loud) + `af3023e` (test(bench): wait for the `data-ready` contract instead of racing it), merged at `4b2aac9`, pushed. PM-verified in the worktree: bench file 35/35; desktop suite 87 files / 729 tests; typecheck 0; PyYAML OK; `bash -n` OK on the extracted step script.
