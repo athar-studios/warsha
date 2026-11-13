@@ -513,13 +513,14 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         tier: Standard,
     },
     M {
+        // Retired by OD-E2: the row stays, because `authorize` running first is what
+        // makes the retirement answer a migration message instead of a policy error.
         method: "agent.turn",
         policy: Owner,
         tier: Spend,
     },
-    // A turn in one run's own loop and workspace. Owner, Spend: it is the same
-    // authority as agent.turn, only bound to a run instead of the daemon's single
-    // legacy conversation.
+    // A turn in one run's own loop and workspace: the one turn a daemon runs. Owner,
+    // Spend: it is the same authority as the retired agent.turn, bound to a run.
     M {
         method: "agent.turn_run",
         policy: Owner,
