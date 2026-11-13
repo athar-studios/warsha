@@ -2308,10 +2308,15 @@ mod tests {
             // No server named: the loop resolves test_srv by advertising the tool.
             let turn = agent_loop.run_turn(&call(None), &catalog()).await;
             assert!(!turn.tools[0].success);
+            // The distinguishing half (R-KEEL row 7): the `Ask` arm also fails and also
+            // leaves the transport alone, so without the denial message and the empty
+            // queue a check that fell to `Ask` would satisfy every assertion above.
+            assert!(turn.tools[0].output.contains("denied by MCP permission"));
             assert!(
                 mcp.calls().is_empty(),
                 "the auto-discovered call reached the transport"
             );
+            assert!(agent_loop.ask_queue.is_empty(), "deny must not ask");
         }
     }
 }
