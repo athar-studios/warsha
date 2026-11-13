@@ -384,6 +384,13 @@ impl CommandPolicy {
     }
 
     /// Judge a single program token against this policy.
+    ///
+    /// The allow-list match is on the token's **basename**, so `git`,
+    /// `/usr/local/bin/git` and `./git` are one program and `/tmp/whatever/npm`
+    /// is admitted with them. [`program_name`] states that rule, why it is
+    /// acceptable, and what would make it unacceptable (KEEL checkpoint
+    /// finding L10); the behaviour here is pinned by
+    /// `allowed_commands_and_paths_pass_policy_check`.
     pub fn check_program(&self, program_token: &str) -> Result<(), CommandPolicyError> {
         let trimmed = program_token.trim();
         if trimmed.is_empty() {
@@ -692,6 +699,42 @@ fn has_parent_traversal(program_token: &str) -> bool {
 
 /// Normalize a program token to its lowercase base binary name without Windows
 /// executable suffixes (`.exe`, `.cmd`, `.bat`), matching `warshad::auth`.
+///
+/// **The allow-list matches on this basename, and that is deliberate** (KEEL
+/// checkpoint finding L10). `check_program` admits a token when its basename is
+/// an allow-list entry, so `git`, `/usr/local/bin/git` and `./git` are one
+/// program, and `/tmp/whatever/npm` is admitted for the same reason: the
+/// allow-listed toolchains are resolved out of the owner's `PATH`, and the
+/// directory a `PATH` lookup lands in is not the daemon's to name. The pin for
+/// the rule is `allowed_commands_and_paths_pass_policy_check`, which asserts a
+/// quoted absolute path and `./git` both pass; changing the rule means changing
+/// that test first, on purpose.
+///
+/// Why the rule is acceptable as written:
+///
+/// - The allow-list bounds **which programs** run, not what an allow-listed
+///   program does with its own arguments: `node -e`, `npm run` and `cargo test`
+///   execute code the agent wrote by design (see `check_arguments`), so spelling
+///   one of those as a path grants nothing a bare name does not.
+/// - The executor's only write tool writes content inside its working directory
+///   and cannot set an executable bit (`agent_tools.rs`, `write_file`: the path
+///   goes through the same screen that refuses absolute paths and `..`, then a
+///   plain `std::fs::write`). A path-spelled allow-listed name is therefore a
+///   program that was already there where the owner put it, not one the agent
+///   authored. Overwriting a *pre-existing* executable whose basename matches an
+///   entry is the one way to put agent-authored code behind an allowed name, and
+///   it grants nothing the allow-list does not already grant for the reason
+///   above.
+/// - A `..` in the token is refused before this comparison
+///   (`has_parent_traversal`), so a basename match cannot climb out of the
+///   directory the token names.
+///
+/// What would make it unacceptable, and must be re-reviewed before it happens:
+/// a tool that can create an executable bit (a `chmod`, a copy of an existing
+/// binary, a downloaded artifact) — the agent could then author
+/// `/tmp/whatever/npm` itself; or an allow-list entry that is not a general
+/// code-executing toolchain, where substituting a different program for the named
+/// one would not be equivalent to what the entry already permits.
 pub(crate) fn program_name(command: &str) -> String {
     let trimmed = command.trim().trim_matches('"').trim_matches('\'');
     let name = trimmed
