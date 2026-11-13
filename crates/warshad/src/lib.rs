@@ -4849,11 +4849,27 @@ impl WarshaApiServer for WarshaRpc {
                 .map(|c| !c.trim().is_empty())
                 .unwrap_or(false)
         {
-            self.state
-                .mcp
-                .disconnect(&def.id)
-                .await
-                .map_err(|e| rpc_error(e.to_string()))?;
+            if let Err(error) = self.state.mcp.disconnect(&def.id).await {
+                // The mirror of the connect above, in the other direction (R-KEEL
+                // checkpoint row 16, the disable half): the row was persisted
+                // `disabled` before the child was stopped, so a disconnect that fails
+                // would leave it saying disabled with a live process behind it, and
+                // nothing re-derives that until the next toggle. Restore the state the
+                // row had before this call — and still return the disconnect's own
+                // error, which is the RPC's contract.
+                let rollback = if flipped {
+                    self.state.settings.toggle_plugin(&id).await.err()
+                } else {
+                    None
+                };
+                return Err(match rollback {
+                    None => rpc_error(error.to_string()),
+                    Some(rollback_error) => rpc_error(format!(
+                        "{error} (the row could not be put back the way it was: \
+                         {rollback_error})"
+                    )),
+                });
+            }
         }
         Ok(def)
     }
@@ -12017,6 +12033,183 @@ mod tests {
                     .enabled,
                 "a refused enable must not leave the pack stored as enabled"
             );
+        }
+
+        /// An MCP transport that is the real one except that its `disconnect` fails.
+        ///
+        /// A disconnect that genuinely fails has no natural seam on this side: the real
+        /// manager reports failure only when a live child will not die, which a test
+        /// cannot stage without a second principal. So the failure is injected at the
+        /// transport — the exact edge `toggle_plugin` calls — while `connect`,
+        /// `connect_with` and `list` stay the real manager, so the pack under test owns
+        /// a real, still-running child when the stop is refused.
+        struct FailingDisconnectMcp {
+            inner: Arc<dyn McpManager>,
+        }
+
+        #[async_trait]
+        impl McpManager for FailingDisconnectMcp {
+            async fn connect(
+                &self,
+                config: warsha_pipeline::mcp_transport::McpServerConfig,
+            ) -> std::result::Result<(), warsha_pipeline::McpTransportError> {
+                self.inner.connect(config).await
+            }
+
+            async fn connect_with(
+                &self,
+                config: warsha_pipeline::mcp_transport::McpServerConfig,
+                options: warsha_pipeline::mcp_transport::McpLaunchOptions,
+            ) -> std::result::Result<(), warsha_pipeline::McpTransportError> {
+                self.inner.connect_with(config, options).await
+            }
+
+            async fn disconnect(
+                &self,
+                name: &str,
+            ) -> std::result::Result<(), warsha_pipeline::McpTransportError> {
+                // The shape the real manager produces when `stop` is refused, so the
+                // error the RPC hands back is the one a genuine failure would give.
+                Err(warsha_pipeline::McpTransportError::Stop {
+                    name: name.to_string(),
+                    source: warsha_pipeline::ProcessError::Stop {
+                        id: name.to_string(),
+                        source: std::io::Error::new(
+                            std::io::ErrorKind::PermissionDenied,
+                            "the child would not die",
+                        ),
+                    },
+                })
+            }
+
+            async fn list(&self) -> Vec<McpConnection> {
+                self.inner.list().await
+            }
+
+            async fn send(
+                &self,
+                name: &str,
+                payload: &str,
+            ) -> std::result::Result<String, warsha_pipeline::McpTransportError> {
+                self.inner.send(name, payload).await
+            }
+
+            async fn call_tool(
+                &self,
+                name: &str,
+                tool: &str,
+                arguments: serde_json::Value,
+            ) -> std::result::Result<
+                warsha_pipeline::mcp::McpToolResult,
+                warsha_pipeline::McpTransportError,
+            > {
+                self.inner.call_tool(name, tool, arguments).await
+            }
+        }
+
+        /// R-KEEL checkpoint row 16, the disable half — the inverse of the connect lie
+        /// R-SEC-6 fixed: the row was persisted `disabled` *before* the child was
+        /// stopped, so a disconnect that failed left it marked disabled with a live
+        /// process behind it. It is still the caller's error, but the row goes back to
+        /// what it said before the call.
+        #[tokio::test]
+        async fn a_failed_disconnect_leaves_the_row_enabled() {
+            let temp = crate::test_util::fresh_tempdir();
+            let exe = test_binary();
+            let allowed = exe.clone();
+            // The transport the daemon is built with is the real manager over its own
+            // spawner — so the child below is a real process — behind the one seam that
+            // refuses the stop.
+            let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared_with_policy(
+                CommandPolicy::from_config(std::slice::from_ref(&allowed)),
+            );
+            let real: Arc<dyn McpManager> = Arc::new(InMemoryMcpManager::new(processes));
+            let failing: Arc<dyn McpManager> = Arc::new(FailingDisconnectMcp {
+                inner: real.clone(),
+            });
+            let (state, _store) = crate::tests::test_state_with_seams(
+                temp.path(),
+                move |config| {
+                    config.allowed_commands = vec![allowed];
+                },
+                None,
+                None,
+                Some(failing),
+            )
+            .await;
+            let rpc = WarshaRpc::new(state.clone());
+            let owner = owner_ext();
+            // The env probe exits unless it is marked; this one has to stay up and
+            // speak the protocol, which is what a stop can be refused against.
+            let manifest = serde_json::json!({
+                "name": "Connected MCP Plugin",
+                "transport": "stdio",
+                "command": exe,
+                "args": ["--exact", "tests::mcp_probe_server", "--ignored", "--nocapture"],
+                "enabled": false,
+            })
+            .to_string();
+            let installed = rpc
+                .install_plugin(&owner, manifest)
+                .await
+                .expect("the probe pack installs cleanly in disabled state");
+            assert!(!installed.enabled);
+
+            // Enabling brings up the real child the failed disconnect will leave running.
+            let toggled = rpc
+                .toggle_plugin(&owner, installed.id.clone(), true)
+                .await
+                .expect("the probe pack connects");
+            assert!(toggled.enabled);
+            let before = state
+                .mcp
+                .list()
+                .await
+                .into_iter()
+                .find(|connection| connection.config.name == installed.id)
+                .expect("the pack is connected");
+            assert!(before.status.is_connected(), "{before:?}");
+            assert!(before.process_id.is_some(), "{before:?}");
+
+            let err = rpc
+                .toggle_plugin(&owner, installed.id.clone(), false)
+                .await
+                .expect_err("a child that will not die must fail the disable");
+            assert_eq!(rpc_error_code(&err), -32000);
+            assert!(
+                err.message().contains("could not stop MCP server"),
+                "the caller gets the disconnect's own error, got: {}",
+                err.message()
+            );
+
+            let stored = state
+                .settings
+                .get_plugin(&installed.id)
+                .await
+                .expect("the catalog answers")
+                .expect("the row is still there");
+            assert!(
+                stored.enabled,
+                "a failed disconnect must put the row back to enabled, not leave it \
+                 disabled beside a live child"
+            );
+            let after = state
+                .mcp
+                .list()
+                .await
+                .into_iter()
+                .find(|connection| connection.config.name == installed.id)
+                .expect("the connection is still listed");
+            assert!(
+                after.status.is_connected(),
+                "the child that refused to die is still connected: {after:?}"
+            );
+            assert!(after.process_id.is_some(), "{after:?}");
+
+            // Leave nothing running: the real transport is what stops this child.
+            real.disconnect(&installed.id)
+                .await
+                .expect("the real transport stops the child");
         }
     }
 
