@@ -16,8 +16,9 @@ use std::path::{Path, PathBuf};
 
 use tempfile::TempDir;
 use warsha_store::{
-    SqliteStore, StoreError, StoredBackendKit, StoredCustomModel, StoredHarness, StoredIntegration,
-    StoredPairing, StoredPlugin, StoredPreference, StoredProvider, StoredRunMode, StoredSkill,
+    SettingsRepo, SqliteStore, StoreError, StoredBackendKit, StoredCustomModel, StoredHarness,
+    StoredIntegration, StoredPairing, StoredPlugin, StoredPreference, StoredProvider,
+    StoredRunMode, StoredSkill,
 };
 
 /// The marker [`StoredPairing`]'s `Debug` impl prints in place of the secret.
@@ -404,6 +405,205 @@ impl SettingsOps for SqliteStore {
 
     async fn delete_integration(&self, id: &str) -> Result<bool, StoreError> {
         SqliteStore::delete_integration(self, id)
+    }
+}
+
+impl SettingsOps for SettingsRepo {
+    async fn open(path: &str) -> Result<Self, StoreError> {
+        SettingsRepo::open(path).await
+    }
+
+    async fn migrate(&self) -> Result<(), StoreError> {
+        SettingsRepo::migrate(self).await
+    }
+
+    async fn tables(&self) -> Result<Vec<String>, StoreError> {
+        SettingsRepo::tables(self).await
+    }
+
+    async fn journal_mode(&self) -> Result<String, StoreError> {
+        sqlx::query_scalar::<_, String>("PRAGMA journal_mode")
+            .fetch_one(self.pool())
+            .await
+            .map_err(StoreError::from)
+    }
+
+    async fn save_preference(&self, preference: &StoredPreference) -> Result<(), StoreError> {
+        SettingsRepo::save_preference(self, preference).await
+    }
+
+    async fn load_preferences(
+        &self,
+        project_id: &str,
+    ) -> Result<Vec<StoredPreference>, StoreError> {
+        SettingsRepo::load_preferences(self, project_id).await
+    }
+
+    async fn save_backend_kit(&self, kit: &StoredBackendKit) -> Result<(), StoreError> {
+        SettingsRepo::save_backend_kit(self, kit).await
+    }
+
+    async fn load_backend_kit(
+        &self,
+        project_id: &str,
+    ) -> Result<Option<StoredBackendKit>, StoreError> {
+        SettingsRepo::load_backend_kit(self, project_id).await
+    }
+
+    async fn save_run_mode(&self, config: &StoredRunMode) -> Result<(), StoreError> {
+        SettingsRepo::save_run_mode(self, config).await
+    }
+
+    async fn load_run_mode(&self, mode: &str) -> Result<Option<StoredRunMode>, StoreError> {
+        SettingsRepo::load_run_mode(self, mode).await
+    }
+
+    async fn save_pairing(&self, pairing: &StoredPairing) -> Result<(), StoreError> {
+        SettingsRepo::save_pairing(self, pairing).await
+    }
+
+    async fn load_pairings(&self) -> Result<Vec<StoredPairing>, StoreError> {
+        SettingsRepo::load_pairings(self).await
+    }
+
+    async fn save_provider(&self, provider: &StoredProvider) -> Result<(), StoreError> {
+        SettingsRepo::save_provider(self, provider).await
+    }
+
+    async fn load_provider(&self, name: &str) -> Result<Option<StoredProvider>, StoreError> {
+        SettingsRepo::load_provider(self, name).await
+    }
+
+    async fn load_providers(&self) -> Result<Vec<StoredProvider>, StoreError> {
+        SettingsRepo::load_providers(self).await
+    }
+
+    async fn delete_provider(&self, name: &str) -> Result<bool, StoreError> {
+        SettingsRepo::delete_provider(self, name).await
+    }
+
+    async fn save_harness(&self, harness: &StoredHarness) -> Result<(), StoreError> {
+        SettingsRepo::save_harness(self, harness).await
+    }
+
+    async fn load_harness(&self, id: &str) -> Result<Option<StoredHarness>, StoreError> {
+        SettingsRepo::load_harness(self, id).await
+    }
+
+    async fn load_harnesses(&self) -> Result<Vec<StoredHarness>, StoreError> {
+        SettingsRepo::load_harnesses(self).await
+    }
+
+    async fn delete_harness(&self, id: &str) -> Result<bool, StoreError> {
+        SettingsRepo::delete_harness(self, id).await
+    }
+
+    async fn set_active_harness(
+        &self,
+        project_id: &str,
+        harness_id: &str,
+    ) -> Result<(), StoreError> {
+        SettingsRepo::set_active_harness(self, project_id, harness_id).await
+    }
+
+    async fn get_active_harness(&self, project_id: &str) -> Result<Option<String>, StoreError> {
+        SettingsRepo::get_active_harness(self, project_id).await
+    }
+
+    async fn clear_active_harness(&self, project_id: &str) -> Result<bool, StoreError> {
+        SettingsRepo::clear_active_harness(self, project_id).await
+    }
+
+    async fn save_skill(&self, skill: &StoredSkill) -> Result<(), StoreError> {
+        SettingsRepo::save_skill(self, skill).await
+    }
+
+    async fn load_skill(&self, id: &str) -> Result<Option<StoredSkill>, StoreError> {
+        SettingsRepo::load_skill(self, id).await
+    }
+
+    async fn load_skills(&self) -> Result<Vec<StoredSkill>, StoreError> {
+        SettingsRepo::load_skills(self).await
+    }
+
+    async fn delete_skill(&self, id: &str) -> Result<bool, StoreError> {
+        SettingsRepo::delete_skill(self, id).await
+    }
+
+    async fn toggle_skill(&self, id: &str) -> Result<Option<bool>, StoreError> {
+        SettingsRepo::toggle_skill(self, id).await
+    }
+
+    async fn save_plugin(&self, plugin: &StoredPlugin) -> Result<(), StoreError> {
+        SettingsRepo::save_plugin(self, plugin).await
+    }
+
+    async fn load_plugin(&self, id: &str) -> Result<Option<StoredPlugin>, StoreError> {
+        SettingsRepo::load_plugin(self, id).await
+    }
+
+    async fn load_plugins(&self) -> Result<Vec<StoredPlugin>, StoreError> {
+        SettingsRepo::load_plugins(self).await
+    }
+
+    async fn delete_plugin(&self, id: &str) -> Result<bool, StoreError> {
+        SettingsRepo::delete_plugin(self, id).await
+    }
+
+    async fn toggle_plugin(&self, id: &str) -> Result<Option<bool>, StoreError> {
+        SettingsRepo::toggle_plugin(self, id).await
+    }
+
+    async fn save_custom_model(&self, model: &StoredCustomModel) -> Result<(), StoreError> {
+        SettingsRepo::save_custom_model(self, model).await
+    }
+
+    async fn load_custom_model(
+        &self,
+        provider: &str,
+        model_id: &str,
+    ) -> Result<Option<StoredCustomModel>, StoreError> {
+        SettingsRepo::load_custom_model(self, provider, model_id).await
+    }
+
+    async fn load_custom_models(&self) -> Result<Vec<StoredCustomModel>, StoreError> {
+        SettingsRepo::load_custom_models(self).await
+    }
+
+    async fn delete_custom_model(
+        &self,
+        provider: &str,
+        model_id: &str,
+    ) -> Result<bool, StoreError> {
+        SettingsRepo::delete_custom_model(self, provider, model_id).await
+    }
+
+    async fn toggle_custom_model(
+        &self,
+        provider: &str,
+        model_id: &str,
+    ) -> Result<Option<bool>, StoreError> {
+        SettingsRepo::toggle_custom_model(self, provider, model_id).await
+    }
+
+    async fn save_integration(
+        &self,
+        integration: &StoredIntegration,
+        config_json: Option<&str>,
+    ) -> Result<(), StoreError> {
+        SettingsRepo::save_integration(self, integration, config_json).await
+    }
+
+    async fn load_integration(&self, id: &str) -> Result<Option<StoredIntegration>, StoreError> {
+        SettingsRepo::load_integration(self, id).await
+    }
+
+    async fn load_integrations(&self) -> Result<Vec<StoredIntegration>, StoreError> {
+        SettingsRepo::load_integrations(self).await
+    }
+
+    async fn delete_integration(&self, id: &str) -> Result<bool, StoreError> {
+        SettingsRepo::delete_integration(self, id).await
     }
 }
 
@@ -1264,6 +1464,90 @@ async fn integration_crud_round_trip<S: SettingsOps>() {
         .expect("delete again"));
 }
 
+/// The two stacks write one file without a lock error (P-E7 step 4).
+///
+/// While the synchronous store still exists and the async repository is being
+/// adopted, a daemon can hold both over `warsha.db`. This proves the pair WAL +
+/// busy timeout both `open`s set is enough: alternating writes land, each side
+/// reads the other's row, and neither call fails with `database is locked`.
+#[tokio::test]
+async fn the_rusqlite_store_and_the_async_repository_share_one_file() {
+    let dir = fresh_tempdir();
+    let path = fresh_db(&dir);
+
+    let sqlite = SqliteStore::open(&path).expect("the synchronous store opens");
+    sqlite.migrate().expect("the synchronous schema is applied");
+    let repo = SettingsRepo::open(&path)
+        .await
+        .expect("the async repository opens the same file");
+    repo.migrate().await.expect("the async schema is applied");
+
+    // Alternating writes: each connection has to wait for the other's lock at
+    // some point, which is what the five-second busy timeout is there for.
+    for index in 0..20_u32 {
+        sqlite
+            .save_preference(&preference(
+                &format!("signal-{index}"),
+                1.0,
+                1,
+                1_700_000_000,
+            ))
+            .expect("the synchronous write lands");
+        repo.save_preference(&preference(
+            &format!("reply-{index}"),
+            1.0,
+            1,
+            1_700_000_000,
+        ))
+        .await
+        .expect("the async write lands");
+    }
+    assert_eq!(
+        sqlite
+            .load_preferences("project-1")
+            .expect("the synchronous read works")
+            .len(),
+        40
+    );
+    assert_eq!(
+        repo.load_preferences("project-1")
+            .await
+            .expect("the async read works")
+            .len(),
+        40
+    );
+
+    // Each implementation reads a row the other wrote.
+    repo.save_backend_kit(&StoredBackendKit {
+        project_id: "project-1".to_string(),
+        kind: "pocket_base".to_string(),
+        url: "http://127.0.0.1:8090".to_string(),
+        config_json: "{}".to_string(),
+    })
+    .await
+    .expect("the async kit write lands");
+    assert_eq!(
+        sqlite
+            .load_backend_kit("project-1")
+            .expect("the synchronous read works")
+            .map(|kit| kit.kind),
+        Some("pocket_base".to_string())
+    );
+    sqlite
+        .save_run_mode(&StoredRunMode {
+            mode: "local".to_string(),
+            config_json: "{\"mode\":\"local\"}".to_string(),
+        })
+        .expect("the synchronous mode write lands");
+    assert_eq!(
+        repo.load_run_mode("local")
+            .await
+            .expect("the async read works")
+            .map(|config| config.config_json),
+        Some("{\"mode\":\"local\"}".to_string())
+    );
+}
+
 /// The pairing secret never prints, whichever implementation stored the row.
 #[test]
 fn debug_redacts_the_pairing_secret() {
@@ -1344,3 +1628,4 @@ macro_rules! every_case_for {
 }
 
 every_case_for!(rusqlite_backend, SqliteStore);
+every_case_for!(settings_repo_backend, SettingsRepo);

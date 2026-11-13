@@ -13,10 +13,11 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::migrate::MigrateDatabase;
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::info;
@@ -28,11 +29,13 @@ use warsha_core::{
 };
 
 mod persistence;
+mod settings;
 
 pub use persistence::{
     SqliteStore, StoredBackendKit, StoredCustomModel, StoredHarness, StoredIntegration,
     StoredPairing, StoredPlugin, StoredPreference, StoredProvider, StoredRunMode, StoredSkill,
 };
+pub use settings::SettingsRepo;
 
 /// Errors raised by the persistence layer.
 #[derive(Debug, Error)]
@@ -215,10 +218,17 @@ impl Store {
         }
         // Foreign keys are enforced per connection; without this the
         // `ON DELETE CASCADE` clauses in the migrations never fire.
+        //
+        // WAL and the five-second busy timeout are the settings repository's
+        // promises too (`persistence::SqliteStore::open`'s, before the two stacks
+        // became one): while both APIs write this file, a reader must not block
+        // the writer and a short lock must wait rather than fail the call.
         let options = SqliteConnectOptions::new()
             .filename(&db_path)
             .create_if_missing(true)
-            .foreign_keys(true);
+            .foreign_keys(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(Duration::from_secs(5));
         let pool = SqlitePoolOptions::new().connect_with(options).await?;
         Self::run_migrations(&pool).await?;
         // The bus outlives every subscriber: the receiver here is deliberately
@@ -290,6 +300,15 @@ impl Store {
     /// Borrow the underlying pool.
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
+    }
+
+    /// The settings repository over this store's pool.
+    ///
+    /// One pool per process, one file: the settings rows and the projects, runs
+    /// and events they configure are served by the same connections, so there is
+    /// no second connection story to keep in step.
+    pub fn settings(&self) -> SettingsRepo {
+        SettingsRepo::from_pool(self.pool.clone())
     }
 
     /// Path of the database file backing this store.
@@ -1191,6 +1210,31 @@ mod tests {
             ],
             "the settings tables and the async schema's `providers` share one file"
         );
+    }
+
+    /// [`Store::settings`] is the same pool, not a second connection story: a row
+    /// written through the repository is visible to a query on the store's own
+    /// pool, and the store's migrations created the table it writes to.
+    #[tokio::test]
+    async fn settings_write_through_the_stores_own_pool() {
+        let store = temp_store().await;
+        let settings = store.settings();
+        settings
+            .save_provider(&persistence::StoredProvider {
+                name: "open_router".to_string(),
+                kind: "open_router".to_string(),
+                api_base: None,
+                enabled: true,
+                created_at: 1_700_000_000,
+            })
+            .await
+            .expect("the settings write lands");
+
+        let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM configured_providers")
+            .fetch_one(store.pool())
+            .await
+            .expect("the store pool reads the settings table");
+        assert_eq!(rows, 1);
     }
 
     #[tokio::test]
