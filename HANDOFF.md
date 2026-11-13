@@ -4,44 +4,44 @@ Date: 2026-11-13. Owner: Mohamed. Report in Arabic; code/docs/commits/PRs in Eng
 
 ## Current milestone / packet
 
-- **R0-FIX in progress.** **R0-1 DONE** (PM-verified): `da7732c` validated — tree equality with the bad merge's side branch, exactly 5 lib.rs hunks, +150/−4 over 4 product files, cargo check/clippy/fmt green, arch 0 violations, gitleaks clean, CSP strings byte-identical. Report: `docs/zadloop/packets/R0-1-report.md`.
-- **Owner decision (2026-11-13)**: `da7732c` is the base. The previous uncommitted CSP state is preserved verbatim on `backup/csp-worktree-2026-11-13` (`56dd902`) — nothing discarded; PM review found zero hunks worth carrying (details in DECISIONS.md 2026-11-13).
-- In flight: **R0-2** (Coder, `.agents/worktrees/zl-r0-2-gates`): reproduce the 5 CI-red causes on OUR tree, fix what is ours, run the full local gate table, write `R0-2-report.md`. **R0-3** (Fast, `.agents/worktrees/zl-r0-3-triage`): read-only Renovate triage (#5/#12/#13/#14/#16) + gix analysis, write `R0-3-triage.md` with proposed decisions. No GitHub mutations in either.
+- **R0-FIX. R0-1 DONE** (da7732c validated, PM-verified). **R0-3 DONE** (Renovate triage reading phase, PM-verified). **R0-2 DONE** (gates green + ci.yml portability fix; independent review found a HIGH probe/production form drift → repaired at `43c3271` → closure re-review APPROVE → merged at `98d337a`).
+- Repair branch `repair/dev-csp-f474776` now at `55b657c` = `f474776` (broken remote merge) → `da7732c` (lib.rs restore + CSP delta) → docs/R0-1/R0-3/R0-2 commits. All local gates green at the R0-2 head: cargo 928/0/10, JS 1552, deny 0, arch/policy/wire 0 violations, gitleaks clean, verify-release 8/8.
+- **Next step**: push `repair/dev-csp-f474776` to the PRIVATE remote `warsha-dev` and open the draft PR vs `dev` there (dev @ warsha-dev = `f474776`, the broken merge — this PR is the repair). Then watch `gh pr checks` for the real macOS/Windows proof of the ci.yml fix. NEVER force-push; NEVER touch `main`; the public repo's dev/main stay untouched (reconciliation is an owner decision).
+- Then: Renovate decisions to the owner (per R0-3: #14/#12 merge-after-R0-2, #13/#16 close-with-successor, #5 hygiene-or-delete the dead `gix` line); then R-KEEL packets.
 
 ## Branches / worktrees in flight
 
 | What | Ref / path | SHA |
 |---|---|---|
-| Shared checkout | `repair/dev-csp-f474776` @ `/home/moe/Downloads/Warsha` | tip = docs commits on `da7732c` |
+| Shared checkout | `repair/dev-csp-f474776` @ `/home/moe/Downloads/Warsha` | `55b657c` |
 | Backup of owner's uncommitted CSP work | `backup/csp-worktree-2026-11-13` | `56dd902` (parent `f0920e9`) |
 | Local `dev` | `dev` (checked out at `~/Downloads/warsha-wt/keel/k5`) | `f0920e9` |
-| Bad merge to replace on dev | `f474776` | tree = `467594a` tree (content-less) |
-| R0-2 worktree | `.agents/worktrees/zl-r0-2-gates` | from repair tip |
-| R0-3 worktree | `.agents/worktrees/zl-r0-3-triage` | from repair tip |
-| Done worktrees (ask before removing) | `zl-r0-1-validate`, `zl-phase0-recon`, `zl-r0-packets` | — |
-
-Qoder-era worktrees under `~/Downloads/warsha-wt/` and `.qoder/worktrees/` untouched (ask Mohamed before removing any).
+| R0-2 branch (merged) | `zl-r0-2-gates` | `bc5bb16` |
+| Remote `warsha-dev` | `dev` = `f474776` (broken), `main` = `2f042d1` | — |
+| Remote `origin` (public) | `dev` = `15b99f9`, `main` = `939a173` | — |
+| Done worktrees (ask before removing) | `zl-r0-1-validate`, `zl-r0-3-triage`, `zl-phase0-recon`, `zl-r0-packets`, `zl-r0-1-validate/.../zl-r0-2-gates` (nested — accidental path, functional) | — |
 
 ## Verified vs claimed
 
-- **Verified by PM**: R0-1's full gate table re-run in the worktree (16/16 pass, counts recorded in PROGRESS.md); CSP byte-identity via `cmp`; backup commit `56dd902`; repair-branch switch + docs commits.
-- **Claimed (workers, re-earned by gates)**: R0-2's five-cause diagnosis and gate counts; R0-3's triage rows. Verify on settle.
-- **Not run yet**: full `cargo test --workspace` + pnpm suites on the repair tree (R0-2 runs them); any PR/CI cycle (after R0-2 review).
+- **Verified by PM**: R0-1 full gate table (16/16); R0-3 success commands + spot-checks (gix/deny/lint counts across refs); R0-2 full gate table re-run myself (cargo 928/0/10 from my own full log — the delegation_verify harness could not capture the long cargo-test command twice, recorded as exit-null; repaired by my own run; pnpm 1552 from my own log; all quick gates via delegation_verify); the ci.yml diff read in full at both `01d3401` and `43c3271`; YAML parse; merge `98d337a` clean.
+- **Verified by Reviewer lane (independent)**: the capability probe + escaping logic re-run against real GNU 9.12 / busybox 1.37.0 / uutils 0.10.0 / shasum 6.04 with old-code controls; fail-closed on every branch; structural invariants (one changed leaf, digests identical).
+- **Not run**: actionlint (absent); `cp5-stub-scan.sh` (absent from tree — stale doc mention); `pnpm visual` (out of scope); macOS/Windows CI legs (need the draft PR).
 
 ## Exact next 3 commands
 
-1. `delegation_wait` on the R0-2/R0-3 attempts.
-2. On settle: `delegation_review` each, read changed files, re-run their gate tables via `delegation_verify`.
-3. On R0-2 pass: PM pushes the feature branch to `warsha-dev`, opens the draft PR vs `dev`, watches `gh pr checks`; on R0-3 pass: record decisions in DECISIONS.md (merges stay owner-gated).
+1. `git push warsha-dev repair/dev-csp-f474776` (push the repair branch to the private remote).
+2. `gh pr create -R athar-studios/warsha-dev --base dev --head repair/dev-csp-f474776 --draft --title "fix: repair dev after f474776 (CSP restore + gates green + CI portability)" --body-file <drafted>` (open the draft PR).
+3. `gh pr checks <n> -R athar-studios/warsha-dev --watch` (CI green incl. macOS/Windows Install cargo-deny legs) → report to owner → merge non-force only when gates + CI + Reviewer APPROVE are green.
 
 ## Open blockers / owner questions
 
-1. No authorised Windows runner, no staging env, no signing certs — those items stay BLOCKED when reached (do not fake).
-2. No publish/tag/release/force-push without separate approval (OD-P1 promotion only at R-FIN).
-3. Renovate merges are owner gate decisions: prepare + propose only.
-4. The CI "leaks found: 1" on the public repo (main/dev @ 939a173/15b99f9) — R0-2 locates it; if it is a genuine credential it becomes an incident report for the owner (keys to rotate), never an allowlist entry.
+1. Renovate decisions (owner-gated): #14 → #12 merge order after R0-2; #13 close-with-successor `R1-DEPS-vitest4`; #16 close-with-successor `R1-DEPS-split`; #5 upgrade-vs-delete the dead `gix` declaration.
+2. Public/private `dev` reconciliation (owner decision; both tips are stale vs our branch).
+3. `cp5-stub-scan.sh` provenance: absent from this tree; retire the baseline or restore the script (PM decision pending owner input).
+4. No authorised Windows runner for the Windows ACL execution path; no staging env; no signing certs — stay BLOCKED when reached.
+5. No publish/tag/release/force-push without separate approval (OD-P1 promotion only at R-FIN).
 
 ## Lane health
 
-- Tester: healthy (R0-1 delivered + PM-verified). Coder: R0-2 in flight. Fast: R0-3 in flight. Planner/Debugger/Reviewer: idle.
-- Lane ids are passed as UUIDs (name strings are refused). `maxConcurrentAttempts` ≤ 3; `crates/warshad/src/lib.rs` serialised (R0-1 owned it; R0-2/R0-3 must not touch it).
+- Coder: healthy (R0-2 + repair; survived one transport fault via correction). Tester: healthy (R0-1). Fast: healthy (R0-3, deliverable survived a transport fault). Reviewer: healthy (found a real HIGH; closure re-review APPROVE). Planner: healthy (packets). Debugger: unused.
+- Lane ids passed as UUIDs (names refused). Transport faults (`EAI_AGAIN router.sayl.site`) hit twice ~11:20–13:30 local; network confirmed back before resuming. Evidence for workers: write under `target/` (persistent), never `/tmp` (ephemeral per call).
