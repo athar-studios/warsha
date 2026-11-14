@@ -6744,3 +6744,7 @@ hypotheses left in this triage.
 ## Run 2026-11-15 — R-UI-2 merged (run-ending controls reachable)
 - **R-UI-2** (branch `zl-rui2-run-controls`, 6 commits, merged clean): `HealthCapabilities.run_controls` additive (`#[serde(default)]`), honest probe (store run-version column + daemon), client decodes, UI single `canEndRuns`, both window back doors removed, e2e via health fixture + absent-controls cases. `lib.rs` untouched; wire surface additive-only.
 - Gates on merged tree (PM): fmt OK, clippy workspace clean, warshad 302/0 (new probe tests included), wire 11/0. Worker evidence: workspace 1055/0, pnpm lint/typecheck/test green, Playwright non-visual 286/0, actions/i18n 0, discrimination artifacts captured.
+
+## Run 2026-11-15 — R-UI-3 merged (D3/D2/D1 polish)
+- **R-UI-3** (branch `zl-rui3-polish`, 10 commits, merged clean as `4550721`): rem+unitless type scale (body ≥1.6), prop-less `dir="auto"`, defined keyframes honoring reduce, 2 Web Audio cues OFF-by-default in localStorage, press/Sheet/Stepper motion. Gates on merged tree (PM): actions 152/152/0, i18n 748/0, ds-v3 0, contrast all-ok. Worker evidence: ui 383/desktop 802, e2e non-visual 291/0, discrimination artifacts.
+- Known gaps (packet-anticipated, reported not papered): G1 cues don't fire for idle-window arrivals (needs subscription or Rust `run_finished` kind — R-EXT daemon-side candidate); G2 not audibly verified.
