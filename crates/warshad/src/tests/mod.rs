@@ -1,0 +1,5972 @@
+use super::*;
+use warsha_providers::InMemorySecretStore;
+
+#[test]
+fn the_default_backend_kit_comes_from_the_run_project() {
+    let kit = default_backend_kit("Shop");
+
+    assert_eq!(kit.config.kind, BackendKind::PocketBase);
+    assert_eq!(kit.config.url, LOCAL_POCKETBASE_URL);
+    // The project name, not the run id, names the export and its archive.
+    assert_eq!(kit.config.project_name, "Shop");
+    assert!(kit.config.enabled_features.is_empty());
+    assert!(kit.is_empty());
+    assert!(kit.export().sql_dump.contains("-- project: Shop"));
+}
+
+#[tokio::test]
+async fn test_config_generation() {
+    let temp_dir = crate::test_util::fresh_tempdir();
+    let config_path = temp_dir.path().join("config.toml");
+
+    let config = DaemonConfig {
+        data_dir: temp_dir.path().to_path_buf(),
+        auth_token: "test-token".to_string(),
+        ..Default::default()
+    };
+
+    let content = toml::to_string_pretty(&config).unwrap();
+    std::fs::write(&config_path, content).unwrap();
+
+    let loaded: DaemonConfig =
+        toml::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+    assert_eq!(loaded.auth_token, "test-token");
+}
+
+/// A daemon state over a temporary store, plus the store so a test can write
+/// the project and run the RPC reads.
+pub(super) async fn test_state(data_dir: &Path) -> (Arc<DaemonState>, Arc<Store>) {
+    test_state_with(data_dir, |_| {}).await
+}
+
+/// The same state with a configuration the test names.
+///
+/// `configure` runs before the sessions and the ceilings are built from the
+/// configuration, so a test that wants a command allowed by the process policy or
+/// a bucket small enough to overflow in one loop gets exactly that.
+async fn test_state_with(
+    data_dir: &Path,
+    configure: impl FnOnce(&mut DaemonConfig),
+) -> (Arc<DaemonState>, Arc<Store>) {
+    test_state_custom(data_dir, configure, None).await
+}
+
+async fn test_state_with_custom_settings(
+    data_dir: &Path,
+    settings: Arc<SettingsStore>,
+) -> (Arc<DaemonState>, Arc<Store>) {
+    test_state_custom(data_dir, |_| {}, Some(settings)).await
+}
+
+async fn test_state_custom(
+    data_dir: &Path,
+    configure: impl FnOnce(&mut DaemonConfig),
+    custom_settings: Option<Arc<SettingsStore>>,
+) -> (Arc<DaemonState>, Arc<Store>) {
+    test_state_with_seams(data_dir, configure, custom_settings, None, None).await
+}
+
+/// The same state with the two seams a repair test has to observe replaced.
+///
+/// `secrets` is what lets a test count keychain reads — R-KEEL row 5 says the
+/// refusal of a foreign account must happen *before* that account is read, which
+/// no observable state proves on its own — and `mcp` is what lets a test count
+/// transport calls, which is how row 6 proves a refused RPC never reached one.
+/// Both default to the real test doubles.
+pub(super) async fn test_state_with_seams(
+    data_dir: &Path,
+    configure: impl FnOnce(&mut DaemonConfig),
+    custom_settings: Option<Arc<SettingsStore>>,
+    secrets: Option<Arc<dyn SecretStore>>,
+    mcp: Option<Arc<dyn McpManager>>,
+) -> (Arc<DaemonState>, Arc<Store>) {
+    std::fs::create_dir_all(data_dir).expect("the data directory is made");
+    let mut config = DaemonConfig {
+        data_dir: data_dir.to_path_buf(),
+        auth_token: "test-token".to_string(),
+        ..Default::default()
+    };
+    configure(&mut config);
+    let store = Arc::new(
+        Store::open_at(data_dir.join("warsha.db"))
+            .await
+            .expect("the store opens"),
+    );
+    store
+        .recover_interrupted_runs()
+        .await
+        .expect("interrupted runs recover");
+    let providers = Arc::new(RwLock::new(agent_router_with_mock()));
+    let settings = match custom_settings {
+        Some(s) => s,
+        None => {
+            let s = Arc::new(
+                SettingsStore::open(&data_dir.join("warsha.db"))
+                    .await
+                    .expect("the settings open"),
+            );
+            // The same seeding a real start performs, so a test's daemon answers
+            // `harness.list` with the presets it ships and a catalog write has the row
+            // under it that production would have.
+            wave2::seed_bundled_records(&s)
+                .await
+                .expect("the bundled catalogs seed");
+            s
+        }
+    };
+    let mut pipeline =
+        warsha_pipeline::PipelineEngine::new(store.clone(), providers.clone(), settings.clone());
+
+    // The wiring side owns the environment selection: the pipeline never reads
+    // `WARSHA_CODING_BACKEND` or names a backend, it only accepts an injected one.
+    if let Some(backend) = BackendFactory::from_env() {
+        pipeline = pipeline.with_coding_backend(Arc::from(backend));
+    }
+    let pipeline = Arc::new(pipeline);
+    let identity = warsha_remote::DeviceIdentity::generate("test daemon".to_string())
+        .expect("a device identity");
+
+    let routines = Arc::new(RwLock::new(RoutineRegistry::new()));
+    #[derive(Debug, Default)]
+    struct TestRoutineRunner;
+    impl RoutineRunner for TestRoutineRunner {
+        fn run(
+            &self,
+            _routine: &Routine,
+        ) -> std::result::Result<(), warsha_pipeline::RoutineError> {
+            Ok(())
+        }
+    }
+    let routine_runner: Arc<dyn RoutineRunner + Send + Sync> = Arc::new(TestRoutineRunner);
+    let routine_scheduler = Arc::new(RoutineScheduler::new(routines.clone(), routine_runner));
+
+    // A hand-built state carries the same session and ceiling wiring a real one
+    // does: the daemon's own token is the owner session and speaks as the daemon's
+    // device, which is exactly the desktop's situation.
+    let sessions = Arc::new(Sessions::new(config.auth_token.clone(), identity.device_id));
+    let rates = Arc::new(RateGovernor::new(&config.rate_limits));
+
+    // One spawner for the daemon: the MCP stdio transport starts its server
+    // through it and the live preview runs its dev server on it, so `process.list`
+    // is the one place that names every child. It carries the configured
+    // allow-list, so a restart re-checks the program the RPC edges admitted.
+    let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared_with_policy(
+        CommandPolicy::from_config(&config.allowed_commands),
+    );
+    let mcp: Arc<dyn McpManager> = match mcp {
+        Some(mcp) => mcp,
+        None => Arc::new(InMemoryMcpManager::new(processes.clone())),
+    };
+    let previews = Arc::new(
+        LivePreviewManager::new(processes.clone()).with_run_liveness(Arc::new(StoreRunLiveness {
+            store: store.clone(),
+        })),
+    );
+
+    // The agent loop's two seams, wired to the real thing: its file tools run
+    // inside `<data_dir>/workspace`, and its model calls go out through the same
+    // router the pipeline stages use — a router that now holds the configured
+    // providers and the owner's routing, so an Agent-mode turn reaches a model
+    // rather than reporting that nothing is wired.
+    let default_kit = Arc::new(RwLock::new(default_backend_kit("default")));
+    let mcp_permissions = Arc::new(StaticPermissions::new());
+    // The same registry a real start builds, over the same daemon summarizer, so
+    // a test drives the redaction and the audit trail production runs.
+    let mcp_approvals = Arc::new(McpApprovals::new(Some(Box::new(
+        mcp_approvals::DaemonSummarizer::new(config.auth_token.clone()),
+    ))));
+    let agent_loop = build_agent_loop(
+        &config.data_dir,
+        &config.allowed_commands,
+        providers.clone(),
+        mcp.clone(),
+        mcp_permissions.clone(),
+        mcp_approvals.clone(),
+        default_kit,
+    );
+
+    let state = Arc::new(DaemonState {
+        config,
+        store: store.clone(),
+        providers,
+        pipeline,
+        backends: BackendFactory::all_available(),
+        github: None,
+        devices: Arc::new(DeviceRegistry::new(identity)),
+        backend_kits: Arc::new(RwLock::new(HashMap::new())),
+        crash_reports: Arc::new(RwLock::new(InMemoryCrashReportStore::new())),
+        store_reviews: Arc::new(RwLock::new(InMemoryStoreReviewStore::new())),
+        agent_loop,
+        mcp_permissions,
+        mcp_approvals,
+        run_worktrees: Arc::new(RwLock::new(HashMap::new())),
+        agent_sessions: Arc::new(RunAgentSessions::new()),
+        processes,
+        mcp,
+        previews,
+        settings,
+        // The seeded maps are what `start_daemon` builds; a state built by hand
+        // starts from the defaults and no rows, which is the same shape.
+        run_modes: Arc::new(RwLock::new(
+            RunMode::all()
+                .into_iter()
+                .map(|mode| (mode, RunModeConfig::for_mode(mode)))
+                .collect(),
+        )),
+        preferences: Arc::new(RwLock::new(InMemoryPreferenceStore::new())),
+        stored_preferences: Arc::new(RwLock::new(HashMap::new())),
+        pairings: Arc::new(RwLock::new(InMemoryPairingStore::new())),
+        // A state built by hand is a state under test: no OS keychain is
+        // reached, and a test that adds a provider can read its key back.
+        secrets: secrets.unwrap_or_else(|| Arc::new(InMemorySecretStore::new())),
+        routines,
+        routine_scheduler,
+        sessions,
+        rates,
+        // The offline factory and no routing: a hand-built state is a state under
+        // test, and a test that wants a routing sets one through `roles.set`.
+        role_routings: Arc::new(RwLock::new(HashMap::new())),
+        provider_factory: Arc::new(MockProviderFactory::new()),
+        // No listener has bound: a hand-built state is a daemon that is not serving,
+        // and `devices.pair-start` refuses rather than advertising a made-up origin.
+        pairing_origin: std::sync::OnceLock::new(),
+        // A hand-built state has no background pump, so this sequencer stays empty
+        // unless a test publishes onto it directly; the live stream is exercised by
+        // the real-daemon tests.
+        events: Arc::new(EventSequencer::new()),
+    });
+    (state, store)
+}
+
+/// The request extensions a verified **owner** session arrives with.
+///
+/// This is what the daemon's transport puts on a request after it checked the
+/// bearer credential, so a test that calls an RPC with these extensions is in the
+/// same position as the desktop app holding the daemon's own token.
+pub(super) fn owner_ext() -> RpcExtensions {
+    owner_ext_as(DeviceId::new())
+}
+
+/// The owner session speaking as a particular device, so a test can name the
+/// approver it expects to be recorded.
+fn owner_ext_as(device_id: DeviceId) -> RpcExtensions {
+    let mut ext = RpcExtensions::new();
+    ext.insert(Actor::owner(device_id));
+    ext
+}
+
+/// The extensions a **paired device** session arrives with.
+fn paired_ext(device_id: &str) -> RpcExtensions {
+    let mut ext = RpcExtensions::new();
+    ext.insert(Actor::paired(&PhonePairing::new(
+        device_id,
+        "a-pairing-secret",
+        1_700_000_000,
+    )));
+    ext
+}
+
+/// Put a pairing in the daemon's store so a paired session is live, not stale.
+///
+/// `authorize` re-reads the store on every request (PAIR research finding 2), so a
+/// test that expects a paired method to succeed has to represent a real pairing.
+async fn seed_pairing(state: &DaemonState, device_id: &str) {
+    state
+        .pairings
+        .write()
+        .await
+        .create_with_expiry(device_id, "a-pairing-secret", 1_700_000_000, None)
+        .expect("the test pairing is recorded once");
+}
+
+/// The extensions of a request that never authenticated: an empty map, because
+/// nothing but the transport can put an actor in one.
+fn anonymous_ext() -> RpcExtensions {
+    RpcExtensions::new()
+}
+
+/// The `code` of a JSON-RPC error, for asserting *which* refusal a caller got.
+fn rpc_error_code(error: &jsonrpsee::types::ErrorObjectOwned) -> i32 {
+    error.code()
+}
+
+/// A run whose own loop the owner approved over the wire, for the per-run turn tests.
+///
+/// `agent.turn` — the daemon-wide conversation — is retired (OD-E2), so a turn is
+/// a run's own loop. `runs.start` builds that loop in Plan mode, and OD-E2b is the
+/// wire path out of it: `agent.approve_mode` with the run's id moves the loop the
+/// run's next turn executes on. The workspace is the one the run got: it names no
+/// repository, so it is the daemon's agent workspace.
+async fn approved_agent_run(state: &Arc<DaemonState>, store: &Arc<Store>) -> RunId {
+    let project = Project {
+        id: ProjectId::new(),
+        name: "Agent Turn Project".to_string(),
+        description: "Test".to_string(),
+        language: "en".to_string(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        repo_path: None,
+        repo_url: None,
+    };
+    store.create_project(&project).await.expect("the project");
+    let rpc = WarshaRpc::new(state.clone());
+    let run = rpc
+        .start_run(&owner_ext(), project.id, "An agent turn".to_string())
+        .await
+        .expect("the run starts");
+    rpc.approve_agent_mode(&owner_ext(), Some(run.id))
+        .await
+        .expect("the owner approves the run's loop");
+    run.id
+}
+
+/// The loop `runs.start` gives a run with no repository: the daemon's agent
+/// workspace, the configured command policy, and the daemon's router and MCP seams.
+fn agent_loop_for_run(state: &DaemonState) -> AgentLoop {
+    build_agent_loop_in(
+        &state.config.data_dir.join(AGENT_WORKSPACE_DIR),
+        &state.config.allowed_commands,
+        state.providers.clone(),
+        state.mcp.clone(),
+        state.mcp_permissions.clone(),
+        state.mcp_approvals.clone(),
+        None,
+        Arc::new(RwLock::new(default_backend_kit("run"))),
+    )
+}
+
+/// A program the process floor can actually start.
+///
+/// A child now starts with a cleared environment and the fixed minimal PATH,
+/// so a test that wants a program to *start* cannot rely on `cargo` being
+/// found. A program inside the daemon's data directory needs no lookup — it
+/// is the daemon's own scope — and runs on every OS: a shell script on Unix
+/// and, on Windows, a copy of this test binary run with `--list` so it lists
+/// and exits instead of running the suite again.
+fn fixture_program(data_dir: &Path) -> String {
+    #[cfg(windows)]
+    {
+        let target = data_dir.join("fixture-probe.exe");
+        std::fs::copy(
+            std::env::current_exe().expect("the test binary names itself"),
+            &target,
+        )
+        .expect("the fixture copies");
+        target.to_string_lossy().into_owned()
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let target = data_dir.join("fixture-probe.sh");
+        std::fs::write(&target, "#!/bin/sh\necho fixture-ok\n").expect("the fixture writes");
+        let mut permissions = std::fs::metadata(&target)
+            .expect("the fixture exists")
+            .permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&target, permissions).expect("the fixture is executable");
+        target.to_string_lossy().into_owned()
+    }
+}
+
+// ---- Security audit S1a: identity, authorization and the policy floor.
+
+/// Every method the server registers has a policy, and every policy names a
+/// method the server registers.
+///
+/// This is the check that the authorization table is the whole surface rather than
+/// a list of the methods someone remembered: an RPC added later without an entry
+/// fails here instead of shipping unauthenticated-by-omission.
+#[tokio::test]
+async fn every_registered_method_has_a_policy_and_no_policy_names_a_missing_one() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let module = WarshaRpc::new(state).into_rpc();
+
+    let registered: std::collections::BTreeSet<&str> = module.method_names().collect();
+    let table: std::collections::BTreeSet<&str> = auth::METHOD_POLICIES
+        .iter()
+        .map(|entry| entry.method)
+        .collect();
+
+    let unpoliced: Vec<&str> = registered.difference(&table).copied().collect();
+    assert!(
+        unpoliced.is_empty(),
+        "methods the daemon serves with no entry in the policy table: {unpoliced:?}"
+    );
+    let unknown: Vec<&str> = table.difference(&registered).copied().collect();
+    assert!(
+        unknown.is_empty(),
+        "the policy table names methods the daemon does not serve: {unknown:?}"
+    );
+
+    // The structural half of re-audit LOAD-1 finding 1. A method that is not handed
+    // its caller cannot reach `authorize()`, and a `Tier` nobody spends is a ceiling
+    // on paper — that is exactly how 24 read methods ended up bounded only by the
+    // transport. Scanning the declarations is the check that keeps a new method from
+    // joining that set by accident, which is what the behaviour tests below cannot see
+    // until someone remembers to write one. The path is one directory up since A10 moved
+    // this module to `tests/mod.rs`; the scanned file and the assertion are unchanged.
+    let source = include_str!("../api.rs");
+    let trait_body = source
+        .split("pub trait WarshaApi {")
+        .nth(1)
+        .expect("the RPC trait is declared")
+        .split("\n}")
+        .next()
+        .expect("the RPC trait has an end");
+    let declared: Vec<&str> = trait_body
+        .lines()
+        .filter(|line| line.trim_start().starts_with("#[method(name ="))
+        .collect();
+    let without_session: Vec<&&str> = declared
+        .iter()
+        .filter(|line| !line.contains("with_extensions"))
+        .collect();
+    assert!(
+        without_session.is_empty(),
+        "methods declared without `with_extensions`, so their handlers cannot see the \
+         caller and cannot spend their tier: {without_session:?}"
+    );
+    assert_eq!(
+        declared.len(),
+        auth::METHOD_POLICIES.len(),
+        "the trait declares {} methods and the policy table names {}",
+        declared.len(),
+        auth::METHOD_POLICIES.len()
+    );
+}
+
+#[tokio::test]
+async fn an_authorized_method_refuses_no_session_and_a_paired_device_differently() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state);
+    let project = ProjectId::new();
+
+    // No verified session: the caller is nobody.
+    let no_session = rpc
+        .set_budget(&anonymous_ext(), project, 500)
+        .await
+        .expect_err("a caller with no session set a budget");
+    assert_eq!(
+        rpc_error_code(&no_session),
+        auth::rpc_codes::UNAUTHENTICATED,
+        "an unauthenticated caller got the wrong refusal"
+    );
+
+    // A verified session that is not the owner: somebody, but not that.
+    let phone = uuid::Uuid::new_v4().to_string();
+    let paired = rpc
+        .set_budget(&paired_ext(&phone), project, 500)
+        .await
+        .expect_err("a paired device set a budget");
+    assert_eq!(
+        rpc_error_code(&paired),
+        auth::rpc_codes::FORBIDDEN,
+        "a paired device was allowed an owner's mutation"
+    );
+
+    // The same refusal shape on the other privileged surfaces.
+    for (method, result) in [
+        (
+            "roles.set",
+            rpc.set_role(&paired_ext(&phone), role_config())
+                .await
+                .map(|_| ()),
+        ),
+        (
+            "backend.set",
+            rpc.set_backend(
+                &paired_ext(&phone),
+                "run".to_string(),
+                default_backend_kit("Shop"),
+            )
+            .await
+            .map(|_| ()),
+        ),
+    ] {
+        let error = result.expect_err(&format!("{method} accepted a paired device"));
+        assert_eq!(
+            rpc_error_code(&error),
+            auth::rpc_codes::FORBIDDEN,
+            "{method} refused a paired device for the wrong reason"
+        );
+    }
+}
+
+// ---- Audit H1/H2: the pairing credential's lifecycle.
+
+/// A pairing a phone could present, with the offer's 10-minute expiry.
+fn fresh_pairing_data() -> warsha_remote::PairingData {
+    let device =
+        warsha_remote::DeviceIdentity::generate("phone".to_string()).expect("a device identity");
+    warsha_remote::PairingData::new(&device, None).expect("a pairing")
+}
+
+/// The same record with a deadline the caller names.
+fn pairing_data_expiring_at(expires_at: chrono::DateTime<Utc>) -> warsha_remote::PairingData {
+    warsha_remote::PairingData {
+        expires_at,
+        ..fresh_pairing_data()
+    }
+}
+
+/// Audit H2 / test 3: enrolment is the owner's act. A paired actor gets the same
+/// `-32002` any paired device gets for an owner method, and the CLI's path — the
+/// owner token from `config.toml` — still pairs a phone.
+#[tokio::test]
+async fn devices_pair_refuses_a_paired_actor_and_the_owner_still_pairs() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state.clone());
+
+    let data = fresh_pairing_data();
+    let secret = data.secret_token();
+    let device_id = data.device_id;
+    let phone = uuid::Uuid::new_v4().to_string();
+
+    let refused = rpc
+        .pair_device(&paired_ext(&phone), data.clone())
+        .await
+        .expect_err("a paired device enrolled another device");
+    assert_eq!(
+        rpc_error_code(&refused),
+        auth::rpc_codes::FORBIDDEN,
+        "a paired device was refused enrolment for a reason other than the owner gate"
+    );
+    assert!(
+        state.pairings.read().await.is_empty(),
+        "the refused enrolment still wrote a pairing"
+    );
+    assert!(
+        !state
+            .devices
+            .list_devices()
+            .await
+            .iter()
+            .any(|device| device.device_id == device_id),
+        "the refused enrolment still wrote a device row"
+    );
+
+    rpc.pair_device(&owner_ext(), data)
+        .await
+        .expect("the owner's `warsha pair` path was refused");
+    let rows = state.pairings.read().await.list();
+    let actor = state
+        .sessions
+        .resolve_at(&secret, &rows, now_epoch_secs())
+        .expect("the owner's pairing does not authenticate");
+    assert_eq!(actor.role(), auth::ActorRole::Paired);
+}
+
+/// Audit H1 / test 4: an expired offer is refused before anything is written, so a
+/// stale QR leaves no device and no credential behind.
+#[tokio::test]
+async fn devices_pair_refuses_expired_pairing_data_without_writing_anything() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state.clone());
+
+    let expired = pairing_data_expiring_at(Utc::now() - chrono::Duration::minutes(1));
+    let device_id = expired.device_id;
+    let error = rpc
+        .pair_device(&owner_ext(), expired)
+        .await
+        .expect_err("an expired pairing was redeemed");
+    assert_eq!(rpc_error_code(&error), -32000);
+    assert!(
+        error.message().contains("expired"),
+        "the refusal does not say the pairing expired: {error}"
+    );
+    assert!(state.pairings.read().await.is_empty());
+    assert!(
+        !state
+            .devices
+            .list_devices()
+            .await
+            .iter()
+            .any(|device| device.device_id == device_id),
+        "the refused pairing wrote a device row"
+    );
+    assert!(
+        state
+            .settings
+            .load_pairings()
+            .await
+            .expect("the stored pairings are readable")
+            .is_empty(),
+        "the refused pairing was persisted"
+    );
+}
+
+/// Audit H1 / test 5: `devices.pair-start` writes the offer's deadline beside the
+/// secret, and the persisted record stops resolving at that instant.
+#[tokio::test]
+async fn start_pairing_persists_the_offer_expiry_and_the_secret_dies_with_it() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state.clone());
+    state
+        .pairing_origin
+        .set("http://127.0.0.1:9000".to_string())
+        .expect("the pairing origin is set once");
+
+    let offer = rpc
+        .start_pairing(&owner_ext())
+        .await
+        .expect("the daemon minted a pairing");
+    let expiry = u64::try_from(offer.expires_at().timestamp()).expect("the expiry is positive");
+    let secret = offer.pairing.secret_token();
+    let device_id = offer.pairing.device_id.to_string();
+
+    let persisted = state
+        .settings
+        .load_pairings()
+        .await
+        .expect("the stored pairings are readable");
+    let row = persisted
+        .get(&device_id)
+        .expect("the minted pairing was not persisted");
+    assert_eq!(
+        row.expires_at,
+        Some(expiry),
+        "the stored deadline is not the offer's"
+    );
+    assert!(row.is_active_at(expiry - 1));
+    assert!(!row.is_active_at(expiry));
+
+    let rows = persisted.list();
+    assert!(
+        state.sessions.resolve_at(&secret, &rows, expiry).is_none(),
+        "the stored secret still resolved at its deadline"
+    );
+    assert!(
+        state
+            .sessions
+            .resolve_at(&secret, &rows, expiry - 1)
+            .is_some(),
+        "the stored secret did not resolve inside its window"
+    );
+}
+
+/// Audit H1 / test 7: revocation still takes effect on the next request; the
+/// expiry check must not have replaced it.
+#[tokio::test]
+async fn revoke_device_still_removes_access_on_the_next_request() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state.clone());
+
+    let data = fresh_pairing_data();
+    let secret = data.secret_token();
+    let device_id = data.device_id;
+    rpc.pair_device(&owner_ext(), data)
+        .await
+        .expect("the owner paired a phone");
+    assert_eq!(
+        state
+            .sessions
+            .resolve_at(&secret, &state.active_pairings().await, now_epoch_secs())
+            .map(|actor| actor.role()),
+        Some(auth::ActorRole::Paired),
+        "the paired secret did not authenticate before revocation"
+    );
+
+    rpc.revoke_device(&owner_ext(), device_id)
+        .await
+        .expect("the device is revoked");
+    assert!(
+        state
+            .sessions
+            .resolve_at(&secret, &state.active_pairings().await, now_epoch_secs())
+            .is_none(),
+        "a revoked pairing still authenticated on the next request"
+    );
+}
+
+#[tokio::test]
+async fn a_gate_decision_refuses_a_device_id_that_is_not_the_session() {
+    // Audit H-03, at the seam: the legacy param is accepted, and a value that is
+    // not the authenticated device is refused without touching the run.
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, store) = test_state(temp.path()).await;
+    let run = stored_run_with_gate(&store, "Shop").await;
+    let rpc = WarshaRpc::new(state.clone());
+
+    let session_device = DeviceId::new();
+    let ext = owner_ext_as(session_device);
+    let claimed = DeviceId::new();
+
+    let error = rpc
+        .approve_gate(&ext, run.id, Stage::GateA, Some(claimed))
+        .await
+        .expect_err("a spoofed approver was recorded");
+    assert_eq!(
+        rpc_error_code(&error),
+        auth::rpc_codes::IDENTITY_MISMATCH,
+        "a claimed device id was not refused as a mismatch"
+    );
+
+    let untouched = store.get_run(run.id).await.expect("the run is readable");
+    assert!(
+        matches!(untouched.gate_states[&Stage::GateA], GateState::Pending),
+        "the refused decision still moved the gate"
+    );
+
+    // The session's own id, sent the old way, is accepted — and what is recorded is
+    // the session's device either way.
+    let approved = rpc
+        .approve_gate(&ext, run.id, Stage::GateA, Some(session_device))
+        .await
+        .expect("the session's own device id is accepted");
+    assert!(
+        matches!(
+            approved.gate_states[&Stage::GateA],
+            GateState::Approved { by, .. } if by == session_device
+        ),
+        "the approver recorded is not the session's device"
+    );
+
+    let mut at_gate_b = store.get_run(run.id).await.expect("the run is readable");
+    at_gate_b.current_stage = Stage::GateB;
+    store
+        .update_run(&at_gate_b)
+        .await
+        .expect("run reached GateB");
+
+    let omitted = rpc
+        .reject_gate(&ext, run.id, Stage::GateB, "not yet".to_string(), None)
+        .await
+        .expect("a decision with no legacy param is served");
+    assert!(
+        matches!(
+            omitted.gate_states[&Stage::GateB],
+            GateState::Rejected { by, .. } if by == session_device
+        ),
+        "a decision without the legacy field lost its decider"
+    );
+}
+
+#[tokio::test]
+async fn a_session_with_no_device_id_cannot_be_recorded_as_an_approver() {
+    // A pairing whose id is not a device id is a real session for reads, and has no
+    // approver to record: the daemon says so rather than storing an invented uuid.
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, store) = test_state(temp.path()).await;
+    let run = stored_run_with_gate(&store, "Shop").await;
+    seed_pairing(&state, "a-phone-that-named-itself").await;
+    let rpc = WarshaRpc::new(state);
+
+    let error = rpc
+        .approve_gate(
+            &paired_ext("a-phone-that-named-itself"),
+            run.id,
+            Stage::GateA,
+            None,
+        )
+        .await
+        .expect_err("a session with no device id approved a gate");
+    assert_eq!(
+        rpc_error_code(&error),
+        auth::rpc_codes::IDENTITY_MISMATCH,
+        "an unrecordable approver was accepted"
+    );
+}
+
+#[tokio::test]
+async fn the_pipeline_refuses_a_gate_decision_for_no_device() {
+    // The floor under the daemon (audit H-03): even a caller that reached the
+    // pipeline directly cannot record the nil device as an approver.
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, store) = test_state(temp.path()).await;
+    let run = stored_run_with_gate(&store, "Shop").await;
+
+    let nobody = DeviceId(uuid::Uuid::nil());
+    let error = state
+        .pipeline
+        .approve_gate(run.id, Stage::GateA, nobody)
+        .await
+        .expect_err("a nil device approved a gate");
+    assert!(
+        error.to_string().contains("verified acting device"),
+        "unexpected error: {error}"
+    );
+}
+
+// ---- gates.list (issue #25): the queue read served from `Run.gate_states`.
+
+#[tokio::test]
+async fn gates_list_answers_every_gate_stage_in_pipeline_order() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, store) = test_state(temp.path()).await;
+    let run = stored_run_with_gate(&store, "Shop").await;
+    let rpc = WarshaRpc::new(state);
+
+    let gates = rpc
+        .list_gates(&owner_ext(), run.id, None)
+        .await
+        .expect("the queue is served");
+    let stages: Vec<Stage> = gates.iter().map(|gate| gate.stage).collect();
+    assert_eq!(
+        stages,
+        vec![Stage::GateA, Stage::GateB, Stage::GateC, Stage::GateD],
+        "the queue is not the four gate stages in `Stage::all()` order"
+    );
+    // The helper seeded `gate_a` and `gate_b` as explicit Pending entries and left
+    // `gate_c`/`gate_d` out of the map: a missing key answers Pending, it is neither
+    // a dropped row nor a refusal, and nothing is filtered out client-side here.
+    for gate in &gates {
+        assert_eq!(
+            gate.state,
+            GateSummaryState::Pending,
+            "{:?} answered decided before anyone decided it",
+            gate.stage
+        );
+    }
+
+    // The ledger reads the same `Run.gate_states` the decisions mutate: approving
+    // gate_a moves its answer on the next read, through the store.
+    rpc.approve_gate(&owner_ext(), run.id, Stage::GateA, None)
+        .await
+        .expect("gate_a is approved");
+    let after = rpc
+        .list_gates(&owner_ext(), run.id, None)
+        .await
+        .expect("the queue is re-read");
+    assert!(
+        matches!(after[0].state, GateSummaryState::Approved { .. }),
+        "a decision did not move the queue read: {after:?}"
+    );
+}
+
+#[tokio::test]
+async fn gates_list_answers_the_flat_state_shape_the_client_declares() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, store) = test_state(temp.path()).await;
+    let run = stored_run(&store, "Shop", None).await;
+    let mut run = store.get_run(run.id).await.expect("the run is readable");
+    let device = DeviceId(
+        uuid::Uuid::parse_str("00000000-0000-0000-0000-00000000000a").expect("a fixed device id"),
+    );
+    let at = chrono::DateTime::parse_from_rfc3339("2026-11-03T09:30:00Z")
+        .expect("a fixed instant")
+        .with_timezone(&Utc);
+    run.gate_states
+        .insert(Stage::GateA, GateState::Approved { by: device, at });
+    run.gate_states.insert(
+        Stage::GateB,
+        GateState::Rejected {
+            reason: "not this".to_string(),
+            by: device,
+            at,
+        },
+    );
+    run.gate_states.insert(
+        Stage::GateC,
+        GateState::ChangesRequested {
+            notes: "tighten the brief".to_string(),
+            by: device,
+            at,
+        },
+    );
+    // `gate_d` is deliberately absent: it must answer `{"state": "pending"}`.
+    store.update_run(&run).await.expect("the states are stored");
+    let rpc = WarshaRpc::new(state);
+
+    let gates = rpc
+        .list_gates(&owner_ext(), run.id, None)
+        .await
+        .expect("the queue is served");
+    let wire = serde_json::to_value(&gates).expect("the queue serializes");
+    // Literally the shape `@warsha/client` declares (`GateSummary`/`GateState` in
+    // `packages/client/src/index.ts`): `by`, `at`, `reason` and `notes` sit beside
+    // `state`, never under a `detail` object — `detail` is the adjacent-tagged
+    // `runs.get` shape (`security_identity.rs` reads `approved["detail"]["by"]`),
+    // and the queue must not fork it.
+    assert_eq!(
+        wire,
+        serde_json::json!([
+            {
+                "stage": "gate_a",
+                "state": {
+                    "state": "approved",
+                    "by": "00000000-0000-0000-0000-00000000000a",
+                    "at": "2026-11-03T09:30:00Z"
+                }
+            },
+            {
+                "stage": "gate_b",
+                "state": {
+                    "state": "rejected",
+                    "reason": "not this",
+                    "by": "00000000-0000-0000-0000-00000000000a",
+                    "at": "2026-11-03T09:30:00Z"
+                }
+            },
+            {
+                "stage": "gate_c",
+                "state": {
+                    "state": "changes_requested",
+                    "notes": "tighten the brief",
+                    "by": "00000000-0000-0000-0000-00000000000a",
+                    "at": "2026-11-03T09:30:00Z"
+                }
+            },
+            {
+                "stage": "gate_d",
+                "state": { "state": "pending" }
+            }
+        ])
+    );
+}
+
+#[tokio::test]
+async fn gates_list_refuses_a_run_the_store_does_not_have() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state);
+
+    let error = rpc
+        .list_gates(&owner_ext(), RunId::new(), None)
+        .await
+        .expect_err("a run the store does not have answered a queue");
+    assert_eq!(
+        rpc_error_code(&error),
+        -32000,
+        "an unknown run was refused for a reason other than the store's error"
+    );
+    assert!(
+        error.message().contains("run not found"),
+        "unexpected refusal: {error}"
+    );
+}
+
+#[tokio::test]
+async fn the_gates_queue_reads_on_any_verified_session_and_refuses_without_one() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, store) = test_state(temp.path()).await;
+    let run = stored_run_with_gate(&store, "Shop").await;
+    let rpc = WarshaRpc::new(state);
+
+    // Unauthenticated reads nothing: `-32001` from `authorize`, before any tier.
+    let anonymous = rpc
+        .list_gates(&anonymous_ext(), run.id, None)
+        .await
+        .expect_err("an unauthenticated caller read the queue");
+    assert_eq!(
+        rpc_error_code(&anonymous),
+        auth::rpc_codes::UNAUTHENTICATED,
+        "a caller with no session read the gates queue"
+    );
+
+    // A paired phone reads the very queue it is asked to decide (#25's auth
+    // decision: `Session`/`Standard`, the `runs.list` class, not `Auth`).
+    let phone = uuid::Uuid::new_v4().to_string();
+    seed_pairing(&rpc.state, &phone).await;
+    let paired = rpc
+        .list_gates(&paired_ext(&phone), run.id, None)
+        .await
+        .expect("a paired device was refused the queue it decides");
+    assert_eq!(paired.len(), 4, "the queue is not all four gate stages");
+
+    // The owner reads it too, and the legacy `device_id` slot is accepted and
+    // believed for nothing: naming some other device changes no answer.
+    let claimed = DeviceId::new();
+    let owner = rpc
+        .list_gates(&owner_ext(), run.id, Some(claimed))
+        .await
+        .expect("the owner was refused its own queue");
+    assert_eq!(
+        owner, paired,
+        "a claimed device id changed what the queue read answered"
+    );
+}
+
+#[tokio::test]
+async fn gates_list_is_registered_and_policied_as_one_method() {
+    // Registry==policy for the new name, in both views. The whole-set invariant is
+    // `every_registered_method_has_a_policy_and_no_policy_names_a_missing_one`;
+    // this pins `gates.list` by name so a one-sided addition fails at the name
+    // rather than only at the count.
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let module = WarshaRpc::new(state).into_rpc();
+    assert!(
+        module.method_names().any(|name| name == "gates.list"),
+        "the server does not register gates.list"
+    );
+
+    let policy = auth::policy_of("gates.list").expect("gates.list has a policy row");
+    assert_eq!(policy.policy, Policy::Session);
+    assert_eq!(policy.tier, Tier::Standard);
+}
+
+#[tokio::test]
+async fn process_and_mcp_control_refuse_an_unlisted_program_and_a_remote_transport() {
+    let temp = crate::test_util::fresh_tempdir();
+    // Only the fixture program is admitted, by configuration rather than by a
+    // caller.
+    let fixture = fixture_program(temp.path());
+    let allowed = fixture.clone();
+    let (state, _store) = test_state_with(temp.path(), move |config| {
+        config.allowed_commands = vec![allowed];
+    })
+    .await;
+    let rpc = WarshaRpc::new(state);
+    let ext = owner_ext();
+
+    for (command, args) in [
+        ("rm", vec!["-rf".to_string()]),
+        ("sh", vec![]),
+        ("npm", vec![]),
+        ("", vec![]),
+    ] {
+        let error = rpc
+            .spawn_process(&ext, command.to_string(), args, HashMap::new())
+            .await
+            .expect_err(&format!("`{command}` was started"));
+        assert_eq!(
+            rpc_error_code(&error),
+            auth::rpc_codes::POLICY_REFUSED,
+            "`{command}` was refused for a reason other than the policy"
+        );
+    }
+
+    // An environment variable that changes execution is refused on its own.
+    for key in ["PATH", "LD_PRELOAD", "NODE_OPTIONS"] {
+        let mut env = HashMap::new();
+        env.insert(key.to_string(), "/tmp".to_string());
+        let error = rpc
+            .spawn_process(&ext, "cargo".to_string(), vec![], env)
+            .await
+            .expect_err(&format!("{key} was handed to a child"));
+        assert_eq!(
+            rpc_error_code(&error),
+            auth::rpc_codes::POLICY_REFUSED,
+            "{key} reached a child process"
+        );
+    }
+
+    // An allowed program is still startable: the policy restricts, it does not
+    // disable the daemon's own workflow.
+    let started = rpc
+        .spawn_process(&ext, fixture, vec!["--list".to_string()], HashMap::new())
+        .await
+        .expect("an allowed program starts");
+    rpc.stop_process(&ext, started).await.ok();
+
+    // MCP transports: a stdio program is bounded like a spawn, and a remote one is
+    // bounded to a secure or loopback endpoint.
+    let unlisted =
+        warsha_pipeline::mcp_transport::McpServerConfig::new_stdio("bad", "sh", Vec::new());
+    let error = rpc
+        .connect_mcp(&ext, unlisted)
+        .await
+        .expect_err("an unlisted stdio MCP server connected");
+    assert_eq!(rpc_error_code(&error), auth::rpc_codes::POLICY_REFUSED);
+
+    for url in [
+        "http://evil.example/mcp",
+        "file:///etc/passwd",
+        "http://169.254.169.254/latest",
+    ] {
+        let error = rpc
+            .connect_mcp(
+                &ext,
+                warsha_pipeline::mcp_transport::McpServerConfig::new_http("remote", url),
+            )
+            .await
+            .expect_err(&format!("{url} was recorded"));
+        assert_eq!(
+            rpc_error_code(&error),
+            auth::rpc_codes::POLICY_REFUSED,
+            "{url} passed the transport policy"
+        );
+    }
+    rpc.connect_mcp(
+        &ext,
+        warsha_pipeline::mcp_transport::McpServerConfig::new_http(
+            "secure",
+            "https://mcp.example/mcp",
+        ),
+    )
+    .await
+    .expect("an https MCP endpoint is allowed");
+    rpc.connect_mcp(
+        &ext,
+        warsha_pipeline::mcp_transport::McpServerConfig::new_http(
+            "local",
+            "http://127.0.0.1:9100/mcp",
+        ),
+    )
+    .await
+    .expect("a loopback MCP endpoint is allowed");
+
+    // None of it is reachable without the owner's role.
+    let phone = uuid::Uuid::new_v4().to_string();
+    let error = rpc
+        .spawn_process(
+            &paired_ext(&phone),
+            "cargo".to_string(),
+            vec![],
+            HashMap::new(),
+        )
+        .await
+        .expect_err("a paired device reached the process table");
+    assert_eq!(rpc_error_code(&error), auth::rpc_codes::FORBIDDEN);
+}
+
+/// A role-routing config with no targets, for a test that only needs it to parse.
+fn role_config() -> RoleRoutingConfig {
+    RoleRoutingConfig {
+        role: "coder".to_string(),
+        targets: Vec::new(),
+        fallback_enabled: false,
+        budget_cents_per_run: None,
+    }
+}
+
+/// A stored run sitting at pending GateA (with GateB also seeded Pending).
+async fn stored_run_with_gate(store: &Arc<Store>, name: &str) -> Run {
+    let run = stored_run(store, name, None).await;
+    let mut run = store.get_run(run.id).await.expect("the run is readable");
+    run.current_stage = Stage::GateA;
+    run.gate_states.insert(Stage::GateA, GateState::Pending);
+    run.gate_states.insert(Stage::GateB, GateState::Pending);
+    store.update_run(&run).await.expect("the gates are pending");
+    run
+}
+
+#[test]
+fn a_providers_endpoint_falls_back_to_its_kinds_default() {
+    let stored = StoredProvider {
+        name: "mine".to_string(),
+        kind: "qwen".to_string(),
+        api_base: Some("http://127.0.0.1:8000/v1".to_string()),
+        enabled: true,
+        created_at: 1_700_000_000,
+    };
+    // What the owner named wins.
+    assert_eq!(
+        provider_endpoint(&stored).as_deref(),
+        Some("http://127.0.0.1:8000/v1")
+    );
+
+    // The kind's published default when the owner named none, which is what
+    // makes "paste one API key" the whole first-run input.
+    let defaulted = StoredProvider {
+        api_base: None,
+        ..stored.clone()
+    };
+    assert_eq!(
+        provider_endpoint(&defaulted).as_deref(),
+        Some(
+            OneClickProvider::Qwen
+                .default_base_url()
+                .expect("qwen has a default")
+        )
+    );
+
+    // A custom endpoint is the owner's to name: no default URL, no default
+    // model, and the setup check is what says so.
+    let custom = StoredProvider {
+        kind: "custom".to_string(),
+        api_base: None,
+        ..stored
+    };
+    assert_eq!(provider_endpoint(&custom), None);
+    assert_eq!(provider_model(&custom), "");
+}
+
+#[test]
+fn a_providers_model_comes_from_its_kind_and_blank_input_is_no_input() {
+    let kimi = StoredProvider {
+        name: "kimi".to_string(),
+        kind: "kimi".to_string(),
+        api_base: None,
+        enabled: true,
+        created_at: 1_700_000_000,
+    };
+    assert_eq!(
+        provider_model(&kimi),
+        OneClickProvider::Kimi
+            .default_model()
+            .expect("kimi has a default")
+    );
+    assert!(!provider_model(&kimi).is_empty());
+
+    // A blank string is no string, and a padded one is trimmed.
+    assert_eq!(non_empty(None), None);
+    assert_eq!(non_empty(Some("   ".to_string())), None);
+    assert_eq!(
+        non_empty(Some(" http://127.0.0.1:9/v1 ".to_string())).as_deref(),
+        Some("http://127.0.0.1:9/v1")
+    );
+}
+
+/// A provider router with the one mock provider routed for the agent role.
+/// `warsha_providers::MockProvider` is the only provider a test may use
+/// (AGENTS.md): no key, no network, no spend. Routing it for [`AGENT_ROLE`] is
+/// what makes an Agent-mode turn's model path a real router call inside a test.
+fn agent_router_with_mock() -> ProviderRouter {
+    let mut router = ProviderRouter::new();
+    router.register_provider(Box::new(warsha_providers::MockProvider::new("mock")));
+    router.set_role_routing(RoleRouting {
+        role: AGENT_ROLE,
+        targets: vec![RoutingTarget {
+            provider_id: "mock".to_string(),
+            model_id: "mock-model".to_string(),
+            weight: 100,
+        }],
+        fallback_enabled: false,
+        budget_cents_per_run: None,
+    });
+    router
+}
+
+/// Store a project and a run in it, returning the run.
+async fn stored_run(store: &Store, name: &str, repo_path: Option<&Path>) -> Run {
+    let project = Project {
+        id: ProjectId::new(),
+        name: name.to_string(),
+        description: format!("{name} description"),
+        language: "en".to_string(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        repo_path: repo_path.map(|path| path.to_string_lossy().into_owned()),
+        repo_url: None,
+    };
+    store
+        .create_project(&project)
+        .await
+        .expect("the project is stored");
+
+    let run = Run {
+        id: RunId::new(),
+        project_id: project.id,
+        current_stage: Stage::Idea,
+        gate_states: HashMap::new(),
+        artifacts: HashMap::new(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        status: RunStatus::Running,
+        budget_cents: None,
+        spent_cents: 0,
+    };
+    store.create_run(&run).await.expect("the run is stored");
+    run
+}
+
+#[tokio::test]
+async fn apply_handoff_writes_the_files_and_reports_the_conflict_and_backup() {
+    use warsha_pipeline::ApplyResult;
+
+    let temp = crate::test_util::fresh_tempdir();
+    let working_tree = temp.path().join("repo");
+    std::fs::create_dir_all(working_tree.join("src")).expect("the working tree is made");
+    std::fs::write(working_tree.join("src/lib.rs"), "local edit\n")
+        .expect("the local file is written");
+
+    let (state, store) = test_state(&temp.path().join("data")).await;
+    let run = stored_run(&store, "Shop", Some(&working_tree)).await;
+
+    // The bundle the remote run sends back, written where handoff.create puts
+    // it: the same directory shape, one JSON file per run.
+    let bundle = HandoffManager::new().create_bundle(
+        &run.id.0.to_string(),
+        &[("src/lib.rs", "remote\n"), ("src/new.rs", "new\n")],
+    );
+    let handoff_dir = temp.path().join("handoff");
+    let path = HandoffManager::new()
+        .write_bundle(&bundle, &handoff_dir.to_string_lossy())
+        .expect("the bundle is written");
+
+    let rpc = WarshaRpc::new(state);
+    let summary = rpc
+        .apply_handoff(&owner_ext(), path, false)
+        .await
+        .expect("a bundle with a project repo is applied");
+    let result: ApplyResult = serde_json::from_str(&summary).expect("the summary is a result");
+
+    // Remote wins: the conflict is overwritten and still on record.
+    assert_eq!(result.applied, vec!["src/lib.rs", "src/new.rs"]);
+    assert_eq!(result.conflicts.len(), 1);
+    assert_eq!(result.conflicts[0].path, "src/lib.rs");
+    assert!(result.requires_gate());
+    // The file the two sides agreed nothing about is a plain write.
+    assert_eq!(
+        std::fs::read_to_string(working_tree.join("src/new.rs")).expect("the new file"),
+        "new\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(working_tree.join("src/lib.rs")).expect("the overwritten file"),
+        "remote\n"
+    );
+
+    // The summary names the backup directory, and the local edit is in it.
+    let backup_dir = result
+        .backup_dir
+        .as_deref()
+        .expect("the summary names the backup directory");
+    assert!(Path::new(backup_dir).starts_with(working_tree.join(".warsha-backup")));
+    assert_eq!(
+        std::fs::read_to_string(Path::new(backup_dir).join("src/lib.rs"))
+            .expect("the backup is readable"),
+        "local edit\n"
+    );
+}
+
+#[tokio::test]
+async fn apply_handoff_refuses_a_run_with_no_project_repo() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, store) = test_state(temp.path()).await;
+    let run = stored_run(&store, "Shop", None).await;
+
+    let bundle = HandoffManager::new().create_bundle(&run.id.0.to_string(), &[("a.rs", "a\n")]);
+    let handoff_dir = temp.path().join("handoff");
+    let path = HandoffManager::new()
+        .write_bundle(&bundle, &handoff_dir.to_string_lossy())
+        .expect("the bundle is written");
+
+    let error = WarshaRpc::new(state)
+        .apply_handoff(&owner_ext(), path, true)
+        .await
+        .expect_err("an apply needs a working tree to write into");
+    let message = format!("{error:?}");
+    assert!(
+        message.contains("has no project repo"),
+        "unexpected error: {message}"
+    );
+    // Nothing was written next to the daemon's own bundle file.
+    assert!(!handoff_dir.join("a.rs").exists());
+}
+
+#[tokio::test]
+async fn export_backend_names_the_dump_after_the_run_project() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, store) = test_state(&temp.path().join("data")).await;
+    let run = stored_run(&store, "Shop", None).await;
+
+    let output_dir = temp.path().join("export");
+    let path = WarshaRpc::new(state)
+        .export_backend(
+            &owner_ext(),
+            run.id.0.to_string(),
+            output_dir.to_string_lossy().into_owned(),
+        )
+        .await
+        .expect("the export is written");
+
+    assert_eq!(Path::new(&path), output_dir.join("schema.sql").as_path());
+    let dump = std::fs::read_to_string(&path).expect("schema.sql is readable");
+    // The project, not the run id, names the dump.
+    assert!(dump.contains("-- project: Shop"), "unexpected dump: {dump}");
+    assert!(dump.contains("-- backend: PocketBase"));
+}
+
+#[tokio::test]
+async fn skills_list_reports_the_slash_command_catalog() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+
+    let skills = WarshaRpc::new(state.clone())
+        .list_skills(&owner_ext())
+        .await
+        .expect("the catalog is served");
+
+    let ids: Vec<&str> = skills.iter().map(|skill| skill.id.as_str()).collect();
+    assert!(skills.len() >= 12);
+    assert!(ids.contains(&"brainstorming"));
+    assert!(ids.contains(&"writing-plans"));
+    assert!(ids.contains(&"test-driven-development"));
+    assert!(skills
+        .iter()
+        .all(|skill| !skill.description.trim().is_empty()));
+    // The in-process slash command catalog resolves as a registry:
+    let catalog = WarshaRpc::new(state)
+        .active_skill_catalog()
+        .await
+        .expect("the catalog is served");
+    let registry = SlashCommandRegistry::from_skills(&catalog);
+    assert_eq!(
+        registry.lookup("/FIX").map(|command| command.name.as_str()),
+        Some("/fix")
+    );
+}
+
+/// Whether one catalog serves a command by name.
+fn serves(catalog: &[SlashCommand], name: &str) -> bool {
+    catalog.iter().any(|command| command.name == name)
+}
+
+/// ENGINE P-E6: the catalog is the installed registry, not a constant list.
+///
+/// The shipped packs come from the settings rows through
+/// `warsha_pipeline::SkillRegistry`, so a row the owner switches off leaves the
+/// catalog: a hardcoded list would keep serving it either way.
+#[tokio::test]
+async fn the_skills_catalog_is_served_from_the_installed_registry() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state.clone());
+
+    let catalog = rpc
+        .active_skill_catalog()
+        .await
+        .expect("the catalog is served");
+    // The composer's own commands survive beside the registry's entries.
+    assert!(
+        serves(&catalog, "/review"),
+        "the built-ins stay: {catalog:?}"
+    );
+    // The rest is the install: packs no constant in this file names.
+    assert!(
+        serves(&catalog, "/brainstorming"),
+        "a shipped pack is served from the registry: {catalog:?}"
+    );
+    assert!(serves(&catalog, "/test-driven-development"), "{catalog:?}");
+
+    // The rows are the source: a skill the owner switches off leaves the catalog,
+    // while the lock still pins it (the flag is not part of the pin).
+    state
+        .settings
+        .toggle_skill("brainstorming")
+        .await
+        .expect("the flag flips");
+    let catalog = rpc
+        .active_skill_catalog()
+        .await
+        .expect("the catalog is served");
+    assert!(
+        !serves(&catalog, "/brainstorming"),
+        "a disabled row is not served: {catalog:?}"
+    );
+    assert!(serves(&catalog, "/review"), "{catalog:?}");
+}
+
+/// ENGINE P-E6: a lockfile that disagrees with the install refuses the catalog.
+///
+/// This mirrors `SkillsLockfile::verify` at the daemon edge: every direction the
+/// library fails closed on — a moved version or commit, a locked pack that is not
+/// loaded, a lock that cannot be read — is a refusal, never a smaller catalog.
+#[tokio::test]
+async fn a_drifted_skills_lock_refuses_the_catalog() {
+    let temp = crate::test_util::fresh_tempdir();
+    let data_dir = temp.path().join("data");
+    let (state, _store) = test_state(&data_dir).await;
+    let rpc = WarshaRpc::new(state.clone());
+
+    // The first read pins the install it found.
+    rpc.active_skill_catalog()
+        .await
+        .expect("the catalog is served and pinned");
+    let lock_path = data_dir.join(SKILLS_LOCK_FILE);
+    let pinned = std::fs::read_to_string(&lock_path).expect("the lock is written");
+
+    // A pinned version that moved.
+    let mut lock: serde_json::Value = serde_json::from_str(&pinned).expect("the lock is JSON");
+    lock["entries"]["brainstorming"]["version"] = serde_json::json!("0.0.1");
+    std::fs::write(&lock_path, lock.to_string()).expect("the drifted lock is written");
+    let error = rpc
+        .active_skill_catalog()
+        .await
+        .expect_err("a moved version must refuse the catalog");
+    assert_eq!(rpc_error_code(&error), auth::rpc_codes::POLICY_REFUSED);
+    assert!(
+        error.message().contains("brainstorming") && error.message().contains("0.0.1"),
+        "the refusal names the drift: {}",
+        error.message()
+    );
+
+    // A locked pack that is not installed.
+    let mut lock: serde_json::Value = serde_json::from_str(&pinned).expect("the lock is JSON");
+    let mut ghost = lock["entries"]["brainstorming"].clone();
+    ghost["skill_id"] = serde_json::json!("ghost");
+    lock["entries"]["ghost"] = ghost;
+    std::fs::write(&lock_path, lock.to_string()).expect("the drifted lock is written");
+    let error = rpc
+        .active_skill_catalog()
+        .await
+        .expect_err("a locked but uninstalled pack must refuse the catalog");
+    assert_eq!(rpc_error_code(&error), auth::rpc_codes::POLICY_REFUSED);
+    assert!(
+        error.message().contains("ghost"),
+        "the refusal names the locked pack: {}",
+        error.message()
+    );
+
+    // A lock the daemon cannot read is not a catalog it serves un-pinned.
+    std::fs::write(&lock_path, "{ not a lock").expect("the corrupt lock is written");
+    let error = rpc
+        .active_skill_catalog()
+        .await
+        .expect_err("an unreadable lock must refuse the catalog");
+    assert_eq!(rpc_error_code(&error), auth::rpc_codes::POLICY_REFUSED);
+    assert!(
+        error.message().contains("could not be read"),
+        "the refusal says the lock is unreadable: {}",
+        error.message()
+    );
+}
+
+/// ENGINE P-E6: a pack the registry refuses to bundle refuses the catalog.
+///
+/// The rule is the registry's own — `SkillRegistry::register` refuses a copyleft
+/// pack — and this proves the daemon edge reaches it: the catalog refuses instead
+/// of listing a pack the license rules keep out.
+#[tokio::test]
+async fn a_copyleft_skills_pack_refuses_the_catalog() {
+    let temp = crate::test_util::fresh_tempdir();
+    let data_dir = temp.path().join("data");
+    let (state, _store) = test_state(&data_dir).await;
+    let rpc = WarshaRpc::new(state.clone());
+    rpc.active_skill_catalog()
+        .await
+        .expect("the catalog is served and pinned");
+
+    let mut gpl = state
+        .settings
+        .get_skill("brainstorming")
+        .await
+        .expect("the row reads")
+        .expect("the row exists");
+    gpl.id = "gpl-pack".to_string();
+    gpl.name = "GPL Pack".to_string();
+    gpl.license = "GPL-3.0".to_string();
+    gpl.content = "# GPL Pack".to_string();
+    state
+        .settings
+        .save_skill(&gpl)
+        .await
+        .expect("the row saves");
+
+    let error = rpc
+        .active_skill_catalog()
+        .await
+        .expect_err("a copyleft pack must refuse the catalog");
+    assert_eq!(rpc_error_code(&error), auth::rpc_codes::POLICY_REFUSED);
+    assert!(
+        error.message().contains("gpl-pack"),
+        "the refusal names the pack: {}",
+        error.message()
+    );
+}
+
+/// ENGINE P-E6: an install that changes after the lock was written is a drift too.
+///
+/// The pin covers the pack's own bytes, so editing a row and installing a new one
+/// are both refused until the lock is re-pinned.
+#[tokio::test]
+async fn an_install_that_changed_after_the_skills_lock_refuses_the_catalog() {
+    let temp = crate::test_util::fresh_tempdir();
+    let data_dir = temp.path().join("data");
+    let (state, _store) = test_state(&data_dir).await;
+    let rpc = WarshaRpc::new(state.clone());
+
+    rpc.active_skill_catalog()
+        .await
+        .expect("the catalog is served and pinned");
+    let lock_path = data_dir.join(SKILLS_LOCK_FILE);
+    let pinned = std::fs::read_to_string(&lock_path).expect("the lock is written");
+
+    // The pack's body changed under the lock.
+    let original = state
+        .settings
+        .get_skill("test-driven-development")
+        .await
+        .expect("the row reads")
+        .expect("the row exists");
+    let mut edited = original.clone();
+    edited.content.push_str("\n\nAn edit no lock approved.\n");
+    state
+        .settings
+        .save_skill(&edited)
+        .await
+        .expect("the row saves");
+    let error = rpc
+        .active_skill_catalog()
+        .await
+        .expect_err("an edited pack must refuse the catalog");
+    assert_eq!(rpc_error_code(&error), auth::rpc_codes::POLICY_REFUSED);
+    assert!(
+        error.message().contains("test-driven-development"),
+        "the refusal names the edited pack: {}",
+        error.message()
+    );
+    assert!(
+        error.message().contains(SKILLS_LOCK_FILE),
+        "the refusal names the lock: {}",
+        error.message()
+    );
+
+    // An install the lock never named: the edited pack is back to its pinned bytes
+    // and a new row arrives, which is a set the lock does not cover.
+    state
+        .settings
+        .save_skill(&original)
+        .await
+        .expect("the row restores");
+    let mut extra = original.clone();
+    extra.id = "imported-after-the-lock".to_string();
+    extra.name = "Imported After The Lock".to_string();
+    state
+        .settings
+        .save_skill(&extra)
+        .await
+        .expect("the row saves");
+    let error = rpc
+        .active_skill_catalog()
+        .await
+        .expect_err("an unlocked install must refuse the catalog");
+    assert_eq!(rpc_error_code(&error), auth::rpc_codes::POLICY_REFUSED);
+    assert!(
+        error.message().contains("imported-after-the-lock"),
+        "the refusal names the unlocked pack: {}",
+        error.message()
+    );
+    // The lock itself is untouched by a read: the gate re-reads, it never re-pins.
+    assert_eq!(
+        std::fs::read_to_string(&lock_path).expect("the lock is still there"),
+        pinned
+    );
+}
+
+/// ENGINE P-E6: a role's catalog is its pack, and a pack that lost a skill fails
+/// closed instead of shrinking.
+#[tokio::test]
+async fn a_roles_catalog_is_its_skills_pack_and_a_gap_fails_closed() {
+    let temp = crate::test_util::fresh_tempdir();
+    let data_dir = temp.path().join("data");
+    let (state, _store) = test_state(&data_dir).await;
+    let rows = state.settings.list_skills().await.expect("the rows read");
+    let registry = installed_skill_registry(&rows, &data_dir).expect("the install registers");
+
+    // Every role's pack resolves against a fresh install, and every shipped skill
+    // belongs to one: a pack table naming a skill nothing ships would fail the role
+    // it belongs to on the first start.
+    let mut named: Vec<&str> = Vec::new();
+    for role in Role::all() {
+        let pack = registry
+            .skills_for_role(*role)
+            .unwrap_or_else(|error| panic!("the {role:?} pack resolves: {error}"));
+        assert!(!pack.is_empty(), "the {role:?} pack is not empty");
+        named.extend(pack.iter().map(|skill| skill.manifest.id.as_str()));
+    }
+    for row in &rows {
+        assert!(
+            named.contains(&row.id.as_str()),
+            "`{}` is shipped but no role's pack names it",
+            row.id
+        );
+    }
+
+    // Coder is its own pack plus the built-ins — not every installed skill.
+    let catalog =
+        catalog_from_registry(&registry, &rows, Some(Role::Coder)).expect("the pack resolves");
+    assert!(
+        serves(&catalog, "/review"),
+        "the built-ins stay: {catalog:?}"
+    );
+    assert!(serves(&catalog, "/test-driven-development"), "{catalog:?}");
+    assert!(
+        !serves(&catalog, "/frontend-design"),
+        "a skill outside the pack is not the role's: {catalog:?}"
+    );
+
+    // A pack that names a skill the install no longer has is an error, not a
+    // shorter pack.
+    let without: Vec<StoredSkill> = rows
+        .iter()
+        .filter(|row| row.id != "systematic-debugging")
+        .cloned()
+        .collect();
+    let registry =
+        installed_skill_registry(&without, &data_dir).expect("the remaining install registers");
+    let error = catalog_from_registry(&registry, &without, Some(Role::Coder))
+        .expect_err("a pack that lost a skill must fail closed");
+    assert!(
+        error.contains("systematic-debugging"),
+        "the refusal names the missing skill: {error}"
+    );
+}
+
+/// The retired `agent.turn` was the only turn this proved, so it is proved on the
+/// run's own loop instead: plan first, and only the owner's approval reaches Agent.
+#[tokio::test]
+async fn a_run_turn_plans_first_and_executes_after_the_owner_approves() {
+    use warsha_pipeline::AgentMode;
+
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    // The catalog `agent.turn_run` hands the loop, from the same daemon.
+    let skills = WarshaRpc::new(state.clone())
+        .active_skill_catalog()
+        .await
+        .expect("the catalog is served");
+    // The loop a run works in: the daemon's router behind the model call and the
+    // filesystem tools under the run's workspace.
+    let mut agent = agent_loop_for_run(&state);
+
+    let planned = agent
+        .run_turn("/review the diff of @file src/main.rs", &skills)
+        .await;
+    assert_eq!(planned.mode, AgentMode::Plan);
+    assert_eq!(
+        planned
+            .command
+            .as_ref()
+            .map(|command| command.name.as_str()),
+        Some("/review")
+    );
+    assert_eq!(planned.mentions.len(), 1);
+    assert_eq!(planned.todos.len(), 1);
+    assert!(planned.tools.is_empty());
+    assert!(!agent.mode_manager.can_edit());
+
+    // Agent mode is only reachable through the owner's approval.
+    agent
+        .approve_agent_mode("owner")
+        .expect("the approval is accepted");
+
+    let executed = agent.run_turn("now apply it", &skills).await;
+    assert_eq!(executed.mode, AgentMode::Agent);
+    assert_eq!(executed.command, None);
+    assert_eq!(executed.todos.len(), 2);
+    assert_eq!(executed.todos[1].id, "turn-2");
+    // The turn is not a tool request, so it went to the router — which is the
+    // daemon's real `ProviderRouter`, holding the mock provider in this test.
+    assert!(executed.response.starts_with("Summary (model completion):"));
+    assert!(executed.response.contains("- model: Mock response"));
+    assert!(executed.tools.is_empty());
+}
+
+/// The tool turn, on the run's own loop: the run's workspace is where the tools
+/// write, and a path out of it is refused.
+#[tokio::test]
+async fn a_run_turn_runs_a_tool_inside_the_runs_workspace() {
+    use warsha_pipeline::AgentMode;
+
+    let temp = crate::test_util::fresh_tempdir();
+    let data_dir = temp.path().join("data");
+    let (state, store) = test_state(&data_dir).await;
+    let rpc = WarshaRpc::new(state.clone());
+    let run_id = approved_agent_run(&state, &store).await;
+
+    let executed = rpc
+        .agent_turn_run(
+            &owner_ext(),
+            run_id,
+            "write file notes/hello.md: written by the agent".to_string(),
+        )
+        .await
+        .expect("a tool turn answers");
+
+    assert_eq!(executed.mode, AgentMode::Agent);
+    assert_eq!(executed.tools.len(), 1);
+    assert!(
+        executed.tools[0].success,
+        "unexpected tool: {:?}",
+        executed.tools[0]
+    );
+    // The real file layer wrote it, inside `<data_dir>/workspace`.
+    let written = data_dir.join("workspace").join("notes").join("hello.md");
+    assert!(written.is_file(), "{} was not written", written.display());
+    assert_eq!(
+        std::fs::read_to_string(&written).expect("the file is readable"),
+        "written by the agent"
+    );
+
+    // A path that leaves the workspace is refused, not written.
+    let refused = rpc
+        .agent_turn_run(
+            &owner_ext(),
+            run_id,
+            "write file ../escape.md: no".to_string(),
+        )
+        .await
+        .expect("a refused tool turn still answers");
+    assert_eq!(refused.tools.len(), 1);
+    assert!(!refused.tools[0].success);
+    assert!(
+        !data_dir.join("escape.md").exists(),
+        "the screen let a path out"
+    );
+}
+
+/// The tool name [`mcp_probe_server`] answers `tools/list` with.
+const PROBE_TOOL: &str = "read_file";
+
+/// The address [`preview_probe`] prints, as a dev server prints one.
+const PROBE_URL: &str = "http://127.0.0.1:5199/";
+
+/// A stdio MCP server, run as a child of this test binary.
+///
+/// `mcp.connect` now speaks the protocol, so a test server has to answer it.
+/// The daemon starts a server with the program and arguments it was given and
+/// no environment, so the child identifies itself by `--exact` and answers from
+/// the constant above. `--nocapture` is what lets this `println!` reach the pipe
+/// the manager reads instead of libtest's in-memory buffer, and the guard makes
+/// the probe harmless if a full ignored run ever reaches it.
+#[test]
+#[ignore = "a child process, not a test"]
+fn mcp_probe_server() {
+    use std::io::BufRead;
+
+    if !std::env::args().any(|arg| arg == "--exact") {
+        return;
+    }
+    for line in std::io::stdin().lock().lines() {
+        let Ok(line) = line else { break };
+        let Ok(request) = serde_json::from_str::<serde_json::Value>(&line) else {
+            continue;
+        };
+        let Some(id) = request.get("id").cloned() else {
+            continue;
+        };
+        match request.get("method").and_then(serde_json::Value::as_str) {
+            Some("initialize") => println!(
+                "{}",
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": { "protocolVersion": "2024-11-05", "capabilities": {} },
+                })
+            ),
+            Some("tools/list") => println!(
+                "{}",
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": { "tools": [{ "name": PROBE_TOOL }] },
+                })
+            ),
+            Some("tools/call") => {
+                let tool_name = request
+                    .get("params")
+                    .and_then(|p| p.get("name"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("");
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "content": [{ "type": "text", "text": format!("mcp called {tool_name}") }],
+                            "isError": false,
+                        }
+                    })
+                );
+            }
+            _ => println!(
+                "{}",
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32601, "message": "unknown method" },
+                })
+            ),
+        }
+    }
+}
+
+/// A dev server, run as a child of this test binary: it prints its address and
+/// stays up, which is what `preview.start` waits to read.
+#[test]
+#[ignore = "a child process, not a test"]
+fn preview_probe() {
+    if !std::env::args().any(|arg| arg == "--exact") {
+        return;
+    }
+    println!("  ➜  Local:   {PROBE_URL}");
+    loop {
+        std::thread::park();
+    }
+}
+
+/// The command line that starts one probe of this test binary.
+///
+/// A preview is given one command line and splits it itself, so a binary path
+/// with a space in it would not survive. It does not here, and the pipeline's
+/// own preview tests rest on the same assumption.
+fn probe_line(test: &str) -> String {
+    let exe = std::env::current_exe().expect("the test binary names itself");
+    format!(
+        "{} --exact tests::{test} --ignored --nocapture",
+        exe.display()
+    )
+}
+
+/// The same probe as a program plus args, which is what `mcp.connect` takes.
+fn probe_command(test: &str) -> (String, Vec<String>) {
+    let exe = std::env::current_exe().expect("the test binary names itself");
+    (
+        exe.to_string_lossy().into_owned(),
+        vec![
+            "--exact".to_string(),
+            format!("tests::{test}"),
+            "--ignored".to_string(),
+            "--nocapture".to_string(),
+        ],
+    )
+}
+
+/// A program plus args that keeps running until the test stops it.
+#[cfg(windows)]
+fn long_running() -> (String, Vec<String>) {
+    (
+        "cmd".to_string(),
+        vec!["/C".to_string(), "more".to_string()],
+    )
+}
+
+/// A program plus args that keeps running until the test stops it (Unix).
+#[cfg(not(windows))]
+fn long_running() -> (String, Vec<String>) {
+    ("sh".to_string(), vec!["-c".to_string(), "cat".to_string()])
+}
+
+#[tokio::test]
+async fn process_rpcs_spawn_list_report_and_stop_a_real_process() {
+    let temp = crate::test_util::fresh_tempdir();
+    // The owner's own configuration is what admits a program: this test's
+    // long-running stand-in is `cmd`/`sh`, which the default list deliberately
+    // does not carry.
+    let (state, _store) = test_state_with(temp.path(), |config| {
+        config.allowed_commands = vec!["cmd".to_string(), "sh".to_string()];
+    })
+    .await;
+    let rpc = WarshaRpc::new(state);
+    let (command, args) = long_running();
+
+    let id = rpc
+        .spawn_process(&owner_ext(), command.clone(), args.clone(), HashMap::new())
+        .await
+        .expect("the process starts");
+    assert_eq!(
+        rpc.process_status(&owner_ext(), id.clone()).await.unwrap(),
+        ProcessStatus::Running
+    );
+    let listed = rpc
+        .list_processes(&owner_ext())
+        .await
+        .expect("the list is served");
+    let process = listed.first().expect("the process is listed");
+    assert_eq!(process.id, id);
+    assert_eq!(process.command, command);
+    assert_eq!(process.args, args);
+    assert!(process.started_at.is_some());
+
+    rpc.stop_process(&owner_ext(), id.clone())
+        .await
+        .expect("the process stops");
+    assert_eq!(
+        rpc.process_status(&owner_ext(), id.clone()).await.unwrap(),
+        ProcessStatus::Stopped
+    );
+
+    // A second stop has nothing left to signal, and an unknown id is refused.
+    assert!(rpc.stop_process(&owner_ext(), id).await.is_err());
+    assert!(rpc
+        .process_status(&owner_ext(), "proc-404".to_string())
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn mcp_connect_requires_pinned_stdio_launch() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (command, args) = probe_command("mcp_probe_server");
+    // The policy must allow 'npx' and the probe command.
+    let allowed_probe = command.clone();
+    let (state, _store) = test_state_with(temp.path(), move |config| {
+        config.allowed_commands = vec!["npx".to_string(), allowed_probe];
+    })
+    .await;
+    let rpc = WarshaRpc::new(state);
+
+    // (a) Unpinned npx launch: refused by wave2::require_pinned_launch BEFORE spawn.
+    let unpinned_res = rpc
+        .connect_mcp(
+            &owner_ext(),
+            warsha_pipeline::mcp_transport::McpServerConfig::new_stdio(
+                "unpinned",
+                "npx".to_string(),
+                vec!["pkg".to_string()],
+            ),
+        )
+        .await;
+    let err = unpinned_res.expect_err("an unpinned npx launch must be refused");
+    assert_eq!(rpc_error_code(&err), auth::rpc_codes::POLICY_REFUSED);
+    assert!(
+        err.message().contains("unpinned package `pkg`"),
+        "expected unpinned package message, got: {}",
+        err.message()
+    );
+
+    // (b) Pinned / safe launch: connects successfully using probe server.
+    rpc.connect_mcp(
+        &owner_ext(),
+        warsha_pipeline::mcp_transport::McpServerConfig::new_stdio("pinned", command, args),
+    )
+    .await
+    .expect("a valid probe command should connect");
+
+    rpc.disconnect_mcp(&owner_ext(), "pinned".to_string())
+        .await
+        .expect("the server disconnects");
+}
+
+#[tokio::test]
+async fn mcp_rpcs_connect_send_and_disconnect_a_stdio_server() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (command, args) = probe_command("mcp_probe_server");
+    // The stdio transport starts this test's own binary as the MCP server, and the
+    // daemon's configuration is what admits that exact program.
+    let allowed = command.clone();
+    let (state, _store) = test_state_with(temp.path(), move |config| {
+        config.allowed_commands = vec![allowed];
+    })
+    .await;
+    let rpc = WarshaRpc::new(state);
+
+    rpc.connect_mcp(
+        &owner_ext(),
+        warsha_pipeline::mcp_transport::McpServerConfig::new_stdio("files", command, args),
+    )
+    .await
+    .expect("the server connects");
+    let listed = rpc
+        .list_mcp(&owner_ext())
+        .await
+        .expect("the list is served");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].status, warsha_pipeline::McpStatus::Connected);
+    assert!(listed[0].process_id.is_some());
+    // The handshake ran, so `mcp.list` reports what the server said it can do.
+    assert_eq!(listed[0].tools, vec![PROBE_TOOL.to_string()]);
+
+    let frame = r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;
+    assert_eq!(
+        rpc.send_mcp(&owner_ext(), "files".to_string(), frame.to_string())
+            .await
+            .expect("the frame is written"),
+        frame
+    );
+
+    // `mcp.call` consults the permission table like every other path to the
+    // transport (K6, R-KEEL row 6), and an empty table is `Ask`, so this owner
+    // grants the tool the way the desktop would before the call below.
+    rpc.set_mcp_permission(
+        &owner_ext(),
+        "files".to_string(),
+        PROBE_TOOL.to_string(),
+        warsha_pipeline::MCP_AGENT_ROLE.to_string(),
+        "allow".to_string(),
+    )
+    .await
+    .expect("the owner grants the probe tool");
+
+    let call_res = rpc
+        .call_mcp(
+            &owner_ext(),
+            "files".to_string(),
+            PROBE_TOOL.to_string(),
+            serde_json::json!({}),
+        )
+        .await
+        .expect("call_mcp succeeds");
+    assert!(!call_res.is_error);
+    assert_eq!(call_res.content.len(), 1);
+    match &call_res.content[0] {
+        warsha_pipeline::mcp::McpContent::Text { text } => {
+            assert_eq!(text, &format!("mcp called {PROBE_TOOL}"));
+        }
+        _ => panic!("expected text content"),
+    }
+
+    rpc.disconnect_mcp(&owner_ext(), "files".to_string())
+        .await
+        .expect("the server disconnects");
+    let listed = rpc
+        .list_mcp(&owner_ext())
+        .await
+        .expect("the list is served");
+    assert_eq!(listed[0].status, warsha_pipeline::McpStatus::Disconnected);
+    assert_eq!(listed[0].process_id, None);
+    // Nothing is dialled for a *wired* name after the disconnect.
+    assert!(rpc
+        .send_mcp(&owner_ext(), "files".to_string(), "{}".to_string())
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn mcp_connect_records_an_http_transport_without_dialling_it() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state);
+
+    rpc.connect_mcp(
+        &owner_ext(),
+        warsha_pipeline::mcp_transport::McpServerConfig::new_http(
+            "remote",
+            "https://mcp.example/mcp",
+        ),
+    )
+    .await
+    .expect("the config is recorded");
+
+    let listed = rpc
+        .list_mcp(&owner_ext())
+        .await
+        .expect("the list is served");
+    assert_eq!(listed[0].status, warsha_pipeline::McpStatus::Disconnected);
+    assert_eq!(listed[0].process_id, None);
+    assert!(rpc
+        .list_processes(&owner_ext())
+        .await
+        .expect("the list is served")
+        .is_empty());
+    // The transport is recorded, not wired, and the error says so.
+    let error = rpc
+        .send_mcp(&owner_ext(), "remote".to_string(), "{}".to_string())
+        .await
+        .expect_err("nothing dials an http transport yet");
+    assert!(format!("{error:?}").contains("not wired"));
+}
+
+#[tokio::test]
+async fn preview_rpcs_start_report_and_stop_one_dev_server_per_project() {
+    let temp = crate::test_util::fresh_tempdir();
+    let command = probe_line("preview_probe");
+    // A preview's command line names this test binary as its program, so the
+    // owner's configuration is what admits that exact path.
+    let program = command
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    let (state, _store) = test_state_with(temp.path(), move |config| {
+        config.allowed_commands = vec![program];
+    })
+    .await;
+    let rpc = WarshaRpc::new(state.clone());
+
+    let started = rpc
+        .start_preview(&owner_ext(), "project-1".to_string(), command.clone())
+        .await
+        .expect("the preview starts");
+    assert_eq!(started.project_id, "project-1");
+    // The dev server prints its address, and `preview.start` reports it (D4).
+    assert_eq!(started.url.as_deref(), Some(PROBE_URL));
+    let status = rpc
+        .preview_status(&owner_ext(), "project-1".to_string())
+        .await
+        .expect("the preview is tracked");
+    assert_eq!(status.process_id, started.process_id);
+    assert_eq!(status.status, ProcessStatus::Running);
+    assert_eq!(status.url.as_deref(), Some(PROBE_URL));
+    // The dev server is a real child, so `process.list` sees it too.
+    assert_eq!(
+        rpc.list_processes(&owner_ext())
+            .await
+            .expect("the list is served")
+            .len(),
+        1
+    );
+
+    // One preview per project, and an unknown project is refused.
+    assert!(rpc
+        .start_preview(&owner_ext(), "project-1".to_string(), command)
+        .await
+        .is_err());
+    assert!(rpc
+        .preview_status(&owner_ext(), "nobody".to_string())
+        .await
+        .is_err());
+
+    rpc.stop_preview(&owner_ext(), "project-1".to_string())
+        .await
+        .expect("the preview stops");
+    assert_eq!(
+        rpc.preview_status(&owner_ext(), "project-1".to_string())
+            .await
+            .expect("the preview is still tracked")
+            .status,
+        ProcessStatus::Stopped
+    );
+    // The process stays in the list as a stopped record.
+    let listed = rpc
+        .list_processes(&owner_ext())
+        .await
+        .expect("the list is served");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].status, ProcessStatus::Stopped);
+}
+
+// ---- R-BRIDGE-B5: a run owns its preview, and a preview dies with its run.
+
+/// A project in the store, which is what a run needs before it can start.
+async fn stored_project(store: &Store) -> Project {
+    let project = Project {
+        id: ProjectId::new(),
+        name: "Preview Project".to_string(),
+        description: "R-BRIDGE-B5".to_string(),
+        language: "en".to_string(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        repo_path: None,
+        repo_url: None,
+    };
+    store
+        .create_project(&project)
+        .await
+        .expect("the project is stored");
+    project
+}
+
+/// The daemon, its store and the probe command line, with the probe admitted.
+///
+/// A preview's command line names this test binary as its program, so the
+/// owner's configuration is what admits that exact path — the same wiring the
+/// preview RPC test above uses.
+async fn preview_state(data_dir: &std::path::Path) -> (Arc<DaemonState>, Arc<Store>, String) {
+    let command = probe_line("preview_probe");
+    let program = command
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    let (state, store) = test_state_with(data_dir, move |config| {
+        config.allowed_commands = vec![program];
+    })
+    .await;
+    (state, store, command)
+}
+
+/// T1 (R-BRIDGE-B5 D3): a second live run on the project never inherits the
+/// server the first one owns.
+#[tokio::test]
+async fn second_run_never_inherits_a_live_server() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, store, command) = preview_state(temp.path()).await;
+    let project = stored_project(&store).await;
+    let rpc = WarshaRpc::new(state.clone());
+
+    let first = rpc
+        .start_run(&owner_ext(), project.id, "the first run".to_string())
+        .await
+        .expect("run A starts");
+    let started = rpc
+        .start_preview(&owner_ext(), project.id.to_string(), command.clone())
+        .await
+        .expect("run A starts the project's preview");
+
+    let second = rpc
+        .start_run(&owner_ext(), project.id, "the second run".to_string())
+        .await
+        .expect("run B starts");
+    // Run B is the project's newest live run, so it is the run context a
+    // `preview.start` call arrives in (the wire carries no run id, D4).
+    let runs = store.list_runs(project.id).await.expect("the runs list");
+    assert_eq!(
+        runs.first().map(|run| run.id),
+        Some(second.id),
+        "run B is the newest run of the project"
+    );
+
+    let error = rpc
+        .start_preview(&owner_ext(), project.id.to_string(), command)
+        .await
+        .expect_err("run B cannot take the server run A owns");
+    let message = format!("{error:?}");
+    assert!(message.contains("owned by run"), "{message}");
+    assert!(message.contains(&first.id.0.to_string()), "{message}");
+    assert!(message.contains(&second.id.0.to_string()), "{message}");
+
+    // The refusal took nothing: run A's server is still A's own. The RPC would
+    // answer in run B's context now, which is exactly why this reads A's.
+    assert_eq!(
+        state
+            .previews
+            .status(&project.id.to_string(), Some(&first.id.0.to_string()))
+            .await
+            .expect("run A's server still answers for run A")
+            .process_id,
+        started.process_id
+    );
+
+    // And run A's close is what takes it down, not run B.
+    rpc.cancel_run(&owner_ext(), first.id, None)
+        .await
+        .expect("run A closes");
+    assert_eq!(
+        state
+            .processes
+            .status(&started.process_id)
+            .await
+            .expect("the server is tracked"),
+        ProcessStatus::Stopped
+    );
+    assert!(state.previews.list().await.is_empty());
+}
+
+/// T2 (R-BRIDGE-B5 D2): the terminal `runs.advance` arm stops the server the
+/// run owned and drops its entry.
+#[tokio::test]
+async fn terminal_advance_stops_the_owned_server() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, store, command) = preview_state(temp.path()).await;
+    let project = stored_project(&store).await;
+    let rpc = WarshaRpc::new(state.clone());
+
+    let run = rpc
+        .start_run(&owner_ext(), project.id, "a run".to_string())
+        .await
+        .expect("the run starts");
+    let started = rpc
+        .start_preview(&owner_ext(), project.id.to_string(), command)
+        .await
+        .expect("the run starts the project's preview");
+
+    // `Feedback` is the last stage, so advancing a run there completes it — the
+    // terminal arm the hook sits on. The stage is moved directly, as the Gate C
+    // tests move it, so no model call is involved.
+    let mut stored = store.get_run(run.id).await.expect("the run is stored");
+    stored.current_stage = Stage::Feedback;
+    store.update_run(&stored).await.expect("the stage moves");
+
+    let finished = rpc
+        .advance_run(&owner_ext(), run.id)
+        .await
+        .expect("the run advances");
+    assert_eq!(finished.status, RunStatus::Completed);
+
+    assert_eq!(
+        state
+            .processes
+            .status(&started.process_id)
+            .await
+            .expect("the server is tracked"),
+        ProcessStatus::Stopped,
+        "the run's server outlived the run"
+    );
+    assert!(
+        state.previews.list().await.is_empty(),
+        "a completed run left a preview entry behind"
+    );
+    assert!(
+        rpc.preview_status(&owner_ext(), project.id.to_string())
+            .await
+            .is_err(),
+        "preview.status still answered for a finished run"
+    );
+}
+
+/// T3 (R-BRIDGE-B5 D2): `runs.cancel` stops the server the run owned.
+#[tokio::test]
+async fn cancel_stops_the_owned_server() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, store, command) = preview_state(temp.path()).await;
+    let project = stored_project(&store).await;
+    let rpc = WarshaRpc::new(state.clone());
+
+    let run = rpc
+        .start_run(&owner_ext(), project.id, "a run".to_string())
+        .await
+        .expect("the run starts");
+    let started = rpc
+        .start_preview(&owner_ext(), project.id.to_string(), command)
+        .await
+        .expect("the run starts the project's preview");
+
+    let cancelled = rpc
+        .cancel_run(&owner_ext(), run.id, None)
+        .await
+        .expect("the run cancels");
+    assert_eq!(cancelled.status, RunStatus::Cancelled);
+
+    assert_eq!(
+        state
+            .processes
+            .status(&started.process_id)
+            .await
+            .expect("the server is tracked"),
+        ProcessStatus::Stopped,
+        "a cancelled run left its server running"
+    );
+    assert!(
+        state.previews.list().await.is_empty(),
+        "a cancelled run left a preview entry behind"
+    );
+}
+
+/// T4 (R-BRIDGE-B5 D3): a run that died without its close leaves an entry that
+/// the next start/status for the project sweeps — never a refusal.
+#[tokio::test]
+async fn dead_run_entry_swept_lazily() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, store, command) = preview_state(temp.path()).await;
+    let project = stored_project(&store).await;
+    let rpc = WarshaRpc::new(state.clone());
+
+    let dead = rpc
+        .start_run(&owner_ext(), project.id, "the run that dies".to_string())
+        .await
+        .expect("the run starts");
+    let abandoned = rpc
+        .start_preview(&owner_ext(), project.id.to_string(), command.clone())
+        .await
+        .expect("the run starts the project's preview");
+
+    // The run record is killed directly: no hook, no `stop_run`, exactly the
+    // crash a daemon restart hands over.
+    let mut stored = store.get_run(dead.id).await.expect("the run is stored");
+    stored.status = RunStatus::Cancelled;
+    store.update_run(&stored).await.expect("the record moves");
+
+    // The next status for the project is what sweeps the abandoned entry ...
+    assert!(
+        rpc.preview_status(&owner_ext(), project.id.to_string())
+            .await
+            .is_err(),
+        "a dead run's preview still answered"
+    );
+    assert_eq!(
+        state
+            .processes
+            .status(&abandoned.process_id)
+            .await
+            .expect("the swept server is tracked"),
+        ProcessStatus::Stopped,
+        "the swept server was left running"
+    );
+
+    // ... and the next run starts clean instead of being refused.
+    let next = rpc
+        .start_run(&owner_ext(), project.id, "the next run".to_string())
+        .await
+        .expect("the next run starts");
+    let fresh = rpc
+        .start_preview(&owner_ext(), project.id.to_string(), command)
+        .await
+        .expect("the next run starts a server of its own");
+    assert_ne!(fresh.process_id, abandoned.process_id);
+
+    rpc.cancel_run(&owner_ext(), next.id, None)
+        .await
+        .expect("the next run closes");
+    assert!(state.previews.list().await.is_empty());
+}
+
+/// T5 (R-BRIDGE-B5 D2), the close half: a run closes cleanly even when the
+/// server it owns cannot be stopped any more.
+///
+/// The poisoned stop path itself is the pipeline's
+/// `stop_failure_never_fails_run_close`; this is the daemon's side of the same
+/// claim — `runs.cancel` answers with the run, not with an error, when the
+/// preview's stop finds nothing to kill.
+#[tokio::test]
+async fn a_run_closes_even_when_its_server_is_already_down() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, store, command) = preview_state(temp.path()).await;
+    let project = stored_project(&store).await;
+    let rpc = WarshaRpc::new(state.clone());
+
+    let run = rpc
+        .start_run(&owner_ext(), project.id, "a run".to_string())
+        .await
+        .expect("the run starts");
+    let started = rpc
+        .start_preview(&owner_ext(), project.id.to_string(), command)
+        .await
+        .expect("the run starts the project's preview");
+    // The server dies on its own: the entry is still the run's, the child is not.
+    rpc.stop_preview(&owner_ext(), project.id.to_string())
+        .await
+        .expect("the server stops");
+
+    let cancelled = rpc
+        .cancel_run(&owner_ext(), run.id, None)
+        .await
+        .expect("the run still closes");
+    assert_eq!(cancelled.status, RunStatus::Cancelled);
+    assert_eq!(
+        state
+            .processes
+            .status(&started.process_id)
+            .await
+            .expect("the server is tracked"),
+        ProcessStatus::Stopped
+    );
+    assert!(
+        state.previews.list().await.is_empty(),
+        "the run's entry outlived the close"
+    );
+}
+
+#[tokio::test]
+async fn routines_rpcs_list_get_run_now_pause_and_resume() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state.clone());
+
+    // Empty at start
+    let list = rpc
+        .list_routines(&owner_ext())
+        .await
+        .expect("list routines");
+    assert!(list.is_empty());
+
+    // Register routines
+    {
+        let mut reg = state.routines.write().await;
+        reg.register(Routine::new(
+            "task-manual",
+            "Manual Routine",
+            warsha_pipeline::RoutineSchedule::Manual,
+        ))
+        .expect("register manual");
+        reg.register(Routine::new(
+            "task-interval",
+            "Interval Routine",
+            warsha_pipeline::RoutineSchedule::IntervalSeconds(60),
+        ))
+        .expect("register interval");
+    }
+
+    // List
+    let list = rpc
+        .list_routines(&owner_ext())
+        .await
+        .expect("list routines");
+    assert_eq!(list.len(), 2);
+    assert_eq!(list[0].id, "task-interval");
+    assert_eq!(list[1].id, "task-manual");
+
+    // Get
+    let item = rpc
+        .get_routine(&owner_ext(), "task-manual".to_string())
+        .await
+        .expect("get routine");
+    assert!(item.is_some());
+    assert_eq!(item.unwrap().name, "Manual Routine");
+
+    let ghost = rpc
+        .get_routine(&owner_ext(), "ghost".to_string())
+        .await
+        .expect("get ghost routine");
+    assert!(ghost.is_none());
+
+    // Run now
+    let updated = rpc
+        .run_routine_now(&owner_ext(), "task-manual".to_string())
+        .await
+        .expect("run routine now");
+    assert_eq!(updated.id, "task-manual");
+    assert_eq!(updated.state, warsha_pipeline::RoutineState::Idle);
+    assert!(updated.last_run_unix.is_some());
+
+    // Pause
+    let paused = rpc
+        .pause_routine(&owner_ext(), "task-interval".to_string())
+        .await
+        .expect("pause routine");
+    assert_eq!(paused.state, warsha_pipeline::RoutineState::Paused);
+
+    // Resume
+    let resumed = rpc
+        .resume_routine(&owner_ext(), "task-interval".to_string())
+        .await
+        .expect("resume routine");
+    assert_eq!(resumed.state, warsha_pipeline::RoutineState::Idle);
+
+    // Not found error
+    assert!(rpc
+        .run_routine_now(&owner_ext(), "ghost".to_string())
+        .await
+        .is_err());
+    assert!(rpc
+        .pause_routine(&owner_ext(), "ghost".to_string())
+        .await
+        .is_err());
+    assert!(rpc
+        .resume_routine(&owner_ext(), "ghost".to_string())
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn providers_check_models_rpc() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state.clone());
+
+    {
+        let mut router = state.providers.write().await;
+        router.register_provider(Box::new(
+            warsha_providers::MockProvider::new("ollama_test").with_models(vec![
+                warsha_providers::ModelInfo {
+                    id: "qwen2.5-coder:7b".to_string(),
+                    name: "Qwen 2.5 Coder 7B".to_string(),
+                    provider: "ollama_test".to_string(),
+                    context_window: 32_000,
+                    max_output: 8_192,
+                    pricing: warsha_core::ModelPricing {
+                        input_per_million_cents: 0,
+                        output_per_million_cents: 0,
+                    },
+                },
+            ]),
+        ));
+    }
+
+    let diff = rpc
+        .check_provider_models(&owner_ext(), "ollama_test".to_string())
+        .await
+        .expect("check_provider_models succeeds");
+    assert_eq!(diff.provider, "ollama_test");
+    assert_eq!(diff.new_models.len(), 1);
+    assert_eq!(diff.new_models[0].id, "qwen2.5-coder:7b");
+
+    assert!(rpc
+        .check_provider_models(&owner_ext(), "non_existent".to_string())
+        .await
+        .is_err());
+}
+
+// ---- Re-audit LOAD-1 finding 1: the tier table has to bind the read surface too.
+//
+// 24 of the 56 methods were declared without `with_extensions`, so their handlers had
+// no `RpcExtensions` to read and never reached `authorize()` — the only place a tier
+// token is spent. Their `Tier::Standard` rows in `METHOD_POLICIES` were dead on the
+// RPC surface and the spike run proved it: 1.34M requests, zero `-32004`, and the
+// admitted total landed exactly on the far looser transport ceiling. These tests are
+// the two claims the fix has to hold: a method-level ceiling now fires on a read, and
+// no read answers a caller that never authenticated.
+
+/// Every read method, refused for want of a session.
+///
+/// Driven in-process, which is the floor under the transport: a paired device, an
+/// unpaired caller or an embedded host that forgets to build the extensions must not
+/// get data out of a handler that no longer has an identity to check. The wire
+/// half — a request with no credential never reaches a handler at all — is
+/// `security_identity.rs` and `security_rate_limits.rs`.
+#[tokio::test]
+async fn every_read_method_refuses_a_caller_with_no_session() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state);
+    let anonymous = anonymous_session();
+    let project = ProjectId::new();
+    let run = RunId::new();
+
+    let outcomes = [
+        ("health", rpc.health(&anonymous).await.map(|_| ())),
+        (
+            "projects.list",
+            rpc.list_projects(&anonymous).await.map(|_| ()),
+        ),
+        (
+            "projects.get",
+            rpc.get_project(&anonymous, project).await.map(|_| ()),
+        ),
+        ("runs.get", rpc.get_run(&anonymous, run).await.map(|_| ())),
+        (
+            "runs.list",
+            rpc.list_runs(&anonymous, project).await.map(|_| ()),
+        ),
+        (
+            "runs.events",
+            rpc.get_events(&anonymous, run).await.map(|_| ()),
+        ),
+        (
+            "providers.list",
+            rpc.list_providers(&anonymous).await.map(|_| ()),
+        ),
+        ("roles.list", rpc.list_roles(&anonymous).await.map(|_| ())),
+        (
+            "budget.show",
+            rpc.show_budget(&anonymous, project).await.map(|_| ()),
+        ),
+        (
+            "devices.list",
+            rpc.list_devices(&anonymous).await.map(|_| ()),
+        ),
+        (
+            "pairing.list",
+            rpc.list_pairings(&anonymous).await.map(|_| ()),
+        ),
+        (
+            "backend.get",
+            rpc.get_backend(&anonymous, "run".to_string())
+                .await
+                .map(|_| ()),
+        ),
+        (
+            "runmode.list",
+            rpc.list_run_modes(&anonymous).await.map(|_| ()),
+        ),
+        (
+            "preferences.list",
+            rpc.list_preferences(&anonymous, "project".to_string())
+                .await
+                .map(|_| ()),
+        ),
+        (
+            "preferences.record",
+            rpc.record_preference(
+                &anonymous,
+                PreferenceSignal::new(
+                    "signal-1",
+                    "project",
+                    "owner",
+                    warsha_pipeline::SignalKind::Approve,
+                    "button",
+                    1_700_000_000,
+                ),
+            )
+            .await
+            .map(|_| ()),
+        ),
+        (
+            "postlaunch.crashes",
+            rpc.list_crash_reports(&anonymous, "run".to_string())
+                .await
+                .map(|_| ()),
+        ),
+        (
+            "postlaunch.reviews",
+            rpc.list_store_reviews(&anonymous, "apple".to_string())
+                .await
+                .map(|_| ()),
+        ),
+        ("skills.list", rpc.list_skills(&anonymous).await.map(|_| ())),
+        (
+            "process.status",
+            rpc.process_status(&anonymous, "proc-1".to_string())
+                .await
+                .map(|_| ()),
+        ),
+        (
+            "process.list",
+            rpc.list_processes(&anonymous).await.map(|_| ()),
+        ),
+        ("mcp.list", rpc.list_mcp(&anonymous).await.map(|_| ())),
+        (
+            "preview.status",
+            rpc.preview_status(&anonymous, "project".to_string())
+                .await
+                .map(|_| ()),
+        ),
+        (
+            "routines.list",
+            rpc.list_routines(&anonymous).await.map(|_| ()),
+        ),
+        (
+            "routines.get",
+            rpc.get_routine(&anonymous, "task".to_string())
+                .await
+                .map(|_| ()),
+        ),
+    ];
+
+    assert_eq!(
+        outcomes.len(),
+        24,
+        "the read surface the re-audit counted is what this asserts over"
+    );
+    for (method, outcome) in outcomes {
+        let error = outcome.expect_err(&format!("{method} served a caller with no session"));
+        assert_eq!(
+            rpc_error_code(&error),
+            auth::rpc_codes::UNAUTHENTICATED,
+            "{method} refused an unauthenticated caller for the wrong reason"
+        );
+    }
+}
+
+/// The `standard` tier is spent by a read now, which is the finding's actual claim:
+/// `projects.list` can be refused with the method-tier code while the transport
+/// ceiling in front of it is still serving traffic normally.
+#[tokio::test]
+async fn a_read_is_measured_by_its_own_tier_and_not_only_by_the_transport() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state_with(temp.path(), |config| {
+        // The transport stays wide — the refusal below has to come from the method
+        // tier, not from the whole-request bucket in front of it.
+        config.rate_limits = RateLimitConfig {
+            transport: QuotaConfig {
+                burst: 600,
+                sustained: 600,
+                window_secs: 60,
+            },
+            standard: QuotaConfig {
+                burst: 3,
+                sustained: 3,
+                window_secs: 60,
+            },
+            ..RateLimitConfig::default()
+        };
+    })
+    .await;
+    let rpc = WarshaRpc::new(state.clone());
+    let owner = owner_ext();
+
+    for _ in 0..3 {
+        rpc.list_projects(&owner)
+            .await
+            .expect("the standard burst is served");
+    }
+
+    let refused = rpc
+        .list_projects(&owner)
+        .await
+        .map(|_| ())
+        .expect_err("a read past the standard ceiling was served");
+    assert_eq!(
+        rpc_error_code(&refused),
+        auth::rpc_codes::RATE_LIMITED,
+        "the method tier did not bind the method tier's own caller"
+    );
+
+    // A second identity is not refused for the first one's flood.
+    let phone = uuid::Uuid::new_v4().to_string();
+    seed_pairing(&rpc.state, &phone).await;
+    rpc.list_projects(&paired_ext(&phone))
+        .await
+        .expect("one caller's ceiling is not another's");
+
+    // The refusal is the tier's, not the method's: `health` sits in `standard` with
+    // the other reads, so the same caller that drained the bucket is refused there too
+    // — which is what the table claiming one ceiling per tier has to mean.
+    let health_refused = rpc
+        .health(&owner)
+        .await
+        .map(|_| ())
+        .expect_err("the standard tier refueled between two calls in one test");
+    assert_eq!(
+        rpc_error_code(&health_refused),
+        auth::rpc_codes::RATE_LIMITED,
+        "the tier is not per identity and ceiling"
+    );
+}
+
+/// Re-audit N-8 on the one write that sat on the read surface: `preferences.record`
+/// now needs a session, spends its tier and records its actor — and a paired device is
+/// still allowed to record taste, which is what the table has always said.
+#[tokio::test]
+async fn recording_a_preference_is_a_write_with_a_ceiling_and_an_actor() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state_with(temp.path(), |config| {
+        config.rate_limits = RateLimitConfig {
+            standard: QuotaConfig {
+                burst: 1,
+                sustained: 1,
+                window_secs: 60,
+            },
+            ..RateLimitConfig::default()
+        };
+    })
+    .await;
+    let rpc = WarshaRpc::new(state);
+    let phone = uuid::Uuid::new_v4().to_string();
+    seed_pairing(&rpc.state, &phone).await;
+    let paired = paired_ext(&phone);
+    let signal = || {
+        PreferenceSignal::new(
+            uuid::Uuid::new_v4().to_string(),
+            "project-1",
+            "owner-1",
+            warsha_pipeline::SignalKind::Approve,
+            "button",
+            1_700_000_000,
+        )
+    };
+
+    // Served once, and its own ceiling binds the next one rather than the caller
+    // writing the settings file forever.
+    rpc.record_preference(&paired, signal())
+        .await
+        .expect("a paired device records taste");
+    let refused = rpc
+        .record_preference(&paired, signal())
+        .await
+        .map(|_| ())
+        .expect_err("an unbounded write on the read surface");
+    assert_eq!(
+        rpc_error_code(&refused),
+        auth::rpc_codes::RATE_LIMITED,
+        "the standard tier did not bind the write it names"
+    );
+
+    // A caller with no session writes nothing at all.
+    let anonymous = rpc
+        .record_preference(&anonymous_session(), signal())
+        .await
+        .map(|_| ())
+        .expect_err("no session recorded a preference");
+    assert_eq!(
+        rpc_error_code(&anonymous),
+        auth::rpc_codes::UNAUTHENTICATED,
+        "an unauthenticated caller persisted a preference"
+    );
+}
+
+/// The log lines a daemon wrote, kept by a test subscriber.
+///
+/// Two of this batch's findings are about the *shape* of the log rather than the value
+/// of any field: a startup line written twice, and a refusal line written 1.3 million
+/// times. Neither is assertable from a handler's return value, so the daemon's own
+/// output is captured and counted.
+#[derive(Clone, Default)]
+struct LogCapture(Arc<std::sync::Mutex<Vec<String>>>);
+
+impl LogCapture {
+    /// Every line written so far.
+    fn lines(&self) -> Vec<String> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// How many lines carry `needle`.
+    fn count_matching(&self, needle: &str) -> usize {
+        self.lines()
+            .iter()
+            .filter(|line| line.contains(needle))
+            .count()
+    }
+}
+
+/// The one field of an event a log-shape test needs: its message.
+#[derive(Default)]
+struct MessageVisitor {
+    message: String,
+}
+
+impl tracing::field::Visit for MessageVisitor {
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        if field.name() == "message" {
+            self.message = value.to_string();
+        } else {
+            // Every other field too: a value logged as `args = ...` is exactly
+            // what a no-secrets-in-logs assertion has to be able to see.
+            self.message.push_str(&format!(" {}={value}", field.name()));
+        }
+    }
+
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "message" {
+            self.message = format!("{value:?}");
+        } else {
+            self.message
+                .push_str(&format!(" {}={value:?}", field.name()));
+        }
+    }
+}
+
+/// A subscriber layer that appends each event's level and message to a [`LogCapture`].
+struct CaptureLayer(LogCapture);
+
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for CaptureLayer {
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        let mut visitor = MessageVisitor::default();
+        event.record(&mut visitor);
+        self.0
+             .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(format!("{} {}", event.metadata().level(), visitor.message));
+    }
+}
+
+/// The capture, with a filter mounted beside it.
+///
+/// The filter is not decoration. tracing caches, per callsite, whether it is *ever*
+/// enabled, and a callsite first reached by another test running in parallel — with no
+/// subscriber of its own — is cached as "never", which blinds a thread-local capture to
+/// exactly the line it is looking for. A subscriber that answers `Interest::sometimes()`
+/// bypasses that cache, so the capture sees the events whatever the rest of the suite
+/// has already done to the callsite: without the filter these two tests pass under
+/// `--test-threads=1` and fail in a parallel run.
+fn capture_subscriber(capture: &LogCapture) -> impl tracing::Subscriber + Send + Sync + 'static {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    tracing_subscriber::Registry::default()
+        .with(CaptureLayer(capture.clone()))
+        .with(tracing_subscriber::filter::Targets::new().with_default(tracing::Level::TRACE))
+}
+
+/// Re-audit LOAD-1 finding 3: the listener lines are written once per daemon start.
+///
+/// The measured startup log carried each of them twice — once from `start_daemon`,
+/// which is the code that knows the ports, and once from `run_daemon`, which only
+/// repeats them. Asserted two ways on purpose: the runtime capture proves one start
+/// writes one of each, and the source scan proves nothing has grown a second format
+/// string for the same line, which is how the duplicate came back the first time.
+#[test]
+fn the_startup_listener_lines_are_written_once() {
+    let capture = LogCapture::default();
+    let subscriber = capture_subscriber(&capture);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("a current-thread runtime");
+    let temp = crate::test_util::fresh_tempdir();
+    let data_dir = temp.path().to_path_buf();
+
+    tracing::subscriber::with_default(subscriber, || {
+        runtime.block_on(async move {
+            let config = DaemonConfig {
+                data_dir,
+                auth_token: "one-line-token".to_string(),
+                http_port: 0,
+                ws_port: 0,
+                ..Default::default()
+            };
+            let handle = start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))
+                .await
+                .expect("the daemon starts");
+            assert!(handle.http_port() > 0 && handle.rpc_port() > 0);
+            handle.shutdown().await;
+        });
+    });
+
+    assert_eq!(
+        capture.count_matching("HTTP server listening"),
+        1,
+        "the HTTP listener line was written more than once: {:?}",
+        capture.lines()
+    );
+    assert_eq!(
+        capture.count_matching("JSON-RPC server listening"),
+        1,
+        "the RPC listener line was written more than once: {:?}",
+        capture.lines()
+    );
+
+    // The source-level guard: exactly one format string each, in the production part of
+    // the crate. The duplicate this batch removed was a second call site in
+    // `run_daemon`, and a second call site is exactly what this catches — the runtime
+    // count above only sees the one start this test performed. P-H1 moved the listener
+    // owner to `startup.rs`, so the guard scans both production parts (path seam only;
+    // the one-owner assertion is unchanged). A10 moved this module to `tests/mod.rs`,
+    // so the two paths are one directory up — the scan set and the assertion are the same.
+    let production = [include_str!("../lib.rs"), include_str!("../startup.rs")]
+        .into_iter()
+        .map(|source| {
+            source
+                .split("#[cfg(test)]")
+                .next()
+                .expect("the crate has a test module to exclude")
+        })
+        .collect::<String>();
+    for shape in ["HTTP server listening on", "JSON-RPC server listening on"] {
+        let sites = production
+            .lines()
+            .filter(|line| line.contains(shape))
+            .count();
+        assert_eq!(
+            sites, 1,
+            "`{shape}` is written from {sites} places; a listener line has one owner"
+        );
+    }
+}
+
+/// Re-audit LOAD-1 finding 2 at the daemon: a flood of refusals is a count, and one
+/// line — not a line per refusal.
+///
+/// Asserted on the meter the handler actually drives (refusals counted, lines handed
+/// out, tallies kept) rather than on a log the test process intercepts. A subscriber
+/// installed inside one test of a parallel suite only sees the events whose callsites
+/// route to it, and the callsite here is shared with the other refusal tests in this
+/// binary, so a capture assertion is flaky by construction; a counter is not. What the
+/// line *says* — counts, a ceiling, a one-way digest, never an identity or a token —
+/// is asserted next to the function that builds it, in `warsha-remote`.
+#[test]
+fn a_flood_of_refusals_is_counted_and_earns_one_line() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("a current-thread runtime");
+    let temp = crate::test_util::fresh_tempdir();
+
+    runtime.block_on(async {
+        let (state, _store) = test_state_with(temp.path(), |config| {
+            config.rate_limits = RateLimitConfig {
+                standard: QuotaConfig {
+                    burst: 1,
+                    sustained: 1,
+                    window_secs: 60,
+                },
+                ..RateLimitConfig::default()
+            };
+        })
+        .await;
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+
+        // The first call is served; every one after it is a refusal.
+        rpc.list_projects(&owner).await.expect("the burst");
+        for _ in 0..500 {
+            let refused = rpc
+                .list_projects(&owner)
+                .await
+                .map(|_| ())
+                .expect_err("a caller past its ceiling was served");
+            assert_eq!(rpc_error_code(&refused), auth::rpc_codes::RATE_LIMITED);
+        }
+
+        let meter = state.rates.refusals();
+        assert_eq!(meter.refusals_total(), 500, "every refusal is counted");
+        assert_eq!(
+            meter.lines_written(),
+            1,
+            "500 refusals earned one line, not 500 of them"
+        );
+        assert_eq!(meter.tracked(), 1, "one caller earned one tally");
+        assert_eq!(meter.untracked(), 0, "the meter overflowed its bound");
+
+        // And nothing about the caller survives in the state that prints: the limiter
+        // keys, the identity labels and the daemon's own credential are all absent, so
+        // a `debug!` of the governor cannot leak what the refusal line already refuses
+        // to print.
+        let printed = format!("{:?}", state.rates);
+        assert!(
+            !printed.contains("test-token"),
+            "the ceilings printed the owner credential: {printed}"
+        );
+        assert!(
+            !printed.contains("identity:") && !printed.contains("peer:"),
+            "the ceilings printed a limiter key: {printed}"
+        );
+    });
+}
+
+#[tokio::test]
+async fn revoking_an_unknown_device_returns_an_rpc_error() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state);
+    let owner = owner_ext();
+    let unknown = DeviceId::new();
+    let err = rpc
+        .revoke_device(&owner, unknown)
+        .await
+        .expect_err("revoking an unknown device must fail with an RPC error");
+    assert_eq!(rpc_error_code(&err), -32000);
+}
+
+#[tokio::test]
+async fn toggle_plugin_returns_an_rpc_error_when_mcp_connect_fails() {
+    let temp = crate::test_util::fresh_tempdir();
+    let exe = std::env::current_exe()
+        .expect("the test binary names itself")
+        .to_string_lossy()
+        .into_owned();
+    let allowed = exe.clone();
+    let (state, _store) = test_state_with(temp.path(), move |config| {
+        config.allowed_commands = vec![allowed];
+    })
+    .await;
+    let rpc = WarshaRpc::new(state);
+    let owner = owner_ext();
+    // A program the policy allows that is not an MCP server: it lists and exits,
+    // so the handshake cannot complete and the failure has to surface.
+    let manifest = serde_json::json!({
+        "name": "Bad MCP Plugin",
+        "transport": "stdio",
+        "command": exe,
+        "args": ["--list"],
+        "enabled": false,
+    })
+    .to_string();
+    let installed = rpc
+        .install_plugin(&owner, manifest)
+        .await
+        .expect("plugin installs cleanly in disabled state");
+    assert!(!installed.enabled);
+
+    let err = rpc
+        .toggle_plugin(&owner, installed.id, true)
+        .await
+        .expect_err("enabling a plugin whose server dies must fail with an RPC error");
+    assert_eq!(rpc_error_code(&err), -32000);
+}
+
+/// R-KEEL checkpoint row 16: the row was written *before* the spawn, so a connect that
+/// failed left it claiming `enabled` with no process behind it until the next toggle.
+/// It is still the caller's error (the RPC contract above), but the row goes back.
+#[tokio::test]
+async fn a_failed_toggle_connect_leaves_the_row_disabled() {
+    let temp = crate::test_util::fresh_tempdir();
+    let exe = std::env::current_exe()
+        .expect("the test binary names itself")
+        .to_string_lossy()
+        .into_owned();
+    let allowed = exe.clone();
+    let (state, _store) = test_state_with(temp.path(), move |config| {
+        config.allowed_commands = vec![allowed];
+    })
+    .await;
+    let rpc = WarshaRpc::new(state.clone());
+    let owner = owner_ext();
+    let manifest = serde_json::json!({
+        "name": "Bad MCP Plugin",
+        "transport": "stdio",
+        "command": exe,
+        "args": ["--list"],
+        "enabled": false,
+    })
+    .to_string();
+    let installed = rpc
+        .install_plugin(&owner, manifest)
+        .await
+        .expect("plugin installs cleanly in disabled state");
+
+    let err = rpc
+        .toggle_plugin(&owner, installed.id.clone(), true)
+        .await
+        .expect_err("enabling a plugin whose server dies must fail with an RPC error");
+    assert_eq!(rpc_error_code(&err), -32000);
+
+    let stored = state
+        .settings
+        .get_plugin(&installed.id)
+        .await
+        .expect("the catalog answers")
+        .expect("the row is still there");
+    assert!(
+        !stored.enabled,
+        "a failed connect must put the row back to disabled, not leave it enabled with no process"
+    );
+    assert!(
+        state
+            .mcp
+            .list()
+            .await
+            .iter()
+            .all(|connection| !connection.status.is_connected()),
+        "a failed connect must not leave a connected server behind"
+    );
+}
+
+/// The `configure` half of row 16: the new environment was persisted before the child
+/// started, so a failed connect left the row naming an environment whose process never
+/// existed. The caller keeps the connect's error; the row keeps its old environment.
+#[tokio::test]
+async fn a_failed_configure_connect_leaves_the_previous_environment() {
+    let temp = crate::test_util::fresh_tempdir();
+    let exe = std::env::current_exe()
+        .expect("the test binary names itself")
+        .to_string_lossy()
+        .into_owned();
+    let allowed = exe.clone();
+    let (state, _store) = test_state_with(temp.path(), move |config| {
+        config.allowed_commands = vec![allowed];
+    })
+    .await;
+    let rpc = WarshaRpc::new(state.clone());
+    let owner = owner_ext();
+    // Enabled but not connected: `install` files the row without spawning it, which is
+    // the state `configure` re-launches from.
+    let manifest = serde_json::json!({
+        "name": "Configured Bad MCP Plugin",
+        "transport": "stdio",
+        "command": exe,
+        "args": ["--list"],
+        "enabled": true,
+    })
+    .to_string();
+    let installed = rpc
+        .install_plugin(&owner, manifest)
+        .await
+        .expect("plugin installs cleanly in enabled state");
+    let before = state
+        .settings
+        .get_plugin(&installed.id)
+        .await
+        .expect("the catalog answers")
+        .expect("the row exists")
+        .env_json;
+
+    let mut env = HashMap::new();
+    env.insert(
+        "GITHUB_TOKEN".to_string(),
+        "material-never-launched".to_string(),
+    );
+    let err = rpc
+        .configure_plugin(&owner, installed.id.clone(), env)
+        .await
+        .expect_err("configuring a pack whose server dies must fail with an RPC error");
+    assert_eq!(rpc_error_code(&err), -32000);
+
+    let after = state
+        .settings
+        .get_plugin(&installed.id)
+        .await
+        .expect("the catalog answers")
+        .expect("the row is still there")
+        .env_json;
+    assert_eq!(
+        after, before,
+        "a failed connect must restore the previous environment instead of leaving the new one filed"
+    );
+    assert!(
+        !after.contains("GITHUB_TOKEN"),
+        "the environment whose child never started must not remain in the row: {after}"
+    );
+}
+
+#[tokio::test]
+async fn preview_policy_allows_allow_listed_quoted_path_with_spaces() {
+    let temp = crate::test_util::fresh_tempdir();
+    let custom_bin = "C:/Program Files/My Tools/dev-server.exe".to_string();
+    let (state, _store) = test_state_with(temp.path(), |config| {
+        config.allowed_commands = vec![custom_bin.clone()];
+    })
+    .await;
+    let rpc = WarshaRpc::new(state);
+    let owner = owner_ext();
+    let cmd = format!("\"{custom_bin}\" --port 3000");
+    let result = rpc.start_preview(&owner, "proj-1".to_string(), cmd).await;
+    if let Err(err) = result {
+        assert_ne!(
+            rpc_error_code(&err),
+            auth::rpc_codes::POLICY_REFUSED,
+            "allow-listed quoted command was rejected by policy"
+        );
+    }
+}
+
+#[tokio::test]
+async fn preview_policy_refuses_quoted_path_with_spaces_not_allowed() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state);
+    let owner = owner_ext();
+    let cmd = "\"C:/Program Files/Disallowed Tool/evil.exe\" --port 3000".to_string();
+    let err = rpc
+        .start_preview(&owner, "proj-1".to_string(), cmd)
+        .await
+        .expect_err("disallowed quoted command must be rejected by policy");
+    assert_eq!(
+        rpc_error_code(&err),
+        auth::rpc_codes::POLICY_REFUSED,
+        "disallowed command must return POLICY_REFUSED (-32001)"
+    );
+}
+
+#[test]
+fn bootstrap_admin_token_is_never_sent_to_tracing_subscriber() {
+    let capture = LogCapture::default();
+    let subscriber = capture_subscriber(&capture);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("a current-thread runtime");
+    let temp = crate::test_util::fresh_tempdir();
+    let config_file = temp.path().join("config.toml");
+
+    std::env::set_var("WARSHA_PRINT_BOOTSTRAP_TOKEN", "1");
+    struct EnvGuard;
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            std::env::remove_var("WARSHA_PRINT_BOOTSTRAP_TOKEN");
+        }
+    }
+    let _guard = EnvGuard;
+
+    let token = tracing::subscriber::with_default(subscriber, || {
+        runtime.block_on(async {
+            let config = load_or_create_config(Some(&config_file))
+                .await
+                .expect("config created");
+            config.auth_token
+        })
+    });
+
+    assert!(!token.is_empty(), "token should be generated");
+    assert_eq!(
+        capture.count_matching("BOOTSTRAP_ADMIN_TOKEN"),
+        0,
+        "tracing subscriber saw BOOTSTRAP_ADMIN_TOKEN: {:?}",
+        capture.lines()
+    );
+    assert_eq!(
+        capture.count_matching(&token),
+        0,
+        "tracing subscriber saw the auth token: {:?}",
+        capture.lines()
+    );
+}
+
+/// The owner-only write is the only thing that keeps the daemon token's file out of
+/// other accounts' reach on Unix, and nothing asserted it (R-KEEL checkpoint row 18).
+/// `write_private_file` sets the mode on the temporary file **before** any content and
+/// renames it into place, so this reads the finished file: mode `0600`, the new
+/// content, no temporary left behind. The target starts out `0666` on purpose, so the
+/// mode asserted is the write's rather than a fresh file's default or a directory's.
+#[cfg(unix)]
+#[test]
+fn write_private_file_leaves_a_file_its_owner_alone_can_read_and_write() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = crate::test_util::fresh_tempdir();
+    let path = temp.path().join("config.toml");
+    std::fs::write(&path, "auth_token = \"stale\"\n").expect("a permissive file to replace");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666))
+        .expect("the permissive mode is set");
+
+    write_private_file(&path, "auth_token = \"probe\"\n").expect("the private file writes");
+
+    let mode = std::fs::metadata(&path)
+        .expect("the finished file")
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(
+        mode, 0o600,
+        "the private file must be readable and writable by its owner alone: mode was {mode:o}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("the finished file reads"),
+        "auth_token = \"probe\"\n",
+        "the rename must carry the new content, not the file it replaced"
+    );
+    let temporary = temp
+        .path()
+        .join(format!(".config.toml.tmp-{}", std::process::id()));
+    assert!(
+        !temporary.exists(),
+        "the temporary file {temporary:?} must not survive the rename"
+    );
+}
+
+#[tokio::test]
+async fn create_pairing_returns_an_rpc_error_when_device_already_paired() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state);
+    let owner = owner_ext();
+    let device_id = "test-device-duplicate".to_string();
+
+    let first = rpc
+        .create_pairing(&owner, device_id.clone(), "secret-1".to_string())
+        .await
+        .expect("first pairing creation succeeds");
+    assert_eq!(first.device_id, device_id);
+
+    let err = rpc
+        .create_pairing(&owner, device_id.clone(), "secret-2".to_string())
+        .await
+        .expect_err("creating duplicate pairing must fail with an RPC error");
+    assert_eq!(rpc_error_code(&err), -32000);
+    assert!(
+        err.message().contains("already paired"),
+        "expected duplicate pairing error, got: {}",
+        err.message()
+    );
+}
+
+#[tokio::test]
+async fn toggle_plugin_returns_an_rpc_error_when_mcp_disconnect_fails() {
+    let temp = crate::test_util::fresh_tempdir();
+    let exe = std::env::current_exe()
+        .expect("the test binary names itself")
+        .to_string_lossy()
+        .into_owned();
+    let allowed = exe.clone();
+    let (state, _store) = test_state_with(temp.path(), move |config| {
+        config.allowed_commands = vec![allowed];
+    })
+    .await;
+    let rpc = WarshaRpc::new(state);
+    let owner = owner_ext();
+    let manifest = serde_json::json!({
+        "name": "Enabled Plugin For Disconnect",
+        "transport": "stdio",
+        "command": exe,
+        "args": ["--list"],
+        "enabled": true,
+    })
+    .to_string();
+    let installed = rpc
+        .install_plugin(&owner, manifest)
+        .await
+        .expect("plugin installs cleanly in enabled state");
+    assert!(installed.enabled);
+
+    let err = rpc
+        .toggle_plugin(&owner, installed.id, false)
+        .await
+        .expect_err("disabling an unconnected plugin must fail with an RPC error");
+    assert_eq!(rpc_error_code(&err), -32000);
+}
+
+#[tokio::test]
+async fn get_active_harness_db_error_returns_an_rpc_error() {
+    let temp = crate::test_util::fresh_tempdir();
+    let corrupt_db = temp.path().join("corrupt_warsha.db");
+    std::fs::write(&corrupt_db, b"not-a-sqlite-database-header")
+        .expect("corrupt database file written");
+    let settings = Arc::new(SettingsStore::open_unvalidated(&corrupt_db));
+    let (state, _store) = test_state_with_custom_settings(temp.path(), settings).await;
+    let rpc = WarshaRpc::new(state);
+    let owner = owner_ext();
+    let err = rpc
+        .list_harnesses(&owner)
+        .await
+        .expect_err("corrupt settings db in list_harnesses must fail with an RPC error");
+    assert_eq!(rpc_error_code(&err), -32000);
+}
+
+mod runs_resume {
+    use super::*;
+
+    #[tokio::test]
+    async fn runs_resume_requires_authorization_and_allows_session() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+
+        let project = rpc
+            .create_project(
+                &owner,
+                "Resume Auth Project".to_string(),
+                "Test auth on runs.resume".to_string(),
+                "en".to_string(),
+            )
+            .await
+            .expect("project created");
+        let run = rpc
+            .start_run(&owner, project.id, "Idea for resume auth".to_string())
+            .await
+            .expect("run started");
+
+        // Anonymous caller must be refused with unauthorized.
+        let unauth_err = rpc
+            .resume_run(&anonymous_ext(), run.id)
+            .await
+            .expect_err("unauthenticated runs.resume must be refused");
+        assert_eq!(
+            rpc_error_code(&unauth_err),
+            auth::rpc_codes::UNAUTHENTICATED
+        );
+
+        // Pause the run via interruption recovery and verify a paired session can resume it.
+        store.recover_interrupted_runs().await.unwrap();
+        let device = DeviceId::new().to_string();
+        seed_pairing(&rpc.state, &device).await;
+        let paired = paired_ext(&device);
+        let resumed = rpc
+            .resume_run(&paired, run.id)
+            .await
+            .expect("paired session can resume a paused run");
+        assert_eq!(resumed.status, RunStatus::Running);
+    }
+
+    #[tokio::test]
+    async fn runs_resume_resumes_paused_run_after_change_request() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = crate::tests::test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+
+        let project = rpc
+            .create_project(
+                &owner,
+                "Change Request Loop Project".to_string(),
+                "Test change-request resume".to_string(),
+                "en".to_string(),
+            )
+            .await
+            .expect("project created");
+        let run = rpc
+            .start_run(&owner, project.id, "Clinic booking app".to_string())
+            .await
+            .expect("run started");
+
+        // Advance Idea -> GateA.
+        let at_gate = rpc
+            .advance_run(&owner, run.id)
+            .await
+            .expect("advance to GateA");
+        assert_eq!(at_gate.current_stage, Stage::GateA);
+
+        // Request changes -> run pauses at GateA with ChangesRequested.
+        let paused = rpc
+            .request_changes(
+                &owner,
+                run.id,
+                Stage::GateA,
+                "Add bilingual receipts".to_string(),
+                None,
+            )
+            .await
+            .expect("request_changes succeeds");
+        assert_eq!(paused.status, RunStatus::Paused);
+
+        // Resume via runs.resume -> re-opens GateA to Pending and re-runs producing stage.
+        let resumed = rpc
+            .resume_run(&owner, run.id)
+            .await
+            .expect("runs.resume succeeds");
+        assert_eq!(resumed.status, RunStatus::Running);
+        assert_eq!(resumed.current_stage, Stage::GateA);
+        assert_eq!(resumed.gate_states[&Stage::GateA], GateState::Pending);
+
+        // Approving GateA now succeeds.
+        let approved = rpc
+            .approve_gate(&owner, run.id, Stage::GateA, None)
+            .await
+            .expect("approve after resume succeeds");
+        assert!(matches!(
+            approved.gate_states[&Stage::GateA],
+            GateState::Approved { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn runs_resume_budget_paused_run_succeeds_after_budget_set() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+
+        let project = rpc
+            .create_project(
+                &owner,
+                "Budget Resume Project".to_string(),
+                "Test budget pause & resume".to_string(),
+                "en".to_string(),
+            )
+            .await
+            .expect("project created");
+        let run = rpc
+            .start_run(&owner, project.id, "Budgeted project".to_string())
+            .await
+            .expect("run started");
+
+        // Simulate a budget-paused run (spent_cents == 100, budget_cents == 100).
+        let (mut stored, v) = store.get_run_versioned(run.id).await.unwrap();
+        stored.budget_cents = Some(100);
+        stored.spent_cents = 100;
+        stored.status = RunStatus::Paused;
+        store.update_run_cas(&stored, v).await.unwrap();
+
+        // Resuming before increasing budget fails.
+        let err = rpc
+            .resume_run(&owner, run.id)
+            .await
+            .expect_err("runs.resume must refuse while budget is exceeded");
+        assert!(
+            err.message().contains("Budget exceeded"),
+            "unexpected error: {}",
+            err.message()
+        );
+
+        // Increase budget via budget.set RPC.
+        rpc.set_budget(&owner, project.id, 500)
+            .await
+            .expect("budget.set succeeds");
+
+        // Now runs.resume succeeds.
+        let resumed = rpc
+            .resume_run(&owner, run.id)
+            .await
+            .expect("runs.resume succeeds after budget.set");
+        assert_eq!(resumed.status, RunStatus::Running);
+        assert_eq!(resumed.current_stage, Stage::GateA);
+    }
+
+    #[tokio::test]
+    async fn daemon_restart_recovers_interrupted_run_and_runs_resume_resumes_it() {
+        let temp = crate::test_util::fresh_tempdir();
+        let data_dir = temp.path().to_path_buf();
+
+        let run_id = {
+            let store = Store::open_at(data_dir.join("warsha.db"))
+                .await
+                .expect("store opens");
+            let now = Utc::now();
+            let project = Project {
+                id: ProjectId::new(),
+                name: "Restart Recovery Project".to_string(),
+                description: "Verify restart recovery".to_string(),
+                language: "en".to_string(),
+                created_at: now,
+                updated_at: now,
+                repo_path: None,
+                repo_url: None,
+            };
+            store.create_project(&project).await.unwrap();
+
+            let mut gate_states = HashMap::new();
+            for stage in Stage::all() {
+                if stage.is_gate() {
+                    gate_states.insert(*stage, GateState::Pending);
+                }
+            }
+            let run = Run {
+                id: RunId::new(),
+                project_id: project.id,
+                current_stage: Stage::Idea,
+                gate_states,
+                artifacts: HashMap::new(),
+                created_at: now,
+                updated_at: now,
+                status: RunStatus::Running,
+                budget_cents: None,
+                spent_cents: 0,
+            };
+            store.create_run(&run).await.unwrap();
+            run.id
+        };
+
+        // Re-open / start daemon state over the existing data directory.
+        let (state, store) = test_state(&data_dir).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+
+        // Check that runs.get sees status = paused.
+        let reloaded = rpc.get_run(&owner, run_id).await.unwrap();
+        assert_eq!(reloaded.status, RunStatus::Paused);
+
+        // Check that runs.events carries an {action: run_interrupted} event.
+        let events = store.get_events(run_id).await.unwrap();
+        assert!(events
+            .iter()
+            .any(|e| e.payload["action"] == "run_interrupted"));
+
+        // Call runs.resume to resume the interrupted run.
+        let resumed = rpc.resume_run(&owner, run_id).await.unwrap();
+        assert_eq!(resumed.status, RunStatus::Running);
+    }
+}
+
+mod runs_start_budget {
+    use super::*;
+
+    /// P-E1a: the start-time refusal surfaces through `runs.start`, and the
+    /// owner's remedy — `budget.set` — makes the next `runs.start` succeed.
+    #[tokio::test]
+    async fn runs_start_refuses_over_budget_project_and_succeeds_after_budget_set() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+
+        let project = rpc
+            .create_project(
+                &owner,
+                "Budget Start Project".to_string(),
+                "Test start-time budget refusal".to_string(),
+                "en".to_string(),
+            )
+            .await
+            .expect("project created");
+        let run = rpc
+            .start_run(&owner, project.id, "Budgeted project".to_string())
+            .await
+            .expect("first run starts");
+
+        // The project's newest run has spent its whole budget.
+        let (mut stored, version) = store.get_run_versioned(run.id).await.unwrap();
+        stored.budget_cents = Some(100);
+        stored.spent_cents = 100;
+        stored.status = RunStatus::Paused;
+        store.update_run_cas(&stored, version).await.unwrap();
+
+        // runs.start is refused with the pipeline's message naming both numbers.
+        let err = rpc
+            .start_run(&owner, project.id, "Second run".to_string())
+            .await
+            .expect_err("runs.start must refuse an over-budget project");
+        assert!(
+            err.message().contains("Project budget exhausted"),
+            "unexpected error: {}",
+            err.message()
+        );
+        assert!(
+            err.message().contains("spent 100 of 100 cents"),
+            "the refusal must name the spent and the budget: {}",
+            err.message()
+        );
+
+        // budget.set raises the budget; the retried runs.start now succeeds and
+        // the new run carries the raised budget.
+        rpc.set_budget(&owner, project.id, 500)
+            .await
+            .expect("budget.set succeeds");
+        let second = rpc
+            .start_run(&owner, project.id, "Second run".to_string())
+            .await
+            .expect("runs.start succeeds after budget.set");
+        assert_eq!(second.budget_cents, Some(500));
+        assert_eq!(second.spent_cents, 0);
+    }
+}
+
+mod runs_followup {
+    use super::*;
+
+    #[tokio::test]
+    async fn stale_followup_cannot_resurrect_cancel_and_valid_followup_bumps_version() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+
+        let project = rpc
+            .create_project(
+                &owner,
+                "Followup Integrity Project".to_string(),
+                "Test followup CAS and cancel refusal".to_string(),
+                "en".to_string(),
+            )
+            .await
+            .expect("project created");
+        let run = rpc
+            .start_run(&owner, project.id, "Initial idea".to_string())
+            .await
+            .expect("run started");
+
+        let (initial_run, initial_version) = store
+            .get_run_versioned(run.id)
+            .await
+            .expect("initial versioned run");
+        assert_eq!(initial_run.status, RunStatus::Running);
+
+        // 1. Valid followup succeeds and bumps the version (initial_version -> initial_version + 1).
+        let followed = rpc
+            .followup_run(
+                &owner,
+                run.id,
+                "Clarify onboarding requirements".to_string(),
+            )
+            .await
+            .expect("valid followup succeeds");
+        assert_eq!(followed.status, RunStatus::Running);
+
+        let (bumped_run, bumped_version) = store
+            .get_run_versioned(run.id)
+            .await
+            .expect("reloaded versioned run");
+        assert_eq!(
+            bumped_version,
+            initial_version + 1,
+            "valid followup must bump run version"
+        );
+        assert!(bumped_run.artifacts.contains_key("followup"));
+
+        // 2. Cancel the run — bumps version again (initial_version + 1 -> initial_version + 2).
+        let cancelled = rpc
+            .cancel_run(&owner, run.id, Some("User cancelled".to_string()))
+            .await
+            .expect("cancel succeeds");
+        assert_eq!(cancelled.status, RunStatus::Cancelled);
+
+        let (cancelled_run, cancel_version) = store
+            .get_run_versioned(run.id)
+            .await
+            .expect("cancelled versioned run");
+        assert_eq!(cancel_version, initial_version + 2);
+        assert_eq!(cancelled_run.status, RunStatus::Cancelled);
+
+        // 3. Followup on a cancelled run must be refused with an RPC error and not resurrect it.
+        let cancel_err = rpc
+            .followup_run(&owner, run.id, "Attempt followup after cancel".to_string())
+            .await
+            .expect_err("followup on cancelled run must be refused");
+        assert!(
+            cancel_err.message().contains("cancelled"),
+            "expected cancelled refusal message, got: {}",
+            cancel_err.message()
+        );
+
+        // 4. Verify stale snapshot cannot overwrite Cancelled status via CAS.
+        let mut stale_snapshot = bumped_run.clone(); // Running at bumped_version
+        stale_snapshot.updated_at = Utc::now();
+        let stale_cas = store.update_run_cas(&stale_snapshot, bumped_version).await;
+        assert!(
+            stale_cas.is_err(),
+            "stale followup snapshot must fail CAS against cancelled version"
+        );
+
+        let (after_run, after_version) = store.get_run_versioned(run.id).await.unwrap();
+        assert_eq!(after_run.status, RunStatus::Cancelled);
+        assert_eq!(after_version, cancel_version);
+
+        // 5. In-flight cancel signal on a live run also refuses followup before DB commit.
+        let run2 = rpc
+            .start_run(
+                &owner,
+                project.id,
+                "In-flight cancel signal test".to_string(),
+            )
+            .await
+            .expect("run2 started");
+        let (_, run2_initial_v) = store.get_run_versioned(run2.id).await.unwrap();
+        let ctrl2 = state.pipeline.control_for(run2.id).await;
+        let _ = ctrl2.cancel_tx.send(true);
+        let flag_err = rpc
+            .followup_run(&owner, run2.id, "Should see cancel signal".to_string())
+            .await
+            .expect_err("followup must be refused when cancel signal is set");
+        assert!(flag_err.message().contains("cancelled"));
+        let (run2_after, run2_v) = store.get_run_versioned(run2.id).await.unwrap();
+        assert_eq!(
+            run2_v, run2_initial_v,
+            "refused followup under cancel flag must not bump version"
+        );
+        assert!(!run2_after.artifacts.contains_key("followup"));
+
+        // 6. Terminal (Completed) run must also refuse followup with an RPC error.
+        let mut completed_run = bumped_run;
+        completed_run.id = RunId::new();
+        completed_run.status = RunStatus::Completed;
+        store.create_run(&completed_run).await.unwrap();
+        let terminal_err = rpc
+            .followup_run(&owner, completed_run.id, "Late followup".to_string())
+            .await
+            .expect_err("followup on terminal run must be refused");
+        assert!(
+            terminal_err.message().contains("terminal"),
+            "expected terminal refusal message, got: {}",
+            terminal_err.message()
+        );
+    }
+}
+
+mod provider_truth {
+    use super::*;
+
+    #[tokio::test]
+    async fn unrouted_stage_role_returns_explicit_error_and_writes_zero_artifacts() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+
+        let project = rpc
+            .create_project(
+                &owner,
+                "Provider Truth Project".to_string(),
+                "Verify unrouted role fails explicitly".to_string(),
+                "en".to_string(),
+            )
+            .await
+            .expect("project created");
+        let run = rpc
+            .start_run(&owner, project.id, "Task tracker app".to_string())
+            .await
+            .expect("run started");
+
+        // Advance Idea -> GateA.
+        let at_gate = rpc
+            .advance_run(&owner, run.id)
+            .await
+            .expect("advance to GateA succeeds");
+        assert_eq!(at_gate.current_stage, Stage::GateA);
+
+        // Approve GateA.
+        rpc.approve_gate(&owner, run.id, Stage::GateA, None)
+            .await
+            .expect("GateA approves");
+
+        // Next advance attempts Stage::Research (Role::Researcher), which is unrouted.
+        let err = rpc
+            .advance_run(&owner, run.id)
+            .await
+            .expect_err("unrouted stage role must return an explicit error");
+        assert!(
+            err.message().contains("No provider routed") || err.message().contains("Researcher"),
+            "unexpected error message: {}",
+            err.message()
+        );
+
+        // Verify zero artifacts were fabricated for research.
+        let reloaded = store.get_run(run.id).await.expect("reloaded run");
+        assert!(
+            !reloaded.artifacts.contains_key("research"),
+            "no artifact must be fabricated when role is unrouted"
+        );
+        assert_eq!(reloaded.status, RunStatus::Paused);
+
+        // Verify a provider_required error event was emitted.
+        let events = store.get_events(run.id).await.expect("events reloaded");
+        assert!(
+            events
+                .iter()
+                .any(|e| e.payload["action"] == "provider_required"),
+            "expected provider_required event"
+        );
+    }
+
+    #[tokio::test]
+    async fn unrouted_followup_returns_explicit_error_and_writes_no_artifact() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = test_state(temp.path()).await;
+        // Replace router with an empty one so even Intake is unrouted.
+        *state.providers.write().await = ProviderRouter::new();
+
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+
+        let project = rpc
+            .create_project(
+                &owner,
+                "Followup Truth Project".to_string(),
+                "Test unrouted followup".to_string(),
+                "en".to_string(),
+            )
+            .await
+            .expect("project created");
+        let run = rpc
+            .start_run(&owner, project.id, "Followup test idea".to_string())
+            .await
+            .expect("run started");
+
+        let err = state
+            .pipeline
+            .followup_run(run.id, "Tell me more")
+            .await
+            .expect_err("unrouted pipeline followup must return an explicit error");
+        assert!(
+            err.to_string().contains("No provider routed") || err.to_string().contains("Intake"),
+            "unexpected error message: {err}"
+        );
+
+        let reloaded = store.get_run(run.id).await.expect("reloaded run");
+        assert!(
+            !reloaded.artifacts.contains_key("followup"),
+            "no followup artifact should be recorded"
+        );
+    }
+
+    #[tokio::test]
+    async fn explicitly_routed_provider_succeeds_and_produces_artifacts() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = test_state(temp.path()).await;
+
+        // Explicitly route Researcher and PM to mock provider.
+        for role in [Role::Researcher, Role::PM] {
+            state.providers.write().await.set_role_routing(RoleRouting {
+                role,
+                targets: vec![RoutingTarget {
+                    provider_id: "mock".to_string(),
+                    model_id: "mock-model".to_string(),
+                    weight: 100,
+                }],
+                fallback_enabled: false,
+                budget_cents_per_run: None,
+            });
+        }
+
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+
+        let project = rpc
+            .create_project(
+                &owner,
+                "Explicit Routing Project".to_string(),
+                "Test explicit routing".to_string(),
+                "en".to_string(),
+            )
+            .await
+            .expect("project created");
+        let run = rpc
+            .start_run(&owner, project.id, "Explicit routing idea".to_string())
+            .await
+            .expect("run started");
+
+        rpc.advance_run(&owner, run.id).await.expect("to GateA");
+        rpc.approve_gate(&owner, run.id, Stage::GateA, None)
+            .await
+            .expect("approve GateA");
+
+        let advanced = rpc
+            .advance_run(&owner, run.id)
+            .await
+            .expect("advance succeeds with explicitly routed provider");
+        assert_eq!(advanced.current_stage, Stage::GateB);
+
+        let reloaded = store.get_run(run.id).await.expect("reloaded run");
+        assert!(reloaded.artifacts.contains_key("research"));
+        assert!(reloaded.artifacts.contains_key("prd_spec"));
+    }
+
+    #[tokio::test]
+    async fn unrouted_stage_resumes_cleanly_once_provider_is_routed() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+
+        let project = rpc
+            .create_project(
+                &owner,
+                "Resume After Routing Project".to_string(),
+                "Test resuming after adding provider".to_string(),
+                "en".to_string(),
+            )
+            .await
+            .expect("project created");
+        let run = rpc
+            .start_run(&owner, project.id, "Resume idea".to_string())
+            .await
+            .expect("run started");
+
+        rpc.advance_run(&owner, run.id).await.expect("to GateA");
+        rpc.approve_gate(&owner, run.id, Stage::GateA, None)
+            .await
+            .expect("approve GateA");
+
+        // Advance fails because Researcher is unrouted.
+        rpc.advance_run(&owner, run.id)
+            .await
+            .expect_err("advance fails unrouted");
+
+        let paused_run = store.get_run(run.id).await.unwrap();
+        assert_eq!(paused_run.status, RunStatus::Paused);
+
+        // Now configure routing for Researcher and PM.
+        for role in [Role::Researcher, Role::PM] {
+            state.providers.write().await.set_role_routing(RoleRouting {
+                role,
+                targets: vec![RoutingTarget {
+                    provider_id: "mock".to_string(),
+                    model_id: "mock-model".to_string(),
+                    weight: 100,
+                }],
+                fallback_enabled: false,
+                budget_cents_per_run: None,
+            });
+        }
+
+        // Resuming now succeeds and executes the previously unrouted stage.
+        let resumed = rpc
+            .resume_run(&owner, run.id)
+            .await
+            .expect("resume succeeds after adding routing");
+        assert_eq!(resumed.status, RunStatus::Running);
+        assert_eq!(resumed.current_stage, Stage::GateB);
+
+        let reloaded = store.get_run(run.id).await.unwrap();
+        assert!(reloaded.artifacts.contains_key("research"));
+    }
+}
+
+pub(crate) mod agent_lock {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_second_agent_state_call_answers_while_a_command_runs() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = test_state_with(temp.path(), |config| {
+            config.allowed_commands = vec!["ping".to_string(), "sleep".to_string()];
+        })
+        .await;
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+        // The turn is a run's own loop (`agent.turn` is retired by OD-E2); the
+        // mode `agent.state` answers is still the daemon-wide record.
+        let run_id = approved_agent_run(&state, &store).await;
+        state
+            .agent_loop
+            .write()
+            .await
+            .approve_agent_mode("owner")
+            .expect("approve agent mode");
+
+        #[cfg(windows)]
+        let cmd_text = "run command ping -n 3 127.0.0.1".to_string();
+        #[cfg(not(windows))]
+        let cmd_text = "run command sleep 2".to_string();
+
+        let state_clone = state.clone();
+        let owner_clone = owner.clone();
+        let turn_handle = tokio::spawn(async move {
+            let rpc_bg = WarshaRpc::new(state_clone);
+            rpc_bg.agent_turn_run(&owner_clone, run_id, cmd_text).await
+        });
+
+        // Give the turn time to prepare and enter child command execution
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let start = std::time::Instant::now();
+        let state_res = rpc.agent_state(&owner, None).await;
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed < std::time::Duration::from_millis(500),
+            "agent.state was blocked across command execution: elapsed = {elapsed:?}"
+        );
+        let agent_state = state_res.expect("agent_state should succeed while command runs");
+        assert_eq!(agent_state.mode, warsha_pipeline::AgentMode::Agent);
+
+        let turn_res = turn_handle
+            .await
+            .expect("turn task finished")
+            .expect("the run's turn succeeded");
+        assert_eq!(turn_res.tools.len(), 1);
+        assert!(
+            turn_res.tools[0].success,
+            "unexpected tool failure: {:?}",
+            turn_res.tools[0]
+        );
+    }
+
+    /// A run's todos are the run's: the turn's finished todo comes back on the
+    /// run's own result, and repeated reads of the daemon-wide record answer
+    /// without deadlocking and without showing it.
+    #[tokio::test]
+    async fn concurrent_agent_state_queries_answer_while_a_run_turn_keeps_its_todos() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = test_state_with(temp.path(), |config| {
+            config.allowed_commands = vec!["ping".to_string(), "sleep".to_string()];
+        })
+        .await;
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+        let run_id = approved_agent_run(&state, &store).await;
+
+        state
+            .agent_loop
+            .write()
+            .await
+            .approve_agent_mode("owner")
+            .expect("approve agent mode");
+
+        #[cfg(windows)]
+        let cmd_text = "run command ping -n 2 127.0.0.1".to_string();
+        #[cfg(not(windows))]
+        let cmd_text = "run command sleep 1".to_string();
+
+        let state_clone = state.clone();
+        let owner_clone = owner.clone();
+        let turn_handle = tokio::spawn(async move {
+            let rpc_bg = WarshaRpc::new(state_clone);
+            rpc_bg.agent_turn_run(&owner_clone, run_id, cmd_text).await
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+
+        for _ in 0..5 {
+            let st = rpc
+                .agent_state(&owner, None)
+                .await
+                .expect("agent_state query");
+            assert_eq!(st.mode, warsha_pipeline::AgentMode::Agent);
+            // The running turn's todo lives in the run's own loop, so the
+            // daemon-wide record has none to show.
+            assert!(
+                st.todos.is_empty(),
+                "a run's turn wrote the daemon-wide record: {:?}",
+                st.todos
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(15)).await;
+        }
+
+        let turn_res = turn_handle
+            .await
+            .expect("turn task finished")
+            .expect("the run's turn succeeded");
+        assert_eq!(turn_res.tools.len(), 1);
+        assert!(turn_res.tools[0].success);
+        assert_eq!(turn_res.todos.len(), 1);
+        assert_eq!(turn_res.todos[0].status, warsha_pipeline::TodoStatus::Done);
+
+        let final_state = rpc
+            .agent_state(&owner, None)
+            .await
+            .expect("final agent_state query");
+        assert!(final_state.todos.is_empty());
+    }
+
+    #[tokio::test]
+    async fn agent_command_execution_obeys_daemon_allowed_commands_policy() {
+        let temp = crate::test_util::fresh_tempdir();
+        // A toolchain name and a program inside the data directory are both
+        // admitted by configuration, so the test covers the two ways the
+        // policy can allow a program.
+        let fixture = fixture_program(temp.path());
+        let allowed = fixture.clone();
+        let (state, store) = test_state_with(temp.path(), move |config| {
+            config.allowed_commands = vec!["cargo".to_string(), allowed];
+        })
+        .await;
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+        // The run's loop is built from this daemon's configuration, which is what
+        // makes the per-run turn the one under test.
+        let run_id = approved_agent_run(&state, &store).await;
+
+        // Shell execution must be refused by the wired CommandPolicy
+        let turn_res = rpc
+            .agent_turn_run(&owner, run_id, "run command sh -c id".to_string())
+            .await
+            .expect("turn completes with failed tool result");
+        assert_eq!(turn_res.tools.len(), 1);
+        assert!(!turn_res.tools[0].success);
+        assert!(turn_res.tools[0].output.contains("refused"));
+
+        // Allow-listed cargo --version succeeds
+        let turn_cargo = rpc
+            .agent_turn_run(&owner, run_id, "run command cargo --version".to_string())
+            .await
+            .expect("turn completes with ok tool result");
+        assert_eq!(turn_cargo.tools.len(), 1);
+        assert!(turn_cargo.tools[0].success);
+        assert!(turn_cargo.tools[0].output.contains("cargo"));
+
+        // `git` is in the default allow-list but not in this daemon's
+        // configured set (`cargo` and the data-directory fixture): a revert
+        // to `CommandPolicy::default()` would run it, so this half makes the
+        // test distinguish the wired configuration from the default.
+        let turn_git = rpc
+            .agent_turn_run(&owner, run_id, "run command git --version".to_string())
+            .await
+            .expect("turn completes with failed tool result");
+        assert_eq!(turn_git.tools.len(), 1);
+        assert!(
+            !turn_git.tools[0].success,
+            "git is default-allowed but was not configured, so it must be refused: {:?}",
+            turn_git.tools[0]
+        );
+        assert!(
+            turn_git.tools[0]
+                .output
+                .contains("not in the allowed commands list"),
+            "expected the configured allow-list refusal, got {:?}",
+            turn_git.tools[0].output
+        );
+
+        // A program admitted by configuration inside the data directory runs
+        // under the same policy; the allow-list is not limited to bare names.
+        let turn_ok = rpc
+            .agent_turn_run(&owner, run_id, format!("run command \"{fixture}\" --list"))
+            .await
+            .expect("turn completes with ok tool result");
+        assert_eq!(turn_ok.tools.len(), 1);
+        assert!(turn_ok.tools[0].success);
+        assert!(
+            turn_ok.tools[0].output.contains("fixture"),
+            "the allowed program's output is the turn's: {}",
+            turn_ok.tools[0].output
+        );
+    }
+
+    /// Two turns in one run must not interleave: the run's session covers
+    /// prepare → execute → finish, so the shorter turn finishes *after* the
+    /// longer one that started first. Without the session lock both execute at
+    /// once and the shorter one finishes first.
+    #[tokio::test]
+    async fn two_concurrent_turns_are_serialized_by_the_turn_gate() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = test_state_with(temp.path(), |config| {
+            config.allowed_commands = vec!["ping".to_string(), "sleep".to_string()];
+        })
+        .await;
+        let owner = owner_ext();
+        let run_id = approved_agent_run(&state, &store).await;
+
+        #[cfg(windows)]
+        let (long_cmd, short_cmd) = (
+            "run command ping -n 4 127.0.0.1".to_string(),
+            "run command ping -n 2 127.0.0.1".to_string(),
+        );
+        #[cfg(not(windows))]
+        let (long_cmd, short_cmd) = (
+            "run command sleep 2".to_string(),
+            "run command sleep 1".to_string(),
+        );
+
+        let started = std::time::Instant::now();
+        let long_rpc = WarshaRpc::new(state.clone());
+        let short_rpc = WarshaRpc::new(state.clone());
+        let long_owner = owner.clone();
+        let long = tokio::spawn(async move {
+            let result = long_rpc.agent_turn_run(&long_owner, run_id, long_cmd).await;
+            (result, started.elapsed())
+        });
+        // Let the first turn reach its command before the second asks for
+        // the gate, so the two are genuinely concurrent.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let short_owner = owner.clone();
+        let short = tokio::spawn(async move {
+            let result = short_rpc
+                .agent_turn_run(&short_owner, run_id, short_cmd)
+                .await;
+            (result, started.elapsed())
+        });
+
+        let (long_result, long_at) = long.await.expect("long turn task");
+        let (short_result, short_at) = short.await.expect("short turn task");
+        for (label, result) in [("long", long_result), ("short", short_result)] {
+            let turn = result.expect("turn completes");
+            assert_eq!(turn.tools.len(), 1);
+            assert!(
+                turn.tools[0].success,
+                "{label} turn tool failed: {:?}",
+                turn.tools[0]
+            );
+        }
+        assert!(
+            short_at > long_at,
+            "the second turn finished before the first, so turns interleaved: \
+             long={long_at:?} short={short_at:?}"
+        );
+    }
+
+    /// The mode RPCs answer the daemon-wide record when they carry no run id, and
+    /// a turn is a run's own loop, so a switch to Plan no longer waits for a
+    /// command that is already executing: the barrier left with the retired
+    /// `agent.turn`. OD-E2b puts it back where it belongs — a `run_id` makes the
+    /// switch take the run's own session lock, which the turn holds throughout.
+    #[tokio::test]
+    async fn plan_mode_answers_while_a_runs_command_runs() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = test_state_with(temp.path(), |config| {
+            config.allowed_commands = vec!["ping".to_string(), "sleep".to_string()];
+        })
+        .await;
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+        let run_id = approved_agent_run(&state, &store).await;
+
+        state
+            .agent_loop
+            .write()
+            .await
+            .approve_agent_mode("owner")
+            .expect("approve agent mode");
+
+        #[cfg(windows)]
+        let cmd_text = "run command ping -n 4 127.0.0.1".to_string();
+        #[cfg(not(windows))]
+        let cmd_text = "run command sleep 2".to_string();
+
+        let state_clone = state.clone();
+        let owner_clone = owner.clone();
+        let turn_handle = tokio::spawn(async move {
+            let rpc_bg = WarshaRpc::new(state_clone);
+            rpc_bg.agent_turn_run(&owner_clone, run_id, cmd_text).await
+        });
+
+        // Give the turn time to start its command.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let start = std::time::Instant::now();
+        let transition = rpc
+            .return_agent_to_plan(&owner, None)
+            .await
+            .expect("plan_mode succeeds");
+        let waited = start.elapsed();
+
+        assert_eq!(transition.from, warsha_pipeline::AgentMode::Agent);
+        assert_eq!(transition.to, warsha_pipeline::AgentMode::Plan);
+        assert!(
+            waited < std::time::Duration::from_millis(1500),
+            "plan_mode waited for a run's command: waited = {waited:?}"
+        );
+
+        let agent_state = rpc.agent_state(&owner, None).await.expect("state");
+        assert_eq!(agent_state.mode, warsha_pipeline::AgentMode::Plan);
+
+        turn_handle
+            .await
+            .expect("turn task finished")
+            .expect("the run's turn succeeded");
+    }
+}
+
+/// KEEL K5b: plugins go through the process policy, and a launch gets only the
+/// environment its row names.
+mod spawn_hardening {
+    use super::*;
+    use serde_json::Value;
+    use std::io::BufRead;
+
+    const ENV_MARKER: &str = "WARSHA_K5_WARSHA_ENV_PROBE";
+    const DAEMON_ONLY: &str = "WARSHA_K5_WARSHA_DAEMON_ONLY";
+
+    /// A stdio MCP server that answers `tools/list` with its whole environment.
+    ///
+    /// A plain test that returns immediately unless its parent passes the marker,
+    /// so this costs a no-op in an ordinary run and no ignored-test budget.
+    #[test]
+    fn env_probe() {
+        if std::env::var_os(ENV_MARKER).is_none() {
+            return;
+        }
+        // libtest writes `test <name> ... ` without a newline before a non-ignored
+        // test; end that line so every reply below is clean JSON.
+        println!();
+        let mut dump: Vec<String> = std::env::vars()
+            .map(|(key, value)| format!("{key}={value}"))
+            .collect();
+        dump.sort();
+        let dump = dump.join(";");
+        for line in std::io::stdin().lock().lines() {
+            let Ok(line) = line else { break };
+            let Ok(request) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
+            let Some(id) = request.get("id").cloned() else {
+                continue;
+            };
+            let result = match request.get("method").and_then(Value::as_str).unwrap_or("") {
+                "initialize" => serde_json::json!({
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "serverInfo": { "name": "warsha-env-probe", "version": "1.0.0" },
+                }),
+                "tools/list" => serde_json::json!({
+                    "tools": [{
+                        "name": "env",
+                        "description": format!("ENVDUMP {dump}"),
+                        "inputSchema": { "type": "object" },
+                    }],
+                }),
+                _ => serde_json::json!({}),
+            };
+            println!(
+                "{}",
+                serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": result })
+            );
+        }
+    }
+
+    /// Named so a Windows fixture copy's `--list` output contains `fixture`.
+    #[test]
+    fn fixture_marker() {}
+
+    fn test_binary() -> String {
+        std::env::current_exe()
+            .expect("the test binary names itself")
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    /// A manifest that launches this test binary's env probe.
+    fn probe_manifest(exe: &str, enabled: bool, env: Value) -> String {
+        serde_json::json!({
+            "name": "K5 Probe",
+            "transport": "stdio",
+            "command": exe,
+            "args": [
+                "--exact",
+                "tests::spawn_hardening::env_probe",
+                "--nocapture",
+                "--test-threads",
+                "1",
+            ],
+            "env": env,
+            "enabled": enabled,
+        })
+        .to_string()
+    }
+
+    fn legacy_definition(command: &str) -> PluginDefinition {
+        PluginDefinition {
+            id: "legacy-pack".to_string(),
+            name: "Legacy".to_string(),
+            description: "a row written before the policy checked installs".to_string(),
+            transport: "stdio".to_string(),
+            command: Some(command.to_string()),
+            args: Vec::new(),
+            env: HashMap::new(),
+            enabled: false,
+            tools: Vec::new(),
+            source: String::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn install_refuses_a_command_outside_the_allow_list() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = crate::tests::test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+        let manifest = serde_json::json!({
+            "name": "Off List",
+            "transport": "stdio",
+            "command": "curl",
+            "args": ["https://example.test/install.sh"],
+            "enabled": false,
+        })
+        .to_string();
+
+        let err = rpc
+            .install_plugin(&owner, manifest)
+            .await
+            .expect_err("a command outside the allow-list must be refused");
+        assert_eq!(rpc_error_code(&err), auth::rpc_codes::POLICY_REFUSED);
+        assert!(
+            state
+                .settings
+                .get_plugin("off-list")
+                .await
+                .expect("the catalog answers")
+                .is_none(),
+            "a refused pack must leave no row behind"
+        );
+    }
+
+    #[tokio::test]
+    async fn install_refuses_an_unpinned_package_launch() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = crate::tests::test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+
+        let unpinned = serde_json::json!({
+            "name": "Unpinned",
+            "transport": "stdio",
+            "command": "npx",
+            "args": ["@modelcontextprotocol/server-github"],
+            "enabled": false,
+        })
+        .to_string();
+        let err = rpc
+            .install_plugin(&owner, unpinned)
+            .await
+            .expect_err("an unpinned package must be refused at install");
+        assert_eq!(rpc_error_code(&err), auth::rpc_codes::POLICY_REFUSED);
+        assert!(
+            state
+                .settings
+                .get_plugin("unpinned")
+                .await
+                .expect("the catalog answers")
+                .is_none(),
+            "a refused pack must leave no row behind"
+        );
+
+        let pinned = serde_json::json!({
+            "name": "Pinned",
+            "transport": "stdio",
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-github@2025.4.8"],
+            "enabled": false,
+        })
+        .to_string();
+        rpc.install_plugin(&owner, pinned)
+            .await
+            .expect("a pinned package installs");
+    }
+
+    #[tokio::test]
+    async fn a_fresh_daemon_seeds_every_bundled_pack_disabled() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = crate::tests::test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+
+        let plugins = rpc.list_plugins(&owner).await.expect("plugins list");
+        assert_eq!(plugins.len(), warsha_core::bundled_plugins().len());
+        let enabled: Vec<&str> = plugins
+            .iter()
+            .filter(|plugin| plugin.enabled)
+            .map(|plugin| plugin.id.as_str())
+            .collect();
+        assert!(
+            enabled.is_empty(),
+            "a fresh daemon must seed every bundled pack disabled, but enabled: {enabled:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stored_row_the_policy_refuses_never_launches() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = crate::tests::test_state(temp.path()).await;
+        let row = wave2::plugin_row(&legacy_definition("curl")).expect("a row serialises");
+        state
+            .settings
+            .save_plugin(&row)
+            .await
+            .expect("the row saves");
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+
+        let err = rpc
+            .toggle_plugin(&owner, "legacy-pack".to_string(), true)
+            .await
+            .expect_err("a row the policy would refuse must not launch");
+        assert_eq!(rpc_error_code(&err), auth::rpc_codes::POLICY_REFUSED);
+        let stored = state
+            .settings
+            .get_plugin("legacy-pack")
+            .await
+            .expect("the catalog answers")
+            .expect("the row is still there");
+        assert!(
+            !stored.enabled,
+            "a refused enable must not store the pack as enabled"
+        );
+        assert!(
+            state.mcp.list().await.is_empty(),
+            "nothing may be spawned for a refused pack"
+        );
+    }
+
+    #[tokio::test]
+    async fn configure_refuses_before_filing_its_environment() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = crate::tests::test_state(temp.path()).await;
+        let row = wave2::plugin_row(&legacy_definition("curl")).expect("a row serialises");
+        state
+            .settings
+            .save_plugin(&row)
+            .await
+            .expect("the row saves");
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+
+        let mut env = HashMap::new();
+        env.insert(
+            "GITHUB_TOKEN".to_string(),
+            "material-never-filed".to_string(),
+        );
+        let err = rpc
+            .configure_plugin(&owner, "legacy-pack".to_string(), env)
+            .await
+            .expect_err("a pack the policy refuses cannot be configured");
+        assert_eq!(rpc_error_code(&err), auth::rpc_codes::POLICY_REFUSED);
+        assert!(
+            state
+                .secrets
+                .load("plugin:legacy-pack:GITHUB_TOKEN")
+                .await
+                .is_err(),
+            "a refused configure must not file the environment in the keychain"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_launch_gets_only_the_named_keychain_secret() {
+        let temp = crate::test_util::fresh_tempdir();
+        let exe = test_binary();
+        let allowed = exe.clone();
+        let (state, _store) = test_state_with(temp.path(), move |config| {
+            config.allowed_commands = vec![allowed];
+        })
+        .await;
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+
+        std::env::set_var(DAEMON_ONLY, "leak");
+        let manifest = probe_manifest(
+            &exe,
+            true,
+            serde_json::json!({
+                ENV_MARKER: "1",
+                "PROBE_SECRET": "material-secret-value",
+            }),
+        );
+        let installed = rpc
+            .install_plugin(&owner, manifest)
+            .await
+            .expect("the probe pack installs");
+        std::env::remove_var(DAEMON_ONLY);
+
+        let stored = state
+            .settings
+            .get_plugin(&installed.id)
+            .await
+            .expect("the catalog answers")
+            .expect("the row exists");
+        assert!(
+            !stored.env_json.contains("material-secret-value"),
+            "the row must hold a reference, not the token: {}",
+            stored.env_json
+        );
+
+        let toggled = rpc
+            .toggle_plugin(&owner, installed.id.clone(), true)
+            .await
+            .expect("the probe pack enables");
+        assert!(toggled.enabled);
+
+        let connections = state.mcp.list().await;
+        let connection = connections
+            .iter()
+            .find(|connection| connection.config.name == installed.id)
+            .expect("the pack is connected");
+        assert!(connection.status.is_connected(), "{connection:?}");
+        let description = connection
+            .tool_definitions
+            .first()
+            .expect("the probe lists one tool")
+            .description
+            .clone();
+        assert!(
+            description.contains("PROBE_SECRET=material-secret-value"),
+            "the keychain value must reach the child: {description}"
+        );
+        assert!(
+            description.contains(&format!("{ENV_MARKER}=1")),
+            "every named variable reaches the child: {description}"
+        );
+        assert!(
+            !description.contains(&format!("{DAEMON_ONLY}=leak")),
+            "the daemon's own environment must not be inherited: {description}"
+        );
+        assert!(
+            !description.contains("HOME="),
+            "the user profile must not be inherited: {description}"
+        );
+
+        let disabled = rpc
+            .toggle_plugin(&owner, installed.id.clone(), false)
+            .await
+            .expect("the pack disables and disconnects cleanly");
+        assert!(!disabled.enabled);
+        assert!(state
+            .mcp
+            .list()
+            .await
+            .iter()
+            .all(|connection| !connection.status.is_connected()));
+    }
+
+    /// A keychain seam that records which accounts were read.
+    ///
+    /// `InMemorySecretStore` cannot answer "was this account read at all", which is
+    /// the half of R-KEEL row 5 a refusal on its own does not prove: a daemon that
+    /// read the foreign account and *then* refused would pass every other assertion
+    /// in this module. It delegates everything to the in-memory store, so a test can
+    /// still seed an account and read one back.
+    #[derive(Debug, Default)]
+    struct CountingSecretStore {
+        inner: InMemorySecretStore,
+        loads: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl CountingSecretStore {
+        fn loads(&self) -> Vec<String> {
+            self.loads
+                .lock()
+                .expect("the load log is not poisoned")
+                .clone()
+        }
+    }
+
+    #[async_trait]
+    impl SecretStore for CountingSecretStore {
+        async fn store(&self, account: &str, key: &str) -> warsha_providers::Result<()> {
+            self.inner.store(account, key).await
+        }
+
+        async fn load(&self, account: &str) -> warsha_providers::Result<String> {
+            self.loads
+                .lock()
+                .expect("the load log is not poisoned")
+                .push(account.to_string());
+            self.inner.load(account).await
+        }
+
+        async fn delete(&self, account: &str) -> warsha_providers::Result<()> {
+            self.inner.delete(account).await
+        }
+    }
+
+    /// The probe manifest with an id the test chose, so the pack's own keychain
+    /// account (`plugin:{id}:{KEY}`) is known before the install derives anything.
+    fn probe_manifest_with_id(exe: &str, id: &str, env: Value) -> String {
+        let mut manifest: Value =
+            serde_json::from_str(&probe_manifest(exe, false, env)).expect("a JSON manifest");
+        manifest["id"] = serde_json::json!(id);
+        manifest.to_string()
+    }
+
+    #[tokio::test]
+    async fn a_pack_may_name_its_own_keychain_account() {
+        let temp = crate::test_util::fresh_tempdir();
+        let exe = test_binary();
+        let allowed = exe.clone();
+        let secrets = Arc::new(CountingSecretStore::default());
+        // Filed the way `plugins.install` files material: under the pack's own
+        // account. The row below names that address instead of the value.
+        secrets
+            .store(
+                "plugin:own-account-pack:PROBE_SECRET",
+                "own-account-material",
+            )
+            .await
+            .expect("the own account is filed");
+        let injected = secrets.clone();
+        let (state, _store) = test_state_with_seams(
+            temp.path(),
+            move |config| {
+                config.allowed_commands = vec![allowed];
+            },
+            None,
+            Some(injected as Arc<dyn SecretStore>),
+            None,
+        )
+        .await;
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+
+        let manifest = probe_manifest_with_id(
+            &exe,
+            "own-account-pack",
+            serde_json::json!({
+                ENV_MARKER: "1",
+                "PROBE_SECRET": "${secrets:plugin:own-account-pack:PROBE_SECRET}",
+            }),
+        );
+        let installed = rpc
+            .install_plugin(&owner, manifest)
+            .await
+            .expect("the probe pack installs");
+        assert_eq!(installed.id, "own-account-pack");
+        let stored = state
+            .settings
+            .get_plugin(&installed.id)
+            .await
+            .expect("the catalog answers")
+            .expect("the row exists");
+        assert!(
+            stored
+                .env_json
+                .contains("${secrets:plugin:own-account-pack:PROBE_SECRET}"),
+            "a reference is stored as the owner wrote it: {}",
+            stored.env_json
+        );
+
+        let toggled = rpc
+            .toggle_plugin(&owner, installed.id.clone(), true)
+            .await
+            .expect("a pack naming its own account launches");
+        assert!(toggled.enabled);
+
+        let connection = state
+            .mcp
+            .list()
+            .await
+            .into_iter()
+            .find(|connection| connection.config.name == installed.id)
+            .expect("the pack is connected");
+        assert!(connection.status.is_connected(), "{connection:?}");
+        let description = connection
+            .tool_definitions
+            .first()
+            .expect("the probe lists one tool")
+            .description
+            .clone();
+        assert!(
+            description.contains("PROBE_SECRET=own-account-material"),
+            "the own account's value must reach the child: {description}"
+        );
+        // Two accounts are read: the one the manifest named and the one the install
+        // filed for `ENV_MARKER` (material is filed under the pack's own account,
+        // never stored in the row). Both belong to this pack.
+        let mut loaded = secrets.loads();
+        loaded.sort();
+        assert_eq!(
+            loaded,
+            vec![
+                "plugin:own-account-pack:PROBE_SECRET".to_string(),
+                format!("plugin:own-account-pack:{ENV_MARKER}"),
+            ],
+            "the launch reads exactly the accounts this pack filed for itself"
+        );
+
+        rpc.toggle_plugin(&owner, installed.id.clone(), false)
+            .await
+            .expect("the pack disables and disconnects cleanly");
+    }
+
+    #[tokio::test]
+    async fn a_pack_cannot_read_another_packs_keychain_account() {
+        let temp = crate::test_util::fresh_tempdir();
+        let exe = test_binary();
+        let allowed = exe.clone();
+        let secrets = Arc::new(CountingSecretStore::default());
+        // The foreign account holds a value: a daemon that read it before refusing
+        // would have the material in hand, and the load log below would show it.
+        secrets
+            .store("plugin:other-pack:TOKEN", "foreign-material")
+            .await
+            .expect("the foreign account is filed");
+        let injected = secrets.clone();
+        let (state, _store) = test_state_with_seams(
+            temp.path(),
+            move |config| {
+                config.allowed_commands = vec![allowed];
+            },
+            None,
+            Some(injected as Arc<dyn SecretStore>),
+            None,
+        )
+        .await;
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+
+        let manifest = probe_manifest_with_id(
+            &exe,
+            "greedy-pack",
+            serde_json::json!({ "PROBE_SECRET": "${secrets:plugin:other-pack:TOKEN}" }),
+        );
+        let installed = rpc
+            .install_plugin(&owner, manifest)
+            .await
+            .expect("the reference is stored as written, so the install succeeds");
+        assert!(
+            secrets.loads().is_empty(),
+            "filing a reference must not read a keychain account: {:?}",
+            secrets.loads()
+        );
+
+        let err = rpc
+            .toggle_plugin(&owner, installed.id.clone(), true)
+            .await
+            .expect_err("a pack naming another pack's account must be refused");
+        assert_eq!(rpc_error_code(&err), auth::rpc_codes::POLICY_REFUSED);
+        assert!(
+            err.message().contains("plugin:other-pack:TOKEN"),
+            "the refusal names the offending account, got: {}",
+            err.message()
+        );
+        assert!(
+            err.message().contains("plugin:greedy-pack:PROBE_SECRET"),
+            "the refusal names the pack's own account, got: {}",
+            err.message()
+        );
+        assert!(
+            secrets.loads().is_empty(),
+            "the refusal must happen before any keychain read: {:?}",
+            secrets.loads()
+        );
+        assert!(
+            state.mcp.list().await.is_empty(),
+            "nothing may be launched for a refused pack"
+        );
+        assert!(
+            !state
+                .settings
+                .get_plugin(&installed.id)
+                .await
+                .expect("the catalog answers")
+                .expect("the row exists")
+                .enabled,
+            "a refused enable must not leave the pack stored as enabled"
+        );
+    }
+
+    /// An MCP transport that is the real one except that its `disconnect` fails.
+    ///
+    /// A disconnect that genuinely fails has no natural seam on this side: the real
+    /// manager reports failure only when a live child will not die, which a test
+    /// cannot stage without a second principal. So the failure is injected at the
+    /// transport — the exact edge `toggle_plugin` calls — while `connect`,
+    /// `connect_with` and `list` stay the real manager, so the pack under test owns
+    /// a real, still-running child when the stop is refused.
+    struct FailingDisconnectMcp {
+        inner: Arc<dyn McpManager>,
+    }
+
+    #[async_trait]
+    impl McpManager for FailingDisconnectMcp {
+        async fn connect(
+            &self,
+            config: warsha_pipeline::mcp_transport::McpServerConfig,
+        ) -> std::result::Result<(), warsha_pipeline::McpTransportError> {
+            self.inner.connect(config).await
+        }
+
+        async fn connect_with(
+            &self,
+            config: warsha_pipeline::mcp_transport::McpServerConfig,
+            options: warsha_pipeline::mcp_transport::McpLaunchOptions,
+        ) -> std::result::Result<(), warsha_pipeline::McpTransportError> {
+            self.inner.connect_with(config, options).await
+        }
+
+        async fn disconnect(
+            &self,
+            name: &str,
+        ) -> std::result::Result<(), warsha_pipeline::McpTransportError> {
+            // The shape the real manager produces when `stop` is refused, so the
+            // error the RPC hands back is the one a genuine failure would give.
+            Err(warsha_pipeline::McpTransportError::Stop {
+                name: name.to_string(),
+                source: warsha_pipeline::ProcessError::Stop {
+                    id: name.to_string(),
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "the child would not die",
+                    ),
+                },
+            })
+        }
+
+        async fn list(&self) -> Vec<McpConnection> {
+            self.inner.list().await
+        }
+
+        async fn send(
+            &self,
+            name: &str,
+            payload: &str,
+        ) -> std::result::Result<String, warsha_pipeline::McpTransportError> {
+            self.inner.send(name, payload).await
+        }
+
+        async fn call_tool(
+            &self,
+            name: &str,
+            tool: &str,
+            arguments: serde_json::Value,
+        ) -> std::result::Result<
+            warsha_pipeline::mcp::McpToolResult,
+            warsha_pipeline::McpTransportError,
+        > {
+            self.inner.call_tool(name, tool, arguments).await
+        }
+    }
+
+    /// R-KEEL checkpoint row 16, the disable half — the inverse of the connect lie
+    /// R-SEC-6 fixed: the row was persisted `disabled` *before* the child was
+    /// stopped, so a disconnect that failed left it marked disabled with a live
+    /// process behind it. It is still the caller's error, but the row goes back to
+    /// what it said before the call.
+    #[tokio::test]
+    async fn a_failed_disconnect_leaves_the_row_enabled() {
+        let temp = crate::test_util::fresh_tempdir();
+        let exe = test_binary();
+        let allowed = exe.clone();
+        // The transport the daemon is built with is the real manager over its own
+        // spawner — so the child below is a real process — behind the one seam that
+        // refuses the stop.
+        let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared_with_policy(
+            CommandPolicy::from_config(std::slice::from_ref(&allowed)),
+        );
+        let real: Arc<dyn McpManager> = Arc::new(InMemoryMcpManager::new(processes));
+        let failing: Arc<dyn McpManager> = Arc::new(FailingDisconnectMcp {
+            inner: real.clone(),
+        });
+        let (state, _store) = crate::tests::test_state_with_seams(
+            temp.path(),
+            move |config| {
+                config.allowed_commands = vec![allowed];
+            },
+            None,
+            None,
+            Some(failing),
+        )
+        .await;
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+        // The env probe exits unless it is marked; this one has to stay up and
+        // speak the protocol, which is what a stop can be refused against.
+        let manifest = serde_json::json!({
+            "name": "Connected MCP Plugin",
+            "transport": "stdio",
+            "command": exe,
+            "args": ["--exact", "tests::mcp_probe_server", "--ignored", "--nocapture"],
+            "enabled": false,
+        })
+        .to_string();
+        let installed = rpc
+            .install_plugin(&owner, manifest)
+            .await
+            .expect("the probe pack installs cleanly in disabled state");
+        assert!(!installed.enabled);
+
+        // Enabling brings up the real child the failed disconnect will leave running.
+        let toggled = rpc
+            .toggle_plugin(&owner, installed.id.clone(), true)
+            .await
+            .expect("the probe pack connects");
+        assert!(toggled.enabled);
+        let before = state
+            .mcp
+            .list()
+            .await
+            .into_iter()
+            .find(|connection| connection.config.name == installed.id)
+            .expect("the pack is connected");
+        assert!(before.status.is_connected(), "{before:?}");
+        assert!(before.process_id.is_some(), "{before:?}");
+
+        let err = rpc
+            .toggle_plugin(&owner, installed.id.clone(), false)
+            .await
+            .expect_err("a child that will not die must fail the disable");
+        assert_eq!(rpc_error_code(&err), -32000);
+        assert!(
+            err.message().contains("could not stop MCP server"),
+            "the caller gets the disconnect's own error, got: {}",
+            err.message()
+        );
+
+        let stored = state
+            .settings
+            .get_plugin(&installed.id)
+            .await
+            .expect("the catalog answers")
+            .expect("the row is still there");
+        assert!(
+            stored.enabled,
+            "a failed disconnect must put the row back to enabled, not leave it \
+             disabled beside a live child"
+        );
+        let after = state
+            .mcp
+            .list()
+            .await
+            .into_iter()
+            .find(|connection| connection.config.name == installed.id)
+            .expect("the connection is still listed");
+        assert!(
+            after.status.is_connected(),
+            "the child that refused to die is still connected: {after:?}"
+        );
+        assert!(after.process_id.is_some(), "{after:?}");
+
+        // Leave nothing running: the real transport is what stops this child.
+        real.disconnect(&installed.id)
+            .await
+            .expect("the real transport stops the child");
+    }
+}
+
+/// R-KEEL checkpoint row 9: the CSP headers are read off a real response.
+///
+/// The middleware's whole point was unverified by construction: deleting
+/// `.layer(csp_middleware)` or any one of the three header inserts left the suite
+/// green, because no test ever read a header off the wire. This drives [`http_app`] —
+/// the app the listener actually serves — through its whole stack, on the one route
+/// that needs no credential and on the static fallback, so both places a response can
+/// come from are covered. Every assertion is an equality against the canonical value
+/// ([`REMOTE_CSP`], `nosniff`, `DENY`), which is what makes a dropped layer or a
+/// drifted string a failure rather than a pass.
+///
+/// The app is driven in process rather than over a socket on purpose: the other test
+/// in this binary that starts a daemon (`the_startup_listener_lines_are_written_once`)
+/// counts its startup lines through a thread-scoped subscriber, and a second daemon
+/// starting in parallel makes that capture flaky — measured: a socket-level version of
+/// this test left it red in 2 of 3 full runs, while 4 of 4 runs without this test were
+/// green. Driving the router keeps the same assertion without adding a second caller
+/// of the callsite that test counts.
+#[tokio::test]
+async fn the_http_listener_sends_the_canonical_csp_and_framing_headers() {
+    use tower::ServiceExt as _;
+
+    let temp = crate::test_util::fresh_tempdir();
+    let bundle = temp.path().join("bundle");
+    std::fs::create_dir_all(&bundle).expect("the bundle directory");
+    std::fs::write(
+        bundle.join("index.html"),
+        "<div id=\"root\">csp probe</div>",
+    )
+    .expect("the bundle shell");
+    let (state, _store) = test_state_with(temp.path(), |config| {
+        config.remote_assets_dir = Some(bundle);
+    })
+    .await;
+
+    // `/health` is the router's own route; `/index.html` is the static fallback.
+    for path in ["/health", "/index.html"] {
+        let mut request = axum::http::Request::builder()
+            .uri(path)
+            .body(axum::body::Body::empty())
+            .expect("a request the listener would receive");
+        // What `axum::serve(…into_make_service_with_connect_info())` supplies to the
+        // auth layer: without it the ceiling has no peer to key on and the extractor
+        // answers before the CSP layer runs.
+        request
+            .extensions_mut()
+            .insert(ConnectInfo(std::net::SocketAddr::from((
+                [127, 0, 0, 1],
+                40_000,
+            ))));
+        let response = http_app(state.clone())
+            .oneshot(request)
+            .await
+            .expect("the app answers");
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::OK,
+            "{path} answered HTTP {}",
+            response.status()
+        );
+        let header = |name: &str| {
+            response
+                .headers()
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string)
+        };
+        assert_eq!(
+            header("content-security-policy").as_deref(),
+            Some(REMOTE_CSP),
+            "{path} did not carry the canonical policy: the CSP middleware is not layered, \
+             or its string is not the one `apps/remote/index.html` declares"
+        );
+        assert_eq!(
+            header("x-content-type-options").as_deref(),
+            Some("nosniff"),
+            "{path} did not carry `X-Content-Type-Options: nosniff`"
+        );
+        assert_eq!(
+            header("x-frame-options").as_deref(),
+            Some("DENY"),
+            "{path} did not carry `X-Frame-Options: DENY`"
+        );
+    }
+}
+
+/// R-BRIDGE-B3a on the daemon side: the two RPCs, the audit trail, redaction,
+/// resolution through `mcp.permissions.set`, and the fact that a grant dies with
+/// the process.
+mod mcp_approval {
+    use super::*;
+    use std::sync::Mutex as StdMutex;
+    use warsha_pipeline::mcp::McpTool;
+
+    /// The obviously fake secrets T7 traces through every surface.
+    const SECRET_ARGS: &str =
+        r#"{"api_key":"SECRET-1","note":"Bearer SECRET-2","password":"SECRET-3","path":"a.txt"}"#;
+    const SECRET_EXTRA: &str = r#"{"blob":"SECRET-4","path":"a.txt"}"#;
+
+    /// A transport that records calls instead of making them.
+    #[derive(Default)]
+    struct ApprovalMcp {
+        calls: StdMutex<Vec<(String, String, serde_json::Value)>>,
+    }
+
+    impl ApprovalMcp {
+        fn count(&self) -> usize {
+            self.calls
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .len()
+        }
+    }
+
+    #[async_trait]
+    impl McpManager for ApprovalMcp {
+        async fn connect(
+            &self,
+            _config: warsha_pipeline::mcp_transport::McpServerConfig,
+        ) -> std::result::Result<(), warsha_pipeline::McpTransportError> {
+            Ok(())
+        }
+        async fn disconnect(
+            &self,
+            _name: &str,
+        ) -> std::result::Result<(), warsha_pipeline::McpTransportError> {
+            Ok(())
+        }
+        async fn list(&self) -> Vec<warsha_pipeline::McpConnection> {
+            vec![warsha_pipeline::McpConnection {
+                config: warsha_pipeline::mcp_transport::McpServerConfig {
+                    name: "test_srv".to_string(),
+                    transport: warsha_pipeline::mcp_transport::McpTransport::Stdio,
+                    command: Some("dummy".to_string()),
+                    args: vec![],
+                },
+                status: warsha_pipeline::McpStatus::Connected,
+                process_id: Some("p1".to_string()),
+                tools: vec!["echo".to_string()],
+                // The schema the owner's summary is built against: `blob` is
+                // marked secret by the server itself.
+                tool_definitions: vec![McpTool {
+                    name: "echo".to_string(),
+                    description: "echo the arguments".to_string(),
+                    input_schema: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "blob": {"type": "string", "writeOnly": true},
+                            "path": {"type": "string"},
+                        },
+                    }),
+                    annotations: None,
+                }],
+            }]
+        }
+        async fn send(
+            &self,
+            name: &str,
+            payload: &str,
+        ) -> std::result::Result<String, warsha_pipeline::McpTransportError> {
+            Ok(format!("{name}:{payload}"))
+        }
+        async fn call_tool(
+            &self,
+            name: &str,
+            tool: &str,
+            arguments: serde_json::Value,
+        ) -> std::result::Result<
+            warsha_pipeline::mcp::McpToolResult,
+            warsha_pipeline::McpTransportError,
+        > {
+            self.calls
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push((name.to_string(), tool.to_string(), arguments));
+            Ok(warsha_pipeline::mcp::McpToolResult {
+                content: vec![warsha_pipeline::mcp::McpContent::Text {
+                    text: "ok".to_string(),
+                }],
+                is_error: false,
+            })
+        }
+    }
+
+    async fn state_with_mcp(data_dir: &Path) -> (Arc<DaemonState>, Arc<Store>, Arc<ApprovalMcp>) {
+        let mcp = Arc::new(ApprovalMcp::default());
+        let manager: Arc<dyn McpManager> = mcp.clone();
+        let (state, store) =
+            test_state_with_seams(data_dir, |_| {}, None, None, Some(manager)).await;
+        (state, store, mcp)
+    }
+
+    fn turn(arguments: &str) -> String {
+        format!("call mcp test_srv/echo {arguments}")
+    }
+
+    /// The only pending approval the daemon holds.
+    async fn only_pending(rpc: &WarshaRpc, state: &DaemonState) -> McpApproval {
+        let listed = rpc
+            .list_mcp_approvals(&owner_ext())
+            .await
+            .expect("the list answers");
+        assert_eq!(listed.len(), 1, "unexpected approvals: {listed:?}");
+        assert_eq!(state.mcp_approvals.pending_len(), 1);
+        listed[0].clone()
+    }
+
+    /// T6: the answer RPC is owner-only, issues a grant, and writes no row.
+    #[tokio::test]
+    async fn allow_once_rpc_is_owner_only_and_never_writes_a_row() {
+        let temp = crate::test_util::fresh_tempdir();
+        let data_dir = temp.path().join("data");
+        let (state, store, mcp) = state_with_mcp(&data_dir).await;
+        let rpc = WarshaRpc::new(state.clone());
+        let approver = DeviceId::new();
+        let run_id = approved_agent_run(&state, &store).await;
+
+        // A real turn on the run's own loop registers the ask.
+        rpc.agent_turn_run(&owner_ext(), run_id, turn(r#"{"msg":"hi"}"#))
+            .await
+            .expect("the turn answers");
+        let pending = only_pending(&rpc, &state).await;
+        assert_eq!(pending.server, "test_srv");
+        assert_eq!(pending.tool, "echo");
+        assert_eq!(pending.role, "agent");
+        assert!(pending.id.starts_with("mcp-approval-"));
+        assert_eq!(mcp.count(), 0, "an ask reached the transport");
+
+        // A paired phone cannot read the queue or approve from it.
+        let phone = paired_ext("phone-device");
+        for (method, code) in [
+            (
+                "mcp.approvals.list",
+                rpc_error_code(
+                    &rpc.list_mcp_approvals(&phone)
+                        .await
+                        .expect_err("a phone cannot read the queue"),
+                ),
+            ),
+            (
+                "mcp.approvals.allow_once",
+                rpc_error_code(
+                    &rpc.allow_once_mcp_approval(&phone, pending.id.clone())
+                        .await
+                        .expect_err("a phone cannot approve"),
+                ),
+            ),
+        ] {
+            assert_eq!(code, -32002, "{method} was reachable by a paired device");
+        }
+        // The refusal changed nothing.
+        only_pending(&rpc, &state).await;
+
+        let answer = rpc
+            .allow_once_mcp_approval(&owner_ext_as(approver), pending.id.clone())
+            .await
+            .expect("the owner grants");
+        assert_eq!(answer.id, pending.id);
+        assert_eq!(answer.run_id, run_id.0.to_string());
+        assert_eq!(answer.server, "test_srv");
+        assert_eq!(answer.tool, "echo");
+        assert_eq!(answer.role, "agent");
+        assert_eq!(answer.granted_by, approver.to_string());
+        assert!(!answer.expires_at.is_empty());
+        // The answer leaves the list; the grant is live.
+        assert!(rpc
+            .list_mcp_approvals(&owner_ext())
+            .await
+            .expect("the list answers")
+            .is_empty());
+        assert!(state
+            .mcp_approvals
+            .has_grant(&run_id.0.to_string(), "test_srv", "echo", "agent"));
+
+        // Never a row: neither the table nor the store learned anything.
+        assert!(rpc
+            .list_mcp_permissions(&owner_ext())
+            .await
+            .expect("the permissions list answers")
+            .rows
+            .is_empty());
+        assert!(
+            store
+                .load_mcp_permissions()
+                .await
+                .expect("the stored rows are readable")
+                .is_empty(),
+            "an allow_once grant wrote a permission row"
+        );
+
+        // The audit trail: one event, the four identifying fields, no arguments.
+        let events = store.get_events(run_id).await.expect("the events are read");
+        let allowed: Vec<&warsha_core::Event> = events
+            .iter()
+            .filter(|event| {
+                event.payload.get("action") == Some(&serde_json::json!("mcp_allow_once"))
+            })
+            .collect();
+        assert_eq!(allowed.len(), 1, "the answer wrote no single audit event");
+        let event = allowed[0];
+        assert_eq!(event.kind, warsha_core::EventKind::ToolCall);
+        assert_eq!(event.run_id, run_id);
+        assert_eq!(event.device_id, Some(approver));
+        let payload = event.payload.as_object().expect("the payload is an object");
+        let mut keys: Vec<&str> = payload.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["action", "question_id", "role", "server", "tool"]);
+        assert_eq!(payload["question_id"], serde_json::json!(pending.id));
+        assert_eq!(payload["server"], serde_json::json!("test_srv"));
+    }
+
+    /// T7: no secret value reaches the list, the events or a log line.
+    ///
+    /// The capture is mounted the way this suite's log-shape tests mount it — a
+    /// plain test, a current-thread runtime, and `with_default` around the whole
+    /// body — because a callsite first reached by another parallel test with no
+    /// subscriber is cached as "never", and only a subscriber that answers
+    /// `Interest::sometimes()` (the filter beside the capture) revives it.
+    #[test]
+    fn no_secret_argument_value_reaches_question_events_list_or_logs() {
+        // The capture has to be the *process-wide* default here. A thread-local
+        // one loses the `warshad` callsites: tracing caches, per callsite, whether
+        // it is ever enabled, and a callsite another parallel test reached first is
+        // frozen as "never" for every subscriber mounted afterwards. A global
+        // subscriber registered once rebuilds that cache for the whole process, so
+        // the line this test is looking for is written whatever the rest of the
+        // suite has already done to the callsite.
+        static GLOBAL_LOG: std::sync::OnceLock<LogCapture> = std::sync::OnceLock::new();
+        let capture: &LogCapture = GLOBAL_LOG.get_or_init(|| {
+            let capture = LogCapture::default();
+            if tracing::subscriber::set_global_default(capture_subscriber(&capture)).is_ok() {
+                tracing::callsite::rebuild_interest_cache();
+            }
+            capture
+        });
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a current-thread runtime");
+        let temp = crate::test_util::fresh_tempdir();
+        let data_dir = temp.path().join("data");
+
+        let (listed_json, events_json, stream_json, summary) = runtime.block_on(async move {
+            let (state, store, _mcp) = state_with_mcp(&data_dir).await;
+            let rpc = WarshaRpc::new(state.clone());
+            let run_id = approved_agent_run(&state, &store).await;
+
+            rpc.agent_turn_run(&owner_ext(), run_id, turn(SECRET_ARGS))
+                .await
+                .expect("the turn answers");
+            // A second ask whose secret the *schema* marks, not its key.
+            let run_two = approved_agent_run(&state, &store).await;
+            rpc.agent_turn_run(&owner_ext(), run_two, turn(SECRET_EXTRA))
+                .await
+                .expect("the second turn answers");
+
+            let listed = rpc
+                .list_mcp_approvals(&owner_ext())
+                .await
+                .expect("the list answers");
+            assert_eq!(listed.len(), 2);
+            let listed_json = serde_json::to_string(&listed).expect("the reply serializes");
+            let summary = listed[0].summary.clone();
+            assert!(
+                summary.contains("path"),
+                "the summary dropped the harmless key: {summary}"
+            );
+
+            // The question the agent queued: a loop built by the same builder
+            // `runs.start` uses, sharing this registry and this run id. The
+            // registry de-duplicates the ask, so this is the very id and summary
+            // the answer would resolve.
+            let mut agent = build_agent_loop_in(
+                &data_dir.join(AGENT_WORKSPACE_DIR),
+                &state.config.allowed_commands,
+                state.providers.clone(),
+                state.mcp.clone(),
+                state.mcp_permissions.clone(),
+                state.mcp_approvals.clone(),
+                Some(run_id.0.to_string()),
+                Arc::new(RwLock::new(default_backend_kit("run"))),
+            );
+            agent
+                .approve_agent_mode("owner")
+                .expect("the owner approves the loop");
+            agent.run_turn(&turn(SECRET_ARGS), &[]).await;
+            let queued = agent.ask_queue.pending();
+            let question = queued
+                .iter()
+                .find(|request| request.id == listed[0].id)
+                .map(|request| request.question.clone())
+                .expect("the ask carries the listed id");
+            assert!(
+                question.contains("test_srv::echo"),
+                "the question does not name the call: {question}"
+            );
+            assert!(
+                question.contains("path"),
+                "the question dropped the harmless key: {question}"
+            );
+            for secret in ["SECRET-1", "SECRET-2", "SECRET-3"] {
+                assert!(
+                    !question.contains(secret),
+                    "{secret} reached the queued question: {question}"
+                );
+            }
+
+            // The answer path too: that is the daemon line it audits.
+            rpc.allow_once_mcp_approval(&owner_ext(), listed[0].id.clone())
+                .await
+                .expect("the owner answers");
+
+            let events = store.get_events(run_id).await.expect("the events are read");
+            assert!(
+                !events.is_empty(),
+                "the turn wrote no events, so the event assertion proves nothing"
+            );
+            let events_json = serde_json::to_string(&events).expect("the events serialize");
+            let sync = state.events.sync(0, Some(run_id)).await;
+            let stream_json = serde_json::to_string(&sync.frames).expect("the stream serializes");
+            (listed_json, events_json, stream_json, summary)
+        });
+
+        // Only this path's own lines: the capture is the process's, so another
+        // test's line is not this test's evidence.
+        let logs: String = capture
+            .lines()
+            .into_iter()
+            .filter(|line| line.contains("mcp.approvals"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !logs.is_empty(),
+            "the log capture saw nothing, so the log assertion proves nothing"
+        );
+        assert!(
+            logs.contains("mcp.approvals.allow_once"),
+            "the answer was not logged at all: {logs}"
+        );
+
+        for (surface, text) in [
+            ("mcp.approvals.list", listed_json.as_str()),
+            ("get_events", events_json.as_str()),
+            ("events.sync", stream_json.as_str()),
+            ("the daemon log", logs.as_str()),
+        ] {
+            for secret in ["SECRET-1", "SECRET-2", "SECRET-3", "SECRET-4"] {
+                assert!(!text.contains(secret), "{secret} reached {surface}: {text}");
+            }
+        }
+        assert!(summary.contains("path"), "{summary}");
+    }
+
+    /// T12 (M1): a run that completes purges what it left behind, and an ask
+    /// that nobody ever answers stops waiting.
+    ///
+    /// The per-run cap bounds one run's residue; nothing bounded the process's,
+    /// because a run that finishes through `runs.advance` used to purge nothing
+    /// and an unresolved question had no horizon. Both ends are proved here: the
+    /// terminal advance drops the run's grant *and* its open question, and the
+    /// take path — every agent call passes through it — drops a question past
+    /// `PENDING_TTL` while leaving a fresh one alone.
+    #[tokio::test]
+    async fn a_completed_run_and_a_stale_ask_leave_nothing_behind() {
+        use std::time::Instant;
+        use warsha_pipeline::PENDING_TTL;
+
+        let temp = crate::test_util::fresh_tempdir();
+        let data_dir = temp.path().join("data");
+        let (state, store, mcp) = state_with_mcp(&data_dir).await;
+        let rpc = WarshaRpc::new(state.clone());
+        let run_id = approved_agent_run(&state, &store).await;
+
+        // One answered ask (a live grant) and one still waiting.
+        rpc.agent_turn_run(&owner_ext(), run_id, turn(r#"{"msg":"one"}"#))
+            .await
+            .expect("the first turn answers");
+        let answered = only_pending(&rpc, &state).await;
+        rpc.allow_once_mcp_approval(&owner_ext(), answered.id.clone())
+            .await
+            .expect("the owner grants");
+        rpc.agent_turn_run(&owner_ext(), run_id, turn(r#"{"msg":"two"}"#))
+            .await
+            .expect("the second turn answers");
+        let waiting = only_pending(&rpc, &state).await;
+        assert_ne!(answered.id, waiting.id, "the second ask reused an id");
+        assert!(state
+            .mcp_approvals
+            .has_grant(&run_id.0.to_string(), "test_srv", "echo", "agent"));
+        assert_eq!(mcp.count(), 0, "an ask reached the transport");
+
+        // The run finishes: `runs.advance` from Feedback completes it.
+        let (mut run, version) = store
+            .get_run_versioned(run_id)
+            .await
+            .expect("the run is stored");
+        run.current_stage = warsha_core::Stage::Feedback;
+        store
+            .update_run_cas(&run, version)
+            .await
+            .expect("the run moves to Feedback");
+
+        let advanced = rpc
+            .advance_run(&owner_ext(), run_id)
+            .await
+            .expect("the run advances");
+        assert_eq!(advanced.status, warsha_core::RunStatus::Completed);
+
+        // Nothing of that run survives: no question, no grant.
+        assert_eq!(
+            state.mcp_approvals.pending_len(),
+            0,
+            "a completed run left a pending question behind"
+        );
+        assert!(
+            rpc.list_mcp_approvals(&owner_ext())
+                .await
+                .expect("the list answers")
+                .is_empty(),
+            "mcp.approvals.list still shows a completed run's question"
+        );
+        assert!(
+            !state
+                .mcp_approvals
+                .has_grant(&run_id.0.to_string(), "test_srv", "echo", "agent"),
+            "a completed run left an unspent grant behind"
+        );
+
+        // The horizon: an ask nobody answers is dropped by the next call, while
+        // one inside the horizon is not.
+        let stale = state
+            .mcp_approvals
+            .register_pending(
+                "run-that-died",
+                "test_srv",
+                "echo",
+                "agent",
+                &serde_json::json!({"msg": "stale"}),
+                "msg: [hidden]".to_string(),
+            )
+            .expect("the stale ask registers");
+        let fresh = state
+            .mcp_approvals
+            .register_pending(
+                "run-that-died",
+                "test_srv",
+                "echo",
+                "agent",
+                &serde_json::json!({"msg": "fresh"}),
+                "msg: [hidden]".to_string(),
+            )
+            .expect("the fresh ask registers");
+        assert_eq!(state.mcp_approvals.pending_len(), 2);
+
+        // The take path sweeps against the clock it is given.
+        let now = Instant::now();
+        assert_eq!(
+            state.mcp_approvals.take_at(
+                "run-that-died",
+                "test_srv",
+                "echo",
+                "agent",
+                &serde_json::json!({"msg": "fresh"}),
+                now,
+            ),
+            warsha_pipeline::TakeOutcome::Missing
+        );
+        let answers = state.mcp_approvals.pending();
+        assert!(
+            answers.iter().any(|view| view.id == fresh),
+            "a question inside the horizon was swept: {answers:?}"
+        );
+
+        let after_horizon = now + PENDING_TTL + std::time::Duration::from_secs(1);
+        state.mcp_approvals.take_at(
+            "run-that-died",
+            "test_srv",
+            "echo",
+            "agent",
+            &serde_json::json!({"msg": "other"}),
+            after_horizon,
+        );
+        let answers = state.mcp_approvals.pending();
+        assert!(
+            !answers.iter().any(|view| view.id == stale),
+            "a question past PENDING_TTL is still waiting: {answers:?}"
+        );
+        assert!(
+            !answers.iter().any(|view| view.id == fresh),
+            "a question past PENDING_TTL is still waiting: {answers:?}"
+        );
+        assert_eq!(
+            state.mcp_approvals.pending_len(),
+            0,
+            "a killed run's questions pinned the process"
+        );
+    }
+
+    /// T10: a grant is process memory — a fresh state over the same data asks again.
+    #[tokio::test]
+    async fn grants_and_pending_do_not_survive_a_restart() {
+        let temp = crate::test_util::fresh_tempdir();
+        let data_dir = temp.path().join("data");
+        let (state, store, mcp) = state_with_mcp(&data_dir).await;
+        let rpc = WarshaRpc::new(state.clone());
+        let run_id = approved_agent_run(&state, &store).await;
+        rpc.agent_turn_run(&owner_ext(), run_id, turn(r#"{"msg":"hi"}"#))
+            .await
+            .expect("the turn answers");
+        let pending = only_pending(&rpc, &state).await;
+        rpc.allow_once_mcp_approval(&owner_ext(), pending.id.clone())
+            .await
+            .expect("the owner grants");
+        assert!(state
+            .mcp_approvals
+            .has_grant(&run_id.0.to_string(), "test_srv", "echo", "agent"));
+
+        // A fresh daemon over the same data directory: new registry, new loops.
+        let (restarted, _store, _restarted_mcp) = state_with_mcp(&data_dir).await;
+        assert!(restarted.mcp_approvals.pending().is_empty());
+        assert!(!restarted.mcp_approvals.has_grant(
+            &run_id.0.to_string(),
+            "test_srv",
+            "echo",
+            "agent"
+        ));
+
+        // The same run, through the same builder the daemon uses at `runs.start`.
+        let mut agent = build_agent_loop_in(
+            &data_dir.join(AGENT_WORKSPACE_DIR),
+            &restarted.config.allowed_commands,
+            restarted.providers.clone(),
+            restarted.mcp.clone(),
+            restarted.mcp_permissions.clone(),
+            restarted.mcp_approvals.clone(),
+            Some(run_id.0.to_string()),
+            Arc::new(RwLock::new(default_backend_kit("run"))),
+        );
+        agent
+            .approve_agent_mode("owner")
+            .expect("the owner approves the restarted loop");
+        let executed = agent.run_turn(&turn(r#"{"msg":"hi"}"#), &[]).await;
+        assert!(!executed.tools[0].success);
+        assert!(executed.tools[0].output.contains("approval required"));
+        assert_eq!(mcp.count(), 0, "a restarted daemon granted a dead grant");
+        assert_eq!(restarted.mcp_approvals.pending_len(), 1);
+    }
+
+    /// T11: allow-always and deny resolve the pending entry through the row write.
+    #[tokio::test]
+    async fn allow_always_and_deny_resolve_pending_through_permissions_set() {
+        let temp = crate::test_util::fresh_tempdir();
+        let data_dir = temp.path().join("data");
+        let (state, store, mcp) = state_with_mcp(&data_dir).await;
+        let rpc = WarshaRpc::new(state.clone());
+        let run_id = approved_agent_run(&state, &store).await;
+
+        rpc.agent_turn_run(&owner_ext(), run_id, turn(r#"{"msg":"hi"}"#))
+            .await
+            .expect("the turn answers");
+        only_pending(&rpc, &state).await;
+
+        rpc.set_mcp_permission(
+            &owner_ext(),
+            "test_srv".to_string(),
+            "echo".to_string(),
+            "agent".to_string(),
+            "allow".to_string(),
+        )
+        .await
+        .expect("the row is written");
+        // The ask left the list, and no grant was issued on the way out.
+        assert!(rpc
+            .list_mcp_approvals(&owner_ext())
+            .await
+            .expect("the list answers")
+            .is_empty());
+        assert!(!state
+            .mcp_approvals
+            .has_grant(&run_id.0.to_string(), "test_srv", "echo", "agent"));
+
+        // The row decides now: the next call runs, with no grant involved.
+        rpc.agent_turn_run(&owner_ext(), run_id, turn(r#"{"msg":"hi"}"#))
+            .await
+            .expect("the turn answers");
+        assert_eq!(mcp.count(), 1, "an allow row did not admit the call");
+
+        // A new row: `ask` asks again, and `deny` resolves that ask and refuses.
+        rpc.set_mcp_permission(
+            &owner_ext(),
+            "test_srv".to_string(),
+            "echo".to_string(),
+            "agent".to_string(),
+            "ask".to_string(),
+        )
+        .await
+        .expect("the row is written");
+        rpc.agent_turn_run(&owner_ext(), run_id, turn(r#"{"msg":"hi"}"#))
+            .await
+            .expect("the turn answers");
+        only_pending(&rpc, &state).await;
+
+        rpc.set_mcp_permission(
+            &owner_ext(),
+            "test_srv".to_string(),
+            "echo".to_string(),
+            "agent".to_string(),
+            "deny".to_string(),
+        )
+        .await
+        .expect("the row is written");
+        assert!(rpc
+            .list_mcp_approvals(&owner_ext())
+            .await
+            .expect("the list answers")
+            .is_empty());
+
+        let denied = rpc
+            .agent_turn_run(&owner_ext(), run_id, turn(r#"{"msg":"hi"}"#))
+            .await
+            .expect("the turn answers");
+        assert!(!denied.tools[0].success);
+        assert!(denied.tools[0].output.contains("denied by MCP permission"));
+        assert_eq!(mcp.count(), 1, "a denied call reached the transport");
+    }
+}
