@@ -193,9 +193,11 @@ describe('vocalised Arabic sample (R-UI-3 D3-d)', () => {
     return found as Element;
   }
 
-  it('Card, DecisionCard and SettingsSection titles clear the diacritic stack in a 240px column', () => {
+  it('Card, DecisionCard and SettingsSection titles clear the diacritic stack in a two-line column', () => {
+    // A narrow column — 15 × the 16px body size at the default root — written on the token, so the v3
+    // length-literal lint stays honest about where a size may come from.
     const { container } = render(
-      <div dir="rtl" style={{ width: '240px' }}>
+      <div dir="rtl" style={{ width: 'calc(var(--w-font-size-md) * 15)' }}>
         <Card title={VOCALISED} />
         <DecisionCard
           question={VOCALISED}
@@ -212,7 +214,7 @@ describe('vocalised Arabic sample (R-UI-3 D3-d)', () => {
     );
 
     const wrapper = container.firstElementChild as HTMLElement;
-    expect(wrapper.style.width).toBe('240px');
+    expect(wrapper.style.width).toContain('var(--w-font-size-md)');
 
     measure('Card title', sample(container, '.w-card div'));
     measure('DecisionCard title', sample(container, 'h2'));
