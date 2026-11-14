@@ -12,6 +12,8 @@ export default {
   'bench.action.files_expand': 'Expand folder',
   'bench.action.files_open': 'Open file',
   'bench.action.code_copy': 'Copy code',
+  'bench.action.evidence_collect': 'Collect evidence',
+  'bench.action.evidence_file_open': 'Open changed file',
   'bench.action.handoff_create': 'Create handoff bundle',
   'bench.action.handoff_apply': 'Apply handoff bundle',
   'bench.action.terminal_follow': 'Follow terminal',
@@ -120,6 +122,45 @@ export default {
   'bench.changes.handoff_path_placeholder': 'Enter handoff bundle path...',
   'bench.changes.handoff_success': 'Handoff bundle created at: {path}',
   'bench.changes.handoff_apply_success': 'Bundle applied successfully',
+  'bench.evidence.title': 'Gate C evidence',
+  'bench.evidence.subtitle':
+    'Collect the diff, the changed files and one measured test run for this decision.',
+  'bench.evidence.command_label': 'Test command',
+  'bench.evidence.command_hint':
+    'A program and its arguments, separated by spaces. No shell: nothing is expanded, quoted or interpreted.',
+  'bench.evidence.command_placeholder': 'pnpm -r test',
+  'bench.evidence.not_at_gate_c':
+    'This run is not at Gate C, so there is no evidence to collect yet. The daemon collects only at the decision gate.',
+  'bench.evidence.approve_guard':
+    'Approval stays disabled until evidence is collected. This is a desktop-only guard, not a daemon rule.',
+  'bench.evidence.not_collected': 'No evidence collected for this run yet.',
+  'bench.evidence.collected': 'Evidence collected for this run.',
+  'bench.evidence.diff_hint':
+    'Collecting evidence runs one test command in the run’s worktree and reports what it measured.',
+  'bench.evidence.diff_empty': 'The daemon reported no changes against the base revision.',
+  'bench.evidence.files_title': 'Changed files ({count})',
+  'bench.evidence.files_empty': 'The daemon reported no changed files.',
+  'bench.evidence.tests_passing': 'Tests passed',
+  'bench.evidence.tests_failing': 'Tests failed',
+  'bench.evidence.tests_duration': 'Ran in {ms} ms',
+  'bench.evidence.tests_exit_code': 'exit code {code}',
+  'bench.evidence.tests_truncated':
+    'The captured output hit the daemon’s cap, so it is truncated.',
+  'bench.evidence.preview_title': 'Preview',
+  'bench.evidence.preview_absent': 'No dev server is up for this project right now.',
+  'bench.evidence.preview_no_url': 'The server printed no URL.',
+  'bench.evidence.preview_project_note':
+    'This is the project’s preview as it already stands — collecting evidence never starts one.',
+  'bench.evidence.preview_status': 'Status: {status}',
+  'bench.evidence.error_policy':
+    'The command policy refused this program, so nothing ran in the worktree.',
+  'bench.evidence.error_owner':
+    'This device is not the owner, so it may not spend a test run.',
+  'bench.evidence.error_no_worktree':
+    'This run has no worktree, and Gate C evidence needs a repository-backed run.',
+  'bench.evidence.error_failed': 'The evidence could not be collected.',
+  'bench.evidence.spend_note':
+    'Every collection runs a command in the worktree and is recorded as owner spend.',
   'bench.terminal.title': 'Terminal and command log',
   'bench.terminal.follow': 'Follow stream',
   'bench.terminal.following': 'Following',

@@ -17,6 +17,8 @@ export const ACTIONS: readonly ActionDef[] = [
   { id: 'bench.code.copy', labelKey: 'bench.action.code_copy', effect: 'state' },
   { id: 'bench.handoff.create', labelKey: 'bench.action.handoff_create', effect: 'rpc', rpc: ['handoff.create'] },
   { id: 'bench.handoff.apply', labelKey: 'bench.action.handoff_apply', effect: 'rpc', rpc: ['handoff.apply'] },
+  { id: 'bench.evidence.collect', labelKey: 'bench.action.evidence_collect', effect: 'rpc', rpc: ['gates.evidence'] },
+  { id: 'bench.evidence.file.open', labelKey: 'bench.action.evidence_file_open', effect: 'nav' },
   { id: 'bench.terminal.follow', labelKey: 'bench.action.terminal_follow', effect: 'state' },
   { id: 'bench.terminal.copy', labelKey: 'bench.action.terminal_copy', effect: 'state' },
   { id: 'bench.team.model.set', labelKey: 'bench.action.team_model_set', effect: 'rpc', rpc: ['roles.set'] },

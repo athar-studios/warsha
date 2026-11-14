@@ -12,6 +12,8 @@ export default {
   'bench.action.files_expand': 'توسيع المجلد',
   'bench.action.files_open': 'فتح الملف',
   'bench.action.code_copy': 'نسخ الكود',
+  'bench.action.evidence_collect': 'جمع الأدلة',
+  'bench.action.evidence_file_open': 'فتح الملف المتغير',
   'bench.action.handoff_create': 'إنشاء حزمة التسليم',
   'bench.action.handoff_apply': 'تطبيق حزمة التسليم',
   'bench.action.terminal_follow': 'متابعة الطرفية',
@@ -120,6 +122,45 @@ export default {
   'bench.changes.handoff_path_placeholder': 'أدخل مسار حزمة التسليم...',
   'bench.changes.handoff_success': 'تم إنشاء حزمة التسليم في: {path}',
   'bench.changes.handoff_apply_success': 'تم تطبيق الحزمة بنجاح',
+  'bench.evidence.title': 'أدلة بوابة ج',
+  'bench.evidence.subtitle':
+    'اجمع الفروقات والملفات المتغيرة وتشغيلًا واحدًا للاختبارات لاتخاذ هذا القرار.',
+  'bench.evidence.command_label': 'أمر الاختبار',
+  'bench.evidence.command_hint':
+    'برنامج متبوع بوسائطه، تفصلها مسافات. لا صدفة أوامر: لا توسيع ولا اقتباس ولا تفسير.',
+  'bench.evidence.command_placeholder': 'pnpm -r test',
+  'bench.evidence.not_at_gate_c':
+    'هذا التشغيل ليس عند بوابة ج، لذا لا توجد أدلة تُجمع بعد. لا يجمع الخادم الأدلة إلا عند بوابة القرار.',
+  'bench.evidence.approve_guard':
+    'تبقى الموافقة معطّلة حتى تُجمع الأدلة. هذا حاجز في تطبيق سطح المكتب فقط، وليس قاعدة في الخادم.',
+  'bench.evidence.not_collected': 'لم تُجمع أدلة لهذا التشغيل بعد.',
+  'bench.evidence.collected': 'تم جمع أدلة هذا التشغيل.',
+  'bench.evidence.diff_hint':
+    'جمع الأدلة يشغّل أمر اختبار واحدًا داخل مساحة عمل التشغيل ويبلّغ بما قاسه.',
+  'bench.evidence.diff_empty': 'أبلغ الخادم بعدم وجود تغييرات مقابل المراجعة الأساسية.',
+  'bench.evidence.files_title': 'الملفات المتغيرة ({count})',
+  'bench.evidence.files_empty': 'أبلغ الخادم بعدم وجود ملفات متغيرة.',
+  'bench.evidence.tests_passing': 'نجحت الاختبارات',
+  'bench.evidence.tests_failing': 'فشلت الاختبارات',
+  'bench.evidence.tests_duration': 'استغرق {ms} مللي ثانية',
+  'bench.evidence.tests_exit_code': 'رمز الخروج {code}',
+  'bench.evidence.tests_truncated':
+    'بلغت المخرجات المجموعة حدّ الخادم، لذا هي مقتطعة.',
+  'bench.evidence.preview_title': 'المعاينة',
+  'bench.evidence.preview_absent': 'لا يوجد خادم تطوير يعمل لهذا المشروع الآن.',
+  'bench.evidence.preview_no_url': 'لم يطبع الخادم أي رابط.',
+  'bench.evidence.preview_project_note':
+    'هذه معاينة المشروع كما هي قائمة الآن — جمع الأدلة لا يبدأ معاينة أبدًا.',
+  'bench.evidence.preview_status': 'الحالة: {status}',
+  'bench.evidence.error_policy':
+    'رفضت سياسة الأوامر هذا البرنامج، فلم يُشغَّل شيء في مساحة العمل.',
+  'bench.evidence.error_owner':
+    'هذا الجهاز ليس المالك، لذا لا يجوز له إنفاق تشغيل اختبارات.',
+  'bench.evidence.error_no_worktree':
+    'لا توجد مساحة عمل لهذا التشغيل، وأدلة بوابة ج تحتاج تشغيلًا مرتبطًا بمستودع.',
+  'bench.evidence.error_failed': 'تعذّر جمع الأدلة.',
+  'bench.evidence.spend_note':
+    'كل عملية جمع تشغّل أمرًا في مساحة العمل وتُسجَّل إنفاقًا على المالك.',
   'bench.terminal.title': 'الطرفية وسجل الأوامر',
   'bench.terminal.follow': 'متابعة البث',
   'bench.terminal.following': 'المتابعة مفعلة',
