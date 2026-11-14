@@ -50,7 +50,7 @@ fn scrub_value(value: &mut serde_json::Value, auth_token: &str) {
     }
 }
 
-fn redact_string(text: &str, auth_token: &str) -> bool {
+pub(crate) fn redact_string(text: &str, auth_token: &str) -> bool {
     (!auth_token.is_empty() && text.contains(auth_token))
         || contains_sk_token(text)
         || contains_bearer(text)

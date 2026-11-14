@@ -180,6 +180,12 @@ pub enum ToolError {
         /// The timeout in whole seconds.
         timeout_secs: u64,
     },
+    /// The MCP call was denied.
+    #[error("denied by MCP permission {server}::{tool}")]
+    McpDenied { server: String, tool: String },
+    /// The MCP call requires approval.
+    #[error("approval required: {server}::{tool} is ask by default")]
+    McpApprovalRequired { server: String, tool: String },
 }
 
 impl From<CommandPolicyError> for ToolError {
@@ -1147,5 +1153,25 @@ mod tests {
             result.output
         );
         assert!(!temp.path().join("notes.md").exists());
+    }
+
+    #[test]
+    fn mcp_error_variants_are_byte_identical_to_the_strings_they_replace() {
+        assert_eq!(
+            ToolError::McpDenied {
+                server: "files".to_string(),
+                tool: "write".to_string()
+            }
+            .to_string(),
+            "denied by MCP permission files::write"
+        );
+        assert_eq!(
+            ToolError::McpApprovalRequired {
+                server: "files".to_string(),
+                tool: "write".to_string()
+            }
+            .to_string(),
+            "approval required: files::write is ask by default"
+        );
     }
 }

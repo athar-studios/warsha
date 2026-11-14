@@ -108,6 +108,8 @@ fn every_privileged_mutation_names_the_owner_and_a_session_does_not_reach_it() {
         "process.spawn",
         "mcp.connect",
         "mcp.call",
+        "mcp.approvals.list",
+        "mcp.approvals.allow_once",
         "preview.start",
         "routines.run_now",
         "handoff.apply",
@@ -115,6 +117,24 @@ fn every_privileged_mutation_names_the_owner_and_a_session_does_not_reach_it() {
         let entry = policy_of(method).unwrap_or_else(|| panic!("{method} has no policy"));
         assert_eq!(entry.policy, Owner, "{method} is not owner-gated");
     }
+
+    // R-BRIDGE-B3a: the one-shot grant is a permission write with a shorter life, so
+    // it is priced exactly like the permanent one — Owner, and the same tier.
+    let allow_once = policy_of("mcp.approvals.allow_once").expect("an approval policy");
+    let permanent = policy_of("mcp.permissions.set").expect("a permission policy");
+    assert_eq!(allow_once.policy, Owner);
+    assert_eq!(
+        allow_once.tier, permanent.tier,
+        "the one-shot grant was priced differently from the permanent grant"
+    );
+    assert_eq!(allow_once.tier, Spend);
+
+    // Reading the queue is the table read's gate: Owner, Standard, and never the
+    // Spend tier the write spends.
+    let approvals_list = policy_of("mcp.approvals.list").expect("an approval policy");
+    assert_eq!(approvals_list.policy, Owner);
+    assert_eq!(approvals_list.tier, Standard);
+    assert_ne!(approvals_list.tier, allow_once.tier);
 
     // A gate decision needs a verified session and is measured in the strictest
     // tier after pairing: it is how a phone acts, and it records who acted.
