@@ -6676,3 +6676,9 @@ hypotheses left in this triage.
   function typechecks for `x86_64-pc-windows-msvc` in an isolated crate with the same `windows`
   features. `cargo test` and `pnpm -r typecheck lint test build` are left to the test pass. Branch
   not pushed.
+
+## Run 2026-11-14 — R-BRIDGE-B1 DONE: run-scoped assistant (G1), PM-verified
+- **Delivered** (Coder, branch `zl-b1-assistant`, 5 commits `a87e19a`…`0cbf976`, merged as `2a21b02`): `agentTurn(runId, input)` → `agent.turn_run{run_id, input}` (runId required); `approveAgentMode`/`returnAgentToPlanMode`/`agentState` take optional runId, sent only when given; `bench.ts:23` binds `agent.turn_run`; bench handlers pass `effectiveRunId`; `useAgent(runId)` reloads on run change; harness `agent.turn_run` stub + real `agent.turn` refusal text; DAEMON.md rows for the five methods from the trait signatures.
+- **Discrimination** (evidence `target/discrimination/` in the B1 worktree): new client/bench/useAgent tests FAIL on base `728b4b0` (`agent.turn` vs `agent.turn_run`; spy called with empty args), PASS on new code.
+- **PM gate runs**: client 149/0; desktop bench+useAgent+actions 47/0 (my runs in the worktree); warshad e2_wiring 7/7 (daemon isolation re-run); wire 11/0; arch 5/0; lint + typecheck clean. `grep 'agent.turn'` clean outside refusal tests. T1–T8 quoted not re-run (no Rust/wire).
+- **Merge note**: the shared checkout held 7 byte-identical leaked copies of B1 desktop files; verified `MATCHES-BRANCH` per file, discarded with `git checkout --`, then `--no-ff` merged (B2 spec commit sat between base and merge). Tree clean after.
