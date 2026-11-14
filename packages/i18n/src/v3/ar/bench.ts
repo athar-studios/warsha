@@ -128,7 +128,7 @@ export default {
   'bench.evidence.command_label': 'أمر الاختبار',
   'bench.evidence.command_hint':
     'برنامج متبوع بوسائطه، تفصلها مسافات. لا صدفة أوامر: لا توسيع ولا اقتباس ولا تفسير.',
-  'bench.evidence.command_placeholder': 'pnpm -r test',
+  'bench.evidence.command_placeholder': 'اكتب أمر اختبار المشروع',
   'bench.evidence.not_at_gate_c':
     'هذا التشغيل ليس عند بوابة ج، لذا لا توجد أدلة تُجمع بعد. لا يجمع الخادم الأدلة إلا عند بوابة القرار.',
   'bench.evidence.approve_guard':
