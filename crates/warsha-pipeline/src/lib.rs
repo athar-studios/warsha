@@ -3,11 +3,13 @@
 use crate::settings::{SettingsProvider, SettingsStore};
 use chrono::Utc;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 use ulid::Ulid;
+use warsha_backends::{BackendFactory, CodingBackend, CodingResult, CodingTask, Sandbox};
 use warsha_core::*;
 use warsha_providers::{
     ChatMessage, ChatProvider, ChatRequest, EnvLlmConfig, FakeProvider, MessageRole,
@@ -182,6 +184,31 @@ fn stage_to_string(stage: Stage) -> &'static str {
     }
 }
 
+/// The Code-stage artifact a coding CLI's run leaves behind: the files it changed
+/// and the diff git reports, both read from the run's repository after the CLI
+/// exited. The stage records the change that exists, not one the CLI claims.
+fn code_stage_report(backend: &str, result: &CodingResult) -> String {
+    let mut report = format!("# Code\n\nThe coding backend `{backend}` ran this stage.\n");
+    report.push_str(&format!("Duration: {} ms\n", result.duration_ms));
+    if result.files_changed.is_empty() {
+        report.push_str("\nFiles changed: none\n");
+    } else {
+        report.push_str("\nFiles changed:\n");
+        for path in &result.files_changed {
+            report.push_str(&format!("- {path}\n"));
+        }
+    }
+    match result.diff.as_deref() {
+        Some(diff) if !diff.trim().is_empty() => {
+            report.push_str("\n```diff\n");
+            report.push_str(diff.trim_end_matches('\n'));
+            report.push_str("\n```\n");
+        }
+        _ => report.push_str("\nNo diff was captured.\n"),
+    }
+    report
+}
+
 /// Scrub the API key out of a provider failure before it is recorded or logged.
 ///
 /// A real-LLM call can fail with a message this layer did not write — the
@@ -288,6 +315,24 @@ pub(crate) fn producing_stage_for_gate(gate: Stage) -> Option<Stage> {
     }
 }
 
+/// The environment variable that names the coding CLI the Code stage runs through.
+///
+/// Unset — the default — leaves the Code stage on the routed provider. A name is
+/// one [`BackendFactory`] knows, e.g. `claude-code` or `codex-cli`.
+const CODING_BACKEND_ENV: &str = "WARSHA_CODING_BACKEND";
+
+/// What one stage produced, before it is committed as the stage's artifact.
+struct StageCompletion {
+    /// The artifact body.
+    content: String,
+    /// What the stage cost; a coding CLI runs on the owner's own subscription.
+    cost_cents: u64,
+    /// Provider token usage; `None` when no provider answered.
+    tokens: Option<TokenUsage>,
+    /// The coding backend that ran the stage, when one did.
+    backend: Option<String>,
+}
+
 /// Pipeline engine that drives the stage machine
 pub struct PipelineEngine<S: SettingsProvider> {
     store: Arc<Store>,
@@ -296,6 +341,8 @@ pub struct PipelineEngine<S: SettingsProvider> {
     orchestrator: Orchestrator,
     /// Settings store for accessing active harness, enabled skills, and plugins
     settings: Arc<S>,
+    /// The coding CLI the Code stage runs through, when the owner selected one.
+    coding_backend: Option<Arc<dyn CodingBackend>>,
     /// Per-run synchronization controls for execution serialization and real cancel
     run_controls: Arc<tokio::sync::Mutex<HashMap<RunId, Arc<RunControl>>>>,
 }
@@ -311,8 +358,32 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             providers,
             orchestrator: Orchestrator::new(OrchestratorConfig::default()),
             settings,
+            coding_backend: None,
             run_controls: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Run the Code stage through this coding backend instead of the routed provider.
+    ///
+    /// The selection is explicit: without this (and without [`CODING_BACKEND_ENV`])
+    /// the Code stage keeps executing as it did before, through the provider router.
+    pub fn with_coding_backend(mut self, backend: Arc<dyn CodingBackend>) -> Self {
+        self.coding_backend = Some(backend);
+        self
+    }
+
+    /// The coding backend the Code stage runs through, when the run selected one.
+    ///
+    /// An engine handed a backend through [`PipelineEngine::with_coding_backend`]
+    /// uses it; otherwise [`CODING_BACKEND_ENV`] names one from [`BackendFactory`].
+    /// The backend is resolved even when its CLI is not installed, so the stage can
+    /// report the absent CLI instead of quietly falling back to a provider.
+    fn selected_coding_backend(&self) -> Option<Arc<dyn CodingBackend>> {
+        if let Some(backend) = &self.coding_backend {
+            return Some(backend.clone());
+        }
+        let name = std::env::var(CODING_BACKEND_ENV).ok()?;
+        BackendFactory::named(&name).map(Arc::from)
     }
 
     /// Obtain or create the [`RunControl`] for `run_id`.
@@ -672,57 +743,92 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         let language = self.project_language(run.project_id).await;
         let prompt = self.render_prompt(&prompt_template, &context, &language);
 
-        // Call the provider while watching the live cancellation channel.
-        let providers = {
-            let router = self.providers.read().await;
-            (*router).clone()
-        };
-        let request = ChatRequest {
-            model: "default".to_string(), // Will be resolved by router
-            messages: vec![ChatMessage {
-                role: MessageRole::System,
-                content: prompt,
-            }],
-            temperature: Some(0.7),
-            max_tokens: Some(4000),
-            stream: false,
-        };
-
+        // Cancellation is observed before any stage work: a coding CLI's own timeout
+        // bounds its run, but a cancelled run does not start it at all.
         let mut cancel_rx = ctrl.cancel_tx.subscribe();
         if *cancel_rx.borrow() {
             return Err(PipelineError::Other(
                 "Run cancelled before stage execution".to_string(),
             ));
         }
-        let dispatch_project_id = run.project_id.0.to_string();
-        let response = tokio::select! {
-            biased;
-            _ = cancel_rx.changed() => {
-                return Err(PipelineError::Other(
-                    "Run cancelled during stage execution".to_string(),
-                ));
+
+        // The Code stage runs through a selected coding CLI when one is selected;
+        // the artifact is the change the CLI actually made in the run's repository.
+        let cli_completion = match self
+            .code_stage_completion(run, stage, &prompt, &language)
+            .await
+        {
+            Ok(completion) => completion,
+            Err(error) => {
+                return Err(self
+                    .record_stage_failure(run, *version, ctrl, stage, role, error)
+                    .await);
             }
-            res = Self::dispatch_chat(&providers, role, &dispatch_project_id, request) => {
-                match res {
-                    Ok(response) => response,
-                    Err(error) => {
-                        return Err(self
-                            .record_stage_failure(run, *version, ctrl, stage, role, error)
-                            .await);
+        };
+
+        let completion = match cli_completion {
+            Some(completion) => completion,
+            None => {
+                // Call the provider while watching the live cancellation channel.
+                let providers = {
+                    let router = self.providers.read().await;
+                    (*router).clone()
+                };
+                let request = ChatRequest {
+                    model: "default".to_string(), // Will be resolved by router
+                    messages: vec![ChatMessage {
+                        role: MessageRole::System,
+                        content: prompt,
+                    }],
+                    temperature: Some(0.7),
+                    max_tokens: Some(4000),
+                    stream: false,
+                };
+
+                let dispatch_project_id = run.project_id.0.to_string();
+                let response = tokio::select! {
+                    biased;
+                    _ = cancel_rx.changed() => {
+                        return Err(PipelineError::Other(
+                            "Run cancelled during stage execution".to_string(),
+                        ));
                     }
+                    res = Self::dispatch_chat(&providers, role, &dispatch_project_id, request) => {
+                        match res {
+                            Ok(response) => response,
+                            Err(error) => {
+                                return Err(self
+                                    .record_stage_failure(run, *version, ctrl, stage, role, error)
+                                    .await);
+                            }
+                        }
+                    }
+                };
+
+                let content = response
+                    .choices
+                    .first()
+                    .map(|c| c.message.content.clone())
+                    .unwrap_or_default();
+                let cost_cents = providers.cost_of(&response.model, &response.usage)?;
+                StageCompletion {
+                    content,
+                    cost_cents,
+                    tokens: Some(response.usage),
+                    backend: None,
                 }
             }
         };
 
-        // Re-check cancellation and commit under state_lock via CAS before writing any artifact.
-        let (
-            artifact_name,
-            artifact_content,
+        let StageCompletion {
+            content: artifact_body,
             cost_cents,
             tokens,
-            budget_exceeded_info,
-            budget_warn_info,
-        ) = {
+            backend,
+        } = completion;
+
+        // Re-check cancellation and commit under state_lock via CAS before writing any artifact.
+        let (artifact_name, artifact_content, budget_exceeded_info, budget_warn_info) = {
             let _state_guard = ctrl.state_lock.lock().await;
             if *ctrl.cancel_tx.borrow() {
                 return Err(PipelineError::Other(
@@ -736,16 +842,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 ));
             }
 
-            // Parse the response
-            let artifact_content = response
-                .choices
-                .first()
-                .map(|c| c.message.content.clone())
-                .unwrap_or_default();
-
-            // Calculate cost
-            let cost_cents = providers.cost_of(&response.model, &response.usage)?;
-            let tokens = Some(response.usage.clone());
+            let artifact_content = artifact_body;
 
             let artifact_name = stage_to_string(stage).to_lowercase();
             let prev_version = run
@@ -784,8 +881,6 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             (
                 artifact_name,
                 artifact_content,
-                cost_cents,
-                tokens,
                 budget_exceeded_info,
                 budget_warn_info,
             )
@@ -796,13 +891,19 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             .write_artifact(run.project_id, &artifact_name, &artifact_content)
             .await?;
 
+        let payload = match &backend {
+            Some(backend) => {
+                serde_json::json!({ "role": role, "stage": stage, "backend": backend })
+            }
+            None => serde_json::json!({ "role": role, "stage": stage }),
+        };
         let event = Event {
             id: Ulid::new(),
             run_id: run.id,
             stage,
             role: Some(role),
             kind: EventKind::AgentStep,
-            payload: serde_json::json!({ "role": role, "stage": stage }),
+            payload,
             cost_cents: Some(cost_cents),
             tokens,
             created_at: Utc::now(),
@@ -849,6 +950,85 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         }
 
         Ok(())
+    }
+
+    /// Run the Code stage through a coding CLI, and describe the change it made.
+    ///
+    /// `Ok(None)` means no backend was selected, so the caller keeps the routed
+    /// provider. A selected backend that is not installed, a project with no
+    /// attached repository and a failed CLI are errors the caller records on the
+    /// run — never a silent success and never a fallback that hides the selection.
+    /// The CLI's own run is bounded by [`warsha_backends::CODING_CLI_TIMEOUT`].
+    async fn code_stage_completion(
+        &self,
+        run: &Run,
+        stage: Stage,
+        prompt: &str,
+        language: &str,
+    ) -> Result<Option<StageCompletion>> {
+        if stage != Stage::Code {
+            return Ok(None);
+        }
+        let Some(backend) = self.selected_coding_backend() else {
+            return Ok(None);
+        };
+        let backend_name = backend.name().to_string();
+        if !backend.is_available() {
+            return Err(PipelineError::Other(format!(
+                "the selected coding backend `{backend_name}` is not installed"
+            )));
+        }
+
+        let project = self.store.get_project(run.project_id).await?;
+        let repo_path = project
+            .repo_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .ok_or_else(|| {
+                PipelineError::Other(format!(
+                    "the selected coding backend `{backend_name}` needs an attached repository; \
+                     project `{}` has none",
+                    project.name
+                ))
+            })?;
+
+        let task = CodingTask {
+            id: Ulid::new(),
+            run_id: run.id,
+            title: format!("{} — Code", project.name),
+            description: prompt.to_string(),
+            repo_path: PathBuf::from(repo_path),
+            branch_name: format!("warsha/run-{}", run.id.0),
+            base_branch: "HEAD".to_string(),
+            files: Vec::new(),
+            context: HashMap::from([
+                ("project".to_string(), project.name.clone()),
+                ("language".to_string(), language.to_string()),
+                ("run".to_string(), run.id.0.to_string()),
+                ("stage".to_string(), stage_to_string(stage).to_string()),
+            ]),
+        };
+        let sandbox = Sandbox::new(PathBuf::from(repo_path));
+
+        let result = backend.execute(task, &sandbox).await.map_err(|error| {
+            PipelineError::Other(format!(
+                "the coding backend `{backend_name}` failed: {error}"
+            ))
+        })?;
+        if !result.success {
+            return Err(PipelineError::Other(format!(
+                "the coding backend `{backend_name}` reported failure: {}",
+                result.error.as_deref().unwrap_or("no detail")
+            )));
+        }
+
+        Ok(Some(StageCompletion {
+            content: code_stage_report(&backend_name, &result),
+            cost_cents: 0,
+            tokens: None,
+            backend: Some(backend_name),
+        }))
     }
 
     /// Take one stage/follow-up request to the provider that should answer it.
@@ -2979,6 +3159,257 @@ mod tests {
                 !prompt.contains(HARNESS_BRIEF),
                 "a template was read out of an unreadable harness row: {prompt}"
             );
+        }
+    }
+
+    /// ENGINE E4: the Code stage executes through a selected coding CLI, and the
+    /// artifact it records is the change the CLI actually made.
+    mod e4_coding_cli {
+        use super::*;
+        use warsha_backends::CliBackend;
+
+        /// Serialises the tests that read or write [`CODING_BACKEND_ENV`].
+        static ENV_GUARD: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+        /// Puts the coding-backend variable back the way the test found it.
+        struct EnvRestore {
+            previous: Option<String>,
+        }
+
+        impl EnvRestore {
+            fn set(value: &str) -> Self {
+                let previous = std::env::var(CODING_BACKEND_ENV).ok();
+                std::env::set_var(CODING_BACKEND_ENV, value);
+                Self { previous }
+            }
+
+            fn remove() -> Self {
+                let previous = std::env::var(CODING_BACKEND_ENV).ok();
+                std::env::remove_var(CODING_BACKEND_ENV);
+                Self { previous }
+            }
+        }
+
+        impl Drop for EnvRestore {
+            fn drop(&mut self) {
+                match &self.previous {
+                    Some(value) => std::env::set_var(CODING_BACKEND_ENV, value),
+                    None => std::env::remove_var(CODING_BACKEND_ENV),
+                }
+            }
+        }
+
+        fn coding_project(repo_path: Option<&std::path::Path>) -> Project {
+            Project {
+                id: ProjectId::new(),
+                name: "Coding Project".to_string(),
+                description: "A project with code to write".to_string(),
+                language: "en".to_string(),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                repo_path: repo_path.map(|path| path.to_string_lossy().into_owned()),
+                repo_url: None,
+            }
+        }
+
+        /// A run sitting at [`Stage::PlanTasks`], so the next advance executes Code.
+        async fn run_before_code<S: SettingsProvider>(
+            store: &Arc<Store>,
+            engine: &PipelineEngine<S>,
+            project: &Project,
+        ) -> Run {
+            store.create_project(project).await.expect("a project");
+            let run = engine
+                .start_run(project.id, "Build a todo app")
+                .await
+                .expect("a run starts");
+            let mut run = store.get_run(run.id).await.expect("the run is readable");
+            run.current_stage = Stage::PlanTasks;
+            store
+                .update_run(&run)
+                .await
+                .expect("the run is at planning");
+            run
+        }
+
+        #[cfg(unix)]
+        fn fake_cli(dir: &std::path::Path, body: &str) -> std::path::PathBuf {
+            use std::os::unix::fs::PermissionsExt;
+            let path = dir.join("fake-coding-cli");
+            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("the fake CLI is written");
+            let mut permissions = std::fs::metadata(&path)
+                .expect("the script exists")
+                .permissions();
+            permissions.set_mode(0o755);
+            std::fs::set_permissions(&path, permissions).expect("the script is executable");
+            path
+        }
+
+        #[cfg(unix)]
+        fn git_repo(dir: &std::path::Path) {
+            for args in [
+                vec!["init", "-q"],
+                vec!["config", "user.email", "test@example.com"],
+                vec!["config", "user.name", "Test"],
+                vec!["add", "."],
+                vec!["commit", "-qm", "base"],
+            ] {
+                let status = std::process::Command::new("git")
+                    .current_dir(dir)
+                    .args(&args)
+                    .status()
+                    .expect("git runs");
+                assert!(status.success(), "git {args:?} failed");
+            }
+        }
+
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn the_code_stage_runs_the_selected_cli_and_reports_its_changes() {
+            let _env_guard = ENV_GUARD.lock().await;
+            let _env = EnvRestore::remove();
+
+            let temp = tempfile::tempdir().expect("a temp dir");
+            let repo = temp.path().join("repo");
+            std::fs::create_dir(&repo).expect("the repository directory");
+            std::fs::write(repo.join("base.txt"), "base").expect("a base file");
+            let cli = fake_cli(
+                &repo,
+                "printf '%s' \"$*\" > prompt.txt\nprintf 'changed' > base.txt\nprintf 'made' > made.txt",
+            );
+            git_repo(&repo);
+
+            let store = temp_store().await;
+            let project = coding_project(Some(&repo));
+            let engine =
+                PipelineEngine::new(store.clone(), setup_providers_with_mock(), setup_settings())
+                    .with_coding_backend(Arc::new(CliBackend::new(
+                        "fake",
+                        cli.to_str().expect("a utf8 path"),
+                        vec![],
+                    )));
+            let run = run_before_code(&store, &engine, &project).await;
+
+            let run = engine
+                .advance_stage(run.id)
+                .await
+                .expect("the Code stage runs through the selected CLI");
+
+            assert_eq!(run.current_stage, Stage::Code);
+            let code = run.artifacts.get("code").expect("the Code artifact");
+            assert!(
+                code.content.contains("made.txt"),
+                "the artifact does not name a file the CLI made: {}",
+                code.content
+            );
+            assert!(
+                code.content.contains("base.txt"),
+                "the artifact does not name a file the CLI changed: {}",
+                code.content
+            );
+            assert!(
+                code.content.contains("```diff"),
+                "the artifact carries no diff: {}",
+                code.content
+            );
+            assert_eq!(
+                run.spent_cents, 0,
+                "a coding CLI run was charged as a provider call"
+            );
+
+            let prompt = std::fs::read_to_string(repo.join("prompt.txt"))
+                .expect("the CLI recorded its prompt");
+            assert!(
+                prompt.contains("Coding Project") && prompt.contains("role: coder"),
+                "the CLI did not receive the Code-stage prompt: {prompt}"
+            );
+
+            let events = store.get_events(run.id).await.expect("events are readable");
+            let step = events
+                .iter()
+                .find(|event| event.kind == EventKind::AgentStep && event.stage == Stage::Code)
+                .expect("the Code step is on the record");
+            assert_eq!(step.payload["backend"], "fake");
+        }
+
+        #[tokio::test]
+        async fn an_unavailable_coding_backend_fails_the_stage_cleanly() {
+            let _env_guard = ENV_GUARD.lock().await;
+            let _env = EnvRestore::remove();
+
+            let store = temp_store().await;
+            let project = coding_project(Some(std::path::Path::new("/nonexistent-repo")));
+            let engine =
+                PipelineEngine::new(store.clone(), setup_providers_with_mock(), setup_settings())
+                    .with_coding_backend(Arc::new(CliBackend::new(
+                        "missing",
+                        "warsha-no-such-coding-cli-xyz",
+                        vec![],
+                    )));
+            let run = run_before_code(&store, &engine, &project).await;
+
+            let error = engine
+                .advance_stage(run.id)
+                .await
+                .expect_err("a backend whose CLI is absent must fail, not run");
+
+            assert!(
+                error.to_string().contains("not installed"),
+                "the failure does not name the absent CLI: {error}"
+            );
+            let stored = store.get_run(run.id).await.expect("the run is readable");
+            assert_eq!(
+                stored.status,
+                RunStatus::Failed,
+                "the run was left running after the backend could not start"
+            );
+            let events = store.get_events(run.id).await.expect("events are readable");
+            assert!(
+                events.iter().any(|event| event.kind == EventKind::Error
+                    && event.payload["action"] == "stage_failed"),
+                "no error event explains the failed Code stage"
+            );
+        }
+
+        /// Without a selection the Code stage keeps the pre-E4 path: the routed
+        /// provider answers, and an unrouted Coder pauses the run rather than
+        /// silently invoking a CLI nobody selected.
+        #[tokio::test]
+        async fn no_selection_leaves_the_code_stage_on_the_provider() {
+            let _env_guard = ENV_GUARD.lock().await;
+            let _env = EnvRestore::remove();
+
+            let store = temp_store().await;
+            let project = coding_project(None);
+            let engine =
+                PipelineEngine::new(store.clone(), setup_providers_with_mock(), setup_settings());
+            let run = run_before_code(&store, &engine, &project).await;
+
+            let error = engine
+                .advance_stage(run.id)
+                .await
+                .expect_err("an unrouted Coder has no provider");
+
+            assert!(
+                matches!(error, PipelineError::NoProviderRouted(Role::Coder)),
+                "{error:?}"
+            );
+            let stored = store.get_run(run.id).await.expect("the run is readable");
+            assert_eq!(stored.status, RunStatus::Paused);
+        }
+
+        #[tokio::test]
+        async fn the_environment_names_the_code_stage_backend() {
+            let _env_guard = ENV_GUARD.lock().await;
+            let _env = EnvRestore::set("claude-code");
+
+            let store = temp_store().await;
+            let engine = PipelineEngine::new(store, setup_providers_with_mock(), setup_settings());
+
+            let selected = engine
+                .selected_coding_backend()
+                .expect("the named backend resolves");
+            assert_eq!(selected.name(), "claude-code");
         }
     }
 }

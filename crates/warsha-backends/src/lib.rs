@@ -337,7 +337,8 @@ impl BackendFactory {
         Box::new(CliBackend::new("openhands", "openhands", vec![]))
     }
 
-    pub fn all_available() -> Vec<Box<dyn CodingBackend>> {
+    /// Every backend the factory can build, in inventory order.
+    pub fn all() -> Vec<Box<dyn CodingBackend>> {
         vec![
             Self::builtin(),
             Self::claude_code(),
@@ -347,9 +348,28 @@ impl BackendFactory {
             Self::opencode(),
             Self::openhands(),
         ]
-        .into_iter()
-        .filter(|b| b.is_available())
-        .collect()
+    }
+
+    /// The backend a selection names, or `None` when no backend carries that name.
+    ///
+    /// The backend is returned even when it is not installed: the caller that
+    /// selected it has to report an absent CLI instead of silently falling back to
+    /// another way of running the stage.
+    pub fn named(name: &str) -> Option<Box<dyn CodingBackend>> {
+        let name = name.trim();
+        if name.is_empty() {
+            return None;
+        }
+        Self::all()
+            .into_iter()
+            .find(|backend| backend.name() == name)
+    }
+
+    pub fn all_available() -> Vec<Box<dyn CodingBackend>> {
+        Self::all()
+            .into_iter()
+            .filter(|b| b.is_available())
+            .collect()
     }
 }
 
@@ -384,6 +404,40 @@ mod tests {
     fn test_cli_backend_check() {
         let backend = CliBackend::new("test", "nonexistent-command-xyz", vec![]);
         assert!(!backend.is_available());
+    }
+
+    #[test]
+    fn the_inventory_names_every_backend_and_availability_filters_it() {
+        let names: Vec<String> = BackendFactory::all()
+            .iter()
+            .map(|backend| backend.name().to_string())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "builtin",
+                "claude-code",
+                "codex-cli",
+                "gemini-cli",
+                "cursor-cli",
+                "opencode",
+                "openhands",
+            ]
+        );
+        assert!(
+            BackendFactory::all_available()
+                .iter()
+                .any(|backend| backend.name() == "builtin"),
+            "the always-available builtin backend is not in the available inventory"
+        );
+    }
+
+    #[test]
+    fn a_named_backend_is_returned_even_when_its_cli_is_absent() {
+        let backend = BackendFactory::named("claude-code").expect("the inventory names it");
+        assert_eq!(backend.name(), "claude-code");
+        assert!(BackendFactory::named("no-such-backend").is_none());
+        assert!(BackendFactory::named("  ").is_none());
     }
 
     /// ENGINE E4: the coding CLI really receives the task, and the result is the

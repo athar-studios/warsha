@@ -10,6 +10,7 @@ impl<S: crate::settings::SettingsProvider> crate::PipelineEngine<S> {
                 crate::orchestrator::OrchestratorConfig::default(),
             ),
             settings: self.settings.clone(),
+            coding_backend: self.coding_backend.clone(),
             run_controls: self.run_controls.clone(),
         }
     }

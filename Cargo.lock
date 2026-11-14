@@ -4184,7 +4184,6 @@ dependencies = [
  "tracing",
  "ulid",
  "warsha-core",
- "warsha-pipeline",
  "which",
 ]
 
@@ -4264,6 +4263,7 @@ dependencies = [
  "tokio",
  "tracing",
  "ulid",
+ "warsha-backends",
  "warsha-core",
  "warsha-providers",
  "warsha-store",
