@@ -273,7 +273,7 @@ test.describe('Inbox MCP approvals', () => {
       'body: [120 chars]'
     );
 
-    await act(page, 'inbox.mcp.allow_once');
+    await act(page, 'inbox.mcp.allow-once');
     await expectRpc(page, 'mcp.approvals.allow_once', { id: 'mcp-approval-1' });
 
     // Answered questions leave the list because the daemon answered, not because the screen hid it.
@@ -296,8 +296,8 @@ test.describe('Inbox MCP approvals', () => {
       );
       if (action) seenActions.add(action);
     }
-    expect(seenActions.has('inbox.mcp.allow_once')).toBe(true);
-    expect(seenActions.has('inbox.mcp.allow_always')).toBe(true);
+    expect(seenActions.has('inbox.mcp.allow-once')).toBe(true);
+    expect(seenActions.has('inbox.mcp.allow-always')).toBe(true);
     expect(seenActions.has('inbox.mcp.deny')).toBe(true);
 
     const focus = await auditFocusWalk(page);

@@ -455,7 +455,7 @@ export default function InboxPage(): React.ReactElement {
   // followed by a reload, so the item leaves the list only because the daemon says it is gone:
   // `allow_once` issues a single-use grant, `allow_always` writes an `allow` row, `deny` writes
   // a `deny` row (B3a T11).
-  const mcpAllowOnceAction = useAction('inbox.mcp.allow_once', async (item?: InboxMcpItem) => {
+  const mcpAllowOnceAction = useAction('inbox.mcp.allow-once', async (item?: InboxMcpItem) => {
     if (!client || !item) return;
     setDecidingMcpId(item.id);
     try {
@@ -468,7 +468,7 @@ export default function InboxPage(): React.ReactElement {
     }
   });
 
-  const mcpAllowAlwaysAction = useAction('inbox.mcp.allow_always', async (item?: InboxMcpItem) => {
+  const mcpAllowAlwaysAction = useAction('inbox.mcp.allow-always', async (item?: InboxMcpItem) => {
     if (!client || !item) return;
     setDecidingMcpId(item.id);
     try {
@@ -647,7 +647,7 @@ export default function InboxPage(): React.ReactElement {
             variant={!selectedDecision && index === 0 ? 'primary' : 'secondary'}
             size="sm"
             icon={<IconCheck size={14} />}
-            data-action="inbox.mcp.allow_once"
+            data-action="inbox.mcp.allow-once"
             loading={decidingMcpId === item.id}
             disabled={decidingMcpId !== null}
             onClick={() => {
@@ -659,7 +659,7 @@ export default function InboxPage(): React.ReactElement {
           <Button
             variant="secondary"
             size="sm"
-            data-action="inbox.mcp.allow_always"
+            data-action="inbox.mcp.allow-always"
             disabled={decidingMcpId !== null}
             onClick={() => {
               void mcpAllowAlwaysAction.run(item);
