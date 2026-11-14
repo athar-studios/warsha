@@ -158,6 +158,22 @@ test.describe('Workbench (U4) — Journeys & Amendments', () => {
     await expect(page.getByTestId('bench-evidence-collected')).toBeVisible();
     await expect(page.getByTestId('bench-evidence-passing')).toBeVisible();
   });
+
+  test('EvidenceCard file row opens the Files tab for the changed path', async ({ page }) => {
+    await openV3(page, '/p/proj-ui/r/run-gate-c/changes', { mode: 'advanced' });
+
+    await page.getByTestId('bench-evidence-command-input').locator('input').fill('pnpm test');
+    await act(page, 'bench.evidence.collect');
+    await expect(page.getByTestId('bench-evidence-collected')).toBeVisible();
+
+    // The harness `gates.evidence` result names two changed files, so the card lists one row per
+    // path; each row carries the action id and navigates to the Files tab of this run.
+    const fileRows = page.getByTestId('bench-evidence-file');
+    await expect(fileRows).toHaveCount(2);
+    await act(page, 'bench.evidence.file.open');
+
+    await expect(page).toHaveURL(/#\/p\/proj-ui\/r\/run-gate-c\/files/);
+  });
 });
 
 test.describe('Workbench (U4) — Action ID contracts', () => {
