@@ -269,9 +269,13 @@ packages/i18n/src/v3/      ar/<area>.ts, en/<area>.ts, index.ts, useT()
 apps/desktop/e2e/v3/       support/ (openV3, act, expectRpc, rpcCalls), <area>.spec.ts (flows + actions + a11y + @visual)
 ```
 
-- **Side by side, then cutover.** v3 is reachable with `?ui=v3` (and shell config `ui_version=v3`) while v2 stays the
-  default and its e2e suites stay green — that is the regression fence for every packet. Packet U7 flips the default
-  and deletes v2 (screens, components, v2 tokens/compounds, v2 e2e specs and their 847 baselines) after the owner says so.
+- **Side by side, then cutover.** v3 was built beside v2, reachable with `?ui=v3` (and shell config `ui_version=v3`),
+  while v2 stayed the default and its e2e suites stayed green — that was the regression fence for every packet.
+  **R-BRIDGE-B4a flipped the default (OD-U3 = yes, the first half of U7):** a clean start lands on v3, a
+  `get_config` that fails lands on v3, and v2 is one explicit escape away — `?ui=v2`, or a stored `ui_version` of
+  `v2`, so an owner who chose the old shell keeps it. `?ui=v3` still resolves to v3 for existing bookmarks. The four
+  start conditions are pinned in `apps/desktop/src/main.test.tsx`. **B4b** deletes v2 (screens, components, v2
+  tokens/compounds, v2 e2e specs and their 847 baselines) after the owner says so; until then nothing is removed.
 - No new dependency except, if the owner chooses option A in OD-U2, two pinned `@fontsource` font packages.
 - The e2e harness gains an RPC call log (`rpcCalls(page)`) so action tests assert the real effect.
 
@@ -294,7 +298,7 @@ legacy `pairing.*`. Each becomes a follow-up in PLAN.md with the daemon method i
 | C | **U4** Workbench | bench |
 | C | **U5** Settings | settings |
 | C | **U6** Remote PWA on v3 | `apps/remote/src` |
-| D | **U7** cutover | v3 default, v2 deleted, docs |
+| D | **U7** cutover | v3 default (**B4a**, done), v2 deleted (**B4b**, owner stop), docs |
 | — | **C-final** | full gate sweep, release version, local draft bundle |
 
 ## 8. Gates that make the criteria true
