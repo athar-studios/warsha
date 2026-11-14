@@ -6710,3 +6710,9 @@ hypotheses left in this triage.
 
 ## Run 2026-11-14 — P-H1 A3 merged (auth-layer)
 - **A3** (worker `80d9cc5`, merged clean — no conflicts): auth-layer 225 lines → auth.rs:1522–1746 (14 pub(crate) seam insertions incl. 3 struct fields the map didn't count; rest byte-identical). Fast gates on merged tree: fmt OK, clippy `-D warnings` clean, warshad 298/0. lib.rs now 14,512 lines. Forward notes: auth.rs takes `use super::DaemonState` until A4 lands (then 1-line path fix); A5's orphan `/end event stream` banner left as debris for a later step.
+
+## Run 2026-11-14 — P-H1 A6+A7 merged; wire checker fixed (PM tooling seam)
+- **A6 (http)**: worker `3d15b01` (lib.rs −647/+6, http.rs +663, 4 pub(crate), public surface 70→70), merged clean as `b7460ff`.
+- **A7 (runtime+F5)**: worker `30f3d67` (lib.rs +18/−422, runtime.rs +452, `backend_kit` moved as own `impl WarshaRpc`, F5 grep-proven: runtime names exactly one rpc-core item, the `WarshaRpc` type). Merge conflict with A6 (adjacent-region boundary) resolved by PM "keep neither" (item-verified: HEAD side 17 runtime fns → runtime.rs, A7 side 7 http fns → http.rs) + 1 orphan-`}` removal + fmt reflow.
+- **Fast gates on merged tree**: fmt OK, clippy `-D warnings` clean, warshad 298/0. lib.rs now 13,467 lines (was 14,512).
+- **Wire checker (PM tooling fix, inside merge commit `0c92d10`)**: `DAEMON_FILE` → source list (`api.rs` for the trait, `http.rs` for `REMOTE_CSP`, `lib.rs` fallback); self-test 11 fire + real 11/0. Follow-up empty marker commit `2966ab1` records the absorption (no tree change).
