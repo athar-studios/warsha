@@ -540,7 +540,49 @@ describe('client', () => {
     fetchMock.mockResolvedValueOnce(okResponse({ status: 'ok', version: '0.1.0' }));
 
     const health = await client.health();
-    expect(health).toEqual({ status: 'ok', version: '0.1.0' });
+    // A daemon that predates `capabilities` still decodes: the run-ending answer is `false`,
+    // which is what keeps the controls hidden instead of guessing (R-UI-2 D1).
+    expect(health).toEqual({
+      status: 'ok',
+      version: '0.1.0',
+      capabilities: { runControls: false },
+    });
+  });
+
+  it('decodes capabilities.run_controls from a health reply', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse({
+        status: 'healthy',
+        version: '0.3.0',
+        uptime_seconds: 12,
+        capabilities: { daemon: true, providers: false, keychain: true, run_controls: true },
+      })
+    );
+
+    const health = await client.health();
+    expect(health.capabilities.runControls).toBe(true);
+    expect(health.status).toBe('healthy');
+
+    fetchMock.mockResolvedValueOnce(
+      okResponse({
+        status: 'healthy',
+        version: '0.3.0',
+        capabilities: { daemon: true, providers: false, keychain: true, run_controls: false },
+      })
+    );
+    expect((await client.health()).capabilities.runControls).toBe(false);
+  });
+
+  it('names the field when capabilities.run_controls is not a boolean', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse({
+        status: 'healthy',
+        version: '0.3.0',
+        capabilities: { daemon: true, run_controls: 'yes' },
+      })
+    );
+
+    await expect(client.health()).rejects.toThrow(/health\.capabilities\.run_controls/);
   });
 
   it('sends approveGate with the daemon argument names and no claimed device', async () => {

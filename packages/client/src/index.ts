@@ -909,6 +909,24 @@ function wave2Boolean(
   return typeof value === 'boolean' ? value : fallback;
 }
 
+/**
+ * `capabilities.run_controls` of a `health` reply.
+ *
+ * Absent (an older daemon, or a test stub that answers only `status`/`version`) reads as
+ * `false`; a present-but-wrong value is a named decode error, because a run-ending control
+ * must never be rendered on a guess.
+ */
+function healthRunControls(capabilities: unknown): boolean {
+  if (capabilities === undefined || capabilities === null) return false;
+  const record = wave2Object(capabilities, 'health.capabilities');
+  const value = field(record, 'run_controls', 'runControls');
+  if (value === undefined || value === null) return false;
+  if (typeof value !== 'boolean') {
+    throw new Error(`${WAVE2_ERROR}: "health.capabilities.run_controls" is not a boolean`);
+  }
+  return value;
+}
+
 /** A Wave 2 list of strings; a missing or malformed list decodes to the empty list. */
 function wave2StringList(source: Record<string, unknown>, ...names: string[]): string[] {
   const value = field(source, ...names);
@@ -1559,6 +1577,29 @@ export interface WarshaWave2Api {
   gateEvidence(runId: RunId, program: string, args: string[]): Promise<GateEvidence>;
 }
 
+/**
+ * The daemon's probed capabilities in a `health` reply (`warshad::HealthCapabilities`,
+ * `crates/warshad/src/api.rs`).
+ */
+export interface HealthCapabilities {
+  /**
+   * Whether the daemon can honour the run-ending controls (`gates.changes`,
+   * `gates.reject`, `runs.cancel`): the daemon is up **and** its store carries the K2
+   * run-version column the run-state CAS loop needs. The field is additive on the wire, so
+   * a daemon that predates it — and a payload written before it existed — reads as `false`,
+   * which is why the UI keeps the controls hidden rather than offering a call the daemon
+   * cannot serve (R-UI-2).
+   */
+  runControls: boolean;
+}
+
+/** A decoded `health` reply. */
+export interface HealthReport {
+  status: string;
+  version: string;
+  capabilities: HealthCapabilities;
+}
+
 export class WarshaClient implements WarshaWiringApi, WarshaWave2Api, WarshaMcpApi {
   private baseUrl: string;
   private token: string;
@@ -2060,9 +2101,21 @@ export class WarshaClient implements WarshaWiringApi, WarshaWave2Api, WarshaMcpA
     await this.rpc<unknown>('devices.revoke', { deviceId });
   }
 
-  // Health
-  async health(): Promise<{ status: string; version: string }> {
-    return this.rpc('health');
+  /**
+   * `health` — the daemon's probed capabilities, decoded.
+   *
+   * `capabilities.run_controls` is the daemon's own answer to "can you honour
+   * `gates.changes` / `gates.reject` / `runs.cancel`", so it is read here once and the
+   * screens ask `canEndRuns` rather than probing the wire themselves (R-UI-2 D1/D3).
+   */
+  async health(): Promise<HealthReport> {
+    const result = await this.rpc<unknown>('health');
+    const record = wave2Object(result, 'health');
+    return {
+      status: wave2String(record, 'status'),
+      version: wave2String(record, 'version'),
+      capabilities: { runControls: healthRunControls(field(record, 'capabilities')) },
+    };
   }
 
   // Wiring (PLAN.md M20): backend kit export, continue-on-server handoff, and the
