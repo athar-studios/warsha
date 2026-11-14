@@ -5,12 +5,25 @@
 //! [`EVENT_REPLAY_CAPACITY`], [`SequencedEventFrame`], [`RunStreamSync`],
 //! [`StreamSync`] and [`EventSequencer`] at the crate root, so every existing
 //! `warshad::…` path still resolves.
+//!
+//! The socket layer — `events_handler` and the `/events` connection loop below the
+//! [`EventSequencer`] — joined this module in P-H1 step A5, also unchanged.
 
+use axum::{
+    extract::{ws::WebSocketUpgrade, Query, State},
+    http::HeaderMap,
+    response::IntoResponse,
+    Extension,
+};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
-use warsha_core::{Event, Run, RunId};
+use warsha_core::{Event, EventKind, Run, RunId, Stage};
+
+use crate::{paired_device_is_active, Actor, DaemonState, EVENTS_SUBPROTOCOL};
 
 /// How many sequenced events the daemon keeps buffered for replay — to a
 /// reconnecting `/events` client that names a `since_seq` (or sends a
@@ -227,6 +240,342 @@ impl EventSequencer {
             gap_detected: false,
             resync_required: false,
             dropped_count: 0,
+        }
+    }
+}
+
+/// WebSocket handler for /events endpoint
+///
+/// Authentication is the middleware's job ([`auth_handler_inner`], which reads either
+/// the bearer header or the `warsha.token.<token>` subprotocol for this path). What is
+/// this handler's job is the second half of the handshake: RFC 6455 §1.9 has the server
+/// select one of the protocols the client offered, and a client that offered a
+/// subprotocol and sees no selection back is entitled to treat the connection as failed.
+///
+/// The value selected is [`EVENTS_SUBPROTOCOL`] and nothing else. `protocols` only ever
+/// answers with a name the client actually offered, so a caller that sends no subprotocol
+/// — every `Authorization`-header caller that exists today — gets a reply identical to
+/// the one this handler sent before, and a caller that offers only its credential gets no
+/// echo of that credential either.
+///
+/// Beyond the handshake the socket is a *sequenced* stream: it subscribes to the
+/// daemon's [`EventSequencer`] (not the raw store bus), so every frame carries the
+/// same `seq` every other client sees. A `?since_seq` query or a `Last-Event-ID`
+/// header replays the buffered frames after that point (or, when they have scrolled
+/// off the ring, answers one gap frame); a `?run_id` narrows the stream to one run;
+/// and the client may drive the subscription live with `runs.subscribe` /
+/// `runs.unsubscribe` commands down the socket.
+pub(crate) async fn events_handler(
+    State(state): State<Arc<DaemonState>>,
+    Extension(actor): Extension<Actor>,
+    Query(params): Query<EventStreamParams>,
+    headers: HeaderMap,
+    ws: WebSocketUpgrade,
+) -> impl IntoResponse {
+    let last_event_id = last_event_id_header(&headers);
+    ws.protocols([EVENTS_SUBPROTOCOL])
+        .on_upgrade(move |socket| handle_events_socket(socket, state, actor, params, last_event_id))
+}
+
+/// The `/events` query string: an optional replay cursor and an optional run filter.
+/// Both default to absent, so a bare `GET /events` still upgrades and streams live
+/// exactly as it did before this existed.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub(crate) struct EventStreamParams {
+    #[serde(default)]
+    since_seq: Option<u64>,
+    #[serde(default)]
+    run_id: Option<String>,
+}
+
+/// The `Last-Event-ID` cursor a reconnecting client sends — an unsigned `seq` — or
+/// `None` when the header is absent or not a number. Consulted only when the client
+/// sent no `?since_seq`, so the query parameter wins.
+fn last_event_id_header(headers: &HeaderMap) -> Option<u64> {
+    headers
+        .get("Last-Event-ID")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<u64>().ok())
+}
+
+/// Parse a run id out of a query value or a command's `run_id`, tolerating the empty
+/// and the malformed by answering `None` (= every run) rather than failing the socket.
+fn parse_run_id(raw: Option<&str>) -> Option<RunId> {
+    raw.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .and_then(|value| value.parse::<ulid::Ulid>().ok())
+        .map(RunId)
+}
+
+/// Serialise and send one sequenced frame, mapping a closed socket to the error the
+/// caller breaks on.
+async fn send_frame(
+    socket: &mut axum::extract::ws::WebSocket,
+    frame: &SequencedEventFrame,
+) -> std::result::Result<(), axum::Error> {
+    let text = serde_json::to_string(frame).unwrap_or_default();
+    socket.send(axum::extract::ws::Message::Text(text)).await
+}
+
+/// A synthetic frame carrying stream-level state rather than a pipeline event: a
+/// replay gap, a live-consumer lag, or an unsubscribe acknowledgement.
+///
+/// It is a [`SequencedEventFrame`] so a client parses one kind of frame for the whole
+/// stream, and its `event.payload` names the `action` so the meaning never has to be
+/// inferred from the event kind — `warsha_core::EventKind` has no "stream control"
+/// variant and that crate is outside this change's ownership, so a gap rides as
+/// [`EventKind::Error`] and an ack as [`EventKind::AgentStep`] with a telling payload.
+fn control_frame(
+    seq: u64,
+    run_filter: Option<RunId>,
+    kind: EventKind,
+    payload: serde_json::Value,
+    gap_detected: bool,
+    dropped_count: u64,
+    resync_required: bool,
+) -> SequencedEventFrame {
+    SequencedEventFrame {
+        seq,
+        gap_detected,
+        dropped_count,
+        resync_required,
+        event: Event {
+            id: ulid::Ulid::new(),
+            run_id: run_filter.unwrap_or_default(),
+            stage: Stage::Idea,
+            role: None,
+            kind,
+            payload,
+            cost_cents: None,
+            tokens: None,
+            created_at: Utc::now(),
+            device_id: None,
+        },
+    }
+}
+
+/// A command a client sends *down* the `/events` socket. Only the two subscribe verbs
+/// are recognised; any other text is ignored so an unexpected frame cannot kill a
+/// connection that is otherwise healthy.
+#[derive(Debug, Deserialize)]
+struct SocketCommand {
+    method: String,
+    #[serde(default)]
+    params: SocketCommandParams,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct SocketCommandParams {
+    #[serde(default)]
+    run_id: Option<String>,
+    #[serde(default)]
+    since_seq: Option<u64>,
+}
+
+/// Apply one down-socket command and return the frames to send back, mutating the
+/// socket's live subscription (`subscribed`, `run_filter`).
+///
+/// `runs.subscribe` turns the stream on, optionally re-narrows it to a run, and — when
+/// the command names a `since_seq` — replays after that point or answers one gap frame.
+/// `runs.unsubscribe` turns it off and answers a single acknowledgement.
+async fn handle_socket_command(
+    text: &str,
+    state: &DaemonState,
+    subscribed: &mut bool,
+    run_filter: &mut Option<RunId>,
+) -> Vec<SequencedEventFrame> {
+    let Ok(command) = serde_json::from_str::<SocketCommand>(text) else {
+        return Vec::new();
+    };
+    match command.method.as_str() {
+        "runs.subscribe" => {
+            *subscribed = true;
+            *run_filter = parse_run_id(command.params.run_id.as_deref());
+            let mut frames = Vec::new();
+            if let Some(since) = command.params.since_seq {
+                let sync = state.events.sync(since, *run_filter).await;
+                if sync.gap_detected || sync.resync_required {
+                    frames.push(control_frame(
+                        sync.current_seq,
+                        *run_filter,
+                        EventKind::Error,
+                        serde_json::json!({
+                            "action": "replay_gap",
+                            "dropped_count": sync.dropped_count,
+                            "resync_required": true,
+                        }),
+                        true,
+                        sync.dropped_count,
+                        true,
+                    ));
+                } else {
+                    frames.extend(sync.frames);
+                }
+            }
+            frames
+        }
+        "runs.unsubscribe" => {
+            *subscribed = false;
+            vec![control_frame(
+                state.events.current_seq(),
+                *run_filter,
+                EventKind::AgentStep,
+                serde_json::json!({ "action": "unsubscribed" }),
+                false,
+                0,
+                false,
+            )]
+        }
+        _ => Vec::new(),
+    }
+}
+
+async fn handle_events_socket(
+    mut socket: axum::extract::ws::WebSocket,
+    state: Arc<DaemonState>,
+    actor: Actor,
+    params: EventStreamParams,
+    last_event_id: Option<u64>,
+) {
+    // The subscription the client starts on: every run unless `?run_id` narrows it, and
+    // live from the moment it connects unless a cursor asks for the past.
+    let mut run_filter = parse_run_id(params.run_id.as_deref());
+    let mut subscribed = true;
+    // An explicit `?since_seq` wins over a `Last-Event-ID` header; with neither there is
+    // no replay and the socket's first frame stays the keepalive Ping (the contract the
+    // existing `/events` delivery test asserts).
+    let cursor = params.since_seq.or(last_event_id);
+
+    // Subscribe to the live bus *before* reading the ring, so an event published while
+    // the replay is in flight is not missed; `last_seq_seen` then drops the frames the
+    // replay already delivered instead of sending them twice.
+    let mut rx = state.events.subscribe();
+    let mut last_seq_seen;
+
+    if let Some(since) = cursor {
+        last_seq_seen = since;
+        let sync = state.events.sync(since, run_filter).await;
+        if sync.gap_detected || sync.resync_required {
+            let frame = control_frame(
+                sync.current_seq,
+                run_filter,
+                EventKind::Error,
+                serde_json::json!({
+                    "action": "replay_gap",
+                    "dropped_count": sync.dropped_count,
+                    "resync_required": true,
+                }),
+                true,
+                sync.dropped_count,
+                true,
+            );
+            last_seq_seen = last_seq_seen.max(frame.seq);
+            if send_frame(&mut socket, &frame).await.is_err() {
+                return;
+            }
+        } else {
+            for frame in sync.frames {
+                last_seq_seen = last_seq_seen.max(frame.seq);
+                if send_frame(&mut socket, &frame).await.is_err() {
+                    return;
+                }
+            }
+        }
+    } else {
+        // Live from the current end onward; the ring's history is the store's job.
+        last_seq_seen = state.events.current_seq();
+    }
+
+    // Send ping every 30 seconds to keep the connection alive.
+    let mut ping_interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+    // A frozen upgrade identity does not outlive the pairing: a revoked or expired
+    // device loses the stream on the next tick (PAIR research finding 3).
+    let mut authority_interval = tokio::time::interval(tokio::time::Duration::from_secs(2));
+    authority_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+    loop {
+        tokio::select! {
+            received = rx.recv() => {
+                if !paired_device_is_active(&actor, &state.active_pairings().await) {
+                    break;
+                }
+                match received {
+                    Ok(frame) => {
+                        // A monotonic filter: never resend a frame the replay (or an
+                        // earlier live tick) already put on the wire.
+                        if frame.seq <= last_seq_seen {
+                            continue;
+                        }
+                        last_seq_seen = frame.seq;
+                        let matches_run =
+                            run_filter.is_none() || Some(frame.event.run_id) == run_filter;
+                        if subscribed && matches_run && send_frame(&mut socket, &frame).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(dropped)) => {
+                        // A slow consumer is *not* silently skipped: the old handler
+                        // `continue`d here and the client never learned it had missed
+                        // frames. Instead send a gap frame naming how many were dropped
+                        // and that a resync is required, so the client catches up from
+                        // `runs.events`/`runs.subscribe` rather than trusting a hole.
+                        let frame = control_frame(
+                            state.events.current_seq(),
+                            run_filter,
+                            EventKind::Error,
+                            serde_json::json!({
+                                "action": "stream_gap",
+                                "dropped_count": dropped,
+                                "resync_required": true,
+                            }),
+                            true,
+                            dropped,
+                            true,
+                        );
+                        last_seq_seen = last_seq_seen.max(frame.seq);
+                        if send_frame(&mut socket, &frame).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+            incoming = socket.recv() => {
+                match incoming {
+                    Some(Ok(axum::extract::ws::Message::Text(text))) => {
+                        if !paired_device_is_active(&actor, &state.active_pairings().await) {
+                            break;
+                        }
+                        let replies = handle_socket_command(
+                            text.as_str(),
+                            &state,
+                            &mut subscribed,
+                            &mut run_filter,
+                        )
+                        .await;
+                        for frame in replies {
+                            last_seq_seen = last_seq_seen.max(frame.seq);
+                            if send_frame(&mut socket, &frame).await.is_err() {
+                                return;
+                            }
+                        }
+                    }
+                    Some(Ok(axum::extract::ws::Message::Close(_))) | None => break,
+                    // Ping/Pong/Binary carry no subscription intent.
+                    Some(Ok(_)) => {}
+                    Some(Err(_)) => break,
+                }
+            }
+            _ = authority_interval.tick() => {
+                if !paired_device_is_active(&actor, &state.active_pairings().await) {
+                    break;
+                }
+            }
+            _ = ping_interval.tick() => {
+                if socket.send(axum::extract::ws::Message::Ping(vec![])).await.is_err() {
+                    break;
+                }
+            }
         }
     }
 }
