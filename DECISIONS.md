@@ -1796,3 +1796,8 @@ reference `docs/designs/v3-preview.html`; run evidence `bridge-io/policy/2026-11
 - **O7 (daemon-wide loop)**: stays at plain Ask — accepted (its agent.turn is retired).
 - **O8 (residuals)**: B3b UI labels the summary "redacted preview" (honest limit); the `agent.turn_run` argument echo is noted for the security audit, not fixed here.
 - All eight follow the Planner's recommendation; no overrides. The Coder packet (in flight) implements D1–D6 + T1–T11 exactly; an independent Reviewer pass with no open HIGH gates B3b.
+
+## 2026-11-14 — P-H1 F1+F5 (PM decision, per AGENTS.md decide-and-log)
+- **F1 → F1-a (trait impl stays one 2,887-line module `rpc/impl_server.rs`).** F1-b's inherent-impl + one-line-delegation transform is code-adding and violates P-H1 hard rule 1 (pure moves only); it would need its own packet with its own review rule. F1-a still delivers the mission: `lib.rs` → ~90-line facade, largest file 2,887 vs 15,684 (~5× token-cost cut). The `rpc/impl_server.rs` remainder becomes follow-up packet P-H1-RPC if justified — not now.
+- **F5 → move `backend_kit` (1406–1428) into `runtime.rs`** at extraction time to break the runtime↔rpc-core 2-cycle outright.
+- Stage A (10 pure-move steps) approved to proceed in extraction order; Stage B (RPC sections) stays blocked pending a future P-H1-RPC packet. `rpc/runs.rs` remains last regardless.
