@@ -4174,6 +4174,7 @@ version = "0.2.1"
 dependencies = [
  "anyhow",
  "async-trait",
+ "chrono",
  "mockall",
  "pretty_assertions",
  "serde",
@@ -4184,6 +4185,9 @@ dependencies = [
  "tracing",
  "ulid",
  "warsha-core",
+ "warsha-pipeline",
+ "warsha-providers",
+ "warsha-store",
  "which",
 ]
 
@@ -4263,7 +4267,6 @@ dependencies = [
  "tokio",
  "tracing",
  "ulid",
- "warsha-backends",
  "warsha-core",
  "warsha-providers",
  "warsha-store",

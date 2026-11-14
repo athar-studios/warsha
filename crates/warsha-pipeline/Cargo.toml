@@ -9,7 +9,6 @@ description = "Stage engine, agent roles, prompts, gate state machine"
 warsha-core = { path = "../warsha-core" }
 warsha-store = { path = "../warsha-store" }
 warsha-providers = { path = "../warsha-providers" }
-warsha-backends = { path = "../warsha-backends" }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }

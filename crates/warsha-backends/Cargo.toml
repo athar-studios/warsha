@@ -7,6 +7,7 @@ description = "Coding backends: builtin agent, OpenHands, Claude Code, Codex CLI
 
 [dependencies]
 warsha-core = { path = "../warsha-core" }
+warsha-pipeline = { path = "../warsha-pipeline" }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
@@ -21,3 +22,6 @@ ulid = { workspace = true }
 mockall = { workspace = true }
 tempfile = { workspace = true }
 pretty_assertions = "1.4"
+warsha-store = { path = "../warsha-store" }
+warsha-providers = { path = "../warsha-providers" }
+chrono = { workspace = true }

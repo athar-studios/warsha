@@ -5938,9 +5938,15 @@ pub async fn start_daemon_with_provider_factory(
 
     // Initialize pipeline
     // The daemon's SettingsStore implements SettingsProvider, so we can use it directly
-    let pipeline: Arc<warsha_pipeline::PipelineEngine<SettingsStore>> = Arc::new(
-        warsha_pipeline::PipelineEngine::new(store.clone(), providers.clone(), settings.clone()),
-    );
+    let mut pipeline =
+        warsha_pipeline::PipelineEngine::new(store.clone(), providers.clone(), settings.clone());
+
+    // The wiring side owns the environment selection: the pipeline never reads
+    // `WARSHA_CODING_BACKEND` or names a backend, it only accepts an injected one.
+    if let Some(backend) = BackendFactory::from_env() {
+        pipeline = pipeline.with_coding_backend(Arc::from(backend));
+    }
+    let pipeline = Arc::new(pipeline);
 
     // Initialize backends
     let backends = BackendFactory::all_available();
@@ -7460,11 +7466,18 @@ mod tests {
                 s
             }
         };
-        let pipeline = Arc::new(warsha_pipeline::PipelineEngine::new(
+        let mut pipeline = warsha_pipeline::PipelineEngine::new(
             store.clone(),
             providers.clone(),
             settings.clone(),
-        ));
+        );
+
+        // The wiring side owns the environment selection: the pipeline never reads
+        // `WARSHA_CODING_BACKEND` or names a backend, it only accepts an injected one.
+        if let Some(backend) = BackendFactory::from_env() {
+            pipeline = pipeline.with_coding_backend(Arc::from(backend));
+        }
+        let pipeline = Arc::new(pipeline);
         let identity = warsha_remote::DeviceIdentity::generate("test daemon".to_string())
             .expect("a device identity");
 
