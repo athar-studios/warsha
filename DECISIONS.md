@@ -1818,3 +1818,7 @@ reference `docs/designs/v3-preview.html`; run evidence `bridge-io/policy/2026-11
 - Stage A complete: lib.rs 16,072 → 3,178 (~5× token-cost cut — the packet's mission, delivered). Remaining lib.rs is the trait impl + facade, which F1-a explicitly keeps as one module.
 - F1-a (logged): "The `rpc/impl_server.rs` remainder becomes follow-up packet P-H1-RPC if justified — not now." No new evidence overrides this: the impl is one coherent trait, per-domain splits would add 7+ files for marginal agent-cost gain, and the queue (R-UI/R-EXT) is higher value.
 - Next: R-UI (P1·UI v3 remaining waves) then R-EXT (P2 items). Packets to be written.
+
+## 2026-11-15 — R-UI-4 Part A STOPPED (no capture host); Part B dispatched
+- Planner packet R-UI-4 frozen. Part A (416 v3 baselines) is STOP-gated: this host has font drift (B4a 233/560), CI billing failed, no capture job exists. Unblock: (a) CI billing + capture workflow, (b) original WSL host, or (c) pinned host passing the 84/84 + 0-pixel canary. Do NOT capture here.
+- Part B (remote harness 8799→8765 or harness-only bypassCSP; product CSP untouched) is host-independent → dispatched now.
