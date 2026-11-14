@@ -17,8 +17,10 @@
 //!
 //! Fail closed is the rule everywhere: a poisoned lock recovers with `into_inner`
 //! rather than granting, an unknown id is an error, an expired or argument-mismatched
-//! grant is spent by being discarded, and the cap refuses a new pending entry rather
-//! than growing without bound.
+//! grant is spent by being discarded, the cap refuses a new pending entry rather than
+//! growing without bound, and an ask nobody ever answers is dropped once it is older
+//! than [`PENDING_TTL`] — the bound is per run *and* in time, so a run that is killed
+//! cannot pin its questions (or this process's memory) for good.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -41,6 +43,16 @@ pub use crate::mcp_permission::MCP_AGENT_ROLE;
 /// The owner answers after reading the summary; ten minutes is long enough to
 /// read and short enough that an unspent grant is not a standing authority.
 pub const MCP_ONCE_GRANT_TTL: Duration = Duration::from_secs(600);
+
+/// How long an unanswered question waits before the registry drops it.
+///
+/// A resolved entry is bookkeeping and goes after the grant window. An
+/// *unresolved* one is a question an agent asked, and it has to end too: the turn
+/// that asked already failed closed, and a run that is killed or whose advance
+/// never returns purges nothing, so without a horizon every ask that was never
+/// answered would pin memory for the life of the process. A day is far longer than
+/// an owner takes to answer and short enough that the bound is real.
+pub const PENDING_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// The most pending approvals one run may have.
 ///
@@ -170,6 +182,9 @@ pub struct PendingApproval {
     pub summary: String,
     /// When the ask was registered, ISO-8601.
     pub requested_at: String,
+    /// The same instant on the monotonic clock the sweeps use, so an entry that
+    /// was never answered can age out whatever the wall clock does.
+    requested_at_instant: Instant,
     /// The wire view, `None` while the owner has not answered.
     resolution: Option<PendingResolution>,
 }
@@ -385,6 +400,9 @@ impl McpApprovals {
             .pending
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // A retry a day later is a new question, not a silent dedupe onto an entry
+        // the list would no longer show.
+        sweep_expired_pending(&mut pending, Instant::now());
 
         if let Some(existing) = pending.values().find(|entry| {
             entry.resolution.is_none()
@@ -420,6 +438,7 @@ impl McpApprovals {
                 args: canonical,
                 summary: truncate_summary(&summary),
                 requested_at: Utc::now().to_rfc3339(),
+                requested_at_instant: Instant::now(),
                 resolution: None,
             },
         );
@@ -428,10 +447,13 @@ impl McpApprovals {
 
     /// Every unresolved pending approval, oldest first, as the list RPC returns it.
     pub fn pending(&self) -> Vec<PendingApprovalView> {
-        let pending = self
+        let mut pending = self
             .pending
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // The list is where unresolved residue becomes visible, so it is also where
+        // an ask past its horizon stops being shown.
+        sweep_expired_pending(&mut pending, Instant::now());
         let mut views: Vec<PendingApprovalView> = pending
             .values()
             .filter(|entry| entry.resolution.is_none())
@@ -447,10 +469,11 @@ impl McpApprovals {
 
     /// How many approvals are pending, across every run.
     pub fn pending_len(&self) -> usize {
-        let pending = self
+        let mut pending = self
             .pending
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        sweep_expired_pending(&mut pending, Instant::now());
         pending
             .values()
             .filter(|entry| entry.resolution.is_none())
@@ -550,14 +573,21 @@ impl McpApprovals {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         sweep_expired_grants(&mut grants, now);
-        match grants.get(&key) {
+        let outcome = match grants.get(&key) {
             Some(grant) if canonical_json(&grant.args) == canonical && grant.expires_at > now => {
                 grants.remove(&key);
                 TakeOutcome::Consumed
             }
             // A grant for another call is neither spent nor seen.
             _ => TakeOutcome::Missing,
-        }
+        };
+        // Every call the loop makes passes here, so this is one of the two places a
+        // question whose run died stops waiting for an owner that will never answer.
+        // The pending lock is taken after the grants lock is released, never inside
+        // it: no path holds both, so no ordering can deadlock.
+        drop(grants);
+        self.sweep_pending_at(now);
+        outcome
     }
 
     /// Whether a live grant exists for exactly this call, without consuming it.
@@ -574,10 +604,22 @@ impl McpApprovals {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         sweep_expired_grants(&mut grants, now);
-        grants
+        let live = grants
             .get(&key)
             .map(|grant| grant.expires_at > now)
-            .unwrap_or(false)
+            .unwrap_or(false);
+        drop(grants);
+        self.sweep_pending_at(now);
+        live
+    }
+
+    /// Drop pending entries past their horizon against an explicit clock.
+    fn sweep_pending_at(&self, now: Instant) {
+        let mut pending = self
+            .pending
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        sweep_expired_pending(&mut pending, now);
     }
 
     /// Drop every grant for `(server, tool, role)`; `tool = "*"` drops the
@@ -720,15 +762,22 @@ fn sweep_expired_grants(
     grants.retain(|_, grant| grant.expires_at > now);
 }
 
-/// Drop resolved entries that were never drained.
+/// Drop entries that are past their horizon.
 ///
-/// A pending entry has no TTL while it waits (it is a question, not an authority),
-/// but a resolved entry that no turn ever collected is stale bookkeeping: it is
-/// swept once it is older than the grant window.
+/// A resolved entry that no turn ever collected is stale bookkeeping, and it goes
+/// once it is older than the grant window. An unresolved one is a question, not an
+/// authority, so it lives longer — [`PENDING_TTL`] — but it does not live forever:
+/// otherwise a run that died without `runs.advance` or `runs.cancel` would keep its
+/// asks in the process for good, and `mcp.approvals.list` would grow with them.
+///
+/// The comparison saturates, so a caller that sweeps with an earlier clock than a
+/// registration (a test's fixed `now`) keeps the entry rather than panicking.
 fn sweep_expired_pending(pending: &mut HashMap<String, PendingApproval>, now: Instant) {
     pending.retain(|_, entry| match &entry.resolution {
-        None => true,
-        Some(resolution) => now.duration_since(resolution.resolved_at) < MCP_ONCE_GRANT_TTL,
+        None => now.saturating_duration_since(entry.requested_at_instant) < PENDING_TTL,
+        Some(resolution) => {
+            now.saturating_duration_since(resolution.resolved_at) < MCP_ONCE_GRANT_TTL
+        }
     });
 }
 

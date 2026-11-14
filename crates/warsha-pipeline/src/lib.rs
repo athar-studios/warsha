@@ -45,7 +45,7 @@ pub use crate::gate_evidence::{
 pub use crate::mcp_approval::{
     canonical_json, ApprovalError, ArgumentSummarizer, Grant, KeysOnlySummarizer, McpApprovals,
     PendingApproval, PendingApprovalView, ResolvedApproval, TakeOutcome, MAX_PENDING_PER_RUN,
-    MCP_ONCE_GRANT_TTL,
+    MCP_ONCE_GRANT_TTL, PENDING_TTL,
 };
 pub use crate::mcp_permission::{
     AskEverything, McpPermissionSource, McpPermissionStore, StaticPermissions, MCP_AGENT_ROLE,

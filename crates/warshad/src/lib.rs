@@ -3847,6 +3847,17 @@ impl WarshaApiServer for WarshaRpc {
             );
         }
 
+        // The same rule `runs.cancel` follows, for the run that finishes instead of
+        // being cancelled: a terminal run has no next call, so its last question and
+        // any unspent grant are dead weight — and an unspent grant is an authority
+        // nobody will be asked about again (D2.8).
+        if matches!(
+            run.status,
+            RunStatus::Completed | RunStatus::Failed | RunStatus::Cancelled
+        ) {
+            self.state.mcp_approvals.purge_run(&run.id.0.to_string());
+        }
+
         Ok(run)
     }
 
@@ -12889,6 +12900,154 @@ mod tests {
                 }
             }
             assert!(summary.contains("path"), "{summary}");
+        }
+
+        /// T12 (M1): a run that completes purges what it left behind, and an ask
+        /// that nobody ever answers stops waiting.
+        ///
+        /// The per-run cap bounds one run's residue; nothing bounded the process's,
+        /// because a run that finishes through `runs.advance` used to purge nothing
+        /// and an unresolved question had no horizon. Both ends are proved here: the
+        /// terminal advance drops the run's grant *and* its open question, and the
+        /// take path — every agent call passes through it — drops a question past
+        /// `PENDING_TTL` while leaving a fresh one alone.
+        #[tokio::test]
+        async fn a_completed_run_and_a_stale_ask_leave_nothing_behind() {
+            use std::time::Instant;
+            use warsha_pipeline::PENDING_TTL;
+
+            let temp = crate::test_util::fresh_tempdir();
+            let data_dir = temp.path().join("data");
+            let (state, store, mcp) = state_with_mcp(&data_dir).await;
+            let rpc = WarshaRpc::new(state.clone());
+            let run_id = approved_agent_run(&state, &store).await;
+
+            // One answered ask (a live grant) and one still waiting.
+            rpc.agent_turn_run(&owner_ext(), run_id, turn(r#"{"msg":"one"}"#))
+                .await
+                .expect("the first turn answers");
+            let answered = only_pending(&rpc, &state).await;
+            rpc.allow_once_mcp_approval(&owner_ext(), answered.id.clone())
+                .await
+                .expect("the owner grants");
+            rpc.agent_turn_run(&owner_ext(), run_id, turn(r#"{"msg":"two"}"#))
+                .await
+                .expect("the second turn answers");
+            let waiting = only_pending(&rpc, &state).await;
+            assert_ne!(answered.id, waiting.id, "the second ask reused an id");
+            assert!(state.mcp_approvals.has_grant(
+                &run_id.0.to_string(),
+                "test_srv",
+                "echo",
+                "agent"
+            ));
+            assert_eq!(mcp.count(), 0, "an ask reached the transport");
+
+            // The run finishes: `runs.advance` from Feedback completes it.
+            let (mut run, version) = store
+                .get_run_versioned(run_id)
+                .await
+                .expect("the run is stored");
+            run.current_stage = warsha_core::Stage::Feedback;
+            store
+                .update_run_cas(&run, version)
+                .await
+                .expect("the run moves to Feedback");
+
+            let advanced = rpc
+                .advance_run(&owner_ext(), run_id)
+                .await
+                .expect("the run advances");
+            assert_eq!(advanced.status, warsha_core::RunStatus::Completed);
+
+            // Nothing of that run survives: no question, no grant.
+            assert_eq!(
+                state.mcp_approvals.pending_len(),
+                0,
+                "a completed run left a pending question behind"
+            );
+            assert!(
+                rpc.list_mcp_approvals(&owner_ext())
+                    .await
+                    .expect("the list answers")
+                    .is_empty(),
+                "mcp.approvals.list still shows a completed run's question"
+            );
+            assert!(
+                !state
+                    .mcp_approvals
+                    .has_grant(&run_id.0.to_string(), "test_srv", "echo", "agent"),
+                "a completed run left an unspent grant behind"
+            );
+
+            // The horizon: an ask nobody answers is dropped by the next call, while
+            // one inside the horizon is not.
+            let stale = state
+                .mcp_approvals
+                .register_pending(
+                    "run-that-died",
+                    "test_srv",
+                    "echo",
+                    "agent",
+                    &serde_json::json!({"msg": "stale"}),
+                    "msg: [hidden]".to_string(),
+                )
+                .expect("the stale ask registers");
+            let fresh = state
+                .mcp_approvals
+                .register_pending(
+                    "run-that-died",
+                    "test_srv",
+                    "echo",
+                    "agent",
+                    &serde_json::json!({"msg": "fresh"}),
+                    "msg: [hidden]".to_string(),
+                )
+                .expect("the fresh ask registers");
+            assert_eq!(state.mcp_approvals.pending_len(), 2);
+
+            // The take path sweeps against the clock it is given.
+            let now = Instant::now();
+            assert_eq!(
+                state.mcp_approvals.take_at(
+                    "run-that-died",
+                    "test_srv",
+                    "echo",
+                    "agent",
+                    &serde_json::json!({"msg": "fresh"}),
+                    now,
+                ),
+                warsha_pipeline::TakeOutcome::Missing
+            );
+            let answers = state.mcp_approvals.pending();
+            assert!(
+                answers.iter().any(|view| view.id == fresh),
+                "a question inside the horizon was swept: {answers:?}"
+            );
+
+            let after_horizon = now + PENDING_TTL + std::time::Duration::from_secs(1);
+            state.mcp_approvals.take_at(
+                "run-that-died",
+                "test_srv",
+                "echo",
+                "agent",
+                &serde_json::json!({"msg": "other"}),
+                after_horizon,
+            );
+            let answers = state.mcp_approvals.pending();
+            assert!(
+                !answers.iter().any(|view| view.id == stale),
+                "a question past PENDING_TTL is still waiting: {answers:?}"
+            );
+            assert!(
+                !answers.iter().any(|view| view.id == fresh),
+                "a question past PENDING_TTL is still waiting: {answers:?}"
+            );
+            assert_eq!(
+                state.mcp_approvals.pending_len(),
+                0,
+                "a killed run's questions pinned the process"
+            );
         }
 
         /// T10: a grant is process memory — a fresh state over the same data asks again.

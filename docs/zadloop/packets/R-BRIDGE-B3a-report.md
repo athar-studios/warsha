@@ -1,7 +1,9 @@
 # R-BRIDGE-B3a — daemon-side MCP approval (Coder report)
 
 Status: **done**, all acceptance commands exit 0, discrimination proven, no open
-HIGH on the Coder's side. Branch `zl-b3a-implementation` in the worktree
+HIGH on the Coder's side. One review round (M1) is folded in below and is
+**uncommitted**: the three commits named under [Commits](#commits) are the
+implementation, and the M1 change set sits in the working tree for the PM. Branch `zl-b3a-implementation` in the worktree
 `/home/moe/Downloads/zl-b3a-worktree`, based on `7376b7b` (`repair/dev-csp-f474776`).
 Nothing was pushed, no PR was opened, `PROGRESS.md`/`DECISIONS.md` were not
 touched (the task forbids them; `AGENTS.md` asks for a `PROGRESS.md` update
@@ -41,6 +43,7 @@ Changed: `crates/warsha-pipeline/src/{agent_loop,agent_tools,lib}.rs`,
 | T9 | `question_text_does_not_instruct_a_cli_command` | `agent_loop::tests::mcp_approval` |
 | T10 | `grants_and_pending_do_not_survive_a_restart` | `tests::mcp_approval` (warshad lib) |
 | T11 | `allow_always_and_deny_resolve_pending_through_permissions_set` | same |
+| T12 | `a_completed_run_and_a_stale_ask_leave_nothing_behind` | same (M1 review round) |
 
 Supporting tests: 26 in `mcp_approval::tests` (grants, TTL, cap, dedupe,
 `resolve_by_row`, `purge_run`, the `*` wildcard row, Debug rendering
@@ -67,7 +70,7 @@ test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 486 filtered out
 exit 0
 
 $ cargo test -p warshad mcp_approval
-test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 201 filtered out
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 201 filtered out
 exit 0
 
 $ cargo test -p warshad --test security_identity
@@ -75,7 +78,7 @@ test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 exit 0
 
 $ cargo test --workspace --all-targets
-39 targets, 1037 passed, 0 failed
+39 targets, 1038 passed, 0 failed
 exit 0
 
 $ node scripts/check-wire-contract.mjs --self-test && node scripts/check-wire-contract.mjs
@@ -96,9 +99,9 @@ exit 0
 
 ## Discrimination (the tests are load-bearing)
 
-All three artifacts are under `target/discrimination/` (patches + captured
+All five artifacts are under `target/discrimination/` (patches + captured
 failing runs + a README that lists the exact commands). Each patch is applied to
-the committed tree, the named test is run, the patch is reverted.
+the working tree, the named test is run, the patch is reverted.
 
 1. **`take` deleted** — `1-take-deleted.patch`: `mcp_take_once` returns `false`
    instead of consulting the registry.
@@ -118,6 +121,18 @@ the committed tree, the named test is run, the patch is reverted.
    `SECRET-2 reached the queued question: The agent wants to run test_srv::echo
    (role agent) with: api_key: [REDACTED], note: "Bearer SECRET-2", password:
    [REDACTED], path: "a.txt". Allow once, always allow, or deny?` (T7).
+4. **Terminal advance purges nothing** — `4-advance-purge-removed.patch`: the
+   `purge_run` call in `runs.advance` is deleted (M1).
+   `cargo test -p warshad --lib a_completed_run_and_a_stale_ask` → exit 101:
+   `assertion left == right failed: a completed run left a pending question
+   behind`, `left: 1`, `right: 0` (T12).
+5. **Pending horizon removed** — `5-pending-ttl-removed.patch`:
+   `sweep_expired_pending` keeps every unresolved entry (M1).
+   `cargo test -p warshad --lib a_completed_run_and_a_stale_ask` → exit 101:
+   `a question past PENDING_TTL is still waiting: [PendingApprovalView { id:
+   "mcp-approval-01M7CPWQGEEB33SEN376TNCEM6", run_id: "run-that-died", server:
+   "test_srv", tool: "echo", role: "agent", summary: "msg: [hidden]", ... }]`
+   (T12).
 
 ## Edited existing tests
 
@@ -148,11 +163,14 @@ the committed tree, the named test is run, the patch is reverted.
 1. **`agent_sessions.remove` is not wired (D2.8).** The packet's step 5 lists
    `runs.cancel` only, and `agent_sessions.rs` is not in the allowed-file list;
    the daemon never calls `remove` from `lib.rs`, so there is no hook reachable
-   from the files I may touch. `purge_run` is wired at `runs.cancel`
-   (`lib.rs:3870`). Residue for a run that ends another way is bounded three
-   ways: a grant can only be spent by a loop carrying that run id (and that loop
-   is gone), the per-run pending cap is 32, and both maps are swept at the TTL
-   (10 min). T10 proves a restart starts clean.
+   from the files I may touch. `purge_run` is wired at `runs.cancel` and, since
+   the M1 review round, at `runs.advance` whenever the returned run is terminal
+   (`Completed`/`Failed`/`Cancelled`), which is the path a run actually finishes
+   by. What is left is a run whose process dies mid-flight; that residue is
+   bounded in time — grants by `MCP_ONCE_GRANT_TTL` (10 min), questions by
+   `PENDING_TTL` (24 h) — and a grant can only be spent by a loop carrying that
+   run id, which no longer exists. T10 proves a restart starts clean, T12 proves
+   the terminal advance and the horizon.
 2. **Two `DaemonState` literals outside the allowed list.** Adding the
    `mcp_approvals` field makes the two e2e tests' literals fail to compile; one
    line each (`McpApprovals::default()`) is the minimum to keep the workspace
@@ -171,12 +189,64 @@ the committed tree, the named test is run, the patch is reverted.
    and a callsite another parallel test reached first is frozen as "never". The
    capture is therefore installed once as the global default (memory writer, no
    stdout) and the test asserts only on lines carrying `mcp.approvals`. Verified
-   stable across three consecutive full-suite runs (208 passed each).
+   stable across three consecutive full-suite runs (208 passed each then; 209
+   after the M1 round adds T12).
 6. **`agent_turn_run` was not given a new question-text surface.** The queued
    question is read in T7 by building a loop with `build_agent_loop_in` — the
    same builder `runs.start` uses — sharing the state's registry and the run id;
    the registry de-duplicates the ask, so the test reads exactly the id and
    summary the answer resolves.
+
+## M1 correction (review round, uncommitted)
+
+The review found that unresolved pendings had no horizon and that a run
+finishing through `runs.advance` purged nothing, so residue was capped per run
+(32) but not per process, and `mcp.approvals.list` grew with it. Fixed inside
+the files already allowed, nothing else changed:
+
+1. **`runs.advance` purges a terminal run.** The handler now mirrors the
+   `runs.cancel` hook: after the pipeline returns, a run whose status is
+   `Completed`, `Failed` or `Cancelled` gets `purge_run(&run.id.0.to_string())`
+   (`crates/warshad/src/lib.rs`, `advance_run`). A run that finished has no next
+   call, so its open question and any unspent grant are dead weight.
+2. **A pending entry has a horizon.** `PENDING_TTL = 24 h` in
+   `crates/warsha-pipeline/src/mcp_approval.rs`; `PendingApproval` carries
+   `requested_at_instant` (the monotonic instant, beside the RFC-3339 string the
+   wire shows), and `sweep_expired_pending` drops an unresolved entry once
+   `now - requested_at_instant >= PENDING_TTL` — resolved entries keep their
+   10-minute bookkeeping window. The sweep runs in every registry path that
+   already swept, plus the read path that exposes growth: `take_at` and
+   `has_grant` (every agent call passes through one of them; each takes the
+   pending lock only after releasing the grants lock, so no ordering can
+   deadlock), `register_pending` (a retry a day later is a new question, not a
+   dedupe onto an invisible entry), `allow_once_at`, `pending()` and
+   `pending_len()` (so the list stops growing too). The comparison saturates, so
+   an explicit earlier clock keeps the entry instead of panicking.
+3. **One test, as asked:** T12
+   `a_completed_run_and_a_stale_ask_leave_nothing_behind` proves both halves — a
+   run with one answered ask (live grant) and one open ask, advanced from
+   `Feedback` to `Completed`, leaves no question in `mcp.approvals.list`, no
+   pending entry and no grant; and a question registered under a dead run id is
+   swept by the take path once past `PENDING_TTL` while one inside the horizon
+   survives. No other test was added or changed in this round.
+
+Discrimination for the correction (both under `target/discrimination/`, patches
+and captured runs, listed in the table there): deleting the advance purge fails
+T12 with `a completed run left a pending question behind` (`left: 1`,
+`right: 0`); restoring `None => true` in the sweep fails T12 with `a question
+past PENDING_TTL is still waiting: [PendingApprovalView { ... run_id:
+"run-that-died" ... }]`.
+
+Re-ran the full command list after the change; every one exits 0:
+`cargo fmt --all --check` (no output), `cargo clippy --workspace --all-targets
+-- -D warnings` (`Finished dev profile`), `cargo test -p warsha-pipeline
+mcp_approval` (26 passed), `cargo test -p warsha-pipeline mcp_permission` (10
+passed), `cargo test -p warshad mcp_approval` (12 passed), `cargo test -p
+warshad --test security_identity` (5 passed), `cargo test --workspace
+--all-targets` (39 targets, 1038 passed, 0 failed), `wire: 11 checks, 0
+violations`, `policy: 8 checks, 0 failures`, `arch: 5 rules, 0 violations` (each
+with its `--self-test` also exit 0). `AGENTS.md` asks for a `PROGRESS.md` update
+before stopping and the task forbids it; this section is the record.
 
 ## Residuals (for B3b and the security audit)
 
