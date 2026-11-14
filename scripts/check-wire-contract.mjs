@@ -133,6 +133,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const DAEMON_FILE = 'crates/warshad/src/lib.rs';
+const DAEMON_API_FILE = 'crates/warshad/src/api.rs';
+const DAEMON_HTTP_FILE = 'crates/warshad/src/http.rs';
 const POLICY_FILE = 'crates/warshad/src/auth.rs';
 const CLIENT_FILE = 'packages/client/src/index.ts';
 const HARNESS_FILE = 'apps/desktop/e2e/harness.ts';
@@ -713,7 +715,8 @@ function run(root, opts = {}) {
   const raise = (id, file, line, offence) => violations.push(violation(id, file, line, offence));
   const defer = (id, file, line, offence) => knowns.push(violation(id, file, line, offence));
 
-  const daemonText = readIfExists(path.join(root, DAEMON_FILE));
+  const daemonText =
+    readIfExists(path.join(root, DAEMON_API_FILE)) ?? readIfExists(path.join(root, DAEMON_FILE));
   const policyText = readIfExists(path.join(root, POLICY_FILE));
   const clientText = readIfExists(path.join(root, CLIENT_FILE));
   const harnessText = readIfExists(path.join(root, HARNESS_FILE));
@@ -935,7 +938,7 @@ function run(root, opts = {}) {
   // reported when it cannot be read at all: a check that silently read nothing would certify the
   // parity it never saw, which is the failure mode this check was added for.
   const cspSurfaces = [
-    ['daemon', DAEMON_FILE, daemonText === null ? null : parseDaemonCsp(daemonText)],
+    ['daemon', DAEMON_HTTP_FILE, daemonText === null ? null : parseDaemonCsp(readIfExists(path.join(root, DAEMON_HTTP_FILE)) ?? daemonText)],
     ['remote bundle meta', REMOTE_INDEX_FILE, remoteIndexText === null ? null : parseRemoteCsp(remoteIndexText)],
     ['desktop webview', TAURI_CONF_FILE, tauriConfText === null ? null : parseTauriCsp(tauriConfText)],
   ];
