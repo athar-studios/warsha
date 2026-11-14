@@ -185,7 +185,8 @@
 /* ── Motion (R-UI-3 D1) ─────────────────────────────────────────────────────────────────────────────
    The components carry their own `animation:` string inline; the keyframes they name, the press state
    that inline styles cannot express, and the one-shot enter animations all live here. Every rule below
-   reads --w-dur-*/--w-ease and is neutralised again under prefers-reduced-motion (the block after them).
+   reads the --w-dur and --w-ease tokens and is neutralised again under prefers-reduced-motion (the block
+   after them).
 
    Inline-axis motion is mirrored by --w-inline-sign, which [dir="rtl"] flips: no `left`/`right`, no
    duplicated per-direction rules. */

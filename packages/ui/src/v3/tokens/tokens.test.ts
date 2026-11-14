@@ -181,6 +181,18 @@ describe('Design System v3 Token Parity (TS <-> CSS)', () => {
     expect(Number(lineHeights.sm) * parseFloat(fontSizes.sm) * 16).toBeCloseTo(23.1, 5);
   });
 
+  // A comment that contains `*/` closes itself early and leaves the rest of its sentence as CSS: postcss then
+  // refuses the whole stylesheet and the app ships unstyled. This is the cheap guard for that (it caught a
+  // `--w-dur-*/--w-ease` in the first draft of the D1 motion comment).
+  it('is a well-formed stylesheet: comments close once and braces balance', () => {
+    const opens = (TOKENS_CSS.match(/\/\*/g) ?? []).length;
+    const closes = (TOKENS_CSS.match(/\*\//g) ?? []).length;
+    expect(closes, 'every comment closes exactly once').toBe(opens);
+
+    const stripped = TOKENS_CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect((stripped.match(/{/g) ?? []).length).toBe((stripped.match(/}/g) ?? []).length);
+  });
+
   it('includes RTL mirror transform for directional icons', () => {
     expect(css).toContain('[dir="rtl"] .w-icon--mirror');
     expect(css).toContain('transform: scaleX(-1)');
