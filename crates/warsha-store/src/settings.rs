@@ -18,20 +18,254 @@
 //! migrator embeds, so a database this repository creates and one a daemon
 //! migration created are the same database.
 
+use std::fmt;
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
 
-use crate::persistence::{
-    unsigned_u32, unsigned_u64, StoredBackendKit, StoredCustomModel, StoredHarness,
-    StoredIntegration, StoredPairing, StoredPlugin, StoredPreference, StoredProvider,
-    StoredRunMode, StoredSkill,
-};
 use crate::{
     column_int, column_opt_int, column_opt_text, column_text, repair_settings_expiry, Result,
     StoreError,
 };
+
+// --------------------------------------------------------------- stored rows
+
+/// Shown in place of a pairing secret by [`StoredPairing`]'s `Debug` impl.
+pub const REDACTED_SECRET: &str = "<redacted>";
+
+/// One derived preference as it is stored: the decayed score per project target.
+///
+/// This is a snapshot, not a live value — `score` is whatever the pipeline
+/// computed when it saved the row, and ageing it further is the pipeline's job
+/// on the next save.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StoredPreference {
+    /// The project the taste belongs to.
+    pub project_id: String,
+    /// The target the signals were about — a file, a style key, a phrasing.
+    pub key: String,
+    /// The decayed, weighted score at the time it was saved.
+    pub score: f64,
+    /// How many signals backed that score.
+    pub evidence_count: u32,
+    /// When the newest backing signal was recorded, in Unix seconds.
+    pub last_updated: u64,
+}
+
+/// One project's backend kit: the picked backend plus its serialised schema.
+///
+/// `kind` and `url` duplicate two fields inside `config_json` on purpose: they
+/// are the columns a `SELECT` can filter on without decoding the JSON, and the
+/// JSON stays the single source the pipeline deserialises.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredBackendKit {
+    /// The project the kit belongs to.
+    pub project_id: String,
+    /// The backend kind tag, e.g. `pocket_base` (informational, queryable).
+    pub kind: String,
+    /// Where the backend answers (informational, queryable).
+    pub url: String,
+    /// The serialised `BackendKit`.
+    pub config_json: String,
+}
+
+/// One run mode's config, keyed by the mode tag (`local`, `self_hosted`, `hosted`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredRunMode {
+    /// The mode tag the row is keyed by.
+    pub mode: String,
+    /// The serialised `RunModeConfig`.
+    pub config_json: String,
+}
+
+/// One paired phone.
+///
+/// The secret is stored because the pairing channel has to hand it to the
+/// device; it is `Debug`-redacted so a stray `{:?}` cannot put it in a log.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredPairing {
+    /// Stable device id, minted by the M6 device flow.
+    pub device_id: String,
+    /// The one-time secret; never logged.
+    pub secret: String,
+    /// When the pairing was created, in Unix seconds.
+    pub created_at: u64,
+    /// True once the owner revoked it; a revoked pairing keeps its row.
+    pub revoked: bool,
+    /// Unix seconds after which the secret stops authenticating; `None` for a
+    /// record the legacy `pairing.create` path wrote.
+    pub expires_at: Option<u64>,
+}
+
+impl fmt::Debug for StoredPairing {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StoredPairing")
+            .field("device_id", &self.device_id)
+            .field("secret", &REDACTED_SECRET)
+            .field("created_at", &self.created_at)
+            .field("revoked", &self.revoked)
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
+}
+
+/// One configured model provider, as the daemon's `providers.*` RPCs store it.
+///
+/// The name is the row's key and the keychain account: one provider, one secret,
+/// no collision between two providers that happen to share a kind. There is
+/// deliberately no `key` column — the API key is the OS keychain's, and a row
+/// that could carry it is a row that could leak it into a backup, a crash report
+/// or a `SELECT *` in a bug report.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredProvider {
+    /// The owner's name for this provider; also its keychain account.
+    pub name: String,
+    /// The adapter kind tag the wizard sent, e.g. `open_router`.
+    pub kind: String,
+    /// The OpenAI-compatible base URL, `None` when the kind's default applies.
+    pub api_base: Option<String>,
+    /// Whether the provider may be used. A stored provider is enabled; a
+    /// removed one has no row at all rather than a disabled one.
+    pub enabled: bool,
+    /// When the provider was added, in Unix seconds. Ordering only.
+    pub created_at: u64,
+}
+
+/// One harness row: the queryable header columns plus the whole
+/// `warsha_core::HarnessDefinition` serialised into `data_json`.
+///
+/// The store keeps JSON for the nested stages and rules because they are read
+/// and written whole; `name`, `version` and `is_preset` are duplicated as
+/// columns only so a picker can render without decoding every row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredHarness {
+    /// Stable harness identifier.
+    pub id: String,
+    /// Definition schema version.
+    pub version: String,
+    /// Human-readable name.
+    pub name: String,
+    /// One-paragraph description.
+    pub description: String,
+    /// The serialised `HarnessDefinition`.
+    pub data_json: String,
+    /// True for the bundled presets, false for user-authored harnesses.
+    pub is_preset: bool,
+    /// When the row was created, in Unix seconds.
+    pub created_at: u64,
+}
+
+/// One skill row: the markdown pack, source and license as the store keeps them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredSkill {
+    /// Stable skill identifier.
+    pub id: String,
+    /// Human-readable name.
+    pub name: String,
+    /// One-line description.
+    pub description: String,
+    /// Upstream source, e.g. `github.com/obra/superpowers`.
+    pub source: String,
+    /// SPDX license tag of the upstream.
+    pub license: String,
+    /// The full markdown prompt body.
+    pub content: String,
+    /// Whether the skill is active for new runs.
+    pub enabled: bool,
+    /// Serialised `Vec<String>` of tags.
+    pub tags_json: String,
+}
+
+/// One MCP plugin pack row.
+///
+/// `args_json`, `env_json` and `tools_json` hold the serialised lists/maps so
+/// the row survives without a per-tool table; env values are keychain or
+/// config *references*, never secret material.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredPlugin {
+    /// Stable plugin identifier.
+    pub id: String,
+    /// Human-readable name.
+    pub name: String,
+    /// One-paragraph description.
+    pub description: String,
+    /// Transport kind, `stdio` or `http`.
+    pub transport: String,
+    /// Launch command for stdio transports; `None` for externally managed servers.
+    pub command: Option<String>,
+    /// Serialised argument list.
+    pub args_json: String,
+    /// Serialised environment reference map.
+    pub env_json: String,
+    /// Whether the pack is active for new runs.
+    pub enabled: bool,
+    /// Serialised tool list.
+    pub tools_json: String,
+    /// Upstream source of the pack.
+    pub source: String,
+}
+
+/// One user-registered custom model, keyed by `(provider, model_id)`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredCustomModel {
+    /// Provider the model belongs to.
+    pub provider: String,
+    /// Model id as the provider names it.
+    pub model_id: String,
+    /// Display label; `None` falls back to `model_id` in the UI.
+    pub display_name: Option<String>,
+    /// Declared context window in tokens.
+    pub context_window: Option<u32>,
+    /// Whether the model may be routed to.
+    pub enabled: bool,
+}
+
+/// One external integration row. `config_json` is the serialised
+/// `IntegrationConfig` as last written; secret-bearing fields inside it are
+/// the keychain's, so this column normally holds them as `null`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredIntegration {
+    /// Stable integration identifier, e.g. `github`.
+    pub id: String,
+    /// Human-readable name.
+    pub name: String,
+    /// Whether the integration currently connects.
+    pub connected: bool,
+    /// The serialised `IntegrationConfig`.
+    pub config_json: String,
+    /// When it was last configured, in Unix seconds; `None` until then.
+    pub configured_at: Option<u64>,
+}
+
+// ------------------------------------------------------------ value helpers
+
+/// A `u64` as the `INTEGER` SQLite stores, without wrapping a corrupt value into
+/// a negative one.
+pub(crate) fn sql_int(value: u64, field: &'static str) -> Result<i64> {
+    i64::try_from(value).map_err(|_| StoreError::CorruptId {
+        field,
+        value: value.to_string(),
+    })
+}
+
+/// A stored `INTEGER` read back as a `u32`; a negative or oversized value is
+/// corrupt data, not something to clamp.
+pub(crate) fn unsigned_u32(value: i64, field: &'static str) -> Result<u32> {
+    u32::try_from(value).map_err(|_| StoreError::CorruptId {
+        field,
+        value: value.to_string(),
+    })
+}
+
+/// A stored `INTEGER` read back as a `u64`.
+pub(crate) fn unsigned_u64(value: i64, field: &'static str) -> Result<u64> {
+    u64::try_from(value).map_err(|_| StoreError::CorruptId {
+        field,
+        value: value.to_string(),
+    })
+}
 
 /// The settings schema, exactly as the async migrator applies it.
 ///
@@ -139,7 +373,7 @@ impl SettingsRepo {
         .bind(&preference.key)
         .bind(preference.score)
         .bind(i64::from(preference.evidence_count))
-        .bind(crate::persistence::sql_int(
+        .bind(sql_int(
             preference.last_updated,
             "preferences.last_updated",
         )?)
@@ -258,7 +492,7 @@ impl SettingsRepo {
     pub async fn save_pairing(&self, pairing: &StoredPairing) -> Result<()> {
         let expires_at = pairing
             .expires_at
-            .map(|expires_at| crate::persistence::sql_int(expires_at, "pairing_devices.expires_at"))
+            .map(|expires_at| sql_int(expires_at, "pairing_devices.expires_at"))
             .transpose()?;
         sqlx::query(
             "INSERT INTO pairing_devices (device_id, secret, created_at, revoked, expires_at) \
@@ -269,10 +503,7 @@ impl SettingsRepo {
         )
         .bind(&pairing.device_id)
         .bind(&pairing.secret)
-        .bind(crate::persistence::sql_int(
-            pairing.created_at,
-            "pairing_devices.created_at",
-        )?)
+        .bind(sql_int(pairing.created_at, "pairing_devices.created_at")?)
         .bind(i64::from(pairing.revoked))
         .bind(expires_at)
         .execute(&self.pool)
@@ -325,7 +556,7 @@ impl SettingsRepo {
         .bind(&provider.kind)
         .bind(provider.api_base.as_deref())
         .bind(i64::from(provider.enabled))
-        .bind(crate::persistence::sql_int(
+        .bind(sql_int(
             provider.created_at,
             "configured_providers.created_at",
         )?)
@@ -384,7 +615,7 @@ impl SettingsRepo {
         .bind(&harness.description)
         .bind(&harness.data_json)
         .bind(i64::from(harness.is_preset))
-        .bind(crate::persistence::sql_int(
+        .bind(sql_int(
             harness.created_at,
             "harnesses.created_at",
         )?)
@@ -706,7 +937,7 @@ impl SettingsRepo {
     ) -> Result<()> {
         let configured_at = integration
             .configured_at
-            .map(|value| crate::persistence::sql_int(value, "integrations.configured_at"))
+            .map(|value| sql_int(value, "integrations.configured_at"))
             .transpose()?;
         sqlx::query(
             "INSERT INTO integrations (id, name, connected, config_json, configured_at) \

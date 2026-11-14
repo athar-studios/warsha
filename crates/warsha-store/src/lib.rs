@@ -4,11 +4,12 @@
 //! stores identifiers as their text/byte encodings described in
 //! `migrations/001_initial.sql`.
 //!
-//! The M20 settings-shaped rows (taste preferences, backend kits, run modes and
-//! phone pairings) live in the `persistence` module instead: one synchronous
-//! `rusqlite` connection in WAL mode, with its own idempotent migration. Both
-//! halves write the same SQLite file format; they differ in the API the caller
-//! wants, not in the database.
+//! The M20 settings-shaped rows (taste preferences, backend kits, run modes,
+//! phone pairings and the rest of the Wave 2 records) live in the `settings`
+//! module: [`SettingsRepo`], the same `sqlx` pool, and migration
+//! `006_settings.sql`. One file, one SQLite API, one native stack — the rules
+//! both halves used to need (WAL, a busy timeout, one migration owner) are the
+//! store's rules now.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -28,14 +29,12 @@ use warsha_core::{
     RunStatus, Stage, TokenUsage,
 };
 
-mod persistence;
 mod settings;
 
-pub use persistence::{
-    SqliteStore, StoredBackendKit, StoredCustomModel, StoredHarness, StoredIntegration,
+pub use settings::{
+    SettingsRepo, StoredBackendKit, StoredCustomModel, StoredHarness, StoredIntegration,
     StoredPairing, StoredPlugin, StoredPreference, StoredProvider, StoredRunMode, StoredSkill,
 };
-pub use settings::SettingsRepo;
 
 /// Errors raised by the persistence layer.
 #[derive(Debug, Error)]
@@ -85,10 +84,7 @@ pub enum StoreError {
     /// A stored column had an unexpected SQL type.
     #[error("unexpected column type for {0}")]
     UnexpectedType(&'static str),
-    /// Underlying SQLite failure from the synchronous [`SqliteStore`].
-    #[error("sqlite error: {0}")]
-    Sqlite(#[from] rusqlite::Error),
-    /// The path handed to [`SqliteStore::open`] is unusable.
+    /// The path handed to [`SettingsRepo::open`] is unusable.
     #[error("invalid database path: {0}")]
     InvalidPath(String),
     /// The database did not end up in WAL mode, so the store refused it.
@@ -220,9 +216,9 @@ impl Store {
         // `ON DELETE CASCADE` clauses in the migrations never fire.
         //
         // WAL and the five-second busy timeout are the settings repository's
-        // promises too (`persistence::SqliteStore::open`'s, before the two stacks
-        // became one): while both APIs write this file, a reader must not block
-        // the writer and a short lock must wait rather than fail the call.
+        // promises too (`SettingsRepo::open`): one file, read by the daemon's
+        // settings calls and written by its run handlers, so a reader must not
+        // block the writer and a short lock must wait rather than fail the call.
         let options = SqliteConnectOptions::new()
             .filename(&db_path)
             .create_if_missing(true)
@@ -1220,7 +1216,7 @@ mod tests {
         let store = temp_store().await;
         let settings = store.settings();
         settings
-            .save_provider(&persistence::StoredProvider {
+            .save_provider(&StoredProvider {
                 name: "open_router".to_string(),
                 kind: "open_router".to_string(),
                 api_base: None,

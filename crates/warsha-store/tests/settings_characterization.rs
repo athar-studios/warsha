@@ -1,14 +1,14 @@
-//! Characterization tests for the settings store (P-E7, step 1).
+//! Characterization tests for the settings store (P-E7).
 //!
-//! These tests pin the behaviour of the synchronous `rusqlite` `SqliteStore`
-//! *before* its rows move onto the async `sqlx` pool, so the migration has a
-//! specification rather than an intention. Every public method of the store has
-//! a case here, including the legacy-schema upgrade the pairing-expiry
-//! migration performs.
+//! These cases were written against the synchronous `rusqlite` `SqliteStore`
+//! *before* its rows moved onto the async `sqlx` pool, and they pinned the
+//! behaviour the migration had to preserve: every case ran against both
+//! implementations while both existed. The synchronous one is gone, so they are
+//! now the shipped specification of [`SettingsRepo`] — every method, including
+//! the legacy-schema upgrade the pairing-expiry column performs.
 //!
-//! The cases are written against the private [`SettingsOps`] seam, so the same
-//! case body can be run against a second implementation: a migration that
-//! answered differently would fail here instead of in the daemon.
+//! The cases are still written against the private [`SettingsOps`] seam: it costs
+//! one thin impl and keeps the case bodies implementation-agnostic.
 //!
 //! Only the SQLite file is touched, and only inside a temporary directory.
 
@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 
 use tempfile::TempDir;
 use warsha_store::{
-    SettingsRepo, SqliteStore, StoreError, StoredBackendKit, StoredCustomModel, StoredHarness,
+    SettingsRepo, StoreError, StoredBackendKit, StoredCustomModel, StoredHarness,
     StoredIntegration, StoredPairing, StoredPlugin, StoredPreference, StoredProvider,
     StoredRunMode, StoredSkill,
 };
@@ -208,204 +208,6 @@ trait SettingsOps: Sized {
     async fn load_integrations(&self) -> Result<Vec<StoredIntegration>, StoreError>;
     /// Delete one integration.
     async fn delete_integration(&self, id: &str) -> Result<bool, StoreError>;
-}
-
-impl SettingsOps for SqliteStore {
-    async fn open(path: &str) -> Result<Self, StoreError> {
-        SqliteStore::open(path)
-    }
-
-    async fn migrate(&self) -> Result<(), StoreError> {
-        SqliteStore::migrate(self)
-    }
-
-    async fn tables(&self) -> Result<Vec<String>, StoreError> {
-        SqliteStore::tables(self)
-    }
-
-    async fn journal_mode(&self) -> Result<String, StoreError> {
-        self.connection()
-            .query_row("PRAGMA journal_mode;", [], |row| row.get::<_, String>(0))
-            .map_err(|error| StoreError::Migration(error.to_string()))
-    }
-
-    async fn save_preference(&self, preference: &StoredPreference) -> Result<(), StoreError> {
-        SqliteStore::save_preference(self, preference)
-    }
-
-    async fn load_preferences(
-        &self,
-        project_id: &str,
-    ) -> Result<Vec<StoredPreference>, StoreError> {
-        SqliteStore::load_preferences(self, project_id)
-    }
-
-    async fn save_backend_kit(&self, kit: &StoredBackendKit) -> Result<(), StoreError> {
-        SqliteStore::save_backend_kit(self, kit)
-    }
-
-    async fn load_backend_kit(
-        &self,
-        project_id: &str,
-    ) -> Result<Option<StoredBackendKit>, StoreError> {
-        SqliteStore::load_backend_kit(self, project_id)
-    }
-
-    async fn save_run_mode(&self, config: &StoredRunMode) -> Result<(), StoreError> {
-        SqliteStore::save_run_mode(self, config)
-    }
-
-    async fn load_run_mode(&self, mode: &str) -> Result<Option<StoredRunMode>, StoreError> {
-        SqliteStore::load_run_mode(self, mode)
-    }
-
-    async fn save_pairing(&self, pairing: &StoredPairing) -> Result<(), StoreError> {
-        SqliteStore::save_pairing(self, pairing)
-    }
-
-    async fn load_pairings(&self) -> Result<Vec<StoredPairing>, StoreError> {
-        SqliteStore::load_pairings(self)
-    }
-
-    async fn save_provider(&self, provider: &StoredProvider) -> Result<(), StoreError> {
-        SqliteStore::save_provider(self, provider)
-    }
-
-    async fn load_provider(&self, name: &str) -> Result<Option<StoredProvider>, StoreError> {
-        SqliteStore::load_provider(self, name)
-    }
-
-    async fn load_providers(&self) -> Result<Vec<StoredProvider>, StoreError> {
-        SqliteStore::load_providers(self)
-    }
-
-    async fn delete_provider(&self, name: &str) -> Result<bool, StoreError> {
-        SqliteStore::delete_provider(self, name)
-    }
-
-    async fn save_harness(&self, harness: &StoredHarness) -> Result<(), StoreError> {
-        SqliteStore::save_harness(self, harness)
-    }
-
-    async fn load_harness(&self, id: &str) -> Result<Option<StoredHarness>, StoreError> {
-        SqliteStore::load_harness(self, id)
-    }
-
-    async fn load_harnesses(&self) -> Result<Vec<StoredHarness>, StoreError> {
-        SqliteStore::load_harnesses(self)
-    }
-
-    async fn delete_harness(&self, id: &str) -> Result<bool, StoreError> {
-        SqliteStore::delete_harness(self, id)
-    }
-
-    async fn set_active_harness(
-        &self,
-        project_id: &str,
-        harness_id: &str,
-    ) -> Result<(), StoreError> {
-        SqliteStore::set_active_harness(self, project_id, harness_id)
-    }
-
-    async fn get_active_harness(&self, project_id: &str) -> Result<Option<String>, StoreError> {
-        SqliteStore::get_active_harness(self, project_id)
-    }
-
-    async fn clear_active_harness(&self, project_id: &str) -> Result<bool, StoreError> {
-        SqliteStore::clear_active_harness(self, project_id)
-    }
-
-    async fn save_skill(&self, skill: &StoredSkill) -> Result<(), StoreError> {
-        SqliteStore::save_skill(self, skill)
-    }
-
-    async fn load_skill(&self, id: &str) -> Result<Option<StoredSkill>, StoreError> {
-        SqliteStore::load_skill(self, id)
-    }
-
-    async fn load_skills(&self) -> Result<Vec<StoredSkill>, StoreError> {
-        SqliteStore::load_skills(self)
-    }
-
-    async fn delete_skill(&self, id: &str) -> Result<bool, StoreError> {
-        SqliteStore::delete_skill(self, id)
-    }
-
-    async fn toggle_skill(&self, id: &str) -> Result<Option<bool>, StoreError> {
-        SqliteStore::toggle_skill(self, id)
-    }
-
-    async fn save_plugin(&self, plugin: &StoredPlugin) -> Result<(), StoreError> {
-        SqliteStore::save_plugin(self, plugin)
-    }
-
-    async fn load_plugin(&self, id: &str) -> Result<Option<StoredPlugin>, StoreError> {
-        SqliteStore::load_plugin(self, id)
-    }
-
-    async fn load_plugins(&self) -> Result<Vec<StoredPlugin>, StoreError> {
-        SqliteStore::load_plugins(self)
-    }
-
-    async fn delete_plugin(&self, id: &str) -> Result<bool, StoreError> {
-        SqliteStore::delete_plugin(self, id)
-    }
-
-    async fn toggle_plugin(&self, id: &str) -> Result<Option<bool>, StoreError> {
-        SqliteStore::toggle_plugin(self, id)
-    }
-
-    async fn save_custom_model(&self, model: &StoredCustomModel) -> Result<(), StoreError> {
-        SqliteStore::save_custom_model(self, model)
-    }
-
-    async fn load_custom_model(
-        &self,
-        provider: &str,
-        model_id: &str,
-    ) -> Result<Option<StoredCustomModel>, StoreError> {
-        SqliteStore::load_custom_model(self, provider, model_id)
-    }
-
-    async fn load_custom_models(&self) -> Result<Vec<StoredCustomModel>, StoreError> {
-        SqliteStore::load_custom_models(self)
-    }
-
-    async fn delete_custom_model(
-        &self,
-        provider: &str,
-        model_id: &str,
-    ) -> Result<bool, StoreError> {
-        SqliteStore::delete_custom_model(self, provider, model_id)
-    }
-
-    async fn toggle_custom_model(
-        &self,
-        provider: &str,
-        model_id: &str,
-    ) -> Result<Option<bool>, StoreError> {
-        SqliteStore::toggle_custom_model(self, provider, model_id)
-    }
-
-    async fn save_integration(
-        &self,
-        integration: &StoredIntegration,
-        config_json: Option<&str>,
-    ) -> Result<(), StoreError> {
-        SqliteStore::save_integration(self, integration, config_json)
-    }
-
-    async fn load_integration(&self, id: &str) -> Result<Option<StoredIntegration>, StoreError> {
-        SqliteStore::load_integration(self, id)
-    }
-
-    async fn load_integrations(&self) -> Result<Vec<StoredIntegration>, StoreError> {
-        SqliteStore::load_integrations(self)
-    }
-
-    async fn delete_integration(&self, id: &str) -> Result<bool, StoreError> {
-        SqliteStore::delete_integration(self, id)
-    }
 }
 
 impl SettingsOps for SettingsRepo {
@@ -1464,90 +1266,6 @@ async fn integration_crud_round_trip<S: SettingsOps>() {
         .expect("delete again"));
 }
 
-/// The two stacks write one file without a lock error (P-E7 step 4).
-///
-/// While the synchronous store still exists and the async repository is being
-/// adopted, a daemon can hold both over `warsha.db`. This proves the pair WAL +
-/// busy timeout both `open`s set is enough: alternating writes land, each side
-/// reads the other's row, and neither call fails with `database is locked`.
-#[tokio::test]
-async fn the_rusqlite_store_and_the_async_repository_share_one_file() {
-    let dir = fresh_tempdir();
-    let path = fresh_db(&dir);
-
-    let sqlite = SqliteStore::open(&path).expect("the synchronous store opens");
-    sqlite.migrate().expect("the synchronous schema is applied");
-    let repo = SettingsRepo::open(&path)
-        .await
-        .expect("the async repository opens the same file");
-    repo.migrate().await.expect("the async schema is applied");
-
-    // Alternating writes: each connection has to wait for the other's lock at
-    // some point, which is what the five-second busy timeout is there for.
-    for index in 0..20_u32 {
-        sqlite
-            .save_preference(&preference(
-                &format!("signal-{index}"),
-                1.0,
-                1,
-                1_700_000_000,
-            ))
-            .expect("the synchronous write lands");
-        repo.save_preference(&preference(
-            &format!("reply-{index}"),
-            1.0,
-            1,
-            1_700_000_000,
-        ))
-        .await
-        .expect("the async write lands");
-    }
-    assert_eq!(
-        sqlite
-            .load_preferences("project-1")
-            .expect("the synchronous read works")
-            .len(),
-        40
-    );
-    assert_eq!(
-        repo.load_preferences("project-1")
-            .await
-            .expect("the async read works")
-            .len(),
-        40
-    );
-
-    // Each implementation reads a row the other wrote.
-    repo.save_backend_kit(&StoredBackendKit {
-        project_id: "project-1".to_string(),
-        kind: "pocket_base".to_string(),
-        url: "http://127.0.0.1:8090".to_string(),
-        config_json: "{}".to_string(),
-    })
-    .await
-    .expect("the async kit write lands");
-    assert_eq!(
-        sqlite
-            .load_backend_kit("project-1")
-            .expect("the synchronous read works")
-            .map(|kit| kit.kind),
-        Some("pocket_base".to_string())
-    );
-    sqlite
-        .save_run_mode(&StoredRunMode {
-            mode: "local".to_string(),
-            config_json: "{\"mode\":\"local\"}".to_string(),
-        })
-        .expect("the synchronous mode write lands");
-    assert_eq!(
-        repo.load_run_mode("local")
-            .await
-            .expect("the async read works")
-            .map(|config| config.config_json),
-        Some("{\"mode\":\"local\"}".to_string())
-    );
-}
-
 /// The pairing secret never prints, whichever implementation stored the row.
 #[test]
 fn debug_redacts_the_pairing_secret() {
@@ -1605,7 +1323,7 @@ macro_rules! shared_cases {
     };
 }
 
-/// The case list, written once and expanded per implementation.
+/// The case list, written once and expanded per implementation (one today).
 macro_rules! every_case_for {
     ($module:ident, $backend:ty) => {
         shared_cases!($module, $backend;
@@ -1627,5 +1345,4 @@ macro_rules! every_case_for {
     };
 }
 
-every_case_for!(rusqlite_backend, SqliteStore);
 every_case_for!(settings_repo_backend, SettingsRepo);
