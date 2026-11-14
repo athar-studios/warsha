@@ -206,15 +206,21 @@ test.describe('Settings v3', () => {
     await expect(page.locator('[data-testid="settings-section-about"]')).toBeVisible();
   });
 
-  test('general settings journey: language, theme, mode, and default budget', async ({
+  test('general settings journey: language, theme, mode, default budget, and the sound-cue switch', async ({
     page,
   }) => {
     await openV3(page, '/settings/general', { lang: 'ar', theme: 'light', mode: 'simple' });
+
+    // R-UI-3 D2-b: one switch, off by default, named by the Arabic catalog.
+    const soundSwitch = page.locator('[data-action="settings.sound-cues.set"]');
+    await expect(page.getByRole('switch', { name: 'تنبيهات صوتية' })).toBeVisible();
+    await expect(soundSwitch).toHaveAttribute('aria-checked', 'false');
 
     await page
       .locator('[data-action="settings.language.set"][data-value="en"]')
       .click();
     await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
+    await expect(page.getByRole('switch', { name: 'Sound cues' })).toBeVisible();
 
     await page
       .locator('[data-action="settings.theme.set"][data-value="dark"]')
@@ -231,6 +237,18 @@ test.describe('Settings v3', () => {
     await act(page, 'settings.budget-default.save');
     await expectRpc(page, 'preferences.record');
     await expect(page.locator('.w-banner--success')).toBeVisible();
+
+    // R-UI-3 D2-c: the switch is device storage, not the preferences RPC — toggling it must not dial the
+    // daemon, and the stored key is the documented `warsha.sound_cues` = 'on'.
+    const callsBeforeToggle = (await rpcCalls(page)).length;
+    await soundSwitch.click();
+    await expect(soundSwitch).toHaveAttribute('aria-checked', 'true');
+    expect(await page.evaluate(() => window.localStorage.getItem('warsha.sound_cues'))).toBe('on');
+
+    await soundSwitch.click();
+    await expect(soundSwitch).toHaveAttribute('aria-checked', 'false');
+    expect(await page.evaluate(() => window.localStorage.getItem('warsha.sound_cues'))).toBeNull();
+    expect((await rpcCalls(page)).length).toBe(callsBeforeToggle);
   });
 
   test('models & providers journey: add provider, test, fetch models, remove provider, add custom model, remove model, save role', async ({

@@ -18,6 +18,7 @@ import { useClient } from '../../../app/ClientContext';
 import { useDataReady } from '../../../app/DataReadyContext';
 import { type AppMode, useDensity } from '../../../app/DensityContext';
 import { type ThemeMode, useTheme } from '../../../app/ThemeContext';
+import { readSoundCuesEnabled, writeSoundCuesEnabled } from '../../../app/soundCues';
 
 const DEFAULT_BUDGET_STORAGE_KEY = 'warsha.default_budget_usd';
 
@@ -49,6 +50,10 @@ export function GeneralSection(): React.ReactElement {
   const [budgetError, setBudgetError] = useState<string | null>(null);
   const [budgetSaved, setBudgetSaved] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
+  // R-UI-3 D2-c: device-scoped localStorage, exactly like the theme and the mode. It is not written to the
+  // preferences RPC, which stores decaying taste signals — a boolean there would silently decay to off (W11).
+  const [soundCuesEnabled, setSoundCuesEnabled] = useState<boolean>(() => readSoundCuesEnabled());
+  const soundCuesLabelId = React.useId();
 
   useEffect(() => {
     let active = true;
@@ -124,6 +129,11 @@ export function GeneralSection(): React.ReactElement {
 
   const handleThemeChange = (nextTheme: ThemeMode): void => {
     setTheme(nextTheme);
+  };
+
+  const handleSoundCuesChange = (nextEnabled: boolean): void => {
+    setSoundCuesEnabled(nextEnabled);
+    writeSoundCuesEnabled(nextEnabled);
   };
 
   const handleModeChange = (nextMode: AppMode): void => {
@@ -292,6 +302,85 @@ export function GeneralSection(): React.ReactElement {
           </div>
         }
       />
+
+      {/* R-UI-3 D2-b/D2-d: one switch, off by default. The cue never replaces a signal: the Frame inbox badge
+          and the run status chip stay exactly as they are. It is a hand-rolled `role="switch"` button for the same
+          reason the two radiogroups above are hand-rolled: the action gate (A1/A4) reads the literal `data-action`
+          off the interactive element, and the v3 `Switch` keeps its own button inside the composite. */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 'var(--w-space-3)',
+          paddingBlock: 'var(--w-space-3)',
+          paddingInline: 'var(--w-space-4)',
+          borderBlockEnd: 'var(--w-border-width) solid var(--w-line)',
+        }}
+      >
+        <div
+          style={{ display: 'flex', flexDirection: 'column', gap: 'var(--w-space-1)', minWidth: 0 }}
+        >
+          <span
+            id={soundCuesLabelId}
+            style={{
+              fontSize: 'var(--w-font-size-md)',
+              lineHeight: 'var(--w-line-height-md)',
+              color: 'var(--w-text)',
+            }}
+          >
+            {t('settings.general.sound')}
+          </span>
+          <span style={{ fontSize: 'var(--w-font-size-xs)', color: 'var(--w-text-muted)' }}>
+            {t('settings.general.sound.desc')}
+          </span>
+        </div>
+
+        <button
+          type="button"
+          role="switch"
+          aria-checked={soundCuesEnabled}
+          aria-labelledby={soundCuesLabelId}
+          data-action="settings.sound-cues.set"
+          data-testid="general-sound-cues"
+          onClick={() => handleSoundCuesChange(!soundCuesEnabled)}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            flexShrink: 0,
+            inlineSize: 'var(--w-space-9)',
+            blockSize: 'var(--w-space-6)',
+            padding: 'var(--w-space-1)',
+            borderRadius: 'var(--w-radius-full)',
+            border: 'var(--w-border-width) solid var(--w-line-strong)',
+            backgroundColor: soundCuesEnabled ? 'var(--w-primary)' : 'var(--w-sunken)',
+            cursor: 'pointer',
+            boxSizing: 'border-box',
+            transition: 'background-color var(--w-dur-fast) var(--w-ease)',
+          }}
+        >
+          <span
+            aria-hidden="true"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: soundCuesEnabled ? 'flex-end' : 'flex-start',
+              inlineSize: '100%',
+              blockSize: '100%',
+            }}
+          >
+            <span
+              style={{
+                display: 'block',
+                inlineSize: 'var(--w-space-4)',
+                blockSize: 'var(--w-space-4)',
+                borderRadius: 'var(--w-radius-full)',
+                backgroundColor: soundCuesEnabled ? 'var(--w-on-primary)' : 'var(--w-text-muted)',
+              }}
+            />
+          </span>
+        </button>
+      </div>
 
       <div
         style={{

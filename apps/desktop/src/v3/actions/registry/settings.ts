@@ -9,6 +9,8 @@ export const ACTIONS: readonly ActionDef[] = [
   { id: 'settings.language.set', labelKey: 'settings.general.language', effect: 'state' },
   { id: 'settings.theme.set', labelKey: 'settings.general.theme', effect: 'state' },
   { id: 'settings.mode-default.set', labelKey: 'settings.general.mode', effect: 'state' },
+  // R-UI-3 D2-b: the sound-cue switch. `state` because it writes device storage — no RPC (W11).
+  { id: 'settings.sound-cues.set', labelKey: 'settings.general.sound', effect: 'state' },
   {
     id: 'settings.budget-default.save',
     labelKey: 'settings.general.budget.save',
