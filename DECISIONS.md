@@ -1813,3 +1813,8 @@ reference `docs/designs/v3-preview.html`; run evidence `bridge-io/policy/2026-11
 - A8 (merged) already ruled `StoreRunLiveness` stays in lib.rs (read only by lib.rs-resident code). A0 moved exactly that item — contradicts merged state.
 - Grep proof: `HANDOFF_DIR`/`ACTIVE_HARNESS_GLOBAL_KEY` readers all live in lib.rs's trait impl (which stays per F1-a); zero external readers. No coupling benefit, only spec drift. An unmapped 12th module would fail Phase-2 map-vs-reality verification.
 - Disposition: branch `ph1-a0-helpers` (e6b1adc) NOT merged, left unmerged; A0 closes as stay-decision, no code change. Lesson: "stays" rows are verify-and-report; briefs must never invent targets, and workers must use isolated worktrees (A0 worked in the shared tree).
+
+## 2026-11-14 — P-H1 Stage B stays parked (F1-a stands, P-H1-RPC not justified now)
+- Stage A complete: lib.rs 16,072 → 3,178 (~5× token-cost cut — the packet's mission, delivered). Remaining lib.rs is the trait impl + facade, which F1-a explicitly keeps as one module.
+- F1-a (logged): "The `rpc/impl_server.rs` remainder becomes follow-up packet P-H1-RPC if justified — not now." No new evidence overrides this: the impl is one coherent trait, per-domain splits would add 7+ files for marginal agent-cost gain, and the queue (R-UI/R-EXT) is higher value.
+- Next: R-UI (P1·UI v3 remaining waves) then R-EXT (P2 items). Packets to be written.
