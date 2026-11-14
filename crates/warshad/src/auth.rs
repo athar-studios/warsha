@@ -24,10 +24,13 @@
 use serde::{Deserialize, Serialize};
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
+use thiserror::Error;
 use warsha_core::DeviceId;
 use warsha_pipeline::{PhonePairing, SHELL_COMMANDS};
 use warsha_remote::constant_time_eq;
 use warsha_remote::rate_limit::{Quota, RateLimiter, RefusalMeter};
+
+use super::SettingsError;
 
 /// What a caller is allowed to ask for.
 ///
@@ -1416,6 +1419,73 @@ pub mod rpc_codes {
     pub const RATE_LIMITED: i32 = -32004;
     /// A command or transport the daemon will not start.
     pub const POLICY_REFUSED: i32 = -32005;
+}
+
+// ================================ the session extensions and the daemon's error type
+
+/// The `&Extensions` a `with_extensions` RPC method is handed by jsonrpsee.
+///
+/// A verified [`Actor`] travels in it, put there by the transport after it checked
+/// the caller's credential.
+pub type RpcExtensions = jsonrpsee::server::Extensions;
+
+/// The request extensions a verified session carries, for a caller that drives the
+/// RPC surface in-process rather than over the wire.
+///
+/// Over HTTP and WebSocket an actor is *only* ever produced by the transport, after it
+/// has compared the bearer credential to the daemon's token and the live pairings;
+/// nothing a client sends can put one in a request. Building the extensions by hand is
+/// therefore an act of trust available to in-process code — the daemon's own tests, and
+/// an embedded host that already holds the state — and to nobody else.
+pub fn session_extensions(actor: Actor) -> RpcExtensions {
+    let mut ext = RpcExtensions::new();
+    ext.insert(actor);
+    ext
+}
+
+/// The extensions of the owner session for a daemon whose local device is
+/// `local_device` — the same actor the transport produces when the daemon's own token
+/// presents itself.
+pub fn owner_session(local_device: DeviceId) -> RpcExtensions {
+    session_extensions(Actor::owner(local_device))
+}
+
+/// The extensions of no session at all: what a request that never authenticated
+/// carries, and what every authorized method must refuse.
+pub fn anonymous_session() -> RpcExtensions {
+    RpcExtensions::new()
+}
+
+#[derive(Error, Debug)]
+pub enum DaemonError {
+    #[error("Store error: {0}")]
+    Store(#[from] warsha_store::StoreError),
+    #[error("Settings error: {0}")]
+    Settings(#[from] SettingsError),
+    #[error("Provider error: {0}")]
+    Provider(#[from] warsha_providers::ProviderError),
+    #[error("Pipeline error: {0}")]
+    Pipeline(#[from] warsha_pipeline::PipelineError),
+    #[error("Git error: {0}")]
+    Git(#[from] warsha_git::GitError),
+    #[error("Remote error: {0}")]
+    Remote(#[from] warsha_remote::RemoteError),
+    #[error("Config error: {0}")]
+    Config(String),
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("TOML decode error: {0}")]
+    TomlDecode(#[from] toml::de::Error),
+    #[error("TOML encode error: {0}")]
+    TomlEncode(#[from] toml::ser::Error),
+    #[error("Authentication failed")]
+    AuthFailed,
+    #[error("Keyring error: {0}")]
+    Keyring(#[from] keyring::Error),
+    #[error("Lock error: {0}")]
+    Lock(String),
+    #[error("Other: {0}")]
+    Other(String),
 }
 
 #[cfg(test)]
