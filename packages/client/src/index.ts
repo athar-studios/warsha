@@ -1811,20 +1811,29 @@ export class WarshaClient implements WarshaWiringApi, WarshaWave2Api {
   // from a screen: ask a turn, approve the mode that edits, and go back to the mode that
   // does not. There is no approver parameter on any of them, by the same rule the gates
   // follow: the daemon records the device its session authenticated as.
-  async agentTurn(input: string): Promise<AgentTurn> {
-    return this.rpc<AgentTurn>('agent.turn', { input });
+  async agentTurn(runId: string, input: string): Promise<AgentTurn> {
+    return this.rpc<AgentTurn>('agent.turn_run', { run_id: runId, input });
   }
 
-  async approveAgentMode(): Promise<AgentModeTransition> {
+  async approveAgentMode(runId?: string): Promise<AgentModeTransition> {
+    if (runId) {
+      return this.rpc<AgentModeTransition>('agent.approve_mode', { run_id: runId });
+    }
     return this.rpc<AgentModeTransition>('agent.approve_mode');
   }
 
-  async returnAgentToPlanMode(): Promise<AgentModeTransition> {
+  async returnAgentToPlanMode(runId?: string): Promise<AgentModeTransition> {
+    if (runId) {
+      return this.rpc<AgentModeTransition>('agent.plan_mode', { run_id: runId });
+    }
     return this.rpc<AgentModeTransition>('agent.plan_mode');
   }
 
   /** The mode, the approval history and the todos — including after a restart. */
-  async agentState(): Promise<AgentState> {
+  async agentState(runId?: string): Promise<AgentState> {
+    if (runId) {
+      return this.rpc<AgentState>('agent.state', { run_id: runId });
+    }
     return this.rpc<AgentState>('agent.state');
   }
 
