@@ -1501,6 +1501,250 @@ pub enum DaemonError {
     Other(String),
 }
 
+// ============================================ the RPC auth layer (P-H1 step A3)
+
+// Moved out of `lib.rs` unchanged: the tower layer, the origin check it refuses on,
+// and the two credential readers the `/events` subprotocol path needs. `lib.rs`
+// still names them, so they are `pub(crate)` here and imported at the crate root.
+
+use axum::http::header::AUTHORIZATION;
+use jsonrpsee::core::BoxError;
+use jsonrpsee::server::{HttpRequest, HttpResponse};
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
+use tower::Layer;
+use warsha_remote::rate_limit::rate_key;
+
+use super::DaemonState;
+
+/// Tower layer for RPC authentication and the ceiling in front of it.
+///
+/// Two jobs, in this order (security audit H-01, H-03, H-04):
+///
+/// - **Bound the transport first**, on the key the transport actually has: the
+///   authenticated identity when the credential resolved, and one shared bounded
+///   bucket when it did not. Measuring before the credential is judged is the point —
+///   a caller spraying tokens is spending its own budget, not the daemon's CPU.
+/// - **Say who is calling**, and put that in the request for the RPC methods to read.
+///   A method never learns the caller's identity from its own params; that is the
+///   whole of H-03 and half of H-04.
+///
+/// There is no per-peer-address key here: jsonrpsee's HTTP service does not put the
+/// accepted socket's address in the request it hands a middleware, and inventing one
+/// from a header would be trusting a value the caller writes. The address-keyed
+/// ceiling is on the daemon's own HTTP listener, where axum does supply it.
+#[derive(Clone)]
+pub(crate) struct RpcAuthLayer {
+    pub(crate) state: Arc<DaemonState>,
+}
+
+impl<S> Layer<S> for RpcAuthLayer {
+    type Service = RpcAuthService<S>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        RpcAuthService {
+            inner,
+            state: self.state.clone(),
+        }
+    }
+}
+
+/// The app's own origins: the desktop webview on Unix and on Windows. They are
+/// always allowed whatever a `config.toml` lists, because an existing config that
+/// predates one of them must not lock its own app out of the daemon.
+pub(crate) const APP_ORIGINS: &[&str] = &["tauri://localhost", "http://tauri.localhost"];
+
+/// Whether a present `Origin` is one the RPC listener accepts.
+pub(crate) fn origin_allowed(configured: &[String], origin: &str) -> bool {
+    APP_ORIGINS.contains(&origin) || configured.iter().any(|allowed| allowed == origin)
+}
+
+/// Tower service for RPC authentication.
+/// Mirrors the pattern used by jsonrpsee's own `HostFilter` middleware layer.
+#[derive(Clone)]
+pub(crate) struct RpcAuthService<S> {
+    pub(crate) inner: S,
+    pub(crate) state: Arc<DaemonState>,
+}
+
+/// The bearer token in a request's `Authorization` header, or an empty string.
+///
+/// An empty string is not a session: [`Sessions::resolve`] refuses it, and no caller
+/// that sends no header is answerable for the traffic of one that does.
+pub(crate) fn bearer_token(headers: &axum::http::HeaderMap) -> String {
+    headers
+        .get(AUTHORIZATION)
+        .and_then(|header| header.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// The one route that also reads a credential from the WebSocket subprotocol list.
+///
+/// A browser — and the desktop's webview — cannot set `Authorization` on a WebSocket
+/// handshake: the constructor takes a URL and a subprotocol list and nothing else.
+/// `/events` is the only place that has to know this, so it is the only place that does.
+pub(crate) const EVENTS_PATH: &str = "/events";
+
+/// The subprotocol prefix a `/events` caller carries its credential in.
+///
+/// The client's half of this string is `TOKEN_SUBPROTOCOL_PREFIX` in
+/// `packages/client/src/index.ts`; the two ends have to agree, and a live-daemon test
+/// (`crates/warshad/tests/events_ws_auth.rs`) is what pins that they do.
+pub(crate) const TOKEN_SUBPROTOCOL_PREFIX: &str = "warsha.token.";
+
+/// The `/events` data-plane subprotocol, and the only one the daemon ever *selects*.
+///
+/// It carries no secret, which is the whole reason it exists: RFC 6455 §1.9 has the
+/// server answer the handshake with one of the protocols the client offered, and the
+/// only other thing the client offers is its credential. Echoing that back would put
+/// the token on the response headers of every hop that reads them.
+pub(crate) const EVENTS_SUBPROTOCOL: &str = "warsha.events.v1";
+
+/// The credential in a `/events` caller's `Sec-WebSocket-Protocol` list, or an empty
+/// string when the list carries none.
+///
+/// One entry of the list is treated exactly as the `Authorization` header is: its
+/// remainder goes to [`Sessions::resolve`] and nothing else happens with it. Every
+/// offered protocol is a candidate, not just the first, because a client is free to
+/// offer the data-plane name before its credential. Multiple header lines are joined
+/// the way the transport joins them (`get_all`), and a value that is not UTF-8 simply
+/// carries no credential. An empty result is not a session —
+/// [`Sessions::resolve`] refuses it — so a caller that offers `warsha.token.` with
+/// nothing after the prefix is refused like a caller that offers nothing.
+///
+/// Nothing here reads the request URI: a token in the query string is not a credential
+/// this daemon will ever accept, because a URL is logged by every proxy, browser history
+/// and `Referer` between the caller and this listener.
+pub(crate) fn subprotocol_token(headers: &axum::http::HeaderMap) -> String {
+    headers
+        .get_all(axum::http::header::SEC_WEBSOCKET_PROTOCOL)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .find_map(|offered| offered.trim().strip_prefix(TOKEN_SUBPROTOCOL_PREFIX))
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// A refusal with a status and a body, on jsonrpsee's own response type.
+pub(crate) fn rpc_refusal(
+    status: axum::http::StatusCode,
+    body: serde_json::Value,
+    retry_after_secs: Option<u64>,
+) -> HttpResponse {
+    let mut response = jsonrpsee::server::http::response::ok_response(body.to_string());
+    *response.status_mut() = status;
+    response.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    if let Some(secs) = retry_after_secs {
+        response
+            .headers_mut()
+            .insert(axum::http::header::RETRY_AFTER, retry_after_header(secs));
+    }
+    response
+}
+
+/// The `Retry-After` value a bounded caller is answered with.
+///
+/// A number of seconds is always a representable header value, and a refusal that
+/// could not name its wait would be an invitation to retry at once — so the
+/// unreachable case says `1` rather than dropping the header.
+pub(crate) fn retry_after_header(secs: u64) -> axum::http::HeaderValue {
+    axum::http::HeaderValue::from_str(&secs.max(1).to_string())
+        .unwrap_or_else(|_| axum::http::HeaderValue::from_static("1"))
+}
+
+impl<S, B> tower::Service<HttpRequest<B>> for RpcAuthService<S>
+where
+    S: tower::Service<HttpRequest<B>, Response = HttpResponse> + Clone + Send + 'static,
+    S::Response: 'static,
+    S::Future: Send + 'static,
+    S::Error: Into<BoxError> + Send + 'static,
+    B: Send + 'static,
+{
+    type Response = S::Response;
+    type Error = BoxError;
+    type Future = Pin<
+        Box<dyn Future<Output = std::result::Result<Self::Response, Self::Error>> + Send + 'static>,
+    >;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<std::result::Result<(), Self::Error>> {
+        self.inner.poll_ready(cx).map_err(Into::into)
+    }
+
+    fn call(&mut self, req: HttpRequest<B>) -> Self::Future {
+        let state = self.state.clone();
+        let mut inner = self.inner.clone();
+        let token = bearer_token(req.headers());
+
+        Box::pin(async move {
+            // A browser sends `Origin` on cross-origin requests, including the
+            // WebSocket upgrade a CORS layer cannot gate: jsonrpsee would accept the
+            // handshake before CORS ever saw it. A present-but-unlisted Origin is
+            // refused before the credential is read; an absent Origin (CLI, tests,
+            // same-origin) is allowed exactly as before (security audit LOW: no Origin
+            // check on the RPC WS).
+            if let Some(origin) = req.headers().get(axum::http::header::ORIGIN) {
+                let allowed = origin
+                    .to_str()
+                    .ok()
+                    .is_some_and(|value| origin_allowed(&state.config.allowed_origins, value));
+                if !allowed {
+                    return Ok(rpc_refusal(
+                        axum::http::StatusCode::FORBIDDEN,
+                        serde_json::json!({ "error": "origin not allowed" }),
+                        None,
+                    ));
+                }
+            }
+
+            // The pairing store is read at the moment of the call, so revoking a
+            // device takes effect on its next request rather than at the next start.
+            let actor = state
+                .sessions
+                .resolve(&token, &state.active_pairings().await);
+            // No peer address is available on this transport, so an unauthenticated
+            // caller falls back to one shared bounded bucket rather than to none.
+            let key = rate_key(actor.as_ref().map(|actor| actor.key()), None);
+
+            let ceiling = state.rates.transport().check(&key);
+            if !ceiling.is_allowed() {
+                state.report_refusal("transport", &key);
+                return Ok(rpc_refusal(
+                    axum::http::StatusCode::TOO_MANY_REQUESTS,
+                    serde_json::json!({ "error": "rate limited" }),
+                    Some(ceiling.retry_after_secs()),
+                ));
+            }
+
+            let Some(actor) = actor else {
+                let mut response = rpc_refusal(
+                    axum::http::StatusCode::UNAUTHORIZED,
+                    serde_json::json!({ "error": "unauthorized" }),
+                    None,
+                );
+                response.headers_mut().insert(
+                    axum::http::header::WWW_AUTHENTICATE,
+                    axum::http::HeaderValue::from_static("Bearer"),
+                );
+                return Ok(response);
+            };
+
+            // The verified caller travels in the request's extensions, which is a
+            // value only this service can write: nothing on the wire reaches it.
+            let mut req = req;
+            req.extensions_mut().insert(actor);
+            inner.call(req).await.map_err(Into::into)
+        })
+    }
+}
+
 #[cfg(test)]
 #[path = "auth_tests.rs"]
 mod tests;
