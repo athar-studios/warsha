@@ -850,6 +850,16 @@ export interface OpenScreenOptions {
   config?: Record<string, string>;
   /** Replace the default `?screen=…` query, e.g. `''` to let the shell choose its own screen. */
   search?: string;
+  /**
+   * Which UI the shell starts on, appended to the search as `ui=`.
+   *
+   * R-BRIDGE-B4a made v3 the default, and this harness drives the **v2** shell: `?screen=` is the
+   * v2 address. So the default here is `'v2'` — the address cannot be left unset, because the
+   * clean start now opens v3 and every case would time out waiting for a v2 selector (measured:
+   * 793/793 failed with no `ui=`). `'v3'` is available for a case that wants the new shell; the v3
+   * suite's own `openV3` opens `?ui=v3` itself and does not come through here.
+   */
+  ui?: 'v2' | 'v3';
   /** Absolute origin for a page that has no `baseURL` (a context the test made itself). */
   origin?: string;
   /** How far to drive the first-run wizard; overrides the case's own `drive`. */
@@ -2131,6 +2141,18 @@ export async function installEventStub(
 }
 
 /**
+ * Add `ui=<ui>` to a `location.search` string, unless the case already names a UI.
+ *
+ * The search arrives as `?screen=…` or `''`, and the parameter is appended rather than rebuilt so a
+ * case's own query keeps its exact spelling and order.
+ */
+function withUiSearch(search: string, ui: 'v2' | 'v3'): string {
+  if (/(^|[?&])ui=/.test(search)) return search;
+  if (search === '') return `?ui=${ui}`;
+  return search.startsWith('?') ? `${search}&ui=${ui}` : `?${search}&ui=${ui}`;
+}
+
+/**
  * Open one screen in a deterministic browser state.
  *
  * @param page the page to drive
@@ -2169,7 +2191,10 @@ export async function openScreen(page: Page, options: OpenScreenOptions): Promis
   // which is what `auditUsedFonts` then proves. The app bundle carries no font bytes.
   await page.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
 
-  const search = options.search ?? screen.search ?? `?screen=${options.screen}`;
+  const search = withUiSearch(
+    options.search ?? screen.search ?? `?screen=${options.screen}`,
+    options.ui ?? 'v2'
+  );
   // The stubbed shell answers the three daemon keys like `src-tauri/src/lib.rs` does — the app
   // carries no defaults of its own — then the case's own preferences on top.
   const config = {
