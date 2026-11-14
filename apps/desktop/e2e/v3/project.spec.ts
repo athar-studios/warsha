@@ -473,7 +473,7 @@ test.describe('Project visual baselines (@visual)', () => {
                 state === 'error'
                   ? { 'projects.get': { error: 'Daemon offline' } }
                   : state === 'empty'
-                    ? { 'projects.get': { result: null } }
+                    ? { 'projects.get': { error: 'project not found: missing' } }
                     : state === 'failed'
                       ? {
                           'runs.list': {
