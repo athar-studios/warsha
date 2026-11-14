@@ -6720,3 +6720,7 @@ hypotheses left in this triage.
 ## Run 2026-11-14 — P-H1 A4 merged (state, incl. DaemonState)
 - **A4** (worker `fb6ab2b`, merged clean): `AppState`/`DaemonState`/`paired_device_is_active`/`McpPermissionRow`/`McpPermissionsReply` (275 lines) → state.rs (3 pub(crate) seams: fn + 2 methods — privacy-by-descent miss, same class expected in A8); auth.rs 1-line `DaemonState` path fix; api/events/http paths resolve via facade (all-targets check 0).
 - Fast gates on merged tree: fmt OK, clippy clean, warshad 298/0. lib.rs now 13,196 lines. A8 (rpc-core) unblocked — `state` was its last prerequisite.
+
+## Run 2026-11-14 — P-H1 A8 merged (rpc-core hub)
+- **A8** (worker `32d749a`, merged clean): rpc-core 767 lines → rpc/mod.rs (byte-identical body, 738/738; 31 pub(crate) = 7 items + 21 methods + 3 fields — fields are the privacy-by-descent gap, map counted 0); runtime.rs +9 (A7-orphaned doc restored); `now_epoch_secs` reachable via facade.
+- Full gates on merged tree: fmt OK, clippy `-D warnings` clean, warshad 298/0, wire 11/0. lib.rs now 12,464 lines. Stage A hub done — remaining: A0 (helpers), A9 (startup), A10 (tests).
