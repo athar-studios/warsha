@@ -6707,3 +6707,6 @@ hypotheses left in this triage.
 ## Run 2026-11-14 — P-H1 A5 salvaged+merged; A3 re-dispatched
 - **A5 (events-socket)**: worker settled with no report/commit but left move-shaped residue (lib.rs −339/+4, events.rs +350/−1). PM-verified salvage: fmt OK, clippy `-D warnings` clean, warshad 298/0 (unchanged count), api→events edge resolves via intact `pub use events::{... RunStreamSync ...}`. Committed as `d560c35`. lib.rs now 14,729 lines (was 16,072 at P1 start).
 - **A3 (auth-layer)**: first attempt produced nothing (no commit, no residue) → concluded needs-attention, re-dispatched from `d560c35` with must-commit rule (red commit + named failing gate beats missing work).
+
+## Run 2026-11-14 — P-H1 A3 merged (auth-layer)
+- **A3** (worker `80d9cc5`, merged clean — no conflicts): auth-layer 225 lines → auth.rs:1522–1746 (14 pub(crate) seam insertions incl. 3 struct fields the map didn't count; rest byte-identical). Fast gates on merged tree: fmt OK, clippy `-D warnings` clean, warshad 298/0. lib.rs now 14,512 lines. Forward notes: auth.rs takes `use super::DaemonState` until A4 lands (then 1-line path fix); A5's orphan `/end event stream` banner left as debris for a later step.
