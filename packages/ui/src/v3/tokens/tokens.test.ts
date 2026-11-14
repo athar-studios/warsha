@@ -284,7 +284,7 @@ describe('motion has a reduced-motion counterpart (R-UI-3 D1-f)', () => {
     // The two one-shot entrances and the stepper marker are declared here; the three loops are declared
     // inline by Spinner/Skeleton/ProgressBar, so their selectors are asserted by name below.
     expect(animated).toEqual(
-      expect.arrayContaining(['.w-sheet', '.w-sheet-scrim', '.w-stepper__bar[data-state="done"]'])
+      expect.arrayContaining(['.w-sheet', '.w-sheet-scrim', ".w-stepper__bar[data-state='done']"])
     );
 
     const animationCoverage = reducedSelectors('animation');

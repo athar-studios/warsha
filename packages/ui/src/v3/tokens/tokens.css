@@ -195,7 +195,7 @@
   --w-sheet-from: 100%;
 }
 
-[dir="rtl"] {
+[dir='rtl'] {
   --w-inline-sign: -1;
 }
 
@@ -267,11 +267,11 @@
   --w-sheet-from: -100%;
 }
 
-[dir="rtl"] .w-sheet--end {
+[dir='rtl'] .w-sheet--end {
   --w-sheet-from: -100%;
 }
 
-[dir="rtl"] .w-sheet--start {
+[dir='rtl'] .w-sheet--start {
   --w-sheet-from: 100%;
 }
 
@@ -287,7 +287,7 @@
   }
 }
 
-.w-stepper__bar[data-state="done"] {
+.w-stepper__bar[data-state='done'] {
   animation: w-step-done var(--w-dur) var(--w-ease);
 }
 
@@ -320,7 +320,7 @@
   .w-progress-bar__fill,
   .w-sheet,
   .w-sheet-scrim,
-  .w-stepper__bar[data-state="done"] {
+  .w-stepper__bar[data-state='done'] {
     animation: none !important;
   }
 

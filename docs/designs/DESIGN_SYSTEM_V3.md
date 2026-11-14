@@ -93,15 +93,15 @@ Rules:
   matches the Linux capture host's pinned Plex). `THIRD_PARTY_NOTICES.md` gets the OFL row.
 - Scale (rem size / unitless line-height; the px column is the equivalent at the default 16px root):
 
-| Token | Size / LH | At 16px root | Weight | Use |
-| --- | --- | --- | --- | --- |
-| `text-xs` | 0.75rem / 1.6 | 12 / 19.2 | 500 | meta, badges |
-| `text-sm` | 0.875rem / 1.65 | 14 / 23.1 | 400 | secondary text, dense tables (Advanced) |
-| `text-md` | 1rem / 1.6 | 16 / 25.6 | 400 | body (Simple default) |
-| `text-lg` | 1.125rem / 1.6 | 18 / 28.8 | 500 | card titles, composer input |
-| `text-xl` | 1.375rem / 1.55 | 22 / 34.1 | 600 | page section titles |
-| `text-2xl` | 1.75rem / 1.5 | 28 / 42 | 700 | page titles |
-| `text-3xl` | 2.25rem / 1.4 | 36 / 50.4 | 700 | page titles, Home greeting |
+| Token      | Size / LH       | At 16px root | Weight | Use                                     |
+| ---------- | --------------- | ------------ | ------ | --------------------------------------- |
+| `text-xs`  | 0.75rem / 1.6   | 12 / 19.2    | 500    | meta, badges                            |
+| `text-sm`  | 0.875rem / 1.65 | 14 / 23.1    | 400    | secondary text, dense tables (Advanced) |
+| `text-md`  | 1rem / 1.6      | 16 / 25.6    | 400    | body (Simple default)                   |
+| `text-lg`  | 1.125rem / 1.6  | 18 / 28.8    | 500    | card titles, composer input             |
+| `text-xl`  | 1.375rem / 1.55 | 22 / 34.1    | 600    | page section titles                     |
+| `text-2xl` | 1.75rem / 1.5   | 28 / 42      | 700    | page titles                             |
+| `text-3xl` | 2.25rem / 1.4   | 36 / 50.4    | 700    | page titles, Home greeting              |
 
 - Sizes are rem so they follow the user's root font size; line heights are unitless so the ratio inherits
   (`--w-font-size-*`/`--w-line-height-*` carry no px). `tokens/type.ts` is the source of truth and
