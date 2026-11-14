@@ -193,7 +193,7 @@ describe('vocalised Arabic sample (R-UI-3 D3-d)', () => {
     return found as Element;
   }
 
-  it('Card, DecisionCard and SettingsSection titles clear the diacritic stack in a two-line column', () => {
+  it('Card, DecisionCard, SettingsSection and page titles clear the diacritic stack in a two-line column', () => {
     // A narrow column — 15 × the 16px body size at the default root — written on the token, so the v3
     // length-literal lint stays honest about where a size may come from.
     const { container } = render(
@@ -210,6 +210,18 @@ describe('vocalised Arabic sample (R-UI-3 D3-d)', () => {
           rejectLabel="رفض"
         />
         <SettingsSection title={VOCALISED}>المحتوى</SettingsSection>
+        {/* D3-d/T2: the page-title class, at the declarations the app ships for `.v3-projects-title`.
+            `V3App.test.tsx` proves that class still names these two tokens. */}
+        <h1
+          className="v3-projects-title"
+          style={{
+            fontSize: 'var(--w-font-size-3xl)',
+            lineHeight: 'var(--w-line-height-3xl)',
+            marginBlock: 0,
+          }}
+        >
+          {VOCALISED}
+        </h1>
       </div>
     );
 
@@ -220,5 +232,6 @@ describe('vocalised Arabic sample (R-UI-3 D3-d)', () => {
     measure('DecisionCard title', sample(container, 'h2'));
     measure('DecisionCard rationale', sample(container, 'p'));
     measure('SettingsSection title', sample(container, 'h3'));
+    measure('page title', sample(container, 'h1.v3-projects-title'));
   });
 });
