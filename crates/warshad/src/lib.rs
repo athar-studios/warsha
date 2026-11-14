@@ -6176,12 +6176,18 @@ mod tests {
         // The source-level guard: exactly one format string each, in the production part of
         // the crate. The duplicate this batch removed was a second call site in
         // `run_daemon`, and a second call site is exactly what this catches — the runtime
-        // count above only sees the one start this test performed.
-        let source = include_str!("lib.rs");
-        let production = source
-            .split("#[cfg(test)]")
-            .next()
-            .expect("the crate has a test module to exclude");
+        // count above only sees the one start this test performed. P-H1 moved the listener
+        // owner to `startup.rs`, so the guard scans both production parts (path seam only;
+        // the one-owner assertion is unchanged).
+        let production = [include_str!("lib.rs"), include_str!("startup.rs")]
+            .into_iter()
+            .map(|source| {
+                source
+                    .split("#[cfg(test)]")
+                    .next()
+                    .expect("the crate has a test module to exclude")
+            })
+            .collect::<String>();
         for shape in ["HTTP server listening on", "JSON-RPC server listening on"] {
             let sites = production
                 .lines()
