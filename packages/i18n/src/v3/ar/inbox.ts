@@ -16,4 +16,16 @@ export default {
   'inbox.decision_sheet_title': 'تفاصيل القرار',
   'inbox.decision_eyebrow': 'قرار ينتظرك',
   'inbox.waiting_count': '{count} من القرارات بانتظارك',
+
+  'inbox.mcp.badge': 'طلب أداة MCP',
+  'inbox.mcp.role_label': 'الدور: {role}',
+  'inbox.mcp.summary_label': 'معاينة منقّحة',
+  'inbox.mcp.summary_empty': 'لم تُعرض أي وسائط مع الطلب.',
+  'inbox.mcp.list_failed': 'تعذّر تحميل طلبات MCP المعلّقة؛ قد توجد طلبات لا تظهر هنا.',
+  'inbox.mcp.allow_once': 'السماح مرة واحدة',
+  'inbox.mcp.allow_always': 'السماح دائمًا',
+  'inbox.mcp.deny': 'رفض',
+  'inbox.mcp.allow_once_done': 'تم السماح مرة واحدة؛ ينتهي التصريح بعد أول استخدام.',
+  'inbox.mcp.allow_always_done': 'حُفظ الإذن: ستُسمح هذه الأداة دون سؤال.',
+  'inbox.mcp.deny_done': 'حُفظ الإذن: هذه الأداة مرفوضة.',
 };

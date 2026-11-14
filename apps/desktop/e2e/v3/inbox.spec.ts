@@ -202,6 +202,161 @@ test.describe('Inbox action ids', () => {
 });
 
 // ---------------------------------------------------------------------------
+// MCP approvals and permissions (R-BRIDGE-B3b)
+// ---------------------------------------------------------------------------
+
+const MCP_APPROVAL_FIXTURE = {
+  id: 'mcp-approval-1',
+  run_id: 'run-gate-a',
+  server: 'github',
+  tool: 'create_issue',
+  role: 'agent',
+  summary: '{title: "Bug", body: [120 chars]}',
+  requested_at: '2026-10-05T07:05:00.000Z',
+} as const;
+
+/**
+ * A stub that remembers the one question it was asked.
+ *
+ * The reads answer from the closure, and `allow_once` empties it: that is what the daemon does
+ * (B3a resolves the pending entry when the owner answers), and it is the only way the case can
+ * assert the row *left* instead of a fixture that keeps re-serving the question.
+ */
+function mcpApprovalCase(): {
+  fixtures: {
+    'gates.list': { result: unknown[] };
+    'mcp.approvals.list': { result: () => unknown };
+    'mcp.approvals.allow_once': { result: (params: unknown) => unknown };
+  };
+} {
+  let pending: readonly unknown[] = [MCP_APPROVAL_FIXTURE];
+  return {
+    fixtures: {
+      // No waiting gate either: the MCP ask is the whole queue, so the end state is the empty
+      // state and it is reached only by answering the question.
+      'gates.list': { result: [] },
+      'mcp.approvals.list': { result: () => pending },
+      'mcp.approvals.allow_once': {
+        result: (params: unknown) => {
+          pending = [];
+          const id = (params as { id?: string } | undefined)?.id ?? '';
+          return {
+            id,
+            run_id: 'run-gate-a',
+            server: 'github',
+            tool: 'create_issue',
+            role: 'agent',
+            granted_by: 'dev-laptop',
+            expires_at: '2026-10-05T07:25:00.000Z',
+          };
+        },
+      },
+    },
+  };
+}
+
+test.describe('Inbox MCP approvals', () => {
+  test('renders a pending MCP ask and collects it through mcp.approvals.allow_once', async ({
+    page,
+  }) => {
+    const { fixtures } = mcpApprovalCase();
+    await openV3(page, '/inbox', { lang: 'en', mode: 'simple', fixtures });
+
+    const row = page.locator('[data-testid="inbox-row-mcp-approval-1"]');
+    await expect(row).toBeVisible();
+    await expect(row).toContainText('github');
+    await expect(row).toContainText('create_issue');
+    await expect(row).toContainText('Role: agent');
+    // The summary is shown under the literal label, never as the call's arguments.
+    await expect(row).toContainText('redacted preview');
+    await expect(page.locator('[data-testid="inbox-mcp-summary-mcp-approval-1"]')).toContainText(
+      'body: [120 chars]'
+    );
+
+    await act(page, 'inbox.mcp.allow_once');
+    await expectRpc(page, 'mcp.approvals.allow_once', { id: 'mcp-approval-1' });
+
+    // Answered questions leave the list because the daemon answered, not because the screen hid it.
+    await expect(page.locator('[data-testid="inbox-row-mcp-approval-1"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="inbox-empty"]')).toBeVisible();
+  });
+
+  test('MCP ask row is axe AA clean and keyboard complete in en light @a11y', async ({ page }) => {
+    const { fixtures } = mcpApprovalCase();
+    await openV3(page, '/inbox', { lang: 'en', theme: 'light', mode: 'simple', fixtures });
+
+    const axe = await runAxe(page);
+    expect(axe.violations, `axe found WCAG AA violations:\n${describeAxe(axe)}`).toEqual([]);
+
+    const seenActions = new Set<string>();
+    for (let i = 0; i < 20; i += 1) {
+      await page.keyboard.press('Tab');
+      const action = await page.evaluate(
+        () => document.activeElement?.getAttribute('data-action') ?? ''
+      );
+      if (action) seenActions.add(action);
+    }
+    expect(seenActions.has('inbox.mcp.allow_once')).toBe(true);
+    expect(seenActions.has('inbox.mcp.allow_always')).toBe(true);
+    expect(seenActions.has('inbox.mcp.deny')).toBe(true);
+
+    const focus = await auditFocusWalk(page);
+    expect(focusIsClean(focus), `focus walk issues:\n${describeFocus(focus)}`).toBe(true);
+  });
+});
+
+test.describe('Settings MCP permissions', () => {
+  test('revoking a stored permission writes the fail-closed default and changes the table', async ({
+    page,
+  }) => {
+    let permission: 'allow' | 'ask' = 'allow';
+    await openV3(page, '/settings/mcp', {
+      lang: 'en',
+      mode: 'advanced',
+      fixtures: {
+        'mcp.permissions.list': {
+          result: () => ({
+            rows: [{ server: 'github', tool: 'create_issue', role: 'agent', permission }],
+            agent_role: 'agent',
+            default_permission: 'ask',
+          }),
+        },
+        'mcp.permissions.set': {
+          result: (params: unknown) => {
+            const next = params as Record<string, string>;
+            permission = next['permission'] === 'allow' ? 'allow' : 'ask';
+            return {
+              server: next['server'],
+              tool: next['tool'],
+              role: next['role'],
+              permission: next['permission'],
+            };
+          },
+        },
+      },
+    });
+
+    const tableRow = page.locator(
+      '[data-testid="mcp-permission-row-github::create_issue::agent"]'
+    );
+    await expect(tableRow).toBeVisible();
+    await expect(tableRow).toContainText('Allowed');
+
+    await act(page, 'settings.mcp.revoke');
+    await expectRpc(page, 'mcp.permissions.set', {
+      server: 'github',
+      tool: 'create_issue',
+      role: 'agent',
+      permission: 'ask',
+    });
+
+    // The table changed: the pill now reads the fail-closed default, and nothing is left to revoke.
+    await expect(tableRow).toContainText('Asks first');
+    await expect(page.locator('[data-action="settings.mcp.revoke"]')).toHaveCount(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Accessibility and Keyboard (@a11y)
 // ---------------------------------------------------------------------------
 

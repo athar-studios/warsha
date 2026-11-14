@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type {
   GateSummary,
+  McpApproval,
   ProjectId,
   ProjectSummary,
   RunId,
@@ -19,11 +20,13 @@ import { DensityProvider } from '../../app/DensityContext';
 import { RouterProvider } from '../../router';
 
 import InboxPage, {
+  collectMcpItems,
   collectPendingDecisions,
   extractGateCode,
   findPendingGateAtCurrentStage,
   formatTime24,
   isRunEndingEnabled,
+  mergeInboxItems,
 } from './index';
 
 function ReadyInspector(): React.ReactElement {
@@ -63,6 +66,16 @@ const AWAITING_GATE_RUN: RunSummary = {
   updatedAt: '2026-10-04T09:30:00.000Z',
 };
 
+const MCP_APPROVAL: McpApproval = {
+  id: 'mcp-approval-1',
+  runId: 'run-1',
+  server: 'github',
+  tool: 'create_issue',
+  role: 'agent',
+  summary: '{title: "Bug", body: [120 chars]}',
+  requestedAt: '2026-10-05T09:00:00.000Z',
+};
+
 const ALL_PENDING_GATES: GateSummary[] = [
   { stage: 'gate_a', state: { state: 'pending' } },
   { stage: 'gate_b', state: { state: 'pending' } },
@@ -84,6 +97,19 @@ function createMockClient(overrides: Partial<Record<string, unknown>> = {}): War
     advanceRun: vi.fn().mockResolvedValue({ ...AWAITING_GATE_RUN, stage: 'research', status: 'running' }),
     requestChanges: vi.fn().mockResolvedValue(undefined),
     rejectGate: vi.fn().mockResolvedValue(undefined),
+    mcpApprovalsList: vi.fn().mockResolvedValue([]),
+    mcpAllowOnce: vi.fn().mockResolvedValue({
+      id: 'mcp-approval-1',
+      runId: 'run-1',
+      server: 'github',
+      tool: 'create_issue',
+      role: 'agent',
+      grantedBy: 'dev-laptop',
+      expiresAt: '2026-10-05T09:10:00.000Z',
+    }),
+    mcpPermissionsSet: vi.fn().mockImplementation((server: string, tool: string, role: string, permission: string) =>
+      Promise.resolve({ server, tool, role, permission })
+    ),
     ...overrides,
   } as unknown as WarshaClient;
 }
@@ -380,5 +406,174 @@ describe('InboxPage component journeys and states', () => {
     await waitFor(() => {
       expect(client.rejectGate).toHaveBeenCalledWith('run-gate-a', 'gate_a', 'Out of scope');
     });
+  });
+});
+
+describe('Inbox MCP approvals (R-BRIDGE-B3b)', () => {
+  function mcpClient(overrides: Partial<Record<string, unknown>> = {}): WarshaClient {
+    return createMockClient({
+      // No waiting gates: every assertion below is about the MCP lane alone.
+      listProjects: vi.fn().mockResolvedValue([PROJ_1]),
+      listRuns: vi.fn().mockResolvedValue([RUNNING_RUN]),
+      getGates: vi.fn().mockResolvedValue([]),
+      mcpApprovalsList: vi.fn().mockResolvedValue([MCP_APPROVAL]),
+      ...overrides,
+    });
+  }
+
+  it('collectMcpItems and mergeInboxItems put an MCP ask on the same list, newest first', () => {
+    const mcpItems = collectMcpItems([MCP_APPROVAL]);
+    expect(mcpItems).toHaveLength(1);
+    expect(mcpItems[0]).toMatchObject({
+      kind: 'mcp',
+      id: 'mcp-approval-1',
+      server: 'github',
+      tool: 'create_issue',
+      role: 'agent',
+      summary: '{title: "Bug", body: [120 chars]}',
+      updatedAt: '2026-10-05T09:00:00.000Z',
+    });
+
+    const gateItem = {
+      kind: 'gate' as const,
+      id: 'proj-2-run-gate-a-gate_a',
+      projectId: 'proj-2' as ProjectId,
+      projectName: 'Warsha Store',
+      runId: 'run-gate-a' as RunId,
+      runStage: 'gate_a' as const,
+      gateStage: 'gate_a' as const,
+      updatedAt: '2026-10-04T09:30:00.000Z',
+    };
+    const merged = mergeInboxItems([gateItem], mcpItems);
+    expect(merged).toHaveLength(2);
+    // The MCP ask is newer, so it leads the one list the badge and the empty state read.
+    expect(merged[0].id).toBe('mcp-approval-1');
+    expect(merged[1].id).toBe(gateItem.id);
+  });
+
+  it('renders server, tool, role and the summary under the "redacted preview" label', async () => {
+    renderInbox(mcpClient());
+
+    await waitFor(() => {
+      expect(screen.getByTestId('inbox-ready')).toBeDefined();
+    });
+
+    const row = screen.getByTestId('inbox-row-mcp-approval-1');
+    expect(row.textContent).toContain('github');
+    expect(row.textContent).toContain('create_issue');
+    expect(screen.getByText('Role: agent')).toBeDefined();
+    // The label is literal: the summary is a preview, not the call's arguments (B3a O8).
+    expect(screen.getByText('redacted preview')).toBeDefined();
+    expect(screen.getByTestId('inbox-mcp-summary-mcp-approval-1').textContent).toBe(
+      '{title: "Bug", body: [120 chars]}'
+    );
+  });
+
+  it('counts an MCP ask in the total badge and keeps the page out of the empty state', async () => {
+    renderInbox(mcpClient());
+
+    await waitFor(() => {
+      expect(screen.getByTestId('inbox-ready')).toBeDefined();
+    });
+
+    expect(screen.queryByTestId('inbox-empty')).toBeNull();
+    expect(screen.getByTestId('inbox-total-badge').textContent).toContain('1');
+  });
+
+  it('shows the empty state only when both collectors are empty', async () => {
+    renderInbox(
+      createMockClient({
+        listProjects: vi.fn().mockResolvedValue([PROJ_1]),
+        listRuns: vi.fn().mockResolvedValue([RUNNING_RUN]),
+        getGates: vi.fn().mockResolvedValue([]),
+        mcpApprovalsList: vi.fn().mockResolvedValue([]),
+      })
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('inbox-empty')).toBeDefined();
+    });
+  });
+
+  it('answers one ask with inbox.mcp.allow_once, calling mcpAllowOnce with that id only', async () => {
+    const client = mcpClient();
+    renderInbox(client);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('inbox-row-mcp-approval-1')).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Allow once/i }));
+
+    await waitFor(() => {
+      expect(client.mcpAllowOnce).toHaveBeenCalledWith('mcp-approval-1');
+    });
+    expect(client.mcpPermissionsSet).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(screen.queryByTestId('inbox-row-mcp-approval-1')).toBeNull();
+    });
+  });
+
+  it('saves a standing allow through mcp.permissions.set with server, tool, role and "allow"', async () => {
+    const client = mcpClient();
+    renderInbox(client);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('inbox-row-mcp-approval-1')).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Always allow/i }));
+
+    await waitFor(() => {
+      expect(client.mcpPermissionsSet).toHaveBeenCalledWith('github', 'create_issue', 'agent', 'allow');
+    });
+    expect(client.mcpAllowOnce).not.toHaveBeenCalled();
+  });
+
+  it('denies through mcp.permissions.set with the same row and "deny"', async () => {
+    const client = mcpClient();
+    renderInbox(client);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('inbox-row-mcp-approval-1')).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /^Deny$/i }));
+
+    await waitFor(() => {
+      expect(client.mcpPermissionsSet).toHaveBeenCalledWith('github', 'create_issue', 'agent', 'deny');
+    });
+    expect(client.mcpAllowOnce).not.toHaveBeenCalled();
+  });
+
+  it('reports a failed mcp.approvals.list beside the list instead of claiming nothing waits', async () => {
+    renderInbox(
+      mcpClient({ mcpApprovalsList: vi.fn().mockRejectedValue(new Error('no approvals surface')) })
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('inbox-empty')).toBeDefined();
+    });
+    expect(screen.getByTestId('inbox-mcp-list-failed').textContent).toContain(
+      'The pending MCP asks could not be loaded'
+    );
+  });
+
+  it('renders a gate and an MCP ask together, each with its own actions', async () => {
+    const client = createMockClient({
+      mcpApprovalsList: vi.fn().mockResolvedValue([MCP_APPROVAL]),
+    });
+    renderInbox(client);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('inbox-ready')).toBeDefined();
+    });
+
+    // The failing-gates fixture leaves proj-store's gate waiting next to the MCP ask.
+    expect(screen.getByTestId('inbox-row-proj-2-run-gate-a-gate_a')).toBeDefined();
+    expect(screen.getByTestId('inbox-row-mcp-approval-1')).toBeDefined();
+    expect(screen.getByTestId('inbox-total-badge').textContent).toContain('2');
+    expect(screen.getAllByRole('button', { name: /Approve and continue/i }).length).toBe(1);
+    expect(screen.getByRole('button', { name: /Allow once/i })).toBeDefined();
   });
 });

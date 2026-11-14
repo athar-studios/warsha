@@ -1,5 +1,6 @@
 import type {
   GateSummary,
+  McpApproval,
   ProjectId,
   ProjectSummary,
   RunId,
@@ -17,6 +18,7 @@ import {
   IconCheck,
   IconExternal,
   IconInbox,
+  IconPlug,
   IconRefresh,
   ListRow,
   Sheet,
@@ -40,7 +42,13 @@ import { useNavigate } from '../../router';
 
 import './inbox.css';
 
+/**
+ * One waiting gate decision. `kind` is the discriminator the list, the empty state and the
+ * total badge read: the Inbox holds two kinds of question since R-BRIDGE-B3b, and a screen
+ * that assumed "decision" meant "gate" cannot answer an MCP ask.
+ */
 export interface InboxDecisionItem {
+  kind: 'gate';
   id: string;
   projectId: ProjectId;
   projectName: string;
@@ -49,6 +57,28 @@ export interface InboxDecisionItem {
   gateStage: Stage;
   updatedAt: string;
 }
+
+/**
+ * One MCP tool call waiting for the owner's answer (`warshad::McpApproval`).
+ *
+ * `summary` arrives from the daemon already bounded and redacted, and is shown under the
+ * literal label "redacted preview": a value that is not key-named, not schema-marked and not
+ * token-shaped cannot be recognised by any redactor (B3a O8), so the list must not read as an
+ * exhaustive account of the call's arguments.
+ */
+export interface InboxMcpItem {
+  kind: 'mcp';
+  id: string;
+  runId: RunId;
+  server: string;
+  tool: string;
+  role: string;
+  summary: string;
+  requestedAt: string;
+  updatedAt: string;
+}
+
+export type InboxItem = InboxDecisionItem | InboxMcpItem;
 
 export function extractGateCode(stage: string): 'a' | 'b' | 'c' | 'd' {
   if (stage === 'gate_a') return 'a';
@@ -109,6 +139,7 @@ export function collectPendingDecisions(
         const updatedAt =
           run.updatedAt || run.startedAt || project.updatedAt || project.createdAt || '';
         items.push({
+          kind: 'gate',
           id: `${project.id}-${run.id}-${pendingGate.stage}`,
           projectId: project.id,
           projectName: project.name,
@@ -122,6 +153,35 @@ export function collectPendingDecisions(
   }
 
   // Sort newest first
+  items.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return items;
+}
+
+/** The second collector: one item per pending MCP approval, answered or not. */
+export function collectMcpItems(approvals: readonly McpApproval[]): InboxMcpItem[] {
+  return approvals.map((approval) => ({
+    kind: 'mcp',
+    id: approval.id,
+    runId: approval.runId as RunId,
+    server: approval.server,
+    tool: approval.tool,
+    role: approval.role,
+    summary: approval.summary,
+    requestedAt: approval.requestedAt,
+    updatedAt: approval.requestedAt,
+  }));
+}
+
+/**
+ * Both collectors merged and sorted once, newest first. This is the list the screen renders,
+ * the empty state tests and the total badge counts — one array, so an MCP ask can never be
+ * waiting on a screen that says nothing is.
+ */
+export function mergeInboxItems(
+  gates: readonly InboxDecisionItem[],
+  mcp: readonly InboxMcpItem[]
+): InboxItem[] {
+  const items: InboxItem[] = [...gates, ...mcp];
   items.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   return items;
 }
@@ -153,12 +213,15 @@ export default function InboxPage(): React.ReactElement {
   const projectsResult = useProjects();
   const [runsByProject, setRunsByProject] = useState<Record<string, RunSummary[]>>({});
   const [gatesByRun, setGatesByRun] = useState<Record<string, GateSummary[]>>({});
+  const [mcpApprovals, setMcpApprovals] = useState<McpApproval[]>([]);
+  const [mcpListFailed, setMcpListFailed] = useState(false);
   const [detailsError, setDetailsError] = useState<Error | null>(null);
   const [settledSignature, setSettledSignature] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
 
   const [selectedDecision, setSelectedDecision] = useState<InboxDecisionItem | null>(null);
   const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [decidingMcpId, setDecidingMcpId] = useState<string | null>(null);
   const [decidedIds, setDecidedIds] = useState<Set<string>>(new Set());
 
   // Capability-gated run-ending state (Amendment §5.5-a)
@@ -176,6 +239,8 @@ export default function InboxPage(): React.ReactElement {
     if (!client) {
       setRunsByProject({});
       setGatesByRun({});
+      setMcpApprovals([]);
+      setMcpListFailed(false);
       setDetailsError(null);
       setSettledSignature(currentSignature);
       return;
@@ -225,6 +290,23 @@ export default function InboxPage(): React.ReactElement {
             }
           })
         );
+
+        // The MCP approvals queue is daemon-wide, not per project, so it is one call. Its
+        // failure is reported beside the list instead of blanking the screen: the gate
+        // decisions above are still answerable, and an empty list would claim no agent is
+        // waiting when the daemon never said so.
+        try {
+          const approvals = await client.mcpApprovalsList();
+          if (active) {
+            setMcpApprovals(approvals);
+            setMcpListFailed(false);
+          }
+        } catch {
+          if (active) {
+            setMcpApprovals([]);
+            setMcpListFailed(true);
+          }
+        }
 
         if (active) {
           if (projectList.length > 0 && runSuccessCount === 0 && lastRunError !== null) {
@@ -279,11 +361,19 @@ export default function InboxPage(): React.ReactElement {
     };
   }, [client, isLoading, setReady]);
 
-  // All pending decisions across projects
-  const allDecisions = useMemo(() => {
+  // Waiting gates across projects. The gate actions below fall back to the first of these —
+  // an MCP ask is answered by its own buttons, never by the gate sheet.
+  const gateDecisions = useMemo(() => {
     if (!projectsResult.data) return [];
     return collectPendingDecisions(projectsResult.data, runsByProject, gatesByRun);
   }, [projectsResult.data, runsByProject, gatesByRun]);
+
+  // All pending decisions across projects, gate questions and MCP asks in one list
+  const allDecisions = useMemo(() => {
+    const mcpItems = collectMcpItems(mcpApprovals);
+    if (!projectsResult.data) return mcpItems;
+    return mergeInboxItems(gateDecisions, mcpItems);
+  }, [gateDecisions, mcpApprovals]);
 
   // Filter out any locally decided items
   const decisions = useMemo(() => {
@@ -304,14 +394,14 @@ export default function InboxPage(): React.ReactElement {
   });
 
   const openProjectAction = useAction('inbox.project.open', async (projectId?: string) => {
-    const target = projectId || selectedDecision?.projectId || decisions[0]?.projectId;
+    const target = projectId || selectedDecision?.projectId || gateDecisions[0]?.projectId;
     if (target) {
       navigate(`/p/${target}`);
     }
   });
 
   const openDecisionAction = useAction('inbox.decision.open', async (item?: InboxDecisionItem) => {
-    const target = item || decisions[0];
+    const target = item || gateDecisions[0];
     if (target) {
       setSelectedDecision(target);
     }
@@ -321,7 +411,7 @@ export default function InboxPage(): React.ReactElement {
   // the pipeline to the next stage. Inbox approves via gates.approve then runs.advance.
   const approveGateAction = useAction('inbox.gate.approve', async (item?: InboxDecisionItem) => {
     if (!client) return;
-    const target = item || selectedDecision || decisions[0];
+    const target = item || selectedDecision || gateDecisions[0];
     if (!target) return;
 
     setApprovingId(target.id);
@@ -339,7 +429,7 @@ export default function InboxPage(): React.ReactElement {
 
   const changesSendAction = useAction('inbox.gate.changes.send', async (item?: InboxDecisionItem) => {
     if (!client) return;
-    const target = item || selectedDecision || decisions[0];
+    const target = item || selectedDecision || gateDecisions[0];
     if (!target || !changesText.trim()) return;
 
     await client.requestChanges(target.runId, target.gateStage, changesText.trim());
@@ -351,7 +441,7 @@ export default function InboxPage(): React.ReactElement {
 
   const rejectConfirmAction = useAction('inbox.gate.reject.confirm', async (item?: InboxDecisionItem) => {
     if (!client) return;
-    const target = item || selectedDecision || decisions[0];
+    const target = item || selectedDecision || gateDecisions[0];
     if (!target) return;
 
     await client.rejectGate(target.runId, target.gateStage, rejectReason.trim() || 'Rejected by owner');
@@ -360,6 +450,238 @@ export default function InboxPage(): React.ReactElement {
     setSelectedDecision(null);
     reload();
   });
+
+  // MCP asks (R-BRIDGE-B3b). All three answers resolve the pending entry daemon-side and are
+  // followed by a reload, so the item leaves the list only because the daemon says it is gone:
+  // `allow_once` issues a single-use grant, `allow_always` writes an `allow` row, `deny` writes
+  // a `deny` row (B3a T11).
+  const mcpAllowOnceAction = useAction('inbox.mcp.allow_once', async (item?: InboxMcpItem) => {
+    if (!client || !item) return;
+    setDecidingMcpId(item.id);
+    try {
+      await client.mcpAllowOnce(item.id);
+      setDecidedIds((prev) => new Set(prev).add(item.id));
+      notify({ type: 'success', message: t('inbox.mcp.allow_once_done') });
+      reload();
+    } finally {
+      setDecidingMcpId(null);
+    }
+  });
+
+  const mcpAllowAlwaysAction = useAction('inbox.mcp.allow_always', async (item?: InboxMcpItem) => {
+    if (!client || !item) return;
+    setDecidingMcpId(item.id);
+    try {
+      await client.mcpPermissionsSet(item.server, item.tool, item.role, 'allow');
+      setDecidedIds((prev) => new Set(prev).add(item.id));
+      notify({ type: 'success', message: t('inbox.mcp.allow_always_done') });
+      reload();
+    } finally {
+      setDecidingMcpId(null);
+    }
+  });
+
+  const mcpDenyAction = useAction('inbox.mcp.deny', async (item?: InboxMcpItem) => {
+    if (!client || !item) return;
+    setDecidingMcpId(item.id);
+    try {
+      await client.mcpPermissionsSet(item.server, item.tool, item.role, 'deny');
+      setDecidedIds((prev) => new Set(prev).add(item.id));
+      notify({ type: 'success', message: t('inbox.mcp.deny_done') });
+      reload();
+    } finally {
+      setDecidingMcpId(null);
+    }
+  });
+
+
+  /**
+   * One waiting gate decision — the row the Inbox has always rendered: the stage's question,
+   * the project, the time, and open/review/approve.
+   */
+  const renderGateItem = (item: InboxDecisionItem, index: number): React.ReactElement => {
+    const rowTitleElement = (
+      <div className="v3-inbox-row-title-wrap">
+        <h2 className="v3-inbox-question">
+          {t(getGateQuestionKey(extractGateCode(item.gateStage)))}
+        </h2>
+      </div>
+    );
+
+    const rowSubtitleElement = (
+      <span className="v3-inbox-project-name">
+        <bdi dir="auto">{item.projectName || t('inbox.project_open')}</bdi>
+      </span>
+    );
+
+    const rowMetaElement = (
+      <div className="v3-inbox-row-meta">
+        <Badge variant="attention">{t(getSimpleStageLabelKey(item.gateStage))}</Badge>
+        {item.updatedAt ? (
+          <span className="v3-inbox-time">
+            <bdi dir="ltr">{formatTime24(item.updatedAt)}</bdi>
+          </span>
+        ) : null}
+      </div>
+    );
+
+    return (
+      <article key={item.id} className="v3-inbox-item" data-testid={`inbox-row-${item.id}`}>
+        <ListRow
+          className="v3-inbox-row"
+          icon={<IconAlert size={18} />}
+          title={rowTitleElement}
+          subtitle={rowSubtitleElement}
+          meta={rowMetaElement}
+        />
+        <div className="v3-inbox-item-actions">
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<IconExternal size={14} />}
+            data-action="inbox.project.open"
+            onClick={() => {
+              void openProjectAction.run(item.projectId);
+            }}
+          >
+            {t('inbox.project_open')}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            data-action="inbox.decision.open"
+            onClick={() => {
+              void openDecisionAction.run(item);
+            }}
+          >
+            {t('inbox.decision_open')}
+          </Button>
+          <Button
+            variant={!selectedDecision && index === 0 ? 'primary' : 'secondary'}
+            size="sm"
+            icon={<IconCheck size={14} />}
+            data-action="inbox.gate.approve"
+            loading={approvingId === item.id}
+            onClick={() => {
+              void approveGateAction.run(item);
+            }}
+          >
+            {t('inbox.gate_approve')}
+          </Button>
+        </div>
+      </article>
+    );
+  };
+
+  /**
+   * One pending MCP ask: server, tool, role and the daemon's summary under the literal label
+   * "redacted preview", with allow-once / allow-always / deny in the same actions pattern the
+   * gate rows use.
+   */
+  const renderMcpItem = (item: InboxMcpItem, index: number): React.ReactElement => {
+    const rowTitleElement = (
+      <div className="v3-inbox-row-title-wrap">
+        <h2 className="v3-inbox-question">
+          <bdi dir="ltr">
+            {item.server} · {item.tool}
+          </bdi>
+        </h2>
+      </div>
+    );
+
+    const rowSubtitleElement = (
+      <span className="v3-inbox-project-name">
+        {t('inbox.mcp.role_label', { role: item.role })}
+      </span>
+    );
+
+    const rowMetaElement = (
+      <div className="v3-inbox-row-meta">
+        <Badge variant="attention">{t('inbox.mcp.badge')}</Badge>
+        {item.requestedAt ? (
+          <span className="v3-inbox-time">
+            <bdi dir="ltr">{formatTime24(item.requestedAt)}</bdi>
+          </span>
+        ) : null}
+      </div>
+    );
+
+    return (
+      <article key={item.id} className="v3-inbox-item" data-testid={`inbox-row-${item.id}`}>
+        <ListRow
+          className="v3-inbox-row"
+          icon={<IconPlug size={18} />}
+          title={rowTitleElement}
+          subtitle={rowSubtitleElement}
+          meta={rowMetaElement}
+        />
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--w-space-1)',
+            paddingInline: 'var(--w-space-4)',
+            paddingBlockEnd: 'var(--w-space-2)',
+          }}
+        >
+          {/* B3a O8: the summary is a bounded, redacted rendering, not the call's arguments. */}
+          <span style={{ color: 'var(--w-text-muted)', fontSize: 'var(--w-font-size-xs)' }}>
+            {t('inbox.mcp.summary_label')}
+          </span>
+          <bdi
+            dir="auto"
+            data-testid={`inbox-mcp-summary-${item.id}`}
+            style={{
+              color: 'var(--w-text)',
+              fontFamily: 'var(--w-font-mono)',
+              fontSize: 'var(--w-font-size-xs)',
+              whiteSpace: 'pre-wrap',
+              overflowWrap: 'anywhere',
+            }}
+          >
+            {item.summary.trim() ? item.summary : t('inbox.mcp.summary_empty')}
+          </bdi>
+        </div>
+        <div className="v3-inbox-item-actions">
+          <Button
+            variant={!selectedDecision && index === 0 ? 'primary' : 'secondary'}
+            size="sm"
+            icon={<IconCheck size={14} />}
+            data-action="inbox.mcp.allow_once"
+            loading={decidingMcpId === item.id}
+            disabled={decidingMcpId !== null}
+            onClick={() => {
+              void mcpAllowOnceAction.run(item);
+            }}
+          >
+            {t('inbox.mcp.allow_once')}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            data-action="inbox.mcp.allow_always"
+            disabled={decidingMcpId !== null}
+            onClick={() => {
+              void mcpAllowAlwaysAction.run(item);
+            }}
+          >
+            {t('inbox.mcp.allow_always')}
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            data-action="inbox.mcp.deny"
+            disabled={decidingMcpId !== null}
+            onClick={() => {
+              void mcpDenyAction.run(item);
+            }}
+          >
+            {t('inbox.mcp.deny')}
+          </Button>
+        </div>
+      </article>
+    );
+  };
 
   // Loading state
   if (isLoading) {
@@ -429,6 +751,11 @@ export default function InboxPage(): React.ReactElement {
           <div className="v3-inbox-header">
             <h1 className="v3-inbox-title">{t('inbox.title')}</h1>
           </div>
+          {mcpListFailed ? (
+            <Banner variant="attention" data-testid="inbox-mcp-list-failed">
+              {t('inbox.mcp.list_failed')}
+            </Banner>
+          ) : null}
           <EmptyState
             icon={<IconInbox size={32} />}
             title={t('inbox.empty')}
@@ -564,99 +891,16 @@ export default function InboxPage(): React.ReactElement {
           ) : null}
         </Sheet>
 
-        {/* List of waiting decisions */}
+        {/* List of waiting decisions — gate questions and MCP asks, newest first */}
         <section className="v3-inbox-list" aria-label={t('inbox.title')}>
-          {decisions.map((item, index) => {
-            const rowTitleElement = (
-              <div className="v3-inbox-row-title-wrap">
-                <h2 className="v3-inbox-question">
-                  {t(getGateQuestionKey(extractGateCode(item.gateStage)))}
-                </h2>
-              </div>
-            );
-
-            const rowSubtitleElement = (
-              <span className="v3-inbox-project-name">
-                <bdi dir="auto">{item.projectName || t('inbox.project_open')}</bdi>
-              </span>
-            );
-
-            const rowMetaElement = (
-              <div className="v3-inbox-row-meta">
-                <Badge variant="attention">
-                  {t(getSimpleStageLabelKey(item.gateStage))}
-                </Badge>
-                {item.updatedAt ? (
-                  <span className="v3-inbox-time">
-                    <bdi dir="ltr">{formatTime24(item.updatedAt)}</bdi>
-                  </span>
-                ) : null}
-              </div>
-            );
-
-            const rowOpenProjectButton = (
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={<IconExternal size={14} />}
-                data-action="inbox.project.open"
-                onClick={() => {
-                  void openProjectAction.run(item.projectId);
-                }}
-              >
-                {t('inbox.project_open')}
-              </Button>
-            );
-
-            const rowReviewButton = (
-              <Button
-                variant="secondary"
-                size="sm"
-                data-action="inbox.decision.open"
-                onClick={() => {
-                  void openDecisionAction.run(item);
-                }}
-              >
-                {t('inbox.decision_open')}
-              </Button>
-            );
-
-            const rowApproveButton = (
-              <Button
-                variant={!selectedDecision && index === 0 ? 'primary' : 'secondary'}
-                size="sm"
-                icon={<IconCheck size={14} />}
-                data-action="inbox.gate.approve"
-                loading={approvingId === item.id}
-                onClick={() => {
-                  void approveGateAction.run(item);
-                }}
-              >
-                {t('inbox.gate_approve')}
-              </Button>
-            );
-
-            return (
-              <article
-                key={item.id}
-                className="v3-inbox-item"
-                data-testid={`inbox-row-${item.id}`}
-              >
-                <ListRow
-                  className="v3-inbox-row"
-                  icon={<IconAlert size={18} />}
-                  title={rowTitleElement}
-                  subtitle={rowSubtitleElement}
-                  meta={rowMetaElement}
-                />
-                <div className="v3-inbox-item-actions">
-                  {rowOpenProjectButton}
-                  {rowReviewButton}
-                  {rowApproveButton}
-                </div>
-              </article>
-            );
-          })}
+          {mcpListFailed ? (
+            <Banner variant="attention" data-testid="inbox-mcp-list-failed">
+              {t('inbox.mcp.list_failed')}
+            </Banner>
+          ) : null}
+          {decisions.map((item, index) =>
+            item.kind === 'mcp' ? renderMcpItem(item, index) : renderGateItem(item, index)
+          )}
         </section>
       </div>
     </div>

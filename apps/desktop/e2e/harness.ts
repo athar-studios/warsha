@@ -131,6 +131,10 @@ export const RPC_METHODS = [
   'integrations.disconnect',
   'integrations.list',
   'integrations.test',
+  'mcp.approvals.allow_once',
+  'mcp.approvals.list',
+  'mcp.permissions.list',
+  'mcp.permissions.set',
   'models.add',
   'models.list',
   'models.remove',
@@ -1556,6 +1560,61 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
     case 'integrations.list':
     case 'files.tree':
       return { ok: true, result: [] };
+    // MCP approvals and permissions (R-BRIDGE-B3b). The two reads answer "nothing pending, no
+    // stored rows" so a capture that does not override them keeps the baseline it had before the
+    // Inbox gained a second item kind; a case that needs a question or a row passes it through
+    // `fixtures`, the way the Wave 2 lists above are overridden. Every required argument is
+    // checked the way the daemon's serde binding checks it, so a call that would fail live with
+    // `-32602` fails here instead of passing.
+    case 'mcp.approvals.list':
+      return { ok: true, result: [] };
+    case 'mcp.approvals.allow_once': {
+      if (!paramEntry(params, 'id').found) return missingField('id');
+      // The daemon answers the granted row, including the device the session authenticated and
+      // the lapse time; the grantor is never a request parameter.
+      return {
+        ok: true,
+        result: {
+          id: paramValue(params, 'id') ?? '',
+          run_id: 'run-gate-a',
+          server: 'github',
+          tool: 'create_issue',
+          role: 'agent',
+          granted_by: 'dev-laptop',
+          expires_at: new Date(Date.now() + 600_000).toISOString(),
+        },
+      };
+    }
+    case 'mcp.permissions.list':
+      return {
+        ok: true,
+        result: { rows: [], agent_role: 'agent', default_permission: 'ask' },
+      };
+    case 'mcp.permissions.set': {
+      for (const name of ['server', 'tool', 'role', 'permission']) {
+        if (!paramEntry(params, name).found) return missingField(name);
+      }
+      const permission = paramValue(params, 'permission') ?? '';
+      if (permission !== 'allow' && permission !== 'ask' && permission !== 'deny') {
+        // `ToolPermission::parse_strict` (`crates/warsha-pipeline/src/mcp_permission.rs:53-62`)
+        // refuses anything else in these words; a stub that accepted it would let a screen show a
+        // row the daemon never stored.
+        return {
+          ok: false,
+          code: -32602,
+          message: `\`${permission}\` is not an MCP permission; use \`allow\`, \`ask\` or \`deny\``,
+        };
+      }
+      return {
+        ok: true,
+        result: {
+          server: paramValue(params, 'server') ?? '',
+          tool: paramValue(params, 'tool') ?? '',
+          role: paramValue(params, 'role') ?? '',
+          permission,
+        },
+      };
+    }
     case 'agent.state':
       return {
         ok: true,
