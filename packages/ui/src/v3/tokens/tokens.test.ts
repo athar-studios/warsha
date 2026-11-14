@@ -186,3 +186,149 @@ describe('Design System v3 Token Parity (TS <-> CSS)', () => {
     expect(css).toContain('transform: scaleX(-1)');
   });
 });
+
+// R-UI-3 D1-f: the guard. Every rule that declares motion — an `animation:` or a `transform:` — must have a
+// counterpart inside the `prefers-reduced-motion: reduce` block that neutralises it. A new animation or a new
+// transform added anywhere in this stylesheet without that counterpart fails here, before it ships.
+describe('motion has a reduced-motion counterpart (R-UI-3 D1-f)', () => {
+  interface CssRule {
+    selector: string;
+    body: string;
+    inKeyframes: boolean;
+    inReducedMotion: boolean;
+  }
+
+  function matchingBrace(css: string, open: number): number {
+    let depth = 0;
+    for (let i = open; i < css.length; i += 1) {
+      if (css[i] === '{') depth += 1;
+      else if (css[i] === '}') {
+        depth -= 1;
+        if (depth === 0) return i;
+      }
+    }
+    throw new Error('unbalanced braces in tokens.css');
+  }
+
+  function collect(
+    css: string,
+    context: { inKeyframes: boolean; inReducedMotion: boolean },
+    out: CssRule[]
+  ): void {
+    let cursor = 0;
+    while (cursor < css.length) {
+      const open = css.indexOf('{', cursor);
+      if (open === -1) return;
+      const selector = css.slice(cursor, open).trim();
+      const close = matchingBrace(css, open);
+      const body = css.slice(open + 1, close);
+
+      if (/^@(?:-webkit-)?keyframes/.test(selector)) {
+        // The keyframes are the animation itself; the rule that names them is what needs a counterpart.
+      } else if (selector.startsWith('@media')) {
+        collect(
+          body,
+          {
+            ...context,
+            inReducedMotion: context.inReducedMotion || selector.includes('prefers-reduced-motion'),
+          },
+          out
+        );
+      } else if (selector.startsWith('@')) {
+        collect(body, context, out);
+      } else {
+        out.push({ selector, body, ...context });
+      }
+
+      cursor = close + 1;
+    }
+  }
+
+  const rules = (() => {
+    const collected: CssRule[] = [];
+    collect(cleanCss(TOKENS_CSS), { inKeyframes: false, inReducedMotion: false }, collected);
+    return collected;
+  })();
+
+  const reducedRules = rules.filter((rule) => rule.inReducedMotion);
+  const reducedSelectors = (declaration: string): string[] =>
+    reducedRules
+      .filter((rule) => new RegExp(`(?:^|;)\\s*${declaration}\\s*:\\s*none`).test(rule.body))
+      .flatMap((rule) => rule.selector.split(',').map((part) => part.trim()));
+
+  // `[dir="rtl"] .w-icon--mirror` is a static direction mirror, not motion: it predates D1 and never animates.
+  const STATIC_ALLOWLIST = ['[dir="rtl"] .w-icon--mirror'];
+
+  it('neutralises every animation and transform rule outside the reduce block', () => {
+    const animated: string[] = [];
+    const transformed: string[] = [];
+
+    for (const rule of rules) {
+      if (rule.inReducedMotion) continue;
+      if (/(?:^|;)\s*animation\s*:/.test(rule.body)) animated.push(rule.selector);
+      if (/(?:^|;)\s*transform\s*:/.test(rule.body)) transformed.push(rule.selector);
+    }
+
+    // The two one-shot entrances and the stepper marker are declared here; the three loops are declared
+    // inline by Spinner/Skeleton/ProgressBar, so their selectors are asserted by name below.
+    expect(animated).toEqual(
+      expect.arrayContaining(['.w-sheet', '.w-sheet-scrim', '.w-stepper__bar[data-state="done"]'])
+    );
+
+    const animationCoverage = reducedSelectors('animation');
+    for (const selector of animated) {
+      expect(
+        animationCoverage,
+        `${selector} has an animation but no reduced-motion counterpart`
+      ).toContain(selector);
+    }
+
+    // The loops live in the components' inline `animation:` strings; the stylesheet still has to name them
+    // to win over the inline style under reduce.
+    for (const loop of ['.w-spinner svg', '.w-skeleton', '.w-progress-bar__fill']) {
+      expect(
+        animationCoverage,
+        `${loop} has an inline loop but no reduced-motion counterpart`
+      ).toContain(loop);
+    }
+
+    const transformCoverage = reducedSelectors('transform');
+    const motionTransforms = transformed.filter((selector) => !STATIC_ALLOWLIST.includes(selector));
+    // The only transform declared outside a keyframe is the press state (D1-c); the sheet slide and the
+    // stepper's scale-in live inside their keyframes, which are neutralised through the rules that name them.
+    expect(motionTransforms).toEqual(['.w-button:active:not(:disabled)']);
+    for (const selector of motionTransforms) {
+      expect(
+        transformCoverage,
+        `${selector} transforms but has no reduced-motion counterpart`
+      ).toContain(selector);
+    }
+
+    // The allowlist stays honest: the mirror is still a static transform, and it is still not animated.
+    expect(transformed).toContain('[dir="rtl"] .w-icon--mirror');
+  });
+});
+
+// R-UI-3 T6: the animations the components name by string have to exist, or the spinner, the shimmer and the
+// indeterminate bar are inert (W7) and the Sheet and the stepper marker never move.
+describe('the named animations exist (R-UI-3 T6)', () => {
+  it('declares w-spin, w-pulse, w-progress-indeterminate, w-sheet-in and w-step-done', () => {
+    const css = cleanCss(TOKENS_CSS);
+    for (const name of [
+      'w-spin',
+      'w-pulse',
+      'w-progress-indeterminate',
+      'w-sheet-in',
+      'w-step-done',
+    ]) {
+      expect(css, `${name} is declared in tokens.css`).toContain(`@keyframes ${name}`);
+    }
+  });
+
+  it('mirrors inline-axis motion through --w-inline-sign instead of left/right', () => {
+    const css = cleanCss(TOKENS_CSS);
+    expect(css).toContain('--w-inline-sign: 1');
+    expect(css).toContain('--w-inline-sign: -1');
+    expect(css).toMatch(/translateX\(calc\([^)]*var\(--w-inline-sign\)/);
+  });
+});

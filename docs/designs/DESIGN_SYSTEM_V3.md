@@ -135,6 +135,12 @@ Rules:
   `ease` `cubic-bezier(.2,.8,.2,1)`. `prefers-reduced-motion: reduce` sets every duration to 0 **and** turns
   every animation off (`animation: none`). Progress uses a determinate bar or a static stepper — no infinite
   spinners longer than 10 s without text.
+- The three loops (`w-spin` 0.8s, `w-pulse` 1.5s, `w-progress-indeterminate` 1.5s) and the two one-shot
+  entrances (`w-sheet-in` on `--w-dur-slow`, `w-step-done` on `--w-dur`) are declared once in
+  `tokens.css`. Inline-axis motion is mirrored by `--w-inline-sign` (`-1` under `[dir="rtl"]`), never by
+  `left`/`right`. Press is `scale(0.98)` on `.w-button:active:not(:disabled)` — disabled and loading buttons do
+  not move; the Sheet has no exit animation (it unmounts), and the stepper marker's `data-state` carries
+  `w-step-done` without React state.
 
 ### 2.5 Icons
 
