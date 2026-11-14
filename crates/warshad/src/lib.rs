@@ -10142,12 +10142,19 @@ mod tests {
         fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
             if field.name() == "message" {
                 self.message = value.to_string();
+            } else {
+                // Every other field too: a value logged as `args = ...` is exactly
+                // what a no-secrets-in-logs assertion has to be able to see.
+                self.message.push_str(&format!(" {}={value}", field.name()));
             }
         }
 
         fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
             if field.name() == "message" {
                 self.message = format!("{value:?}");
+            } else {
+                self.message
+                    .push_str(&format!(" {}={value:?}", field.name()));
             }
         }
     }
@@ -12509,6 +12516,513 @@ mod tests {
                 Some("DENY"),
                 "{path} did not carry `X-Frame-Options: DENY`"
             );
+        }
+    }
+
+    /// R-BRIDGE-B3a on the daemon side: the two RPCs, the audit trail, redaction,
+    /// resolution through `mcp.permissions.set`, and the fact that a grant dies with
+    /// the process.
+    mod mcp_approval {
+        use super::*;
+        use std::sync::Mutex as StdMutex;
+        use warsha_pipeline::mcp::McpTool;
+
+        /// The obviously fake secrets T7 traces through every surface.
+        const SECRET_ARGS: &str = r#"{"api_key":"SECRET-1","note":"Bearer SECRET-2","password":"SECRET-3","path":"a.txt"}"#;
+        const SECRET_EXTRA: &str = r#"{"blob":"SECRET-4","path":"a.txt"}"#;
+
+        /// A transport that records calls instead of making them.
+        #[derive(Default)]
+        struct ApprovalMcp {
+            calls: StdMutex<Vec<(String, String, serde_json::Value)>>,
+        }
+
+        impl ApprovalMcp {
+            fn count(&self) -> usize {
+                self.calls
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .len()
+            }
+        }
+
+        #[async_trait]
+        impl McpManager for ApprovalMcp {
+            async fn connect(
+                &self,
+                _config: warsha_pipeline::mcp_transport::McpServerConfig,
+            ) -> std::result::Result<(), warsha_pipeline::McpTransportError> {
+                Ok(())
+            }
+            async fn disconnect(
+                &self,
+                _name: &str,
+            ) -> std::result::Result<(), warsha_pipeline::McpTransportError> {
+                Ok(())
+            }
+            async fn list(&self) -> Vec<warsha_pipeline::McpConnection> {
+                vec![warsha_pipeline::McpConnection {
+                    config: warsha_pipeline::mcp_transport::McpServerConfig {
+                        name: "test_srv".to_string(),
+                        transport: warsha_pipeline::mcp_transport::McpTransport::Stdio,
+                        command: Some("dummy".to_string()),
+                        args: vec![],
+                    },
+                    status: warsha_pipeline::McpStatus::Connected,
+                    process_id: Some("p1".to_string()),
+                    tools: vec!["echo".to_string()],
+                    // The schema the owner's summary is built against: `blob` is
+                    // marked secret by the server itself.
+                    tool_definitions: vec![McpTool {
+                        name: "echo".to_string(),
+                        description: "echo the arguments".to_string(),
+                        input_schema: serde_json::json!({
+                            "type": "object",
+                            "properties": {
+                                "blob": {"type": "string", "writeOnly": true},
+                                "path": {"type": "string"},
+                            },
+                        }),
+                        annotations: None,
+                    }],
+                }]
+            }
+            async fn send(
+                &self,
+                name: &str,
+                payload: &str,
+            ) -> std::result::Result<String, warsha_pipeline::McpTransportError> {
+                Ok(format!("{name}:{payload}"))
+            }
+            async fn call_tool(
+                &self,
+                name: &str,
+                tool: &str,
+                arguments: serde_json::Value,
+            ) -> std::result::Result<
+                warsha_pipeline::mcp::McpToolResult,
+                warsha_pipeline::McpTransportError,
+            > {
+                self.calls
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push((name.to_string(), tool.to_string(), arguments));
+                Ok(warsha_pipeline::mcp::McpToolResult {
+                    content: vec![warsha_pipeline::mcp::McpContent::Text {
+                        text: "ok".to_string(),
+                    }],
+                    is_error: false,
+                })
+            }
+        }
+
+        async fn state_with_mcp(
+            data_dir: &Path,
+        ) -> (Arc<DaemonState>, Arc<Store>, Arc<ApprovalMcp>) {
+            let mcp = Arc::new(ApprovalMcp::default());
+            let manager: Arc<dyn McpManager> = mcp.clone();
+            let (state, store) =
+                test_state_with_seams(data_dir, |_| {}, None, None, Some(manager)).await;
+            (state, store, mcp)
+        }
+
+        fn turn(arguments: &str) -> String {
+            format!("call mcp test_srv/echo {arguments}")
+        }
+
+        /// The only pending approval the daemon holds.
+        async fn only_pending(rpc: &WarshaRpc, state: &DaemonState) -> McpApproval {
+            let listed = rpc
+                .list_mcp_approvals(&owner_ext())
+                .await
+                .expect("the list answers");
+            assert_eq!(listed.len(), 1, "unexpected approvals: {listed:?}");
+            assert_eq!(state.mcp_approvals.pending_len(), 1);
+            listed[0].clone()
+        }
+
+        /// T6: the answer RPC is owner-only, issues a grant, and writes no row.
+        #[tokio::test]
+        async fn allow_once_rpc_is_owner_only_and_never_writes_a_row() {
+            let temp = crate::test_util::fresh_tempdir();
+            let data_dir = temp.path().join("data");
+            let (state, store, mcp) = state_with_mcp(&data_dir).await;
+            let rpc = WarshaRpc::new(state.clone());
+            let approver = DeviceId::new();
+            let run_id = approved_agent_run(&state, &store).await;
+
+            // A real turn on the run's own loop registers the ask.
+            rpc.agent_turn_run(&owner_ext(), run_id, turn(r#"{"msg":"hi"}"#))
+                .await
+                .expect("the turn answers");
+            let pending = only_pending(&rpc, &state).await;
+            assert_eq!(pending.server, "test_srv");
+            assert_eq!(pending.tool, "echo");
+            assert_eq!(pending.role, "agent");
+            assert!(pending.id.starts_with("mcp-approval-"));
+            assert_eq!(mcp.count(), 0, "an ask reached the transport");
+
+            // A paired phone cannot read the queue or approve from it.
+            let phone = paired_ext("phone-device");
+            for (method, code) in [
+                (
+                    "mcp.approvals.list",
+                    rpc_error_code(
+                        &rpc.list_mcp_approvals(&phone)
+                            .await
+                            .expect_err("a phone cannot read the queue"),
+                    ),
+                ),
+                (
+                    "mcp.approvals.allow_once",
+                    rpc_error_code(
+                        &rpc.allow_once_mcp_approval(&phone, pending.id.clone())
+                            .await
+                            .expect_err("a phone cannot approve"),
+                    ),
+                ),
+            ] {
+                assert_eq!(code, -32002, "{method} was reachable by a paired device");
+            }
+            // The refusal changed nothing.
+            only_pending(&rpc, &state).await;
+
+            let answer = rpc
+                .allow_once_mcp_approval(&owner_ext_as(approver), pending.id.clone())
+                .await
+                .expect("the owner grants");
+            assert_eq!(answer.id, pending.id);
+            assert_eq!(answer.run_id, run_id.0.to_string());
+            assert_eq!(answer.server, "test_srv");
+            assert_eq!(answer.tool, "echo");
+            assert_eq!(answer.role, "agent");
+            assert_eq!(answer.granted_by, approver.to_string());
+            assert!(!answer.expires_at.is_empty());
+            // The answer leaves the list; the grant is live.
+            assert!(rpc
+                .list_mcp_approvals(&owner_ext())
+                .await
+                .expect("the list answers")
+                .is_empty());
+            assert!(state.mcp_approvals.has_grant(
+                &run_id.0.to_string(),
+                "test_srv",
+                "echo",
+                "agent"
+            ));
+
+            // Never a row: neither the table nor the store learned anything.
+            assert!(rpc
+                .list_mcp_permissions(&owner_ext())
+                .await
+                .expect("the permissions list answers")
+                .rows
+                .is_empty());
+            assert!(
+                store
+                    .load_mcp_permissions()
+                    .await
+                    .expect("the stored rows are readable")
+                    .is_empty(),
+                "an allow_once grant wrote a permission row"
+            );
+
+            // The audit trail: one event, the four identifying fields, no arguments.
+            let events = store.get_events(run_id).await.expect("the events are read");
+            let allowed: Vec<&warsha_core::Event> = events
+                .iter()
+                .filter(|event| {
+                    event.payload.get("action") == Some(&serde_json::json!("mcp_allow_once"))
+                })
+                .collect();
+            assert_eq!(allowed.len(), 1, "the answer wrote no single audit event");
+            let event = allowed[0];
+            assert_eq!(event.kind, warsha_core::EventKind::ToolCall);
+            assert_eq!(event.run_id, run_id);
+            assert_eq!(event.device_id, Some(approver));
+            let payload = event.payload.as_object().expect("the payload is an object");
+            let mut keys: Vec<&str> = payload.keys().map(String::as_str).collect();
+            keys.sort_unstable();
+            assert_eq!(keys, ["action", "question_id", "role", "server", "tool"]);
+            assert_eq!(payload["question_id"], serde_json::json!(pending.id));
+            assert_eq!(payload["server"], serde_json::json!("test_srv"));
+        }
+
+        /// T7: no secret value reaches the list, the events or a log line.
+        ///
+        /// The capture is mounted the way this suite's log-shape tests mount it — a
+        /// plain test, a current-thread runtime, and `with_default` around the whole
+        /// body — because a callsite first reached by another parallel test with no
+        /// subscriber is cached as "never", and only a subscriber that answers
+        /// `Interest::sometimes()` (the filter beside the capture) revives it.
+        #[test]
+        fn no_secret_argument_value_reaches_question_events_list_or_logs() {
+            // The capture has to be the *process-wide* default here. A thread-local
+            // one loses the `warshad` callsites: tracing caches, per callsite, whether
+            // it is ever enabled, and a callsite another parallel test reached first is
+            // frozen as "never" for every subscriber mounted afterwards. A global
+            // subscriber registered once rebuilds that cache for the whole process, so
+            // the line this test is looking for is written whatever the rest of the
+            // suite has already done to the callsite.
+            static GLOBAL_LOG: std::sync::OnceLock<LogCapture> = std::sync::OnceLock::new();
+            let capture: &LogCapture = GLOBAL_LOG.get_or_init(|| {
+                let capture = LogCapture::default();
+                if tracing::subscriber::set_global_default(capture_subscriber(&capture)).is_ok() {
+                    tracing::callsite::rebuild_interest_cache();
+                }
+                capture
+            });
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("a current-thread runtime");
+            let temp = crate::test_util::fresh_tempdir();
+            let data_dir = temp.path().join("data");
+
+            let (listed_json, events_json, stream_json, summary) = runtime.block_on(async move {
+                let (state, store, _mcp) = state_with_mcp(&data_dir).await;
+                let rpc = WarshaRpc::new(state.clone());
+                let run_id = approved_agent_run(&state, &store).await;
+
+                rpc.agent_turn_run(&owner_ext(), run_id, turn(SECRET_ARGS))
+                    .await
+                    .expect("the turn answers");
+                // A second ask whose secret the *schema* marks, not its key.
+                let run_two = approved_agent_run(&state, &store).await;
+                rpc.agent_turn_run(&owner_ext(), run_two, turn(SECRET_EXTRA))
+                    .await
+                    .expect("the second turn answers");
+
+                let listed = rpc
+                    .list_mcp_approvals(&owner_ext())
+                    .await
+                    .expect("the list answers");
+                assert_eq!(listed.len(), 2);
+                let listed_json = serde_json::to_string(&listed).expect("the reply serializes");
+                let summary = listed[0].summary.clone();
+                assert!(
+                    summary.contains("path"),
+                    "the summary dropped the harmless key: {summary}"
+                );
+
+                // The question the agent queued: a loop built by the same builder
+                // `runs.start` uses, sharing this registry and this run id. The
+                // registry de-duplicates the ask, so this is the very id and summary
+                // the answer would resolve.
+                let mut agent = build_agent_loop_in(
+                    &data_dir.join(AGENT_WORKSPACE_DIR),
+                    &state.config.allowed_commands,
+                    state.providers.clone(),
+                    state.mcp.clone(),
+                    state.mcp_permissions.clone(),
+                    state.mcp_approvals.clone(),
+                    Some(run_id.0.to_string()),
+                    Arc::new(RwLock::new(default_backend_kit("run"))),
+                );
+                agent
+                    .approve_agent_mode("owner")
+                    .expect("the owner approves the loop");
+                agent.run_turn(&turn(SECRET_ARGS), &[]).await;
+                let queued = agent.ask_queue.pending();
+                let question = queued
+                    .iter()
+                    .find(|request| request.id == listed[0].id)
+                    .map(|request| request.question.clone())
+                    .expect("the ask carries the listed id");
+                assert!(
+                    question.contains("test_srv::echo"),
+                    "the question does not name the call: {question}"
+                );
+                assert!(
+                    question.contains("path"),
+                    "the question dropped the harmless key: {question}"
+                );
+                for secret in ["SECRET-1", "SECRET-2", "SECRET-3"] {
+                    assert!(
+                        !question.contains(secret),
+                        "{secret} reached the queued question: {question}"
+                    );
+                }
+
+                // The answer path too: that is the daemon line it audits.
+                rpc.allow_once_mcp_approval(&owner_ext(), listed[0].id.clone())
+                    .await
+                    .expect("the owner answers");
+
+                let events = store.get_events(run_id).await.expect("the events are read");
+                assert!(
+                    !events.is_empty(),
+                    "the turn wrote no events, so the event assertion proves nothing"
+                );
+                let events_json = serde_json::to_string(&events).expect("the events serialize");
+                let sync = state.events.sync(0, Some(run_id)).await;
+                let stream_json =
+                    serde_json::to_string(&sync.frames).expect("the stream serializes");
+                (listed_json, events_json, stream_json, summary)
+            });
+
+            // Only this path's own lines: the capture is the process's, so another
+            // test's line is not this test's evidence.
+            let logs: String = capture
+                .lines()
+                .into_iter()
+                .filter(|line| line.contains("mcp.approvals"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(
+                !logs.is_empty(),
+                "the log capture saw nothing, so the log assertion proves nothing"
+            );
+            assert!(
+                logs.contains("mcp.approvals.allow_once"),
+                "the answer was not logged at all: {logs}"
+            );
+
+            for (surface, text) in [
+                ("mcp.approvals.list", listed_json.as_str()),
+                ("get_events", events_json.as_str()),
+                ("events.sync", stream_json.as_str()),
+                ("the daemon log", logs.as_str()),
+            ] {
+                for secret in ["SECRET-1", "SECRET-2", "SECRET-3", "SECRET-4"] {
+                    assert!(!text.contains(secret), "{secret} reached {surface}: {text}");
+                }
+            }
+            assert!(summary.contains("path"), "{summary}");
+        }
+
+        /// T10: a grant is process memory — a fresh state over the same data asks again.
+        #[tokio::test]
+        async fn grants_and_pending_do_not_survive_a_restart() {
+            let temp = crate::test_util::fresh_tempdir();
+            let data_dir = temp.path().join("data");
+            let (state, store, mcp) = state_with_mcp(&data_dir).await;
+            let rpc = WarshaRpc::new(state.clone());
+            let run_id = approved_agent_run(&state, &store).await;
+            rpc.agent_turn_run(&owner_ext(), run_id, turn(r#"{"msg":"hi"}"#))
+                .await
+                .expect("the turn answers");
+            let pending = only_pending(&rpc, &state).await;
+            rpc.allow_once_mcp_approval(&owner_ext(), pending.id.clone())
+                .await
+                .expect("the owner grants");
+            assert!(state.mcp_approvals.has_grant(
+                &run_id.0.to_string(),
+                "test_srv",
+                "echo",
+                "agent"
+            ));
+
+            // A fresh daemon over the same data directory: new registry, new loops.
+            let (restarted, _store, _restarted_mcp) = state_with_mcp(&data_dir).await;
+            assert!(restarted.mcp_approvals.pending().is_empty());
+            assert!(!restarted.mcp_approvals.has_grant(
+                &run_id.0.to_string(),
+                "test_srv",
+                "echo",
+                "agent"
+            ));
+
+            // The same run, through the same builder the daemon uses at `runs.start`.
+            let mut agent = build_agent_loop_in(
+                &data_dir.join(AGENT_WORKSPACE_DIR),
+                &restarted.config.allowed_commands,
+                restarted.providers.clone(),
+                restarted.mcp.clone(),
+                restarted.mcp_permissions.clone(),
+                restarted.mcp_approvals.clone(),
+                Some(run_id.0.to_string()),
+                Arc::new(RwLock::new(default_backend_kit("run"))),
+            );
+            agent
+                .approve_agent_mode("owner")
+                .expect("the owner approves the restarted loop");
+            let executed = agent.run_turn(&turn(r#"{"msg":"hi"}"#), &[]).await;
+            assert!(!executed.tools[0].success);
+            assert!(executed.tools[0].output.contains("approval required"));
+            assert_eq!(mcp.count(), 0, "a restarted daemon granted a dead grant");
+            assert_eq!(restarted.mcp_approvals.pending_len(), 1);
+        }
+
+        /// T11: allow-always and deny resolve the pending entry through the row write.
+        #[tokio::test]
+        async fn allow_always_and_deny_resolve_pending_through_permissions_set() {
+            let temp = crate::test_util::fresh_tempdir();
+            let data_dir = temp.path().join("data");
+            let (state, store, mcp) = state_with_mcp(&data_dir).await;
+            let rpc = WarshaRpc::new(state.clone());
+            let run_id = approved_agent_run(&state, &store).await;
+
+            rpc.agent_turn_run(&owner_ext(), run_id, turn(r#"{"msg":"hi"}"#))
+                .await
+                .expect("the turn answers");
+            only_pending(&rpc, &state).await;
+
+            rpc.set_mcp_permission(
+                &owner_ext(),
+                "test_srv".to_string(),
+                "echo".to_string(),
+                "agent".to_string(),
+                "allow".to_string(),
+            )
+            .await
+            .expect("the row is written");
+            // The ask left the list, and no grant was issued on the way out.
+            assert!(rpc
+                .list_mcp_approvals(&owner_ext())
+                .await
+                .expect("the list answers")
+                .is_empty());
+            assert!(!state.mcp_approvals.has_grant(
+                &run_id.0.to_string(),
+                "test_srv",
+                "echo",
+                "agent"
+            ));
+
+            // The row decides now: the next call runs, with no grant involved.
+            rpc.agent_turn_run(&owner_ext(), run_id, turn(r#"{"msg":"hi"}"#))
+                .await
+                .expect("the turn answers");
+            assert_eq!(mcp.count(), 1, "an allow row did not admit the call");
+
+            // A new row: `ask` asks again, and `deny` resolves that ask and refuses.
+            rpc.set_mcp_permission(
+                &owner_ext(),
+                "test_srv".to_string(),
+                "echo".to_string(),
+                "agent".to_string(),
+                "ask".to_string(),
+            )
+            .await
+            .expect("the row is written");
+            rpc.agent_turn_run(&owner_ext(), run_id, turn(r#"{"msg":"hi"}"#))
+                .await
+                .expect("the turn answers");
+            only_pending(&rpc, &state).await;
+
+            rpc.set_mcp_permission(
+                &owner_ext(),
+                "test_srv".to_string(),
+                "echo".to_string(),
+                "agent".to_string(),
+                "deny".to_string(),
+            )
+            .await
+            .expect("the row is written");
+            assert!(rpc
+                .list_mcp_approvals(&owner_ext())
+                .await
+                .expect("the list answers")
+                .is_empty());
+
+            let denied = rpc
+                .agent_turn_run(&owner_ext(), run_id, turn(r#"{"msg":"hi"}"#))
+                .await
+                .expect("the turn answers");
+            assert!(!denied.tools[0].success);
+            assert!(denied.tools[0].output.contains("denied by MCP permission"));
+            assert_eq!(mcp.count(), 1, "a denied call reached the transport");
         }
     }
 }

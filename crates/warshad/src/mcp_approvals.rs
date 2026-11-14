@@ -301,7 +301,7 @@ mod tests {
     }
 
     #[test]
-    fn a_summary_is_bounded_and_a_newline_cannot_forge_a_question() {
+    fn summary_is_bounded_and_cannot_forge_a_question() {
         let long = "x".repeat(10_000);
         let mut map = serde_json::Map::new();
         for index in 0..200 {
