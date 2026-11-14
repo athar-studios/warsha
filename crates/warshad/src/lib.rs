@@ -41,11 +41,12 @@ use warsha_pipeline::{
     AgentLoop, AgentMode, AgentTurnResult, AskUserQueue, BackendKind, BackendKit, CommandPolicy,
     CrashReport, CrashReportStore, FilesystemToolExecutor, HandoffBundle, HandoffManager,
     InMemoryCrashReportStore, InMemoryMcpManager, InMemoryPairingStore, InMemoryPreferenceStore,
-    InMemoryProcessManager, InMemoryStoreReviewStore, LivePreview, LivePreviewManager,
-    ManagedProcess, McpConnection, McpManager, MessageBus, ModeManager, ModeTransition,
-    PairingStore, PhonePairing, Preference, PreferenceSignal, PreferenceStore, ProcessManager,
-    ProcessStatus, ProcessSummary, ProviderRouterAdapter, Routine, RoutineRegistry, RoutineRunner,
-    RoutineScheduler, RunAgentSessions, RunMode, RunModeConfig, RunWorktree, SlashCommand,
+    InMemoryProcessManager, InMemoryStoreReviewStore, LicenseClass, LivePreview,
+    LivePreviewManager, ManagedProcess, McpConnection, McpManager, MessageBus, ModeManager,
+    ModeTransition, PairingStore, PhonePairing, Preference, PreferenceSignal, PreferenceStore,
+    ProcessManager, ProcessStatus, ProcessSummary, ProviderRouterAdapter, RolePack, Routine,
+    RoutineRegistry, RoutineRunner, RoutineScheduler, RunAgentSessions, RunMode, RunModeConfig,
+    RunWorktree, Skill, SkillError, SkillManifest, SkillRegistry, SkillsLockfile, SlashCommand,
     SlashCommandRegistry, StaticPermissions, StoreReview, StoreReviewStore, TodoItem, TodoList,
     WorkProtectionPolicy, AGENT_ROLE,
 };
@@ -2633,19 +2634,20 @@ impl WarshaRpc {
         }
     }
 
-    async fn active_skill_catalog(&self) -> Vec<SlashCommand> {
-        let mut registry = SlashCommandRegistry::new();
-        for (name, description) in SKILL_CATALOG {
-            let _ = registry.register(SlashCommand::new(*name, *description));
-        }
-        if let Ok(rows) = self.state.settings.list_skills().await {
-            for row in rows {
-                if row.enabled {
-                    let _ = registry.register(SlashCommand::new(&row.id, &row.description));
-                }
-            }
-        }
-        registry.skills()
+    /// The catalog a turn is offered: the composer's built-in commands, then every
+    /// enabled skill of the installed registry (ENGINE P-E6).
+    ///
+    /// The skills are the settings rows loaded into a `warsha_pipeline::SkillRegistry`
+    /// and verified against [`SKILLS_LOCK_FILE`], so a lock that disagrees with the
+    /// install refuses the catalog instead of serving a set the owner's lock does not
+    /// name. Role scoping rides the same registry: [`SkillRegistry::skills_for_role`]
+    /// narrows a catalog to one role's pack, and a pack naming a skill that is not
+    /// installed is an error there rather than a silent skip.
+    async fn active_skill_catalog(&self) -> RpcResult<Vec<SlashCommand>> {
+        let rows = self.state.settings.list_skills().await.map_err(rpc_error)?;
+        let registry = verified_skill_registry(&self.state.config.data_dir, &rows)
+            .map_err(rpc_policy_refused)?;
+        catalog_from_registry(&registry, &rows, None).map_err(rpc_policy_refused)
     }
 }
 
@@ -3828,7 +3830,9 @@ impl WarshaApiServer for WarshaRpc {
         input: String,
     ) -> RpcResult<AgentTurnResult> {
         self.authorize(ext, "agent.turn_run").await?;
-        let skills = self.active_skill_catalog().await;
+        // Fail closed: a drifted skills lock refuses the turn instead of running it
+        // with a catalog the owner's lock does not name.
+        let skills = self.active_skill_catalog().await?;
         self.state
             .agent_sessions
             .run_turn(run_id, &input, &skills)
@@ -5518,14 +5522,16 @@ fn refuse_a_permission_governed_frame(payload: &str) -> RpcResult<()> {
     Ok(())
 }
 
-/// The slash commands `skills.list` reports: `/review`, `/refactor`, `/test`,
-/// `/fix`, `/explain`, in the order the composer should offer them.
+/// The composer's built-in commands: `/review`, `/refactor`, `/test`, `/fix`,
+/// `/explain`, in the order the composer should offer them.
 ///
-/// This is the hardcoded catalog the M18 wiring starts from. M11's skill loader
-/// (`skills.rs`) and `factory/skills.lock` are what would fill the registry from a
-/// project's installed skills; until that wiring exists, the RPC reports these
-/// five and nothing here reads a directory or a lockfile.
-const SKILL_CATALOG: &[(&str, &str)] = &[
+/// These are commands the agent loop implements itself, not installed skills, so they
+/// sit in the catalog beside the registry's entries and a turn written against
+/// `/review` keeps working whether or not a pack is installed. The *skills* the
+/// catalog serves are the installed rows, loaded through
+/// `warsha_pipeline::SkillRegistry` and verified against [`SKILLS_LOCK_FILE`]
+/// (ENGINE P-E6) — no longer a constant list.
+const BUILTIN_SKILL_COMMANDS: &[(&str, &str)] = &[
     ("review", "Review the current diff and report problems"),
     (
         "refactor",
@@ -5536,19 +5542,260 @@ const SKILL_CATALOG: &[(&str, &str)] = &[
     ("explain", "Explain what a file or a change does"),
 ];
 
-/// The catalog as a list, built through the registry so the RPC serves exactly
-/// what [`SlashCommandRegistry::register`] accepts.
+/// The lock the daemon verifies its installed skills against: `factory/skills.lock`
+/// under the daemon's data directory.
 ///
-/// A refusal cannot happen with the constants above (no blank name, no whitespace,
-/// no duplicate), and an entry that somehow failed would simply not be listed
-/// rather than failing the RPC.
-#[allow(dead_code)]
-fn skill_catalog() -> Vec<SlashCommand> {
-    let mut registry = SlashCommandRegistry::new();
-    for (name, description) in SKILL_CATALOG {
-        let _ = registry.register(SlashCommand::new(*name, *description));
+/// `PLAN.md` names `factory/skills.lock` for the pinned install. The install is
+/// daemon-wide — one settings store holds the rows every project draws from — so the
+/// file is rooted at the data directory rather than inside a project's `factory/`,
+/// which holds that project's run artifacts.
+const SKILLS_LOCK_FILE: &str = "factory/skills.lock";
+
+/// The shipped skills each role's pack names, in the order the role reaches for them.
+///
+/// The pack is the role's whole scope: [`SkillRegistry::skills_for_role`] returns
+/// exactly these ids and errors when one of them is not installed, so a role can never
+/// quietly lose a skill. The daemon refuses that role's catalog instead.
+fn role_pack_skills(role: Role) -> &'static [&'static str] {
+    match role {
+        Role::Intake => &["brainstorming", "writing-plans"],
+        Role::Researcher => &["brainstorming", "writing-plans", "skill-creator"],
+        Role::PM => &["brainstorming", "writing-plans"],
+        Role::Designer => &["frontend-design", "brainstorming"],
+        Role::Architect => &[
+            "writing-plans",
+            "dispatching-parallel-agents",
+            "mcp-builder",
+        ],
+        Role::Coder => &[
+            "test-driven-development",
+            "systematic-debugging",
+            "using-git-worktrees",
+            "verification-before-completion",
+        ],
+        Role::Reviewer => &["requesting-code-review", "verification-before-completion"],
+        Role::QA => &[
+            "webapp-testing",
+            "test-driven-development",
+            "verification-before-completion",
+        ],
+        Role::Security => &["requesting-code-review", "systematic-debugging"],
+        Role::Release => &["verification-before-completion", "using-git-worktrees"],
+        Role::Marketer => &["brainstorming", "frontend-design"],
+        Role::Feedback => &["brainstorming", "writing-plans"],
     }
-    registry.skills()
+}
+
+/// One pack per role, named `<role>-base` the way `warsha-pipeline`'s defaults are.
+fn daemon_role_packs() -> Vec<RolePack> {
+    Role::all()
+        .iter()
+        .map(|role| {
+            RolePack::new(
+                *role,
+                format!("{}-base", format!("{role:?}").to_lowercase()),
+                role_pack_skills(*role)
+                    .iter()
+                    .map(|id| (*id).to_string())
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
+/// The pin one installed pack is locked at: SHA-256 over the row's own bytes.
+///
+/// A store row keeps the pack's id, name, description, body, source and license but no
+/// version or commit column, so the daemon pins what it has. The digest is the
+/// pipeline's tested artifact digest (`artifacts_sha256`) over the row as one artifact,
+/// with a fixed stage and version as the domain: the pin therefore depends on the row's
+/// bytes alone, and an edited body, license, source, description or tag list is a pin
+/// [`SkillsLockfile::verify`] refuses.
+fn skill_pin(row: &StoredSkill) -> String {
+    let artifact = Artifact {
+        name: row.id.clone(),
+        content: format!(
+            "{}\n---\n{}\n---\n{}\n---\n{}\n---\n{}",
+            row.name, row.description, row.source, row.license, row.content
+        ),
+        stage: Stage::Code,
+        role: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        version: 1,
+    };
+    let mut artifacts = HashMap::new();
+    artifacts.insert(row.id.clone(), artifact);
+    warsha_pipeline::artifacts_sha256(&artifacts)
+}
+
+/// The license class a store row's SPDX tag falls in.
+///
+/// `skills.rs` reads an explicit `license_class` from a `SKILL.md` frontmatter; a store
+/// row keeps only the tag, so the class is read off it into the same three buckets: a
+/// copyleft id is link-only (`SkillRegistry::register` refuses it), a permissive id may
+/// be bundled, and an id this table does not know is `Unknown` rather than assumed.
+fn license_class_of(license: &str) -> LicenseClass {
+    let license = license.trim().to_lowercase();
+    if license.contains("gpl") {
+        LicenseClass::Copyleft
+    } else if matches!(
+        license.as_str(),
+        "mit" | "apache-2.0" | "apache2" | "bsd-2-clause" | "bsd-3-clause" | "isc"
+    ) {
+        LicenseClass::Permissive
+    } else {
+        LicenseClass::Unknown
+    }
+}
+
+/// One installed row as a registry skill.
+fn installed_skill(row: &StoredSkill, data_dir: &Path) -> Skill {
+    let pin = skill_pin(row);
+    Skill {
+        manifest: SkillManifest {
+            id: row.id.clone(),
+            name: row.name.clone(),
+            description: row.description.clone(),
+            // The row carries no author, and the upstream is not one: the manifest keeps
+            // it empty rather than naming the repository as if it were.
+            author: String::new(),
+            license: row.license.clone(),
+            license_class: license_class_of(&row.license),
+            repository: row.source.clone(),
+            // The pin is both the version and the commit the lock records: a row has
+            // neither, and the bytes that changed are what a lock is about.
+            version: pin.clone(),
+            commit: pin,
+            dependencies: Vec::new(),
+            provides: Vec::new(),
+            required_permissions: Vec::new(),
+            // Tags index the registry; a row whose list cannot be parsed is still a
+            // skill the owner installed, so the parse falls back to no tags.
+            tags: serde_json::from_str(&row.tags_json).unwrap_or_default(),
+        },
+        content: row.content.clone(),
+        loaded_at: chrono::Utc::now().to_rfc3339(),
+        // Where a directory install of this pack would live under the daemon's data
+        // directory; the row in the settings store is the record.
+        source_path: data_dir.join("skills").join(&row.id).join("SKILL.md"),
+    }
+}
+
+/// Every installed row as one registry, with a pack per role.
+///
+/// Registering fails exactly where `SkillRegistry::register` refuses to bundle a
+/// copyleft pack, so a GPL pack the owner imported is an error here rather than a skill
+/// the catalog quietly ships.
+fn installed_skill_registry(
+    rows: &[StoredSkill],
+    data_dir: &Path,
+) -> std::result::Result<SkillRegistry, String> {
+    let mut registry = SkillRegistry::new();
+    for row in rows {
+        registry
+            .register(installed_skill(row, data_dir))
+            .map_err(|error| {
+                format!("the installed skill `{}` cannot be served: {error}", row.id)
+            })?;
+    }
+    for pack in daemon_role_packs() {
+        registry.set_pack(pack);
+    }
+    Ok(registry)
+}
+
+/// The installed skills, verified against the install's lock.
+///
+/// A missing lock is a first start and is written from the registry; if it cannot be
+/// written the catalog is served un-pinned and the failure is logged, because the
+/// install — not a read-only data directory — is what the gate is about. A lock that is
+/// present must agree with the install in every direction `SkillsLockfile::verify`
+/// checks: a locked pack that is not loaded, a version or commit that moved, or an
+/// installed pack the lock never named. A disagreement is an error, never a shorter
+/// catalog — a catalog that silently changes under the owner is the bug this gate
+/// exists for.
+fn verified_skill_registry(
+    data_dir: &Path,
+    rows: &[StoredSkill],
+) -> std::result::Result<SkillRegistry, String> {
+    let registry = installed_skill_registry(rows, data_dir)?;
+    let path = data_dir.join(SKILLS_LOCK_FILE);
+    let lock = match SkillsLockfile::load(&path) {
+        Ok(lock) => lock,
+        Err(SkillError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Err(error) = SkillsLockfile::from_registry(&registry).save(&path) {
+                warn!(
+                    "the skills lock {} could not be written, so the catalog is served un-pinned: {error}",
+                    path.display()
+                );
+            }
+            return Ok(registry);
+        }
+        Err(error) => {
+            return Err(format!(
+                "the skills lock {} could not be read: {error}",
+                path.display()
+            ))
+        }
+    };
+    lock.verify(&registry).map_err(|error| {
+        format!(
+            "the installed skills no longer match {}: {error}; re-pin the lock when the install changes",
+            path.display()
+        )
+    })?;
+    Ok(registry)
+}
+
+/// The commands one catalog serves: the built-in composer commands, then the registry's
+/// skills the owner left enabled, sorted by id so the picker's order is stable.
+///
+/// `role` narrows the skills to that role's pack through
+/// [`SkillRegistry::skills_for_role`], which fails closed when the pack names a skill
+/// that is not installed.
+fn catalog_from_registry(
+    registry: &SkillRegistry,
+    rows: &[StoredSkill],
+    role: Option<Role>,
+) -> std::result::Result<Vec<SlashCommand>, String> {
+    let enabled: HashMap<&str, bool> = rows
+        .iter()
+        .map(|row| (row.id.as_str(), row.enabled))
+        .collect();
+    let mut commands = SlashCommandRegistry::new();
+    for (name, description) in BUILTIN_SKILL_COMMANDS {
+        // The constants above are well formed (no blank name, no whitespace, no
+        // duplicate), so a refusal cannot happen and an entry that somehow failed would
+        // simply not be listed rather than failing the catalog.
+        let _ = commands.register(SlashCommand::new(*name, *description));
+    }
+    let mut skills = match role {
+        Some(role) => registry
+            .skills_for_role(role)
+            .map_err(|error| error.to_string())?,
+        None => registry.list_skills(),
+    };
+    skills.sort_by(|left, right| left.manifest.id.cmp(&right.manifest.id));
+    for skill in skills {
+        if !enabled
+            .get(skill.manifest.id.as_str())
+            .copied()
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        // A blank description, or a name the built-ins already claim, is not the
+        // catalog's to rewrite: `register` refuses it and the skill is left out.
+        let _ = commands.register(SlashCommand::new(
+            &skill.manifest.id,
+            &skill.manifest.description,
+        ));
+    }
+    Ok(commands.skills())
 }
 
 /// Directory under the daemon's data directory that holds handoff bundles.
@@ -9186,7 +9433,7 @@ mod tests {
         let temp = crate::test_util::fresh_tempdir();
         let (state, _store) = test_state(temp.path()).await;
 
-        let skills = WarshaRpc::new(state)
+        let skills = WarshaRpc::new(state.clone())
             .list_skills(&owner_ext())
             .await
             .expect("the catalog is served");
@@ -9200,11 +9447,310 @@ mod tests {
             .iter()
             .all(|skill| !skill.description.trim().is_empty()));
         // The in-process slash command catalog resolves as a registry:
-        let catalog = skill_catalog();
+        let catalog = WarshaRpc::new(state)
+            .active_skill_catalog()
+            .await
+            .expect("the catalog is served");
         let registry = SlashCommandRegistry::from_skills(&catalog);
         assert_eq!(
             registry.lookup("/FIX").map(|command| command.name.as_str()),
             Some("/fix")
+        );
+    }
+
+    /// Whether one catalog serves a command by name.
+    fn serves(catalog: &[SlashCommand], name: &str) -> bool {
+        catalog.iter().any(|command| command.name == name)
+    }
+
+    /// ENGINE P-E6: the catalog is the installed registry, not a constant list.
+    ///
+    /// The shipped packs come from the settings rows through
+    /// `warsha_pipeline::SkillRegistry`, so a row the owner switches off leaves the
+    /// catalog: a hardcoded list would keep serving it either way.
+    #[tokio::test]
+    async fn the_skills_catalog_is_served_from_the_installed_registry() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state.clone());
+
+        let catalog = rpc
+            .active_skill_catalog()
+            .await
+            .expect("the catalog is served");
+        // The composer's own commands survive beside the registry's entries.
+        assert!(
+            serves(&catalog, "/review"),
+            "the built-ins stay: {catalog:?}"
+        );
+        // The rest is the install: packs no constant in this file names.
+        assert!(
+            serves(&catalog, "/brainstorming"),
+            "a shipped pack is served from the registry: {catalog:?}"
+        );
+        assert!(serves(&catalog, "/test-driven-development"), "{catalog:?}");
+
+        // The rows are the source: a skill the owner switches off leaves the catalog,
+        // while the lock still pins it (the flag is not part of the pin).
+        state
+            .settings
+            .toggle_skill("brainstorming")
+            .await
+            .expect("the flag flips");
+        let catalog = rpc
+            .active_skill_catalog()
+            .await
+            .expect("the catalog is served");
+        assert!(
+            !serves(&catalog, "/brainstorming"),
+            "a disabled row is not served: {catalog:?}"
+        );
+        assert!(serves(&catalog, "/review"), "{catalog:?}");
+    }
+
+    /// ENGINE P-E6: a lockfile that disagrees with the install refuses the catalog.
+    ///
+    /// This mirrors `SkillsLockfile::verify` at the daemon edge: every direction the
+    /// library fails closed on — a moved version or commit, a locked pack that is not
+    /// loaded, a lock that cannot be read — is a refusal, never a smaller catalog.
+    #[tokio::test]
+    async fn a_drifted_skills_lock_refuses_the_catalog() {
+        let temp = crate::test_util::fresh_tempdir();
+        let data_dir = temp.path().join("data");
+        let (state, _store) = test_state(&data_dir).await;
+        let rpc = WarshaRpc::new(state.clone());
+
+        // The first read pins the install it found.
+        rpc.active_skill_catalog()
+            .await
+            .expect("the catalog is served and pinned");
+        let lock_path = data_dir.join(SKILLS_LOCK_FILE);
+        let pinned = std::fs::read_to_string(&lock_path).expect("the lock is written");
+
+        // A pinned version that moved.
+        let mut lock: serde_json::Value = serde_json::from_str(&pinned).expect("the lock is JSON");
+        lock["entries"]["brainstorming"]["version"] = serde_json::json!("0.0.1");
+        std::fs::write(&lock_path, lock.to_string()).expect("the drifted lock is written");
+        let error = rpc
+            .active_skill_catalog()
+            .await
+            .expect_err("a moved version must refuse the catalog");
+        assert_eq!(rpc_error_code(&error), auth::rpc_codes::POLICY_REFUSED);
+        assert!(
+            error.message().contains("brainstorming") && error.message().contains("0.0.1"),
+            "the refusal names the drift: {}",
+            error.message()
+        );
+
+        // A locked pack that is not installed.
+        let mut lock: serde_json::Value = serde_json::from_str(&pinned).expect("the lock is JSON");
+        let mut ghost = lock["entries"]["brainstorming"].clone();
+        ghost["skill_id"] = serde_json::json!("ghost");
+        lock["entries"]["ghost"] = ghost;
+        std::fs::write(&lock_path, lock.to_string()).expect("the drifted lock is written");
+        let error = rpc
+            .active_skill_catalog()
+            .await
+            .expect_err("a locked but uninstalled pack must refuse the catalog");
+        assert_eq!(rpc_error_code(&error), auth::rpc_codes::POLICY_REFUSED);
+        assert!(
+            error.message().contains("ghost"),
+            "the refusal names the locked pack: {}",
+            error.message()
+        );
+
+        // A lock the daemon cannot read is not a catalog it serves un-pinned.
+        std::fs::write(&lock_path, "{ not a lock").expect("the corrupt lock is written");
+        let error = rpc
+            .active_skill_catalog()
+            .await
+            .expect_err("an unreadable lock must refuse the catalog");
+        assert_eq!(rpc_error_code(&error), auth::rpc_codes::POLICY_REFUSED);
+        assert!(
+            error.message().contains("could not be read"),
+            "the refusal says the lock is unreadable: {}",
+            error.message()
+        );
+    }
+
+    /// ENGINE P-E6: a pack the registry refuses to bundle refuses the catalog.
+    ///
+    /// The rule is the registry's own — `SkillRegistry::register` refuses a copyleft
+    /// pack — and this proves the daemon edge reaches it: the catalog refuses instead
+    /// of listing a pack the license rules keep out.
+    #[tokio::test]
+    async fn a_copyleft_skills_pack_refuses_the_catalog() {
+        let temp = crate::test_util::fresh_tempdir();
+        let data_dir = temp.path().join("data");
+        let (state, _store) = test_state(&data_dir).await;
+        let rpc = WarshaRpc::new(state.clone());
+        rpc.active_skill_catalog()
+            .await
+            .expect("the catalog is served and pinned");
+
+        let mut gpl = state
+            .settings
+            .get_skill("brainstorming")
+            .await
+            .expect("the row reads")
+            .expect("the row exists");
+        gpl.id = "gpl-pack".to_string();
+        gpl.name = "GPL Pack".to_string();
+        gpl.license = "GPL-3.0".to_string();
+        gpl.content = "# GPL Pack".to_string();
+        state
+            .settings
+            .save_skill(&gpl)
+            .await
+            .expect("the row saves");
+
+        let error = rpc
+            .active_skill_catalog()
+            .await
+            .expect_err("a copyleft pack must refuse the catalog");
+        assert_eq!(rpc_error_code(&error), auth::rpc_codes::POLICY_REFUSED);
+        assert!(
+            error.message().contains("gpl-pack"),
+            "the refusal names the pack: {}",
+            error.message()
+        );
+    }
+
+    /// ENGINE P-E6: an install that changes after the lock was written is a drift too.
+    ///
+    /// The pin covers the pack's own bytes, so editing a row and installing a new one
+    /// are both refused until the lock is re-pinned.
+    #[tokio::test]
+    async fn an_install_that_changed_after_the_skills_lock_refuses_the_catalog() {
+        let temp = crate::test_util::fresh_tempdir();
+        let data_dir = temp.path().join("data");
+        let (state, _store) = test_state(&data_dir).await;
+        let rpc = WarshaRpc::new(state.clone());
+
+        rpc.active_skill_catalog()
+            .await
+            .expect("the catalog is served and pinned");
+        let lock_path = data_dir.join(SKILLS_LOCK_FILE);
+        let pinned = std::fs::read_to_string(&lock_path).expect("the lock is written");
+
+        // The pack's body changed under the lock.
+        let original = state
+            .settings
+            .get_skill("test-driven-development")
+            .await
+            .expect("the row reads")
+            .expect("the row exists");
+        let mut edited = original.clone();
+        edited.content.push_str("\n\nAn edit no lock approved.\n");
+        state
+            .settings
+            .save_skill(&edited)
+            .await
+            .expect("the row saves");
+        let error = rpc
+            .active_skill_catalog()
+            .await
+            .expect_err("an edited pack must refuse the catalog");
+        assert_eq!(rpc_error_code(&error), auth::rpc_codes::POLICY_REFUSED);
+        assert!(
+            error.message().contains("test-driven-development"),
+            "the refusal names the edited pack: {}",
+            error.message()
+        );
+        assert!(
+            error.message().contains(SKILLS_LOCK_FILE),
+            "the refusal names the lock: {}",
+            error.message()
+        );
+
+        // An install the lock never named: the edited pack is back to its pinned bytes
+        // and a new row arrives, which is a set the lock does not cover.
+        state
+            .settings
+            .save_skill(&original)
+            .await
+            .expect("the row restores");
+        let mut extra = original.clone();
+        extra.id = "imported-after-the-lock".to_string();
+        extra.name = "Imported After The Lock".to_string();
+        state
+            .settings
+            .save_skill(&extra)
+            .await
+            .expect("the row saves");
+        let error = rpc
+            .active_skill_catalog()
+            .await
+            .expect_err("an unlocked install must refuse the catalog");
+        assert_eq!(rpc_error_code(&error), auth::rpc_codes::POLICY_REFUSED);
+        assert!(
+            error.message().contains("imported-after-the-lock"),
+            "the refusal names the unlocked pack: {}",
+            error.message()
+        );
+        // The lock itself is untouched by a read: the gate re-reads, it never re-pins.
+        assert_eq!(
+            std::fs::read_to_string(&lock_path).expect("the lock is still there"),
+            pinned
+        );
+    }
+
+    /// ENGINE P-E6: a role's catalog is its pack, and a pack that lost a skill fails
+    /// closed instead of shrinking.
+    #[tokio::test]
+    async fn a_roles_catalog_is_its_skills_pack_and_a_gap_fails_closed() {
+        let temp = crate::test_util::fresh_tempdir();
+        let data_dir = temp.path().join("data");
+        let (state, _store) = test_state(&data_dir).await;
+        let rows = state.settings.list_skills().await.expect("the rows read");
+        let registry = installed_skill_registry(&rows, &data_dir).expect("the install registers");
+
+        // Every role's pack resolves against a fresh install, and every shipped skill
+        // belongs to one: a pack table naming a skill nothing ships would fail the role
+        // it belongs to on the first start.
+        let mut named: Vec<&str> = Vec::new();
+        for role in Role::all() {
+            let pack = registry
+                .skills_for_role(*role)
+                .unwrap_or_else(|error| panic!("the {role:?} pack resolves: {error}"));
+            assert!(!pack.is_empty(), "the {role:?} pack is not empty");
+            named.extend(pack.iter().map(|skill| skill.manifest.id.as_str()));
+        }
+        for row in &rows {
+            assert!(
+                named.contains(&row.id.as_str()),
+                "`{}` is shipped but no role's pack names it",
+                row.id
+            );
+        }
+
+        // Coder is its own pack plus the built-ins — not every installed skill.
+        let catalog =
+            catalog_from_registry(&registry, &rows, Some(Role::Coder)).expect("the pack resolves");
+        assert!(
+            serves(&catalog, "/review"),
+            "the built-ins stay: {catalog:?}"
+        );
+        assert!(serves(&catalog, "/test-driven-development"), "{catalog:?}");
+        assert!(
+            !serves(&catalog, "/frontend-design"),
+            "a skill outside the pack is not the role's: {catalog:?}"
+        );
+
+        // A pack that names a skill the install no longer has is an error, not a
+        // shorter pack.
+        let without: Vec<StoredSkill> = rows
+            .iter()
+            .filter(|row| row.id != "systematic-debugging")
+            .cloned()
+            .collect();
+        let registry =
+            installed_skill_registry(&without, &data_dir).expect("the remaining install registers");
+        let error = catalog_from_registry(&registry, &without, Some(Role::Coder))
+            .expect_err("a pack that lost a skill must fail closed");
+        assert!(
+            error.contains("systematic-debugging"),
+            "the refusal names the missing skill: {error}"
         );
     }
 
@@ -9217,7 +9763,10 @@ mod tests {
         let temp = crate::test_util::fresh_tempdir();
         let (state, _store) = test_state(temp.path()).await;
         // The catalog `agent.turn_run` hands the loop, from the same daemon.
-        let skills = WarshaRpc::new(state.clone()).active_skill_catalog().await;
+        let skills = WarshaRpc::new(state.clone())
+            .active_skill_catalog()
+            .await
+            .expect("the catalog is served");
         // The loop a run works in: the daemon's router behind the model call and the
         // filesystem tools under the run's workspace.
         let mut agent = agent_loop_for_run(&state);
