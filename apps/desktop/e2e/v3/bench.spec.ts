@@ -137,6 +137,27 @@ test.describe('Workbench (U4) — Journeys & Amendments', () => {
       page.getByText('تم تجهيز الخطة، وهي بانتظار موافقتك للمتابعة.')
     ).toBeVisible();
   });
+
+  test('EvidenceCard collects evidence through harness stub', async ({ page }) => {
+    // run-gate-c is the one fixture at Gate C, so the card is collectable there and nowhere else.
+    await openV3(page, '/p/proj-ui/r/run-gate-c/changes', { mode: 'advanced' });
+
+    await expect(page.getByTestId('bench-evidence-card')).toBeVisible();
+    await expect(page.getByTestId('bench-evidence-not-collected')).toBeVisible();
+
+    // The command field is a TextField: its test id sits on the wrapper, the input inside it.
+    await page.getByTestId('bench-evidence-command-input').locator('input').fill('pnpm test');
+    await act(page, 'bench.evidence.collect');
+
+    await expectRpc(page, 'gates.evidence', {
+      run_id: 'run-gate-c',
+      program: 'pnpm',
+      args: ['test'],
+    });
+
+    await expect(page.getByTestId('bench-evidence-collected')).toBeVisible();
+    await expect(page.getByTestId('bench-evidence-passing')).toBeVisible();
+  });
 });
 
 test.describe('Workbench (U4) — Action ID contracts', () => {

@@ -116,6 +116,7 @@ export const RPC_METHODS = [
   'files.tree',
   'gates.approve',
   'gates.changes',
+  'gates.evidence',
   'gates.list',
   'gates.reject',
   'handoff.apply',
@@ -578,6 +579,14 @@ const RUNS = [
     status: 'running',
     startedAt: RUN_STARTED,
     updatedAt: '2026-10-05T09:20:00.000Z',
+  },
+  {
+    id: 'run-gate-c',
+    projectId: 'proj-ui',
+    stage: 'gate_c',
+    status: 'awaiting_gate',
+    startedAt: RUN_STARTED,
+    updatedAt: '2026-10-05T09:45:00.000Z',
   },
 ];
 
@@ -1421,6 +1430,25 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
     }
     case 'gates.list':
       return { ok: true, result: GATES };
+    case 'gates.evidence':
+      return {
+        ok: true,
+        result: {
+          diff: 'diff --git a/a b/a\nindex ...',
+          files_changed: ['a', 'b/c'],
+          tests: {
+            program: 'pnpm',
+            args: ['test'],
+            success: true,
+            exit_code: 0,
+            stdout: 'ok',
+            stderr: '',
+            duration_ms: 100,
+            truncated: false,
+          },
+          preview: null,
+        },
+      };
     case 'gates.approve':
     case 'gates.reject':
     case 'gates.changes':
