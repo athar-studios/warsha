@@ -6,6 +6,7 @@ import type { HookResult } from './types';
 import { useResource } from './useResource';
 
 export function useAgent(
+  runId?: string | null,
   overrideClient?: WarshaClient | null
 ): HookResult<AgentState> {
   const contextClient = useClient();
@@ -14,9 +15,9 @@ export function useAgent(
   return useResource<AgentState>(
     async () => {
       if (!client) return null;
-      return client.agentState();
+      return client.agentState(runId ?? undefined);
     },
     (state) => !state || (state.todos.length === 0 && state.approvals.length === 0),
-    [client]
+    [client, runId]
   );
 }
