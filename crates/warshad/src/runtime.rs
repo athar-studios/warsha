@@ -48,6 +48,15 @@ pub(crate) const AGENT_WORKSPACE_DIR: &str = "workspace";
 /// `ProviderRouterAdapter` takes as its `project_id`.
 pub(crate) const AGENT_METER_KEY: &str = "agent-loop";
 
+/// The daemon-wide agent loop (`agent.state` / `agent.approve_mode` / `agent.plan_mode`
+/// — its turn RPC `agent.turn` is retired): the real filesystem tool layer under the
+/// daemon's data directory, and the real provider router behind the model call,
+/// routed as [`AGENT_ROLE`].
+///
+/// Both halves are seams the loop only reports on: with no role routing set the
+/// loop answers that no provider is routed for the agent role, and a tool request
+/// whose path leaves the workspace is refused — neither is a panic and neither is
+/// a silent no-op.
 pub(crate) fn build_agent_loop(
     data_dir: &Path,
     allowed_commands: &[String],
