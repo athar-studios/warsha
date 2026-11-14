@@ -17,41 +17,43 @@ Branch `zl-b4a-default` in the worktree `.agents/worktrees/zl-b4a-default`, base
 `branch_heads.U3 = 35c9298`, `branch_heads.U6 = bfed29e` with no C3 merge evidence. Checked
 against this base instead of trusting the stale file:
 
-| Ref | Object | Ancestor of `4986000` |
-| --- | --- | --- |
-| `35c9298` (U3 head) | commit | yes |
-| `bd33b2a` (U3 inbox, 6/6 areas) | commit | yes |
-| `bfed29e` (U6 head) | commit | yes |
-| `c2e1d1e` (U6 complete) | commit | yes |
-| `153690b` (U4 merged) | commit | yes |
+| Ref                             | Object | Ancestor of `4986000` |
+| ------------------------------- | ------ | --------------------- |
+| `35c9298` (U3 head)             | commit | yes                   |
+| `bd33b2a` (U3 inbox, 6/6 areas) | commit | yes                   |
+| `bfed29e` (U6 head)             | commit | yes                   |
+| `c2e1d1e` (U6 complete)         | commit | yes                   |
+| `153690b` (U4 merged)           | commit | yes                   |
 
 So the U3 and U6 surfaces are already in the base: the frame, onboarding, home, projects,
 project and inbox pages render under `?ui=v3`, and the remote PWA is on v3. The flip in this
-packet touches only the *start* decision, so no U3/U6 surface can break *because of* it, and none
+packet touches only the _start_ decision, so no U3/U6 surface can break _because of_ it, and none
 did: the v3 suite's only non-baseline failures (three cases, in [Repair items](#repair-items-the-packet-asks-for))
 fail identically on the base commit. They are filed, not redesigned.
 
 ## Commits
 
-| Commit | Contents |
-| --- | --- |
-| `21bfc78` | `feat(desktop): start on v3, keep v2 behind ?ui=v2` — `apps/desktop/src/main.tsx`, `apps/desktop/src/main.test.tsx` |
-| `a66fdef` | `docs(ui): v3 is the default, v2 behind ?ui=v2` — `docs/UI.md`, `docs/designs/UI_V3_PLAN.md` |
+| Commit       | Contents                                                                                                            |
+| ------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `21bfc78`    | `feat(desktop): start on v3, keep v2 behind ?ui=v2` — `apps/desktop/src/main.tsx`, `apps/desktop/src/main.test.tsx` |
+| `a66fdef`    | `docs(ui): v3 is the default, v2 behind ?ui=v2` — `docs/UI.md`, `docs/designs/UI_V3_PLAN.md`                        |
+| `df72c20`    | `docs(r-bridge-b4a): the Coder report` — this file                                                                  |
+| `style(b4a)` | the formatting commit on top of the report: prettier on the new test and this file, nothing else                    |
 
-`git diff 4986000 HEAD --stat`: 4 files, +157 −30. No Rust, no v2 component, no stored-config
+`git diff 4986000 HEAD --stat`: 5 files, +428 −30. No Rust, no v2 component, no stored-config
 semantics beyond the default, no dependency, no config change.
 
 ## The flip
 
 `main.tsx` now decides in this order:
 
-| Start condition | What happens |
-| --- | --- |
-| `?ui=v2` | v2, decided before the first paint; `get_config` is not even asked, so a stored `v3` cannot override the address |
-| `?ui=v3` | v3 (kept: old bookmarks and the existing v3 e2e suite open it) |
-| nothing in the address, stored `ui_version = v2` | v2 — the owner's own choice is kept |
-| nothing in the address, anything else | v3 |
-| nothing in the address, `get_config` rejects | v3 |
+| Start condition                                  | What happens                                                                                                     |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `?ui=v2`                                         | v2, decided before the first paint; `get_config` is not even asked, so a stored `v3` cannot override the address |
+| `?ui=v3`                                         | v3 (kept: old bookmarks and the existing v3 e2e suite open it)                                                   |
+| nothing in the address, stored `ui_version = v2` | v2 — the owner's own choice is kept                                                                              |
+| nothing in the address, anything else            | v3                                                                                                               |
+| nothing in the address, `get_config` rejects     | v3                                                                                                               |
 
 `useV3` starts from the address (`requestedUi() !== 'v2'`), so a clean start renders v3 on the
 first frame; the effect only reads `ui_version` when the address is silent, and only a `'v2'`
@@ -64,12 +66,12 @@ itself; the shipped entry point is unchanged (`index.html` has `#root`).
 `./v3/app/V3App` are replaced by two markers, so each assertion is about which shell the start
 chose and nothing about what that shell renders.
 
-| # | Test | Condition |
-| --- | --- | --- |
-| 1 | `a clean start lands on v3` | no address, `get_config` answers `''` |
-| 2 | `a get_config failure lands on v3` | `invoke('get_config')` rejects |
-| 3 | `?ui=v2 lands on v2, even when the stored choice says v3` | address says v2, stored says v3, `invoke` must not be called |
-| 4 | `a stored v2 lands on v2, while an unset one lands on v3` | stored `v2` → v2, stored `''` → v3 |
+| #   | Test                                                      | Condition                                                    |
+| --- | --------------------------------------------------------- | ------------------------------------------------------------ |
+| 1   | `a clean start lands on v3`                               | no address, `get_config` answers `''`                        |
+| 2   | `a get_config failure lands on v3`                        | `invoke('get_config')` rejects                               |
+| 3   | `?ui=v2 lands on v2, even when the stored choice says v3` | address says v2, stored says v3, `invoke` must not be called |
+| 4   | `a stored v2 lands on v2, while an unset one lands on v3` | stored `v2` → v2, stored `''` → v3                           |
 
 ## Discrimination
 
@@ -105,14 +107,14 @@ $ pnpm exec vitest run src/main.test.tsx       # this branch
 
 Exit **0** (`/tmp/b4a-t9.log`). Vitest counts, all above the `state.json` baselines:
 
-| Workspace | Tests |
-| --- | --- |
-| `@warsha/crypto` | 22 |
-| `@warsha/i18n` | 58 |
-| `@warsha/client` | 172 |
-| `@warsha/ui` | 373 |
+| Workspace        | Tests                                                          |
+| ---------------- | -------------------------------------------------------------- |
+| `@warsha/crypto` | 22                                                             |
+| `@warsha/i18n`   | 58                                                             |
+| `@warsha/client` | 172                                                            |
+| `@warsha/ui`     | 373                                                            |
 | `warsha-desktop` | **772** (768 before this packet + the 4 start-condition tests) |
-| `warsha-remote` | 221 |
+| `warsha-remote`  | 221                                                            |
 
 One pre-existing warning, no errors: `apps/desktop/src/v3/pages/inbox/index.tsx:376`
 `react-hooks/exhaustive-deps` (B3b code; untouched here).
@@ -204,14 +206,14 @@ never reads `ui_version`), and not repairable in this packet's file list.
 The same start route, both UIs, 1280×800, `en`, light, daemon stubs from the two harnesses; the
 temporary capture spec is not committed (kept as `target/captures/cutover.cap.spec.txt`).
 
-| File | Taken on | Shows |
-| --- | --- | --- |
-| `before-root-v2.png` | base `4986000`, `/?screen=simple` | the M13 v2 shell — what the window used to open on |
-| `after-root-v3.png` | this branch, bare `/` (no `?ui=`) | the v3 shell — the new default |
+| File                       | Taken on                             | Shows                                                              |
+| -------------------------- | ------------------------------------ | ------------------------------------------------------------------ |
+| `before-root-v2.png`       | base `4986000`, `/?screen=simple`    | the M13 v2 shell — what the window used to open on                 |
+| `after-root-v3.png`        | this branch, bare `/` (no `?ui=`)    | the v3 shell — the new default                                     |
 | `after-root-v2-escape.png` | this branch, `/?ui=v2&screen=simple` | the v2 shell, byte-identical to `before-root-v2.png` (`cmp` clean) |
 
 `after-root-v3.png` was captured after `page.goto('/')` returned and `main[data-ready="true"]` —
-an attribute only the v3 frame sets — became visible, so it is the *default* start, not the
+an attribute only the v3 frame sets — became visible, so it is the _default_ start, not the
 `?ui=v3` address. The two v2 captures being byte-identical is the evidence that the escape still
 reaches exactly the old shell.
 
@@ -219,7 +221,7 @@ reaches exactly the old shell.
 
 1. **`apps/desktop/e2e/harness.ts` must pin `?ui=v2`** (owner of B4a/B4b, not fixable inside the
    allowed file list). `openScreen` builds `search = options.search ?? screen.search ??
-   ?screen=<id>` and `page.goto('/' + search)`; no v2 spec passes `ui=`, so after the flip every
+?screen=<id>` and `page.goto('/' + search)`; no v2 spec passes `ui=`, so after the flip every
    v2 case boots v3 and waits 15 s for a v2 selector. Measured below. The minimal repair is one
    place — `openScreen`'s URL builder should carry `ui=v2` when the search has no `ui=`;
    `support/global-setup.ts` goes through the same function, so it is covered.
@@ -254,7 +256,7 @@ touched: the packet says file, do not redesign.
    host and 96 "not drawn with the design's fonts" audits. IBM Plex was installed for this run
    (user and `/usr/local/share/fonts/warsha-capture`, the path the repo's script uses) and the
    audit probe then passed, but the rasterization still differs (e.g. `backend-kit 1440x900 en
-   light`: 10 305 px, ratio 0.01). `playwright.config.ts` records this exact constraint. So
+light`: 10 305 px, ratio 0.01). `playwright.config.ts` records this exact constraint. So
    "full v2 suite green" is not verifiable here, and the packet's own precondition — a green v2
    suite as the regression fence — cannot be demonstrated on this host at all.
 3. **No new devDependency and no config change** were needed for the flip or for the tests

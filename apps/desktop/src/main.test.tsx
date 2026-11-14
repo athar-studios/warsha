@@ -42,7 +42,9 @@ describe('main: the v3 cutover start conditions', () => {
     render(<Root />);
 
     expect(screen.getByTestId('ui-v3')).toBeInTheDocument();
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('get_config', { key: 'ui_version' }));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('get_config', { key: 'ui_version' })
+    );
     // The empty answer must not move it: v3 is the default, not the fallback.
     await flush();
     expect(screen.getByTestId('ui-v3')).toBeInTheDocument();
