@@ -171,6 +171,16 @@ Not yet in the router (only `/health` is registered, `:500`). The contract to be
 | `agent.state` | `run_id?: RunId` | `AgentState` |
 | `mcp.approvals.list` | — | `McpApproval[]` (`id`, `run_id`, `server`, `tool`, `role`, `summary`, `requested_at`) — **Owner / Standard** (`crates/warshad/src/auth.rs:615`). Every MCP call waiting for the owner's answer, across runs; the summary is the daemon's redacted, bounded rendering of the arguments, never the raw values |
 | `mcp.approvals.allow_once` | `id: string` | `McpApprovalAnswer` (`id`, `run_id`, `server`, `tool`, `role`, `granted_by`, `expires_at`) — **Owner / Spend** (`crates/warshad/src/auth.rs:620`). Issues one single-use grant bound to the run, server, tool, role and exact arguments of the pending entry, live for `MCP_ONCE_GRANT_TTL` (10 min) and spent by the next matching call. Writes no permission row, so a restart is back to `ask`; the answer appends one `mcp_allow_once` event whose device is the authenticated one, never a parameter |
+| `mcp.permissions.list` | — | `McpPermissionsReply` (`rows: McpPermissionRow[]`, `agent_role`, `default_permission`) — **Owner / Standard** (`crates/warshad/src/auth.rs:603`). Every stored `server::tool::role` row in key order, plus the permission an unseen `server::tool` gets for the agent role — `ask` today, and fail-closed (`crates/warshad/src/lib.rs:3375-3396`) |
+| `mcp.permissions.set` | `server: string, tool: string, role: string, permission: string` | `McpPermissionRow` (`server`, `tool`, `role`, `permission`) — **Owner / Spend** (`crates/warshad/src/auth.rs:608`). Writes one row through to the settings store before it answers, so a restart sees it. Only `allow`, `ask` and `deny` are accepted (`ToolPermission::parse_strict`, `crates/warsha-pipeline/src/mcp_permission.rs:53-62`); anything else is refused. Setting `allow` or `deny` also resolves that `server::tool`'s pending approval (R-BRIDGE-B3a T11) |
+
+Client wrappers (`packages/client/src/index.ts`, R-BRIDGE-B3b): `mcpApprovalsList()` → `mcp.approvals.list`,
+`mcpAllowOnce(id)` → `mcp.approvals.allow_once`, `mcpPermissionsList()` → `mcp.permissions.list`, and
+`mcpPermissionsSet(server, tool, role, permission)` → `mcp.permissions.set`. Each parameter is the daemon's
+own bound argument name, and each reply is decoded at the client edge (snake_case → the screen's camelCase),
+naming the offending field when an answer is malformed rather than rendering `undefined`. The Inbox answers a
+pending ask with `mcpApprovalsList` + `mcpAllowOnce`/`mcpPermissionsSet`; Settings revokes with
+`mcpPermissionsSet(…, default_permission)`, the fail-closed value the list reply itself reports.
 
 Parameter serialization: `ProjectId`, `RunId` and `DeviceId` are newtypes over `Uuid`/`Ulid` and serialize
 as plain strings (hyphenated UUID, Crockford ULID). `Stage` serializes as `snake_case` across all 14 stages
