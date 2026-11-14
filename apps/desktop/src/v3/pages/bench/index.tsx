@@ -1,4 +1,5 @@
 import type {
+  GateEvidence,
   ProjectId,
   Role,
   RunId,
@@ -83,6 +84,20 @@ export default function BenchPage(): React.ReactElement {
   const eventsHook = useRunEvents(effectiveRunId || undefined);
   const gatesHook = useGates(effectiveRunId || undefined);
   const artifactsHook = useArtifacts(effectiveRunId || undefined);
+  // Gate C evidence lives here, not in the tab, so switching tabs or coming back does not
+  // throw away what the owner already paid for — and so the approve guard can see it.
+  //
+  // It is kept with the run it was collected for: the rail can move this same screen to
+  // another run without remounting it, and evidence measured in run A is not evidence for
+  // run B — neither to show on its Changes tab nor to unlock its Gate C.
+  const [collectedEvidence, setCollectedEvidence] = useState<{
+    runId: RunId;
+    value: GateEvidence;
+  } | null>(null);
+  const evidence =
+    collectedEvidence !== null && collectedEvidence.runId === run?.id
+      ? collectedEvidence.value
+      : null;
   const budgetHook = useBudget(effectiveProjectId || undefined);
   const rolesHook = useRoles();
   const modelsHook = useModels();
@@ -168,6 +183,13 @@ export default function BenchPage(): React.ReactElement {
 
   const approveGateAction = useAction('bench.gate.approve', async (rId: string, stage: string) => {
     if (!client) return;
+    // Desktop-only guard (OD-B3, R-BRIDGE-B2): the owner decides Gate C on evidence, so the
+    // screen refuses to approve that gate until this session has collected some. The daemon
+    // does not enforce this and no setting turns it on — it is a UI rule, labelled as such
+    // in the card (`bench.evidence.approve_guard`), and it guards nothing else.
+    if (stage === 'gate_c' && evidence === null) {
+      throw new Error(t('bench.evidence.approve_guard'));
+    }
     await client.approveGate(rId as RunId, stage as never);
     await client.advanceRun(rId as RunId);
     runHook.reload();
@@ -483,7 +505,25 @@ export default function BenchPage(): React.ReactElement {
           )}
 
           {activeTab === 'changes' && (
-            <ChangesTab runId={run.id} artifacts={artifactsHook.data ?? []} />
+            <ChangesTab
+              runId={run.id}
+              runStage={run.stage}
+              artifacts={artifactsHook.data ?? []}
+              evidence={evidence}
+              onCollectEvidence={async (program, args) => {
+                if (!client) throw new Error(t('bench.evidence.error_failed'));
+                // The one `gates.evidence` call in this screen: an Owner / Spend action,
+                // taken only from the card's button (OD-B3 — never on mount, reload or switch).
+                const collected = await client.gateEvidence(run.id as RunId, program, args);
+                setCollectedEvidence({ runId: run.id as RunId, value: collected });
+                return collected;
+              }}
+              onOpenFile={() => {
+                // Each changed path opens the Files tab, where the tree is; the path itself is
+                // the button's text, and the tab carries no per-file selection to deep-link to.
+                navigate(`/p/${run.projectId}/r/${run.id}/files`);
+              }}
+            />
           )}
 
           {activeTab === 'terminal' && (

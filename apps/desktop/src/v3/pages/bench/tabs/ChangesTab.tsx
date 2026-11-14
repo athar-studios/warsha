@@ -1,4 +1,4 @@
-import type { RunArtifact } from '@warsha/client';
+import type { GateEvidence, RunArtifact } from '@warsha/client';
 // eslint-disable-next-line import/no-unresolved
 import { useT } from '@warsha/i18n/v3';
 import {
@@ -18,12 +18,29 @@ import React, { useState } from 'react';
 
 import { useClient } from '../../../app/ClientContext';
 
+import { EvidenceCard } from './EvidenceCard';
+
 export interface ChangesTabProps {
   runId: string;
   artifacts: RunArtifact[];
+  /** The run's current stage: Gate C evidence is collectable only there. */
+  runStage?: string;
+  /** The evidence this run already collected, or `null` before the owner's one action. */
+  evidence?: GateEvidence | null;
+  /** The one explicit `gates.evidence` call. Nothing here runs it implicitly (OD-B3). */
+  onCollectEvidence?: (program: string, args: string[]) => Promise<GateEvidence>;
+  /** Open a changed path in the Files tab. */
+  onOpenFile?: (path: string) => void;
 }
 
-export const ChangesTab: React.FC<ChangesTabProps> = ({ runId, artifacts }) => {
+export const ChangesTab: React.FC<ChangesTabProps> = ({
+  runId,
+  artifacts,
+  runStage = '',
+  evidence = null,
+  onCollectEvidence,
+  onOpenFile,
+}) => {
   const t = useT();
   const client = useClient();
 
@@ -87,6 +104,13 @@ export const ChangesTab: React.FC<ChangesTabProps> = ({ runId, artifacts }) => {
         gap: 'var(--w-space-4)',
       }}
     >
+      <EvidenceCard
+        runStage={runStage}
+        evidence={evidence}
+        onCollect={onCollectEvidence}
+        onOpenFile={onOpenFile}
+      />
+
       <Card
         title={t('bench.changes.handoff_title')}
         style={{

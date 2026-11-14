@@ -157,6 +157,7 @@ Not yet in the router (only `/health` is registered, `:500`). The contract to be
 | `gates.approve` | `run_id: RunId, stage: Stage, device_id: DeviceId` | `Run` |
 | `gates.reject` | `run_id: RunId, stage: Stage, reason: string, device_id: DeviceId` | `Run` |
 | `gates.changes` | `run_id: RunId, stage: Stage, notes: string, device_id: DeviceId` | `Run` |
+| `gates.evidence` | `run_id: RunId, program: string, args: string[]` | `GateEvidence` (`diff`, `files_changed`, `tests: TestRun`, `preview: PreviewEvidence \| null`) — **Owner / Spend** (`crates/warshad/src/auth.rs:333`): every call runs one test command in the run's worktree under `CommandPolicy` and is a spend, never a passive read. Collectable only while the run is at `gate_c`; `-32002` when the caller is not the owner, `-32005` when the policy refuses the program, `-32000` when the stage or the worktree cannot serve it |
 | `providers.list` | — | `ProviderConfig[]` (`id`, `kind`, `api_base?`, `models[]`) |
 | `providers.add` | `config: ProviderConfig` | `null` |
 | `providers.test` | `provider_id: string` | `HealthCheck` (`healthy`, `latency_ms?`, `error?`) |
