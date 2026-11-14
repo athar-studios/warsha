@@ -1785,3 +1785,14 @@ reference `docs/designs/v3-preview.html`; run evidence `bridge-io/policy/2026-11
 - **OD-B6**: G6 is a local build and install proof, not a release. No tag, no upload, no publish.
 - **OD-B7**: G5 goes last and adds an optional run_id to preview.*, the same backward-compatible pattern OD-E2b used.
 - **Phase-0 answers (read from code, for G2/G3 packets)**: no TypeScript test drives a real daemon (harness-stubbed; the wire proof is the client unit test + check-wire-contract.mjs + the Rust e2_wiring suite); GateEvidence is never persisted after collection (constructed per-call, preview attached in-memory via with_preview); no AskUserQuestion surface exists in the v3 UI today and no RPC answers one outside a turn.
+
+## 2026-11-14 — PM decisions on R-BRIDGE-B3a open questions O1…O8 (design 48b922e merged as c22a718)
+- **O1 (bind grant to exact arguments)**: YES — accepted as specified (D2.2). "Approve what I was shown", not "approve any call".
+- **O2 (suspend vs re-ask)**: RE-ASK next turn — accepted as specified (D1). No loop-lock plumbing.
+- **O3 (paired phone approval)**: NO for B3a — Owner-only, matching the permission table.
+- **O4 (TTL)**: 600 s — accepted (`MCP_ONCE_GRANT_TTL`).
+- **O5 (ToolError variants vs literals)**: VARIANTS with byte-identical strings — accepted (D4), no test churn.
+- **O6 (mcp.call refusal message)**: LEAVE unchanged — answers a programmatic owner caller.
+- **O7 (daemon-wide loop)**: stays at plain Ask — accepted (its agent.turn is retired).
+- **O8 (residuals)**: B3b UI labels the summary "redacted preview" (honest limit); the `agent.turn_run` argument echo is noted for the security audit, not fixed here.
+- All eight follow the Planner's recommendation; no overrides. The Coder packet (in flight) implements D1–D6 + T1–T11 exactly; an independent Reviewer pass with no open HIGH gates B3b.
