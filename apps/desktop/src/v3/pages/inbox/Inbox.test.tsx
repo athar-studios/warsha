@@ -495,7 +495,7 @@ describe('Inbox MCP approvals (R-BRIDGE-B3b)', () => {
     });
   });
 
-  it('answers one ask with inbox.mcp.allow_once, calling mcpAllowOnce with that id only', async () => {
+  it('answers one ask with inbox.mcp.allow-once, calling mcpAllowOnce with that id only', async () => {
     const client = mcpClient();
     renderInbox(client);
 

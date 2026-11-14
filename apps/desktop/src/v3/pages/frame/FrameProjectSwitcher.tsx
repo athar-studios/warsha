@@ -11,7 +11,7 @@ import {
   type StatusPillState,
   // eslint-disable-next-line import/no-unresolved
 } from '@warsha/ui/v3';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 export interface FrameProjectSwitcherProps {
   currentProjectId?: string;
@@ -71,6 +71,38 @@ export function FrameProjectSwitcher({
   const [query, setQuery] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  // The inline room the open menu has between its anchor edge and the page gutter, in px. `null`
+  // before the first measurement keeps the token values (`--w-nav-width` / `100vw - --w-space-6`).
+  const [menuRoom, setMenuRoom] = useState<number | null>(null);
+
+  /**
+   * The menu opens towards the inline-end of its trigger, so the room it can use is the distance from
+   * that anchor edge to the viewport, less the page gutter — a CSS selector cannot ask an ancestor
+   * where it sits in the viewport. At 390px the topbar seats the trigger 128px in, which left 262px
+   * for a menu whose floor is `--w-nav-width` (264px): the menu painted 2px past the edge and the
+   * page scrolled sideways (R-UI-1 item 6, measured 2026-11-15). Measuring is direction-aware, so the
+   * Arabic (RTL) frame anchors on the trigger's inline-end side exactly as the English one does on its
+   * inline-start side.
+   */
+  useLayoutEffect(() => {
+    if (!open) return;
+    const measure = (): void => {
+      const element = containerRef.current;
+      if (element === null) return;
+      const rect = element.getBoundingClientRect();
+      const styles = getComputedStyle(element);
+      const gutter = Number.parseFloat(styles.getPropertyValue('--w-space-5')) || 0;
+      // The trigger's inline-start edge is the viewport distance from the far edge in LTR; in RTL the
+      // menu grows the other way, so the anchor is the trigger's inline-end edge.
+      const fromInlineStart = window.innerWidth - rect.left;
+      const fromInlineEnd = rect.right;
+      const anchor = styles.direction === 'rtl' ? fromInlineEnd : fromInlineStart;
+      setMenuRoom(Math.max(0, Math.round(anchor - gutter)));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [open]);
 
   const anonymousFallback = t('frame.anonymous_project');
 
@@ -198,8 +230,12 @@ export function FrameProjectSwitcher({
             insetBlockStart: '100%',
             insetInlineStart: 0,
             marginBlockStart: 'var(--w-space-1)',
-            minInlineSize: 'var(--w-nav-width)',
-            maxInlineSize: 'calc(100vw - var(--w-space-6))',
+            minInlineSize:
+              menuRoom === null ? 'var(--w-nav-width)' : `min(var(--w-nav-width), ${menuRoom}px)`,
+            maxInlineSize:
+              menuRoom === null
+                ? 'calc(100vw - var(--w-space-6))'
+                : `min(calc(100vw - var(--w-space-6)), ${menuRoom}px)`,
             backgroundColor: 'var(--w-surface)',
             border: 'var(--w-border-width) solid var(--w-line)',
             borderRadius: 'var(--w-radius-md)',

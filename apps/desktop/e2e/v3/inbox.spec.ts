@@ -61,11 +61,22 @@ test.describe('Inbox journeys', () => {
 
     await expect(page.locator('[data-testid="inbox-ready"]')).toBeVisible();
 
-    // proj-ui (run-code at 'code') does NOT match any pending gate;
-    // proj-store (run-gate-a at 'gate_a') matches gate_a only.
-    const rows = page.locator('[data-testid^="inbox-row-"]');
-    await expect(rows).toHaveCount(1);
-    await expect(rows.first()).toContainText('Warsha Store');
+    // Four pending rows in the table are four facts, not four requests. Only a run standing on a
+    // gate stage turns its pending row into an ask: run-gate-a (gate_a) and run-gate-c (gate_c)
+    // each own exactly one. The non-gate stages (code, research, review_qa_security) match none,
+    // however many gates `gates.list` reports, so run-code, run-research and run-review never
+    // appear — run-gate-c is the case a count-only assertion used to miss.
+    await expect(
+      page.locator('[data-testid="inbox-row-proj-store-run-gate-a-gate_a"]')
+    ).toContainText('Warsha Store');
+    await expect(page.locator('[data-testid="inbox-row-proj-ui-run-gate-c-gate_c"]')).toContainText(
+      'متجر ورشة للأثاث المكتبي'
+    );
+    await expect(page.locator('[data-testid^="inbox-row-"]')).toHaveCount(2);
+
+    for (const runId of ['run-code', 'run-research', 'run-review']) {
+      await expect(page.locator(`[data-testid*="${runId}"]`)).toHaveCount(0);
+    }
   });
 
   test('approves gate via inbox.gate.approve (gates.approve then runs.advance in that order)', async ({
@@ -273,7 +284,7 @@ test.describe('Inbox MCP approvals', () => {
       'body: [120 chars]'
     );
 
-    await act(page, 'inbox.mcp.allow_once');
+    await act(page, 'inbox.mcp.allow-once');
     await expectRpc(page, 'mcp.approvals.allow_once', { id: 'mcp-approval-1' });
 
     // Answered questions leave the list because the daemon answered, not because the screen hid it.
@@ -296,8 +307,8 @@ test.describe('Inbox MCP approvals', () => {
       );
       if (action) seenActions.add(action);
     }
-    expect(seenActions.has('inbox.mcp.allow_once')).toBe(true);
-    expect(seenActions.has('inbox.mcp.allow_always')).toBe(true);
+    expect(seenActions.has('inbox.mcp.allow-once')).toBe(true);
+    expect(seenActions.has('inbox.mcp.allow-always')).toBe(true);
     expect(seenActions.has('inbox.mcp.deny')).toBe(true);
 
     const focus = await auditFocusWalk(page);

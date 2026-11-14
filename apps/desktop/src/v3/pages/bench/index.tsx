@@ -394,6 +394,7 @@ export default function BenchPage(): React.ReactElement {
       <div
         className="v3-bench-container"
         data-density="compact"
+        data-narrow={narrow ? 'true' : 'false'}
         data-testid="bench-empty"
       >
         {renderRail('')}
@@ -434,6 +435,7 @@ export default function BenchPage(): React.ReactElement {
     <div
       className="v3-bench-container"
       data-density="compact"
+      data-narrow={narrow ? 'true' : 'false'}
       data-testid="bench-container"
     >
       {renderRail(run.id)}
