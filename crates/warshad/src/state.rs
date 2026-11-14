@@ -361,3 +361,306 @@ pub struct DaemonArgs {
     #[arg(long)]
     pub socket: Option<PathBuf>,
 }
+
+// ============================================ daemon state (P-H1 step A4)
+
+// Moved out of `lib.rs` unchanged: `DaemonState`, the alias `lib.rs` names it by,
+// the pairing predicate the request guard re-checks, and the MCP permission DTOs.
+// `lib.rs` still names them, so they are re-exported at the crate root; the three
+// items other modules call directly are `pub(crate)` here.
+
+use crate::api::{HealthCapabilities, RoleRoutingConfig};
+use crate::auth::{Actor, ActorRole, RateGovernor, Sessions};
+use crate::events::EventSequencer;
+use crate::now_epoch_secs;
+use crate::providers::ProviderFactory;
+use crate::settings::SettingsStore;
+use std::collections::HashMap;
+use tokio::sync::RwLock;
+use warsha_core::{Role, RunId};
+use warsha_git::GitHubClient;
+use warsha_pipeline::{
+    AgentLoop, BackendKit, InMemoryCrashReportStore, InMemoryPairingStore, InMemoryPreferenceStore,
+    InMemoryStoreReviewStore, LivePreviewManager, McpApprovals, McpManager, PairingStore,
+    PhonePairing, Preference, RoutineRegistry, RoutineScheduler, RunAgentSessions, RunMode,
+    RunModeConfig, RunWorktree, StaticPermissions,
+};
+use warsha_providers::{ProviderRouter, SecretStore};
+use warsha_remote::DeviceRegistry;
+use warsha_store::Store;
+
+/// App state alias for DaemonState
+pub type AppState = DaemonState;
+
+/// Daemon state
+pub struct DaemonState {
+    pub config: DaemonConfig,
+    pub store: Arc<Store>,
+    pub providers: Arc<RwLock<ProviderRouter>>,
+    pub pipeline: Arc<warsha_pipeline::PipelineEngine<SettingsStore>>,
+    pub backends: Vec<Box<dyn warsha_backends::CodingBackend>>,
+    pub github: Option<GitHubClient>,
+    pub devices: Arc<DeviceRegistry>,
+    /// Backend kits by project id, seeded from [`SettingsStore`] at start.
+    ///
+    /// The key is the project, not the run: `backend.export` addresses a run, and
+    /// every run of one project exports the same schema, so two runs of a project
+    /// share one kit rather than each growing its own. A run whose project is not
+    /// in the store is keyed by its own id, which is what makes an export of an
+    /// unregistered run answerable.
+    pub backend_kits: Arc<RwLock<HashMap<String, BackendKit>>>,
+    /// Crash reports, in arrival order. Nothing records one yet: the opt-in
+    /// collector is PLAN.md M17's remaining half.
+    pub crash_reports: Arc<RwLock<InMemoryCrashReportStore>>,
+    /// Store reviews, in arrival order. Nothing fetches one yet: the store API
+    /// client is PLAN.md M17's remaining half.
+    pub store_reviews: Arc<RwLock<InMemoryStoreReviewStore>>,
+    /// The daemon-wide agent loop — the legacy single conversation.
+    ///
+    /// `agent.turn`, the only RPC that ran a turn on it, is retired by OD-E2 and
+    /// refuses: a turn is one run's own loop (`agent.turn_run`). What this loop still
+    /// serves is the record the agent RPCs read and change when they carry no run id
+    /// — `agent.state` answers it, `agent.approve_mode` / `agent.plan_mode` move it —
+    /// and the restart snapshot below. With a run id (OD-E2b) those same three RPCs
+    /// answer and move that run's own loop instead. Its two seams are wired by
+    /// [`build_agent_loop`] — file tools inside `<data_dir>/workspace`, model calls
+    /// through the daemon's provider router.
+    ///
+    /// What the conversation *is* — the mode it reached, who approved each switch,
+    /// the todos and the unanswered questions — is written to the daemon's settings
+    /// after every turn that changes it and read back at start
+    /// ([`AgentLoopSnapshot`]), so a restart continues the conversation instead of
+    /// starting a blank one. What is not written is the transcript: the compactor's
+    /// folded context is this process's working set, and a stale one replayed into a
+    /// new daemon would be a memory the owner never approved keeping.
+    pub agent_loop: Arc<RwLock<AgentLoop>>,
+    /// The MCP permission table consulted before every agent tool call.
+    pub mcp_permissions: Arc<StaticPermissions>,
+    /// The pending MCP approvals and `allow_once` grants (R-BRIDGE-B3a).
+    ///
+    /// Shared by every run's loop and by the two approval RPCs, so an owner can
+    /// answer while a turn is running without taking the loop's own lock. Process
+    /// memory only: a restart leaves no grant and no pending entry behind, which is
+    /// the same state as a table with no row — `Ask`.
+    pub mcp_approvals: Arc<McpApprovals>,
+    /// The per-run git worktrees created at `runs.start` (ENGINE E3 wiring).
+    pub run_worktrees: Arc<RwLock<HashMap<RunId, RunWorktree>>>,
+    /// The per-run agent sessions (ENGINE E2 wiring). A run's turn uses its own loop
+    /// and workspace, and since OD-E2b the mode RPCs reach that loop too — `run_id`
+    /// on `agent.state`, `agent.approve_mode` and `agent.plan_mode` — so the plan →
+    /// approve → execute flow runs per run. Without a run id those RPCs keep serving
+    /// the daemon-wide record above, with `agent.turn` retired and refusing.
+    pub agent_sessions: Arc<RunAgentSessions>,
+    /// The one spawner: `process.*` drives it, the MCP stdio transport starts its
+    /// server through it, and the live preview runs its dev server on it, so every
+    /// child the daemon starts shows up in one `process.list`.
+    ///
+    /// It is also the complete list of children [`DaemonHandle::shutdown`] has to
+    /// reap, which is why one manager is shared rather than each feature holding
+    /// its own.
+    pub processes: Arc<dyn ProcessManager>,
+    /// MCP servers by name, with their connections. `mcp.*` is its RPC surface.
+    pub mcp: Arc<dyn McpManager>,
+    /// Live-preview dev servers, one per project.
+    pub previews: Arc<LivePreviewManager>,
+    /// The daemon's settings file: the four small M20 records, read once at start
+    /// and written by every RPC that changes one.
+    pub settings: Arc<SettingsStore>,
+    /// The run modes by mode, seeded from [`SettingsStore`] at start.
+    ///
+    /// Every mode has an entry: one the owner never saved carries the
+    /// [`RunModeConfig::for_mode`] default, which for Hosted is deliberately
+    /// invalid until a relay is named — so `runmode.list` reports the whole switch
+    /// and `runmode.set` is what makes a mode servable.
+    pub run_modes: Arc<RwLock<HashMap<RunMode, RunModeConfig>>>,
+    /// The taste signals recorded in this daemon's life.
+    ///
+    /// Signals are what the decay is computed from, so they stay in memory and are
+    /// projected into the store on every record; a restart reloads the projection
+    /// ([`DaemonState::stored_preferences`]) rather than replaying signals nobody
+    /// kept.
+    pub preferences: Arc<RwLock<InMemoryPreferenceStore>>,
+    /// The stored preference rows per project, as read at start and refreshed
+    /// after each recorded signal.
+    ///
+    /// This is what `preferences.list` answers from: the table is the projection
+    /// every daemon shares, and the signal log is this daemon's own.
+    pub stored_preferences: Arc<RwLock<HashMap<String, Vec<Preference>>>>,
+    /// The paired phones, seeded from [`SettingsStore`] at start.
+    pub pairings: Arc<RwLock<InMemoryPairingStore>>,
+    /// Where a configured provider's API key lives.
+    ///
+    /// The OS keychain when the daemon started normally
+    /// ([`KeychainSecretStore`]); a test double when it was handed one through
+    /// [`start_daemon_with_secrets`], because a headless runner has no secret
+    /// service to talk to. The provider *configuration* is not here at all: it is
+    /// a row in [`DaemonState::settings`], read per call, so nothing in memory can
+    /// disagree with what a restart would see.
+    pub secrets: Arc<dyn SecretStore>,
+    /// The scheduled routines (`routines.*`), behind the same lock the scheduler
+    /// drives, so an owner action and a background tick cannot disagree.
+    pub routines: Arc<RwLock<RoutineRegistry>>,
+    /// The background loop that ticks [`DaemonState::routines`].
+    ///
+    /// `routines.run_now`/`pause`/`resume` go through it rather than through the
+    /// registry, which is what lets the runner see each owner action. The loop is
+    /// started after the state exists (`routines.start`) and stopped by
+    /// [`DaemonHandle::shutdown`].
+    pub routine_scheduler: Arc<RoutineScheduler>,
+    /// Which credential means which caller (security audit H-03, H-04).
+    ///
+    /// The daemon had one bearer token and no answer to "who is asking" — so a gate
+    /// recorded whatever approver the request named, and any token holder could write
+    /// a provider key or a budget. Every RPC that needs an actor gets it from here,
+    /// which is derived from the credential the transport checked, and from nowhere
+    /// else.
+    pub sessions: Arc<Sessions>,
+    /// The live inbound ceilings, per authenticated identity (audit H-01).
+    pub rates: Arc<RateGovernor>,
+    /// Every role the owner has routed, as `roles.list` reports it.
+    ///
+    /// This is the table the router is driven from, and the one that is stored: the
+    /// router keeps its own copy for the call path and cannot be read back out of, so
+    /// the daemon holds the authoritative one. A routing that names a provider the
+    /// owner has not configured is still here — and still refused at the call, because
+    /// nothing is registered under a name that has no row behind it.
+    pub role_routings: Arc<RwLock<HashMap<Role, RoleRoutingConfig>>>,
+    /// The seam that turns a configured provider's row into a live adapter.
+    ///
+    /// [`KeychainProviderFactory`] is what [`start_daemon`] installs: the provider's
+    /// key is read from the OS keychain, under the account `providers.add` filed it at,
+    /// by the same adapter the wizard's connection test already speaks to. A test
+    /// installs [`MockProviderFactory`] instead, which is what lets the whole
+    /// configured-provider path — row, routing, agent turn, restart — be driven with no
+    /// key, no network and no bill (AGENTS.md).
+    pub provider_factory: Arc<dyn ProviderFactory>,
+    /// The origin a device should dial to reach this daemon, as `http://<host>:<port>`.
+    ///
+    /// Written exactly once, by [`start_daemon_with_provider_factory`], *after* the RPC
+    /// listener has bound: the port it ended up on is the port a pairing link may
+    /// advertise, and a configuration that asked for `0` would otherwise send a phone to
+    /// a port nothing listens on. `devices.pair-start` reads it, which is why the pairing
+    /// link and the socket cannot disagree.
+    ///
+    /// Empty until the daemon is serving. A hand-built state (a unit test calling an RPC
+    /// directly) is exactly that case, and `devices.pair-start` refuses rather than
+    /// inventing an address — see [`DaemonConfig::advertised_host`] for the other refusal.
+    pub pairing_origin: std::sync::OnceLock<String>,
+    /// The daemon-wide event stream: one sequencer stamping every event with a shared
+    /// monotonic `seq`, holding a bounded replay ring, and broadcasting live frames to
+    /// every `/events` socket and every `runs.subscribe`.
+    ///
+    /// Fed by the single background pump in [`start_daemon_with_provider_factory`],
+    /// which drains the store's event bus, scrubs each event, and publishes it here. It
+    /// is the one reason two clients can be proven to see the same events in the same
+    /// order, and the same reason the `/events` replay and the `runs.subscribe` sync
+    /// cannot disagree about where the stream is.
+    pub events: Arc<EventSequencer>,
+}
+
+/// Whether a paired actor's device is still in the active pairing set.
+///
+/// This is the predicate behind the per-request re-authorization: a WebSocket's
+/// extensions are frozen at upgrade, so the role alone can outlive the pairing.
+/// The owner always passes; a paired actor without a device id never does
+/// (PAIR research finding 2).
+pub(crate) fn paired_device_is_active(actor: &Actor, active: &[PhonePairing]) -> bool {
+    if actor.role() != ActorRole::Paired {
+        return true;
+    }
+    let Some(device) = actor.pairing_device_id() else {
+        return false;
+    };
+    active
+        .iter()
+        .any(|pairing| pairing.device_id.trim() == device)
+}
+
+impl DaemonState {
+    /// The pairing records that may authenticate a session right now.
+    ///
+    /// Read at the moment of the call rather than cached, so `pairing.revoke` takes
+    /// effect on the phone's next request instead of at the next restart: a revocation
+    /// that only landed on a reboot is a revocation the owner cannot use. The deadline
+    /// is judged at this call's clock too, so an expired pairing stops authenticating
+    /// without a restart (audit H1).
+    pub(crate) async fn active_pairings(&self) -> Vec<PhonePairing> {
+        self.pairings.read().await.active_at(now_epoch_secs())
+    }
+
+    /// Count one limiter refusal and write the aggregate line when it is due.
+    ///
+    /// Every refusal path in the daemon comes through here (re-audit LOAD-1 finding 2).
+    /// `ceiling` is the method name whose tier bound the caller, or `transport` for the
+    /// whole-request ceiling in front of it; `key` is the limiter's own key, which is an
+    /// identity label or a peer address and is digested rather than printed — a refusal
+    /// line must carry counts a caller can act on, not the credential or the identity of
+    /// whoever held it.
+    pub(crate) fn report_refusal(&self, ceiling: &'static str, key: &str) {
+        if let Some(summary) = self
+            .rates
+            .refusals()
+            .note(ceiling, key, std::time::Instant::now())
+        {
+            warn!("{}", summary.message());
+        }
+    }
+
+    /// Probe real capabilities of the daemon (daemon, providers, keychain availability).
+    pub async fn probe_capabilities(&self) -> HealthCapabilities {
+        // Probe daemon capability: verify store connectivity.
+        let daemon = self.store.list_projects().await.is_ok();
+
+        // Probe providers capability: are any providers configured or pipeline roles routed?
+        let providers_configured = self
+            .settings
+            .load_providers()
+            .await
+            .map(|list| list.iter().any(|p| p.enabled))
+            .unwrap_or(false);
+        let roles_routed = !self.role_routings.read().await.is_empty();
+        let providers = providers_configured || roles_routed;
+
+        // Probe keychain capability: verify secret store is operational.
+        let keychain = match self.secrets.load("__warsha_health_probe__").await {
+            Ok(_) => true,
+            Err(warsha_providers::ProviderError::Auth(msg)) => {
+                let lower = msg.to_ascii_lowercase();
+                !lower.contains("platform")
+                    && !lower.contains("unavailable")
+                    && !lower.contains("couldn't access")
+            }
+            Err(_) => false,
+        };
+
+        HealthCapabilities {
+            daemon,
+            providers,
+            keychain,
+        }
+    }
+}
+
+/// One `server::tool::role` MCP permission row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpPermissionRow {
+    /// The MCP server the row names.
+    pub server: String,
+    /// The tool the row names.
+    pub tool: String,
+    /// The role the row names.
+    pub role: String,
+    /// `allow`, `ask` or `deny`.
+    pub permission: String,
+}
+
+/// The permission table plus the agent role's fail-closed default.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpPermissionsReply {
+    /// Every stored row, in key order.
+    pub rows: Vec<McpPermissionRow>,
+    /// The role every agent tool call is checked under.
+    pub agent_role: String,
+    /// The permission an unseen `server::tool` gets for [`McpPermissionsReply::agent_role`].
+    pub default_permission: String,
+}
