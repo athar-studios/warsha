@@ -88,7 +88,7 @@ export default function BenchPage(): React.ReactElement {
   const modelsHook = useModels();
   const harnessesHook = useHarnesses();
   const filesHook = useFiles(effectiveProjectId || undefined);
-  const agentHook = useAgent();
+  const agentHook = useAgent(effectiveRunId || undefined);
   const previewHook = usePreview(effectiveProjectId || undefined);
 
   // Runmodes state (retrieved from client.listRunModes)
@@ -227,19 +227,19 @@ export default function BenchPage(): React.ReactElement {
   });
 
   const assistantSendAction = useAction('bench.assistant.send', async (text: string) => {
-    if (!client) return undefined;
-    return client.agentTurn(text);
+    if (!client || !effectiveRunId) return undefined;
+    return client.agentTurn(effectiveRunId, text);
   });
 
   const assistantPlanModeAction = useAction('bench.assistant.mode.plan', async () => {
     if (!client) return;
-    await client.returnAgentToPlanMode();
+    await client.returnAgentToPlanMode(effectiveRunId || undefined);
     agentHook.reload();
   });
 
   const assistantAgentModeAction = useAction('bench.assistant.mode.agent', async () => {
     if (!client) return;
-    await client.approveAgentMode();
+    await client.approveAgentMode(effectiveRunId || undefined);
     agentHook.reload();
   });
 
