@@ -6724,3 +6724,9 @@ hypotheses left in this triage.
 ## Run 2026-11-14 — P-H1 A8 merged (rpc-core hub)
 - **A8** (worker `32d749a`, merged clean): rpc-core 767 lines → rpc/mod.rs (byte-identical body, 738/738; 31 pub(crate) = 7 items + 21 methods + 3 fields — fields are the privacy-by-descent gap, map counted 0); runtime.rs +9 (A7-orphaned doc restored); `now_epoch_secs` reachable via facade.
 - Full gates on merged tree: fmt OK, clippy `-D warnings` clean, warshad 298/0, wire 11/0. lib.rs now 12,464 lines. Stage A hub done — remaining: A0 (helpers), A9 (startup), A10 (tests).
+
+## Run 2026-11-14 — P-H1 A9 merged (startup, last code move); A0 closed as stay
+- **A9** (worker `e12277a`, merged clean): startup 878 lines/19 items → startup.rs (byte-identical + 3 pub(crate) seams; `start_daemon` was missing from map inventory); facade keeps `warshad::start_daemon/run_daemon/load_or_create_config` + all 7 out-edges resolving (all-targets check 0).
+- **Test seam (PM, A1 precedent)**: `the_startup_listener_lines_are_written_once` scans `include_str!("lib.rs")` for listener owners — now scans lib.rs+startup.rs; path-only, assertion unchanged. Full tree: fmt OK, clippy clean, warshad 298/0, wire 11/0. lib.rs now 11,606 lines.
+- **A0 closed**: `ph1-a0-helpers` (e6b1adc) REJECTED per frozen map ("stays as facade leaf consts"); A8's `StoreRunLiveness`-stays ruling + zero external const readers. Logged in DECISIONS.md. No code change.
+- Stage A remaining: A10 (tests, 8,182 lines).
