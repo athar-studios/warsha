@@ -18,6 +18,7 @@
 - **PM gate runs on the final merged tree** (`171d319`): fmt 0; clippy 0; wire 11 checks 0 violations; policy 8 checks 0 failures; deny ok; store 47/0/0; pipeline 473/0/7; warshad 276/0/3 (20 suites); e2_wiring 7/7, e2_legacy_retired 3/3, e5_wiring 6/6.
 - **Merged + pushed**: `4df0292` (E2b+E5) then `171d319` (E7) into `repair/dev-csp-f474776`, pushed to warsha-dev.
 - **BLOCKER (new, owner-gated)**: the delegation fleet is DOWN — both the Reviewer attempt and the E7 Coder attempt faulted with `MISSING_CREDENTIAL` for the provider route (`P1F9E6400A1C5FA45_API_KEY` not set). No new packets can be dispatched until the key is stored through the credentials service or exported. **Mohamed: the Models page (or the env var) needs the provider key before any further delegated work — R-UI/R-EXT/R-FIN and the remaining ENGINE packets (P-E4, P-E6, P-E8, P-H1) are queued behind it.**
+- **OWNER UPDATE 2026-11-14 — the BLOCKER above is OUTDATED / RESOLVED**: the fleet provider key (`P1F9E6400A1C5FA45_API_KEY`, 9router) was placed in the laptop .env layers (project + ZadLoop harness home) on 2026-11-14 at the owner's instruction, and the key is working — the fleet has since dispatched and merged P-H1 steps A3-A8. Remove 'provider-key credential for the fleet' from the owner-gated bundle; do not treat the fleet as down.
 - **Queue (blocked on the credential fix)**: P-E4 (CLI into the Code stage) → P-E6 (skills wiring) → P-E8 (pilot, mock-provider) → P-H1 (the lib.rs split); then R-UI (migrate the `agentTurn` callers to pass the run id — OD-E2b's UI half), R-EXT, R-FIN. The CI billing fix is still open alongside.
 
 ## Run 2026-11-14 — P-E2 (retire the legacy loop): DONE, merged (PM-verified); P-E2b queued — the per-run approval gap
@@ -6730,3 +6731,8 @@ hypotheses left in this triage.
 - **Test seam (PM, A1 precedent)**: `the_startup_listener_lines_are_written_once` scans `include_str!("lib.rs")` for listener owners — now scans lib.rs+startup.rs; path-only, assertion unchanged. Full tree: fmt OK, clippy clean, warshad 298/0, wire 11/0. lib.rs now 11,606 lines.
 - **A0 closed**: `ph1-a0-helpers` (e6b1adc) REJECTED per frozen map ("stays as facade leaf consts"); A8's `StoreRunLiveness`-stays ruling + zero external const readers. Logged in DECISIONS.md. No code change.
 - Stage A remaining: A10 (tests, 8,182 lines).
+
+## Run 2026-11-14 — P-H1 A10 merged: Stage A COMPLETE
+- **A10** (worker `b40f40a`, merged clean): tests region → 10 files in `src/tests/` (`mod.rs` body + 9 modules declared at crate root with `#[path]`, so `use super::*` still means crate root and names unchanged); `include_str!` seams `../lib.rs`/`../startup.rs`/`../api.rs` (A1 precedent, assertions unchanged); first `#[cfg(test)]` still after last production line.
+- Test-set proof: `--list` diff 303=303, one harness-path segment only; 298/0/5. Merged tree: fmt OK, clippy clean, warshad 298/0, wire 11/0. **lib.rs now 3,178 lines (was 16,072)**.
+- **P-H1 Stage A done**: all 9 code regions + tests extracted (A0 closed as stay). Remaining: P-H1 Stage B (rpc/ dir fill, needs F1 P-H1-RPC packet), then R-UI/R-EXT.
