@@ -21,29 +21,45 @@ applyStoredTheme();
 const storedLocale = readStoredLocale();
 applyLocale(storedLocale);
 
-// Check if ui=v3 query param is present (?ui=v3)
-function isV3Requested(): boolean {
-  if (typeof window === 'undefined') return false;
-  const params = new URLSearchParams(window.location.search);
-  return params.get('ui') === 'v3'; // ui=v3
+/**
+ * The UI the address asks for, or `null` when it asks for nothing.
+ *
+ * `?ui=v3` is kept because it is what bookmarks and the existing v3 e2e suite open; `?ui=v2` is the
+ * one-way escape back to the old shell. An address beats every stored preference, so the escape
+ * works even for an owner whose config already says v3.
+ */
+function requestedUi(): 'v2' | 'v3' | null {
+  if (typeof window === 'undefined') return null;
+  const ui = new URLSearchParams(window.location.search).get('ui');
+  return ui === 'v2' || ui === 'v3' ? ui : null;
 }
 
-function Root(): React.ReactElement {
-  const [useV3, setUseV3] = React.useState<boolean>(() => isV3Requested());
+/**
+ * v3 is the app (OD-U3). The old shell stays reachable on purpose until B4b deletes it:
+ *
+ *   * `?ui=v2` — an explicit escape, decided before the first paint;
+ *   * a stored `ui_version` of `v2` — the owner's own choice, kept over the new default;
+ *   * anything else, including a `get_config` that fails, is v3: a daemon that cannot answer is not
+ *     a reason to show the interface this release replaced.
+ */
+export function Root(): React.ReactElement {
+  const [useV3, setUseV3] = React.useState<boolean>(() => requestedUi() !== 'v2');
 
   React.useEffect(() => {
-    if (!useV3) {
-      invoke<string>('get_config', { key: 'ui_version' })
-        .then((ver) => {
-          if (ver === 'v3') {
-            setUseV3(true);
-          }
-        })
-        .catch(() => {
-          // If invoke fails or ui_version not set, stay on v2 App
-        });
-    }
-  }, [useV3]);
+    // The address already decided; a stored preference does not get a second vote.
+    if (requestedUi() !== null) return;
+    let cancelled = false;
+    invoke<string>('get_config', { key: 'ui_version' })
+      .then((ver) => {
+        if (!cancelled && ver === 'v2') setUseV3(false);
+      })
+      .catch(() => {
+        // No daemon, no key, no answer: v3 is the default either way.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (useV3) {
     return <V3App />;
@@ -60,10 +76,16 @@ function Root(): React.ReactElement {
 
 // The boundary sits outermost on purpose: a throw anywhere inside — locale provider, router, a
 // screen — lands on the recovery card instead of blacking the window with nothing to click.
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <ErrorBoundary>
-      <Root />
-    </ErrorBoundary>
-  </React.StrictMode>
-);
+//
+// The mount is skipped when the document has no `#root`: that is the test document, where
+// `main.test.tsx` mounts `<Root />` itself to prove the start conditions.
+const rootElement = document.getElementById('root');
+if (rootElement !== null) {
+  ReactDOM.createRoot(rootElement).render(
+    <React.StrictMode>
+      <ErrorBoundary>
+        <Root />
+      </ErrorBoundary>
+    </React.StrictMode>
+  );
+}
