@@ -6740,3 +6740,7 @@ hypotheses left in this triage.
 ## Run 2026-11-15 — R-UI-1 merged (v3 floor repair)
 - **R-UI-1** (branch `zl-rui1-floor`, 9 commits, merged clean as `d0847ae`): all 7 packet items fixed with discrimination artifacts; gates on merged tree: actions 151/151/0, i18n 746/0, ds-v3 0, E1 283/0 (worker-measured; PM re-ran the three static gates, all 0).
 - Prettier note: base tree has pre-existing wrap drift — worker kept added lines clean without reformatting out-of-scope files.
+
+## Run 2026-11-15 — R-UI-2 merged (run-ending controls reachable)
+- **R-UI-2** (branch `zl-rui2-run-controls`, 6 commits, merged clean): `HealthCapabilities.run_controls` additive (`#[serde(default)]`), honest probe (store run-version column + daemon), client decodes, UI single `canEndRuns`, both window back doors removed, e2e via health fixture + absent-controls cases. `lib.rs` untouched; wire surface additive-only.
+- Gates on merged tree (PM): fmt OK, clippy workspace clean, warshad 302/0 (new probe tests included), wire 11/0. Worker evidence: workspace 1055/0, pnpm lint/typecheck/test green, Playwright non-visual 286/0, actions/i18n 0, discrimination artifacts captured.
