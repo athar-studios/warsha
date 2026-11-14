@@ -102,6 +102,7 @@ export const RPC_METHODS = [
   'agent.plan_mode',
   'agent.state',
   'agent.turn',
+  'agent.turn_run',
   'backend.export',
   'backend.get',
   'backend.set',
@@ -1544,6 +1545,12 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
         },
       };
     case 'agent.turn':
+      return {
+        ok: false,
+        code: -32000,
+        message: 'agent.turn is retired: start a run and use agent.turn_run with its run id',
+      };
+    case 'agent.turn_run':
       return {
         ok: true,
         result: {

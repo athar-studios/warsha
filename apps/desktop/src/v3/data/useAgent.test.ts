@@ -10,7 +10,7 @@ describe('useAgent', () => {
       agentState: () => new Promise<AgentState>(() => {}),
     } as unknown as WarshaClient;
 
-    const { result } = renderHook(() => useAgent(client));
+    const { result } = renderHook(() => useAgent(null, client));
     expect(result.current.status).toBe('loading');
     expect(result.current.data).toBeNull();
   });
@@ -26,7 +26,7 @@ describe('useAgent', () => {
       agentState: vi.fn().mockResolvedValue(emptyState),
     } as unknown as WarshaClient;
 
-    const { result } = renderHook(() => useAgent(client));
+    const { result } = renderHook(() => useAgent(null, client));
     await act(async () => {});
 
     expect(result.current.status).toBe('empty');
@@ -57,7 +57,7 @@ describe('useAgent', () => {
       agentState: vi.fn().mockResolvedValue(activeState),
     } as unknown as WarshaClient;
 
-    const { result } = renderHook(() => useAgent(client));
+    const { result } = renderHook(() => useAgent(null, client));
     await act(async () => {});
 
     expect(result.current.status).toBe('ready');
@@ -69,7 +69,7 @@ describe('useAgent', () => {
       agentState: vi.fn().mockRejectedValue(new Error('Agent error')),
     } as unknown as WarshaClient;
 
-    const { result } = renderHook(() => useAgent(client));
+    const { result } = renderHook(() => useAgent(null, client));
     await act(async () => {});
 
     expect(result.current.status).toBe('error');
@@ -95,5 +95,47 @@ describe('useAgent', () => {
 
     expect(result.current.status).toBe('ready');
     expect(result.current.data).toEqual(recovered);
+  });
+
+  it('reads run-scoped agent state when runId is provided', async () => {
+    const emptyState: AgentState = {
+      mode: 'plan',
+      approvals: [],
+      todos: [],
+      model_wired: false,
+    };
+    const client = {
+      agentState: vi.fn().mockResolvedValue(emptyState),
+    } as unknown as WarshaClient;
+
+    const { result } = renderHook(() => useAgent('run-a', client));
+    await act(async () => {});
+
+    expect(client.agentState).toHaveBeenCalledWith('run-a');
+    expect(result.current.status).toBe('empty');
+  });
+
+  it('reloads when runId changes', async () => {
+    const emptyState: AgentState = {
+      mode: 'plan',
+      approvals: [],
+      todos: [],
+      model_wired: false,
+    };
+    const client = {
+      agentState: vi.fn().mockResolvedValue(emptyState),
+    } as unknown as WarshaClient;
+
+    const { rerender } = renderHook(({ runId }) => useAgent(runId, client), {
+      initialProps: { runId: 'run-a' },
+    });
+    await act(async () => {});
+
+    expect(client.agentState).toHaveBeenCalledWith('run-a');
+
+    rerender({ runId: 'run-b' });
+    await act(async () => {});
+
+    expect(client.agentState).toHaveBeenCalledWith('run-b');
   });
 });

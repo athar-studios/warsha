@@ -20,7 +20,7 @@ export const ACTIONS: readonly ActionDef[] = [
   { id: 'bench.terminal.follow', labelKey: 'bench.action.terminal_follow', effect: 'state' },
   { id: 'bench.terminal.copy', labelKey: 'bench.action.terminal_copy', effect: 'state' },
   { id: 'bench.team.model.set', labelKey: 'bench.action.team_model_set', effect: 'rpc', rpc: ['roles.set'] },
-  { id: 'bench.assistant.send', labelKey: 'bench.action.assistant_send', effect: 'rpc', rpc: ['agent.turn'] },
+  { id: 'bench.assistant.send', labelKey: 'bench.action.assistant_send', effect: 'rpc', rpc: ['agent.turn_run'] },
   { id: 'bench.assistant.mode.plan', labelKey: 'bench.action.assistant_mode_plan', effect: 'rpc', rpc: ['agent.plan_mode'] },
   { id: 'bench.assistant.mode.agent', labelKey: 'bench.action.assistant_mode_agent', effect: 'rpc', rpc: ['agent.approve_mode'] },
   { id: 'bench.budget.save', labelKey: 'bench.action.budget_save', effect: 'rpc', rpc: ['budget.set'] },

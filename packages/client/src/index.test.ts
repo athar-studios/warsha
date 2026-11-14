@@ -812,28 +812,49 @@ describe('configured provider and agent wiring (C2)', () => {
       tools: [],
     };
     fetchMock.mockResolvedValueOnce(okResponse(turn));
-    await expect(client.agentTurn('build it')).resolves.toEqual(turn);
-    expect(lastBody().method).toBe('agent.turn');
-    expect(lastBody().params).toEqual({ input: 'build it' });
+    await expect(client.agentTurn('run-123', 'build it')).resolves.toEqual(turn);
+    expect(lastBody().method).toBe('agent.turn_run');
+    expect(lastBody().params).toEqual({ run_id: 'run-123', input: 'build it' });
 
-    // Approving the mode that edits carries no approver: the session is the approver.
+    // Approving the mode that edits carries run_id only when given; daemon session is the approver.
     const transition = { from: 'plan', to: 'agent', approved_by: 'device-1', approved_at: 1 };
     fetchMock.mockResolvedValueOnce(okResponse(transition));
     await expect(client.approveAgentMode()).resolves.toEqual(transition);
     expect(lastBody().method).toBe('agent.approve_mode');
     expect(lastBody().params).toBeUndefined();
 
+    fetchMock.mockResolvedValueOnce(okResponse(transition));
+    await expect(client.approveAgentMode('run-123')).resolves.toEqual(transition);
+    expect(lastBody().method).toBe('agent.approve_mode');
+    expect(lastBody().params).toEqual({ run_id: 'run-123' });
+
     fetchMock.mockResolvedValueOnce(
       okResponse({ from: 'agent', to: 'plan', approved_by: 'device-1', approved_at: 2 })
     );
     await client.returnAgentToPlanMode();
     expect(lastBody().method).toBe('agent.plan_mode');
+    expect(lastBody().params).toBeUndefined();
+
+    fetchMock.mockResolvedValueOnce(
+      okResponse({ from: 'agent', to: 'plan', approved_by: 'device-1', approved_at: 2 })
+    );
+    await client.returnAgentToPlanMode('run-123');
+    expect(lastBody().method).toBe('agent.plan_mode');
+    expect(lastBody().params).toEqual({ run_id: 'run-123' });
 
     fetchMock.mockResolvedValueOnce(
       okResponse({ mode: 'plan', approvals: [], todos: [], model_wired: true })
     );
     await expect(client.agentState()).resolves.toMatchObject({ model_wired: true });
     expect(lastBody().method).toBe('agent.state');
+    expect(lastBody().params).toBeUndefined();
+
+    fetchMock.mockResolvedValueOnce(
+      okResponse({ mode: 'plan', approvals: [], todos: [], model_wired: true })
+    );
+    await expect(client.agentState('run-123')).resolves.toMatchObject({ model_wired: true });
+    expect(lastBody().method).toBe('agent.state');
+    expect(lastBody().params).toEqual({ run_id: 'run-123' });
   });
 
   it('keeps a provider key out of every message this client can produce', async () => {

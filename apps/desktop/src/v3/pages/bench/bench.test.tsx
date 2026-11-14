@@ -757,6 +757,34 @@ describe('Advanced Workbench (U4)', () => {
     expect(screen.getByTestId('bench-tabs')).toBeInTheDocument();
   });
 
+  it('proves approve-mode for run A sends A id and never B id', async () => {
+    const client = createMockClient({
+      getRun: vi.fn((id: string) => Promise.resolve({ ...SAMPLE_RUN, id: id as RunId })),
+    });
+
+    const { unmount } = render(<V3App client={client} initialRoute="/p/proj-1/r/run-a/assistant" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('bench-assistant-mode-agent-btn')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('bench-assistant-mode-agent-btn'));
+    expect(client.approveAgentMode).toHaveBeenCalledWith('run-a');
+    expect(client.approveAgentMode).not.toHaveBeenCalledWith('run-b');
+
+    unmount();
+
+    render(<V3App client={client} initialRoute="/p/proj-1/r/run-b/assistant" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('bench-assistant-mode-agent-btn')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('bench-assistant-mode-agent-btn'));
+    expect(client.approveAgentMode).toHaveBeenLastCalledWith('run-b');
+    expect(client.approveAgentMode).not.toHaveBeenLastCalledWith('run-a');
+  });
+
   it('BenchPage displays error banner when getRun fails', async () => {
     const client = createMockClient({
       getRun: vi.fn().mockRejectedValue(new Error('Daemon offline')),

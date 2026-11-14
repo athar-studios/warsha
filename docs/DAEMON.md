@@ -163,6 +163,11 @@ Not yet in the router (only `/health` is registered, `:500`). The contract to be
 | `devices.list` | — | `DeviceIdentity[]` (`device_id`, `name`, `revoked`, …) |
 | `devices.pair` | `pairing_data: PairingData` | `null` |
 | `devices.revoke` | `device_id: DeviceId` | `null` |
+| `agent.turn` | `input: string` | `AgentTurnResult` (retired, refuses: "agent.turn is retired: start a run and use agent.turn_run with its run id") |
+| `agent.turn_run` | `run_id: RunId, input: string` | `AgentTurnResult` |
+| `agent.approve_mode` | `run_id?: RunId` | `ModeTransition` |
+| `agent.plan_mode` | `run_id?: RunId` | `ModeTransition` |
+| `agent.state` | `run_id?: RunId` | `AgentState` |
 
 Parameter serialization: `ProjectId`, `RunId` and `DeviceId` are newtypes over `Uuid`/`Ulid` and serialize
 as plain strings (hyphenated UUID, Crockford ULID). `Stage` serializes as `snake_case` across all 14 stages
