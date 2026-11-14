@@ -120,19 +120,19 @@ test.describe('Workbench (U4) — Journeys & Amendments', () => {
 
     // Owner clicks Agent mode -> approves via agent.approve_mode
     await act(page, 'bench.assistant.mode.agent');
-    await expectRpc(page, 'agent.approve_mode');
+    await expectRpc(page, 'agent.approve_mode', { run_id: 'run-code' });
 
     // Owner switches back to Plan mode -> agent.plan_mode
     await act(page, 'bench.assistant.mode.plan');
-    await expectRpc(page, 'agent.plan_mode');
+    await expectRpc(page, 'agent.plan_mode', { run_id: 'run-code' });
 
-    // Owner sends real turn -> agent.turn and renders real daemon response
+    // Owner sends real turn -> agent.turn_run and renders real daemon response
     await page
       .getByTestId('bench-assistant-input')
       .locator('textarea')
       .fill('ما هي خطة التنفيذ؟');
     await act(page, 'bench.assistant.send');
-    await expectRpc(page, 'agent.turn', { input: 'ما هي خطة التنفيذ؟' });
+    await expectRpc(page, 'agent.turn_run', { run_id: 'run-code', input: 'ما هي خطة التنفيذ؟' });
     await expect(
       page.getByText('تم تجهيز الخطة، وهي بانتظار موافقتك للمتابعة.')
     ).toBeVisible();
@@ -315,26 +315,26 @@ test.describe('Workbench (U4) — Action ID contracts', () => {
     await expectRpc(page, 'roles.set');
   });
 
-  test('action: bench.assistant.send calls agent.turn', async ({ page }) => {
+  test('action: bench.assistant.send calls agent.turn_run', async ({ page }) => {
     await openV3(page, '/p/proj-ui/r/run-code/assistant', { mode: 'advanced' });
     await page
       .getByTestId('bench-assistant-input')
       .locator('textarea')
       .fill('مرحبا');
     await act(page, 'bench.assistant.send');
-    await expectRpc(page, 'agent.turn', { input: 'مرحبا' });
+    await expectRpc(page, 'agent.turn_run', { run_id: 'run-code', input: 'مرحبا' });
   });
 
   test('action: bench.assistant.mode.plan calls agent.plan_mode', async ({ page }) => {
     await openV3(page, '/p/proj-ui/r/run-code/assistant', { mode: 'advanced' });
     await act(page, 'bench.assistant.mode.plan');
-    await expectRpc(page, 'agent.plan_mode');
+    await expectRpc(page, 'agent.plan_mode', { run_id: 'run-code' });
   });
 
   test('action: bench.assistant.mode.agent calls agent.approve_mode', async ({ page }) => {
     await openV3(page, '/p/proj-ui/r/run-code/assistant', { mode: 'advanced' });
     await act(page, 'bench.assistant.mode.agent');
-    await expectRpc(page, 'agent.approve_mode');
+    await expectRpc(page, 'agent.approve_mode', { run_id: 'run-code' });
   });
 
   test('action: bench.budget.save calls budget.set', async ({ page }) => {
