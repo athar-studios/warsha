@@ -1517,7 +1517,7 @@ use std::task::{Context, Poll};
 use tower::Layer;
 use warsha_remote::rate_limit::rate_key;
 
-use super::DaemonState;
+use super::state::DaemonState;
 
 /// Tower layer for RPC authentication and the ceiling in front of it.
 ///
