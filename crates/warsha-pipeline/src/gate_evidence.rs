@@ -1,12 +1,16 @@
 //! Gate C evidence (ENGINE E5 slice): the diff, changed files and test run a
-//! reviewer needs to decide Gate C.
+//! reviewer needs to decide Gate C, plus the dev-server preview that already
+//! exists for the run.
 //!
-//! Read-only: it never stages, commits or pushes. The test command is executed
-//! with no shell, its output is capped in memory, and a timeout kills the child.
-//! The command itself is the caller's responsibility to authorise (the daemon runs
-//! its command policy before calling this); this module only measures what it did.
+//! Read-only: it never stages, commits or pushes, and it never starts a preview —
+//! the preview it carries is what the caller's manager reports, or `None`. The test
+//! command is executed with no shell, its output is capped in memory, and a timeout
+//! kills the child. The command itself is the caller's responsibility to authorise
+//! (the daemon runs its command policy before calling this); this module only
+//! measures what it did.
 
 use crate::command_policy::CommandPolicy;
+use crate::process_spawn::{LivePreview, ProcessStatus};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -62,6 +66,43 @@ pub struct TestRun {
     pub truncated: bool,
 }
 
+/// The dev-server preview a Gate C reviewer can open, as it already stands.
+///
+/// This is a record, not a handle the daemon acts on: Gate C evidence never
+/// starts, stops or reloads a preview. The daemon's live-preview manager is keyed
+/// by project, so today this is the preview of the run's *project* — there is no
+/// per-run or per-worktree preview — and it is recorded as such rather than
+/// implied to be the worktree's own server.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreviewEvidence {
+    /// The project whose dev server this is (the preview manager's key).
+    pub project_id: String,
+    /// The managed process behind the preview.
+    pub process_id: String,
+    /// The URL the server printed, or `None` when it printed none.
+    pub url: Option<String>,
+    /// The observed process status.
+    pub status: ProcessStatus,
+}
+
+impl PreviewEvidence {
+    /// The preview for Gate C, or `None` when the server is not up.
+    ///
+    /// A terminal status (stopped, failed, crashed) is not a preview a reviewer can
+    /// open, and nothing is started to fill the gap.
+    pub fn live(preview: LivePreview) -> Option<Self> {
+        if preview.status.is_terminal() {
+            return None;
+        }
+        Some(PreviewEvidence {
+            project_id: preview.project_id,
+            process_id: preview.process_id,
+            url: preview.url,
+            status: preview.status,
+        })
+    }
+}
+
 /// Everything a Gate C reviewer looks at.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GateEvidence {
@@ -71,6 +112,25 @@ pub struct GateEvidence {
     pub files_changed: Vec<String>,
     /// The measured test run.
     pub tests: TestRun,
+    /// The run's preview when one is already up, else an explicit `None`.
+    ///
+    /// [`collect_gate_evidence`] always leaves this `None`: collecting evidence
+    /// never starts, stages or commits anything for the preview. The caller
+    /// attaches what its preview manager already reports, through
+    /// [`GateEvidence::with_preview`].
+    pub preview: Option<PreviewEvidence>,
+}
+
+impl GateEvidence {
+    /// Record the preview that already exists for the run.
+    ///
+    /// Read-only: `preview` is what the daemon's preview manager reports without
+    /// waiting for anything to start, and a server that is not up leaves
+    /// [`GateEvidence::preview`] as an explicit `None` rather than an error.
+    pub fn with_preview(mut self, preview: Option<LivePreview>) -> Self {
+        self.preview = preview.and_then(PreviewEvidence::live);
+        self
+    }
 }
 
 /// Collect the diff, changed paths and test result for a Gate C decision.
@@ -144,6 +204,9 @@ pub(crate) async fn collect_gate_evidence_with_timeout(
             stderr: crate::guardrails::mask_secrets(&tests.stderr),
             ..tests
         },
+        // Collection measures the worktree; the preview belongs to the caller, so
+        // nothing is invented here (and no server is started to fill it in).
+        preview: None,
     })
 }
 
@@ -646,6 +709,93 @@ mod e5 {
         assert!(
             marker.exists(),
             "the control `git diff` did not run the configured hook: this test can no longer prove the vector is live"
+        );
+    }
+
+    /// A preview as the manager reports it, without starting one.
+    fn preview(status: ProcessStatus, url: Option<&str>) -> LivePreview {
+        LivePreview {
+            project_id: "project-1".to_string(),
+            process_id: "proc-1".to_string(),
+            command: "npm".to_string(),
+            args: vec!["run".to_string(), "dev".to_string()],
+            status,
+            url: url.map(str::to_string),
+        }
+    }
+
+    /// The preview is the caller's to report: collection leaves it unset, and only
+    /// a server that is still up is carried.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn only_a_live_preview_is_carried_as_evidence() {
+        let repo = temp_repo();
+        let (program, args) = sh("true");
+        let policy = CommandPolicy::from_config(std::slice::from_ref(&program));
+        let evidence = collect_gate_evidence(&policy, repo.path(), "HEAD", &program, &args)
+            .await
+            .expect("the evidence is collected");
+        assert!(
+            evidence.preview.is_none(),
+            "collecting evidence invented a preview"
+        );
+
+        let carried = evidence
+            .clone()
+            .with_preview(Some(preview(
+                ProcessStatus::Running,
+                Some("http://127.0.0.1:5173/"),
+            )))
+            .preview
+            .expect("a running preview is carried");
+        assert_eq!(carried.project_id, "project-1");
+        assert_eq!(carried.process_id, "proc-1");
+        assert_eq!(carried.url.as_deref(), Some("http://127.0.0.1:5173/"));
+        assert_eq!(carried.status, ProcessStatus::Running);
+
+        // A server whose process is gone is not a preview a reviewer can open.
+        for status in [
+            ProcessStatus::Stopped,
+            ProcessStatus::Failed,
+            ProcessStatus::Crashed,
+        ] {
+            assert!(
+                evidence
+                    .clone()
+                    .with_preview(Some(preview(status, Some("http://127.0.0.1:5173/"))))
+                    .preview
+                    .is_none(),
+                "{status:?} was carried as a live preview"
+            );
+        }
+        assert!(evidence.with_preview(None).preview.is_none());
+    }
+
+    /// "No preview" has to reach the reviewer as a `null` they can see, not as a
+    /// field that quietly disappears from the response.
+    #[test]
+    fn an_absent_preview_serialises_as_an_explicit_null() {
+        let evidence = GateEvidence {
+            diff: String::new(),
+            files_changed: Vec::new(),
+            tests: TestRun {
+                program: "true".to_string(),
+                args: Vec::new(),
+                success: true,
+                exit_code: Some(0),
+                stdout: String::new(),
+                stderr: String::new(),
+                duration_ms: 0,
+                truncated: false,
+            },
+            preview: None,
+        };
+
+        let value = serde_json::to_value(&evidence).expect("the evidence serialises");
+        assert_eq!(
+            value.get("preview"),
+            Some(&serde_json::Value::Null),
+            "an absent preview must be an explicit null, not an omitted field"
         );
     }
 }
