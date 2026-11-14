@@ -98,7 +98,7 @@ pub struct StreamSync {
 /// A single source stamps each event exactly once, which is what makes "two
 /// clients see identical events in identical order" provable rather than
 /// emergent. It is fed by the one background pump in
-/// [`start_daemon_with_provider_factory`], which drains the store's event bus,
+/// [`crate::start_daemon_with_provider_factory`], which drains the store's event bus,
 /// scrubs each event, and calls [`EventSequencer::publish`]; because the pump is
 /// the only writer, `seq` order is the store's arrival order and no two RPCs can
 /// race to stamp the same instant.
