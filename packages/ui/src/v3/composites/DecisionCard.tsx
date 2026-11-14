@@ -115,7 +115,10 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({
       )}
 
       <div>
+        {/* R-UI-3 D3-c: question, rationale and consequences are user/agent text, so each picks its own
+            direction; the buttons and dialog copy below are catalog labels and keep the page direction. */}
         <h2
+          dir="auto"
           style={{
             margin: 0,
             fontSize: 'var(--w-font-size-xl)',
@@ -128,6 +131,7 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({
         </h2>
 
         <p
+          dir="auto"
           style={{
             margin: 0,
             marginTop: 'var(--w-space-2)',
@@ -174,7 +178,9 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({
             }}
           >
             {consequences.map((c, i) => (
-              <li key={i}>{c}</li>
+              <li key={i} dir="auto">
+                {c}
+              </li>
             ))}
           </ul>
         </div>
@@ -194,6 +200,7 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({
           }}
         >
           <TextArea
+            dir="auto"
             value={changeText}
             onChange={(e) => setChangeText(e.target.value)}
             placeholder={changePlaceholder}
@@ -295,6 +302,7 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({
         }
       >
         <TextArea
+          dir="auto"
           value={rejectReason}
           onChange={(e) => setRejectReason(e.target.value)}
           placeholder={rejectReasonPlaceholder}

@@ -104,6 +104,10 @@ export const TextField = React.forwardRef<HTMLInputElement, TextFieldProps>(
           <input
             ref={ref}
             id={inputId}
+            // R-UI-3 D3-c: value direction is the value's own (prop-less default, so every call site gets
+            // it); a caller that knows the value is LTR — a URL, an ID, the `$` budget field — still passes
+            // `dir` explicitly and `...rest` below overrides this default.
+            dir="auto"
             disabled={disabled}
             required={required}
             aria-invalid={error ? true : undefined}

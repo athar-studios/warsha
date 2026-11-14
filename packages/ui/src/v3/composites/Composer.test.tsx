@@ -47,6 +47,21 @@ describe('Composer composite', () => {
     expect(submitBtn).toHaveAttribute('aria-disabled', 'true');
   });
 
+  // R-UI-3 D3-c: the user's prompt picks its own direction; the submit label beside it does not.
+  it('gives the prompt textarea dir="auto" and leaves the catalog labels alone', () => {
+    render(
+      <Composer
+        value="اكتب هنا"
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        submitLabel="إرسال"
+      />
+    );
+
+    expect(screen.getByTestId('composer-textarea')).toHaveAttribute('dir', 'auto');
+    expect(screen.getByTestId('composer-submit-btn')).not.toHaveAttribute('dir');
+  });
+
   it('renders advancedControls when variant is advanced', () => {
     render(
       <Composer

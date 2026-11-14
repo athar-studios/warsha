@@ -35,4 +35,17 @@ describe('TextField primitive', () => {
     );
     expect(screen.getByTestId('url-field')).toHaveAttribute('data-action', 'settings.url');
   });
+
+  // R-UI-3 D3-c: a prop-less default, so every call site gets it; a caller that knows the value is LTR
+  // (a URL, an ID, the `$` budget field) still passes `dir` and wins.
+  it('defaults the input to dir="auto" and lets a caller override it', () => {
+    render(<TextField label="اسم المشروع" />);
+    expect(screen.getByLabelText('اسم المشروع')).toHaveAttribute('dir', 'auto');
+
+    render(<TextField label="الرابط" dir="ltr" />);
+    expect(screen.getByLabelText('الرابط')).toHaveAttribute('dir', 'ltr');
+
+    // The label is catalog copy: it must not be direction-guessed.
+    expect(screen.getByText('اسم المشروع')).not.toHaveAttribute('dir');
+  });
 });

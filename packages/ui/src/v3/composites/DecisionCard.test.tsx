@@ -102,6 +102,46 @@ describe('DecisionCard composite', () => {
   });
 });
 
+// R-UI-3 D3-c: the decision's own text picks its own direction (`dir="auto"`), while the catalog
+// labels around it ("موافق", "رفض") keep the page direction.
+describe('DecisionCard direction (R-UI-3 D3-c)', () => {
+  it('gives the question, rationale, consequences and the free-text areas dir="auto"', () => {
+    const { container } = render(
+      <DecisionCard
+        question="Approve the plan?"
+        rationale="Agent wrote this rationale."
+        consequences={['Build starts', 'Schema frozen']}
+        onApprove={vi.fn()}
+        onRequestChanges={vi.fn()}
+        onReject={vi.fn()}
+        approveLabel="موافق"
+        requestChangesLabel="طلب تعديلات"
+        rejectLabel="رفض"
+        changePlaceholder="اكتب التعديلات"
+        submitChangesLabel="إرسال"
+        cancelLabel="إلغاء"
+      />
+    );
+
+    expect(container.querySelector('h2')).toHaveAttribute('dir', 'auto');
+    expect(container.querySelector('p')).toHaveAttribute('dir', 'auto');
+    const consequences = Array.from(container.querySelectorAll('li'));
+    expect(consequences).toHaveLength(2);
+    for (const item of consequences) {
+      expect(item).toHaveAttribute('dir', 'auto');
+    }
+
+    // The labels come from the catalogs and must not be direction-guessed.
+    expect(screen.getByRole('button', { name: 'موافق' })).not.toHaveAttribute('dir');
+
+    fireEvent.click(screen.getByRole('button', { name: 'طلب تعديلات' }));
+    // `data-testid` sits on the field wrapper; the direction lands on the textarea itself.
+    expect(
+      screen.getByTestId('decision-changes-textarea').querySelector('textarea')
+    ).toHaveAttribute('dir', 'auto');
+  });
+});
+
 // R-UI-3 D3-d: proof (not opinion) that the type scale clears a two-line fully vocalised Arabic sample.
 // jsdom has no layout engine, so the wrap inside the 240px column is proven by the screenshot in
 // `docs/zadloop/packets/R-UI-3-report.md`; what this test proves is the leading those lines get: the

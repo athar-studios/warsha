@@ -73,7 +73,9 @@ export const Composer: React.FC<ComposerProps> = ({
         ...style,
       }}
     >
+      {/* R-UI-3 D3-c: the user's own prompt picks its own direction (§2.6); the composer's labels do not. */}
       <textarea
+        dir="auto"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
