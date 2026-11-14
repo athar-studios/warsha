@@ -1386,6 +1386,132 @@ export function decodeFileContent(source: unknown): FileContent {
   };
 }
 
+/** One row of the MCP permission table (`warshad::McpPermissionRow`, `crates/warshad/src/lib.rs:581-592`). */
+export interface McpPermissionRow {
+  server: string;
+  tool: string;
+  role: string;
+  permission: McpPermission;
+}
+
+/** What an unseen `server::tool` gets for the agent role (`ToolPermission`, `crates/warsha-pipeline/src/mcp_permission.rs:52-63`). */
+export type McpPermission = 'allow' | 'ask' | 'deny';
+
+/**
+ * One MCP tool call waiting for the owner's answer (`warshad::mcp_approvals::McpApproval`,
+ * `crates/warshad/src/mcp_approvals.rs:48-63`).
+ *
+ * `summary` is the daemon's bounded, redacted rendering of the call's arguments — never the raw
+ * values. It is a *preview*: B3a's O8 limit travels with it, because a value whose key is not a
+ * secret name, whose schema does not mark it secret and whose text is not token-shaped cannot be
+ * recognised by any redactor. A screen renders it as a "redacted preview", never as an exhaustive
+ * account of what the call will send.
+ */
+export interface McpApproval {
+  id: string;
+  runId: string;
+  server: string;
+  tool: string;
+  role: string;
+  summary: string;
+  requestedAt: string;
+}
+
+/** What `mcp.approvals.allow_once` granted (`warshad::McpApprovalAnswer`, `crates/warshad/src/mcp_approvals.rs:67-84`). */
+export interface McpApprovalAnswer {
+  id: string;
+  runId: string;
+  server: string;
+  tool: string;
+  role: string;
+  grantedBy: string;
+  expiresAt: string;
+}
+
+/** The permission table plus the agent role's fail-closed default (`warshad::McpPermissionsReply`, `crates/warshad/src/lib.rs:594-603`). */
+export interface McpPermissionsReply {
+  rows: McpPermissionRow[];
+  agentRole: string;
+  defaultPermission: McpPermission;
+}
+
+function decodeMcpPermission(value: unknown, method: string, name: string): McpPermission {
+  if (value === 'allow' || value === 'ask' || value === 'deny') return value;
+  throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "${name}" is not allow, ask or deny`);
+}
+
+/** Decode one `McpApproval` (snake_case) into the screen's camelCase row. */
+export function decodeMcpApproval(value: unknown, method: string): McpApproval {
+  const source = wiringObject(value, method);
+  return {
+    id: wiringString(source['id'], method, 'id'),
+    runId: wiringString(source['run_id'], method, 'run_id'),
+    server: wiringString(source['server'], method, 'server'),
+    tool: wiringString(source['tool'], method, 'tool'),
+    role: wiringString(source['role'], method, 'role'),
+    summary: wiringString(source['summary'], method, 'summary'),
+    requestedAt: wiringString(source['requested_at'], method, 'requested_at'),
+  };
+}
+
+/** Decode one `McpApprovalAnswer` (snake_case) into the screen's camelCase row. */
+export function decodeMcpApprovalAnswer(value: unknown, method: string): McpApprovalAnswer {
+  const source = wiringObject(value, method);
+  return {
+    id: wiringString(source['id'], method, 'id'),
+    runId: wiringString(source['run_id'], method, 'run_id'),
+    server: wiringString(source['server'], method, 'server'),
+    tool: wiringString(source['tool'], method, 'tool'),
+    role: wiringString(source['role'], method, 'role'),
+    grantedBy: wiringString(source['granted_by'], method, 'granted_by'),
+    expiresAt: wiringString(source['expires_at'], method, 'expires_at'),
+  };
+}
+
+/** Decode one `McpPermissionRow` (snake_case) into the screen's camelCase row. */
+export function decodeMcpPermissionRow(value: unknown, method: string): McpPermissionRow {
+  const source = wiringObject(value, method);
+  return {
+    server: wiringString(source['server'], method, 'server'),
+    tool: wiringString(source['tool'], method, 'tool'),
+    role: wiringString(source['role'], method, 'role'),
+    permission: decodeMcpPermission(source['permission'], method, 'permission'),
+  };
+}
+
+/** Decode one `McpPermissionsReply` (snake_case) into the screen's camelCase reply. */
+export function decodeMcpPermissionsReply(value: unknown, method: string): McpPermissionsReply {
+  const source = wiringObject(value, method);
+  return {
+    rows: wiringArray(source['rows'], method, 'rows').map((row) =>
+      decodeMcpPermissionRow(row, method)
+    ),
+    agentRole: wiringString(source['agent_role'], method, 'agent_role'),
+    defaultPermission: decodeMcpPermission(source['default_permission'], method, 'default_permission'),
+  };
+}
+
+/**
+ * The MCP approval and permission surface (R-BRIDGE-B3b): the two B3a answer methods plus the
+ * permission table. `WarshaClient` implements this interface so the Inbox and Settings screens
+ * call a named method instead of assembling `mcp.*` params themselves.
+ */
+export interface WarshaMcpApi {
+  /** `mcp.approvals.list` — every MCP call waiting for the owner's answer, across runs. */
+  mcpApprovalsList(): Promise<McpApproval[]>;
+  /** `mcp.approvals.allow_once` — answer one pending call with a single-use grant. */
+  mcpAllowOnce(id: string): Promise<McpApprovalAnswer>;
+  /** `mcp.permissions.list` — the stored `server::tool::role` rows and the fail-closed default. */
+  mcpPermissionsList(): Promise<McpPermissionsReply>;
+  /** `mcp.permissions.set` — write one row and resolve to the stored row. */
+  mcpPermissionsSet(
+    server: string,
+    tool: string,
+    role: string,
+    permission: McpPermission
+  ): Promise<McpPermissionRow>;
+}
+
 /**
  * The Wave 2 surface: harnesses, skills, plugins, custom models, integrations and
  * the project file browser. `WarshaClient` implements this interface so a screen
@@ -1433,7 +1559,7 @@ export interface WarshaWave2Api {
   gateEvidence(runId: RunId, program: string, args: string[]): Promise<GateEvidence>;
 }
 
-export class WarshaClient implements WarshaWiringApi, WarshaWave2Api {
+export class WarshaClient implements WarshaWiringApi, WarshaWave2Api, WarshaMcpApi {
   private baseUrl: string;
   private token: string;
   private requestId = 0;
@@ -1493,6 +1619,44 @@ export class WarshaClient implements WarshaWiringApi, WarshaWave2Api {
       args,
     });
     return decodeGateEvidence(row, 'gates.evidence');
+  }
+
+  // MCP approvals and permissions (R-BRIDGE-B3b).
+  //
+  // B3a registered the four daemon methods (`crates/warshad/src/lib.rs:882-904`); these are the
+  // client's names for them. Every parameter is the daemon's own bound argument name, because
+  // jsonrpsee binds by name and anything else answers `-32602`, and every answer is decoded here
+  // so a snake_case row never reaches a screen as `undefined`.
+  async mcpApprovalsList(): Promise<McpApproval[]> {
+    const rows = await this.rpc<unknown>('mcp.approvals.list');
+    return wiringArray(rows, 'mcp.approvals.list', 'approvals').map((row) =>
+      decodeMcpApproval(row, 'mcp.approvals.list')
+    );
+  }
+
+  async mcpAllowOnce(id: string): Promise<McpApprovalAnswer> {
+    const row = await this.rpc<unknown>('mcp.approvals.allow_once', { id });
+    return decodeMcpApprovalAnswer(row, 'mcp.approvals.allow_once');
+  }
+
+  async mcpPermissionsList(): Promise<McpPermissionsReply> {
+    const row = await this.rpc<unknown>('mcp.permissions.list');
+    return decodeMcpPermissionsReply(row, 'mcp.permissions.list');
+  }
+
+  async mcpPermissionsSet(
+    server: string,
+    tool: string,
+    role: string,
+    permission: McpPermission
+  ): Promise<McpPermissionRow> {
+    const row = await this.rpc<unknown>('mcp.permissions.set', {
+      server,
+      tool,
+      role,
+      permission,
+    });
+    return decodeMcpPermissionRow(row, 'mcp.permissions.set');
   }
 
   // Projects

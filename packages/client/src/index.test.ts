@@ -7,6 +7,10 @@ import {
   decodeBackendKit,
   decodeDeviceSummary,
   decodeGateEvidence,
+  decodeMcpApproval,
+  decodeMcpApprovalAnswer,
+  decodeMcpPermissionRow,
+  decodeMcpPermissionsReply,
   decodeProjectSummary,
   decodeRoutine,
   decodeRunSummary,
@@ -22,6 +26,7 @@ import {
   type GateEvidence,
   type GateState,
   type GateSummary,
+  type McpApproval,
   type PairingData,
   type PreferenceSignal,
   type ProjectId,
@@ -2591,5 +2596,175 @@ describe('gate evidence (R-BRIDGE-B2)', () => {
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toContain('gates.evidence');
     expect((error as Error).message).not.toContain('test-token');
+  });
+});
+
+// R-BRIDGE-B3b — the four MCP methods B3a registered on the daemon and the client now wraps.
+const MCP_APPROVAL_ROW = {
+  id: 'mcp-approval-01J',
+  run_id: 'run-1',
+  server: 'github',
+  tool: 'create_issue',
+  role: 'agent',
+  summary: '{title: "Bug", body: [120 chars]}',
+  requested_at: '2026-11-10T09:00:00Z',
+};
+
+const MCP_APPROVAL_DECODED: McpApproval = {
+  id: 'mcp-approval-01J',
+  runId: 'run-1',
+  server: 'github',
+  tool: 'create_issue',
+  role: 'agent',
+  summary: '{title: "Bug", body: [120 chars]}',
+  requestedAt: '2026-11-10T09:00:00Z',
+};
+
+const MCP_ANSWER_ROW = {
+  id: 'mcp-approval-01J',
+  run_id: 'run-1',
+  server: 'github',
+  tool: 'create_issue',
+  role: 'agent',
+  granted_by: 'dev-laptop',
+  expires_at: '2026-11-10T09:10:00Z',
+};
+
+const MCP_PERMISSION_ROW = {
+  server: 'github',
+  tool: 'create_issue',
+  role: 'agent',
+  permission: 'allow',
+};
+
+const MCP_PERMISSIONS_REPLY_ROW = {
+  rows: [MCP_PERMISSION_ROW],
+  agent_role: 'agent',
+  default_permission: 'ask',
+};
+
+describe('mcp approvals and permissions (R-BRIDGE-B3b)', () => {
+  it('decodes a full McpApproval, field by field, snake_case to camelCase', () => {
+    expect(decodeMcpApproval(MCP_APPROVAL_ROW, 'mcp.approvals.list')).toEqual(MCP_APPROVAL_DECODED);
+  });
+
+  it('decodes a full McpApprovalAnswer and keeps the authenticated grantor', () => {
+    expect(decodeMcpApprovalAnswer(MCP_ANSWER_ROW, 'mcp.approvals.allow_once')).toEqual({
+      id: 'mcp-approval-01J',
+      runId: 'run-1',
+      server: 'github',
+      tool: 'create_issue',
+      role: 'agent',
+      grantedBy: 'dev-laptop',
+      expiresAt: '2026-11-10T09:10:00Z',
+    });
+  });
+
+  it('decodes the permission table with its fail-closed default', () => {
+    expect(decodeMcpPermissionsReply(MCP_PERMISSIONS_REPLY_ROW, 'mcp.permissions.list')).toEqual({
+      rows: [{ server: 'github', tool: 'create_issue', role: 'agent', permission: 'allow' }],
+      agentRole: 'agent',
+      defaultPermission: 'ask',
+    });
+  });
+
+  it('dials mcp.approvals.list with no params and returns every pending approval', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse([MCP_APPROVAL_ROW]));
+    await expect(client.mcpApprovalsList()).resolves.toEqual([MCP_APPROVAL_DECODED]);
+    expect(sentMethod(0)).toBe('mcp.approvals.list');
+    expect(sentParams(0)).toEqual({});
+  });
+
+  it('dials mcp.approvals.allow_once with the question id and nothing else', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(MCP_ANSWER_ROW));
+    const answer = await client.mcpAllowOnce('mcp-approval-01J');
+    expect(answer.grantedBy).toBe('dev-laptop');
+    expect(sentMethod(0)).toBe('mcp.approvals.allow_once');
+    // One required argument, bound as `id`; the grantor is the daemon's authenticated
+    // device, never a parameter a caller could name.
+    expect(sentParams(0)).toEqual({ id: 'mcp-approval-01J' });
+  });
+
+  it('dials mcp.permissions.list with no params', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(MCP_PERMISSIONS_REPLY_ROW));
+    await expect(client.mcpPermissionsList()).resolves.toHaveProperty('defaultPermission', 'ask');
+    expect(sentMethod(0)).toBe('mcp.permissions.list');
+    expect(sentParams(0)).toEqual({});
+  });
+
+  it('dials mcp.permissions.set with the four bound arguments', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(MCP_PERMISSION_ROW));
+    await expect(
+      client.mcpPermissionsSet('github', 'create_issue', 'agent', 'deny')
+    ).resolves.toEqual({ server: 'github', tool: 'create_issue', role: 'agent', permission: 'allow' });
+    expect(sentMethod(0)).toBe('mcp.permissions.set');
+    expect(sentParams(0)).toEqual({
+      server: 'github',
+      tool: 'create_issue',
+      role: 'agent',
+      permission: 'deny',
+    });
+  });
+
+  it('refuses a mcp.approvals.list answer that is not a list', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ approvals: [] }));
+    await expect(client.mcpApprovalsList()).rejects.toThrow(
+      'Malformed RPC result from mcp.approvals.list: "approvals" is not a list'
+    );
+  });
+
+  it('errors on every missing McpApproval field, naming the field', () => {
+    for (const name of ['id', 'run_id', 'server', 'tool', 'role', 'summary', 'requested_at']) {
+      const row: Record<string, unknown> = { ...MCP_APPROVAL_ROW };
+      delete row[name];
+      expect(() => decodeMcpApproval(row, 'mcp.approvals.list')).toThrow(`"${name}"`);
+    }
+  });
+
+  it('errors on every mistyped McpApproval field, naming the field', () => {
+    for (const name of ['id', 'run_id', 'server', 'tool', 'role', 'summary', 'requested_at']) {
+      const row = { ...MCP_APPROVAL_ROW, [name]: 7 };
+      expect(() => decodeMcpApproval(row, 'mcp.approvals.list')).toThrow(`"${name}"`);
+    }
+  });
+
+  it('errors on every missing McpApprovalAnswer field, naming the field', () => {
+    for (const name of ['id', 'run_id', 'server', 'tool', 'role', 'granted_by', 'expires_at']) {
+      const row: Record<string, unknown> = { ...MCP_ANSWER_ROW };
+      delete row[name];
+      expect(() => decodeMcpApprovalAnswer(row, 'mcp.approvals.allow_once')).toThrow(`"${name}"`);
+    }
+  });
+
+  it('errors on a missing McpPermissionsReply member and on a mistyped row permission', () => {
+    for (const name of ['rows', 'agent_role', 'default_permission']) {
+      const row: Record<string, unknown> = { ...MCP_PERMISSIONS_REPLY_ROW };
+      delete row[name];
+      expect(() => decodeMcpPermissionsReply(row, 'mcp.permissions.list')).toThrow(`"${name}"`);
+    }
+
+    for (const name of ['server', 'tool', 'role', 'permission']) {
+      const row: Record<string, unknown> = { ...MCP_PERMISSION_ROW };
+      delete row[name];
+      expect(() => decodeMcpPermissionRow(row, 'mcp.permissions.set')).toThrow(`"${name}"`);
+    }
+
+    expect(() =>
+      decodeMcpPermissionRow({ ...MCP_PERMISSION_ROW, permission: 'always' }, 'mcp.permissions.set')
+    ).toThrow('"permission" is not allow, ask or deny');
+    expect(() =>
+      decodeMcpPermissionsReply(
+        { ...MCP_PERMISSIONS_REPLY_ROW, default_permission: 'maybe' },
+        'mcp.permissions.list'
+      )
+    ).toThrow('"default_permission" is not allow, ask or deny');
+  });
+
+  it('keeps the daemon token out of an MCP refusal', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ not: 'an approval' }));
+    const error = await client.mcpApprovalsList().catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('mcp.approvals.list');
+    expect((error as Error).message).not.toContain(TOKEN);
   });
 });
