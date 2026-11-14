@@ -6736,3 +6736,7 @@ hypotheses left in this triage.
 - **A10** (worker `b40f40a`, merged clean): tests region → 10 files in `src/tests/` (`mod.rs` body + 9 modules declared at crate root with `#[path]`, so `use super::*` still means crate root and names unchanged); `include_str!` seams `../lib.rs`/`../startup.rs`/`../api.rs` (A1 precedent, assertions unchanged); first `#[cfg(test)]` still after last production line.
 - Test-set proof: `--list` diff 303=303, one harness-path segment only; 298/0/5. Merged tree: fmt OK, clippy clean, warshad 298/0, wire 11/0. **lib.rs now 3,178 lines (was 16,072)**.
 - **P-H1 Stage A done**: all 9 code regions + tests extracted (A0 closed as stay). Remaining: P-H1 Stage B (rpc/ dir fill, needs F1 P-H1-RPC packet), then R-UI/R-EXT.
+
+## Run 2026-11-15 — R-UI-1 merged (v3 floor repair)
+- **R-UI-1** (branch `zl-rui1-floor`, 9 commits, merged clean as `d0847ae`): all 7 packet items fixed with discrimination artifacts; gates on merged tree: actions 151/151/0, i18n 746/0, ds-v3 0, E1 283/0 (worker-measured; PM re-ran the three static gates, all 0).
+- Prettier note: base tree has pre-existing wrap drift — worker kept added lines clean without reformatting out-of-scope files.
