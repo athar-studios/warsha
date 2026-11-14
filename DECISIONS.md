@@ -1807,3 +1807,9 @@ reference `docs/designs/v3-preview.html`; run evidence `bridge-io/policy/2026-11
 - **Map drift acknowledged**: `f4f0298:lib.rs` is 16,072 lines vs map's 15,684 (+388 after line 1349). A1 range 603–1349 matched exactly; A2 re-anchored by item identity (4987–5261 vs map's 4913–5187). All future steps use item-identity ranges — no map re-freeze for mechanical drift.
 - **Merge seams by PM**: took A2's import list (skill types now via `use skills::*`), dropped `TodoItem` from lib.rs imports (moved to api.rs, was unused → clippy warning), `cargo fmt` reflow. Fast gates on merged tree: fmt OK, clippy -D warnings clean, warshad 298/0.
 - **Traps recorded for later steps**: no `#[cfg(test)]` token above production code (breaks the source-scan test); facade glob `use skills::*` rationale (test-only items + unused_imports).
+
+## 2026-11-14 — P-H1 A0 ruling: REJECT helpers.rs, shared-consts stay in lib.rs
+- Map §6 row A0 (frozen spec): `shared-consts`, 16 lines, target `lib.rs`, "stays as facade leaf consts". The PM brief wrongly invented `helpers.rs` as a target — worker correctly flagged the mismatch but then overrode the frozen spec instead of stopping.
+- A8 (merged) already ruled `StoreRunLiveness` stays in lib.rs (read only by lib.rs-resident code). A0 moved exactly that item — contradicts merged state.
+- Grep proof: `HANDOFF_DIR`/`ACTIVE_HARNESS_GLOBAL_KEY` readers all live in lib.rs's trait impl (which stays per F1-a); zero external readers. No coupling benefit, only spec drift. An unmapped 12th module would fail Phase-2 map-vs-reality verification.
+- Disposition: branch `ph1-a0-helpers` (e6b1adc) NOT merged, left unmerged; A0 closes as stay-decision, no code change. Lesson: "stays" rows are verify-and-report; briefs must never invent targets, and workers must use isolated worktrees (A0 worked in the shared tree).
