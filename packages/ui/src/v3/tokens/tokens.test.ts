@@ -11,7 +11,14 @@ import { contentWidths, controlHeights } from './layout';
 import { motionTokens } from './motion';
 import { radiusTokens } from './radius';
 import { spaceTokens } from './space';
-import { fontFamilies, fontSizes, fontWeights, lineHeights, tracking } from './type';
+import {
+  type FontSizeStep,
+  fontFamilies,
+  fontSizes,
+  fontWeights,
+  lineHeights,
+  tracking,
+} from './type';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const TOKENS_CSS = fs.readFileSync(path.join(HERE, 'tokens.css'), 'utf8');
@@ -134,6 +141,44 @@ describe('Design System v3 Token Parity (TS <-> CSS)', () => {
     expect(css).toContain('--w-dur-fast: 0ms');
     expect(css).toContain('--w-dur: 0ms');
     expect(css).toContain('--w-dur-slow: 0ms');
+  });
+
+  // R-UI-3 T1/D3-a: rem sizes (they follow the user's root font size) and unitless ratios (they carry
+  // the ratio itself, so a nested size keeps the leading). The px figures in §2.2 are the 16px-root
+  // equivalents, which is why no px is left in either token family.
+  it('states every type step in rem and every line height as a unitless ratio', () => {
+    for (const [step, size] of Object.entries(fontSizes)) {
+      expect(size, `font size ${step} is rem`).toMatch(/^\d+(?:\.\d+)?rem$/);
+    }
+
+    for (const [step, leading] of Object.entries(lineHeights)) {
+      expect(leading, `line height ${step} is unitless`).toMatch(/^\d+(?:\.\d+)?$/);
+    }
+
+    expect(css).not.toMatch(/--w-font-size-[a-z0-9]+:\s*[^;]*\dpx/);
+    expect(css).not.toMatch(/--w-line-height-[a-z0-9]+:\s*[^;]*\dpx/);
+  });
+
+  it('keeps every body step at or above the 1.6 Arabic line-height rule and every title above its floor', () => {
+    const floors: Record<string, number> = {
+      xs: 1.6,
+      sm: 1.6,
+      md: 1.6,
+      lg: 1.6,
+      xl: 1.55,
+      '2xl': 1.5,
+      '3xl': 1.4,
+    };
+
+    for (const [step, floor] of Object.entries(floors)) {
+      const leading = Number(lineHeights[step as FontSizeStep]);
+      expect(Number.isFinite(leading), `line height ${step} parses as a number`).toBe(true);
+      expect(leading, `line height ${step}`).toBeGreaterThanOrEqual(floor);
+    }
+
+    // At the default 16px root the body step is the §2.2 "14 / 22 = 1.571 is below the rule" fix.
+    expect(parseFloat(fontSizes.sm) * 16).toBe(14);
+    expect(Number(lineHeights.sm) * parseFloat(fontSizes.sm) * 16).toBeCloseTo(23.1, 5);
   });
 
   it('includes RTL mirror transform for directional icons', () => {

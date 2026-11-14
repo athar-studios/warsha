@@ -5,24 +5,30 @@ export const fontFamilies = {
   mono: '"IBM Plex Mono", Consolas, ui-monospace, monospace',
 } as const;
 
+// Sizes are rem (they follow the user's root font size, not the px of a screenshot) and line heights are
+// unitless ratios (they inherit as a ratio, so a nested size keeps the same leading). The pixel figures in
+// DESIGN_SYSTEM_V3 §2.2 are the 16px-root equivalents of these values.
 export const fontSizes = {
-  xs: '12px',
-  sm: '14px',
-  md: '16px',
-  lg: '18px',
-  xl: '22px',
-  '2xl': '28px',
-  '3xl': '36px',
+  xs: '0.75rem',
+  sm: '0.875rem',
+  md: '1rem',
+  lg: '1.125rem',
+  xl: '1.375rem',
+  '2xl': '1.75rem',
+  '3xl': '2.25rem',
 } as const;
 
+// R-UI-3 D3-a: every body step (xs–lg) is ≥ 1.6 — the §2.2 Arabic rule — and the titles keep their
+// §2.2 weights with ratios (xl 1.55 · 2xl 1.5 · 3xl 1.4) that clear a two-line vocalised sample
+// (D3-d proves it; the ratio is not a taste call).
 export const lineHeights = {
-  xs: '18px',
-  sm: '22px',
-  md: '26px',
-  lg: '28px',
-  xl: '32px',
-  '2xl': '40px',
-  '3xl': '48px',
+  xs: '1.6',
+  sm: '1.65',
+  md: '1.6',
+  lg: '1.6',
+  xl: '1.55',
+  '2xl': '1.5',
+  '3xl': '1.4',
 } as const;
 
 export const fontWeights = {

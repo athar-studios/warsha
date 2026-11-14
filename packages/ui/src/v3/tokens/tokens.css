@@ -33,21 +33,23 @@
   --w-font-sans: "IBM Plex Sans Arabic", "Segoe UI", "Noto Sans Arabic", Tahoma, system-ui, sans-serif;
   --w-font-mono: "IBM Plex Mono", Consolas, ui-monospace, monospace;
 
-  --w-font-size-xs: 12px;
-  --w-font-size-sm: 14px;
-  --w-font-size-md: 16px;
-  --w-font-size-lg: 18px;
-  --w-font-size-xl: 22px;
-  --w-font-size-2xl: 28px;
-  --w-font-size-3xl: 36px;
+  /* rem sizes and unitless ratios (R-UI-3 D3-a): they mirror tokens/type.ts, and the px figures in
+     DESIGN_SYSTEM_V3 §2.2 are their 16px-root equivalents. */
+  --w-font-size-xs: 0.75rem;
+  --w-font-size-sm: 0.875rem;
+  --w-font-size-md: 1rem;
+  --w-font-size-lg: 1.125rem;
+  --w-font-size-xl: 1.375rem;
+  --w-font-size-2xl: 1.75rem;
+  --w-font-size-3xl: 2.25rem;
 
-  --w-line-height-xs: 18px;
-  --w-line-height-sm: 22px;
-  --w-line-height-md: 26px;
-  --w-line-height-lg: 28px;
-  --w-line-height-xl: 32px;
-  --w-line-height-2xl: 40px;
-  --w-line-height-3xl: 48px;
+  --w-line-height-xs: 1.6;
+  --w-line-height-sm: 1.65;
+  --w-line-height-md: 1.6;
+  --w-line-height-lg: 1.6;
+  --w-line-height-xl: 1.55;
+  --w-line-height-2xl: 1.5;
+  --w-line-height-3xl: 1.4;
 
   --w-font-weight-regular: 400;
   --w-font-weight-medium: 500;
