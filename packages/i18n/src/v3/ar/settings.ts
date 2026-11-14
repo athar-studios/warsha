@@ -50,6 +50,9 @@ export default {
   'settings.general.mode': 'الوضع الافتراضي',
   'settings.general.mode.simple': 'بسيط',
   'settings.general.mode.advanced': 'متقدّم',
+  'settings.general.sound': 'تنبيهات صوتية',
+  'settings.general.sound.desc':
+    'نغمة قصيرة عند وصول قرار ينتظرك، وأخرى عند انتهاء التشغيل. لهذا الجهاز فقط، ومتوقّفة افتراضيًّا.',
   'settings.general.budget': 'الميزانية الافتراضية للمشروع',
   'settings.general.budget.hint': 'الحدّ الافتراضي المقترح عند إنشاء أيّ مشروع جديد.',
   'settings.general.budget.save': 'حفظ الميزانية الافتراضية',

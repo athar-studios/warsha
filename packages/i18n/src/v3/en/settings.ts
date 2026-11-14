@@ -50,6 +50,9 @@ export default {
   'settings.general.mode': 'Default mode',
   'settings.general.mode.simple': 'Simple',
   'settings.general.mode.advanced': 'Advanced',
+  'settings.general.sound': 'Sound cues',
+  'settings.general.sound.desc':
+    'A short tone when a decision is waiting and when a run finishes. This device only, off by default.',
   'settings.general.budget': 'Default project budget',
   'settings.general.budget.hint': 'Suggested spending limit when creating a new project.',
   'settings.general.budget.save': 'Save default budget',

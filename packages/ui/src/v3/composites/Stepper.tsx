@@ -115,6 +115,7 @@ export const Stepper: React.FC<StepperProps> = ({
             <span
               className="w-stepper__bar"
               aria-hidden="true"
+              data-state={stage.state}
               style={{
                 height: 'var(--w-space-1)',
                 borderRadius: 'var(--w-radius-full)',

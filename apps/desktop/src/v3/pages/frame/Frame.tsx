@@ -21,6 +21,7 @@ import { useClient } from '../../app/ClientContext';
 import { useDataReady } from '../../app/DataReadyContext';
 import { useDensity, type AppMode } from '../../app/DensityContext';
 import { subscribeToast, type ToastMessage } from '../../app/toast';
+import { useSoundCues } from '../../app/useSoundCues';
 import { useHealth, useProjects } from '../../data';
 import { useNavigate, useRoute } from '../../router';
 
@@ -164,6 +165,11 @@ export function Frame({ children }: FrameProps): React.ReactElement {
       active = false;
     };
   }, [client, projectsResult.data]);
+
+  // R-UI-3 D2-e: the two optional cues observe the numbers this screen already computes (`inboxCount`,
+  // `runsByProject`) and never add a refresh of their own — no polling, no subscription, no new RPC. The cue is
+  // an addition to the inbox badge / run status chip, never a replacement (D2-d).
+  useSoundCues({ inboxCount, runsByProject });
 
   const daemonOffline = healthResult.status === 'error';
 
