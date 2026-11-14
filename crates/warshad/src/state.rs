@@ -606,8 +606,21 @@ impl DaemonState {
         }
     }
 
-    /// Probe real capabilities of the daemon (daemon, providers, keychain availability).
+    /// Probe real capabilities of the daemon (daemon, providers, keychain availability, and
+    /// whether the store carries the run-ending machinery).
     pub async fn probe_capabilities(&self) -> HealthCapabilities {
+        self.probe_capabilities_with(&RunVersionColumn).await
+    }
+
+    /// [`probe_capabilities`](Self::probe_capabilities) with the run-controls check named.
+    ///
+    /// The seam exists so a test can prove the honest `false`: a store whose K2 migration is
+    /// not applied cannot be built in-process (the daemon migrates on open), so the check is
+    /// injectable and a test injects the answer instead of pretending it built the old schema.
+    pub async fn probe_capabilities_with(
+        &self,
+        run_controls_probe: &dyn RunControlsProbe,
+    ) -> HealthCapabilities {
         // Probe daemon capability: verify store connectivity.
         let daemon = self.store.list_projects().await.is_ok();
 
@@ -633,11 +646,51 @@ impl DaemonState {
             Err(_) => false,
         };
 
+        // Probe run-ending capability: the controls `gates.changes` / `gates.reject` /
+        // `runs.cancel` end a run, and the daemon may only advertise them when its store
+        // can serve the run-version CAS loop those calls race against. A daemon that is
+        // not up cannot honour them whatever the schema says.
+        let run_controls = daemon && run_controls_probe.run_versions_present(&self.store).await;
+
         HealthCapabilities {
             daemon,
             providers,
             keychain,
+            run_controls,
         }
+    }
+}
+
+/// What a health probe is allowed to assume about a store's run-ending machinery.
+///
+/// `runs.version` is the column the K2 migration (`003_run_version.sql`) adds, and it is the
+/// one the run-state CAS loop needs: a store without it cannot serve `gates.changes`,
+/// `gates.reject` or `runs.cancel` safely. The check is behind this seam so the honest
+/// `false` is testable — see [`DaemonState::probe_capabilities_with`].
+#[async_trait::async_trait]
+pub trait RunControlsProbe: Send + Sync {
+    /// True only when `store` really answers a read of the K2 run-version column.
+    async fn run_versions_present(&self, store: &Store) -> bool;
+}
+
+/// The real probe: ask the live schema, never assert a constant.
+///
+/// A constant `true` is exactly the class K3 refused for health, so this reads the store on
+/// every health call. `get_run_version` selects `version` from `runs` for one id, and the id
+/// is freshly minted and certainly unstored, which makes the read side-effect free: it
+/// answers `RunNotFound` only when the column resolved against the migrated schema, and a
+/// database error (`no such column: version`) when migration 003 is missing. Any other
+/// failure — an unreachable database included — reads as unsupported, which is the safe
+/// direction for a control that ends runs.
+pub struct RunVersionColumn;
+
+#[async_trait::async_trait]
+impl RunControlsProbe for RunVersionColumn {
+    async fn run_versions_present(&self, store: &Store) -> bool {
+        matches!(
+            store.get_run_version(RunId::new()).await,
+            Err(warsha_store::StoreError::RunNotFound(_))
+        )
     }
 }
 
