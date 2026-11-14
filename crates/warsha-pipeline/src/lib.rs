@@ -143,7 +143,7 @@ pub use crate::preferences::{
 };
 pub use crate::process_spawn::{
     split_command, InMemoryProcessManager, LivePreview, LivePreviewManager, ManagedProcess,
-    ProcessError, ProcessManager, ProcessStatus, ProcessSummary,
+    ProcessError, ProcessManager, ProcessStatus, ProcessSummary, RunLiveness,
 };
 pub use crate::provider_setup::{ConnectionTestResult, OneClickProvider, ProviderSetupWizard};
 pub use crate::router_quality::{

@@ -1362,6 +1362,31 @@ impl WarshaRpc {
         }
     }
 
+    /// The run a preview for `project_id` is in context of, if there is one.
+    ///
+    /// The newest run of the project that has not finished: that is the run a
+    /// server started now is registered under, and the run whose server
+    /// `preview.status` answers for (R-BRIDGE-B5 D4). A project with no live run —
+    /// a preview started outside a run, or after every run ended — has no run
+    /// context, and the preview stays the project's own.
+    ///
+    /// The wire is frozen (OD-B2): `preview.start` and `preview.status` carry the
+    /// project and nothing else, so the context a call arrives in is read from the
+    /// store rather than added to the params.
+    async fn live_run_id(&self, project_id: &str) -> Option<String> {
+        let id = ProjectId(uuid::Uuid::parse_str(project_id.trim()).ok()?);
+        let runs = self.state.store.list_runs(id).await.ok()?;
+        // `list_runs` is newest first, so the first unfinished one is the newest.
+        runs.into_iter()
+            .find(|run| {
+                !matches!(
+                    run.status,
+                    RunStatus::Completed | RunStatus::Failed | RunStatus::Cancelled
+                )
+            })
+            .map(|run| run.id.0.to_string())
+    }
+
     /// The working tree a handoff bundle is applied to.
     ///
     /// The bundle names the run, the run names the project, and the project's
@@ -2259,13 +2284,15 @@ impl WarshaApiServer for WarshaRpc {
                 .await
                 .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
         // The preview joins the diff and the tests (ENGINE E5). It is read from what
-        // the manager already tracks for the run's project — the only key a preview
-        // has — and never started: a project with no preview is the explicit `None`
-        // the caller sees, not an error and not a server launched to fill the gap.
+        // the manager already tracks for the run's project and it is read in that
+        // run's context (R-BRIDGE-B5 D4): evidence is a run's own evidence, so a
+        // server another live run owns is not this run's preview. It is never
+        // started: a run with no preview is the explicit `None` the caller sees,
+        // not an error and not a server launched to fill the gap.
         let preview = self
             .state
             .previews
-            .status(&run.project_id.to_string())
+            .status(&run.project_id.to_string(), Some(&run.id.0.to_string()))
             .await
             .ok();
         Ok(evidence.with_preview(preview))
@@ -3509,6 +3536,13 @@ impl WarshaApiServer for WarshaRpc {
     }
 
     // Live preview dev server (PLAN.md M5b + M20)
+    //
+    // A preview belongs to a project on the wire and to the run that started it in
+    // the manager (R-BRIDGE-B5 D1). The wire is frozen (OD-B2), so the run context
+    // a call arrives in is read here, from the store: a project's newest unfinished
+    // run is the run a server started now belongs to, and the run whose server a
+    // status call reports. With no live run the call is the project's, exactly as
+    // before the run link existed.
     async fn start_preview(
         &self,
         ext: &RpcExtensions,
@@ -3524,9 +3558,10 @@ impl WarshaApiServer for WarshaRpc {
         let (program, _) = warsha_pipeline::LivePreviewManager::split_command(&command)
             .map_err(|e| rpc_policy_refused(e.to_string()))?;
         policy.check_command(&program).map_err(rpc_policy_refused)?;
+        let run_id = self.live_run_id(&project_id).await;
         self.state
             .previews
-            .start(&project_id, &command)
+            .start(&project_id, &command, run_id.as_deref())
             .await
             .map_err(|error| rpc_error(error.to_string()))
     }
@@ -3546,9 +3581,10 @@ impl WarshaApiServer for WarshaRpc {
         project_id: String,
     ) -> RpcResult<LivePreview> {
         self.authorize(ext, "preview.status").await?;
+        let run_id = self.live_run_id(&project_id).await;
         self.state
             .previews
-            .status(&project_id)
+            .status(&project_id, run_id.as_deref())
             .await
             .map_err(|error| rpc_error(error.to_string()))
     }
@@ -3856,6 +3892,12 @@ impl WarshaApiServer for WarshaRpc {
             RunStatus::Completed | RunStatus::Failed | RunStatus::Cancelled
         ) {
             self.state.mcp_approvals.purge_run(&run.id.0.to_string());
+            // The run that just ended also stops the dev server it owns
+            // (R-BRIDGE-B5 D2): a preview is a run's, not the project's, so it dies
+            // with the run instead of being inherited by the next one. Best-effort
+            // by construction — `stop_run` returns no error — so a dev server that
+            // will not die is logged and never fails this close.
+            self.state.previews.stop_run(&run.id.0.to_string()).await;
         }
 
         Ok(run)
@@ -3879,6 +3921,9 @@ impl WarshaApiServer for WarshaRpc {
         // grants are dead weight — and an unspent grant is an authority nobody will
         // be asked about again (D2.8).
         self.state.mcp_approvals.purge_run(&run_id.0.to_string());
+        // And the same close stops the preview it owns (R-BRIDGE-B5 D2), on the
+        // same best-effort rule as the terminal arm above.
+        self.state.previews.stop_run(&run_id.0.to_string()).await;
         Ok(cancelled)
     }
 
@@ -4834,6 +4879,35 @@ impl WarshaApiServer for WarshaRpc {
         let joined = wave2::safe_join(&root, &path).map_err(rpc_invalid_params)?;
         let file = wave2::resolve_inside(&root, &joined).map_err(rpc_invalid_params)?;
         wave2::read_text(&root, &file).map_err(rpc_error)
+    }
+}
+
+/// The store's answer to "is this run still live", for the preview manager.
+///
+/// `warsha-pipeline` owns the preview entries and knows nothing about run records,
+/// so the daemon hands it this oracle (R-BRIDGE-B5 D3). A run the store still has
+/// and that has not finished is live, and its preview is not another run's to take.
+/// A run the store no longer has, an id that is not a run id, or a store read that
+/// fails is *not* live: a preview entry whose owner cannot be proved alive is
+/// swept, which is what keeps a new run on the project from inheriting a server a
+/// dead run left behind.
+struct StoreRunLiveness {
+    store: Arc<Store>,
+}
+
+#[async_trait]
+impl warsha_pipeline::RunLiveness for StoreRunLiveness {
+    async fn is_live(&self, run_id: &str) -> bool {
+        let Ok(id) = run_id.parse::<ulid::Ulid>() else {
+            return false;
+        };
+        match self.store.get_run(RunId(id)).await {
+            Ok(run) => !matches!(
+                run.status,
+                RunStatus::Completed | RunStatus::Failed | RunStatus::Cancelled
+            ),
+            Err(_) => false,
+        }
     }
 }
 
@@ -6118,7 +6192,14 @@ pub async fn start_daemon_with_provider_factory(
         CommandPolicy::from_config(&config.allowed_commands),
     );
     let mcp: Arc<dyn McpManager> = Arc::new(InMemoryMcpManager::new(processes.clone()));
-    let previews = Arc::new(LivePreviewManager::new(processes.clone()));
+    // The preview manager judges an owner run through the store (R-BRIDGE-B5 D3),
+    // so a server whose run finished without its close running never blocks the next
+    // run of the project.
+    let previews = Arc::new(
+        LivePreviewManager::new(processes.clone()).with_run_liveness(Arc::new(StoreRunLiveness {
+            store: store.clone(),
+        })),
+    );
 
     // The agent loop's two seams, wired to the real thing: its file tools run
     // inside `<data_dir>/workspace`, and its model calls go out through the same
@@ -7664,7 +7745,13 @@ mod tests {
             Some(mcp) => mcp,
             None => Arc::new(InMemoryMcpManager::new(processes.clone())),
         };
-        let previews = Arc::new(LivePreviewManager::new(processes.clone()));
+        let previews = Arc::new(
+            LivePreviewManager::new(processes.clone()).with_run_liveness(Arc::new(
+                StoreRunLiveness {
+                    store: store.clone(),
+                },
+            )),
+        );
 
         // The agent loop's two seams, wired to the real thing: its file tools run
         // inside `<data_dir>/workspace`, and its model calls go out through the same
@@ -9706,6 +9793,307 @@ mod tests {
             .expect("the list is served");
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].status, ProcessStatus::Stopped);
+    }
+
+    // ---- R-BRIDGE-B5: a run owns its preview, and a preview dies with its run.
+
+    /// A project in the store, which is what a run needs before it can start.
+    async fn stored_project(store: &Store) -> Project {
+        let project = Project {
+            id: ProjectId::new(),
+            name: "Preview Project".to_string(),
+            description: "R-BRIDGE-B5".to_string(),
+            language: "en".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            repo_path: None,
+            repo_url: None,
+        };
+        store
+            .create_project(&project)
+            .await
+            .expect("the project is stored");
+        project
+    }
+
+    /// The daemon, its store and the probe command line, with the probe admitted.
+    ///
+    /// A preview's command line names this test binary as its program, so the
+    /// owner's configuration is what admits that exact path — the same wiring the
+    /// preview RPC test above uses.
+    async fn preview_state(data_dir: &std::path::Path) -> (Arc<DaemonState>, Arc<Store>, String) {
+        let command = probe_line("preview_probe");
+        let program = command
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        let (state, store) = test_state_with(data_dir, move |config| {
+            config.allowed_commands = vec![program];
+        })
+        .await;
+        (state, store, command)
+    }
+
+    /// T1 (R-BRIDGE-B5 D3): a second live run on the project never inherits the
+    /// server the first one owns.
+    #[tokio::test]
+    async fn second_run_never_inherits_a_live_server() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store, command) = preview_state(temp.path()).await;
+        let project = stored_project(&store).await;
+        let rpc = WarshaRpc::new(state.clone());
+
+        let first = rpc
+            .start_run(&owner_ext(), project.id, "the first run".to_string())
+            .await
+            .expect("run A starts");
+        let started = rpc
+            .start_preview(&owner_ext(), project.id.to_string(), command.clone())
+            .await
+            .expect("run A starts the project's preview");
+
+        let second = rpc
+            .start_run(&owner_ext(), project.id, "the second run".to_string())
+            .await
+            .expect("run B starts");
+        // Run B is the project's newest live run, so it is the run context a
+        // `preview.start` call arrives in (the wire carries no run id, D4).
+        let runs = store.list_runs(project.id).await.expect("the runs list");
+        assert_eq!(
+            runs.first().map(|run| run.id),
+            Some(second.id),
+            "run B is the newest run of the project"
+        );
+
+        let error = rpc
+            .start_preview(&owner_ext(), project.id.to_string(), command)
+            .await
+            .expect_err("run B cannot take the server run A owns");
+        let message = format!("{error:?}");
+        assert!(message.contains("owned by run"), "{message}");
+        assert!(message.contains(&first.id.0.to_string()), "{message}");
+        assert!(message.contains(&second.id.0.to_string()), "{message}");
+
+        // The refusal took nothing: run A's server is still A's own. The RPC would
+        // answer in run B's context now, which is exactly why this reads A's.
+        assert_eq!(
+            state
+                .previews
+                .status(&project.id.to_string(), Some(&first.id.0.to_string()))
+                .await
+                .expect("run A's server still answers for run A")
+                .process_id,
+            started.process_id
+        );
+
+        // And run A's close is what takes it down, not run B.
+        rpc.cancel_run(&owner_ext(), first.id, None)
+            .await
+            .expect("run A closes");
+        assert_eq!(
+            state
+                .processes
+                .status(&started.process_id)
+                .await
+                .expect("the server is tracked"),
+            ProcessStatus::Stopped
+        );
+        assert!(state.previews.list().await.is_empty());
+    }
+
+    /// T2 (R-BRIDGE-B5 D2): the terminal `runs.advance` arm stops the server the
+    /// run owned and drops its entry.
+    #[tokio::test]
+    async fn terminal_advance_stops_the_owned_server() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store, command) = preview_state(temp.path()).await;
+        let project = stored_project(&store).await;
+        let rpc = WarshaRpc::new(state.clone());
+
+        let run = rpc
+            .start_run(&owner_ext(), project.id, "a run".to_string())
+            .await
+            .expect("the run starts");
+        let started = rpc
+            .start_preview(&owner_ext(), project.id.to_string(), command)
+            .await
+            .expect("the run starts the project's preview");
+
+        // `Feedback` is the last stage, so advancing a run there completes it — the
+        // terminal arm the hook sits on. The stage is moved directly, as the Gate C
+        // tests move it, so no model call is involved.
+        let mut stored = store.get_run(run.id).await.expect("the run is stored");
+        stored.current_stage = Stage::Feedback;
+        store.update_run(&stored).await.expect("the stage moves");
+
+        let finished = rpc
+            .advance_run(&owner_ext(), run.id)
+            .await
+            .expect("the run advances");
+        assert_eq!(finished.status, RunStatus::Completed);
+
+        assert_eq!(
+            state
+                .processes
+                .status(&started.process_id)
+                .await
+                .expect("the server is tracked"),
+            ProcessStatus::Stopped,
+            "the run's server outlived the run"
+        );
+        assert!(
+            state.previews.list().await.is_empty(),
+            "a completed run left a preview entry behind"
+        );
+        assert!(
+            rpc.preview_status(&owner_ext(), project.id.to_string())
+                .await
+                .is_err(),
+            "preview.status still answered for a finished run"
+        );
+    }
+
+    /// T3 (R-BRIDGE-B5 D2): `runs.cancel` stops the server the run owned.
+    #[tokio::test]
+    async fn cancel_stops_the_owned_server() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store, command) = preview_state(temp.path()).await;
+        let project = stored_project(&store).await;
+        let rpc = WarshaRpc::new(state.clone());
+
+        let run = rpc
+            .start_run(&owner_ext(), project.id, "a run".to_string())
+            .await
+            .expect("the run starts");
+        let started = rpc
+            .start_preview(&owner_ext(), project.id.to_string(), command)
+            .await
+            .expect("the run starts the project's preview");
+
+        let cancelled = rpc
+            .cancel_run(&owner_ext(), run.id, None)
+            .await
+            .expect("the run cancels");
+        assert_eq!(cancelled.status, RunStatus::Cancelled);
+
+        assert_eq!(
+            state
+                .processes
+                .status(&started.process_id)
+                .await
+                .expect("the server is tracked"),
+            ProcessStatus::Stopped,
+            "a cancelled run left its server running"
+        );
+        assert!(
+            state.previews.list().await.is_empty(),
+            "a cancelled run left a preview entry behind"
+        );
+    }
+
+    /// T4 (R-BRIDGE-B5 D3): a run that died without its close leaves an entry that
+    /// the next start/status for the project sweeps — never a refusal.
+    #[tokio::test]
+    async fn dead_run_entry_swept_lazily() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store, command) = preview_state(temp.path()).await;
+        let project = stored_project(&store).await;
+        let rpc = WarshaRpc::new(state.clone());
+
+        let dead = rpc
+            .start_run(&owner_ext(), project.id, "the run that dies".to_string())
+            .await
+            .expect("the run starts");
+        let abandoned = rpc
+            .start_preview(&owner_ext(), project.id.to_string(), command.clone())
+            .await
+            .expect("the run starts the project's preview");
+
+        // The run record is killed directly: no hook, no `stop_run`, exactly the
+        // crash a daemon restart hands over.
+        let mut stored = store.get_run(dead.id).await.expect("the run is stored");
+        stored.status = RunStatus::Cancelled;
+        store.update_run(&stored).await.expect("the record moves");
+
+        // The next status for the project is what sweeps the abandoned entry ...
+        assert!(
+            rpc.preview_status(&owner_ext(), project.id.to_string())
+                .await
+                .is_err(),
+            "a dead run's preview still answered"
+        );
+        assert_eq!(
+            state
+                .processes
+                .status(&abandoned.process_id)
+                .await
+                .expect("the swept server is tracked"),
+            ProcessStatus::Stopped,
+            "the swept server was left running"
+        );
+
+        // ... and the next run starts clean instead of being refused.
+        let next = rpc
+            .start_run(&owner_ext(), project.id, "the next run".to_string())
+            .await
+            .expect("the next run starts");
+        let fresh = rpc
+            .start_preview(&owner_ext(), project.id.to_string(), command)
+            .await
+            .expect("the next run starts a server of its own");
+        assert_ne!(fresh.process_id, abandoned.process_id);
+
+        rpc.cancel_run(&owner_ext(), next.id, None)
+            .await
+            .expect("the next run closes");
+        assert!(state.previews.list().await.is_empty());
+    }
+
+    /// T5 (R-BRIDGE-B5 D2), the close half: a run closes cleanly even when the
+    /// server it owns cannot be stopped any more.
+    ///
+    /// The poisoned stop path itself is the pipeline's
+    /// `stop_failure_never_fails_run_close`; this is the daemon's side of the same
+    /// claim — `runs.cancel` answers with the run, not with an error, when the
+    /// preview's stop finds nothing to kill.
+    #[tokio::test]
+    async fn a_run_closes_even_when_its_server_is_already_down() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store, command) = preview_state(temp.path()).await;
+        let project = stored_project(&store).await;
+        let rpc = WarshaRpc::new(state.clone());
+
+        let run = rpc
+            .start_run(&owner_ext(), project.id, "a run".to_string())
+            .await
+            .expect("the run starts");
+        let started = rpc
+            .start_preview(&owner_ext(), project.id.to_string(), command)
+            .await
+            .expect("the run starts the project's preview");
+        // The server dies on its own: the entry is still the run's, the child is not.
+        rpc.stop_preview(&owner_ext(), project.id.to_string())
+            .await
+            .expect("the server stops");
+
+        let cancelled = rpc
+            .cancel_run(&owner_ext(), run.id, None)
+            .await
+            .expect("the run still closes");
+        assert_eq!(cancelled.status, RunStatus::Cancelled);
+        assert_eq!(
+            state
+                .processes
+                .status(&started.process_id)
+                .await
+                .expect("the server is tracked"),
+            ProcessStatus::Stopped
+        );
+        assert!(
+            state.previews.list().await.is_empty(),
+            "the run's entry outlived the close"
+        );
     }
 
     #[tokio::test]
@@ -15270,7 +15658,7 @@ mod e5_wiring {
         assert!(
             state
                 .previews
-                .status(&project.id.to_string())
+                .status(&project.id.to_string(), Some(&run.id.0.to_string()))
                 .await
                 .is_err(),
             "evidence collection registered a preview for the run's project"
