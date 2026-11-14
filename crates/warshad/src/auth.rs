@@ -609,6 +609,19 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Owner,
         tier: Spend,
     },
+    // A one-shot grant is a permission write with a shorter life, so it gets the
+    // same gate the table gets: Owner, and Spend for the write. A paired phone
+    // cannot approve its own tool.
+    M {
+        method: "mcp.approvals.list",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "mcp.approvals.allow_once",
+        policy: Owner,
+        tier: Spend,
+    },
     // A preview is a dev server the daemon starts.
     M {
         method: "preview.start",

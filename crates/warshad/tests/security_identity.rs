@@ -333,6 +333,11 @@ async fn a_paired_device_is_a_session_but_not_the_owner() {
             json!([{"name": "x", "transport": {"kind": "stdio"}, "command": "npm", "args": []}]),
         ),
         ("mcp.call", json!(["x", "tool", {}])),
+        // R-BRIDGE-B3a: a one-shot grant is a permission write, so a phone cannot
+        // approve a tool for the owner — and cannot even read the queue it would
+        // approve from.
+        ("mcp.approvals.list", json!([])),
+        ("mcp.approvals.allow_once", json!(["mcp-approval-1"])),
         ("runmode.set", json!([local_run_mode()])),
         ("roles.set", json!([role_config()])),
         ("devices.revoke", json!([project_id])),

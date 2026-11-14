@@ -34,12 +34,18 @@ mod guardrails;
 mod handoff;
 mod llm_cache;
 pub mod mcp;
+pub mod mcp_approval;
 pub mod mcp_permission;
 pub mod worktree;
 pub use crate::agent_sessions::{AgentSessionError, RunAgentSessions};
 pub use crate::gate_evidence::{
     collect_gate_evidence, GateEvidence, GateEvidenceError, TestRun, GATE_EVIDENCE_CAPTURE_BYTES,
     GATE_EVIDENCE_TIMEOUT,
+};
+pub use crate::mcp_approval::{
+    canonical_json, ApprovalError, ArgumentSummarizer, Grant, KeysOnlySummarizer, McpApprovals,
+    PendingApproval, PendingApprovalView, ResolvedApproval, TakeOutcome, MAX_PENDING_PER_RUN,
+    MCP_ONCE_GRANT_TTL,
 };
 pub use crate::mcp_permission::{
     AskEverything, McpPermissionSource, McpPermissionStore, StaticPermissions, MCP_AGENT_ROLE,

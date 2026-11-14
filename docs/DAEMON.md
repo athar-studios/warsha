@@ -169,6 +169,8 @@ Not yet in the router (only `/health` is registered, `:500`). The contract to be
 | `agent.approve_mode` | `run_id?: RunId` | `ModeTransition` |
 | `agent.plan_mode` | `run_id?: RunId` | `ModeTransition` |
 | `agent.state` | `run_id?: RunId` | `AgentState` |
+| `mcp.approvals.list` | — | `McpApproval[]` (`id`, `run_id`, `server`, `tool`, `role`, `summary`, `requested_at`) — **Owner / Standard** (`crates/warshad/src/auth.rs:615`). Every MCP call waiting for the owner's answer, across runs; the summary is the daemon's redacted, bounded rendering of the arguments, never the raw values |
+| `mcp.approvals.allow_once` | `id: string` | `McpApprovalAnswer` (`id`, `run_id`, `server`, `tool`, `role`, `granted_by`, `expires_at`) — **Owner / Spend** (`crates/warshad/src/auth.rs:620`). Issues one single-use grant bound to the run, server, tool, role and exact arguments of the pending entry, live for `MCP_ONCE_GRANT_TTL` (10 min) and spent by the next matching call. Writes no permission row, so a restart is back to `ask`; the answer appends one `mcp_allow_once` event whose device is the authenticated one, never a parameter |
 
 Parameter serialization: `ProjectId`, `RunId` and `DeviceId` are newtypes over `Uuid`/`Ulid` and serialize
 as plain strings (hyphenated UUID, Crockford ULID). `Stage` serializes as `snake_case` across all 14 stages

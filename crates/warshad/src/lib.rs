@@ -39,13 +39,13 @@ use warsha_pipeline::{
     CrashReport, CrashReportStore, FilesystemToolExecutor, HandoffBundle, HandoffManager,
     InMemoryCrashReportStore, InMemoryMcpManager, InMemoryPairingStore, InMemoryPreferenceStore,
     InMemoryProcessManager, InMemoryStoreReviewStore, LicenseClass, LivePreview,
-    LivePreviewManager, ManagedProcess, McpConnection, McpManager, MessageBus, ModeManager,
-    ModeTransition, PairingStore, PhonePairing, Preference, PreferenceSignal, PreferenceStore,
-    ProcessManager, ProcessStatus, ProcessSummary, ProviderRouterAdapter, RolePack, Routine,
-    RoutineRegistry, RoutineRunner, RoutineScheduler, RunAgentSessions, RunMode, RunModeConfig,
-    RunWorktree, Skill, SkillError, SkillManifest, SkillRegistry, SkillsLockfile, SlashCommand,
-    SlashCommandRegistry, StaticPermissions, StoreReview, StoreReviewStore, TodoItem, TodoList,
-    WorkProtectionPolicy, AGENT_ROLE,
+    LivePreviewManager, ManagedProcess, McpApprovals, McpConnection, McpManager, MessageBus,
+    ModeManager, ModeTransition, PairingStore, PhonePairing, Preference, PreferenceSignal,
+    PreferenceStore, ProcessManager, ProcessStatus, ProcessSummary, ProviderRouterAdapter,
+    RolePack, Routine, RoutineRegistry, RoutineRunner, RoutineScheduler, RunAgentSessions, RunMode,
+    RunModeConfig, RunWorktree, Skill, SkillError, SkillManifest, SkillRegistry, SkillsLockfile,
+    SlashCommand, SlashCommandRegistry, StaticPermissions, StoreReview, StoreReviewStore, TodoItem,
+    TodoList, WorkProtectionPolicy, AGENT_ROLE,
 };
 use warsha_providers::{
     probe_endpoint, HealthCheck, KeychainSecretStore, OneClickProvider, ProviderRouter,
@@ -60,6 +60,7 @@ use warsha_store::{
 mod auth;
 mod events;
 mod lock;
+mod mcp_approvals;
 mod providers;
 mod settings;
 mod state;
@@ -74,6 +75,7 @@ pub use events::{
     EventSequencer, RunStreamSync, SequencedEventFrame, StreamSync, EVENT_REPLAY_CAPACITY,
 };
 use lock::acquire_lock;
+pub use mcp_approvals::{McpApproval, McpApprovalAnswer};
 pub use providers::{
     adapter_kind, keychain_credentials, AdapterKind, DeferredProvider, KeychainProviderFactory,
     MockProviderFactory, ProviderFactory, RemovedProvider,
@@ -369,6 +371,13 @@ pub struct DaemonState {
     pub agent_loop: Arc<RwLock<AgentLoop>>,
     /// The MCP permission table consulted before every agent tool call.
     pub mcp_permissions: Arc<StaticPermissions>,
+    /// The pending MCP approvals and `allow_once` grants (R-BRIDGE-B3a).
+    ///
+    /// Shared by every run's loop and by the two approval RPCs, so an owner can
+    /// answer while a turn is running without taking the loop's own lock. Process
+    /// memory only: a restart leaves no grant and no pending entry behind, which is
+    /// the same state as a table with no row — `Ask`.
+    pub mcp_approvals: Arc<McpApprovals>,
     /// The per-run git worktrees created at `runs.start` (ENGINE E3 wiring).
     pub run_worktrees: Arc<RwLock<HashMap<RunId, RunWorktree>>>,
     /// The per-run agent sessions (ENGINE E2 wiring). A run's turn uses its own loop
@@ -881,6 +890,18 @@ pub trait WarshaApi {
         role: String,
         permission: String,
     ) -> RpcResult<McpPermissionRow>;
+
+    /// Every MCP call waiting for the owner's answer, across runs.
+    #[method(name = "mcp.approvals.list", with_extensions)]
+    async fn list_mcp_approvals(&self) -> RpcResult<Vec<McpApproval>>;
+
+    /// Answer one pending MCP call with a single-use grant.
+    ///
+    /// The grant is bound to the run, server, tool, role and exact arguments of the
+    /// pending entry, lapses after `MCP_ONCE_GRANT_TTL`, and is spent by the next
+    /// matching call. It writes no permission row: a restart is back to `Ask`.
+    #[method(name = "mcp.approvals.allow_once", with_extensions)]
+    async fn allow_once_mcp_approval(&self, id: String) -> RpcResult<McpApprovalAnswer>;
 
     // Live preview dev server (PLAN.md M5b + M20)
     #[method(name = "preview.start", with_extensions)]
@@ -2164,6 +2185,8 @@ impl WarshaApiServer for WarshaRpc {
             self.state.providers.clone(),
             self.state.mcp.clone(),
             self.state.mcp_permissions.clone(),
+            self.state.mcp_approvals.clone(),
+            Some(run.id.0.to_string()),
             backend_kit,
         );
         if self
@@ -3394,12 +3417,95 @@ impl WarshaApiServer for WarshaRpc {
         self.state
             .mcp_permissions
             .set(&server, &tool, &role, permission);
+        // The owner re-decided this key, so an answer they gave earlier no longer
+        // stands: the pending entries the new row decides leave the list, and every
+        // `allow_once` grant for the key is purged — whatever the value is, because
+        // even `ask` means the earlier answer was overridden (D2.8, D3).
+        self.state
+            .mcp_approvals
+            .resolve_by_row(&server, &tool, &role, permission);
         Ok(McpPermissionRow {
             server,
             tool,
             role,
             permission: permission.as_str().to_string(),
         })
+    }
+
+    async fn list_mcp_approvals(&self, ext: &RpcExtensions) -> RpcResult<Vec<McpApproval>> {
+        self.authorize(ext, "mcp.approvals.list").await?;
+        Ok(self
+            .state
+            .mcp_approvals
+            .pending()
+            .into_iter()
+            .map(|view| McpApproval {
+                id: view.id,
+                run_id: view.run_id,
+                server: view.server,
+                tool: view.tool,
+                role: view.role,
+                summary: view.summary,
+                requested_at: view.requested_at,
+            })
+            .collect())
+    }
+
+    async fn allow_once_mcp_approval(
+        &self,
+        ext: &RpcExtensions,
+        id: String,
+    ) -> RpcResult<McpApprovalAnswer> {
+        let method = "mcp.approvals.allow_once";
+        let actor = self.authorize(ext, method).await?;
+        // The approver is the authenticated device, never a param: the same rule the
+        // gate decisions and `agent.approve_mode` follow.
+        let granted_by = self.gate_approver(&actor, None, method)?;
+
+        let pending = self
+            .state
+            .mcp_approvals
+            .pending()
+            .into_iter()
+            .find(|view| view.id == id)
+            .ok_or_else(|| rpc_error(format!("no pending MCP approval has id `{id}`")))?;
+        let run = self
+            .state
+            .store
+            .get_run(
+                pending
+                    .run_id
+                    .parse::<ulid::Ulid>()
+                    .map(RunId)
+                    .map_err(|error| {
+                        rpc_error(format!("run id `{}` is not one: {error}", pending.run_id))
+                    })?,
+            )
+            .await
+            .map_err(rpc_error)?;
+
+        // The record is written before the grant is issued, so a failed append is a
+        // refused answer rather than an authorisation no audit trail carries.
+        let event =
+            mcp_approvals::allow_once_event(run.id, run.current_stage, &pending, granted_by);
+        self.state
+            .store
+            .append_event(&event)
+            .await
+            .map_err(rpc_error)?;
+
+        let grant = self
+            .state
+            .mcp_approvals
+            .allow_once(&id, &granted_by.to_string())
+            .map_err(|error| rpc_error(error.to_string()))?;
+        info!(
+            question_id = %grant.question_id,
+            server = %grant.server,
+            tool = %grant.tool,
+            "mcp.approvals.allow_once granted a single-use call for the device the session authenticated"
+        );
+        Ok(McpApprovalAnswer::from(&grant))
     }
 
     // Live preview dev server (PLAN.md M5b + M20)
@@ -3752,11 +3858,17 @@ impl WarshaApiServer for WarshaRpc {
     ) -> RpcResult<Run> {
         self.authorize(ext, "runs.cancel").await?;
         let reason = Some(reason.unwrap_or_else(|| "Cancelled by user".to_string()));
-        self.state
+        let cancelled = self
+            .state
             .pipeline
             .cancel_run(run_id, reason)
             .await
-            .map_err(rpc_error)
+            .map_err(rpc_error)?;
+        // A cancelled run has no next call, so its pending questions and unspent
+        // grants are dead weight — and an unspent grant is an authority nobody will
+        // be asked about again (D2.8).
+        self.state.mcp_approvals.purge_run(&run_id.0.to_string());
+        Ok(cancelled)
     }
 
     async fn resume_run(&self, ext: &RpcExtensions, run_id: RunId) -> RpcResult<Run> {
@@ -5239,6 +5351,7 @@ fn build_agent_loop(
     providers: Arc<RwLock<ProviderRouter>>,
     mcp: Arc<dyn McpManager>,
     mcp_permissions: Arc<StaticPermissions>,
+    mcp_approvals: Arc<McpApprovals>,
     backend_kit: Arc<RwLock<BackendKit>>,
 ) -> Arc<RwLock<AgentLoop>> {
     Arc::new(RwLock::new(build_agent_loop_in(
@@ -5247,18 +5360,31 @@ fn build_agent_loop(
         providers,
         mcp,
         mcp_permissions,
+        mcp_approvals,
+        // The daemon-wide loop turns for no run, so it never consumes a grant and
+        // never registers a pending entry: its `agent.turn` is retired (OD-E2).
+        None,
         backend_kit,
     )))
 }
 
 /// The same loop bound to an explicit workspace: a run's own worktree when it has
 /// one, or the daemon's default workspace for the legacy single conversation.
+/// Every seam a loop is built from, beside the workspace it runs in.
+///
+/// Eight positional arguments is one more than clippy allows and, more to the
+/// point, four of them are the MCP triple plus a run id that only make sense
+/// together: a caller that wired a registry and forgot the run id would fail every
+/// grant lookup silently, so they stay in one list at the call site.
+#[allow(clippy::too_many_arguments)]
 fn build_agent_loop_in(
     workspace_dir: &Path,
     allowed_commands: &[String],
     providers: Arc<RwLock<ProviderRouter>>,
     mcp: Arc<dyn McpManager>,
     mcp_permissions: Arc<StaticPermissions>,
+    mcp_approvals: Arc<McpApprovals>,
+    run_id: Option<String>,
     backend_kit: Arc<RwLock<BackendKit>>,
 ) -> AgentLoop {
     // The shipped work-protection policy enforces read-before-write, so the
@@ -5279,11 +5405,18 @@ fn build_agent_loop_in(
         .with_read_before_write(policy.read_before_write)
         .with_command_policy(command_policy);
     let router = ProviderRouterAdapter::new(providers, AGENT_ROLE, AGENT_METER_KEY);
-    AgentLoop::with_tool_executor(Box::new(tools))
+    let agent_loop = AgentLoop::with_tool_executor(Box::new(tools))
         .with_router(Arc::new(router))
         .with_mcp(mcp)
         .with_mcp_permissions(mcp_permissions)
-        .with_backend_kit(backend_kit)
+        .with_mcp_approvals(mcp_approvals)
+        .with_backend_kit(backend_kit);
+    // A run's loop carries its id so a one-time grant can be bound to it; the
+    // daemon-wide loop passes none and can therefore never consume one.
+    match run_id {
+        Some(run_id) => agent_loop.with_run_id(run_id),
+        None => agent_loop,
+    }
 }
 
 /// The settings document the role routing table is kept in.
@@ -5988,12 +6121,19 @@ pub async fn start_daemon_with_provider_factory(
         store: store.clone(),
     };
     let mcp_permissions = Arc::new(StaticPermissions::load_from(&permission_store).await);
+    // The approval registry, with the daemon's own summarizer: the pipeline cannot
+    // see this process's scrubber, so the redacting implementation is built here and
+    // handed in through the seam.
+    let mcp_approvals = Arc::new(McpApprovals::new(Some(Box::new(
+        mcp_approvals::DaemonSummarizer::new(config.auth_token.clone()),
+    ))));
     let agent_loop = build_agent_loop(
         &config.data_dir,
         &config.allowed_commands,
         providers.clone(),
         mcp.clone(),
         mcp_permissions.clone(),
+        mcp_approvals.clone(),
         default_kit,
     );
 
@@ -6055,6 +6195,7 @@ pub async fn start_daemon_with_provider_factory(
         store_reviews: Arc::new(RwLock::new(InMemoryStoreReviewStore::new())),
         agent_loop,
         mcp_permissions,
+        mcp_approvals,
         run_worktrees: Arc::new(RwLock::new(HashMap::new())),
         agent_sessions: Arc::new(RunAgentSessions::new()),
         processes,
@@ -7521,12 +7662,18 @@ mod tests {
         // rather than reporting that nothing is wired.
         let default_kit = Arc::new(RwLock::new(default_backend_kit("default")));
         let mcp_permissions = Arc::new(StaticPermissions::new());
+        // The same registry a real start builds, over the same daemon summarizer, so
+        // a test drives the redaction and the audit trail production runs.
+        let mcp_approvals = Arc::new(McpApprovals::new(Some(Box::new(
+            mcp_approvals::DaemonSummarizer::new(config.auth_token.clone()),
+        ))));
         let agent_loop = build_agent_loop(
             &config.data_dir,
             &config.allowed_commands,
             providers.clone(),
             mcp.clone(),
             mcp_permissions.clone(),
+            mcp_approvals.clone(),
             default_kit,
         );
 
@@ -7543,6 +7690,7 @@ mod tests {
             store_reviews: Arc::new(RwLock::new(InMemoryStoreReviewStore::new())),
             agent_loop,
             mcp_permissions,
+            mcp_approvals,
             run_worktrees: Arc::new(RwLock::new(HashMap::new())),
             agent_sessions: Arc::new(RunAgentSessions::new()),
             processes,
@@ -7673,6 +7821,8 @@ mod tests {
             state.providers.clone(),
             state.mcp.clone(),
             state.mcp_permissions.clone(),
+            state.mcp_approvals.clone(),
+            None,
             Arc::new(RwLock::new(default_backend_kit("run"))),
         )
     }
@@ -12433,6 +12583,7 @@ async fn health_reports_probed_capabilities() {
         store_reviews: state.store_reviews.clone(),
         agent_loop: state.agent_loop.clone(),
         mcp_permissions: state.mcp_permissions.clone(),
+        mcp_approvals: state.mcp_approvals.clone(),
         run_worktrees: state.run_worktrees.clone(),
         agent_sessions: state.agent_sessions.clone(),
         processes: state.processes.clone(),
