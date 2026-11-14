@@ -25,6 +25,24 @@ export const ACTIONS: readonly ActionDef[] = [
     rpc: ['gates.reject'],
   },
   {
+    id: 'inbox.mcp.allow_always',
+    labelKey: 'inbox.mcp.allow_always',
+    effect: 'rpc',
+    rpc: ['mcp.permissions.set'],
+  },
+  {
+    id: 'inbox.mcp.allow_once',
+    labelKey: 'inbox.mcp.allow_once',
+    effect: 'rpc',
+    rpc: ['mcp.approvals.allow_once'],
+  },
+  {
+    id: 'inbox.mcp.deny',
+    labelKey: 'inbox.mcp.deny',
+    effect: 'rpc',
+    rpc: ['mcp.permissions.set'],
+  },
+  {
     id: 'inbox.project.open',
     labelKey: 'inbox.project_open',
     effect: 'nav',

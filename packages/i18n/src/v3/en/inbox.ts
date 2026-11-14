@@ -16,4 +16,16 @@ export default {
   'inbox.decision_sheet_title': 'Decision details',
   'inbox.decision_eyebrow': 'Decision waiting',
   'inbox.waiting_count': '{count} decisions waiting',
+
+  'inbox.mcp.badge': 'MCP tool request',
+  'inbox.mcp.role_label': 'Role: {role}',
+  'inbox.mcp.summary_label': 'redacted preview',
+  'inbox.mcp.summary_empty': 'No arguments were shown with this request.',
+  'inbox.mcp.list_failed': 'The pending MCP asks could not be loaded; some may be missing here.',
+  'inbox.mcp.allow_once': 'Allow once',
+  'inbox.mcp.allow_always': 'Always allow',
+  'inbox.mcp.deny': 'Deny',
+  'inbox.mcp.allow_once_done': 'Allowed once; the grant ends after the first use.',
+  'inbox.mcp.allow_always_done': 'Permission saved: this tool is allowed without asking.',
+  'inbox.mcp.deny_done': 'Permission saved: this tool is denied.',
 };
