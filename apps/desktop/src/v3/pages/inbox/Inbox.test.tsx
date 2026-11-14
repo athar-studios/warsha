@@ -11,7 +11,7 @@ import type {
 // eslint-disable-next-line import/no-unresolved
 import { I18nProvider } from '@warsha/i18n/v3';
 import React from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { CapabilitiesProvider } from '../../app/CapabilitiesContext';
 import { ClientProvider } from '../../app/ClientContext';
@@ -25,9 +25,20 @@ import InboxPage, {
   extractGateCode,
   findPendingGateAtCurrentStage,
   formatTime24,
-  isRunEndingEnabled,
   mergeInboxItems,
 } from './index';
+
+/** The same mock client, with `health` advertising the run-ending controls the way `warshad` does. */
+function createRunEndingClient(overrides: Partial<Record<string, unknown>> = {}): WarshaClient {
+  return createMockClient({
+    health: vi.fn().mockResolvedValue({
+      status: 'ok',
+      version: '0.3.0',
+      capabilities: { runControls: true },
+    }),
+    ...overrides,
+  });
+}
 
 function ReadyInspector(): React.ReactElement {
   const { isReady } = useDataReady();
@@ -179,24 +190,9 @@ describe('InboxPage helpers', () => {
     expect(decisions[0].runId).toBe('run-gate-a');
     expect(decisions[0].gateStage).toBe('gate_a');
   });
-
-  it('isRunEndingEnabled detects capability flag', () => {
-    expect(isRunEndingEnabled(null)).toBe(false);
-    expect(isRunEndingEnabled({})).toBe(false);
-    expect(isRunEndingEnabled({ 'runs.resume': true })).toBe(true);
-
-    const prev = (window as unknown as Record<string, unknown>).__WARSHA_RUN_ENDING_ENABLED__;
-    (window as unknown as Record<string, unknown>).__WARSHA_RUN_ENDING_ENABLED__ = true;
-    expect(isRunEndingEnabled({})).toBe(true);
-    (window as unknown as Record<string, unknown>).__WARSHA_RUN_ENDING_ENABLED__ = prev;
-  });
 });
 
 describe('InboxPage component journeys and states', () => {
-  afterEach(() => {
-    delete (window as unknown as Record<string, unknown>).__WARSHA_RUN_ENDING_ENABLED__;
-  });
-
   it('renders loading skeleton and synchronizes data-ready', async () => {
     const resolvers: Array<(v: RunSummary[]) => void> = [];
     const slowClient = createMockClient({
@@ -337,9 +333,26 @@ describe('InboxPage component journeys and states', () => {
     });
   });
 
-  it('renders changes and reject controls when capability enabled', async () => {
-    (window as unknown as Record<string, unknown>).__WARSHA_RUN_ENDING_ENABLED__ = true;
+  it('hides the run-ending controls when the daemon does not advertise them', async () => {
     const client = createMockClient();
+    renderInbox(client);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('inbox-ready')).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Review decision/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('inbox-decision-sheet')).toBeDefined();
+    });
+
+    expect(document.querySelector('[data-action="inbox.gate.changes.send"]')).toBeNull();
+    expect(document.querySelector('[data-action="inbox.gate.reject.confirm"]')).toBeNull();
+  });
+
+  it('renders changes and reject controls when the daemon advertises run controls', async () => {
+    const client = createRunEndingClient();
     renderInbox(client);
 
     await waitFor(() => {
@@ -353,6 +366,9 @@ describe('InboxPage component journeys and states', () => {
       expect(screen.getByTestId('inbox-changes-textarea')).toBeDefined();
       expect(screen.getByTestId('inbox-reject-reason')).toBeDefined();
     });
+
+    expect(document.querySelector('[data-action="inbox.gate.changes.send"]')).not.toBeNull();
+    expect(document.querySelector('[data-action="inbox.gate.reject.confirm"]')).not.toBeNull();
 
     const changesInput = screen.getByPlaceholderText('Describe requested adjustments precisely...');
     fireEvent.change(changesInput, { target: { value: 'Revise idea' } });
@@ -381,9 +397,8 @@ describe('InboxPage component journeys and states', () => {
     });
   });
 
-  it('calls rejectGate on inbox.gate.reject.confirm when capability enabled', async () => {
-    (window as unknown as Record<string, unknown>).__WARSHA_RUN_ENDING_ENABLED__ = true;
-    const client = createMockClient();
+  it('calls rejectGate on inbox.gate.reject.confirm when the daemon advertises run controls', async () => {
+    const client = createRunEndingClient();
     renderInbox(client);
 
     await waitFor(() => {

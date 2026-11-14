@@ -145,7 +145,14 @@ Not yet in the router (only `/health` is registered, `:500`). The contract to be
 
 | Method | Params (in order) | Result |
 |---|---|---|
-| `health` | — | `HealthResponse` (`status`, `version`, `uptime_seconds`) |
+| `health` | — | `HealthResponse` (`status`, `version`, `uptime_seconds`, `capabilities`) |
+
+`capabilities` is `HealthCapabilities`: `daemon`, `providers`, `keychain` (all probed, never hardcoded)
+and `run_controls`, which is `true` only when the daemon is up **and** its store carries the K2
+run-version (CAS) column — the same `runs.version` the run-state CAS loop needs, so it is the honest
+answer to "can this daemon serve `gates.changes` / `gates.reject` / `runs.cancel`?" (`state.rs`
+`probe_capabilities`). The field is additive on the wire: `#[serde(default)]`, so a payload written
+before it existed decodes as `false`, and a client that predates it ignores it.
 | `projects.list` | — | `Project[]` |
 | `projects.create` | `name: string, description: string, language: string` | `Project` |
 | `projects.get` | `id: ProjectId` (UUID string) | `Project` |

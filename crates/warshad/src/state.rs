@@ -606,7 +606,8 @@ impl DaemonState {
         }
     }
 
-    /// Probe real capabilities of the daemon (daemon, providers, keychain availability).
+    /// Probe real capabilities of the daemon (daemon, providers, keychain availability, and
+    /// whether the store carries the run-ending machinery).
     pub async fn probe_capabilities(&self) -> HealthCapabilities {
         // Probe daemon capability: verify store connectivity.
         let daemon = self.store.list_projects().await.is_ok();
@@ -633,11 +634,38 @@ impl DaemonState {
             Err(_) => false,
         };
 
+        // Probe run-ending capability: the controls `gates.changes` / `gates.reject` /
+        // `runs.cancel` end a run, and the daemon may only advertise them when its store
+        // can serve the run-version CAS loop those calls race against. A daemon that is
+        // not up cannot honour them whatever the schema says.
+        let run_controls = daemon && self.store_has_run_versions().await;
+
         HealthCapabilities {
             daemon,
             providers,
             keychain,
+            run_controls,
         }
+    }
+}
+
+impl DaemonState {
+    /// Whether the store really carries the K2 run-version (CAS) column.
+    ///
+    /// `runs.version` is what `003_run_version.sql` adds and what the run-state CAS loop needs:
+    /// a store without it cannot serve `gates.changes`, `gates.reject` or `runs.cancel` safely.
+    /// A constant `true` is exactly the class K3 refused for health, so this reads the store on
+    /// every call. `get_run_version` selects that one column for one id, and the id is freshly
+    /// minted and certainly unstored, which makes the read side-effect free: it answers
+    /// `RunNotFound` only when the column resolved against the migrated schema, and a database
+    /// error (`no such column: version`) when the migration is missing. Any other failure — an
+    /// unreachable database included — reads as unsupported, which is the safe direction for a
+    /// control that ends runs.
+    async fn store_has_run_versions(&self) -> bool {
+        matches!(
+            self.store.get_run_version(RunId::new()).await,
+            Err(warsha_store::StoreError::RunNotFound(_))
+        )
     }
 }
 

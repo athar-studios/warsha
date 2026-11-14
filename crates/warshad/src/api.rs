@@ -588,6 +588,15 @@ pub struct HealthCapabilities {
     pub daemon: bool,
     pub providers: bool,
     pub keychain: bool,
+    /// Whether this daemon can honour the run-ending controls (`gates.changes`,
+    /// `gates.reject`, `runs.cancel`) — it is up **and** its store carries the
+    /// run-version column the K2 CAS loop needs, which is what makes ending a run safe.
+    ///
+    /// `#[serde(default)]` keeps the wire additive: a payload written before the field
+    /// existed decodes as `false`, so an older daemon and an older client both keep
+    /// working, and only a daemon that really supports the controls says `true`.
+    #[serde(default)]
+    pub run_controls: bool,
 }
 
 /// Health response

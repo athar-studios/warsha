@@ -4,8 +4,8 @@ import { useT } from '@warsha/i18n/v3';
 import { Button, Dialog, IconAlert, IconCheck, IconEdit, IconX, TextArea } from '@warsha/ui/v3';
 import React, { useState } from 'react';
 
+import { canEndRuns } from '../../../actions/capabilities';
 import { useCapabilities } from '../../../app/CapabilitiesContext';
-import { hasGateResumeCapability } from '../helpers';
 
 export interface BenchDecisionCardProps {
   question: string;
@@ -33,8 +33,9 @@ export const BenchDecisionCard: React.FC<BenchDecisionCardProps> = ({
   const t = useT();
   const capabilities = useCapabilities();
 
-  // Amendment (a): hide request-changes/reject behind capability flag OFF until KEEL K1+K2 ship
-  const canReview = hasGateResumeCapability(capabilities);
+  // Request-changes and reject end the run, so they render only when the daemon says it can
+  // serve `gates.changes` / `gates.reject` (R-UI-2 D3).
+  const canReview = canEndRuns(capabilities);
 
   const [showChangesForm, setShowChangesForm] = useState(false);
   const [changeNotes, setChangeNotes] = useState('');

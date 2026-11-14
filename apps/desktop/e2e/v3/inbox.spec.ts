@@ -10,6 +10,30 @@ import {
 
 import { act, expectRpc, openV3, rpcCalls, auditViewportFit, describeViewportFit, viewportFitIsClean } from './support';
 
+/**
+ * `health` answering what `warshad` answers once its store carries the K2 run-version column.
+ *
+ * This is the daemon-true path to the run-ending controls (R-UI-2 D4): the screen reads one
+ * capability out of `health`, so a case that wants the controls turns them on by having the
+ * daemon say so — there is no `window` flag left to flip.
+ */
+const RUN_CONTROLS_HEALTH = {
+  result: {
+    status: 'ok',
+    version: '0.2.0',
+    capabilities: { daemon: true, providers: true, keychain: true, run_controls: true },
+  },
+};
+
+/** The same daemon with `run_controls: false`, for the cases that assert the controls are absent. */
+const NO_RUN_CONTROLS_HEALTH = {
+  result: {
+    status: 'ok',
+    version: '0.2.0',
+    capabilities: { daemon: true, providers: true, keychain: true, run_controls: false },
+  },
+};
+
 const LOCALES = ['ar', 'en'] as const;
 const THEMES = ['light', 'dark'] as const;
 const VIEWPORTS = [
@@ -168,13 +192,10 @@ test.describe('Inbox action ids', () => {
     await expect(page).toHaveURL(/#\/p\/proj-store$/);
   });
 
-  test('inbox.gate.changes.send sends requested changes when capability enabled', async ({
+  test('inbox.gate.changes.send sends requested changes when the daemon advertises run controls', async ({
     page,
   }) => {
-    await page.addInitScript(() => {
-      (window as unknown as Record<string, unknown>).__WARSHA_RUN_ENDING_ENABLED__ = true;
-    });
-    await openV3(page, '/inbox', { lang: 'en' });
+    await openV3(page, '/inbox', { lang: 'en', fixtures: { health: RUN_CONTROLS_HEALTH } });
     await act(page, 'inbox.decision.open');
     await page.locator('[data-testid="inbox-changes-textarea"] textarea').fill('Revise brief');
     await act(page, 'inbox.gate.changes.send');
@@ -185,11 +206,10 @@ test.describe('Inbox action ids', () => {
     });
   });
 
-  test('inbox.gate.reject.confirm rejects gate when capability enabled', async ({ page }) => {
-    await page.addInitScript(() => {
-      (window as unknown as Record<string, unknown>).__WARSHA_RUN_ENDING_ENABLED__ = true;
-    });
-    await openV3(page, '/inbox', { lang: 'en' });
+  test('inbox.gate.reject.confirm rejects gate when the daemon advertises run controls', async ({
+    page,
+  }) => {
+    await openV3(page, '/inbox', { lang: 'en', fixtures: { health: RUN_CONTROLS_HEALTH } });
     await act(page, 'inbox.decision.open');
     await page.locator('[data-testid="inbox-reject-reason"] textarea').fill('Rejected scope');
     await act(page, 'inbox.gate.reject.confirm');
@@ -198,6 +218,18 @@ test.describe('Inbox action ids', () => {
       stage: 'gate_a',
       reason: 'Rejected scope',
     });
+  });
+
+  test('hides the run-ending controls when the daemon answers run_controls: false', async ({
+    page,
+  }) => {
+    await openV3(page, '/inbox', { lang: 'en', fixtures: { health: NO_RUN_CONTROLS_HEALTH } });
+    await act(page, 'inbox.decision.open');
+
+    await expect(page.locator('[data-testid="inbox-decision-sheet"]')).toBeVisible();
+    await expect(page.locator('[data-action="inbox.gate.approve"]').first()).toBeVisible();
+    await expect(page.locator('[data-action="inbox.gate.changes.send"]')).toHaveCount(0);
+    await expect(page.locator('[data-action="inbox.gate.reject.confirm"]')).toHaveCount(0);
   });
 
   test('inbox.retry re-dials projects.list', async ({ page }) => {

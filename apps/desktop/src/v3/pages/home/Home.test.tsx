@@ -174,6 +174,7 @@ async function renderHome(
           initialCapabilities={{
             daemon: true,
             provider: providerAvailable,
+            runControls: false,
             devices: true,
             integrations: true,
             plugins: true,

@@ -42,6 +42,9 @@ name = "warshad"
 path = "src/main.rs"
 
 [dev-dependencies]
+# The health probe's honesty test drops `runs.version` from a migrated store and re-reads it,
+# which is the only way to build the pre-K2 schema in-process — a test-only need.
+sqlx = { workspace = true }
 tempfile = { workspace = true }
 reqwest = { workspace = true }
 pretty_assertions = "1.4"
