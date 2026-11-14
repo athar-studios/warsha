@@ -1801,3 +1801,9 @@ reference `docs/designs/v3-preview.html`; run evidence `bridge-io/policy/2026-11
 - **F1 → F1-a (trait impl stays one 2,887-line module `rpc/impl_server.rs`).** F1-b's inherent-impl + one-line-delegation transform is code-adding and violates P-H1 hard rule 1 (pure moves only); it would need its own packet with its own review rule. F1-a still delivers the mission: `lib.rs` → ~90-line facade, largest file 2,887 vs 15,684 (~5× token-cost cut). The `rpc/impl_server.rs` remainder becomes follow-up packet P-H1-RPC if justified — not now.
 - **F5 → move `backend_kit` (1406–1428) into `runtime.rs`** at extraction time to break the runtime↔rpc-core 2-cycle outright.
 - Stage A (10 pure-move steps) approved to proceed in extraction order; Stage B (RPC sections) stays blocked pending a future P-H1-RPC packet. `rpc/runs.rs` remains last regardless.
+
+## 2026-11-14 — P-H1 A1/A2 merged (PM rulings)
+- **A1's 1-token test edit ACCEPTED as seam**: `the_startup_listener_lines_are_written_once` scans its own source via `include_str!("lib.rs")` for the trait text; now reads `include_str!("api.rs")`. Assertion logic unchanged, path-only. Precedent: source-scanning tests get path updates only, never logic edits.
+- **Map drift acknowledged**: `f4f0298:lib.rs` is 16,072 lines vs map's 15,684 (+388 after line 1349). A1 range 603–1349 matched exactly; A2 re-anchored by item identity (4987–5261 vs map's 4913–5187). All future steps use item-identity ranges — no map re-freeze for mechanical drift.
+- **Merge seams by PM**: took A2's import list (skill types now via `use skills::*`), dropped `TodoItem` from lib.rs imports (moved to api.rs, was unused → clippy warning), `cargo fmt` reflow. Fast gates on merged tree: fmt OK, clippy -D warnings clean, warshad 298/0.
+- **Traps recorded for later steps**: no `#[cfg(test)]` token above production code (breaks the source-scan test); facade glob `use skills::*` rationale (test-only items + unused_imports).
