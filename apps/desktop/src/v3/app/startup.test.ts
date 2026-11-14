@@ -17,7 +17,11 @@ describe('decideStartupRoute', () => {
     const opts: StartupOptions = {
       readConfig: async (key) => (key === 'onboarding_complete' ? 'true' : ''),
       client: {
-        health: async () => ({ status: 'ok', version: '0.2.1' }),
+        health: async () => ({
+          status: 'ok',
+          version: '0.2.1',
+          capabilities: { runControls: false },
+        }),
         listProjects: async () => [],
       },
     };
@@ -52,7 +56,11 @@ describe('decideStartupRoute', () => {
     const opts: StartupOptions = {
       readConfig: async (key) => (key === 'onboarding_complete' ? 'true' : ''),
       client: {
-        health: async () => ({ status: 'ok', version: '0.2.1' }),
+        health: async () => ({
+          status: 'ok',
+          version: '0.2.1',
+          capabilities: { runControls: false },
+        }),
         listProjects: async () => [proj],
       },
       lastProjectId: 'proj-123',

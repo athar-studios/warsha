@@ -29,6 +29,7 @@ import {
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useAction } from '../../actions';
+import { canEndRuns } from '../../actions/capabilities';
 import { useCapabilities } from '../../app/CapabilitiesContext';
 import { useClient } from '../../app/ClientContext';
 import { useDataReady } from '../../app/DataReadyContext';
@@ -186,23 +187,6 @@ export function mergeInboxItems(
   return items;
 }
 
-export function isRunEndingEnabled(capabilities: unknown): boolean {
-  if (
-    capabilities &&
-    typeof capabilities === 'object' &&
-    Boolean((capabilities as Record<string, unknown>)['runs.resume'])
-  ) {
-    return true;
-  }
-  if (
-    typeof window !== 'undefined' &&
-    Boolean((window as unknown as Record<string, unknown>).__WARSHA_RUN_ENDING_ENABLED__)
-  ) {
-    return true;
-  }
-  return false;
-}
-
 export default function InboxPage(): React.ReactElement {
   const t = useT();
   const client = useClient();
@@ -224,8 +208,8 @@ export default function InboxPage(): React.ReactElement {
   const [decidingMcpId, setDecidingMcpId] = useState<string | null>(null);
   const [decidedIds, setDecidedIds] = useState<Set<string>>(new Set());
 
-  // Capability-gated run-ending state (Amendment §5.5-a)
-  const hasRunEndingCapability = isRunEndingEnabled(capabilities);
+  // Capability-gated run-ending state: the daemon's own `run_controls` answer.
+  const hasRunEndingCapability = canEndRuns(capabilities);
   const [changesText, setChangesText] = useState('');
   const [rejectReason, setRejectReason] = useState('');
 

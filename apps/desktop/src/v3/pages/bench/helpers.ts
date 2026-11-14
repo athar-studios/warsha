@@ -129,15 +129,3 @@ export function copyTextToClipboard(text: string): void {
     navigator.clipboard.writeText(text).catch(() => {});
   }
 }
-
-export function hasGateResumeCapability(capabilities: unknown): boolean {
-  if (typeof window !== 'undefined') {
-    const win = window as unknown as { __ENABLE_RESUME__?: boolean };
-    if (win.__ENABLE_RESUME__ === true) return true;
-  }
-  if (typeof capabilities === 'object' && capabilities !== null) {
-    const capMap = capabilities as Record<string, unknown>;
-    return capMap['runs.resume'] === true;
-  }
-  return false;
-}

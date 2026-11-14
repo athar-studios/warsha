@@ -10,6 +10,30 @@ import {
 
 import { act, expectRpc, openV3, rpcCalls, auditViewportFit, describeViewportFit, viewportFitIsClean } from './support';
 
+/**
+ * `health` answering what `warshad` answers once its store carries the K2 run-version column.
+ *
+ * This is the daemon-true path to the run-ending controls (R-UI-2 D4): the screen reads one
+ * capability out of `health`, so a case that wants the controls turns them on by having the
+ * daemon say so — there is no `window` flag left to flip.
+ */
+const RUN_CONTROLS_HEALTH = {
+  result: {
+    status: 'ok',
+    version: '0.2.0',
+    capabilities: { daemon: true, providers: true, keychain: true, run_controls: true },
+  },
+};
+
+/** The same daemon with `run_controls: false`, for the cases that assert the controls are absent. */
+const NO_RUN_CONTROLS_HEALTH = {
+  result: {
+    status: 'ok',
+    version: '0.2.0',
+    capabilities: { daemon: true, providers: true, keychain: true, run_controls: false },
+  },
+};
+
 const LOCALES = ['ar', 'en'] as const;
 const THEMES = ['light', 'dark'] as const;
 const VIEWPORTS = [
@@ -150,24 +174,24 @@ test.describe('Project action ids', () => {
     await expectRpc(page, 'runs.advance', { run_id: 'run-gate-a' });
   });
 
-  test('project.gate.changes.open toggles requested changes input when capability enabled', async ({
+  test('project.gate.changes.open toggles requested changes input when the daemon advertises run controls', async ({
     page,
   }) => {
-    await page.addInitScript(() => {
-      (window as unknown as Record<string, unknown>).__WARSHA_RUN_ENDING_ENABLED__ = true;
+    await openV3(page, '/p/proj-store', {
+      lang: 'en',
+      fixtures: { health: RUN_CONTROLS_HEALTH },
     });
-    await openV3(page, '/p/proj-store', { lang: 'en' });
     await act(page, 'project.gate.changes.open');
     await expect(page.locator('[data-testid="project-changes-textarea"] textarea')).toBeVisible();
   });
 
-  test('project.gate.changes.send calls gates.changes when capability enabled', async ({
+  test('project.gate.changes.send calls gates.changes when the daemon advertises run controls', async ({
     page,
   }) => {
-    await page.addInitScript(() => {
-      (window as unknown as Record<string, unknown>).__WARSHA_RUN_ENDING_ENABLED__ = true;
+    await openV3(page, '/p/proj-store', {
+      lang: 'en',
+      fixtures: { health: RUN_CONTROLS_HEALTH },
     });
-    await openV3(page, '/p/proj-store', { lang: 'en' });
     await act(page, 'project.gate.changes.open');
     await page.locator('[data-testid="project-changes-textarea"] textarea').fill('Revise spec');
     await act(page, 'project.gate.changes.send');
@@ -178,24 +202,24 @@ test.describe('Project action ids', () => {
     });
   });
 
-  test('project.gate.reject.open opens reject dialog when capability enabled', async ({
+  test('project.gate.reject.open opens reject dialog when the daemon advertises run controls', async ({
     page,
   }) => {
-    await page.addInitScript(() => {
-      (window as unknown as Record<string, unknown>).__WARSHA_RUN_ENDING_ENABLED__ = true;
+    await openV3(page, '/p/proj-store', {
+      lang: 'en',
+      fixtures: { health: RUN_CONTROLS_HEALTH },
     });
-    await openV3(page, '/p/proj-store', { lang: 'en' });
     await act(page, 'project.gate.reject.open');
     await expect(page.locator('[data-testid="project-reject-dialog"]')).toBeVisible();
   });
 
-  test('project.gate.reject.confirm calls gates.reject when capability enabled', async ({
+  test('project.gate.reject.confirm calls gates.reject when the daemon advertises run controls', async ({
     page,
   }) => {
-    await page.addInitScript(() => {
-      (window as unknown as Record<string, unknown>).__WARSHA_RUN_ENDING_ENABLED__ = true;
+    await openV3(page, '/p/proj-store', {
+      lang: 'en',
+      fixtures: { health: RUN_CONTROLS_HEALTH },
     });
-    await openV3(page, '/p/proj-store', { lang: 'en' });
     await act(page, 'project.gate.reject.open');
     await page.locator('[data-testid="project-reject-reason"] textarea').fill('Scope mismatch');
     await act(page, 'project.gate.reject.confirm');
@@ -317,23 +341,42 @@ test.describe('Project action ids', () => {
     await expectRpc(page, 'budget.set', { projectId: 'proj-ui', cents: 3500 });
   });
 
-  test('project.run.cancel.open opens cancel dialog when capability enabled', async ({ page }) => {
-    await page.addInitScript(() => {
-      (window as unknown as Record<string, unknown>).__WARSHA_RUN_ENDING_ENABLED__ = true;
+  test('project.run.cancel.open opens cancel dialog when the daemon advertises run controls', async ({ page }) => {
+    await openV3(page, '/p/proj-ui', {
+      lang: 'en',
+      fixtures: { health: RUN_CONTROLS_HEALTH },
     });
-    await openV3(page, '/p/proj-ui', { lang: 'en' });
     await act(page, 'project.run.cancel.open');
     await expect(page.locator('[data-testid="project-cancel-dialog"]')).toBeVisible();
   });
 
-  test('project.run.cancel.confirm calls runs.cancel when capability enabled', async ({ page }) => {
-    await page.addInitScript(() => {
-      (window as unknown as Record<string, unknown>).__WARSHA_RUN_ENDING_ENABLED__ = true;
+  test('project.run.cancel.confirm calls runs.cancel when the daemon advertises run controls', async ({ page }) => {
+    await openV3(page, '/p/proj-ui', {
+      lang: 'en',
+      fixtures: { health: RUN_CONTROLS_HEALTH },
     });
-    await openV3(page, '/p/proj-ui', { lang: 'en' });
     await act(page, 'project.run.cancel.open');
     await act(page, 'project.run.cancel.confirm');
     await expectRpc(page, 'runs.cancel', { run_id: 'run-code' });
+  });
+
+  test('hides the run-ending controls when the daemon answers run_controls: false', async ({
+    page,
+  }) => {
+    await openV3(page, '/p/proj-store', {
+      lang: 'en',
+      fixtures: { health: NO_RUN_CONTROLS_HEALTH },
+    });
+
+    await expect(page.locator('[data-action="project.gate.approve"]')).toBeVisible();
+    for (const id of [
+      'project.gate.changes.open',
+      'project.gate.changes.send',
+      'project.gate.reject.open',
+      'project.gate.reject.confirm',
+    ]) {
+      await expect(page.locator(`[data-action="${id}"]`)).toHaveCount(0);
+    }
   });
 
   test('project.run.restart dials runs.start on failed run', async ({ page }) => {

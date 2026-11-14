@@ -21,7 +21,7 @@ import type {
 // eslint-disable-next-line import/no-unresolved
 import { I18nProvider } from '@warsha/i18n/v3';
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { CapabilitiesProvider } from '../../app/CapabilitiesContext';
 import { ClientProvider } from '../../app/ClientContext';
@@ -169,6 +169,18 @@ function createMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
   } as unknown as WarshaClient;
 }
 
+/** The same mock client, with `health` advertising the run-ending controls the way `warshad` does. */
+function createRunEndingClient(overrides: Partial<Record<string, unknown>> = {}): WarshaClient {
+  return createMockClient({
+    health: vi.fn().mockResolvedValue({
+      status: 'ok',
+      version: '0.2.1',
+      capabilities: { runControls: true },
+    }),
+    ...overrides,
+  });
+}
+
 function renderWithProviders(ui: React.ReactElement, client?: WarshaClient, initialLocale: 'ar' | 'en' = 'ar') {
   const mockClient = client ?? createMockClient();
   return render(
@@ -185,10 +197,6 @@ function renderWithProviders(ui: React.ReactElement, client?: WarshaClient, init
 }
 
 describe('Advanced Workbench (U4)', () => {
-  beforeEach(() => {
-    delete (window as unknown as { __ENABLE_RESUME__?: boolean }).__ENABLE_RESUME__;
-  });
-
   it('BenchRail renders projects and runs and handles new project click', () => {
     const onNewProject = vi.fn();
     const onSelectRun = vi.fn();
@@ -341,7 +349,7 @@ describe('Advanced Workbench (U4)', () => {
     expect(onChange).toHaveBeenCalledWith('preview');
   });
 
-  it('BenchDecisionCard hides request-changes and reject by default (Amendment a)', () => {
+  it('BenchDecisionCard hides request-changes and reject unless the daemon advertises run controls', () => {
     renderWithProviders(
       <BenchDecisionCard
         question="هل نعتمد الفكرة؟"
@@ -354,10 +362,11 @@ describe('Advanced Workbench (U4)', () => {
     expect(approveBtn).toHaveAttribute('data-variant', 'primary');
     expect(screen.queryByTestId('bench-gate-changes-btn')).toBeNull();
     expect(screen.queryByTestId('bench-gate-reject-btn')).toBeNull();
+    expect(document.querySelector('[data-action="bench.gate.changes.send"]')).toBeNull();
+    expect(document.querySelector('[data-action="bench.gate.reject.confirm"]')).toBeNull();
   });
 
-  it('BenchDecisionCard shows request-changes and reject when capability flag is enabled', () => {
-    (window as unknown as { __ENABLE_RESUME__?: boolean }).__ENABLE_RESUME__ = true;
+  it('BenchDecisionCard shows request-changes and reject when the daemon advertises run controls', async () => {
     const onRequestChanges = vi.fn();
     const onReject = vi.fn();
 
@@ -368,8 +377,15 @@ describe('Advanced Workbench (U4)', () => {
         onApprove={vi.fn()}
         onRequestChanges={onRequestChanges}
         onReject={onReject}
-      />
+      />,
+      createRunEndingClient()
     );
+
+    // `health` is read asynchronously; the controls appear once the daemon's answer lands.
+    await waitFor(() => {
+      expect(document.querySelector('[data-action="bench.gate.changes.send"]')).not.toBeNull();
+      expect(document.querySelector('[data-action="bench.gate.reject.confirm"]')).not.toBeNull();
+    });
 
     fireEvent.click(screen.getByTestId('bench-gate-changes-btn'));
     const changesInput = screen.getByTestId('decision-changes-textarea').querySelector('textarea') as HTMLTextAreaElement;
@@ -851,6 +867,7 @@ describe('Advanced Workbench (U4)', () => {
       <CapabilitiesProvider initialCapabilities={{
         daemon: true,
         provider: true,
+        runControls: false,
         devices: true,
         integrations: true,
         plugins: true,

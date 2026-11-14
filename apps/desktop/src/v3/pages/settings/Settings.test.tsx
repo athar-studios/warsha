@@ -402,6 +402,7 @@ function renderSettings(
         initialCapabilities={{
           daemon: true,
           provider: true,
+          runControls: false,
           devices: true,
           integrations: true,
           plugins: true,

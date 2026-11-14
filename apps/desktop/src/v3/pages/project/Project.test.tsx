@@ -143,6 +143,18 @@ function createMockClient(overrides: Partial<Record<string, unknown>> = {}): War
   } as unknown as WarshaClient;
 }
 
+/** The same mock client, with `health` advertising the run-ending controls the way `warshad` does. */
+function createRunEndingClient(overrides: Partial<Record<string, unknown>> = {}): WarshaClient {
+  return createMockClient({
+    health: vi.fn().mockResolvedValue({
+      status: 'ok',
+      version: '0.3.0',
+      capabilities: { runControls: true },
+    }),
+    ...overrides,
+  });
+}
+
 function renderProject(client: WarshaClient | null, path = '/p/proj-1') {
   return render(
     <ClientProvider client={client ?? undefined}>
@@ -220,7 +232,6 @@ describe('ProjectPage helpers', () => {
 describe('ProjectPage component', () => {
   afterEach(() => {
     vi.restoreAllMocks();
-    delete (window as unknown as Record<string, unknown>).__WARSHA_RUN_ENDING_ENABLED__;
   });
 
   it('renders loading, empty, and error states honestly with retry', async () => {
@@ -369,9 +380,28 @@ describe('ProjectPage component', () => {
     });
   });
 
-  it('supports capability-gated changes, reject, and cancel flows only when explicitly enabled', async () => {
-    (window as unknown as Record<string, unknown>).__WARSHA_RUN_ENDING_ENABLED__ = true;
+  it('hides the run-ending controls when the daemon does not advertise them', async () => {
     const client = createMockClient({
+      listRuns: vi.fn().mockResolvedValue([AWAITING_GATE_RUN]),
+    });
+
+    renderProject(client);
+    await waitFor(() => {
+      expect(screen.getByTestId('project-ready')).toBeDefined();
+    });
+
+    for (const id of [
+      'project.gate.changes.open',
+      'project.gate.changes.send',
+      'project.gate.reject.open',
+      'project.gate.reject.confirm',
+    ]) {
+      expect(document.querySelector(`[data-action="${id}"]`)).toBeNull();
+    }
+  });
+
+  it('supports capability-gated changes, reject, and cancel flows when the daemon advertises run controls', async () => {
+    const client = createRunEndingClient({
       listRuns: vi.fn().mockResolvedValue([AWAITING_GATE_RUN]),
     });
 
