@@ -6716,3 +6716,7 @@ hypotheses left in this triage.
 - **A7 (runtime+F5)**: worker `30f3d67` (lib.rs +18/−422, runtime.rs +452, `backend_kit` moved as own `impl WarshaRpc`, F5 grep-proven: runtime names exactly one rpc-core item, the `WarshaRpc` type). Merge conflict with A6 (adjacent-region boundary) resolved by PM "keep neither" (item-verified: HEAD side 17 runtime fns → runtime.rs, A7 side 7 http fns → http.rs) + 1 orphan-`}` removal + fmt reflow.
 - **Fast gates on merged tree**: fmt OK, clippy `-D warnings` clean, warshad 298/0. lib.rs now 13,467 lines (was 14,512).
 - **Wire checker (PM tooling fix, inside merge commit `0c92d10`)**: `DAEMON_FILE` → source list (`api.rs` for the trait, `http.rs` for `REMOTE_CSP`, `lib.rs` fallback); self-test 11 fire + real 11/0. Follow-up empty marker commit `2966ab1` records the absorption (no tree change).
+
+## Run 2026-11-14 — P-H1 A4 merged (state, incl. DaemonState)
+- **A4** (worker `fb6ab2b`, merged clean): `AppState`/`DaemonState`/`paired_device_is_active`/`McpPermissionRow`/`McpPermissionsReply` (275 lines) → state.rs (3 pub(crate) seams: fn + 2 methods — privacy-by-descent miss, same class expected in A8); auth.rs 1-line `DaemonState` path fix; api/events/http paths resolve via facade (all-targets check 0).
+- Fast gates on merged tree: fmt OK, clippy clean, warshad 298/0. lib.rs now 13,196 lines. A8 (rpc-core) unblocked — `state` was its last prerequisite.
