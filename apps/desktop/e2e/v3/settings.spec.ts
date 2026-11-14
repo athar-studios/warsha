@@ -187,7 +187,7 @@ test.describe('Settings v3', () => {
 
     // Toggle advanced disclosure
     await act(page, 'settings.advanced.toggle');
-    await expect(nav.locator('a[data-action="settings.nav.open"]')).toHaveCount(12);
+    await expect(nav.locator('a[data-action="settings.nav.open"]')).toHaveCount(13);
 
     // Navigate to Models & Providers
     await page.locator('a[href="#/settings/models"]').click();

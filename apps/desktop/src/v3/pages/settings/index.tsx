@@ -11,6 +11,7 @@ import { BudgetsSection } from './sections/BudgetsSection';
 import { DevicesSection } from './sections/DevicesSection';
 import { GeneralSection } from './sections/GeneralSection';
 import { IntegrationsSection } from './sections/IntegrationsSection';
+import { McpPermissionsSection } from './sections/McpPermissionsSection';
 import { ModelsSection } from './sections/ModelsSection';
 import { PluginsSection } from './sections/PluginsSection';
 import { PostLaunchSection } from './sections/PostLaunchSection';
@@ -63,6 +64,8 @@ export default function SettingsPage(): React.ReactElement {
         return <SkillsSection />;
       case 'plugins':
         return <PluginsSection />;
+      case 'mcp':
+        return <McpPermissionsSection />;
       case 'integrations':
         return <IntegrationsSection />;
       case 'routines':

@@ -446,16 +446,16 @@ describe('SettingsPage (Slice 1)', () => {
     fireEvent.click(toggle as HTMLElement);
 
     const expandedLinks = nav.querySelectorAll('a[data-action="settings.nav.open"]');
-    expect(expandedLinks.length).toBe(12);
+    expect(expandedLinks.length).toBe(13);
   });
 
-  it('shows all 12 nav sections immediately in Advanced mode', async () => {
+  it('shows all 13 nav sections immediately in Advanced mode', async () => {
     renderSettings('/settings/general', createMockClient(), 'advanced');
     await waitFor(() => expect(screen.getByTestId('settings-section-general')).toBeDefined());
 
     const nav = screen.getByRole('navigation');
     const links = nav.querySelectorAll('a[data-action="settings.nav.open"]');
-    expect(links.length).toBe(12);
+    expect(links.length).toBe(13);
     expect(nav.querySelector('button[data-action="settings.advanced.toggle"]')).toBeNull();
   });
 
