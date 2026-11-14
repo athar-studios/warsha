@@ -1426,6 +1426,11 @@ export interface WarshaWave2Api {
 
   getFilesTree(projectId: string, path?: string): Promise<FileEntry[]>;
   readFileContent(projectId: string, path: string): Promise<FileContent>;
+  /**
+   * `gates.evidence` — collect the diff, changed paths and test result for a
+   * Gate C decision.
+   */
+  gateEvidence(runId: RunId, program: string, args: string[]): Promise<GateEvidence>;
 }
 
 export class WarshaClient implements WarshaWiringApi, WarshaWave2Api {
@@ -1479,6 +1484,15 @@ export class WarshaClient implements WarshaWiringApi, WarshaWave2Api {
 
   private redact(message: string): string {
     return redactToken(message, this.token);
+  }
+
+  async gateEvidence(runId: RunId, program: string, args: string[]): Promise<GateEvidence> {
+    const row = await this.rpc<unknown>('gates.evidence', {
+      run_id: runId,
+      program,
+      args,
+    });
+    return decodeGateEvidence(row, 'gates.evidence');
   }
 
   // Projects
@@ -2223,6 +2237,31 @@ export interface Routine {
   lastRunUnix: number | null;
 }
 
+export interface TestRun {
+  program: string;
+  args: string[];
+  success: boolean;
+  exit_code: number | null;
+  stdout: string;
+  stderr: string;
+  duration_ms: number;
+  truncated: boolean;
+}
+
+export interface PreviewEvidence {
+  project_id: string;
+  process_id: string;
+  url: string | null;
+  status: ProcessStatus;
+}
+
+export interface GateEvidence {
+  diff: string;
+  files_changed: string[];
+  tests: TestRun;
+  preview: PreviewEvidence | null;
+}
+
 /** The open-source backend a project points at (`warsha_pipeline::BackendKind`). */
 export type BackendKind = 'pocket_base' | 'supabase';
 
@@ -2583,6 +2622,89 @@ function decodeRoutineState(value: unknown, method: string): RoutineState {
     if (typeof failed === 'string') return { failed };
   }
   throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "state" is not a known routine state`);
+}
+
+/**
+ * One key of a `GateEvidence` row, which must be present even when its value is `null`.
+ *
+ * A Rust `Option<T>` serialises as an explicit `null`, never as an omitted key, so an
+ * absent one is a wire change rather than "no value" — and decoding it as the empty
+ * form would show the reviewer a blank where the daemon said something.
+ */
+function evidenceField(
+  source: Record<string, unknown>,
+  name: string,
+  method: string
+): unknown {
+  if (!Object.prototype.hasOwnProperty.call(source, name)) {
+    throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "${name}" is missing`);
+  }
+  return source[name];
+}
+
+/** A nested `GateEvidence` object (`tests` or a present `preview`), refused by its field name. */
+function evidenceObject(
+  value: unknown,
+  field: string,
+  method: string
+): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "${field}" is not an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function decodeTestRun(value: unknown, method: string): TestRun {
+  const source = evidenceObject(value, 'tests', method);
+  return {
+    program: wiringString(evidenceField(source, 'program', method), method, 'program'),
+    args: wiringStringList(evidenceField(source, 'args', method), method, 'args'),
+    success: wiringBoolean(evidenceField(source, 'success', method), method, 'success'),
+    exit_code: wiringNullableNumber(evidenceField(source, 'exit_code', method), method, 'exit_code'),
+    stdout: wiringString(evidenceField(source, 'stdout', method), method, 'stdout'),
+    stderr: wiringString(evidenceField(source, 'stderr', method), method, 'stderr'),
+    duration_ms: wiringNumber(evidenceField(source, 'duration_ms', method), method, 'duration_ms'),
+    truncated: wiringBoolean(evidenceField(source, 'truncated', method), method, 'truncated'),
+  };
+}
+
+function decodePreviewEvidence(value: unknown, method: string): PreviewEvidence {
+  const source = evidenceObject(value, 'preview', method);
+  return {
+    project_id: wiringString(evidenceField(source, 'project_id', method), method, 'project_id'),
+    process_id: wiringString(evidenceField(source, 'process_id', method), method, 'process_id'),
+    url: wiringNullableString(evidenceField(source, 'url', method), method, 'url'),
+    // A present preview's status is the same `ProcessStatus` `preview.status` reports, so
+    // it is read by the one decoder: a status neither knows is refused with the same words.
+    status: decodeProcessStatus(evidenceField(source, 'status', method), method),
+  };
+}
+
+/**
+ * `warsha_pipeline::GateEvidence` (`crates/warsha-pipeline/src/gate_evidence.rs:108`),
+ * decoded field by field — the shape `gates.evidence` answers.
+ *
+ * `tests.truncated` and the in-band `TRUNCATION_MARKER` are carried exactly as the
+ * daemon reported them: nothing here re-derives either from a string length, so the
+ * reviewer sees truncation only where there was truncation. `preview` is the run's
+ * *project* preview (the preview manager is keyed by project), and `null` is the
+ * daemon saying no server is up — never something this client fills in.
+ */
+export function decodeGateEvidence(value: unknown, method: string): GateEvidence {
+  const source = wiringObject(value, method);
+  const preview = evidenceField(source, 'preview', method);
+  return {
+    diff: wiringString(evidenceField(source, 'diff', method), method, 'diff'),
+    files_changed: wiringStringList(
+      evidenceField(source, 'files_changed', method),
+      method,
+      'files_changed'
+    ),
+    tests: decodeTestRun(evidenceField(source, 'tests', method), method),
+    // Collection leaves the preview unset; the daemon's `Option<PreviewEvidence>` is an
+    // explicit `null` when no server is up, and anything else must decode as a preview.
+    preview: preview === null ? null : decodePreviewEvidence(preview, method),
+  };
 }
 
 /** Decode one `warsha_pipeline::Routine` (snake_case) into the screen's camelCase row. */

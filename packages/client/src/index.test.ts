@@ -6,6 +6,7 @@ import {
   createClient,
   decodeBackendKit,
   decodeDeviceSummary,
+  decodeGateEvidence,
   decodeProjectSummary,
   decodeRoutine,
   decodeRunSummary,
@@ -18,6 +19,7 @@ import {
   type BackendKit,
   type BudgetStatus,
   type DeviceId,
+  type GateEvidence,
   type GateState,
   type GateSummary,
   type PairingData,
@@ -2366,5 +2368,228 @@ describe('wiring client methods (M16/M19/M20)', () => {
     expect(() => decodeBackendKit(configNull, 'backend.get')).toThrow(
       '"enabled_features" is not a list'
     );
+  });
+});
+
+// R-BRIDGE-B2 — `gates.evidence(run_id, program, args)` and the explicit decoder for
+// `warsha_pipeline::GateEvidence` (`crates/warsha-pipeline/src/gate_evidence.rs:108`).
+//
+// Every field of the struct is decoded explicitly: `diff` (string), `files_changed`
+// (string[]), `tests` (`TestRun`: program, args, success, exit_code, stdout, stderr,
+// duration_ms, truncated) and `preview` (`null` or `{ project_id, process_id, url,
+// status }`). A missing or mistyped field is a decode error rather than an `undefined`
+// that the UI renders as blank — the difference between "the daemon said no preview"
+// and "the decoder lost the field".
+
+const GATE_EVIDENCE_ROW = {
+  diff: 'diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n',
+  files_changed: ['src/a.ts', 'src/b.ts'],
+  tests: {
+    program: 'pnpm',
+    args: ['-r', 'test'],
+    success: true,
+    exit_code: 0,
+    stdout: 'all green\n',
+    stderr: '',
+    duration_ms: 1234,
+    truncated: false,
+  },
+  preview: {
+    project_id: 'proj-1',
+    process_id: 'proc-1',
+    url: 'http://127.0.0.1:5173/',
+    status: 'running',
+  },
+};
+
+const GATE_EVIDENCE_DECODED: GateEvidence = {
+  diff: GATE_EVIDENCE_ROW.diff,
+  files_changed: ['src/a.ts', 'src/b.ts'],
+  tests: {
+    program: 'pnpm',
+    args: ['-r', 'test'],
+    success: true,
+    exit_code: 0,
+    stdout: 'all green\n',
+    stderr: '',
+    duration_ms: 1234,
+    truncated: false,
+  },
+  preview: {
+    project_id: 'proj-1',
+    process_id: 'proc-1',
+    url: 'http://127.0.0.1:5173/',
+    status: 'running',
+  },
+};
+
+describe('gate evidence (R-BRIDGE-B2)', () => {
+  it('decodes the full GateEvidence struct, field by field', () => {
+    expect(decodeGateEvidence(GATE_EVIDENCE_ROW, 'gates.evidence')).toEqual(GATE_EVIDENCE_DECODED);
+  });
+
+  it('dials gates.evidence with run_id, program and args — no shell, no merged command', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(GATE_EVIDENCE_ROW));
+
+    await expect(
+      client.gateEvidence('run-1' as RunId, 'pnpm', ['-r', 'test'])
+    ).resolves.toEqual(GATE_EVIDENCE_DECODED);
+
+    expect(sentMethod(0)).toBe('gates.evidence');
+    // The program and its arguments travel as two fields, exactly as the daemon binds
+    // them: the caller's sandwich of `program + args` is split by the UI, never here.
+    expect(sentParams(0)).toEqual({ run_id: 'run-1', program: 'pnpm', args: ['-r', 'test'] });
+  });
+
+  it('decodes an explicit null preview as null — absent is a fact, not a lost field', () => {
+    const decoded = decodeGateEvidence({ ...GATE_EVIDENCE_ROW, preview: null }, 'gates.evidence');
+    expect(decoded.preview).toBeNull();
+  });
+
+  it('surfaces the tests truncated flag and the in-band diff marker as the daemon sent them', () => {
+    const chunk = 'x'.repeat(64);
+    const decoded = decodeGateEvidence(
+      {
+        ...GATE_EVIDENCE_ROW,
+        diff: `${chunk}\n…[truncated]`,
+        tests: {
+          ...GATE_EVIDENCE_ROW.tests,
+          success: false,
+          exit_code: 2,
+          stdout: `${chunk}\n…[truncated]`,
+          stderr: 'boom\n',
+          truncated: true,
+        },
+      },
+      'gates.evidence'
+    );
+
+    expect(decoded.tests.truncated).toBe(true);
+    expect(decoded.tests.stdout.endsWith('\n…[truncated]')).toBe(true);
+    // Truncation is shown only from what the daemon reports: the diff marker is
+    // in-band text, and nothing here re-derives a flag from a string length.
+    expect(decoded.diff.endsWith('\n…[truncated]')).toBe(true);
+    expect(decoded.tests.success).toBe(false);
+    expect(decoded.tests.exit_code).toBe(2);
+  });
+
+  it('decodes an unset exit code as null (a child killed by a signal has none)', () => {
+    const decoded = decodeGateEvidence(
+      { ...GATE_EVIDENCE_ROW, tests: { ...GATE_EVIDENCE_ROW.tests, exit_code: null } },
+      'gates.evidence'
+    );
+    expect(decoded.tests.exit_code).toBeNull();
+  });
+
+  it('errors on every missing field, naming the field', () => {
+    const cases: [string, Record<string, unknown>][] = [
+      ['diff', { files_changed: [], tests: GATE_EVIDENCE_ROW.tests, preview: null }],
+      ['files_changed', { diff: '', tests: GATE_EVIDENCE_ROW.tests, preview: null }],
+      ['tests', { diff: '', files_changed: [], preview: null }],
+    ];
+    for (const [name, row] of cases) {
+      expect(() => decodeGateEvidence(row, 'gates.evidence')).toThrow(`"${name}"`);
+    }
+
+    const testFields = [
+      'program',
+      'args',
+      'success',
+      'exit_code',
+      'stdout',
+      'stderr',
+      'duration_ms',
+      'truncated',
+    ];
+    for (const name of testFields) {
+      const tests: Record<string, unknown> = { ...GATE_EVIDENCE_ROW.tests };
+      delete tests[name];
+      // A missing `exit_code` is the one field that may be null-but-present, so its
+      // absence is a decode error too: the Rust `Option<i32>` is serialised as an
+      // explicit `null`, never omitted.
+      expect(() => decodeGateEvidence({ ...GATE_EVIDENCE_ROW, tests }, 'gates.evidence')).toThrow(
+        `"${name}"`
+      );
+    }
+
+    for (const name of ['project_id', 'process_id', 'url', 'status']) {
+      const preview: Record<string, unknown> = { ...GATE_EVIDENCE_ROW.preview };
+      delete preview[name];
+      expect(() =>
+        decodeGateEvidence({ ...GATE_EVIDENCE_ROW, preview }, 'gates.evidence')
+      ).toThrow(`"${name}"`);
+    }
+  });
+
+  it('errors on every mistyped field, naming the field', () => {
+    const cases: [string, Record<string, unknown>][] = [
+      ['diff', { ...GATE_EVIDENCE_ROW, diff: 7 }],
+      ['files_changed', { ...GATE_EVIDENCE_ROW, files_changed: 'src/a.ts' }],
+      ['files_changed', { ...GATE_EVIDENCE_ROW, files_changed: [1] }],
+      ['tests', { ...GATE_EVIDENCE_ROW, tests: 'pnpm test' }],
+      ['preview', { ...GATE_EVIDENCE_ROW, preview: 'http://127.0.0.1:5173/' }],
+    ];
+    for (const [name, row] of cases) {
+      expect(() => decodeGateEvidence(row, 'gates.evidence')).toThrow(`"${name}"`);
+    }
+
+    const testCases: [string, unknown][] = [
+      ['program', 7],
+      ['args', 'test'],
+      ['success', 'yes'],
+      ['exit_code', '0'],
+      ['stdout', null],
+      ['stderr', 0],
+      ['duration_ms', '1234'],
+      ['truncated', 'no'],
+    ];
+    for (const [name, value] of testCases) {
+      const tests = { ...GATE_EVIDENCE_ROW.tests, [name]: value };
+      expect(() => decodeGateEvidence({ ...GATE_EVIDENCE_ROW, tests }, 'gates.evidence')).toThrow(
+        `"${name}"`
+      );
+    }
+
+    const previewCases: [string, unknown][] = [
+      ['project_id', 1],
+      ['process_id', null],
+      ['url', 42],
+      ['status', 'bogus'],
+    ];
+    for (const [name, value] of previewCases) {
+      const preview = { ...GATE_EVIDENCE_ROW.preview, [name]: value };
+      expect(() =>
+        decodeGateEvidence({ ...GATE_EVIDENCE_ROW, preview }, 'gates.evidence')
+      ).toThrow(`"${name}"`);
+    }
+  });
+
+  it('refuses a preview url that is absent rather than null', () => {
+    const preview = { ...GATE_EVIDENCE_ROW.preview };
+    delete (preview as Record<string, unknown>)['url'];
+    expect(() => decodeGateEvidence({ ...GATE_EVIDENCE_ROW, preview }, 'gates.evidence')).toThrow(
+      '"url"'
+    );
+  });
+
+  it('refuses a non-object answer and an omitted preview', () => {
+    expect(() => decodeGateEvidence(null, 'gates.evidence')).toThrow(
+      'Malformed RPC result from gates.evidence: expected an object'
+    );
+    const withoutPreview = { ...GATE_EVIDENCE_ROW } as Record<string, unknown>;
+    delete withoutPreview['preview'];
+    // `preview: Option<…>` serialises as an explicit null, so an omitted key is a
+    // malformed answer — decoding it as "no preview" would hide a wire change.
+    expect(() => decodeGateEvidence(withoutPreview, 'gates.evidence')).toThrow('"preview"');
+  });
+
+  it('keeps the daemon token out of a refusal', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ diff: 'x' }));
+    const error = await client
+      .gateEvidence('run-1' as RunId, 'pnpm', ['test'])
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('gates.evidence');
+    expect((error as Error).message).not.toContain('test-token');
   });
 });
