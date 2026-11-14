@@ -35,7 +35,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use warsha_store::{SqliteStore, StoreError, StoredBackendKit};
+use warsha_store::{SettingsRepo, StoreError, StoredBackendKit};
 
 /// The file [`BackendKit::export_to_dir`] writes the dump to, inside the
 /// directory the caller names.
@@ -844,13 +844,19 @@ impl BackendKit {
     /// duplicated into their own columns so a query can find "every project on
     /// PocketBase" without decoding JSON. The JSON stays the source the kit is
     /// rebuilt from, so the two can never disagree about anything but themselves.
-    pub fn save_to_store(&self, store: &SqliteStore, project_id: &str) -> Result<(), StoreError> {
-        store.save_backend_kit(&StoredBackendKit {
-            project_id: project_id.to_string(),
-            kind: self.config.kind.as_str().to_string(),
-            url: self.config.url.clone(),
-            config_json: serde_json::to_string(self)?,
-        })
+    pub async fn save_to_store(
+        &self,
+        store: &SettingsRepo,
+        project_id: &str,
+    ) -> Result<(), StoreError> {
+        store
+            .save_backend_kit(&StoredBackendKit {
+                project_id: project_id.to_string(),
+                kind: self.config.kind.as_str().to_string(),
+                url: self.config.url.clone(),
+                config_json: serde_json::to_string(self)?,
+            })
+            .await
     }
 
     /// Load a project's kit, or `None` when that project has none stored.
@@ -858,11 +864,11 @@ impl BackendKit {
     /// A row whose `config_json` no longer parses is an error
     /// ([`StoreError::Serialization`]) rather than a silently empty kit: a
     /// half-read schema would export a dump missing tables the owner built.
-    pub fn load_from_store(
-        store: &SqliteStore,
+    pub async fn load_from_store(
+        store: &SettingsRepo,
         project_id: &str,
     ) -> Result<Option<BackendKit>, StoreError> {
-        match store.load_backend_kit(project_id)? {
+        match store.load_backend_kit(project_id).await? {
             None => Ok(None),
             Some(row) => {
                 let kit: BackendKit = serde_json::from_str(&row.config_json)?;
@@ -1583,12 +1589,14 @@ mod tests {
         assert_eq!(comment_safe("a\nb\rc"), "a b c");
     }
 
-    /// A `warsha-store` database on a temporary file, with the M20 schema applied.
-    fn temp_sqlite_store() -> (SqliteStore, tempfile::TempDir) {
+    /// A `warsha-store` settings database on a temporary file, schema applied.
+    async fn temp_settings_repo() -> (SettingsRepo, tempfile::TempDir) {
         let dir = crate::test_util::fresh_tempdir();
         let path = dir.path().join("warsha.db");
-        let store = SqliteStore::open(&path.to_string_lossy()).expect("the store opens");
-        store.migrate().expect("the schema is applied");
+        let store = SettingsRepo::open(&path.to_string_lossy())
+            .await
+            .expect("the repository opens");
+        store.migrate().await.expect("the schema is applied");
         (store, dir)
     }
 
@@ -1608,20 +1616,24 @@ mod tests {
         kit
     }
 
-    #[test]
-    fn kit_round_trips_through_the_sqlite_store() {
-        let (store, _dir) = temp_sqlite_store();
+    #[tokio::test]
+    async fn kit_round_trips_through_the_sqlite_store() {
+        let (store, _dir) = temp_settings_repo().await;
         // Nothing stored yet.
         assert_eq!(
-            BackendKit::load_from_store(&store, "project-1").expect("the read works"),
+            BackendKit::load_from_store(&store, "project-1")
+                .await
+                .expect("the read works"),
             None
         );
 
         let kit = full_kit();
         kit.save_to_store(&store, "project-1")
+            .await
             .expect("the kit is written");
 
         let loaded = BackendKit::load_from_store(&store, "project-1")
+            .await
             .expect("the read works")
             .expect("the kit is stored");
         assert_eq!(loaded, kit);
@@ -1634,14 +1646,16 @@ mod tests {
 
         // Another project is a different row.
         assert_eq!(
-            BackendKit::load_from_store(&store, "project-2").expect("the read works"),
+            BackendKit::load_from_store(&store, "project-2")
+                .await
+                .expect("the read works"),
             None
         );
     }
 
-    #[test]
-    fn the_stored_kit_mirrors_its_kind_and_url_into_columns() {
-        let (store, _dir) = temp_sqlite_store();
+    #[tokio::test]
+    async fn the_stored_kit_mirrors_its_kind_and_url_into_columns() {
+        let (store, _dir) = temp_settings_repo().await;
         let mut kit = BackendKit::new(BackendConfig::new(
             BackendKind::Supabase,
             "http://localhost:54321",
@@ -1649,11 +1663,13 @@ mod tests {
         ));
         kit.add_storage_bucket("files").expect("bucket accepted");
         kit.save_to_store(&store, "project-1")
+            .await
             .expect("the kit is written");
 
         // The columns a query can filter on, without decoding `config_json`.
         let row = store
             .load_backend_kit("project-1")
+            .await
             .expect("the read works")
             .expect("the row exists");
         assert_eq!(row.kind, "supabase");
@@ -1661,12 +1677,13 @@ mod tests {
         assert!(row.config_json.contains("\"kind\":\"supabase\""));
     }
 
-    #[test]
-    fn saving_a_kit_twice_replaces_it() {
-        let (store, _dir) = temp_sqlite_store();
+    #[tokio::test]
+    async fn saving_a_kit_twice_replaces_it() {
+        let (store, _dir) = temp_settings_repo().await;
         let mut kit = kit();
         kit.add_table(posts()).expect("table accepted");
         kit.save_to_store(&store, "project-1")
+            .await
             .expect("the first write");
 
         // The agent adds a function and turns a service on; the stored row has
@@ -1674,9 +1691,11 @@ mod tests {
         kit.add_function("digest").expect("function accepted");
         kit.config = kit.config.clone().with_feature(BackendFeature::Auth);
         kit.save_to_store(&store, "project-1")
+            .await
             .expect("the second write");
 
         let loaded = BackendKit::load_from_store(&store, "project-1")
+            .await
             .expect("the read works")
             .expect("the kit is stored");
         assert_eq!(loaded, kit);
