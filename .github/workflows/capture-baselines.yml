@@ -1,7 +1,23 @@
 name: Baseline capture (RF2)
 
+# RF2 / Amendment A7 (owner instruction 2026-11-15): F2's visual baselines are
+# captured by CI inside the F1 pinned-font Docker image, not on a local host.
+#
+# Trigger: push to r-next/rf2-ci-capture ONLY. The workflow_dispatch API can
+# only start workflows whose file exists on the default branch, and A7 forbids
+# touching main — so the manual trigger is realized as a push to the one branch
+# the A7 push exception already authorizes (D-RN-RF2-1). Each push to this
+# branch = one capture run; the A7 proof is 3 consecutive green runs of the
+# same head SHA.
+#
+# This workflow captures; it never weakens a gate. The compare contract is
+# untouched: maxDiffPixelRatio: 0 with threshold: 0.05 in playwright.config.ts,
+# the F1 canary tolerance (per-channel delta ≤ 13, ≤ 64 differing px), and the
+# R-UI-4 Part A defect fence (pw-genesis defective=0) all apply as committed.
+
 on:
-  workflow_dispatch:
+  push:
+    branches: [r-next/rf2-ci-capture]
 
 permissions:
   contents: read
