@@ -544,6 +544,7 @@ export function ConnectionsSection(): React.ReactElement {
                       type="button"
                       role="radio"
                       aria-checked={newTransport === transport.kind}
+                      data-action="settings.connections.transport.pick"
                       data-value={transport.kind}
                       className="v3-settings-segmented-item"
                       onClick={() => {
