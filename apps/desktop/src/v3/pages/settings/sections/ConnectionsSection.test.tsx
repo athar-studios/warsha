@@ -77,9 +77,12 @@ function createClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
     mcpPermissionsList: vi.fn().mockResolvedValue(PERMISSIONS),
     mcpConnect: vi.fn().mockResolvedValue(undefined),
     mcpDisconnect: vi.fn().mockResolvedValue(undefined),
-    mcpPermissionsSet: vi
-      .fn()
-      .mockResolvedValue({ server: 'files', tool: 'read_file', role: 'reviewer', permission: 'deny' }),
+    mcpPermissionsSet: vi.fn().mockResolvedValue({
+      server: 'files',
+      tool: 'read_file',
+      role: 'reviewer',
+      permission: 'deny',
+    }),
     ...overrides,
   } as unknown as WarshaClient;
 }
@@ -106,7 +109,9 @@ async function renderWith(servers: McpConnection[], overrides: Partial<WarshaCli
     ...overrides,
   });
   renderSection(client);
-  await waitFor(() => expect(screen.getByTestId('settings-section-connections')).toBeDefined());
+  // The add form renders only once both reads have answered, so waiting for it is waiting for the
+  // section to be ready; the section root exists while the rows are still skeletons.
+  await waitFor(() => expect(screen.getByTestId('mcp-connection-add')).toBeDefined());
   return client;
 }
 
@@ -136,18 +141,14 @@ describe('ConnectionsSection (R-EXT-1)', () => {
     await renderWith([CONNECTED]);
     expect(within(row('files')).queryByText('proc-1')).toBeNull();
     expect(
-      within(row('files')).getByText(
-        'npx -y @modelcontextprotocol/server-filesystem@1.2.3'
-      )
+      within(row('files')).getByText('npx -y @modelcontextprotocol/server-filesystem@1.2.3')
     ).toBeDefined();
   });
 
   it('tells a disconnected server with no tools why, instead of showing an empty list', async () => {
     await renderWith([DISCONNECTED, RECORDED_HTTP]);
     fireEvent.click(screen.getAllByText('Tools (0)')[0] as HTMLElement);
-    expect(
-      screen.getByText('Not connected yet, so it has reported no tools.')
-    ).toBeDefined();
+    expect(screen.getByText('Not connected yet, so it has reported no tools.')).toBeDefined();
 
     fireEvent.click(screen.getAllByText('Tools (0)')[1] as HTMLElement);
     expect(
@@ -225,16 +226,22 @@ describe('ConnectionsSection (R-EXT-1)', () => {
 
   it('adds a stdio server: the config is the daemon’s own shape and args split on spaces', async () => {
     const client = await renderWith([]);
-    fireEvent.change(screen.getByTestId('mcp-connection-name').querySelector('input') as HTMLElement, {
-      target: { value: ' files ' },
-    });
+    fireEvent.change(
+      screen.getByTestId('mcp-connection-name').querySelector('input') as HTMLElement,
+      {
+        target: { value: ' files ' },
+      }
+    );
     fireEvent.change(
       screen.getByTestId('mcp-connection-command').querySelector('input') as HTMLElement,
       { target: { value: 'npx' } }
     );
-    fireEvent.change(screen.getByTestId('mcp-connection-args').querySelector('input') as HTMLElement, {
-      target: { value: '-y  @scope/server@1.2.3   /tmp' },
-    });
+    fireEvent.change(
+      screen.getByTestId('mcp-connection-args').querySelector('input') as HTMLElement,
+      {
+        target: { value: '-y  @scope/server@1.2.3   /tmp' },
+      }
+    );
     fireEvent.click(screen.getByText('Add and connect'));
 
     await waitFor(() =>
@@ -263,16 +270,22 @@ describe('ConnectionsSection (R-EXT-1)', () => {
       'the pack launches the unpinned package `@scope/server`; name the release it was tested with as `pkg@x.y.z`';
     await renderWith([], { mcpConnect: vi.fn().mockRejectedValue(new Error(refusal)) });
 
-    fireEvent.change(screen.getByTestId('mcp-connection-name').querySelector('input') as HTMLElement, {
-      target: { value: 'files' },
-    });
+    fireEvent.change(
+      screen.getByTestId('mcp-connection-name').querySelector('input') as HTMLElement,
+      {
+        target: { value: 'files' },
+      }
+    );
     fireEvent.change(
       screen.getByTestId('mcp-connection-command').querySelector('input') as HTMLElement,
       { target: { value: 'npx' } }
     );
-    fireEvent.change(screen.getByTestId('mcp-connection-args').querySelector('input') as HTMLElement, {
-      target: { value: '@scope/server' },
-    });
+    fireEvent.change(
+      screen.getByTestId('mcp-connection-args').querySelector('input') as HTMLElement,
+      {
+        target: { value: '@scope/server' },
+      }
+    );
     fireEvent.click(screen.getByText('Add and connect'));
 
     await waitFor(() => expect(screen.getByText(refusal)).toBeDefined());
@@ -281,7 +294,7 @@ describe('ConnectionsSection (R-EXT-1)', () => {
   it('shows the catalog’s Arabic copy in an RTL document', async () => {
     const client = createClient();
     renderSection(client, 'ar');
-    await waitFor(() => expect(screen.getByTestId('settings-section-connections')).toBeDefined());
+    await waitFor(() => expect(screen.getByTestId('mcp-connection-add')).toBeDefined());
     expect(screen.getByText('تحديث الحالة')).toBeDefined();
     expect(screen.getByText('إضافة وربط')).toBeDefined();
   });

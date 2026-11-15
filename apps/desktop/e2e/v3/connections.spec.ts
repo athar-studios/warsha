@@ -112,9 +112,7 @@ test.describe('Settings connections (R-EXT-1)', () => {
     await expect(tools).toContainText('Read-only');
 
     await page
-      .locator(
-        '[data-action="settings.connections.tool.permission"][data-value="deny"]'
-      )
+      .locator('[data-action="settings.connections.tool.permission"][data-value="deny"]')
       .first()
       .click();
     // W8's shape: the role is the one `mcp.permissions.list` answered, never a literal in the screen.
@@ -175,7 +173,9 @@ test.describe('Settings connections (R-EXT-1)', () => {
     );
   });
 
-  test('refuses an unpinned launch in the daemon’s own words, and adds nothing', async ({ page }) => {
+  test('refuses an unpinned launch in the daemon’s own words, and adds nothing', async ({
+    page,
+  }) => {
     await openV3(page, CONNECTIONS_ROUTE, {
       lang: 'en',
       mode: 'advanced',

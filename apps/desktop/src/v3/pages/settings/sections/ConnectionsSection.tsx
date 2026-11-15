@@ -160,9 +160,7 @@ export function ConnectionsSection(): React.ReactElement {
     const name = newName.trim();
     const command = newCommand.trim();
     setNameError(name.length === 0 ? t('settings.connections.add.name_required') : null);
-    setCommandError(
-      command.length === 0 ? t('settings.connections.add.command_required') : null
-    );
+    setCommandError(command.length === 0 ? t('settings.connections.add.command_required') : null);
     if (name.length === 0 || command.length === 0) return;
     const config: McpServerConfig = {
       name,
@@ -418,7 +416,9 @@ export function ConnectionsSection(): React.ReactElement {
                         )}
                       </div>
                       <div className="v3-settings-row-meta">
-                        <Badge>{t(`settings.connections.transport.${server.config.transport.kind}`)}</Badge>
+                        <Badge>
+                          {t(`settings.connections.transport.${server.config.transport.kind}`)}
+                        </Badge>
                         <StatusPill status={view.status} label={t(view.labelKey)} />
                       </div>
                       <div className="v3-settings-row-actions">
@@ -454,7 +454,7 @@ export function ConnectionsSection(): React.ReactElement {
               </div>
             )}
 
-            <div className="v3-settings-add-form">
+            <div className="v3-settings-add-form" data-testid="mcp-connection-add">
               <div className="v3-settings-row-title">{t('settings.connections.add.title')}</div>
               <div className="v3-settings-row-subtitle">
                 {t('settings.connections.add.stdio_only')}
