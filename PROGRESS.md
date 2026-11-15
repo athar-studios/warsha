@@ -6850,3 +6850,6 @@ hypotheses left in this triage.
 
 ## Run 2026-11-15 — R-FIN-SH4d merged (create_pr draft support)
 - **R-FIN-SH4d** (coder lane, base `2b5c8b7`): `PrDraft { Ready, Draft }` enum (mirror of `MergeMethod`), `CreatePrBody.draft` always serialized, `PullRequest.draft` + `#[serde(default)]`, `create_pr` 7th param, error mapping untouched. New `tests/create_pr_draft.rs` loopback stub (T1–T3 + T4 mutants all red, incl. `is_draft→false` and `rename=is_draft` cases). PM re-ran: 16/16, fmt/clippy clean, arch 5/0, wire 11/0, policy 8/0, no manifest changes. Deviation accepted: `#[allow(clippy::too_many_arguments)]` on `create_pr` (frozen signature, precedent in pipeline/runtime). Unblock item 4 closed; SH4 wiring is a separate packet.
+
+## Run 2026-11-15 — 0.3.0 bump merged (owner decision 1)
+- **Version** (coder lane, `c1c4b78`): `check-versions --set 0.3.0` → 14 files, 32+/32- version strings only; `--expect 0.3.0` aligned (versionCode 300 per the checker's major*10000+minor*100+patch contract — the brief's "301" was my error, 300 stands). PM re-ran gates in lane worktree + post-merge. Owner: 1.0.0-rc.1 only after a clean pilot — recorded, not started.

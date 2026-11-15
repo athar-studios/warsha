@@ -1882,3 +1882,6 @@ Merged both lanes after PM re-ran the frozen G2/G3 from clean state (exit 0, 54 
 
 ## D-SH4D-ALLOW (2026-11-15)
 Accepted `#[allow(clippy::too_many_arguments)]` on `create_pr` (8 args incl. self). Frozen packet D1 fixes the 7-arg signature and rejects an options struct; the allow is the only gate-compliant path. Precedent: `process_spawn.rs:565`, `runtime.rs:91`. Gate command unedited, nothing else suppressed. Recorded so FIN2 does not "fix" it away.
+
+## D-VER-030 (2026-11-15)
+Owner decision 1 executed: version is 0.3.0 (`c1c4b78`, checker contract versionCode 300). 1.0.0-rc.1 gated on a clean pilot — no rc tag, no publish, no release until the pilot passes FIN4.
