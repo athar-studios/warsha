@@ -125,10 +125,11 @@ def syncRemoteWebAssets = tasks.register("syncRemoteWebAssets", Sync) {
         def repoRoot = remoteDistDir.parentFile.parentFile.parentFile
         def pnpm = org.gradle.internal.os.OperatingSystem.current().isWindows()
                 ? ["cmd", "/c", "pnpm"] : ["pnpm"]
-        exec {
+        def result = providers.exec {
             workingDir repoRoot
             commandLine pnpm + ["--filter", "warsha-remote", "build"]
-        }
+        }.result.get()
+        result.assertNormalExitValue()
         if (!new File(remoteDistDir, "index.html").isFile()) {
             throw new GradleException(
                     "apps/remote/dist/index.html missing after build. " +
