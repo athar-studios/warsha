@@ -73,6 +73,9 @@ mod run_integrity;
 mod run_modes;
 mod scale_standards;
 mod scout;
+/// The Scout's MCP registry client (R-EXT-3): the `RegistryHttp` seam the daemon
+/// implements, and the paged mapper from registry rows to `ScoutProposal`s.
+pub mod scout_registry;
 pub mod settings;
 mod skills;
 #[cfg(test)]
