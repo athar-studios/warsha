@@ -31,6 +31,9 @@ mod lock;
 mod mcp_approvals;
 mod mcp_call_events;
 mod providers;
+/// The Scout's MCP registry client over `reqwest` (R-EXT-3). Public because the
+/// packet that adds a consumer opts the daemon in; no RPC reaches it today.
+pub mod registry_http;
 mod settings;
 mod skills;
 mod state;
