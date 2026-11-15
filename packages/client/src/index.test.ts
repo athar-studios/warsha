@@ -3077,9 +3077,13 @@ describe('R-EXT-2 run_finished and MCP call decoders', () => {
     expect(
       decodeMcpCall(eventOf('tool_call', { action: 'mcp_allow_once', server: 'srv', tool: 'echo' }))
     ).toBeNull();
-    expect(decodeMcpCall(eventOf('agent_step', { action: 'mcp_call', phase: 'requested' }))).toBeNull();
     expect(
-      decodeMcpCall(eventOf('tool_call', { action: 'mcp_call', phase: 'finished', server: 's', tool: 't' }))
+      decodeMcpCall(eventOf('agent_step', { action: 'mcp_call', phase: 'requested' }))
+    ).toBeNull();
+    expect(
+      decodeMcpCall(
+        eventOf('tool_call', { action: 'mcp_call', phase: 'finished', server: 's', tool: 't' })
+      )
     ).toBeNull();
     expect(
       decodeMcpCall(eventOf('tool_call', { action: 'mcp_call', phase: 'requested', tool: 'echo' }))

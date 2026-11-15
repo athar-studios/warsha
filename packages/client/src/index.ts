@@ -455,12 +455,7 @@ export function decodeRunFinished(event: WarshaEvent): RunFinishedStatus | null 
 }
 
 /** Where an agent MCP tool call is, as `tool_call` events report it. */
-export type McpCallPhase =
-  | 'requested'
-  | 'approval_required'
-  | 'denied'
-  | 'succeeded'
-  | 'failed';
+export type McpCallPhase = 'requested' | 'approval_required' | 'denied' | 'succeeded' | 'failed';
 
 /**
  * One agent MCP tool call moment, decoded from a `tool_call` event.

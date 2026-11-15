@@ -43,11 +43,8 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({ events }) => {
     id: ev.id,
     content: extractEventText(ev),
     timestamp: formatEventTime(ev.createdAt, locale),
-    stream: (ev.kind === 'error'
-      ? 'stderr'
-      : ev.kind === 'tool_call'
-      ? 'system'
-      : 'stdout') as 'stdout' | 'stderr' | 'system',
+    stream: (ev.kind === 'error' ? 'stderr' : ev.kind === 'tool_call' ? 'system' : 'stdout') as
+      'stdout' | 'stderr' | 'system',
   }));
 
   const isEmpty = lines.length === 0 && mcpCalls.length === 0 && finished === undefined;
