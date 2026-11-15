@@ -369,6 +369,7 @@ pub(crate) fn producing_stage_for_gate(gate: Stage) -> Option<Stage> {
 }
 
 /// What one stage produced, before it is committed as the stage's artifact.
+#[allow(dead_code)]
 struct StageCompletion {
     /// The artifact body.
     content: String,

@@ -1,11 +1,11 @@
 //! Warsha Backends — Coding backends: builtin agent, OpenHands, Claude Code, Codex CLI, Gemini CLI, Cursor CLI
 
 use async_trait::async_trait;
+use serde::Deserialize;
 use std::collections::HashMap;
 pub use warsha_pipeline::coding_backend::{
     BackendError, CodingBackend, CodingResult, CodingTask, FileAction, Result, Sandbox, TaskFile,
 };
-use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
 struct CliOutput {
@@ -166,7 +166,7 @@ impl CodingBackend for CliBackend {
 
         let mut usage = None;
         let stdout = String::from_utf8_lossy(&output.stdout);
-        
+
         // Try parsing as JSON (Claude Code style)
         if let Ok(cli_out) = serde_json::from_str::<CliOutput>(&stdout) {
             usage = Some(warsha_core::TokenUsage {
@@ -186,7 +186,8 @@ impl CodingBackend for CliBackend {
                 if let Ok(line_out) = serde_json::from_str::<serde_json::Value>(line) {
                     if let Some(u) = line_out.get("usage") {
                         total_input += u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                        total_output += u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                        total_output +=
+                            u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
                     }
                 }
             }

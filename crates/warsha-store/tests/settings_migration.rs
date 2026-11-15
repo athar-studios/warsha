@@ -340,7 +340,10 @@ async fn a_fresh_database_gets_the_whole_schema_once() {
     let reopened = Store::open_at(path)
         .await
         .expect("the second open applies nothing");
-    assert_eq!(applied_versions(reopened.pool()).await, vec![1, 2, 3, 4, 6, 7]);
+    assert_eq!(
+        applied_versions(reopened.pool()).await,
+        vec![1, 2, 3, 4, 6, 7]
+    );
     assert_full_schema(reopened.pool()).await;
 }
 
