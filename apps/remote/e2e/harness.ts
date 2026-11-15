@@ -35,8 +35,16 @@ import {
 
 export { rpcCalls, RPC_METHODS };
 
-/** The daemon the paired cases point the phone at. Nothing listens here; the stub answers. */
-export const REMOTE_DAEMON_URL = 'http://127.0.0.1:8799';
+/**
+ * The daemon the paired cases point the phone at. Nothing listens here; the stub answers.
+ *
+ * The port is the one the shipped policy already allows: `apps/remote/index.html` pins
+ * `connect-src 'self' http://127.0.0.1:8765 ws://127.0.0.1:8766 …` so a case that dialled any other
+ * origin would be refused by the product's own CSP before the stub could answer. The value stays in
+ * the harness, never in the policy — the PWA ships with the daemon's real port, and only the test
+ * gets to pretend.
+ */
+export const REMOTE_DAEMON_URL = 'http://127.0.0.1:8765';
 
 /** The token the case hands the phone. It is a test secret and it must never reach a screenshot. */
 export const REMOTE_TOKEN = 'remote-test-token';
