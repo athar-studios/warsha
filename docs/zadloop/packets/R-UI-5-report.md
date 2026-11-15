@@ -23,9 +23,10 @@ touched (`git diff --name-only d8dc8d3 -- apps crates packages` prints nothing).
 
 ## Finding F1 — the bundled page does not load under `file://` (product, out of scope)
 
-On both AVDs the activity starts, the process stays alive and the WebView reaches
-`readyState: complete`, but `#root` is empty. The WebView's own console (captured in
-`s1-console.txt`, and in `logcat.txt`) states both halves of the cause:
+On both AVDs the activity starts and the process stays alive; on `Pixel_7_API_35` the WebView reaches
+`readyState: complete` with `#root` empty, and on `Athar_GPlay` the same console lines plus an empty
+page are in logcat (its CDP never answered). The WebView's own console (captured in `s1-console.txt`
+and in `logcat.txt`) states both halves of the cause:
 
 ```
 Access to script at 'file:///assets/index-DxbOVwyV.js' from origin 'null' has been blocked by
@@ -35,7 +36,8 @@ Access to CSS stylesheet at 'file:///assets/index-B9O2b0Lu.css' from origin 'nul
 blocked by CORS policy: …
 ```
 
-The page state through CDP is the same on both AVDs:
+The page state through CDP on `Pixel_7_API_35` (Athar's DevTools was silent, so its evidence is the
+console lines above):
 
 ```json
 {"url":"file:///android_asset/public/index.html","readyState":"complete","rootHtmlLength":0,
@@ -61,7 +63,7 @@ not run because the packet's STOP rule applies at S1.
 
 | Step | `Pixel_7_API_35` | `Athar_GPlay` | Mode | Evidence |
 | ---- | ---------------- | ------------- | ---- | -------- |
-| S1 boot | **fail** — `Status: ok`, pid 2684 alive after 5 s, no crash, but no `remote-pair-submit` | **fail** — `Status: ok`, pid 1925 alive after 5 s, no crash, plate not proven | Pixel: devtools; Athar: visual (CDP silent) | `s1-boot.png`, `s1-start.txt`, `s1-page.txt`, `s1-console.txt` |
+| S1 boot | **fail** — `Status: ok`, pid 2684 alive after 5 s, no crash, but no `remote-pair-submit` | **fail** — `Status: ok`, pid 1925 alive after 5 s, no crash, plate not proven | Pixel: devtools; Athar: visual (CDP silent) | `s1-boot.png`, `s1-start.txt`, `s1-console.txt`; `s1-page.txt` on Pixel (`ERR` on Athar) |
 | S2 cold `warsha://pair` | not reached (STOP at S1) | not reached | — | — |
 | S3 warm deep link | not reached | not reached | — | — |
 | S4 screens | not reached | not reached | — | — |
