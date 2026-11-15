@@ -54,8 +54,12 @@ jobs:
 
       - name: Desktop v3 capture (genesis)
         run: |
-          mkdir -p target/rf2
+          mkdir -p target/rf2 bridge-io/audit
           docker run --rm --cpus=2 --memory=4g --shm-size=1g --user "$(id -u):$(id -g)" -e HOME=/tmp/pw-home -e LC_ALL=C -v "$(pwd):/app" -w /app -e FONTCONFIG_FILE=/scripts/ci/capture-fontconfig.conf -e NODE_OPTIONS="--dns-result-order=ipv4first" -e PLAYWRIGHT_JSON_OUTPUT_NAME=/app/target/rf2/genesis.json warsha-capture:0.3.0 pnpm exec playwright test --project=desktop apps/desktop/e2e/v3/bench.spec.ts apps/desktop/e2e/v3/frame.spec.ts apps/desktop/e2e/v3/home.spec.ts apps/desktop/e2e/v3/inbox.spec.ts apps/desktop/e2e/v3/onboarding.spec.ts apps/desktop/e2e/v3/project.spec.ts apps/desktop/e2e/v3/projects.spec.ts apps/desktop/e2e/v3/settings.spec.ts --grep "@visual" --update-snapshots --output="/app/target/rf2/genesis-out"
+          # playwright.config.ts pins the JSON reporter's outputFile to
+          # bridge-io/audit/visual-playwright.json (CI and non-CI alike); that
+          # file, not PLAYWRIGHT_JSON_OUTPUT_NAME, is where the report lands.
+          cp bridge-io/audit/visual-playwright.json target/rf2/genesis.json
 
       - name: Desktop v3 genesis check
         run: node scripts/ci/pw-genesis.mjs check target/rf2/genesis.json
@@ -63,6 +67,7 @@ jobs:
       - name: Desktop v3 verify
         run: |
           docker run --rm --cpus=2 --memory=4g --shm-size=1g --user "$(id -u):$(id -g)" -e HOME=/tmp/pw-home -e LC_ALL=C -v "$(pwd):/app" -w /app -e FONTCONFIG_FILE=/scripts/ci/capture-fontconfig.conf -e NODE_OPTIONS="--dns-result-order=ipv4first" -e PLAYWRIGHT_JSON_OUTPUT_NAME=/app/target/rf2/verify.json warsha-capture:0.3.0 pnpm exec playwright test --project=desktop apps/desktop/e2e/v3/bench.spec.ts apps/desktop/e2e/v3/frame.spec.ts apps/desktop/e2e/v3/home.spec.ts apps/desktop/e2e/v3/inbox.spec.ts apps/desktop/e2e/v3/onboarding.spec.ts apps/desktop/e2e/v3/project.spec.ts apps/desktop/e2e/v3/projects.spec.ts apps/desktop/e2e/v3/settings.spec.ts --grep "@visual" --output="/app/target/rf2/verify-out"
+          cp bridge-io/audit/visual-playwright.json target/rf2/verify.json
 
       - name: Desktop v3 gate counts
         run: node scripts/ci/pw-gate.mjs counts target/rf2/verify.json 416 0
@@ -70,10 +75,12 @@ jobs:
       - name: Remote bench capture (genesis)
         run: |
           docker run --rm --cpus=2 --memory=4g --shm-size=1g --user "$(id -u):$(id -g)" -e HOME=/tmp/pw-home -e LC_ALL=C -v "$(pwd):/app" -w /app -e FONTCONFIG_FILE=/scripts/ci/capture-fontconfig.conf -e NODE_OPTIONS="--dns-result-order=ipv4first" -e PLAYWRIGHT_JSON_OUTPUT_NAME=/app/target/rf2/remote-genesis.json warsha-capture:0.3.0 pnpm exec playwright test --project=remote apps/remote/e2e/bench.visual.spec.ts --update-snapshots --output="/app/target/rf2/remote-genesis-out"
+          cp bridge-io/audit/visual-playwright.json target/rf2/remote-genesis.json
 
       - name: Remote bench verify
         run: |
           docker run --rm --cpus=2 --memory=4g --shm-size=1g --user "$(id -u):$(id -g)" -e HOME=/tmp/pw-home -e LC_ALL=C -v "$(pwd):/app" -w /app -e FONTCONFIG_FILE=/scripts/ci/capture-fontconfig.conf -e NODE_OPTIONS="--dns-result-order=ipv4first" -e PLAYWRIGHT_JSON_OUTPUT_NAME=/app/target/rf2/remote-verify.json warsha-capture:0.3.0 pnpm exec playwright test --project=remote apps/remote/e2e/bench.visual.spec.ts --output="/app/target/rf2/remote-verify-out"
+          cp bridge-io/audit/visual-playwright.json target/rf2/remote-verify.json
 
       - name: Remote bench gate counts
         run: node scripts/ci/pw-gate.mjs counts target/rf2/remote-verify.json 84 0
