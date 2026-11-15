@@ -1870,3 +1870,6 @@ R-UI-6b's two committed fixes (mode bit + providers.exec) are sound; only the Sy
 
 ## D-EXT4-FIX — transport picker gets a registry action; Arabic copy avoids Latin tokens
 actions-gate A1 is absolute (every `<button>` needs a literal `data-action`), and the permission-row precedent already registers segmented pickers, so the transport picker registers `settings.connections.transport.pick` with `effect: 'state'` (it writes form state; the RPC rides on `settings.connections.add`). The i18n-gate allow-list is planner-owned, so the two Arabic strings were reworded instead (`مشفّر/غير مشفّر`), keeping the https/http distinction the daemon enforces.
+
+## D-UI6c-MERGE — 6b/6c merged on PM-verified clean-state build
+Merged both lanes after PM re-ran the frozen G2/G3 from clean state (exit 0, 54 entries, 0 maps, 1,845,230 B). Remaining report claims (G4–G7 logs, sha identity) accepted from the lane's evidence (line-numbered logs, JSON smoke reports) without re-running emulators.
