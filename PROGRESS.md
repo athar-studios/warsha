@@ -6820,3 +6820,8 @@ hypotheses left in this triage.
 ## Run 2026-11-15 — v3 non-visual 305/305 on merged tree
 - Full `apps/desktop/e2e/v3 --grep-invert @visual`: **305 passed / 0 failed** (4.4m) on `34956ce` + E2 fix — confirms the forbidden-method narrowing holds across the suite, not just the paired order.
 - R-EXT-6 packet dispatch faulted twice on planner-lane rate limit (503/429, no worker started, nothing committed). Retry pending.
+
+## Run 2026-11-15 — R-EXT-6 merged (RC1: dead channel + snow deleted)
+- **R-EXT-6** (lane `zl-rext6-remote`, merged as `063b13b`): deleted `EncryptedChannel` + test (lib.rs −138), dropped `snow` from workspace + crate manifests, `Cargo.lock` pruned (snow + orphaned subtree). PM-verified on merged tree: `EncryptedChannel` grep 0, `snow` grep 0, fmt 0, clippy 0, remote+relay 59/0, deny clean, policy 8/0, wire 11/0.
+- **PM-owned scope exception** (named per delegate rules): the packet's allowed-files omitted `crates/warsha-remote/README.md`, which still named the deleted type (2 hits, already stale vs the file's own l.48). The lane correctly stopped instead of editing. PM applied the lane report's two proposed doc hunks verbatim, then reworded the historical mention so the acceptance grep prints nothing. No code touched.
+- Pre-existing context (not in gate scope, PM's at merge): `docs/src/architecture.md:51`, old PROGRESS/DECISIONS lines, `packages/crypto` TS `EncryptedChannel` (unrelated), `apps/desktop/src-tauri/Cargo.lock` transitive snow (own workspace).

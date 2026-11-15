@@ -7,14 +7,15 @@ and bounded inbound rate limiting. The desktop remains the owner; a paired phone
 with its **own pairing secret**, never the daemon token
 (`crates/warshad/src/auth.rs:171-184`).
 
-**Relay payloads are not end-to-end encrypted today.** The `EncryptedChannel` handshake is a
-stub (see below); the phone path that actually runs is authenticated JSON-RPC, not ciphertext.
+**Relay payloads are not end-to-end encrypted today.** There is no handshake channel in the tree
+(the dead Noise stub was deleted in R-EXT-6); the phone path that actually runs is authenticated
+JSON-RPC, not ciphertext.
 
 ## Interface
 
 - `src/lib.rs` — `DeviceIdentity`, `DeviceRegistry`, `PairingData`, `PairingOffer`,
-  `TrustedPairing`, `RelayTrust` and the `EncryptedFrame` wire type, plus the unfinished
-  `EncryptedChannel` and `RelayClient`.
+  `TrustedPairing`, `RelayTrust` and the `EncryptedFrame` wire type, plus the unimplemented
+  `RelayClient`.
 - `src/rate_limit.rs` — declared `pub mod rate_limit` at `src/lib.rs:3`. `Quota` (`burst`
   capacity plus `sustained` requests per `window`), `RateLimiter<K>`, `Decision`, `rate_key`,
   `RefusalMeter`, `RefusalSummary` and `caller_digest`. A token bucket keyed on an
