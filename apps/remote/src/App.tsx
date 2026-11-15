@@ -105,7 +105,13 @@ function useSessionController(
     if (bridge === null) return;
 
     const initial = bridge.getInitialPairingUri?.() ?? null;
-    if (initial !== null && initial.trim() !== '') pair(initial);
+    if (initial !== null && initial.trim() !== '') {
+      // The return names the refusal (`url`, `token`, …) instead of vanishing: without it a
+      // rejected launch link and a link that was never seen are indistinguishable in every
+      // artifact the device leaves behind. Values stay out of the log — only the reason.
+      const failure = pair(initial);
+      if (failure !== null) console.warn(`warsha: launch link refused: ${failure}`);
+    }
 
     // The shell may send the link as the event's detail directly or under a `uri` field; either shape
     // pairs, anything else (no payload, an unexpected type) is ignored rather than guessed at.
@@ -120,7 +126,9 @@ function useSessionController(
     };
     const onDeepLink = (event: Event) => {
       const link = linkFrom(event);
-      if (link !== null) pair(link);
+      if (link === null) return;
+      const failure = pair(link);
+      if (failure !== null) console.warn(`warsha: deep-link event refused: ${failure}`);
     };
     window.addEventListener('warsha:pair-deeplink', onDeepLink);
     return () => window.removeEventListener('warsha:pair-deeplink', onDeepLink);
