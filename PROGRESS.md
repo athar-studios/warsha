@@ -6884,3 +6884,5 @@ hypotheses left in this triage.
   80% alert item; Z1 finalises it.
 - **Owner's uncommitted change** `apps/remote/e2e/harness.ts` left untouched in the owner's
   checkout, per plan F0.
+## Run 2026-11-15 — Amendment 1 adopted (A5 final code-health audit before Z1; A6 parallel execution, PM-only merges)
+- **Amendment 1** (`~/Desktop/warsha-rnext-amendment-1.md`, owner-approved 2026-11-15) appended to the plan's Amendments section as **A5** (one audit packet on the final tree before Z1: full §3.1 gate matrix re-run, dead-code/TODO sweep, largest-files + duplication + docs-freshness report, mechanical fixes only, HIGH/MEDIUM/LOW table) and **A6** (up to 4 concurrent packet lanes in their own worktrees, per-packet caps and the A1 ceiling shared, merges into `r-next/integration` serialized through the PM role only, lanes never merge, unmergeable packet → blocked and listed). A5 binds before Z1; A6 in effect immediately. Committed on `repair/dev-csp-f474776`, merged into `r-next/integration`; not pushed. Fleet note: this session's delegation fleet caps live attempts at 3, which is within A6's 4-lane allowance.
