@@ -1,0 +1,116 @@
+{
+  "_fixture": "Trimmed real response from GET https://registry.modelcontextprotocol.io/v0/servers?limit=100&version=latest, recorded 2026-11-15 for R-EXT-3. The first two rows are verbatim from that response (only unused keys dropped); every io.warsha/fixture-* row is synthetic and exists to pin a mapping rule. No credential, cookie or personal datum is in this file.",
+  "servers": [
+    {
+      "server": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+        "name": "ac.inference.sh/mcp",
+        "description": "run any ai model. compose agents, stack knowledge, connect tools. one api, pay per run.",
+        "title": "inference.sh",
+        "version": "2.0.1",
+        "remotes": [
+          {
+            "type": "streamable-http",
+            "url": "https://api.inference.sh/mcp"
+          }
+        ]
+      },
+      "_meta": {
+        "io.modelcontextprotocol.registry/official": {
+          "status": "active",
+          "isLatest": true
+        }
+      }
+    },
+    {
+      "server": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+        "name": "agency.extremely/agency",
+        "description": "Your agency of AI agents in your AI app: what agents did, approvals, requests, jobs and reports.",
+        "title": "EXTREMELY agency",
+        "repository": {
+          "url": "https://github.com/maxkxd/extremely-autonomous-agents",
+          "source": "github",
+          "subfolder": "packages/agency-mcp"
+        },
+        "version": "0.1.1",
+        "websiteUrl": "https://extremely.agency",
+        "packages": [
+          {
+            "registryType": "npm",
+            "identifier": "@extremely-agency/mcp",
+            "version": "0.1.1",
+            "transport": {
+              "type": "stdio"
+            }
+          }
+        ]
+      },
+      "_meta": {
+        "io.modelcontextprotocol.registry/official": {
+          "status": "active",
+          "isLatest": true
+        }
+      }
+    },
+    {
+      "server": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+        "name": "io.warsha/fixture-no-endpoints",
+        "description": "Synthetic row: neither a remote nor a package, so nothing claims a network permission.",
+        "version": "0.0.1"
+      },
+      "_meta": {
+        "io.modelcontextprotocol.registry/official": {
+          "status": "active",
+          "isLatest": true
+        }
+      }
+    },
+    {
+      "server": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+        "name": "io.warsha/fixture-no-version",
+        "description": "Synthetic row with no version: it must be skipped and counted, never defaulted.",
+        "title": "No Version"
+      },
+      "_meta": {
+        "io.modelcontextprotocol.registry/official": {
+          "status": "active",
+          "isLatest": true
+        }
+      }
+    },
+    {
+      "server": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+        "name": "io.warsha/fixture-arabic",
+        "title": "خادم عربي اصطناعي",
+        "description": "خادم أدوات عربي للقراءة والكتابة على الملفات المحلية، يعمل داخل مساحة العمل ويطلب الشبكة عند الحاجة، وهذا الوصف اصطناعي للاختبار فقط. خادم أدوات عربي للقراءة والكتابة على الملفات المحلية، يعمل داخل مساحة العمل ويطلب الشبكة عند الحاجة، وهذا الوصف اصطناعي للاختبار فقط. خادم أدوات عربي للقراءة والكتابة على الملفات المحلية، يعمل داخل مساحة العمل ويطلب الشبكة عند الحاجة، وهذا الوصف اصطناعي للاختبار فقط. خادم أدوات عربي للقراءة والكتابة على الملفات المحلية، يعمل داخل مساحة العمل ويطلب الشبكة عند الحاجة، وهذا الوصف اصطناعي للاختبار فقط.",
+        "version": "1.0.0",
+        "remotes": [
+          {
+            "type": "streamable-http",
+            "url": "https://example.invalid/arabic-mcp",
+            "headers": [
+              {
+                "name": "X-Region",
+                "value": "eu-west"
+              }
+            ]
+          }
+        ]
+      },
+      "_meta": {
+        "io.modelcontextprotocol.registry/official": {
+          "status": "active",
+          "isLatest": true
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "nextCursor": null,
+    "count": 5
+  }
+}
