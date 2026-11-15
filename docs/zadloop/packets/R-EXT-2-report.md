@@ -19,8 +19,11 @@ round trip was not built (R-EXT-2b renumber left to the plan).
 | `5523d36` | `feat(warshad): write agent MCP calls and one run_finished per run` — `mcp_call_events.rs` (the store recorder), the injection at `runs.start`, the cancelling device, and T1–T6/T8 |
 | `87992a9` | `feat(desktop): show the agent's MCP calls and the run's end` — client decoders + tests, Terminal tab, project page, ar/en keys, the harness fixture and three e2e cases |
 | `cbf627e` | `docs(daemon): document event kinds and the run_finished downgrade hazard` — `DAEMON.md` §4 and the `DECISIONS.md` entry |
+| `9d6ec69` | `docs(zadloop): R-EXT-2 report` — this file |
+| `d6e567e` | `style(client,desktop): keep the new lines Prettier-clean` — the phase union, the stream ternary, the decoder probe |
+| `ed97291` | `refactor(i18n): name the five call phases events.tool_call.phase.*` — the packet's key family, values unchanged |
 
-21 files changed (`+2,086 / −47`): 12 Rust files/tests, 9 TS/i18n/e2e, 2 docs. No `docs/zadloop/packets` file other
+21 files changed (`+2,088 / −40`): 12 Rust files/tests, 9 TS/i18n/e2e, 2 docs. No `docs/zadloop/packets` file other
 than this report was touched, and `PROGRESS.md` was left alone (the work order excludes it).
 
 ## What shipped
@@ -177,7 +180,12 @@ unchanged cases and unchanged assertions, through a **temporary untracked config
    the output.
 7. **Pre-existing: `pnpm lint` reports one warning** (`apps/desktop/src/v3/pages/inbox/index.tsx:360`,
    `react-hooks/exhaustive-deps`); that file is untouched and exit code is 0.
-8. **Not run:** the `@visual` suite (baselines need the capture host, per R-UI-4's finding), the `remote` project
+8. **Prettier is not a repo-wide gate.** `pnpm format:check` is not in the packet's gates and is not clean at the
+   base (`PLAN.md`, `PROGRESS.md` and dozens of untouched sources drift from `.prettierrc`); the files this packet
+   touched drift by the same pre-existing amount as their base versions (e.g. `e2e/harness.ts` 106 lines before and
+   after, `client/src/index.test.ts` 69 before and after), and every line this packet added is itself conformant —
+   `TerminalTab.tsx` went from 108 drifting lines at the base to 7, which is why `d6e567e` exists.
+9. **Not run:** the `@visual` suite (baselines need the capture host, per R-UI-4's finding), the `remote` project
    (R-UI-6's lane owns `apps/remote`), and any real provider or network path — every test used the mock provider and an
    in-process MCP transport.
 
