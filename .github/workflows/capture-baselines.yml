@@ -1,9 +1,3 @@
-# Baseline capture (RF2)
-# RF2/A7 owner amendment.
-# Manual dispatch only.
-# Proof: 3 consecutive green workflow runs.
-# This workflow captures baselines; it never weakens a gate (maxDiffPixelRatio 0 / threshold 0.05 untouched).
-
 name: Baseline capture (RF2)
 
 on:
