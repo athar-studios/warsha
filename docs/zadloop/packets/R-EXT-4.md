@@ -117,12 +117,11 @@ Plus a **pure** `SseDecoder` (`push(&[u8]) -> Vec<SseEvent>`; handles `\n`/`\r\n
 
 `InMemoryMcpManager`:
 - field `http: Option<Arc<dyn McpHttpClient>>`; builder `with_http_client(self, Arc<dyn McpHttpClient>) -> Self`.
-- the "wired" test becomes manager-level: stdio always; `Http` iff `self.http.is_some()`; `WebSocket` never.
-  **`McpServerConfig::is_wired()` keeps its meaning "stdio" is not enough any more**: change it to
-  `Stdio | Http` is **wrong** (it is config-only and would lie when nothing is injected) — keep `is_wired` as the
-  *static* predicate for stdio, add a private `fn dials(&self, &McpServerConfig) -> bool`, and update the three call
-  sites (`connect_with`, `send`, `call_tool_with_timeout`) and the doc comments. `is_wired` stays `pub` (the UI note
-  and DAEMON.md refer to it); rename-free to avoid wire/client churn.
+- dialling becomes a manager-level question: stdio always; `Http` iff `self.http.is_some()`; `WebSocket` never.
+  `McpServerConfig::is_wired()` stays the *static* "stdio" predicate (making it `Stdio | Http` would lie when no client
+  is injected); add a private `fn dials(&self, &McpServerConfig) -> bool` and use it at the three call sites
+  (`connect_with`, `send`, `call_tool_with_timeout`); update their doc comments. `is_wired` stays `pub` and unrenamed
+  (UI note and DAEMON.md refer to it; no wire/client churn).
 - `connect_with` for a dialled `Http`: record `Connecting`-equivalent only internally (the connection row is pushed
   once, at the end, as stdio does); run the same three-step handshake over `post` (reuse the tool-parsing code by
   extracting the `tools/list` result parser from `handshake` into a shared helper — a refactor with identical stdio
