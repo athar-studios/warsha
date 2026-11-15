@@ -6816,3 +6816,7 @@ hypotheses left in this triage.
 
 ## Run 2026-11-15 — R-EXT-5 merged (X9a WebMCP) + E2 order-flake fixed
 - **R-EXT-5** (lane `zl-rext5-webmcp`, merged as `327a6e6`): four read-only navigation tools behind off-by-default device switch, Settings › General row, registry entry, 3 ar+en keys, SECURITY paragraph, D-EXT5. PM-verified pre-merge on lane tree: actions 160/160/0, i18n 800/0, wire 11/0, ds-v3 0, desktop 854/0, webmcp solo 4/4. PM correction on merge: E2's second-call delta asserted total RPC count — order-sensitive (26 vs 28 after connections.spec; settled Inbox ambient reads). Narrowed to forbidden-method set; proven by paired run 11/11. Full non-visual suite re-run pending (was 304/1 with the old assertion).
+
+## Run 2026-11-15 — v3 non-visual 305/305 on merged tree
+- Full `apps/desktop/e2e/v3 --grep-invert @visual`: **305 passed / 0 failed** (4.4m) on `34956ce` + E2 fix — confirms the forbidden-method narrowing holds across the suite, not just the paired order.
+- R-EXT-6 packet dispatch faulted twice on planner-lane rate limit (503/429, no worker started, nothing committed). Retry pending.
