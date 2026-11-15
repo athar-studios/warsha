@@ -6769,3 +6769,7 @@ hypotheses left in this triage.
 
 ## Run 2026-11-15 — R-EXT-1 merged (X4 Connections)
 - **R-EXT-1** (branch `zl-rext1-connections`, 7 commits, merged clean as `507f21c`): mcpList/mcpConnect/mcpDisconnect wrappers + decoders (string+{error} McpStatus), Connections Settings section (6 actions, 80 catalog keys), harness stubs, 7 e2e cases (298/0 non-visual), DAEMON rows. PM-verified on merged tree: wire 11/0, actions 158/158/0, i18n 786/0. No Rust changed. (@visual for the new section stays ungated — non-capture host.)
+
+## Run 2026-11-15 — R-UI-6 + R-EXT-2 merged
+- **R-UI-6** (`zl-rui6-filebase`, 4 commits, merged as `213f541`): relative `./` classic IIFE shell + fragment-only routing under `file:` + verify-pwa file:// guards. S1 PASS both AVDs (plate renders, 0 CORS, 0 crash/leak). S2 fails both = predicted `Origin: null` 403 wall → R-UI-7's owner decision (allow null vs WebViewAssetLoader). Remote bench.visual 84/7 identical pre-existing on clean base (font drift, non-capture host).
+- **R-EXT-2** (`zl-rext2-agent-tool`, 9 commits, merged as `3a12d5a`; DECISIONS conflict resolved keeping both entries): `EventKind::RunFinished` (CAS-guarded, once per terminal transition, downgrade hazard logged) + pipeline observer trait + daemon recorder + bench Terminal/project UI + decoder/i18n/harness/e2e. Worker gates: cargo 1068/0, TS 1696, e2e v3 non-visual 301/0, wire 11/0, arch 5/0, policy 8/0, actions/i18n/contrast/ds-v3 0. PM-verified on merged tree: fmt 0, clippy 0, wire 11/0.
