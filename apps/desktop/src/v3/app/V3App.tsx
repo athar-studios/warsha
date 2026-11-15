@@ -8,6 +8,7 @@ import React, { useEffect, useState } from 'react';
 
 import { Frame } from '../pages/frame/Frame';
 import { RouteOutlet, RouterProvider } from '../router';
+import { WebMcpBridge } from '../webmcp/WebMcpBridge';
 
 import { CapabilitiesProvider } from './CapabilitiesContext';
 import { ClientProvider, useClient } from './ClientContext';
@@ -55,6 +56,7 @@ function V3AppInner({ initialRoute }: { initialRoute?: string }): React.ReactEle
 
   return (
     <RouterProvider initialPath={startupRoute ?? '/'}>
+      <WebMcpBridge />
       <Frame>
         {startupError && (
           <div className="v3-danger-banner" role="alert">
