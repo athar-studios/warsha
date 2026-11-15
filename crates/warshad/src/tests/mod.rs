@@ -5970,3 +5970,722 @@ mod mcp_approval {
         assert_eq!(mcp.count(), 1, "a denied call reached the transport");
     }
 }
+/// R-EXT-2: the agent MCP tool call is on the run's stream (T1–T4), a loop with no
+/// recorder is unchanged (T5), and a run's end is exactly one `run_finished` (T6/T8).
+///
+/// The transport is the in-process double the B3b fixtures use — records the call,
+/// never starts a process, never reaches a network — and the model is the mock
+/// provider, so nothing here spends or dials.
+mod agent_tool_events {
+    use super::*;
+    use std::sync::Mutex as StdMutex;
+    use warsha_pipeline::mcp::McpTool;
+
+    /// The obviously fake secrets no event may carry (the B3b fixtures, verbatim).
+    const SECRET_ARGS: &str =
+        r#"{"api_key":"SECRET-1","note":"Bearer SECRET-2","password":"SECRET-3","path":"a.txt"}"#;
+
+    /// A transport that records calls instead of making them, and can refuse.
+    #[derive(Default)]
+    struct RecordingMcp {
+        calls: StdMutex<Vec<(String, String, serde_json::Value)>>,
+        /// Answer every call with a transport error, which is T3's `failed` phase.
+        refuse: bool,
+    }
+
+    impl RecordingMcp {
+        fn answering() -> Self {
+            Self::default()
+        }
+
+        fn refusing() -> Self {
+            Self {
+                calls: StdMutex::default(),
+                refuse: true,
+            }
+        }
+
+        fn count(&self) -> usize {
+            self.calls
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .len()
+        }
+    }
+
+    #[async_trait]
+    impl McpManager for RecordingMcp {
+        async fn connect(
+            &self,
+            _config: warsha_pipeline::mcp_transport::McpServerConfig,
+        ) -> std::result::Result<(), warsha_pipeline::McpTransportError> {
+            Ok(())
+        }
+        async fn disconnect(
+            &self,
+            _name: &str,
+        ) -> std::result::Result<(), warsha_pipeline::McpTransportError> {
+            Ok(())
+        }
+        async fn list(&self) -> Vec<warsha_pipeline::McpConnection> {
+            vec![warsha_pipeline::McpConnection {
+                config: warsha_pipeline::mcp_transport::McpServerConfig {
+                    name: "test_srv".to_string(),
+                    transport: warsha_pipeline::mcp_transport::McpTransport::Stdio,
+                    command: Some("dummy".to_string()),
+                    args: vec![],
+                },
+                status: warsha_pipeline::McpStatus::Connected,
+                process_id: Some("p1".to_string()),
+                tools: vec!["echo".to_string()],
+                tool_definitions: vec![McpTool {
+                    name: "echo".to_string(),
+                    description: "echo the arguments".to_string(),
+                    input_schema: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "blob": {"type": "string", "writeOnly": true},
+                            "path": {"type": "string"},
+                        },
+                    }),
+                    annotations: None,
+                }],
+            }]
+        }
+        async fn send(
+            &self,
+            name: &str,
+            payload: &str,
+        ) -> std::result::Result<String, warsha_pipeline::McpTransportError> {
+            Ok(format!("{name}:{payload}"))
+        }
+        async fn call_tool(
+            &self,
+            name: &str,
+            tool: &str,
+            arguments: serde_json::Value,
+        ) -> std::result::Result<
+            warsha_pipeline::mcp::McpToolResult,
+            warsha_pipeline::McpTransportError,
+        > {
+            self.calls
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push((name.to_string(), tool.to_string(), arguments));
+            if self.refuse {
+                return Err(warsha_pipeline::McpTransportError::NotWired(
+                    name.to_string(),
+                ));
+            }
+            Ok(warsha_pipeline::mcp::McpToolResult {
+                content: vec![warsha_pipeline::mcp::McpContent::Text {
+                    text: "ok".to_string(),
+                }],
+                is_error: false,
+            })
+        }
+    }
+
+    /// The daemon over a temporary store, with `mcp` as the transport.
+    async fn state_with_transport(
+        data_dir: &Path,
+    ) -> (Arc<DaemonState>, Arc<Store>, Arc<RecordingMcp>) {
+        let mcp = Arc::new(RecordingMcp::answering());
+        let transport: Arc<dyn McpManager> = mcp.clone();
+        let (state, store) =
+            test_state_with_seams(data_dir, |_| {}, None, None, Some(transport)).await;
+        (state, store, mcp)
+    }
+
+    /// A project, a run the owner starts, and the Agent mode approval that lets a turn
+    /// reach a tool — the shape `runs.start` gives a real run, including its own loop.
+    async fn agent_run(state: &Arc<DaemonState>, store: &Arc<Store>) -> RunId {
+        let project = Project {
+            id: ProjectId::new(),
+            name: "Agent Tool Project".to_string(),
+            description: "Test".to_string(),
+            language: "en".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            repo_path: None,
+            repo_url: None,
+        };
+        store.create_project(&project).await.expect("the project");
+        let rpc = WarshaRpc::new(state.clone());
+        let run = rpc
+            .start_run(&owner_ext(), project.id, "an agent turn".to_string())
+            .await
+            .expect("the run starts");
+        rpc.approve_agent_mode(&owner_ext(), Some(run.id))
+            .await
+            .expect("the owner approves the run's loop");
+        run.id
+    }
+
+    fn turn(arguments: &str) -> String {
+        format!("call mcp test_srv/echo {arguments}")
+    }
+
+    /// Every `mcp_call` phase the run recorded, in store order.
+    async fn phases(store: &Store, run_id: RunId) -> Vec<String> {
+        store
+            .get_events(run_id)
+            .await
+            .expect("the events are read")
+            .into_iter()
+            .filter(|event| event.payload.get("action") == Some(&serde_json::json!("mcp_call")))
+            .map(|event| {
+                event.payload["phase"]
+                    .as_str()
+                    .expect("a phase is a string")
+                    .to_string()
+            })
+            .collect()
+    }
+
+    /// T1: an `allow` row records the call as `requested` then `succeeded`, and the
+    /// transport really saw it once.
+    #[tokio::test]
+    async fn allow_row_records_requested_then_succeeded() {
+        let temp = crate::test_util::fresh_tempdir();
+        let data_dir = temp.path().join("data");
+        let (state, store, mcp) = state_with_transport(&data_dir).await;
+        let rpc = WarshaRpc::new(state.clone());
+        let run_id = agent_run(&state, &store).await;
+        rpc.set_mcp_permission(
+            &owner_ext(),
+            "test_srv".to_string(),
+            "echo".to_string(),
+            warsha_pipeline::MCP_AGENT_ROLE.to_string(),
+            "allow".to_string(),
+        )
+        .await
+        .expect("the owner allows the tool");
+
+        let answer = rpc
+            .agent_turn_run(&owner_ext(), run_id, turn(r#"{"msg":"hi"}"#))
+            .await
+            .expect("the turn answers");
+        assert!(answer.tools[0].success, "the allowed call did not run");
+
+        assert_eq!(phases(&store, run_id).await, ["requested", "succeeded"]);
+        let events = store.get_events(run_id).await.expect("the events are read");
+        for event in &events {
+            if event.payload.get("action") == Some(&serde_json::json!("mcp_call")) {
+                assert_eq!(event.kind, warsha_core::EventKind::ToolCall);
+                assert_eq!(event.role, None);
+                assert_eq!(event.payload["server"], serde_json::json!("test_srv"));
+                assert_eq!(event.payload["tool"], serde_json::json!("echo"));
+            }
+        }
+        assert_eq!(
+            mcp.count(),
+            1,
+            "the allowed call did not reach the transport once"
+        );
+    }
+
+    /// T2: an `ask` row records `requested` then `approval_required` carrying the
+    /// question id, reaches no transport, and the answered turn ends `succeeded` —
+    /// in store order, with no phase written twice.
+    #[tokio::test]
+    async fn ask_row_records_the_question_then_the_granted_call() {
+        let temp = crate::test_util::fresh_tempdir();
+        let data_dir = temp.path().join("data");
+        let (state, store, mcp) = state_with_transport(&data_dir).await;
+        let rpc = WarshaRpc::new(state.clone());
+        let run_id = agent_run(&state, &store).await;
+
+        // An empty permission table is `ask` (never allow), so the first turn asks.
+        let asked = rpc
+            .agent_turn_run(&owner_ext(), run_id, turn(r#"{"msg":"hi"}"#))
+            .await
+            .expect("the turn answers");
+        assert!(!asked.tools[0].success);
+        assert!(asked.tools[0].output.contains("approval"));
+
+        let listed = rpc
+            .list_mcp_approvals(&owner_ext())
+            .await
+            .expect("the list answers");
+        assert_eq!(listed.len(), 1, "the ask queued no single question");
+        let pending = listed[0].clone();
+        assert_eq!(mcp.count(), 0, "an ask reached the transport");
+        assert_eq!(
+            phases(&store, run_id).await,
+            ["requested", "approval_required"]
+        );
+        let events = store.get_events(run_id).await.expect("the events are read");
+        let asked_event = events
+            .iter()
+            .find(|event| event.payload["phase"] == serde_json::json!("approval_required"))
+            .expect("the approval-required event is recorded");
+        assert_eq!(
+            asked_event.payload["question_id"],
+            serde_json::json!(pending.id)
+        );
+
+        rpc.allow_once_mcp_approval(&owner_ext(), pending.id.clone())
+            .await
+            .expect("the owner allows once");
+        let answered = rpc
+            .agent_turn_run(&owner_ext(), run_id, turn(r#"{"msg":"hi"}"#))
+            .await
+            .expect("the second turn answers");
+        assert!(answered.tools[0].success, "the granted call did not run");
+        assert_eq!(
+            mcp.count(),
+            1,
+            "the granted call reached the transport once"
+        );
+
+        // The whole life of the call, in `seq` order: the ask, then the call it admitted.
+        assert_eq!(
+            phases(&store, run_id).await,
+            ["requested", "approval_required", "requested", "succeeded"]
+        );
+        assert_eq!(
+            state.mcp_approvals.pending_len(),
+            0,
+            "the answered ask is still queued"
+        );
+    }
+
+    /// T3: a `deny` row records `denied` and reaches no transport; a transport that
+    /// refuses records `failed`.
+    #[tokio::test]
+    async fn deny_row_records_denied_and_a_transport_error_records_failed() {
+        let temp = crate::test_util::fresh_tempdir();
+        let data_dir = temp.path().join("data");
+        let (state, store, mcp) = state_with_transport(&data_dir).await;
+        let rpc = WarshaRpc::new(state.clone());
+        let run_id = agent_run(&state, &store).await;
+        rpc.set_mcp_permission(
+            &owner_ext(),
+            "test_srv".to_string(),
+            "echo".to_string(),
+            warsha_pipeline::MCP_AGENT_ROLE.to_string(),
+            "deny".to_string(),
+        )
+        .await
+        .expect("the owner denies the tool");
+        let denied = rpc
+            .agent_turn_run(&owner_ext(), run_id, turn(r#"{"msg":"hi"}"#))
+            .await
+            .expect("the turn answers");
+        assert!(!denied.tools[0].success);
+        assert_eq!(mcp.count(), 0, "a denied call reached the transport");
+        assert_eq!(phases(&store, run_id).await, ["requested", "denied"]);
+
+        // The same row, allowed, against a transport that refuses: `failed`.
+        let refusing_dir = temp.path().join("refusing");
+        let refusing = Arc::new(RecordingMcp::refusing());
+        let transport: Arc<dyn McpManager> = refusing.clone();
+        let (refusing_state, refusing_store) =
+            test_state_with_seams(&refusing_dir, |_| {}, None, None, Some(transport)).await;
+        let refusing_rpc = WarshaRpc::new(refusing_state.clone());
+        let failing_run = agent_run(&refusing_state, &refusing_store).await;
+        refusing_rpc
+            .set_mcp_permission(
+                &owner_ext(),
+                "test_srv".to_string(),
+                "echo".to_string(),
+                warsha_pipeline::MCP_AGENT_ROLE.to_string(),
+                "allow".to_string(),
+            )
+            .await
+            .expect("the owner allows the tool");
+        let failed = refusing_rpc
+            .agent_turn_run(&owner_ext(), failing_run, turn(r#"{"msg":"hi"}"#))
+            .await
+            .expect("the turn answers");
+        assert!(!failed.tools[0].success);
+        assert_eq!(
+            refusing.count(),
+            1,
+            "the failed call reached the transport once"
+        );
+        assert_eq!(
+            phases(&refusing_store, failing_run).await,
+            ["requested", "failed"]
+        );
+    }
+
+    /// T4: every phase's payload is exactly the call's identifying fields and, on the
+    /// asking phase, the question id — and no secret argument value is anywhere in
+    /// the run's log, on any of the four phases.
+    #[tokio::test]
+    async fn every_phase_payload_names_the_call_and_never_an_argument() {
+        let temp = crate::test_util::fresh_tempdir();
+        let data_dir = temp.path().join("data");
+        let (state, store, _mcp) = state_with_transport(&data_dir).await;
+        let rpc = WarshaRpc::new(state.clone());
+        let run_id = agent_run(&state, &store).await;
+
+        // Ask with secrets, answer, call again with the same arguments, then allow a
+        // fresh run's call so all four phases appear in this test.
+        rpc.agent_turn_run(&owner_ext(), run_id, turn(SECRET_ARGS))
+            .await
+            .expect("the asking turn answers");
+        let listed = rpc
+            .list_mcp_approvals(&owner_ext())
+            .await
+            .expect("the list answers");
+        rpc.allow_once_mcp_approval(&owner_ext(), listed[0].id.clone())
+            .await
+            .expect("the owner allows once");
+        rpc.agent_turn_run(&owner_ext(), run_id, turn(SECRET_ARGS))
+            .await
+            .expect("the granted turn answers");
+
+        let allowed_run = agent_run(&state, &store).await;
+        rpc.set_mcp_permission(
+            &owner_ext(),
+            "test_srv".to_string(),
+            "echo".to_string(),
+            warsha_pipeline::MCP_AGENT_ROLE.to_string(),
+            "allow".to_string(),
+        )
+        .await
+        .expect("the owner allows the tool");
+        rpc.agent_turn_run(&owner_ext(), allowed_run, turn(SECRET_ARGS))
+            .await
+            .expect("the allowed turn answers");
+        rpc.set_mcp_permission(
+            &owner_ext(),
+            "test_srv".to_string(),
+            "echo".to_string(),
+            warsha_pipeline::MCP_AGENT_ROLE.to_string(),
+            "deny".to_string(),
+        )
+        .await
+        .expect("the owner denies the tool");
+        let denied_run = agent_run(&state, &store).await;
+        rpc.agent_turn_run(&owner_ext(), denied_run, turn(SECRET_ARGS))
+            .await
+            .expect("the denied turn answers");
+
+        let mut seen_phases: Vec<String> = Vec::new();
+        for run in [run_id, allowed_run, denied_run] {
+            let events = store.get_events(run).await.expect("the events are read");
+            let serialized = serde_json::to_string(&events).expect("the events serialize");
+            for secret in ["SECRET-1", "SECRET-2", "SECRET-3", "SECRET-4"] {
+                assert!(
+                    !serialized.contains(secret),
+                    "{secret} reached the run's event log"
+                );
+            }
+            for event in events
+                .iter()
+                .filter(|event| event.payload.get("action") == Some(&serde_json::json!("mcp_call")))
+            {
+                let payload = event.payload.as_object().expect("the payload is an object");
+                let mut keys: Vec<&str> = payload.keys().map(String::as_str).collect();
+                keys.sort_unstable();
+                let phase = payload["phase"].as_str().expect("a phase is a string");
+                let expected: &[&str] = if phase == "approval_required" {
+                    &["action", "phase", "question_id", "role", "server", "tool"]
+                } else {
+                    &["action", "phase", "role", "server", "tool"]
+                };
+                assert_eq!(keys, expected, "unexpected payload keys on phase {phase}");
+                assert_eq!(payload["role"], serde_json::json!("agent"));
+                seen_phases.push(phase.to_string());
+            }
+        }
+        seen_phases.sort_unstable();
+        seen_phases.dedup();
+        assert_eq!(
+            seen_phases,
+            ["approval_required", "denied", "requested", "succeeded"],
+            "the test did not exercise every phase"
+        );
+    }
+
+    /// T5: a loop with no recorder behaves exactly as before — the ask is still queued,
+    /// the call still runs, and nothing claims to have been observed.
+    #[tokio::test]
+    async fn a_loop_with_no_observer_records_nothing() {
+        let temp = crate::test_util::fresh_tempdir();
+        let data_dir = temp.path().join("data");
+        let (state, store, _mcp) = state_with_transport(&data_dir).await;
+        let run_id = agent_run(&state, &store).await;
+
+        // The same builder `runs.start` uses, with the same run id — and no observer,
+        // which is every unit test's loop and the daemon-wide one.
+        let mut agent = build_agent_loop_in(
+            &data_dir.join(AGENT_WORKSPACE_DIR),
+            &state.config.allowed_commands,
+            state.providers.clone(),
+            state.mcp.clone(),
+            state.mcp_permissions.clone(),
+            state.mcp_approvals.clone(),
+            Some(run_id.0.to_string()),
+            Arc::new(RwLock::new(default_backend_kit("run"))),
+        );
+        agent
+            .approve_agent_mode("owner")
+            .expect("the owner approves the loop");
+        let answer = agent.run_turn(&turn(r#"{"msg":"hi"}"#), &[]).await;
+        assert!(!answer.tools[0].success);
+        assert_eq!(
+            agent.ask_queue.pending().len(),
+            1,
+            "an unobserved loop stopped asking for approval"
+        );
+        assert_eq!(state.mcp_approvals.pending_len(), 1);
+        assert!(
+            phases(&store, run_id).await.is_empty(),
+            "a loop with no observer wrote an mcp_call event"
+        );
+    }
+
+    /// T6: reaching `Feedback` writes exactly one `run_finished{completed}`; a second
+    /// advance and a replay add none.
+    #[tokio::test]
+    async fn a_completed_run_has_one_finished_event() {
+        let temp = crate::test_util::fresh_tempdir();
+        let data_dir = temp.path().join("data");
+        let (state, store, _mcp) = state_with_transport(&data_dir).await;
+        let rpc = WarshaRpc::new(state.clone());
+        let run_id = agent_run(&state, &store).await;
+
+        // `Feedback` is the last stage: advancing there is the completion (the same
+        // move the preview tests make, so no model call is involved).
+        let mut stored = store.get_run(run_id).await.expect("the run is stored");
+        stored.current_stage = Stage::Feedback;
+        store.update_run(&stored).await.expect("the stage moves");
+
+        let finished = rpc
+            .advance_run(&owner_ext(), run_id)
+            .await
+            .expect("the run advances");
+        assert_eq!(finished.status, RunStatus::Completed);
+        // A second advance finds a terminal run and writes nothing new.
+        let again = rpc
+            .advance_run(&owner_ext(), run_id)
+            .await
+            .expect("a terminal advance is not an error");
+        assert_eq!(again.status, RunStatus::Completed);
+
+        let events = store.get_events(run_id).await.expect("the events are read");
+        let endings: Vec<&warsha_core::Event> = events
+            .iter()
+            .filter(|event| event.kind == warsha_core::EventKind::RunFinished)
+            .collect();
+        assert_eq!(endings.len(), 1, "the run has {endings:?}");
+        assert_eq!(
+            endings[0].payload,
+            serde_json::json!({ "status": "completed" })
+        );
+        assert_eq!(endings[0].stage, Stage::Feedback);
+        assert_eq!(endings[0].role, None);
+        assert_eq!(endings[0].device_id, None);
+    }
+
+    /// T6: `runs.cancel` writes one `run_finished{cancelled}` naming the authenticated
+    /// device, and cancelling again adds none.
+    #[tokio::test]
+    async fn a_cancelled_run_has_one_finished_event_naming_the_device() {
+        let temp = crate::test_util::fresh_tempdir();
+        let data_dir = temp.path().join("data");
+        let (state, store, _mcp) = state_with_transport(&data_dir).await;
+        let rpc = WarshaRpc::new(state.clone());
+        let run_id = agent_run(&state, &store).await;
+        let canceller = DeviceId::new();
+
+        rpc.cancel_run(&owner_ext_as(canceller), run_id, None)
+            .await
+            .expect("the run cancels");
+        rpc.cancel_run(&owner_ext_as(DeviceId::new()), run_id, None)
+            .await
+            .expect("cancelling a cancelled run is not an error");
+
+        let events = store.get_events(run_id).await.expect("the events are read");
+        let endings: Vec<&warsha_core::Event> = events
+            .iter()
+            .filter(|event| event.kind == warsha_core::EventKind::RunFinished)
+            .collect();
+        assert_eq!(endings.len(), 1, "the run has {endings:?}");
+        assert_eq!(
+            endings[0].payload,
+            serde_json::json!({ "status": "cancelled" })
+        );
+        assert_eq!(endings[0].device_id, Some(canceller));
+        assert!(
+            events
+                .iter()
+                .any(|event| event.payload["action"] == serde_json::json!("run_cancelled")),
+            "the reason event the run already wrote is gone"
+        );
+    }
+
+    /// T6: a paused run is not over and writes no `run_finished`; a failed one writes
+    /// exactly one `{failed}`.
+    #[tokio::test]
+    async fn a_paused_run_writes_none_and_a_failed_stage_writes_one() {
+        let temp = crate::test_util::fresh_tempdir();
+        let data_dir = temp.path().join("data");
+        let (state, store, _mcp) = state_with_transport(&data_dir).await;
+        let rpc = WarshaRpc::new(state.clone());
+
+        // An empty router makes the researcher role unrouted: the run pauses.
+        let paused_project = Project {
+            id: ProjectId::new(),
+            name: "Paused Project".to_string(),
+            description: "Test".to_string(),
+            language: "en".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            repo_path: None,
+            repo_url: None,
+        };
+        store
+            .create_project(&paused_project)
+            .await
+            .expect("the project");
+        *state.providers.write().await = ProviderRouter::new();
+        let paused_run = rpc
+            .start_run(&owner_ext(), paused_project.id, "a run".to_string())
+            .await
+            .expect("the run starts");
+        rpc.advance_run(&owner_ext(), paused_run.id)
+            .await
+            .expect("advance to the gate");
+        rpc.approve_gate(&owner_ext(), paused_run.id, Stage::GateA, None)
+            .await
+            .expect("the gate approves");
+        let _ = rpc.advance_run(&owner_ext(), paused_run.id).await;
+        let paused = store.get_run(paused_run.id).await.expect("the run is read");
+        assert_eq!(paused.status, RunStatus::Paused);
+        assert!(
+            !store
+                .get_events(paused_run.id)
+                .await
+                .expect("the events are read")
+                .iter()
+                .any(|event| event.kind == warsha_core::EventKind::RunFinished),
+            "a paused run recorded its end"
+        );
+
+        // A provider that refuses the call (not an unrouted role) fails the stage.
+        let failing_dir = temp.path().join("failing");
+        let (failing_state, failing_store, _failing_mcp) = state_with_transport(&failing_dir).await;
+        let failing_rpc = WarshaRpc::new(failing_state.clone());
+        let mut router = ProviderRouter::new();
+        router.register_provider(Box::new(
+            warsha_providers::MockProvider::new("mock")
+                .with_failure(warsha_providers::ProviderError::Auth("refused".to_string())),
+        ));
+        router.set_role_routing(RoleRouting {
+            role: Role::Researcher,
+            targets: vec![RoutingTarget {
+                provider_id: "mock".to_string(),
+                model_id: "mock-model".to_string(),
+                weight: 100,
+            }],
+            fallback_enabled: false,
+            budget_cents_per_run: None,
+        });
+        *failing_state.providers.write().await = router;
+        let failing_project = Project {
+            id: ProjectId::new(),
+            name: "Failing Project".to_string(),
+            description: "Test".to_string(),
+            language: "en".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            repo_path: None,
+            repo_url: None,
+        };
+        failing_store
+            .create_project(&failing_project)
+            .await
+            .expect("the project");
+        let failing_run = failing_rpc
+            .start_run(&owner_ext(), failing_project.id, "a run".to_string())
+            .await
+            .expect("the run starts");
+        failing_rpc
+            .advance_run(&owner_ext(), failing_run.id)
+            .await
+            .expect("advance to the gate");
+        failing_rpc
+            .approve_gate(&owner_ext(), failing_run.id, Stage::GateA, None)
+            .await
+            .expect("the gate approves");
+        let _ = failing_rpc.advance_run(&owner_ext(), failing_run.id).await;
+        let failed = failing_store
+            .get_run(failing_run.id)
+            .await
+            .expect("the run is read");
+        assert_eq!(failed.status, RunStatus::Failed);
+        let endings: Vec<warsha_core::Event> = failing_store
+            .get_events(failing_run.id)
+            .await
+            .expect("the events are read")
+            .into_iter()
+            .filter(|event| event.kind == warsha_core::EventKind::RunFinished)
+            .collect();
+        assert_eq!(endings.len(), 1, "the failed run has {endings:?}");
+        assert_eq!(
+            endings[0].payload,
+            serde_json::json!({ "status": "failed" })
+        );
+    }
+
+    /// T8: an open subscriber on the daemon's own event bus receives the tool call and
+    /// the run's end — the frames the `/events` socket and `runs.subscribe` replay.
+    #[tokio::test]
+    async fn an_open_stream_receives_the_call_and_the_end() {
+        let temp = crate::test_util::fresh_tempdir();
+        let data_dir = temp.path().join("data");
+        let (state, store, _mcp) = state_with_transport(&data_dir).await;
+        let rpc = WarshaRpc::new(state.clone());
+        let run_id = agent_run(&state, &store).await;
+        rpc.set_mcp_permission(
+            &owner_ext(),
+            "test_srv".to_string(),
+            "echo".to_string(),
+            warsha_pipeline::MCP_AGENT_ROLE.to_string(),
+            "allow".to_string(),
+        )
+        .await
+        .expect("the owner allows the tool");
+
+        // The subscription is taken before the work, as a socket would take it: the
+        // store's bus is the one `/events` subscribes through, and every append
+        // publishes on it.
+        let mut stream = store.subscribe_events();
+        rpc.agent_turn_run(&owner_ext(), run_id, turn(r#"{"msg":"hi"}"#))
+            .await
+            .expect("the turn answers");
+        let mut stored = store.get_run(run_id).await.expect("the run is stored");
+        stored.current_stage = Stage::Feedback;
+        store.update_run(&stored).await.expect("the stage moves");
+        rpc.advance_run(&owner_ext(), run_id)
+            .await
+            .expect("the run completes");
+
+        let mut observed: Vec<(String, serde_json::Value)> = Vec::new();
+        while let Ok(Ok(event)) =
+            tokio::time::timeout(std::time::Duration::from_millis(250), stream.recv()).await
+        {
+            if event.run_id != run_id {
+                continue;
+            }
+            observed.push((format!("{:?}", event.kind), event.payload.clone()));
+        }
+        assert!(
+            observed.iter().any(|(kind, payload)| {
+                kind == "ToolCall" && payload["action"] == serde_json::json!("mcp_call")
+            }),
+            "the stream carried no tool call: {observed:?}"
+        );
+        assert!(
+            observed.iter().any(|(kind, payload)| kind == "RunFinished"
+                && payload["status"] == serde_json::json!("completed")),
+            "the stream carried no run_finished: {observed:?}"
+        );
+    }
+}
