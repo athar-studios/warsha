@@ -1,9 +1,38 @@
 import { defineConfig } from 'vite';
+import type { Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
+/**
+ * The Android shell opens the bundle from `file://` (origin `null`), where Chromium refuses a
+ * `<script type="module">` and any `crossorigin` subresource (R-UI-5 F1), so the built page names one
+ * classic, deferred script instead. Dev (`vite`) is untouched: this runs in `transformIndexHtml` with
+ * `order: 'post'` and only when building.
+ *
+ * Measured on this tree: with `format: 'iife'` Vite inlines the bundle's CSS into the script (a
+ * non-ES output has no CSS asset), so the page carries no stylesheet link at all — the stylesheet
+ * rewrite below is the guard for the day one appears again, not the current state. `check:pwa`'s
+ * `index.html has no root-absolute asset URL` / `no crossorigin attribute` are the assertions that
+ * matter, because a `.replace` that finds nothing fails silently.
+ */
+function classicShellHtml(): Plugin {
+  return {
+    name: 'warsha-classic-shell-html',
+    apply: 'build',
+    enforce: 'post',
+    transformIndexHtml: {
+      order: 'post',
+      handler: (html) =>
+        html
+          .replace('<script type="module" crossorigin ', '<script defer ')
+          .replace('<link rel="stylesheet" crossorigin ', '<link rel="stylesheet" '),
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), classicShellHtml()],
+  base: './',
   resolve: {
     alias: {
       '@warsha/ui': path.resolve(__dirname, '../../packages/ui/src'),
@@ -30,5 +59,9 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    // No `<link rel="modulepreload">` in the built page: it is a module-page hint, and the page this
+    // build ships is classic. There is no `import()` (grep: none), so one IIFE chunk loses nothing.
+    modulePreload: false,
+    rollupOptions: { output: { format: 'iife', inlineDynamicImports: true } },
   },
 });
