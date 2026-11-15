@@ -35,8 +35,25 @@ import {
 
 export { rpcCalls, RPC_METHODS };
 
-/** The daemon the paired cases point the phone at. Nothing listens here; the stub answers. */
-export const REMOTE_DAEMON_URL = 'http://127.0.0.1:8799';
+// The policy `apps/remote/index.html` ships is what a phone runs under, and it forbids inline script
+// (`script-src 'self'`, no `'unsafe-inline'`, no hash). The shared a11y helper injects axe-core as an
+// inline `<script>` (`apps/desktop/e2e/support/a11y.ts`), so the WCAG pass on this surface would be
+// refused by the product's own policy before the audit could run — and that helper is outside this
+// packet's allowed files, so the harness cannot make the injection policy-shaped. It turns CSP off
+// for its own contexts instead, and only those: the PWA's screens, layout, state and keyboard flows
+// are still measured, but "the page refuses an inline script" is no longer a property e2e proves.
+test.use({ bypassCSP: true });
+
+/**
+ * The daemon the paired cases point the phone at. Nothing listens here; the stub answers.
+ *
+ * The port is the one the shipped policy already allows: `apps/remote/index.html` pins
+ * `connect-src 'self' http://127.0.0.1:8765 ws://127.0.0.1:8766 …` so a case that dialled any other
+ * origin would be refused by the product's own CSP before the stub could answer. The value stays in
+ * the harness, never in the policy — the PWA ships with the daemon's real port, and only the test
+ * gets to pretend.
+ */
+export const REMOTE_DAEMON_URL = 'http://127.0.0.1:8765';
 
 /** The token the case hands the phone. It is a test secret and it must never reach a screenshot. */
 export const REMOTE_TOKEN = 'remote-test-token';
