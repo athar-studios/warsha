@@ -151,8 +151,11 @@ function checkArtifacts({ files, manifest, manifestError, swSource, html, iconBy
     notPrecached.length === 0 ? `${String(precached.length)} URLs precached` : `absent from the precache: ${notPrecached.join(', ')}`
   );
 
-  const referenced = [...(html ?? '').matchAll(/(?:src|href)="(\/[^"?#][^"]*)"/g)]
-    .map((match) => match[1].replace(/^\/+/, ''))
+  // `base: './'` (R-UI-6) makes every URL the page names relative, so the pattern accepts both
+  // forms and normalises each to a `dist/`-relative path: a relative-only page would otherwise
+  // match nothing here and pass this check vacuously.
+  const referenced = [...(html ?? '').matchAll(/(?:src|href)="((?:\.\/|\/)?[^"?#][^"]*)"/g)]
+    .map((match) => match[1].replace(/^(?:\.\/|\/+)/, ''))
     .filter((ref) => files.includes(ref));
   const assetsNotPrecached = referenced.filter((ref) => !precached.includes(ref));
   record(
@@ -188,6 +191,63 @@ function checkArtifacts({ files, manifest, manifestError, swSource, html, iconBy
     'index.html keeps its language, viewport, theme and install tags',
     missingTags.length === 0,
     missingTags.length === 0 ? `${String(wantedTags.length)} fragments` : `missing: ${missingTags.join(' | ')}`
+  );
+}
+
+// ------------------------------------------------------------------------ the file:// half
+
+/**
+ * The regression guard for R-UI-5 F1 / R-UI-6. The Android shell opens `dist/index.html` from
+ * `file:///android_asset/public/index.html`, which is origin `null`, and Chromium refuses three
+ * shapes there: a root-absolute URL (it resolves to `file:///assets/…`, not to the copied bundle),
+ * a `<script type="module">` (blocked by CORS, so nothing runs) and any `crossorigin` subresource.
+ * All three were true of the module-page build before the fix, and every check above still passed —
+ * the page was well-formed, it just could not boot. A classic, deferred, relative script is the
+ * shape that runs, so that is what this half asserts.
+ */
+function checkClassicShell({ html, scriptRef, scriptSource }) {
+  const rootAbsolute = [...(html ?? '').matchAll(/(?:src|href)="(\/[^"]*)"/g)].map(
+    (match) => match[1]
+  );
+  record(
+    'index.html has no root-absolute asset URL',
+    rootAbsolute.length === 0,
+    rootAbsolute.length === 0
+      ? 'every src/href the page names is relative'
+      : `${rootAbsolute.join(', ')} — under file:// these resolve to file:///…, not to the copied bundle`
+  );
+
+  const moduleScripts = [...(html ?? '').matchAll(/<script[^>]*type="module"[^>]*>/g)].map(
+    (match) => match[0]
+  );
+  record(
+    'index.html loads no <script type="module">',
+    moduleScripts.length === 0,
+    moduleScripts.length === 0
+      ? 'the page names a classic script'
+      : `${moduleScripts.join(' ')} — a module script is refused at origin null`
+  );
+
+  const crossOrigins = [...(html ?? '').matchAll(/<[^>]+\scrossorigin[^>]*>/g)].map(
+    (match) => match[0]
+  );
+  record(
+    'index.html has no crossorigin attribute',
+    crossOrigins.length === 0,
+    crossOrigins.length === 0
+      ? 'no subresource is fetched in CORS mode'
+      : `${crossOrigins.join(' ')} — a crossorigin subresource is refused at origin null`
+  );
+
+  const topLevel = /^\s*(?:import|export)\s/m.exec(scriptSource ?? '');
+  record(
+    'bundle contains no top-level ES import/export',
+    typeof scriptSource === 'string' && topLevel === null,
+    typeof scriptSource !== 'string'
+      ? `index.html names no readable script (${String(scriptRef)})`
+      : topLevel === null
+        ? `${scriptRef} runs as a classic IIFE`
+        : `${scriptRef} carries \`${topLevel[0].trim()}\`, which only an ES module host accepts`
   );
 }
 
@@ -418,6 +478,15 @@ async function main() {
   console.log('');
 
   checkArtifacts({ files, manifest, manifestError, swSource, html, iconBytes });
+
+  // Read the one script the page names, for the classic-bundle check: `dist/` holding a module
+  // bundle is exactly the state that renders nothing on the phone.
+  const scriptRef = [...(html ?? '').matchAll(/<script[^>]*src="([^"]+)"/g)]
+    .map((match) => match[1].replace(/^(?:\.\/|\/+)/, ''))
+    .find((ref) => files.includes(ref));
+  const scriptSource =
+    scriptRef === undefined ? undefined : await readFile(path.join(distRoot, scriptRef), 'utf8');
+  checkClassicShell({ html, scriptRef, scriptSource });
 
   if (process.argv.includes('--browser')) {
     console.log('');

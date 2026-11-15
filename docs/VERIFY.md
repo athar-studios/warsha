@@ -256,6 +256,9 @@ do not resolve under `file:///android_asset/public/`, and a `type="module"` scri
 `file://`. Pairing, the screens and the refusal plate are therefore unreachable, and §5.1 stays
 deferred until the shell serves its bundle from a WebView-safe origin — a product change outside
 that packet's allowed files. Full evidence: [`zadloop/packets/R-UI-5-report.md`](zadloop/packets/R-UI-5-report.md).
+**Updated 2026-11-15 (R-UI-6):** the asset-base half is fixed — the build is relative and classic, `S1`
+(plate on screen, no `blocked by CORS`) passes on both AVDs, and `S2` now stops on the daemon's
+`Origin: null` refusal instead: [`zadloop/packets/R-UI-6-report.md`](zadloop/packets/R-UI-6-report.md).
 
 ---
 
