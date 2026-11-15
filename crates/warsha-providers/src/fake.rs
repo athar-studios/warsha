@@ -281,6 +281,7 @@ impl FakeProvider {
                 input,
                 output,
                 total: input + output,
+                cost_cents: None,
             },
         }
     }
@@ -480,6 +481,7 @@ mod tests {
             input: 999_999,
             output: 999_999,
             total: 1_999_998,
+            cost_cents: None,
         };
         assert_eq!(provider.cost_of(FAKE_MODEL_ID, &usage).unwrap(), 1);
     }

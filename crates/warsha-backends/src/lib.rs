@@ -177,6 +177,7 @@ impl CodingBackend for CliBackend {
                     .as_ref()
                     .map(|u| u.input_tokens + u.output_tokens)
                     .unwrap_or(0),
+                cost_cents: cli_out.usage.as_ref().and_then(|u| u.cost_cents),
             });
         } else if self.name == "codex-cli" {
             // Try parsing as JSONL (Codex CLI style)
@@ -196,6 +197,7 @@ impl CodingBackend for CliBackend {
                     input: total_input,
                     output: total_output,
                     total: total_input + total_output,
+                    cost_cents: None,
                 });
             }
         }
@@ -351,6 +353,7 @@ pub const CODING_BACKEND_ENV: &str = "WARSHA_CODING_BACKEND";
 
 #[cfg(test)]
 mod tests {
+    mod cli_parsing;
     use super::*;
     use std::path::PathBuf;
     use ulid::Ulid;
@@ -821,6 +824,79 @@ mod tests {
             // the backend; the pipeline itself never reads the variable.
             let selected = BackendFactory::from_env().expect("the named backend resolves");
             assert_eq!(selected.name(), "claude-code");
+        }
+
+        /// N0: a CLI-reported cost is real spend for the budget. A fake CLI emits
+        /// Claude-style JSON with `cost_cents`; the Code stage must add it to
+        /// `run.spent_cents`, and a budget the spend crosses must pause the run
+        /// and record `BudgetExceeded` — the CLI's own subscription spend is not
+        /// invisible to the owner's ceiling.
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn a_cli_reported_cost_counts_toward_the_run_budget() {
+            let _env_guard = ENV_GUARD.lock().await;
+            let _env = EnvRestore::remove();
+
+            let temp = tempfile::tempdir().expect("a temp dir");
+            let repo = temp.path().join("repo");
+            std::fs::create_dir(&repo).expect("the repository directory");
+            std::fs::write(repo.join("base.txt"), "base").expect("a base file");
+            // 500 input + 250 output tokens and a reported cost of 7 cents.
+            let cli = fake_cli(
+                &repo,
+                "printf '%s' \"$*\" > prompt.txt\nprintf 'changed' > base.txt\ncat <<'JSON'\n{\"result\":\"done\",\"usage\":{\"input_tokens\":500,\"output_tokens\":250,\"cost_cents\":7}}\nJSON",
+            );
+            git_repo(&repo);
+
+            let store = temp_store().await;
+            let project = coding_project(Some(&repo));
+            let engine =
+                PipelineEngine::new(store.clone(), setup_providers_with_mock(), setup_settings())
+                    .with_coding_backend(Arc::new(CliBackend::new(
+                        "fake",
+                        cli.to_str().expect("a utf8 path"),
+                        vec![],
+                    )));
+            let run = run_before_code(&store, &engine, &project).await;
+            engine
+                .set_run_budget(run.id, 5)
+                .await
+                .expect("the budget is set");
+
+            let run = engine
+                .advance_stage(run.id)
+                .await
+                .expect("the Code stage runs through the selected CLI");
+
+            assert_eq!(
+                run.spent_cents, 7,
+                "the CLI-reported cost did not reach the run's spend"
+            );
+            assert_eq!(
+                run.status,
+                RunStatus::Paused,
+                "crossing the budget must pause the run"
+            );
+
+            let events = store.get_events(run.id).await.expect("events are readable");
+            let step = events
+                .iter()
+                .find(|event| event.kind == EventKind::AgentStep && event.stage == Stage::Code)
+                .expect("the Code step is on the record");
+            assert_eq!(
+                step.cost_cents,
+                Some(7),
+                "the Code step must record the CLI-reported cost"
+            );
+            assert_eq!(step.payload["backend"], "fake");
+            assert_eq!(step.payload["cost_source"], "cli_reported");
+            assert_eq!(step.payload["cost_known"], true);
+            let exceeded = events
+                .iter()
+                .find(|event| event.kind == EventKind::BudgetExceeded)
+                .expect("crossing the budget must record BudgetExceeded");
+            assert_eq!(exceeded.payload["budget_cents"], 5);
+            assert_eq!(exceeded.payload["spent_cents"], 7);
         }
     }
 }

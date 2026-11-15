@@ -1350,6 +1350,7 @@ mod tests {
                 input: 10,
                 output: 5,
                 total: 15,
+                cost_cents: None,
             }),
             created_at: Utc::now(),
             device_id: None,

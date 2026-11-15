@@ -233,6 +233,7 @@ impl ChatProvider for AnthropicProvider {
                 input,
                 output,
                 total: input + output,
+                cost_cents: None,
             },
         })
     }

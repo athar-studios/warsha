@@ -134,6 +134,7 @@ mod tests {
                     input: 100_000,
                     output: 100_000,
                     total: 200_000,
+                    cost_cents: None,
                 },
             })
         }
