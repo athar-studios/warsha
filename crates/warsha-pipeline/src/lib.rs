@@ -374,6 +374,12 @@ struct StageCompletion {
     content: String,
     /// What the stage cost; a coding CLI runs on the owner's own subscription.
     cost_cents: u64,
+    /// Source of cost data.
+    source: String,
+    /// Whether cost is estimated.
+    estimated: bool,
+    /// Whether cost is known.
+    cost_known: bool,
     /// Provider token usage; `None` when no provider answered.
     tokens: Option<TokenUsage>,
     /// The coding backend that ran the stage, when one did.
@@ -858,6 +864,9 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 StageCompletion {
                     content,
                     cost_cents,
+                    source: "api_metered".to_string(),
+                    estimated: false,
+                    cost_known: true,
                     tokens: Some(response.usage),
                     backend: None,
                 }
@@ -867,6 +876,9 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         let StageCompletion {
             content: artifact_body,
             cost_cents,
+            source: _,
+            estimated: _,
+            cost_known: _,
             tokens,
             backend,
         } = completion;
@@ -1070,7 +1082,10 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         Ok(Some(StageCompletion {
             content: code_stage_report(&backend_name, &result),
             cost_cents: 0,
-            tokens: None,
+            source: "cli_reported".to_string(),
+            estimated: true,
+            cost_known: true,
+            tokens: result.usage,
             backend: Some(backend_name),
         }))
     }

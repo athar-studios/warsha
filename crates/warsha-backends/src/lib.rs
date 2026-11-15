@@ -5,6 +5,26 @@ use std::collections::HashMap;
 pub use warsha_pipeline::coding_backend::{
     BackendError, CodingBackend, CodingResult, CodingTask, FileAction, Result, Sandbox, TaskFile,
 };
+use serde::Deserialize;
+
+#[derive(Debug, Clone, Deserialize)]
+struct CliOutput {
+    #[allow(dead_code)]
+    result: String,
+    usage: Option<CliUsage>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct CliUsage {
+    input_tokens: u64,
+    output_tokens: u64,
+    #[allow(dead_code)]
+    cache_read_tokens: Option<u64>,
+    #[allow(dead_code)]
+    cache_write_tokens: Option<u64>,
+    #[allow(dead_code)]
+    cost_cents: Option<u64>,
+}
 use which::which;
 
 /// Built-in test backend (minimal implementation for testing)
@@ -144,12 +164,47 @@ impl CodingBackend for CliBackend {
         // reports no diff instead of failing a successful run.
         let (diff, files_changed) = capture_changes(&sandbox.work_dir).await;
 
+        let mut usage = None;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        
+        // Try parsing as JSON (Claude Code style)
+        if let Ok(cli_out) = serde_json::from_str::<CliOutput>(&stdout) {
+            usage = Some(warsha_core::TokenUsage {
+                input: cli_out.usage.as_ref().map(|u| u.input_tokens).unwrap_or(0),
+                output: cli_out.usage.as_ref().map(|u| u.output_tokens).unwrap_or(0),
+                total: cli_out
+                    .usage
+                    .as_ref()
+                    .map(|u| u.input_tokens + u.output_tokens)
+                    .unwrap_or(0),
+            });
+        } else if self.name == "codex-cli" {
+            // Try parsing as JSONL (Codex CLI style)
+            let mut total_input = 0;
+            let mut total_output = 0;
+            for line in stdout.lines() {
+                if let Ok(line_out) = serde_json::from_str::<serde_json::Value>(line) {
+                    if let Some(u) = line_out.get("usage") {
+                        total_input += u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                        total_output += u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                    }
+                }
+            }
+            if total_input > 0 || total_output > 0 {
+                usage = Some(warsha_core::TokenUsage {
+                    input: total_input,
+                    output: total_output,
+                    total: total_input + total_output,
+                });
+            }
+        }
+
         Ok(CodingResult {
             task_id: task.id,
             success: true,
             diff,
             files_changed,
-            usage: None,
+            usage,
             error: None,
             duration_ms: duration,
         })
@@ -213,7 +268,7 @@ impl BackendFactory {
         Box::new(CliBackend::new(
             "codex-cli",
             "codex",
-            vec!["exec".to_string()],
+            vec!["exec".to_string(), "--json".to_string()],
         ))
     }
 
