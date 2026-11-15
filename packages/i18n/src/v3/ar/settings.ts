@@ -157,10 +157,8 @@ export default {
   'settings.connections.transport.http': 'منفذ بعيد',
   'settings.connections.transport.websocket': 'قناة مباشرة',
   'settings.connections.command_label': 'الأمر',
-  'settings.connections.not_wired':
-    'مسجّل دون اتصال: لا شيء يفتح هذا العنوان بعد.',
-  'settings.connections.not_connected':
-    'لم يتّصل بعد، لذلك لم يُبلّغ عن أي أدوات.',
+  'settings.connections.not_wired': 'مسجّل دون اتصال: لا شيء يفتح هذا العنوان بعد.',
+  'settings.connections.not_connected': 'لم يتّصل بعد، لذلك لم يُبلّغ عن أي أدوات.',
   'settings.connections.tools.toggle': 'الأدوات ({count})',
   'settings.connections.tools.empty': 'لم يُبلّغ هذا الخادم عن أي أدوات.',
   'settings.connections.tool.permission': 'إذن الأداة {tool}',
@@ -169,8 +167,7 @@ export default {
   'settings.connections.role_note': 'تُحفظ الأذونات للدور {role}، وهو دور الوكيل.',
   'settings.connections.permission_saved': 'حُفظ الإذن.',
   'settings.connections.add.title': 'إضافة خادم MCP محلي',
-  'settings.connections.add.stdio_only':
-    'يمكن إضافة الخوادم المحلية فقط في الوقت الحالي.',
+  'settings.connections.add.stdio_only': 'يمكن إضافة الخوادم المحلية فقط في الوقت الحالي.',
   'settings.connections.add.name': 'اسم الخادم',
   'settings.connections.add.command': 'الأمر',
   'settings.connections.add.args': 'الوسائط',
@@ -181,8 +178,7 @@ export default {
   'settings.connections.added': 'أُضيف الخادم.',
   'settings.connections.disconnect': 'قطع الاتصال',
   'settings.connections.disconnect.title': 'قطع اتصال {name}',
-  'settings.connections.disconnect.desc':
-    'سيتوقف الخادم {name} وتتوقف أدواته حتى تربطه من جديد.',
+  'settings.connections.disconnect.desc': 'سيتوقف {name} وتتوقف أدواته حتى تربطه من جديد.',
   'settings.connections.disconnected': 'قُطع اتصال الخادم.',
 
 

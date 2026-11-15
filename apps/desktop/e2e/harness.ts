@@ -1107,12 +1107,7 @@ function isPinnedPackage(spec: string): boolean {
  * argument.
  */
 function launchedPackage(command: string, args: readonly string[]): string | null | undefined {
-  const base = command
-    .trim()
-    .split(/[/\\]/)
-    .pop()
-    ?.trim()
-    .toLowerCase() ?? '';
+  const base = command.trim().split(/[/\\]/).pop()?.trim().toLowerCase() ?? '';
   const program = base.replace(/\.(cmd|exe)$/, '');
   if (!MCP_PACKAGE_LAUNCHERS.has(program)) return undefined;
   const tokens = args.map((arg) => arg.trim()).filter((arg) => arg.length > 0);

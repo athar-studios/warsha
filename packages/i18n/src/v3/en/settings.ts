@@ -158,8 +158,7 @@ export default {
   'settings.connections.transport.http': 'HTTP',
   'settings.connections.transport.websocket': 'WebSocket',
   'settings.connections.command_label': 'Command',
-  'settings.connections.not_wired':
-    'Recorded, not connected: nothing dials this address yet.',
+  'settings.connections.not_wired': 'Recorded, not connected: nothing dials this address yet.',
   'settings.connections.not_connected': 'Not connected yet, so it has reported no tools.',
   'settings.connections.tools.toggle': 'Tools ({count})',
   'settings.connections.tools.empty': 'This server reported no tools.',
