@@ -3,6 +3,7 @@ set -euo pipefail
 PROJECT=$1
 SPEC=$2
 OUTPUT_DIR=$3
+shift 3
 mkdir -p "$OUTPUT_DIR"
 docker run --rm \
   --user "$(id -u):$(id -g)" \
@@ -12,4 +13,4 @@ docker run --rm \
   -e FONTCONFIG_FILE=/scripts/ci/capture-fontconfig.conf \
   -e NODE_OPTIONS="--dns-result-order=ipv4first" \
   warsha-capture:0.3.0 \
-  pnpm exec playwright test --project="$PROJECT" "$SPEC" --output="/app/$OUTPUT_DIR"
+  pnpm exec playwright test --project="$PROJECT" "$SPEC" --output="/app/$OUTPUT_DIR" "$@"
