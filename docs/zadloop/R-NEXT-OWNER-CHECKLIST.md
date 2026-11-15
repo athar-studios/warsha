@@ -70,6 +70,15 @@ this file. Seeded by packet F0 from plan §10.2.
 - **Pass looks like:** an alert entry appended below with the date and figures; the run
   continues; at 100% the run hard-stops and Z1 is produced as-is.
 
+
+### 12. Smoke-script S4/S5 harness follow-up — packet: F3 (recorded 2026-11-15)
+- **What to do:** decide whether to order a script-only packet: `scripts/android-smoke.sh` S4 should
+  accept the bench's `#/…` hash links, and S5 should re-establish CDP after a harness-side
+  UiAutomation crash instead of scoring `ERR` as product failure. Product behaviour was verified
+  manually for both (see `docs/zadloop/packets/F3-report.md`).
+- **Pass looks like:** S4/S5 rows pass in the official script, or you accept the recorded manual
+  verification.
+
 ## Alerts appended by the fleet
 
 (none yet)

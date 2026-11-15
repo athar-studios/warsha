@@ -1899,3 +1899,9 @@ cut from `repair/dev-csp-f474776` @ `5b2bf5f`; packet branches in their own work
 non-force to `warsha-dev` only; version stays 0.3.0 (D-VER-030); checkpoints are local annotated
 tags `r-next/cp-<phase>`. Written into `ENGINEERING_POLICY.md` §8 so policy and plan do not
 contradict each other.
+
+## D-RN-F3-1 (2026-11-15)
+F3 fix scope: the `//pair` pathname acceptance in `parsePairingLink` plus surfacing the `pair()` refusal reason in `App.tsx` is the smallest fix the design's evidence supports (V2/H3); no Keystore change (environment artifact; real device expected fine). Options were: no fix (artifact-only reading) vs parser fix; the E2/E3 observations (link present at mount, replay delivered but unpaired, no page errors) make the parser the proven wall, so the fix follows the evidence. Priority applied: smaller scope (two functions, one test file).
+
+## D-RN-F3-2 (2026-11-15)
+S4/S5 smoke script rows: recorded as harness-side failures (hash-link matcher `#/` vs `/`; dead CDP after a device-side UiAutomation crash), product behaviour verified manually, NOT fixed in this packet because the design forbids editing `scripts/android-smoke.sh`. Follow-up (script-only packet) added to the owner checklist. Priority applied: fail closed (record, do not widen scope).
