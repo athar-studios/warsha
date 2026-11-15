@@ -133,6 +133,9 @@ export const RPC_METHODS = [
   'integrations.test',
   'mcp.approvals.allow_once',
   'mcp.approvals.list',
+  'mcp.connect',
+  'mcp.disconnect',
+  'mcp.list',
   'mcp.permissions.list',
   'mcp.permissions.set',
   'models.add',
@@ -1081,6 +1084,141 @@ function bindPairingData(source: Record<string, unknown>): StubOutcome {
 /** What the stub answers for one call: a result, or an error the screen is meant to show. */
 export type StubOutcome = { ok: true; result: unknown } | { ok: false; code: number; message: string };
 
+/** The programs that fetch a package (`PACKAGE_LAUNCHERS`, `crates/warshad/src/wave2.rs:754`). */
+const MCP_PACKAGE_LAUNCHERS = new Set(['npx', 'pnpm', 'yarn', 'bun', 'bunx', 'npm', 'uvx', 'pipx']);
+
+/** The launcher subcommands that stand between a launcher and its package (`…/wave2.rs:757`). */
+const MCP_LAUNCHER_SUBCOMMANDS = new Set(['dlx', 'exec', 'x', 'run', 'tool']);
+
+/** True for a package argument that names an exact release (`is_pinned_package`, `…/wave2.rs:830`). */
+function isPinnedPackage(spec: string): boolean {
+  const at = spec.lastIndexOf('@');
+  if (at <= 0) return false;
+  const version = spec.slice(at + 1);
+  return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version);
+}
+
+/**
+ * The package a launcher's argument list names, or `null` when it names none.
+ *
+ * Read the way `wave2::require_pinned_launch` reads it (`crates/warshad/src/wave2.rs:765-830`): a
+ * launcher option is not a package, `--package=…`/`-p …` names one, `npm|pnpm|yarn run <script>`
+ * runs a local script rather than a fetched package, and every token after the package is a server
+ * argument.
+ */
+function launchedPackage(command: string, args: readonly string[]): string | null | undefined {
+  const base = command
+    .trim()
+    .split(/[/\\]/)
+    .pop()
+    ?.trim()
+    .toLowerCase() ?? '';
+  const program = base.replace(/\.(cmd|exe)$/, '');
+  if (!MCP_PACKAGE_LAUNCHERS.has(program)) return undefined;
+  const tokens = args.map((arg) => arg.trim()).filter((arg) => arg.length > 0);
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index] ?? '';
+    if (MCP_LAUNCHER_SUBCOMMANDS.has(token)) {
+      if (token === 'run' && (program === 'npm' || program === 'pnpm' || program === 'yarn')) {
+        return undefined;
+      }
+      continue;
+    }
+    if (token.startsWith('--package=')) return token.slice('--package='.length);
+    if (token === '--package' || token === '-p') return tokens[index + 1] ?? null;
+    if (token.startsWith('-')) continue;
+    return token;
+  }
+  return null;
+}
+
+/**
+ * Bind a `mcp.connect` params object the way `warshad` binds it, or refuse it the way the daemon
+ * refuses it.
+ *
+ * `McpServerConfig` (`crates/warsha-pipeline/src/mcp_transport.rs:120-136`) is the whole bound
+ * argument, so every field below is serde's own requirement. On top of the binding,
+ * `connect_mcp` (`crates/warshad/src/lib.rs:1430-1457`) refuses a blank name
+ * (`McpTransportError::EmptyName`) and a launcher that would fetch an unpinned release
+ * (`wave2::require_pinned_launch`), and the words here are the daemon's own, because the screen
+ * renders them verbatim. The unpinned refusal is the packet's `-32602`-class refusal rather than
+ * the live `POLICY_REFUSED` (-32005, `crates/warshad/src/auth.rs:1434`): the client shows the
+ * message and never the code, and a stub that accepted the launch would let a screen photograph a
+ * server no daemon would start.
+ */
+function bindMcpServerConfig(raw: unknown): StubOutcome {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return {
+      ok: false,
+      code: -32602,
+      message: `invalid type: ${serdeUnexpected(raw)}, expected struct McpServerConfig`,
+    };
+  }
+  const config = raw as Record<string, unknown>;
+  for (const field of ['name', 'transport', 'args'] as const) {
+    if (!(field in config)) return missingField(field);
+  }
+  const name = config['name'];
+  if (typeof name !== 'string') {
+    return {
+      ok: false,
+      code: -32602,
+      message: `invalid type: ${serdeUnexpected(name)}, expected a string`,
+    };
+  }
+  if (name.trim().length === 0) {
+    return { ok: false, code: -32602, message: 'an MCP server needs a name' };
+  }
+  const transport = config['transport'];
+  if (typeof transport !== 'object' || transport === null || Array.isArray(transport)) {
+    return {
+      ok: false,
+      code: -32602,
+      message: `invalid type: ${serdeUnexpected(transport)}, expected internally tagged enum McpTransport`,
+    };
+  }
+  const kind = (transport as Record<string, unknown>)['kind'];
+  if (kind !== 'stdio' && kind !== 'http' && kind !== 'websocket') {
+    return {
+      ok: false,
+      code: -32602,
+      message: `unknown variant \`${String(kind)}\`, expected one of \`stdio\`, \`http\`, \`websocket\``,
+    };
+  }
+  const args = config['args'];
+  if (!Array.isArray(args)) {
+    return {
+      ok: false,
+      code: -32602,
+      message: `invalid type: ${serdeUnexpected(args)}, expected a sequence`,
+    };
+  }
+  if (kind !== 'stdio') return { ok: true, result: null };
+  const command = config['command'];
+  if (typeof command !== 'string' || command.trim().length === 0) {
+    // `connect_mcp` refuses a stdio server with no program before it reaches the manager.
+    return { ok: false, code: -32602, message: 'a stdio MCP server names no program to start' };
+  }
+  const launchArgs = args.map((arg) => String(arg));
+  const launched = launchedPackage(command, launchArgs);
+  if (launched === undefined) return { ok: true, result: null };
+  if (launched === null) {
+    return {
+      ok: false,
+      code: -32602,
+      message: `the pack launches \`${command}\` but names no package; there is nothing pinned to run`,
+    };
+  }
+  if (!isPinnedPackage(launched)) {
+    return {
+      ok: false,
+      code: -32602,
+      message: `the pack launches the unpinned package \`${launched}\`; name the release it was tested with as \`pkg@x.y.z\``,
+    };
+  }
+  return { ok: true, result: null };
+}
+
 /** The wire shape `warsha_core::HarnessDefinition` serialises (`harness.get`/`harness.import`). */
 function harnessRow(id: string): Record<string, unknown> {
   return {
@@ -1624,6 +1762,29 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
           permission,
         },
       };
+    }
+    // MCP connections (R-EXT-1). `mcp.list` answers "no server configured" so a capture that does
+    // not override it keeps the baseline it had; a case that needs a connected, an `{error: …}` or
+    // a recorded-not-dialled http row passes it through `fixtures`, the way the Wave 2 lists above
+    // are overridden. `mcp.connect` binds the whole `config` struct and refuses a launch the daemon
+    // would refuse, so a screen that sends the wrong body fails here instead of passing.
+    case 'mcp.list':
+      return { ok: true, result: [] };
+    case 'mcp.connect': {
+      const config = paramEntry(params, 'config');
+      if (!config.found) return missingField('config');
+      return bindMcpServerConfig(config.value);
+    }
+    case 'mcp.disconnect': {
+      const name = paramEntry(params, 'name');
+      if (!name.found) return missingField('name');
+      if (paramValue(params, 'name') === null) {
+        return { ok: false, code: -32602, message: 'invalid type: map, expected a string' };
+      }
+      // `McpTransportError::NotFound` is the daemon's own refusal for a name it does not hold; the
+      // stub holds no server, so a disconnect that binds answers the daemon's `()` and the row
+      // disappears on the next `mcp.list` the case stubs.
+      return { ok: true, result: null };
     }
     case 'agent.state':
       return {
