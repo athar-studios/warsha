@@ -32,6 +32,7 @@ use warsha_providers::{KeychainSecretStore, ProviderRouter, SecretStore};
 use warsha_remote::DeviceRegistry;
 use warsha_store::Store;
 
+use crate::auth::cors_origins;
 #[allow(unused_imports)] // named only by the doc link on `start_daemon_with_provider_factory`
 use crate::MockProviderFactory;
 use crate::{
@@ -432,14 +433,13 @@ pub async fn start_daemon_with_provider_factory(
     // layer: inside, every preflight would be answered "unauthorized" and the real POST would never
     // be sent. A client that sends no `Origin` (the CLI, a test) sees no CORS headers and is
     // unaffected.
-    let allowed_origins = config
-        .allowed_origins
-        .clone()
-        .into_iter()
-        .filter_map(|o| o.parse::<axum::http::HeaderValue>().ok())
-        .collect::<Vec<axum::http::HeaderValue>>();
+    //
+    // The list is `APP_ORIGINS` unioned with the configuration — the same union the WebSocket
+    // origin gate applies, written once in `cors_origins`. The Android shell's page is the second
+    // caller of that rule (R-UI-7): its origin is the app's own, not something a `config.toml`
+    // lists, and a preflight answered without it leaves the paired page unable to read any answer.
     let rpc_cors = CorsLayer::new()
-        .allow_origin(allowed_origins.clone())
+        .allow_origin(cors_origins(&config.allowed_origins))
         .allow_methods(Any)
         .allow_headers(Any);
     let rpc_auth_layer = RpcAuthLayer {

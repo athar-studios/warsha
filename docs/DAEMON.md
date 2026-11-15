@@ -72,7 +72,7 @@ Verified against: `crates/warshad/src/lib.rs`, `crates/warsha-store/src/lib.rs`,
 | `http_port` | u16 | `8765` | HTTP surface, bound on `127.0.0.1` |
 | `ws_port` | u16 | `8766` | JSON-RPC surface, bound on `127.0.0.1` |
 | `auth_token` | string | `""` in `Default`, **replaced on first run** by 32 random bytes from `OsRng` encoded with `base64 URL_SAFE_NO_PAD` (`:549-558`) | Bearer token, see §3 |
-| `allowed_origins` | string[] | `["http://localhost:5173", "tauri://localhost"]` | CORS allow-list for the HTTP surface (`:89-92`, applied at `:501-506`) |
+| `allowed_origins` | string[] | `["http://localhost:5173", "tauri://localhost"]` | Extra origins, **unioned with the app's own** (`APP_ORIGINS`) rather than replacing them — see §4 |
 
 Because `auth_token` has a default of `""` only for in-memory construction, a config file that loses the
 field yields an empty token; treat a non-empty 43-character base64url string as the signal that the config
@@ -108,9 +108,29 @@ was created normally.
 | `GET /health` | none | Returns `HealthResponse` as JSON: `{"status":"healthy","version":"<crate version>","uptime_seconds":0}` (`:412-418`) |
 | `GET /events` | bearer | **Pending M1** — see below |
 
-CORS is layered over the router with `allow_origin(allowed_origins)`, `allow_methods(Any)` and
-`allow_headers(Any)` (`:501-506`), so browser clients from the configured origins (Vite dev server, Tauri)
-may call it.
+CORS is layered over both listeners with `allow_origin(cors_origins(&config.allowed_origins))`,
+`allow_methods(Any)` and `allow_headers(Any)` (`crates/warshad/src/auth.rs`,
+`crates/warshad/src/http.rs`, `crates/warshad/src/startup.rs`), so browser clients from the configured
+origins (Vite dev server, Tauri, a browser PWA) may call them.
+
+### The origin rule — `APP_ORIGINS` ∪ `allowed_origins`, exact match
+
+A request that carries an `Origin` header is refused with `403 {"error":"origin not allowed"}` before
+its credential is read unless that origin is one of `APP_ORIGINS` or of `allowed_origins`
+(`origin_allowed` in `crates/warshad/src/auth.rs`). `APP_ORIGINS` is the app's own, compiled-in list:
+
+| Origin | Who presents it |
+|---|---|
+| `tauri://localhost` | the desktop webview (Unix) |
+| `http://tauri.localhost` | the desktop webview (Windows) |
+| `https://appassets.androidplatform.net` | the Android shell (`apps/mobile`), which serves the bundled page from that host in `MainActivity` (OD-UI7, R-UI-7) |
+
+The comparison is the whole string — scheme, host, no port, no trailing slash — so `http://…`, a
+`…:8443` form and a suffixed attacker domain are all refused. `null` is **never** admitted, in either
+list: it is what a `file:` document presents and what any hostile page can force a browser to send
+(sandboxed iframe, `data:` document), so admitting it would remove the check while leaving the code.
+The bearer token remains the credential; the origin rule is browser-facing defence in depth, and a
+non-browser client can forge any `Origin` (that was already true of the two Tauri origins).
 
 Note the drift: the HTTP `/health` handler hardcodes `uptime_seconds: 0` (`:416`), while the JSON-RPC
 `health` method reports real uptime from `start_time.elapsed()` (`:244-250`). Same type, different truth.

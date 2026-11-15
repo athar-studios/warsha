@@ -5,12 +5,16 @@
 // A hash router under `file:` is therefore the fix for the nav click, and a path router everywhere
 // else is what keeps every deep link the daemon and the PWA already serve. Both halves are asserted
 // here, because switching every deployment to hash URLs would be a silent change to those links.
+//
+// R-UI-7 adds the second such document: the Android shell's asset host. It is a real origin, so the
+// assertion there is not "the push would throw" but "the push would be a 404" — the shell answers
+// only the files it bundles, and re-opening `/gates` reloads a path no file holds.
 import { fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { Link, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import ShellRouter, { usesHashRouting } from './ShellRouter';
+import ShellRouter, { ANDROID_ASSET_ORIGIN, usesHashRouting } from './ShellRouter';
 
 /** What the router under test decided — the path its children read — and one nav destination. */
 function Probe() {
@@ -71,11 +75,50 @@ describe('the shell router', () => {
     expect(screen.getByTestId('pathname')).toHaveTextContent('/gates');
   });
 
+  it('is the hash router on the Android shell asset host, so a nav click is not a 404 path', () => {
+    render(
+      <ShellRouter protocol="https:" origin={ANDROID_ASSET_ORIGIN}>
+        <Probe />
+      </ShellRouter>
+    );
+
+    fireEvent.click(screen.getByRole('link'));
+
+    expect(window.location.pathname).toBe('/');
+    expect(window.location.hash).toBe('#/gates');
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/gates');
+  });
+
+  it('reads the fragment the Android shell page already carries', () => {
+    window.location.hash = '#/settings';
+    render(
+      <ShellRouter protocol="https:" origin={ANDROID_ASSET_ORIGIN}>
+        <Probe />
+      </ShellRouter>
+    );
+
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/settings');
+  });
+
   it('is decided by the protocol alone', () => {
     expect(usesHashRouting('file:')).toBe(true);
     expect(usesHashRouting('http:')).toBe(false);
     expect(usesHashRouting('https:')).toBe(false);
-    // The default is the document's own protocol, which is what production reads.
+    // The default is the document's own protocol and origin, which is what production reads.
     expect(usesHashRouting()).toBe(false);
+  });
+
+  it('admits the asset host by exact origin, and no origin that merely resembles it', () => {
+    expect(usesHashRouting('https:', ANDROID_ASSET_ORIGIN)).toBe(true);
+    for (const lookalike of [
+      'https://appassets.androidplatform.net.evil.example',
+      'http://appassets.androidplatform.net',
+      'https://appassets.androidplatform.net:8443',
+      'https://localhost',
+      // The daemon's own origin: served over http with real paths, so it keeps BrowserRouter.
+      'http://127.0.0.1:8765',
+    ]) {
+      expect(usesHashRouting('https:', lookalike)).toBe(false);
+    }
   });
 });
