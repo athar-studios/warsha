@@ -6828,3 +6828,6 @@ hypotheses left in this triage.
 
 ## Run 2026-11-15 — R-SEC tail closed (gitleaks fixture allow-list)
 - **R-SEC tail** (PM-owned, one line, per run-plan R1): git-mode `gitleaks detect` showed 7 hits, all the fictional `"password":"SECRET-3"` B3b canary (`tests/mod.rs` ×2 live + `lib.rs` history + 2 frozen packets ×2). Added `^SECRET-3$` to the `generic-secret` rule's allowlist (same anchored-literal convention as the other canaries). Post: **no leaks found** (git mode). Full `--no-git` workspace scan still reports pre-existing noise (nested worktree copies, `.env`, docs build output, `&lt;redacted&gt;` HTML-escaped doc quote, one `sk-...` filler and `API_KEY` identifier in untracked lanes) — outside CI scope, not touched.
+
+## Run 2026-11-15 — R-FIN audit frozen (PM-measured, planner lane 429×4)
+- **R-FIN-audit** (`docs/zadloop/packets/R-FIN-audit.md`): FIN1 done (clippy 0, mocks test-scoped); FIN2 stale-line list; FIN3 inventory (~113 branches/~77 worktrees, merged-lane delete list); FIN4 green rows + blocked rows (visual/T3/T2/installers); FIN5 owner-gated + version gap still open. Gaps closed by measurement: SH4 (create_pr has no draft field → new design item R-FIN-SH4d), S1c/E7 (single sqlx-sqlite stack), E4 parked. Ordered unblock list: version ask → capture host/CI → R-UI-7b → R-FIN-SH4d → FIN3→FIN4→FIN5.
