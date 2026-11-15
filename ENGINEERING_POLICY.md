@@ -195,6 +195,39 @@ If future work ever copies upstream material, the license/reference boundary rec
 `DECISIONS.md` (2026-11-02, B1) applies: retain license/copyright/attribution notices and update
 `THIRD_PARTY_NOTICES.md` in the same change.
 
+## 8. Owner delegation for the R-NEXT run
+
+For the R-NEXT run defined in `docs/zadloop/R-NEXT-MASTER-PLAN.md` (v3, owner-approved
+2026-11-15), the owner has delegated the following in advance (plan §0.2, §0.3). This section
+reconciles §1 Phase 7 with that delegation for this run only; everything else in this policy is
+unchanged, and the stricter rule still wins wherever they overlap.
+
+- **Where work lands.** The integration branch is `r-next/integration`, cut from the tip of
+  `repair/dev-csp-f474776`. Every packet branches from it in its own isolated git worktree and
+  merges back into it. `main` is never touched by the fleet: no push, no merge, no fast-forward;
+  the owner fast-forwards `main` after the run.
+- **Pushes.** The integration branch and packet branches may be pushed, non-force, to the
+  `warsha-dev` remote only. Nothing is pushed to `origin`. No force-push anywhere.
+- **No release, no publish, no version tag.** The version stays 0.3.0 for the whole run
+  (D-VER-030). Checkpoints are local annotated tags named `r-next/cp-<phase>`; they are markers,
+  not releases.
+- **Delegated acceptance.** Acceptance of a packet into `r-next/integration` is granted when the
+  verifier role records every acceptance gate green and the evidence bundle (§4) is complete; the
+  PM role performs the merge. Product decisions inside the plan's scope are made by the plan's
+  decision rule (fail closed → follow the repo → smaller scope → reversible) and logged in
+  `DECISIONS.md` with ids `D-RN-<packet>-<n>`.
+- **Still owner-only.** This delegation does not cover merging to `main`, releases, publishing,
+  approving the product's own gates (Gate A–D) on behalf of a user, or anything in the plan's
+  §12: agents can never approve gates. Audits are recorded in packet reports, not escalated; red
+  is never merged; a blocked packet is skipped and listed, and the run continues.
+- **Hard stops.** A secret outside the OS keychain, a failed licence audit without a stated
+  fallback, anything touching `main`/release/force-push, or making the product act without an
+  owner-visible gate, queue, or log blocks that packet under the plan's §0.6 — it does not stop
+  the run.
+- **Spend ceiling.** The run tracks cumulative estimated spend against the run budget recorded in
+  `PROGRESS.md`; at 80% an alert is appended to the owner checklist; at 100% the run hard-stops
+  and the closing report is produced as-is.
+
 ## Enforcement
 
 `node scripts/check-engineering-policy.mjs` (also `pnpm policy`) validates this document — its
