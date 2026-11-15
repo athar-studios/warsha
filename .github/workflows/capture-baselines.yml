@@ -1,0 +1,79 @@
+# Baseline capture (RF2)
+# RF2/A7 owner amendment.
+# Manual dispatch only.
+# Proof: 3 consecutive green workflow runs.
+# This workflow captures baselines; it never weakens a gate (maxDiffPixelRatio 0 / threshold 0.05 untouched).
+
+name: Baseline capture (RF2)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Build capture image
+        run: docker build -f docker/capture/Dockerfile -t warsha-capture:0.3.0 .
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Canary
+        run: ./docker/capture/canary.sh
+
+      - name: Desktop v3 capture (genesis)
+        run: |
+          mkdir -p target/rf2
+          docker run --rm --cpus=2 --memory=4g --shm-size=1g --user "$(id -u):$(id -g)" -e HOME=/tmp/pw-home -e LC_ALL=C -v "$(pwd):/app" -w /app -e FONTCONFIG_FILE=/scripts/ci/capture-fontconfig.conf -e NODE_OPTIONS="--dns-result-order=ipv4first" -e PLAYWRIGHT_JSON_OUTPUT_NAME=/app/target/rf2/genesis.json warsha-capture:0.3.0 pnpm exec playwright test --project=desktop apps/desktop/e2e/v3/bench.spec.ts apps/desktop/e2e/v3/frame.spec.ts apps/desktop/e2e/v3/home.spec.ts apps/desktop/e2e/v3/inbox.spec.ts apps/desktop/e2e/v3/onboarding.spec.ts apps/desktop/e2e/v3/project.spec.ts apps/desktop/e2e/v3/projects.spec.ts apps/desktop/e2e/v3/settings.spec.ts --grep "@visual" --update-snapshots --output="/app/target/rf2/genesis-out"
+
+      - name: Desktop v3 genesis check
+        run: node scripts/ci/pw-genesis.mjs check target/rf2/genesis.json
+
+      - name: Desktop v3 verify
+        run: |
+          docker run --rm --cpus=2 --memory=4g --shm-size=1g --user "$(id -u):$(id -g)" -e HOME=/tmp/pw-home -e LC_ALL=C -v "$(pwd):/app" -w /app -e FONTCONFIG_FILE=/scripts/ci/capture-fontconfig.conf -e NODE_OPTIONS="--dns-result-order=ipv4first" -e PLAYWRIGHT_JSON_OUTPUT_NAME=/app/target/rf2/verify.json warsha-capture:0.3.0 pnpm exec playwright test --project=desktop apps/desktop/e2e/v3/bench.spec.ts apps/desktop/e2e/v3/frame.spec.ts apps/desktop/e2e/v3/home.spec.ts apps/desktop/e2e/v3/inbox.spec.ts apps/desktop/e2e/v3/onboarding.spec.ts apps/desktop/e2e/v3/project.spec.ts apps/desktop/e2e/v3/projects.spec.ts apps/desktop/e2e/v3/settings.spec.ts --grep "@visual" --output="/app/target/rf2/verify-out"
+
+      - name: Desktop v3 gate counts
+        run: node scripts/ci/pw-gate.mjs counts target/rf2/verify.json 416 0
+
+      - name: Remote bench capture (genesis)
+        run: |
+          docker run --rm --cpus=2 --memory=4g --shm-size=1g --user "$(id -u):$(id -g)" -e HOME=/tmp/pw-home -e LC_ALL=C -v "$(pwd):/app" -w /app -e FONTCONFIG_FILE=/scripts/ci/capture-fontconfig.conf -e NODE_OPTIONS="--dns-result-order=ipv4first" -e PLAYWRIGHT_JSON_OUTPUT_NAME=/app/target/rf2/remote-genesis.json warsha-capture:0.3.0 pnpm exec playwright test --project=remote apps/remote/e2e/bench.visual.spec.ts --update-snapshots --output="/app/target/rf2/remote-genesis-out"
+
+      - name: Remote bench verify
+        run: |
+          docker run --rm --cpus=2 --memory=4g --shm-size=1g --user "$(id -u):$(id -g)" -e HOME=/tmp/pw-home -e LC_ALL=C -v "$(pwd):/app" -w /app -e FONTCONFIG_FILE=/scripts/ci/capture-fontconfig.conf -e NODE_OPTIONS="--dns-result-order=ipv4first" -e PLAYWRIGHT_JSON_OUTPUT_NAME=/app/target/rf2/remote-verify.json warsha-capture:0.3.0 pnpm exec playwright test --project=remote apps/remote/e2e/bench.visual.spec.ts --output="/app/target/rf2/remote-verify-out"
+
+      - name: Remote bench gate counts
+        run: node scripts/ci/pw-gate.mjs counts target/rf2/remote-verify.json 84 0
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v3-baselines
+          path: |
+            apps/desktop/e2e/v3/*.spec.ts-snapshots/
+            apps/remote/e2e/bench.visual.spec.ts-snapshots/
+            target/rf2/*.json
