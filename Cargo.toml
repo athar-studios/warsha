@@ -15,7 +15,7 @@ members = [
 exclude = []
 
 [workspace.package]
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 license = "PolyForm-Noncommercial-1.0.0"
 authors = ["Warsha Contributors"]

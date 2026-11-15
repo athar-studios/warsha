@@ -1,6 +1,6 @@
 [package]
 name = "warsha-desktop"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 description = "Warsha desktop shell — Tauri 2 window around the warshad daemon"
 license = "PolyForm-Noncommercial-1.0.0"
