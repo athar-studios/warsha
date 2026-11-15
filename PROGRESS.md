@@ -6831,3 +6831,8 @@ hypotheses left in this triage.
 
 ## Run 2026-11-15 — R-FIN audit frozen (PM-measured, planner lane 429×4)
 - **R-FIN-audit** (`docs/zadloop/packets/R-FIN-audit.md`): FIN1 done (clippy 0, mocks test-scoped); FIN2 stale-line list; FIN3 inventory (~113 branches/~77 worktrees, merged-lane delete list); FIN4 green rows + blocked rows (visual/T3/T2/installers); FIN5 owner-gated + version gap still open. Gaps closed by measurement: SH4 (create_pr has no draft field → new design item R-FIN-SH4d), S1c/E7 (single sqlx-sqlite stack), E4 parked. Ordered unblock list: version ask → capture host/CI → R-UI-7b → R-FIN-SH4d → FIN3→FIN4→FIN5.
+
+## Terminal state (round 256) — implementation queue done; owner/host-gated items remain
+- **Shipped this session:** R-EXT-4 (Streamable HTTP dialling), R-EXT-5 (X9a WebMCP), R-EXT-6 (RC1: dead channel + snow deleted), R-UI-6b/6c (Android build proven: clean-state APK with 54 web assets), R-SEC tail (gitleaks git-mode clean), R-FIN audit (FIN1–5 + R0 placement).
+- **Verified green on the closing tree:** diff-check, wire 11/0, policy 8/0 (plus per-merge evidence: fmt/clippy 0, suites 0-fail, desktop 854/0, non-visual 305/305, deny clean).
+- **Not finishable in-session (owner/host-gated, see R-FIN-audit unblock list):** version decision (R0) + 0.3.0 bump/install; capture host for R-UI-4 Part A baselines (+ CI billing); R-UI-7b pairing boundary (S2–S5); R-FIN-SH4d draft-PR design; FIN3 cleanup; FIN4 full §5; FIN5 install + FINAL_REPORT. Branch `repair/dev-csp-f474776` pushed to `warsha-dev` at `ad1c943`, clean.
