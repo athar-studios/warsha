@@ -285,6 +285,14 @@ pub enum EventKind {
     Fallback,
     BudgetWarning,
     BudgetExceeded,
+    /// The run's end, appended once on the transition into `Completed`, `Failed` or
+    /// `Cancelled` (R-EXT-2). The payload carries `{"status": "completed"|"failed"|
+    /// "cancelled"}` and nothing else, so a client that watches the stream learns the
+    /// run ended without re-polling `runs.list` (G1).
+    ///
+    /// Last on purpose: the discriminant of a stored row only ever moves forward with
+    /// a new variant, and the store keeps this kind as its serde name (`run_finished`).
+    RunFinished,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -453,6 +461,46 @@ mod tests {
     fn test_gate_state_default() {
         let gate = GateState::default();
         assert_eq!(gate, GateState::Pending);
+    }
+
+    /// T7 (R-EXT-2): `run_finished` is the wire name of the run-end kind, it round
+    /// trips through serde, and an unknown kind string is still an error — the store
+    /// reads a kind back by name (`warsha-store/src/lib.rs`), so a silent default here
+    /// would turn a row it cannot understand into some other event.
+    #[test]
+    fn test_event_kind_run_finished_round_trip() {
+        assert_eq!(
+            serde_json::to_string(&EventKind::RunFinished).unwrap(),
+            "\"run_finished\""
+        );
+        let decoded: EventKind = serde_json::from_str("\"run_finished\"").unwrap();
+        assert_eq!(decoded, EventKind::RunFinished);
+        assert!(serde_json::from_str::<EventKind>("\"run_ended\"").is_err());
+        assert!(serde_json::from_str::<EventKind>("\"RunFinished\"").is_err());
+    }
+
+    /// The new variant is additive on the wire: every kind the daemon already emitted
+    /// keeps its own name, so a client that reads kinds as strings sees no change.
+    #[test]
+    fn test_event_kind_names_are_unchanged_for_existing_kinds() {
+        let expected = [
+            (EventKind::StageStarted, "\"stage_started\""),
+            (EventKind::StageCompleted, "\"stage_completed\""),
+            (EventKind::GateDecision, "\"gate_decision\""),
+            (EventKind::AgentStep, "\"agent_step\""),
+            (EventKind::ToolCall, "\"tool_call\""),
+            (EventKind::ArtifactCreated, "\"artifact_created\""),
+            (EventKind::ArtifactUpdated, "\"artifact_updated\""),
+            (EventKind::CostRecorded, "\"cost_recorded\""),
+            (EventKind::Error, "\"error\""),
+            (EventKind::Fallback, "\"fallback\""),
+            (EventKind::BudgetWarning, "\"budget_warning\""),
+            (EventKind::BudgetExceeded, "\"budget_exceeded\""),
+            (EventKind::RunFinished, "\"run_finished\""),
+        ];
+        for (kind, name) in expected {
+            assert_eq!(serde_json::to_string(&kind).unwrap(), name);
+        }
     }
 
     #[test]
