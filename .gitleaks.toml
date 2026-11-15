@@ -84,6 +84,9 @@ tags = ["secret"]
   [[rules.allowlists]]
   description = "Redaction-test canary literals (asserted to never leak into output)"
   regexes = [
+    # crates/warshad/src/tests/mod.rs + lib.rs history + R-BRIDGE-B3a/R-UI-RUN-PLAN
+    # quotes: the B3b redaction fixtures' obviously fake `"password":"SECRET-3"`.
+    '''^SECRET-3$''',
     # crates/warsha-remote/src/rate_limit.rs: filler key (40 identical
     # chars) for the OpenRouter-style rate-limit redaction test.
     '''^sk-or-v1-a{40}$''',
