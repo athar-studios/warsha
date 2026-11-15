@@ -202,6 +202,15 @@ caller crosses, and what enforces each one today:
 - **Remote devices**: a paired device is a session, not the owner. `pairing.list`, permission writes and
   every mutating settings RPC are `Owner`; a revoked or expired pairing is refused on its next request,
   and `/events` closes for it (`crates/warshad/src/auth.rs`, `lib.rs`).
+- **Browser-integrated agents (WebMCP)**: an assistant built into the browser, running in the same window,
+  can reach exactly four read-only navigation tools — Inbox, Settings › General, New project, Projects —
+  and only while the owner's device switch is on (`Settings › General › Browser assistant tools`, off by
+  default, stored per device, no daemon flag and no preferences row). A tool call moves the window through
+  the same router the UI uses and makes no RPC of its own; the result is the page it opened, so no project,
+  run, gate, file, path or settings value ever reaches the agent, and no gate can be answered, approved,
+  started, changed or deleted through a tool. With the switch off `registerTool` is never called, and the
+  tools are removed on switch-off, on entering onboarding and on unmount
+  (`apps/desktop/src/v3/webmcp/`).
 
 ### Code Execution Control — an allow-list, not a sandbox
 
