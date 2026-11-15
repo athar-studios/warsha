@@ -106,7 +106,8 @@ android {
 
 // ---------------------------------------------------------------------------
 // Sync the built remote PWA (apps/remote/dist) into assets/public.
-// Builds apps/remote via pnpm first when dist/ is missing.
+// buildRemoteWebAssets builds apps/remote via pnpm first, as a dependency: a
+// Sync with a missing source dir is NO-SOURCE and would skip any doFirst.
 // ---------------------------------------------------------------------------
 def remoteDistDir = rootDir.toPath()
         .normalize().resolve("../../../apps/remote/dist").toFile()
@@ -115,12 +116,12 @@ assert remoteDistDir.parentFile.name == "remote"
 
 def webAssetsDir = file("src/main/assets/public")
 
-def syncRemoteWebAssets = tasks.register("syncRemoteWebAssets", Sync) {
-    description = "Copies apps/remote/dist into android assets/public " +
-            "(the WebView loads file:///android_asset/public/index.html)."
+def buildRemoteWebAssets = tasks.register("buildRemoteWebAssets") {
+    description = "Builds apps/remote into apps/remote/dist " +
+            "(pnpm --filter warsha-remote build)."
     group = "warsha"
 
-    doFirst {
+    doLast {
         logger.lifecycle("Building apps/remote with pnpm before sync…")
         def repoRoot = remoteDistDir.parentFile.parentFile.parentFile
         def pnpm = org.gradle.internal.os.OperatingSystem.current().isWindows()
@@ -136,6 +137,14 @@ def syncRemoteWebAssets = tasks.register("syncRemoteWebAssets", Sync) {
                     "Run `pnpm --filter warsha-remote build` manually.")
         }
     }
+}
+
+def syncRemoteWebAssets = tasks.register("syncRemoteWebAssets", Sync) {
+    description = "Copies apps/remote/dist into android assets/public " +
+            "(the WebView loads file:///android_asset/public/index.html)."
+    group = "warsha"
+
+    dependsOn buildRemoteWebAssets
 
     from remoteDistDir
     into webAssetsDir
