@@ -313,9 +313,13 @@ export function parsePairingLink(value: string): PairingResult {
     } catch {
       return { ok: false, reason: 'url' };
     }
-    // `warsha://pair` arrives with host `pair`; `warsha:pair` with path `pair`. Either is a pairing;
-    // any other `warsha:` target (a stale `warsha:run?id=…`) is not this link kind and is refused.
-    const isPair = link.hostname === 'pair' || (link.hostname === '' && link.pathname === 'pair');
+    // `warsha://pair` arrives with host `pair` on URL parsers that treat the scheme as
+    // special; `warsha:pair` with path `pair`. A WebView that treats `warsha:` as a
+    // non-special scheme keeps no host (`hostname:""`, `pathname:"//pair"`), so that
+    // spelling is the same intent too. Anything else on the scheme (a stale
+    // `warsha:run?id=…`) is not a pairing and is refused.
+    const pathIsPair = link.pathname === 'pair' || link.pathname === '//pair';
+    const isPair = link.hostname === 'pair' || (link.hostname === '' && pathIsPair);
     if (!isPair) return { ok: false, reason: 'url' };
     return parseDeepLink(link);
   }
