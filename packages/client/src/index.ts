@@ -426,6 +426,91 @@ export interface RunStreamSync {
 }
 
 /**
+ * The `EventKind` a run's end is recorded under (`warsha_core::EventKind::RunFinished`).
+ *
+ * A run ends once, by `Completed`, `Failed` or `Cancelled`; the daemon appends exactly
+ * one `run_finished` event for that transition, so a stream watcher learns the run is
+ * over without re-polling `runs.list`.
+ */
+export const RUN_FINISHED_KIND = 'run_finished';
+
+/** The three ways a run can end, as the `run_finished` payload spells them. */
+export type RunFinishedStatus = 'completed' | 'failed' | 'cancelled';
+
+/**
+ * The status a finished run ended with, or `null` when this event is not a run's end.
+ *
+ * `null` for any other kind (the common case — a stream carries every kind), and `null`
+ * for a `run_finished` whose payload names a status this client does not know: an
+ * unknown ending is not a default one, and guessing `completed` would report success
+ * for a run that failed.
+ */
+export function decodeRunFinished(event: WarshaEvent): RunFinishedStatus | null {
+  if (event.kind !== RUN_FINISHED_KIND) return null;
+  const payload = event.payload;
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return null;
+  const status = (payload as Record<string, unknown>)['status'];
+  if (status === 'completed' || status === 'failed' || status === 'cancelled') return status;
+  return null;
+}
+
+/** Where an agent MCP tool call is, as `tool_call` events report it. */
+export type McpCallPhase = 'requested' | 'approval_required' | 'denied' | 'succeeded' | 'failed';
+
+/**
+ * One agent MCP tool call moment, decoded from a `tool_call` event.
+ *
+ * `server` and `tool` are what the daemon recorded; the arguments never travel in the
+ * event at all (privacy is the packet's binding rule), so there is nothing here to
+ * render from them. `questionId` is present only on `approval_required` — it names the
+ * Inbox item the owner answers.
+ */
+export interface McpCallEvent {
+  phase: McpCallPhase;
+  server: string;
+  tool: string;
+  questionId: string | null;
+}
+
+const MCP_CALL_PHASES: readonly McpCallPhase[] = [
+  'requested',
+  'approval_required',
+  'denied',
+  'succeeded',
+  'failed',
+];
+
+/**
+ * The agent MCP call a `tool_call` event records, or `null` when it records something
+ * else.
+ *
+ * A `tool_call` that is an owner's `allow_once` answer carries `action: mcp_allow_once`
+ * and no phase; this returns `null` for it rather than inventing one. A phase that is
+ * not one of the five the daemon writes also returns `null`.
+ */
+export function decodeMcpCall(event: WarshaEvent): McpCallEvent | null {
+  if (event.kind !== 'tool_call') return null;
+  const payload = event.payload;
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return null;
+  const source = payload as Record<string, unknown>;
+  if (source['action'] !== 'mcp_call') return null;
+  const phase = source['phase'];
+  if (typeof phase !== 'string' || !MCP_CALL_PHASES.includes(phase as McpCallPhase)) {
+    return null;
+  }
+  const server = source['server'];
+  const tool = source['tool'];
+  if (typeof server !== 'string' || typeof tool !== 'string') return null;
+  const questionId = source['question_id'];
+  return {
+    phase: phase as McpCallPhase,
+    server,
+    tool,
+    questionId: typeof questionId === 'string' ? questionId : null,
+  };
+}
+
+/**
  * `warsha_core::Artifact` as `runs.artifacts` returns it — snake_case on the
  * wire, one versioned document a pipeline stage produced for the run.
  */

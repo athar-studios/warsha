@@ -29,6 +29,7 @@ mod events;
 mod http;
 mod lock;
 mod mcp_approvals;
+mod mcp_call_events;
 mod providers;
 mod settings;
 mod skills;
@@ -52,6 +53,7 @@ use http::{http_app, origin_is_loopback, pairing_origin, resolve_bind_host};
 pub use http::{REMOTE_ASSETS_DIR_ENV, REMOTE_CSP};
 use lock::acquire_lock;
 pub use mcp_approvals::{McpApproval, McpApprovalAnswer};
+pub use mcp_call_events::StoreMcpCallObserver;
 pub use providers::{
     adapter_kind, keychain_credentials, AdapterKind, DeferredProvider, KeychainProviderFactory,
     MockProviderFactory, ProviderFactory, RemovedProvider,
@@ -343,6 +345,10 @@ impl WarshaApiServer for WarshaRpc {
             None => self.state.config.data_dir.join(AGENT_WORKSPACE_DIR),
         };
         let backend_kit = Arc::new(RwLock::new(default_backend_kit("run")));
+        // The run's own loop records every MCP tool call it makes on the run's event
+        // log (R-EXT-2 A1): the seam is the store's recorder, and it is attached here
+        // because this is the one loop builder that knows both the run id and the
+        // store. The daemon-wide loop above has neither and records nothing.
         let per_run_loop = build_agent_loop_in(
             &workspace,
             &self.state.config.allowed_commands,
@@ -352,7 +358,10 @@ impl WarshaApiServer for WarshaRpc {
             self.state.mcp_approvals.clone(),
             Some(run.id.0.to_string()),
             backend_kit,
-        );
+        )
+        .with_mcp_observer(Arc::new(StoreMcpCallObserver::new(
+            self.state.store.clone(),
+        )));
         if self
             .state
             .agent_sessions
@@ -2048,12 +2057,15 @@ impl WarshaApiServer for WarshaRpc {
         run_id: RunId,
         reason: Option<String>,
     ) -> RpcResult<Run> {
-        self.authorize(ext, "runs.cancel").await?;
+        let actor = self.authorize(ext, "runs.cancel").await?;
         let reason = Some(reason.unwrap_or_else(|| "Cancelled by user".to_string()));
+        // The run's `run_finished` event says which authenticated device cancelled it
+        // (R-EXT-2 A2). The device is the session's, never a parameter: the caller cannot
+        // name itself.
         let cancelled = self
             .state
             .pipeline
-            .cancel_run(run_id, reason)
+            .cancel_run_with_device(run_id, reason, actor.device_id())
             .await
             .map_err(rpc_error)?;
         // A cancelled run has no next call, so its pending questions and unspent

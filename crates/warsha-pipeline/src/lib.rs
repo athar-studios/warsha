@@ -35,6 +35,7 @@ mod handoff;
 mod llm_cache;
 pub mod mcp;
 pub mod mcp_approval;
+pub mod mcp_observer;
 pub mod mcp_permission;
 pub mod worktree;
 pub use crate::agent_sessions::{AgentSessionError, RunAgentSessions};
@@ -47,6 +48,7 @@ pub use crate::mcp_approval::{
     PendingApproval, PendingApprovalView, ResolvedApproval, TakeOutcome, MAX_PENDING_PER_RUN,
     MCP_ONCE_GRANT_TTL, PENDING_TTL,
 };
+pub use crate::mcp_observer::{McpCallEvent, McpCallObserver, McpCallPhase};
 pub use crate::mcp_permission::{
     AskEverything, McpPermissionSource, McpPermissionStore, StaticPermissions, MCP_AGENT_ROLE,
 };
@@ -172,6 +174,37 @@ pub use crate::work_protection::{
     SnapshotStore, UndoEntry, UndoStack, WorkProtectionError, WorkProtectionPolicy,
     MAX_UNDO_ENTRIES,
 };
+
+/// The one event a run's end appends (R-EXT-2 A2).
+///
+/// The payload is the status and nothing else — no reason, no summary, no counts —
+/// so the event says *that* the run ended without carrying anything a run's own
+/// records do not already hold. The stage is the stage the run was at when it ended,
+/// and the role is `None`: an ending belongs to the run, not to one agent.
+///
+/// `status` is the ending the caller already committed with its CAS — `completed`,
+/// `failed` or `cancelled`, the three terminal statuses. The caller passes the literal
+/// because it is writing the status in the same branch it read it: a paused or running
+/// run has no ending here, and there is no fourth value this could invent.
+fn run_finished_event(
+    run_id: RunId,
+    stage: Stage,
+    status: &'static str,
+    device_id: Option<DeviceId>,
+) -> Event {
+    Event {
+        id: Ulid::new(),
+        run_id,
+        stage,
+        role: None,
+        kind: EventKind::RunFinished,
+        payload: serde_json::json!({ "status": status }),
+        cost_cents: None,
+        tokens: None,
+        created_at: Utc::now(),
+        device_id,
+    }
+}
 
 // Helper to get stage as string
 fn stage_to_string(stage: Stage) -> &'static str {
@@ -1107,6 +1140,12 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         }
 
         let is_unrouted = matches!(error, PipelineError::NoProviderRouted(_));
+        // A run that was already over is not transitioned again, so it gets no second
+        // ending (R-EXT-2 T6).
+        let was_terminal = matches!(
+            run.status,
+            RunStatus::Completed | RunStatus::Failed | RunStatus::Cancelled
+        );
         if is_unrouted {
             run.status = RunStatus::Paused;
         } else {
@@ -1118,6 +1157,16 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 "the failed-run write for run {} did not land: {store_error}",
                 run.id.0
             );
+        } else if !is_unrouted && !was_terminal {
+            // The run's end, written in the same guard as the status that ends it: a
+            // lost CAS writes neither. A paused run is not over and says nothing.
+            let finished = run_finished_event(run.id, stage, "failed", None);
+            if let Err(store_error) = self.store.append_event(&finished).await {
+                warn!(
+                    "the run_finished event for run {} did not land: {store_error}",
+                    run.id.0
+                );
+            }
         }
 
         let action = if is_unrouted {
@@ -1200,6 +1249,11 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                     latest.status = RunStatus::Completed;
                     latest.updated_at = Utc::now();
                     self.store.update_run_cas(&latest, latest_v).await?;
+                    // One ending, inside the same guard as the status that ends the
+                    // run: a second advance finds `Completed` and writes none (T6).
+                    let finished =
+                        run_finished_event(run_id, latest.current_stage, "completed", None);
+                    self.store.append_event(&finished).await?;
                 }
                 return Ok(latest);
             }
@@ -1244,17 +1298,36 @@ impl<S: SettingsProvider> PipelineEngine<S> {
     /// so cancel is never lost), and appends an [`EventKind::Error`] event with
     /// `"action": "run_cancelled"`.
     pub async fn cancel_run(&self, run_id: RunId, reason: Option<String>) -> Result<Run> {
+        self.cancel_run_with_device(run_id, reason, None).await
+    }
+
+    /// Cancel a run, recording which authenticated device asked for it.
+    ///
+    /// The `device_id` lands on the run's `run_finished` event and nowhere else: a
+    /// system cancel (a failed worktree, an integrity sweep) passes `None`, and the
+    /// caller cannot name itself — the daemon hands over the device its session
+    /// authenticated.
+    pub async fn cancel_run_with_device(
+        &self,
+        run_id: RunId,
+        reason: Option<String>,
+        device_id: Option<DeviceId>,
+    ) -> Result<Run> {
         let ctrl = self.control_for(run_id).await;
         let _ = ctrl.cancel_tx.send(true);
 
         let _state_guard = ctrl.state_lock.lock().await;
         let mut attempts = 0;
-        let run = loop {
+        let (run, was_terminal) = loop {
             let (mut run, version) = self.store.get_run_versioned(run_id).await?;
+            let was_terminal = matches!(
+                run.status,
+                RunStatus::Completed | RunStatus::Failed | RunStatus::Cancelled
+            );
             run.status = RunStatus::Cancelled;
             run.updated_at = Utc::now();
             match self.store.update_run_cas(&run, version).await {
-                Ok(_) => break run,
+                Ok(_) => break (run, was_terminal),
                 Err(warsha_store::StoreError::VersionConflict { .. }) if attempts < 8 => {
                     attempts += 1;
                 }
@@ -1275,6 +1348,13 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             device_id: None,
         };
         self.store.append_event(&event).await?;
+
+        // The run's end, once: a run that was already over has had its ending
+        // written by whoever ended it, and a repeated `runs.cancel` adds none (T6).
+        if !was_terminal {
+            let finished = run_finished_event(run_id, run.current_stage, "cancelled", device_id);
+            self.store.append_event(&finished).await?;
+        }
 
         info!("Run {} cancelled: {:?}", run_id.0, reason);
         Ok(run)

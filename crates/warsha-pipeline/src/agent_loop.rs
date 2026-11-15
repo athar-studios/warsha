@@ -47,6 +47,7 @@ use crate::agent_workflow::{
 };
 use crate::backend_kit::BackendKit;
 use crate::mcp_approval::{ArgumentSummarizer, KeysOnlySummarizer, McpApprovals, TakeOutcome};
+use crate::mcp_observer::{McpCallEvent, McpCallObserver, McpCallPhase};
 use crate::mcp_permission::{McpPermissionSource, ToolPermission, MCP_AGENT_ROLE};
 use crate::mcp_transport::{McpManager, McpTransportError};
 
@@ -264,6 +265,13 @@ pub struct AgentLoop {
     /// `None` means this loop neither registers an ask nor consumes a grant, so an
     /// `Ask` fails closed exactly as it did before the registry existed.
     pub mcp_approvals: Option<Arc<McpApprovals>>,
+    /// Where an agent MCP tool call is recorded, when anyone is recording.
+    ///
+    /// `None` — a unit test's loop, and the daemon-wide loop that turns for no run —
+    /// makes every phase below a no-op, which is exactly the behaviour before this
+    /// seam existed. The daemon wires its store's recorder here, so the run's log says
+    /// what was called and how it ended (R-EXT-2 A1).
+    pub mcp_observer: Option<Arc<dyn McpCallObserver>>,
     /// The run this loop turns for, when it turns for one.
     ///
     /// A grant is bound to a run, so a loop without one can never consume one. The
@@ -300,6 +308,7 @@ pub struct PreparedTurn {
     mcp_manager: Option<Arc<dyn McpManager>>,
     mcp_permissions: Option<Arc<dyn McpPermissionSource>>,
     mcp_approvals: Option<Arc<McpApprovals>>,
+    mcp_observer: Option<Arc<dyn McpCallObserver>>,
     run_id: Option<String>,
     backend_kit: Option<Arc<RwLock<BackendKit>>>,
 }
@@ -346,6 +355,7 @@ impl AgentLoop {
             mcp_manager: None,
             mcp_permissions: None,
             mcp_approvals: None,
+            mcp_observer: None,
             run_id: None,
             backend_kit: None,
             turn_lock: Arc::new(Mutex::new(())),
@@ -390,6 +400,15 @@ impl AgentLoop {
     /// grant: it asks, and the call fails closed as it always did.
     pub fn with_mcp_approvals(mut self, approvals: Arc<McpApprovals>) -> Self {
         self.mcp_approvals = Some(approvals);
+        self
+    }
+
+    /// The same loop recording every agent MCP tool call through `observer`.
+    ///
+    /// Without one the loop behaves exactly as it did before this seam existed: a
+    /// call still runs, still asks, and still answers — nothing is written down.
+    pub fn with_mcp_observer(mut self, observer: Arc<dyn McpCallObserver>) -> Self {
+        self.mcp_observer = Some(observer);
         self
     }
 
@@ -495,6 +514,7 @@ impl AgentLoop {
                     mcp_manager: self.mcp_manager.clone(),
                     mcp_permissions: self.mcp_permissions.clone(),
                     mcp_approvals: self.mcp_approvals.clone(),
+                    mcp_observer: self.mcp_observer.clone(),
                     run_id: self.run_id.clone(),
                     backend_kit: self.backend_kit.clone(),
                 }
@@ -517,6 +537,7 @@ impl AgentLoop {
                     mcp_manager: self.mcp_manager.clone(),
                     mcp_permissions: self.mcp_permissions.clone(),
                     mcp_approvals: self.mcp_approvals.clone(),
+                    mcp_observer: self.mcp_observer.clone(),
                     run_id: self.run_id.clone(),
                     backend_kit: self.backend_kit.clone(),
                 }
@@ -672,6 +693,10 @@ impl PreparedTurn {
                                     call_tool_obj.clone(),
                                     format!("no connected MCP server advertises tool `{tool}`"),
                                 );
+                                // No server resolved, so the phase names the tool the
+                                // turn asked for and no server at all: the log says the
+                                // call never had a transport to reach.
+                                self.observe(McpCallPhase::Failed, "", &tool, None).await;
                                 lines.push(format!(
                                     "- tool: {} — {}",
                                     res.tool.summary(),
@@ -715,17 +740,25 @@ impl PreparedTurn {
                         }
                         (_, schema) => schema,
                     };
+                    // The call the owner can see was asked for, before any row or
+                    // grant decides what happens to it.
+                    self.observe(McpCallPhase::Requested, &target_server, &tool, None)
+                        .await;
                     match permission {
                         // The row decides before any grant is looked at: an answer the
                         // owner gave earlier must not outrank a revocation (D2.6).
-                        ToolPermission::Deny => ToolResult::failed(
-                            call_tool_obj,
-                            ToolError::McpDenied {
-                                server: target_server.clone(),
-                                tool: tool.clone(),
-                            }
-                            .to_string(),
-                        ),
+                        ToolPermission::Deny => {
+                            self.observe(McpCallPhase::Denied, &target_server, &tool, None)
+                                .await;
+                            ToolResult::failed(
+                                call_tool_obj,
+                                ToolError::McpDenied {
+                                    server: target_server.clone(),
+                                    tool: tool.clone(),
+                                }
+                                .to_string(),
+                            )
+                        }
                         ToolPermission::Allow => {
                             self.call_mcp_tool(
                                 mcp,
@@ -750,18 +783,29 @@ impl PreparedTurn {
                                 )
                                 .await
                             } else {
-                                self.ask_for_approval(
+                                let (result, question_id) = self.ask_for_approval(
                                     &target_server,
                                     &tool,
                                     &arguments,
                                     input_schema.as_ref(),
                                     call_tool_obj,
                                     &mut questions,
+                                );
+                                self.observe(
+                                    McpCallPhase::ApprovalRequired,
+                                    &target_server,
+                                    &tool,
+                                    question_id,
                                 )
+                                .await;
+                                result
                             }
                         }
                     }
                 } else {
+                    let named_server = server.unwrap_or_default();
+                    self.observe(McpCallPhase::Failed, &named_server, &tool, None)
+                        .await;
                     ToolResult::failed(
                         call_tool_obj,
                         "no MCP manager is wired into this agent loop",
@@ -867,7 +911,7 @@ impl PreparedTurn {
         arguments: &serde_json::Value,
         call_tool_obj: AgentTool,
     ) -> ToolResult {
-        match mcp.call_tool(target_server, tool, arguments.clone()).await {
+        let result = match mcp.call_tool(target_server, tool, arguments.clone()).await {
             Ok(tool_res) => {
                 if tool_res.is_error {
                     let text = tool_res
@@ -954,7 +998,16 @@ impl PreparedTurn {
                 call_tool_obj,
                 format!("MCP tool call `{tool}` failed: {err}"),
             ),
-        }
+        };
+        // The outcome, once the transport has answered — or refused. The phase says
+        // whether the call worked; the result and its text stay in the turn.
+        let phase = if result.success {
+            McpCallPhase::Succeeded
+        } else {
+            McpCallPhase::Failed
+        };
+        self.observe(phase, target_server, tool, None).await;
+        result
     }
 
     /// Consume a one-time grant for exactly this call, when one can apply.
@@ -983,7 +1036,7 @@ impl PreparedTurn {
         input_schema: Option<&serde_json::Value>,
         call_tool_obj: AgentTool,
         questions: &mut Vec<AskUserRequest>,
-    ) -> ToolResult {
+    ) -> (ToolResult, Option<String>) {
         let summary = match &self.mcp_approvals {
             Some(approvals) => approvals.summarize(tool, arguments, input_schema),
             None => {
@@ -997,17 +1050,45 @@ impl PreparedTurn {
                 .ok(),
             _ => Some(McpApprovals::next_question_id()),
         };
+        let question_id = queued.clone();
         if let Some(id) = queued {
             questions.push(AskUserRequest::new(id, question, true));
         }
-        ToolResult::failed(
-            call_tool_obj,
-            ToolError::McpApprovalRequired {
-                server: server.to_string(),
-                tool: tool.to_string(),
-            }
-            .to_string(),
+        (
+            ToolResult::failed(
+                call_tool_obj,
+                ToolError::McpApprovalRequired {
+                    server: server.to_string(),
+                    tool: tool.to_string(),
+                }
+                .to_string(),
+            ),
+            question_id,
         )
+    }
+
+    /// Record one phase of one agent MCP tool call, when anything is recording.
+    ///
+    /// A loop with no observer and a loop with no run both record nothing and do
+    /// nothing else differently: the call runs, answers, and the turn is unchanged.
+    /// What crosses the seam is the phase, the server, the tool and the question id —
+    /// never an argument, a result or the redacted summary.
+    async fn observe(
+        &self,
+        phase: McpCallPhase,
+        server: &str,
+        tool: &str,
+        question_id: Option<String>,
+    ) {
+        let (Some(observer), Some(run_id)) = (&self.mcp_observer, &self.run_id) else {
+            return;
+        };
+        observer
+            .record(
+                run_id,
+                McpCallEvent::new(phase, server, tool).with_question_id(question_id),
+            )
+            .await;
     }
 }
 

@@ -13,14 +13,17 @@ import {
   decodeMcpPermissionRow,
   decodeMcpPermissionsReply,
   decodeMcpStatus,
+  decodeMcpCall,
   decodeMcpTransport,
   decodeProjectSummary,
+  decodeRunFinished,
   decodeRoutine,
   decodeRunSummary,
   encodeBackendKit,
   parseWarshaEvent,
   pairingDataFromQrPayload,
   redactToken,
+  RUN_FINISHED_KIND,
   subscribeEvents,
   WarshaClient,
   type BackendKit,
@@ -2984,5 +2987,127 @@ describe('mcp connections (R-EXT-1)', () => {
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toContain('mcp.list');
     expect((error as Error).message).not.toContain(TOKEN);
+  });
+});
+
+/** One daemon event, in the typed shape the client hands a screen. */
+function eventOf(kind: string, payload: unknown): WarshaEvent {
+  return {
+    id: `evt-${kind}`,
+    runId: 'run-1' as RunId,
+    stage: 'code' as Stage,
+    role: null,
+    kind,
+    payload,
+    costCents: null,
+    createdAt: '2026-10-28T00:00:00Z',
+    deviceId: null,
+  };
+}
+
+describe('R-EXT-2 run_finished and MCP call decoders', () => {
+  it('names the run-end kind the daemon writes', () => {
+    expect(RUN_FINISHED_KIND).toBe('run_finished');
+  });
+
+  it('decodes the three endings a finished run carries', () => {
+    for (const status of ['completed', 'failed', 'cancelled'] as const) {
+      expect(decodeRunFinished(eventOf(RUN_FINISHED_KIND, { status }))).toBe(status);
+    }
+  });
+
+  it('returns null for another kind, an unknown status, or a payload that is not an object', () => {
+    expect(decodeRunFinished(eventOf('agent_step', { status: 'completed' }))).toBeNull();
+    expect(decodeRunFinished(eventOf(RUN_FINISHED_KIND, { status: 'skipped' }))).toBeNull();
+    expect(decodeRunFinished(eventOf(RUN_FINISHED_KIND, { status: 3 }))).toBeNull();
+    expect(decodeRunFinished(eventOf(RUN_FINISHED_KIND, { status: null }))).toBeNull();
+    expect(decodeRunFinished(eventOf(RUN_FINISHED_KIND, null))).toBeNull();
+    expect(decodeRunFinished(eventOf(RUN_FINISHED_KIND, 'completed'))).toBeNull();
+    expect(decodeRunFinished(eventOf(RUN_FINISHED_KIND, ['completed']))).toBeNull();
+    expect(decodeRunFinished(eventOf(RUN_FINISHED_KIND, {}))).toBeNull();
+  });
+
+  it('decodes an agent MCP call with its phase, server and tool', () => {
+    const call = decodeMcpCall(
+      eventOf('tool_call', {
+        action: 'mcp_call',
+        phase: 'approval_required',
+        server: 'files',
+        tool: 'read_file',
+        role: 'agent',
+        question_id: 'mcp-approval-1',
+      })
+    );
+    expect(call).toEqual({
+      phase: 'approval_required',
+      server: 'files',
+      tool: 'read_file',
+      questionId: 'mcp-approval-1',
+    });
+
+    const quiet = decodeMcpCall(
+      eventOf('tool_call', {
+        action: 'mcp_call',
+        phase: 'succeeded',
+        server: 'files',
+        tool: 'read_file',
+        role: 'agent',
+      })
+    );
+    expect(quiet).toEqual({
+      phase: 'succeeded',
+      server: 'files',
+      tool: 'read_file',
+      questionId: null,
+    });
+  });
+
+  it('decodes every phase the daemon writes', () => {
+    const phases = ['requested', 'approval_required', 'denied', 'succeeded', 'failed'];
+    for (const phase of phases) {
+      const call = decodeMcpCall(
+        eventOf('tool_call', { action: 'mcp_call', phase, server: 'srv', tool: 'echo' })
+      );
+      expect(call?.phase).toBe(phase);
+    }
+  });
+
+  it('returns null for an allow_once answer and for a shape it does not understand', () => {
+    // The owner's answer is a `tool_call` too, and it is not a call.
+    expect(
+      decodeMcpCall(eventOf('tool_call', { action: 'mcp_allow_once', server: 'srv', tool: 'echo' }))
+    ).toBeNull();
+    expect(
+      decodeMcpCall(eventOf('agent_step', { action: 'mcp_call', phase: 'requested' }))
+    ).toBeNull();
+    expect(
+      decodeMcpCall(
+        eventOf('tool_call', { action: 'mcp_call', phase: 'finished', server: 's', tool: 't' })
+      )
+    ).toBeNull();
+    expect(
+      decodeMcpCall(eventOf('tool_call', { action: 'mcp_call', phase: 'requested', tool: 'echo' }))
+    ).toBeNull();
+    expect(
+      decodeMcpCall(eventOf('tool_call', { action: 'mcp_call', phase: 'requested', server: 'srv' }))
+    ).toBeNull();
+    expect(decodeMcpCall(eventOf('tool_call', null))).toBeNull();
+    expect(decodeMcpCall(eventOf('tool_call', 'mcp_call'))).toBeNull();
+  });
+
+  it('never reads an argument out of the event, because none is there', () => {
+    // The decoder's whole return value: no field could carry a tool argument.
+    const call = decodeMcpCall(
+      eventOf('tool_call', {
+        action: 'mcp_call',
+        phase: 'succeeded',
+        server: 'files',
+        tool: 'read_file',
+        role: 'agent',
+        path: 'a.txt',
+      })
+    );
+    expect(call).not.toBeNull();
+    expect(Object.keys(call ?? {}).sort()).toEqual(['phase', 'questionId', 'server', 'tool']);
   });
 });

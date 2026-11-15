@@ -8,6 +8,7 @@ import type {
   Stage,
   WarshaEvent,
 } from '@warsha/client';
+import { decodeRunFinished } from '@warsha/client';
 // eslint-disable-next-line import/no-unresolved
 import { useT } from '@warsha/i18n/v3';
 import {
@@ -452,6 +453,9 @@ export default function ProjectPage(): React.ReactElement {
   const feedEvents = useMemo<ActivityEvent[]>(() => {
     return visibleEvents.map((ev) => {
       const summary = extractEventSummary(ev.payload);
+      // A run's end says which ending it was (R-EXT-2). Every other kind keeps the
+      // plain-language label the map already owns.
+      const finished = decodeRunFinished(ev);
       return {
         id: ev.id,
         time: formatTime24(ev.createdAt),
@@ -459,7 +463,7 @@ export default function ProjectPage(): React.ReactElement {
         stageLabel: t(getSimpleStageLabelKey(ev.stage)),
         message: (
           <span>
-            <span>{t(getEventKey(ev.kind))}</span>
+            <span>{finished ? t(`events.run_finished.${finished}`) : t(getEventKey(ev.kind))}</span>
             {summary ? (
               <>
                 {' — '}
