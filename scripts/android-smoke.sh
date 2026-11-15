@@ -307,24 +307,31 @@ setup_devtools() { # 0 = CDP reachable on WSURL
 }
 
 cdp_eval() { # expression -> {"ok":true,"value":…} | {"ok":false,"error":…}
-  node - "$WSURL" "$1" <<'NODE'
+  node - "$WSURL" "$1" 2>>"$RUN_DIR/cdp-stderr.txt" <<'NODE'
 const [wsUrl, expression] = process.argv.slice(2);
 let settled = false;
 const finish = (payload) => {
   if (settled) return;
   settled = true;
   process.stdout.write(JSON.stringify(payload));
-  try { ws.close(); } catch { /* closing a closed socket is fine */ }
+  if (ws) { try { ws.close(); } catch { /* closing a closed socket is fine */ } }
   process.exit(0);
 };
+// Never leave with silence: a caller that gets no reply cannot tell "no" from "broken".
+process.on('exit', () => {
+  if (settled) return;
+  settled = true;
+  process.stdout.write(JSON.stringify({ ok: false, error: 'node exited with no CDP reply' }));
+});
 let ws;
 try {
   ws = new WebSocket(wsUrl);
 } catch (error) {
   finish({ ok: false, error: `construct: ${error}` });
 }
-const timer = setTimeout(() => finish({ ok: false, error: 'cdp timeout' }), 15000);
-timer.unref?.();
+// The timer must hold the loop open: an unref'd timer lets node exit while the socket is still
+// connecting, which is a silent "no reply" instead of a diagnosable timeout.
+setTimeout(() => finish({ ok: false, error: 'cdp timeout' }), 6000);
 ws.addEventListener('open', () => {
   ws.send(JSON.stringify({
     id: 1,
@@ -370,6 +377,14 @@ page_state() { # label — what the WebView document actually contains, as machi
   done
   printf '%s\n' "$out" >"$RUN_DIR/$label-page.txt"
   artifact "${RUN_DIR#"$ROOT"/}/$label-page.txt"
+  if [ "$out" = "ERR" ]; then
+    printf '%s\n' "${CDP_LAST_RAW:-no reply}" >"$RUN_DIR/$label-page-error.txt"
+    artifact "${RUN_DIR#"$ROOT"/}/$label-page-error.txt"
+    if [ -s "$RUN_DIR/cdp-stderr.txt" ]; then
+      cp "$RUN_DIR/cdp-stderr.txt" "$RUN_DIR/$label-cdp-stderr.txt"
+      artifact "${RUN_DIR#"$ROOT"/}/$label-cdp-stderr.txt"
+    fi
+  fi
 }
 
 console_echoes() { # label — the WebView's own console lines from logcat (CORS/404/CSP evidence)
@@ -378,9 +393,10 @@ console_echoes() { # label — the WebView's own console lines from logcat (CORS
   artifact "${RUN_DIR#"$ROOT"/}/$label-console.txt"
 }
 
-cdp_value() { # expression -> stringified value (or ERR)
+cdp_value() { # expression -> stringified value (or ERR); the raw reply lands in CDP_LAST_RAW
   local out
-  out=$(cdp_eval "$1" 2>/dev/null) || { printf 'ERR'; return 0; }
+  out=$(cdp_eval "$1" 2>/dev/null) || { CDP_LAST_RAW="cdp_eval exited non-zero"; printf 'ERR'; return 0; }
+  CDP_LAST_RAW="$out"
   node -e '
     let o; try { o = JSON.parse(process.argv[1]); } catch { process.stdout.write("ERR"); process.exit(0); }
     if (!o.ok) { process.stdout.write("ERR"); process.exit(0); }
@@ -408,19 +424,34 @@ PAIRED_STATE_JS='(() => {
 
 paired_state() { cdp_value "$PAIRED_STATE_JS"; }
 
+# 0 = the wanted state, 1 = it never came, 2 = CDP itself is broken (four empty replies in a row).
 poll_state() { # want timeout-seconds
-  local want="$1" limit="$2" i
+  local want="$1" limit="$2" i errs=0 value
   for i in $(seq 1 $((limit * 2))); do
-    [ "$(paired_state)" = "$want" ] && return 0
+    value=$(paired_state)
+    [ "$value" = "$want" ] && return 0
+    if [ "$value" = "ERR" ]; then
+      errs=$((errs + 1))
+      [ "$errs" -ge 4 ] && return 2
+    else
+      errs=0
+    fi
     sleep 0.5
   done
   return 1
 }
 
-poll_js() { # selector timeout-seconds -> 0 when present
-  local selector="$1" limit="$2" i
+poll_js() { # selector timeout-seconds -> 0 present, 1 absent, 2 CDP broken
+  local selector="$1" limit="$2" i errs=0 value
   for i in $(seq 1 $((limit * 2))); do
-    [ "$(js_present "$selector")" = "true" ] && return 0
+    value=$(js_present "$selector")
+    [ "$value" = "true" ] && return 0
+    if [ "$value" = "ERR" ]; then
+      errs=$((errs + 1))
+      [ "$errs" -ge 4 ] && return 2
+    else
+      errs=0
+    fi
     sleep 0.5
   done
   return 1
@@ -693,9 +724,22 @@ run_smoke() {
 
   if setup_devtools; then
     s1_mode="devtools"
-    if poll_js '[data-testid="remote-pair-submit"]' 20; then
+    local s1_poll=0
+    poll_js '[data-testid="remote-pair-submit"]' 20 || s1_poll=$?
+    if [ "$s1_poll" -eq 0 ]; then
       s1_note="$s1_note; pairing plate present"
       step S1 1 "$s1_mode" "$s1_note"
+    elif [ "$s1_poll" -eq 2 ]; then
+      # DevTools answered /json but not one evaluate. That is D3's unreachable case: the screenshot
+      # is appearance-only evidence and cannot itself prove the plate rendered, so this is reported
+      # as a visual FAIL rather than a silent green.
+      page_state s1
+      console_echoes s1
+      ui_dump "s1-ui.xml"
+      s1_note="$s1_note; devtools reached but CDP evaluate never answered; appearance-only, plate not proven (s1-boot.png)"
+      step S1 0 visual "$s1_note"
+      stop "the pairing plate could not be proven on boot (finding, not a repair task)"
+      return 1
     else
       page_state s1
       console_echoes s1
@@ -715,10 +759,17 @@ run_smoke() {
   local s2_rc s2_note="" s2_state=""
   s2_rc=$(launch_view_intent "warsha://pair?host=127.0.0.1\&port=$HTTP_PORT\&token=$TOK" "s2-start")
   if [ "$DEVTOOLS" -eq 1 ] && setup_devtools; then
-    poll_state paired 15 || true
+    local s2_wait=0
+    poll_state paired 15 || s2_wait=$?
     s2_state=$(paired_state)
     shot "s2-paired.png"
     ui_dump "s2-ui.xml"
+    if [ "$s2_wait" -eq 2 ] || [ "$s2_state" = "ERR" ]; then
+      s2_note="devtools reached but CDP evaluate never answered: the pairing assertion is NOT machine-verified"
+      step S2 0 devtools "$s2_note"
+      stop "CDP never answered, so the S2 pairing assertion cannot be met (packet D3/gate rule)"
+      return 1
+    fi
     if [ "$s2_state" = "paired" ] && { poll_js '[data-testid="remote-screen-needs-you"]' 5 || poll_js '[data-testid="remote-screen-projects"]' 5; }; then
       s2_note="cold warsha://pair paired (plate gone, strip shows the loopback daemon) and the bench rendered"
       step S2 1 devtools "$s2_note"
