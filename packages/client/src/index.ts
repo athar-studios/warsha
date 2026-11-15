@@ -1548,9 +1548,11 @@ function decodeMcpPermission(value: unknown, method: string, name: string): McpP
  * `crates/warsha-pipeline/src/mcp_transport.rs:84-97`).
  *
  * The daemon's enum is tagged on `kind` with the url inside the variant, so a transport that
- * names no endpoint cannot be built here either. `stdio` is the only wired transport: `http` and
- * `websocket` are *recorded, not dialled*, which is why `mcp.list` reports them `disconnected`
- * with no tools (`McpServerConfig::is_wired`, R-EXT-4 makes http real).
+ * names no endpoint cannot be built here either. `stdio` is always dialled, and R-EXT-4 makes
+ * `http` dialled too — over Streamable HTTP — so a connected `http` row has a `null`
+ * `process_id` and may carry tools. `websocket` stays *recorded, not dialled*, which is why
+ * `mcp.list` reports it `disconnected` with no tools (`McpServerConfig::is_wired` remains the
+ * static stdio-only predicate; the manager's own `dials` takes the injected client into account).
  */
 export type McpTransport =
   { kind: 'stdio' } | { kind: 'http'; url: string } | { kind: 'websocket'; url: string };

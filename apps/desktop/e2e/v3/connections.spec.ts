@@ -148,6 +148,8 @@ test.describe('Settings connections (R-EXT-1)', () => {
     });
 
     await expect(page.locator('[data-testid="mcp-connection-row-files"]')).toHaveCount(0);
+    // The transport picker is a registered control too: explicitly pick stdio.
+    await act(page, 'settings.connections.transport.pick');
     await page.locator('[data-testid="mcp-connection-name"] input').fill('files');
     await page.locator('[data-testid="mcp-connection-command"] input').fill('npx');
     await page

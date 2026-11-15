@@ -126,6 +126,11 @@ export const ACTIONS: readonly ActionDef[] = [
     labelKey: 'settings.connections.tools.toggle',
     effect: 'state',
   },
+  {
+    id: 'settings.connections.transport.pick',
+    labelKey: 'settings.connections.add.title',
+    effect: 'state',
+  },
 
   // About section
   {

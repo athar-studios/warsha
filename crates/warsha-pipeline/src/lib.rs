@@ -55,11 +55,19 @@ pub use crate::mcp_permission::{
 pub use crate::worktree::{
     create_run_worktree, remove_run_worktree, worktree_path, RunWorktree, WorktreeError,
 };
+/// The Streamable HTTP transport's client seam and its pure SSE parser (R-EXT-4):
+/// the daemon implements [`McpHttpClient`] and injects it, and the pipeline keeps
+/// no HTTP client of its own.
+pub mod mcp_http;
 /// The MCP connection layer (PLAN.md M20), public as a module because
 /// [`McpTransport`] and [`McpServerConfig`] already name the M12 registry types
 /// at this crate's root: the two would collide in a flat re-export, and renaming
 /// either would make the caller guess which one it got.
 pub mod mcp_transport;
+pub use crate::mcp_http::{
+    McpHttpClient, McpHttpError, McpHttpReply, McpHttpRequest, SseDecoder, SseEvent, HTTP_ACCEPT,
+    HTTP_PROTOCOL_VERSION,
+};
 mod observability;
 mod orchestrator;
 mod post_launch;

@@ -30,6 +30,9 @@ mod http;
 mod lock;
 mod mcp_approvals;
 mod mcp_call_events;
+/// The Streamable HTTP MCP client (R-EXT-4): the daemon's implementation of
+/// `warsha_pipeline::mcp_http::McpHttpClient`, injected into the manager at startup.
+mod mcp_http;
 mod providers;
 /// The Scout's MCP registry client over `reqwest` (R-EXT-3). Public because the
 /// packet that adds a consumer opts the daemon in; no RPC reaches it today.
@@ -1463,9 +1466,11 @@ impl WarshaApiServer for WarshaRpc {
                     .map_err(rpc_policy_refused)?;
             }
         }
-        // An `Http`/`WebSocket` config succeeds without connecting: the transport
-        // is recorded and `mcp.list` reports it as disconnected (see
-        // `McpServerConfig::is_wired`).
+        // An `http` config is dialled here when the daemon injected its Streamable
+        // HTTP client — it does, at startup — so this call blocks for up to the
+        // handshake's bound and can return a reason instead of always succeeding.
+        // A `websocket` config still succeeds without connecting: it is recorded and
+        // `mcp.list` reports it as disconnected (see `McpServerConfig::is_wired`).
         self.state
             .mcp
             .connect(config)

@@ -167,9 +167,11 @@ export default {
   'settings.connections.tool.destructive': 'Destructive',
   'settings.connections.role_note': 'Stored for role {role}, the agent role.',
   'settings.connections.permission_saved': 'Permission saved.',
-  'settings.connections.add.title': 'Add a local MCP server',
-  'settings.connections.add.stdio_only': 'Only local (stdio) servers can be added for now.',
+  'settings.connections.add.title': 'Add an MCP server',
+  'settings.connections.add.stdio_only':
+    'A local (stdio) server, or a remote one over HTTP. The daemon checks the address before it dials.',
   'settings.connections.add.name': 'Server name',
+  'settings.connections.add.url': 'Server URL — https anywhere, http only on this machine',
   'settings.connections.add.command': 'Command',
   'settings.connections.add.args': 'Arguments',
   'settings.connections.add.args_hint': 'Separated by spaces, as the daemon receives them.',
