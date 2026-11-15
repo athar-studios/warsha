@@ -11,6 +11,8 @@ export const ACTIONS: readonly ActionDef[] = [
   { id: 'settings.mode-default.set', labelKey: 'settings.general.mode', effect: 'state' },
   // R-UI-3 D2-b: the sound-cue switch. `state` because it writes device storage — no RPC (W11).
   { id: 'settings.sound-cues.set', labelKey: 'settings.general.sound', effect: 'state' },
+  // X9a: the WebMCP switch (R-EXT-5). `state` for the same reason: device storage, no daemon flag, no RPC.
+  { id: 'settings.webmcp.set', labelKey: 'settings.general.webmcp', effect: 'state' },
   {
     id: 'settings.budget-default.save',
     labelKey: 'settings.general.budget.save',

@@ -53,6 +53,10 @@ export default {
   'settings.general.sound': 'Sound cues',
   'settings.general.sound.desc':
     'A short tone when a decision is waiting and when a run finishes. This device only, off by default.',
+  'settings.general.webmcp': 'Browser assistant tools',
+  'settings.general.webmcp.desc':
+    'Off by default. Lets an assistant built into the browser open Warsha pages in this window. It cannot approve, start, change or delete anything.',
+  'settings.general.webmcp.unavailable': 'No browser assistant is available in this window.',
   'settings.general.budget': 'Default project budget',
   'settings.general.budget.hint': 'Suggested spending limit when creating a new project.',
   'settings.general.budget.save': 'Save default budget',

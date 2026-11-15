@@ -53,6 +53,10 @@ export default {
   'settings.general.sound': 'تنبيهات صوتية',
   'settings.general.sound.desc':
     'نغمة قصيرة عند وصول قرار ينتظرك، وأخرى عند انتهاء التشغيل. لهذا الجهاز فقط، ومتوقّفة افتراضيًّا.',
+  'settings.general.webmcp': 'أدوات مساعد المتصفّح',
+  'settings.general.webmcp.desc':
+    'متوقّفة افتراضيًّا. تتيح لمساعد مدمج في المتصفّح فتح صفحات ورشة في هذه النافذة. لا يمكنه الموافقة على شيء، ولا بدء تشغيل، ولا تغيير أو حذف أيّ شيء.',
+  'settings.general.webmcp.unavailable': 'لا يتوفّر مساعد متصفّح في هذه النافذة.',
   'settings.general.budget': 'الميزانية الافتراضية للمشروع',
   'settings.general.budget.hint': 'الحدّ الافتراضي المقترح عند إنشاء أيّ مشروع جديد.',
   'settings.general.budget.save': 'حفظ الميزانية الافتراضية',
