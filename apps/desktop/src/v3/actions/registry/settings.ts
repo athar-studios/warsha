@@ -89,6 +89,44 @@ export const ACTIONS: readonly ActionDef[] = [
     rpc: ['mcp.permissions.set'],
   },
 
+  // Connections section (R-EXT-1). All three daemon methods already existed; the section adds the
+  // rows that drive them, and the disconnect pair is the open→confirm pattern a stop needs. The
+  // per-tool permission writes through `mcp.permissions.set` for the daemon's own agent role.
+  {
+    id: 'settings.connections.refresh',
+    labelKey: 'settings.connections.refresh',
+    effect: 'rpc',
+    rpc: ['mcp.list'],
+  },
+  {
+    id: 'settings.connections.add',
+    labelKey: 'settings.connections.add.save',
+    effect: 'rpc',
+    rpc: ['mcp.connect'],
+  },
+  {
+    id: 'settings.connections.disconnect.open',
+    labelKey: 'settings.connections.disconnect',
+    effect: 'state',
+  },
+  {
+    id: 'settings.connections.disconnect.confirm',
+    labelKey: 'settings.common.confirm_disconnect',
+    effect: 'rpc',
+    rpc: ['mcp.disconnect'],
+  },
+  {
+    id: 'settings.connections.tool.permission',
+    labelKey: 'settings.connections.tool.permission',
+    effect: 'rpc',
+    rpc: ['mcp.permissions.set'],
+  },
+  {
+    id: 'settings.connections.tools.toggle',
+    labelKey: 'settings.connections.tools.toggle',
+    effect: 'state',
+  },
+
   // About section
   {
     id: 'settings.about.health.refresh',

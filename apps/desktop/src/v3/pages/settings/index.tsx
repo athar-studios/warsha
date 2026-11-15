@@ -9,6 +9,7 @@ import { SettingsNav } from './SettingsNav';
 import { AboutSection } from './sections/AboutSection';
 import { BackendSection } from './sections/BackendSection';
 import { BudgetsSection } from './sections/BudgetsSection';
+import { ConnectionsSection } from './sections/ConnectionsSection';
 import { DevicesSection } from './sections/DevicesSection';
 import { GeneralSection } from './sections/GeneralSection';
 import { IntegrationsSection } from './sections/IntegrationsSection';
@@ -68,6 +69,8 @@ export default function SettingsPage(): React.ReactElement {
         return <SkillsSection />;
       case 'plugins':
         return <PluginsSection />;
+      case 'connections':
+        return <ConnectionsSection />;
       case 'mcp':
         return <McpPermissionsSection />;
       case 'integrations':

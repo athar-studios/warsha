@@ -1458,6 +1458,66 @@ function decodeMcpPermission(value: unknown, method: string, name: string): McpP
   throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "${name}" is not allow, ask or deny`);
 }
 
+/**
+ * How the daemon reaches an MCP server (`McpTransport`,
+ * `crates/warsha-pipeline/src/mcp_transport.rs:84-97`).
+ *
+ * The daemon's enum is tagged on `kind` with the url inside the variant, so a transport that
+ * names no endpoint cannot be built here either. `stdio` is the only wired transport: `http` and
+ * `websocket` are *recorded, not dialled*, which is why `mcp.list` reports them `disconnected`
+ * with no tools (`McpServerConfig::is_wired`, R-EXT-4 makes http real).
+ */
+export type McpTransport =
+  { kind: 'stdio' } | { kind: 'http'; url: string } | { kind: 'websocket'; url: string };
+
+/** What `mcp.connect` takes and `mcp.list` echoes (`McpServerConfig`, `…/mcp_transport.rs:120-136`). */
+export interface McpServerConfig {
+  name: string;
+  transport: McpTransport;
+  /** The program to spawn, for the stdio transport; `null` for a recorded url transport. */
+  command: string | null;
+  args: string[];
+}
+
+/**
+ * Where a server's connection is (`McpStatus`, `crates/warsha-pipeline/src/mcp_transport.rs:220-232`).
+ *
+ * The daemon's enum is externally tagged, so the three unit variants arrive as bare strings
+ * (`"connected" | "connecting" | "disconnected"`) and `Error(String)` arrives as
+ * `{ "error": "<message>" }`. `decodeMcpStatus` normalises both into this one shape; a decoder
+ * that only read strings would turn every failed server into a decode error, and a failed
+ * server's own message is what the screen has to show.
+ */
+export type McpStatus =
+  | { kind: 'connected' }
+  | { kind: 'connecting' }
+  | { kind: 'disconnected' }
+  | { kind: 'error'; message: string };
+
+/** One tool a server said it can run (`warsha_pipeline::mcp::McpTool`, `…/mcp.rs:124-137`). */
+export interface McpToolInfo {
+  name: string;
+  description: string;
+  /** `annotations.read_only`, when the server sent annotations at all. */
+  readOnly?: boolean;
+  /** `annotations.destructive`, when the server sent annotations at all. */
+  destructive?: boolean;
+}
+
+/** One configured MCP server and what it is doing (`McpConnection`, `…/mcp_transport.rs:247-268`). */
+export interface McpConnection {
+  config: McpServerConfig;
+  status: McpStatus;
+  /** The managed process behind a stdio connection. A pid is not a setting, so no screen shows it. */
+  processId: string | null;
+  /**
+   * The server's tools: `tool_definitions` when it sent them, else the bare `tools` names with no
+   * description. Both empty means the handshake never ran — an `http`/`websocket` config, or a
+   * server that failed — never "this server has no tools".
+   */
+  tools: McpToolInfo[];
+}
+
 /** Decode one `McpApproval` (snake_case) into the screen's camelCase row. */
 export function decodeMcpApproval(value: unknown, method: string): McpApproval {
   const source = wiringObject(value, method);
@@ -1509,6 +1569,102 @@ export function decodeMcpPermissionsReply(value: unknown, method: string): McpPe
   };
 }
 
+/** A boolean serde may omit or null (`annotations.read_only`): both read as "not declared". */
+function wiringOptionalBoolean(value: unknown, method: string, name: string): boolean | undefined {
+  if (value === null || value === undefined) return undefined;
+  return wiringBoolean(value, method, name);
+}
+
+/** Decode one `McpTransport` (`{kind: 'stdio'} | {kind: 'http', url} | {kind: 'websocket', url}`). */
+export function decodeMcpTransport(value: unknown, method: string): McpTransport {
+  const source = wiringObject(value, method);
+  const kind = wiringString(source['kind'], method, 'kind');
+  if (kind === 'stdio') return { kind: 'stdio' };
+  if (kind === 'http' || kind === 'websocket') {
+    return { kind, url: wiringString(source['url'], method, 'url') };
+  }
+  // The daemon has three transports; a fourth would be a wire change this decoder must not
+  // swallow as "some url transport".
+  throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "kind" is not stdio, http or websocket`);
+}
+
+/**
+ * Decode one `McpStatus`.
+ *
+ * Externally tagged serde sends a unit variant as a bare string and `Error(String)` as
+ * `{ "error": "<message>" }`; both forms are read here, and anything else — a status the daemon
+ * does not define — is a named refusal rather than a default. Guessing `disconnected` for an
+ * unknown status would paint a broken server as merely idle.
+ */
+export function decodeMcpStatus(value: unknown, method: string): McpStatus {
+  const refusal = new Error(
+    `${WIRING_RESULT_ERROR} from ${method}: "status" is not connected, connecting, disconnected or {error}`
+  );
+  if (typeof value === 'string') {
+    if (value === 'connected' || value === 'connecting' || value === 'disconnected') {
+      return { kind: value };
+    }
+    throw refusal;
+  }
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    const message = (value as Record<string, unknown>)['error'];
+    if (typeof message === 'string') return { kind: 'error', message };
+  }
+  throw refusal;
+}
+
+/** Decode one `McpServerConfig`; a server with no name is refused, because nothing can address it. */
+export function decodeMcpServerConfig(value: unknown, method: string): McpServerConfig {
+  const source = wiringObject(value, method);
+  const name = wiringString(source['name'], method, 'name');
+  if (name.length === 0) {
+    throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "name" is blank`);
+  }
+  return {
+    name,
+    transport: decodeMcpTransport(source['transport'], method),
+    command: wiringNullableString(source['command'], method, 'command'),
+    args: wiringStringList(source['args'], method, 'args'),
+  };
+}
+
+/** Decode one `McpTool` (`tool_definitions`' row) into the screen's tool row. */
+export function decodeMcpToolInfo(value: unknown, method: string): McpToolInfo {
+  const source = wiringObject(value, method);
+  const tool: McpToolInfo = {
+    name: wiringString(source['name'], method, 'name'),
+    description: wiringString(source['description'], method, 'description'),
+  };
+  const annotations = source['annotations'];
+  if (typeof annotations === 'object' && annotations !== null && !Array.isArray(annotations)) {
+    const declared = annotations as Record<string, unknown>;
+    const readOnly = wiringOptionalBoolean(declared['read_only'], method, 'read_only');
+    const destructive = wiringOptionalBoolean(declared['destructive'], method, 'destructive');
+    if (readOnly !== undefined) tool.readOnly = readOnly;
+    if (destructive !== undefined) tool.destructive = destructive;
+  }
+  return tool;
+}
+
+/** Decode one `McpConnection`, taking the tools from `tool_definitions` or the bare names. */
+export function decodeMcpConnection(value: unknown, method: string): McpConnection {
+  const source = wiringObject(value, method);
+  const definitions = wiringDefaultArray(source['tool_definitions'], method, 'tool_definitions');
+  const tools =
+    definitions.length > 0
+      ? definitions.map((row) => decodeMcpToolInfo(row, method))
+      : wiringStringList(source['tools'], method, 'tools').map((name) => ({
+          name,
+          description: '',
+        }));
+  return {
+    config: decodeMcpServerConfig(source['config'], method),
+    status: decodeMcpStatus(source['status'], method),
+    processId: wiringNullableString(source['process_id'], method, 'process_id'),
+    tools,
+  };
+}
+
 /**
  * The MCP approval and permission surface (R-BRIDGE-B3b): the two B3a answer methods plus the
  * permission table. `WarshaClient` implements this interface so the Inbox and Settings screens
@@ -1528,6 +1684,29 @@ export interface WarshaMcpApi {
     role: string,
     permission: McpPermission
   ): Promise<McpPermissionRow>;
+}
+
+/**
+ * The MCP connection surface (R-EXT-1): the three methods the daemon already serves — `mcp.list`,
+ * `mcp.connect` and `mcp.disconnect`. No new wire method and no changed shape; `WarshaClient`
+ * implements this interface so the Connections screen calls a named method instead of assembling
+ * `mcp.*` params itself, exactly as `WarshaMcpApi` does for the B3b batch.
+ *
+ * There is deliberately no `mcp.send`/`mcp.call` wrapper here: both are the raw seam and the
+ * permission-governed call path (out of scope for this packet).
+ */
+export interface WarshaMcpConnectionsApi {
+  /** `mcp.list` — every configured server with its status, tools and (stdio) process. */
+  mcpList(): Promise<McpConnection[]>;
+  /**
+   * `mcp.connect` — record a server and, for stdio, start it and run the MCP handshake.
+   *
+   * `config` is the daemon's own struct, field for field: the daemon binds the whole
+   * `McpServerConfig` under `config`, so this is the one body it accepts.
+   */
+  mcpConnect(config: McpServerConfig): Promise<void>;
+  /** `mcp.disconnect` — stop a stdio server (and its child) by name, or drop a recorded one. */
+  mcpDisconnect(name: string): Promise<void>;
 }
 
 /**
@@ -1600,7 +1779,9 @@ export interface HealthReport {
   capabilities: HealthCapabilities;
 }
 
-export class WarshaClient implements WarshaWiringApi, WarshaWave2Api, WarshaMcpApi {
+export class WarshaClient
+  implements WarshaWiringApi, WarshaWave2Api, WarshaMcpApi, WarshaMcpConnectionsApi
+{
   private baseUrl: string;
   private token: string;
   private requestId = 0;
@@ -1698,6 +1879,28 @@ export class WarshaClient implements WarshaWiringApi, WarshaWave2Api, WarshaMcpA
       permission,
     });
     return decodeMcpPermissionRow(row, 'mcp.permissions.set');
+  }
+
+  // MCP connections (R-EXT-1).
+  //
+  // The daemon served these three before this client wrapped them (`crates/warshad/src/api.rs:275`,
+  // `:281`, `:284`): `mcp.connect` binds `config`, `mcp.disconnect` binds `name`, and `mcp.list`
+  // takes nothing. The params objects below are exactly those keys, because jsonrpsee binds by
+  // name and anything else answers `-32602`. Nothing here probes a server: the daemon has no probe
+  // method, so a refresh is `mcp.list` again and the screen's label says "refresh", never "tested".
+  async mcpList(): Promise<McpConnection[]> {
+    const rows = await this.rpc<unknown>('mcp.list');
+    return wiringArray(rows, 'mcp.list', 'servers').map((row) =>
+      decodeMcpConnection(row, 'mcp.list')
+    );
+  }
+
+  async mcpConnect(config: McpServerConfig): Promise<void> {
+    await this.rpc<unknown>('mcp.connect', { config });
+  }
+
+  async mcpDisconnect(name: string): Promise<void> {
+    await this.rpc<unknown>('mcp.disconnect', { name });
   }
 
   // Projects

@@ -5,6 +5,7 @@ export type SettingsSectionId =
   | 'workflows'
   | 'skills'
   | 'plugins'
+  | 'connections'
   | 'mcp'
   | 'integrations'
   | 'routines'
@@ -71,6 +72,13 @@ export const SETTINGS_SECTIONS: readonly SectionMeta[] = [
     id: 'plugins',
     labelKey: 'settings.section.plugins',
     descKey: 'settings.section.plugins.desc',
+    scopeKey: 'settings.scope.daemon',
+    isAdvanced: true,
+  },
+  {
+    id: 'connections',
+    labelKey: 'settings.section.connections',
+    descKey: 'settings.section.connections.desc',
     scopeKey: 'settings.scope.daemon',
     isAdvanced: true,
   },

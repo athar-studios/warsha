@@ -9,8 +9,11 @@ import {
   decodeGateEvidence,
   decodeMcpApproval,
   decodeMcpApprovalAnswer,
+  decodeMcpConnection,
   decodeMcpPermissionRow,
   decodeMcpPermissionsReply,
+  decodeMcpStatus,
+  decodeMcpTransport,
   decodeProjectSummary,
   decodeRoutine,
   decodeRunSummary,
@@ -27,6 +30,8 @@ import {
   type GateState,
   type GateSummary,
   type McpApproval,
+  type McpConnection,
+  type McpServerConfig,
   type PairingData,
   type PreferenceSignal,
   type ProjectId,
@@ -2807,6 +2812,177 @@ describe('mcp approvals and permissions (R-BRIDGE-B3b)', () => {
     const error = await client.mcpApprovalsList().catch((e: unknown) => e);
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toContain('mcp.approvals.list');
+    expect((error as Error).message).not.toContain(TOKEN);
+  });
+});
+
+// R-EXT-1 — the three MCP connection methods the daemon already served and the client now wraps.
+const MCP_STDIO_CONNECTION = {
+  config: {
+    name: 'files',
+    transport: { kind: 'stdio' },
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-filesystem@1.2.3', '/tmp'],
+  },
+  status: 'connected',
+  process_id: 'proc-1',
+  tools: ['read_file', 'write_file'],
+  tool_definitions: [
+    {
+      name: 'read_file',
+      description: 'Read one file',
+      input_schema: { type: 'object' },
+      annotations: { title: 'Read', read_only: true, destructive: false, idempotent: true },
+    },
+    {
+      name: 'write_file',
+      description: 'Write one file',
+      input_schema: { type: 'object' },
+      annotations: null,
+    },
+  ],
+};
+
+const MCP_HTTP_CONNECTION = {
+  config: {
+    name: 'remote',
+    transport: { kind: 'http', url: 'https://mcp.example.test/x' },
+    command: null,
+    args: [],
+  },
+  status: 'disconnected',
+  process_id: null,
+  tools: [],
+  tool_definitions: [],
+};
+
+describe('mcp connections (R-EXT-1)', () => {
+  it('decodes a stdio connection with its tools, annotations and hidden process id', () => {
+    expect(decodeMcpConnection(MCP_STDIO_CONNECTION, 'mcp.list')).toEqual<McpConnection>({
+      config: {
+        name: 'files',
+        transport: { kind: 'stdio' },
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-filesystem@1.2.3', '/tmp'],
+      },
+      status: { kind: 'connected' },
+      processId: 'proc-1',
+      tools: [
+        { name: 'read_file', description: 'Read one file', readOnly: true, destructive: false },
+        { name: 'write_file', description: 'Write one file' },
+      ],
+    });
+  });
+
+  it('decodes all three unit statuses as strings and the error variant as {error}', () => {
+    expect(decodeMcpStatus('connected', 'mcp.list')).toEqual({ kind: 'connected' });
+    expect(decodeMcpStatus('connecting', 'mcp.list')).toEqual({ kind: 'connecting' });
+    expect(decodeMcpStatus('disconnected', 'mcp.list')).toEqual({ kind: 'disconnected' });
+    // The externally tagged `Error(String)` arrival, which a string-only decoder would refuse.
+    expect(decodeMcpStatus({ error: 'handshake timed out' }, 'mcp.list')).toEqual({
+      kind: 'error',
+      message: 'handshake timed out',
+    });
+  });
+
+  it('refuses an unknown status instead of defaulting to disconnected', () => {
+    for (const bogus of ['ready', { connected: true }, { error: 7 }, null, 3]) {
+      expect(() => decodeMcpStatus(bogus, 'mcp.list')).toThrow('mcp.list');
+    }
+  });
+
+  it('falls back to the bare tools names when a connection carries no definitions', () => {
+    const connection = decodeMcpConnection(
+      { ...MCP_STDIO_CONNECTION, tool_definitions: [] },
+      'mcp.list'
+    );
+    expect(connection.tools).toEqual([
+      { name: 'read_file', description: '' },
+      { name: 'write_file', description: '' },
+    ]);
+  });
+
+  it('decodes an http server that is recorded, not connected', () => {
+    expect(decodeMcpConnection(MCP_HTTP_CONNECTION, 'mcp.list')).toEqual<McpConnection>({
+      config: {
+        name: 'remote',
+        transport: { kind: 'http', url: 'https://mcp.example.test/x' },
+        command: null,
+        args: [],
+      },
+      status: { kind: 'disconnected' },
+      processId: null,
+      tools: [],
+    });
+  });
+
+  it('dials mcp.list with no params and decodes every server', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse([MCP_STDIO_CONNECTION, MCP_HTTP_CONNECTION]));
+    const servers = await client.mcpList();
+    expect(servers.map((server) => server.config.name)).toEqual(['files', 'remote']);
+    expect(sentMethod(0)).toBe('mcp.list');
+    expect(sentParams(0)).toEqual({});
+  });
+
+  it('refuses a mcp.list answer that is not a list, naming the method', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ servers: [] }));
+    await expect(client.mcpList()).rejects.toThrow(
+      'Malformed RPC result from mcp.list: "servers" is not a list'
+    );
+  });
+
+  it('refuses a connection with no config or a nameless config, naming mcp.list', () => {
+    const noConfig = { ...MCP_STDIO_CONNECTION } as Record<string, unknown>;
+    delete noConfig['config'];
+    expect(() => decodeMcpConnection(noConfig, 'mcp.list')).toThrow(
+      'Malformed RPC result from mcp.list'
+    );
+
+    const nameless = {
+      ...MCP_STDIO_CONNECTION,
+      config: { ...MCP_STDIO_CONNECTION.config, name: '' },
+    };
+    expect(() => decodeMcpConnection(nameless, 'mcp.list')).toThrow(
+      'Malformed RPC result from mcp.list: "name" is blank'
+    );
+  });
+
+  it('refuses a transport the daemon does not have, and an http transport with no url', () => {
+    expect(() => decodeMcpTransport({ kind: 'grpc' }, 'mcp.list')).toThrow(
+      '"kind" is not stdio, http or websocket'
+    );
+    expect(() => decodeMcpTransport({ kind: 'http' }, 'mcp.list')).toThrow('"url" is not a string');
+  });
+
+  it('dials mcp.connect with the whole config and nothing beside it', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(null));
+    const config: McpServerConfig = {
+      name: 'files',
+      transport: { kind: 'stdio' },
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem@1.2.3', '/tmp'],
+    };
+    await expect(client.mcpConnect(config)).resolves.toBeUndefined();
+    expect(sentMethod(0)).toBe('mcp.connect');
+    // W8's own assertion: the daemon binds `config`, so the body is that one key and no other.
+    expect(sentParams(0)).toEqual({ config });
+  });
+
+  it('dials mcp.disconnect with the bound name and nothing else', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(null));
+    await expect(client.mcpDisconnect('files')).resolves.toBeUndefined();
+    expect(sentMethod(0)).toBe('mcp.disconnect');
+    expect(sentParams(0)).toEqual({ name: 'files' });
+  });
+
+  it('keeps the daemon token out of a connections refusal', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse([{ config: { name: '' } }]));
+    const error = await client.mcpList().then(
+      () => null,
+      (failure: unknown) => failure
+    );
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('mcp.list');
     expect((error as Error).message).not.toContain(TOKEN);
   });
 });
