@@ -166,9 +166,11 @@ export default {
   'settings.connections.tool.destructive': 'متلفة',
   'settings.connections.role_note': 'تُحفظ الأذونات للدور {role}، وهو دور الوكيل.',
   'settings.connections.permission_saved': 'حُفظ الإذن.',
-  'settings.connections.add.title': 'إضافة خادم MCP محلي',
-  'settings.connections.add.stdio_only': 'يمكن إضافة الخوادم المحلية فقط في الوقت الحالي.',
+  'settings.connections.add.title': 'إضافة خادم MCP',
+  'settings.connections.add.stdio_only':
+    'خادم محلي (stdio)، أو خادم بعيد عبر HTTP. يُفحص العنوان قبل الاتصال.',
   'settings.connections.add.name': 'اسم الخادم',
+  'settings.connections.add.url': 'عنوان الخادم — https لأي جهاز، وhttp على هذا الجهاز فقط',
   'settings.connections.add.command': 'الأمر',
   'settings.connections.add.args': 'الوسائط',
   'settings.connections.add.args_hint': 'مفصولة بمسافات، كما يستلمها الخادم تمامًا.',

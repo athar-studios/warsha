@@ -2101,6 +2101,10 @@ async fn mcp_rpcs_connect_send_and_disconnect_a_stdio_server() {
         .is_err());
 }
 
+/// The pipeline's own default, reached through the RPCs: a manager with **no** HTTP
+/// client injected records an `http` config and dials nothing. Since R-EXT-4 the
+/// daemon's startup injects one, so this pins the default rather than the daemon —
+/// what a pipeline-only host (and every other test in this file) gets.
 #[tokio::test]
 async fn mcp_connect_records_an_http_transport_without_dialling_it() {
     let temp = crate::test_util::fresh_tempdir();

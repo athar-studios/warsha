@@ -36,12 +36,13 @@ use crate::auth::cors_origins;
 #[allow(unused_imports)] // named only by the doc link on `start_daemon_with_provider_factory`
 use crate::MockProviderFactory;
 use crate::{
-    acquire_lock, apply_role_routings, build_agent_loop, http_app, mcp_approvals, pairing_origin,
-    register_configured_providers, resolve_bind_host, scrub_event_payload, seed_agent_snapshot,
-    seed_role_routings, wave2, windows_firewall_command, DaemonArgs, DaemonConfig, DaemonError,
-    DaemonHandle, DaemonPermissionStore, DaemonState, EventSequencer, KeychainProviderFactory,
-    ProviderFactory, RateGovernor, Result, RpcAuthLayer, Sessions, SettingsStore, StoreRunLiveness,
-    WarshaApiServer, WarshaRpc, LOCAL_POCKETBASE_URL, MOCK_PROVIDER_ID, REMOTE_ASSETS_DIR_ENV,
+    acquire_lock, apply_role_routings, build_agent_loop, http_app, mcp_approvals, mcp_http,
+    pairing_origin, register_configured_providers, resolve_bind_host, scrub_event_payload,
+    seed_agent_snapshot, seed_role_routings, wave2, windows_firewall_command, DaemonArgs,
+    DaemonConfig, DaemonError, DaemonHandle, DaemonPermissionStore, DaemonState, EventSequencer,
+    KeychainProviderFactory, ProcessPolicy, ProviderFactory, RateGovernor, Result, RpcAuthLayer,
+    Sessions, SettingsStore, StoreRunLiveness, WarshaApiServer, WarshaRpc, LOCAL_POCKETBASE_URL,
+    MOCK_PROVIDER_ID, REMOTE_ASSETS_DIR_ENV,
 };
 
 /// The backend kit a project starts from until it exports or sets one of its own.
@@ -257,7 +258,18 @@ pub async fn start_daemon_with_provider_factory(
     let processes: Arc<dyn ProcessManager> = InMemoryProcessManager::shared_with_policy(
         CommandPolicy::from_config(&config.allowed_commands),
     );
-    let mcp: Arc<dyn McpManager> = Arc::new(InMemoryMcpManager::new(processes.clone()));
+    // R-EXT-4: `http` MCP servers are dialled through a client that re-applies the
+    // same transport policy `mcp.connect` does — TLS anywhere, plain http only on
+    // loopback — to every request and every redirect. The daemon is the only place
+    // a socket exists: the pipeline keeps no HTTP client, so a manager with nothing
+    // injected still records an `http` config instead of dialling it.
+    let mcp_http = mcp_http::ReqwestMcpHttp::new(ProcessPolicy::from_config(
+        &config.allowed_commands,
+        &config.data_dir,
+    ))
+    .map_err(|error| DaemonError::Other(error.to_string()))?;
+    let mcp: Arc<dyn McpManager> =
+        Arc::new(InMemoryMcpManager::new(processes.clone()).with_http_client(Arc::new(mcp_http)));
     // The preview manager judges an owner run through the store (R-BRIDGE-B5 D3),
     // so a server whose run finished without its close running never blocks the next
     // run of the project.
