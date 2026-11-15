@@ -130,6 +130,40 @@ Not yet in the router (only `/health` is registered, `:500`). The contract to be
 - Ordering follows the append-only event log (`events.created_at ASC` index), so a client sees a run's
   history in commit order.
 
+### Event kinds and payload shapes (R-EXT-2)
+
+**No gate covers this table.** `scripts/check-wire-contract.mjs` compares JSON-RPC method names, policy rows,
+param names, harness stubs and CSP; the event `kind` and its `payload` are not parsed by any check, and on the
+client `EventKind` is `string`. So an event's shape is a contract kept here and in the tests, and a change to it
+is a manual review item, not a red gate. The kinds are `warsha_core::EventKind` (`crates/warsha-core/src/lib.rs`),
+snake_case on the wire.
+
+| `kind` | `payload` | Written by |
+|---|---|---|
+| `stage_started` | `{"action": "start_run" \| "run_resumed", "from", "to", …}` | pipeline stage advance |
+| `gate_decision` | the gate, its state and the deciding device | `gates.approve` / `gates.reject` / `gates.request_changes` |
+| `agent_step` | the turn's summary line | the agent loop's run view |
+| `tool_call` | `{"action": "mcp_call", "phase", "server", "tool", "role", "question_id"?}` or `{"action": "mcp_allow_once", "server", "tool", "role", "question_id"}` | an agent MCP call (`warshad/src/mcp_call_events.rs`), or an owner's `allow_once` answer (`warshad/src/mcp_approvals.rs`) |
+| `artifact_created` / `artifact_updated` | `{"name", "stage", "version"}` | a stage that wrote an artifact |
+| `cost_recorded` | `{"cost_cents", "tokens", "model"}` | a model call that spent |
+| `error` | `{"action": "stage_failed" \| "provider_required" \| "run_cancelled", …}` | a stage failure, or `runs.cancel` |
+| `run_finished` | `{"status": "completed" \| "failed" \| "cancelled"}` | the terminal transition itself (see below) |
+
+`run_finished` is appended exactly once per run — inside the same CAS-guarded status update that ends it
+(`warsha-pipeline/src/lib.rs`), so a lost CAS race writes nothing and a second advance writes none. `stage` is
+the stage the run was at when it ended, `role` is always `null`, and `device_id` is the authenticated device for
+`runs.cancel` (a system cancel passes `null`). `Paused` is not terminal and emits nothing.
+
+`tool_call` phases are `requested`, `approval_required`, `denied`, `succeeded` and `failed`, in that life:
+`requested` before the permission row is consulted, then exactly one of the rest. **No event payload ever carries
+a tool argument, a tool result or an approval summary** — the identifying fields above are the whole payload,
+which is why `mcp.approvals.list`'s redacted summary is a separate, owner-only read.
+
+Downgrade: the kind is stored as its serde name in `events.kind` (text), and `warsha-store` reads it back with
+`serde_json::from_str::<EventKind>`. A binary built before this kind **fails to decode the events of a run that
+has a `run_finished` row** (unknown variant). There is no migration — the column is text — so an older daemon
+reading a newer database is a downgrade hazard recorded in `DECISIONS.md`.
+
 ---
 
 ## 5. JSON-RPC surface (jsonrpsee, `127.0.0.1:<ws_port>`, default 8766)
