@@ -1,0 +1,9 @@
+-- 007: add CLI usage tracking columns to costs table
+
+ALTER TABLE costs ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE costs ADD COLUMN cache_write_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE costs ADD COLUMN source TEXT NOT NULL DEFAULT 'api_metered';
+ALTER TABLE costs ADD COLUMN estimated INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE costs ADD COLUMN cost_known INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE costs ADD COLUMN duration_ms INTEGER;
+ALTER TABLE costs ADD COLUMN session_id TEXT;

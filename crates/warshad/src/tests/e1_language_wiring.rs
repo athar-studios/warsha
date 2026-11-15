@@ -69,6 +69,7 @@ impl ChatProvider for PromptCapturingProvider {
                 input: 10,
                 output: 5,
                 total: 15,
+                cost_cents: None,
             },
         })
     }

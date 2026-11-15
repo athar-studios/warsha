@@ -165,10 +165,35 @@ pub struct CostRecord {
     pub prompt_tokens: u64,
     /// Completion tokens produced.
     pub completion_tokens: u64,
+    /// Cache read tokens consumed.
+    pub cache_read_tokens: u64,
+    /// Cache write tokens produced.
+    pub cache_write_tokens: u64,
+    /// Source of cost data.
+    pub source: String,
+    /// Whether cost is estimated.
+    pub estimated: bool,
+    /// Whether cost is known.
+    pub cost_known: bool,
+    /// Duration in milliseconds.
+    pub duration_ms: Option<u64>,
+    /// Session identifier.
+    pub session_id: Option<String>,
     /// Cost in cents.
     pub cost_cents: u64,
     /// Row creation timestamp.
     pub created_at: DateTime<Utc>,
+}
+
+impl CostRecord {
+    /// TPS accessor: completion_tokens / duration_ms (estimated)
+    pub fn estimated_tps(&self) -> Option<f64> {
+        let duration_ms = self.duration_ms?;
+        if duration_ms == 0 {
+            return None;
+        }
+        Some(self.completion_tokens as f64 / (duration_ms as f64 / 1000.0))
+    }
 }
 
 /// Thin wrapper around a SQLite connection pool.
@@ -755,8 +780,9 @@ impl Store {
         };
         sqlx::query(
             "INSERT INTO costs (id, run_id, project_id, agent_role, provider_id, model_id, \
-             prompt_tokens, completion_tokens, cost_cents, created_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, source, \
+             estimated, cost_known, duration_ms, session_id, cost_cents, created_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(cost.id.to_string())
         .bind(cost.run_id.0.to_string())
@@ -766,6 +792,13 @@ impl Store {
         .bind(&cost.model_id)
         .bind(cost.prompt_tokens as i64)
         .bind(cost.completion_tokens as i64)
+        .bind(cost.cache_read_tokens as i64)
+        .bind(cost.cache_write_tokens as i64)
+        .bind(&cost.source)
+        .bind(cost.estimated as i64)
+        .bind(cost.cost_known as i64)
+        .bind(cost.duration_ms.map(|v| v as i64))
+        .bind(&cost.session_id)
         .bind(cost.cost_cents as i64)
         .bind(cost.created_at.to_rfc3339())
         .execute(&self.pool)
@@ -777,7 +810,9 @@ impl Store {
     pub async fn list_costs(&self, run_id: RunId) -> Result<Vec<CostRecord>> {
         let rows = sqlx::query(
             "SELECT id, run_id, project_id, agent_role, provider_id, model_id, prompt_tokens, \
-             completion_tokens, cost_cents, created_at FROM costs WHERE run_id = ? \
+             completion_tokens, cache_read_tokens, cache_write_tokens, source, estimated, \
+             cost_known, duration_ms, session_id, cost_cents, created_at FROM costs \
+             WHERE run_id = ? \
              ORDER BY created_at ASC, id ASC",
         )
         .bind(run_id.0.to_string())
@@ -1056,6 +1091,13 @@ fn cost_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<CostRecord> {
         model_id: column_text(row, "model_id")?,
         prompt_tokens: column_int(row, "prompt_tokens")?.unsigned_abs(),
         completion_tokens: column_int(row, "completion_tokens")?.unsigned_abs(),
+        cache_read_tokens: column_int(row, "cache_read_tokens")?.unsigned_abs(),
+        cache_write_tokens: column_int(row, "cache_write_tokens")?.unsigned_abs(),
+        source: column_text(row, "source")?,
+        estimated: column_int(row, "estimated")? != 0,
+        cost_known: column_int(row, "cost_known")? != 0,
+        duration_ms: column_opt_int(row, "duration_ms")?.map(|v| v.unsigned_abs()),
+        session_id: column_opt_text(row, "session_id")?,
         cost_cents: column_int(row, "cost_cents")?.unsigned_abs(),
         created_at: parse_time("costs.created_at", &column_text(row, "created_at")?)?,
     })
@@ -1145,6 +1187,10 @@ mod tests {
                 "006_settings.sql",
                 &include_bytes!("../migrations/006_settings.sql")[..],
             ),
+            (
+                "007_cli_usage_costs.sql",
+                &include_bytes!("../migrations/007_cli_usage_costs.sql")[..],
+            ),
         ] {
             assert!(
                 !bytes.contains(&b'\r'),
@@ -1164,7 +1210,7 @@ mod tests {
     fn embedded_migrator_versions_are_lf_only() {
         let migrator = migration_migrator();
         let versions: Vec<i64> = migrator.iter().map(|m| m.version).collect();
-        assert_eq!(versions, vec![1, 2, 3, 4, 6]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 6, 7]);
         for migration in migrator.iter() {
             assert!(
                 !migration.sql.contains('\r'),
@@ -1187,7 +1233,7 @@ mod tests {
                 .fetch_all(store.pool())
                 .await
                 .expect("the migration ledger is readable");
-        assert_eq!(applied, vec![1, 2, 3, 4, 6]);
+        assert_eq!(applied, vec![1, 2, 3, 4, 6, 7]);
 
         let tables: Vec<String> = sqlx::query_scalar(
             "SELECT name FROM sqlite_master \
@@ -1304,6 +1350,7 @@ mod tests {
                 input: 10,
                 output: 5,
                 total: 15,
+                cost_cents: None,
             }),
             created_at: Utc::now(),
             device_id: None,
@@ -1495,6 +1542,13 @@ mod tests {
             model_id: "mock-1".to_owned(),
             prompt_tokens: 100,
             completion_tokens: 50,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            source: "api_metered".to_owned(),
+            estimated: false,
+            cost_known: true,
+            duration_ms: None,
+            session_id: None,
             cost_cents,
             created_at,
         }

@@ -300,6 +300,7 @@ pub struct TokenUsage {
     pub input: u64,
     pub output: u64,
     pub total: u64,
+    pub cost_cents: Option<u64>,
 }
 
 /// Provider configuration
@@ -523,6 +524,7 @@ mod tests {
             input: 100,
             output: 50,
             total: 150,
+            cost_cents: None,
         };
         assert_eq!(usage.total, usage.input + usage.output);
     }

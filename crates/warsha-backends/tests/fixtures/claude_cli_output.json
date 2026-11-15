@@ -1,0 +1,10 @@
+{
+  "result": "This is a result with WARSHA-CANARY-4eb9d7ee-dd4f-406b-b34c-7d430d20e89a",
+  "usage": {
+    "input_tokens": 100,
+    "output_tokens": 50,
+    "cache_read_tokens": 10,
+    "cache_write_tokens": 20,
+    "cost_cents": 5
+  }
+}

@@ -284,6 +284,7 @@ impl ChatProvider for OpenAIProvider {
                 input,
                 output,
                 total: input + output,
+                cost_cents: None,
             },
         })
     }

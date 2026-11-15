@@ -328,6 +328,7 @@ impl ChatProvider for OllamaProvider {
                 output: data["eval_count"].as_u64().unwrap_or(0),
                 total: data["prompt_eval_count"].as_u64().unwrap_or(0)
                     + data["eval_count"].as_u64().unwrap_or(0),
+                cost_cents: None,
             },
         })
     }

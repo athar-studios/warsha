@@ -31,8 +31,7 @@ const SETTINGS_TABLES: [&str; 11] = [
 
 /// The settings schema as the synchronous store created it *before* audit H1:
 /// the same tables, with a four-column `pairing_devices`.
-const PRE_H1_SETTINGS_SCHEMA_SQL: &str = "\
-CREATE TABLE preferences (
+const PRE_H1_SETTINGS_SCHEMA_SQL: &str = "CREATE TABLE preferences (
     project_id     TEXT    NOT NULL,
     key            TEXT    NOT NULL,
     score          REAL    NOT NULL,
@@ -123,8 +122,7 @@ VALUES ('open_router', 'open_router', 'https://openrouter.ai/api/v1', 1, 1700000
 
 /// The settings schema as the store created it *after* audit H1 and before this
 /// migration: the same tables, with the expiry column added by 005.
-const POST_H1_SETTINGS_SCHEMA_SQL: &str = "\
-CREATE TABLE preferences (
+const POST_H1_SETTINGS_SCHEMA_SQL: &str = "CREATE TABLE preferences (
     project_id     TEXT    NOT NULL,
     key            TEXT    NOT NULL,
     score          REAL    NOT NULL,
@@ -329,7 +327,7 @@ async fn a_fresh_database_gets_the_whole_schema_once() {
     assert_full_schema(store.pool()).await;
     assert_eq!(
         applied_versions(store.pool()).await,
-        vec![1, 2, 3, 4, 6],
+        vec![1, 2, 3, 4, 6, 7],
         "the ledger is every applied migration, in order"
     );
     assert!(has_column(store.pool(), "pairing_devices", "expires_at").await);
@@ -340,7 +338,10 @@ async fn a_fresh_database_gets_the_whole_schema_once() {
     let reopened = Store::open_at(path)
         .await
         .expect("the second open applies nothing");
-    assert_eq!(applied_versions(reopened.pool()).await, vec![1, 2, 3, 4, 6]);
+    assert_eq!(
+        applied_versions(reopened.pool()).await,
+        vec![1, 2, 3, 4, 6, 7]
+    );
     assert_full_schema(reopened.pool()).await;
 }
 
@@ -371,7 +372,7 @@ async fn a_legacy_daemon_database_migrates_and_keeps_its_rows() {
     let store = Store::open_at(path.clone())
         .await
         .expect("a legacy daemon database migrates cleanly");
-    assert_eq!(applied_versions(store.pool()).await, vec![1, 2, 3, 4, 6]);
+    assert_eq!(applied_versions(store.pool()).await, vec![1, 2, 3, 4, 6, 7]);
     assert_full_schema(store.pool()).await;
     assert!(has_column(store.pool(), "pairing_devices", "expires_at").await);
 
@@ -434,7 +435,7 @@ async fn a_mid_upgrade_database_keeps_both_shapes_of_pairing() {
     let store = Store::open_at(path.clone())
         .await
         .expect("a post-H1 database migrates cleanly");
-    assert_eq!(applied_versions(store.pool()).await, vec![1, 2, 3, 4, 6]);
+    assert_eq!(applied_versions(store.pool()).await, vec![1, 2, 3, 4, 6, 7]);
     assert_full_schema(store.pool()).await;
 
     let rows: Vec<(String, Option<i64>)> =
@@ -457,4 +458,77 @@ async fn a_mid_upgrade_database_keeps_both_shapes_of_pairing() {
             .await
             .expect("the provider rows are readable");
     assert_eq!(providers, vec!["my-llm".to_string()]);
+}
+
+#[tokio::test]
+async fn a_legacy_cost_database_migrates_and_adds_new_columns() {
+    let dir = fresh_tempdir();
+    let path = dir.path().join("warsha.db");
+    let pool = fixture_pool(&path).await;
+
+    // Apply migrations up to 006 (before 007)
+    apply_migrations_through(&pool, 6).await;
+
+    // Create required project first
+    sqlx::query("INSERT INTO projects (id, name, description, language, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind(vec![0u8; 16])
+        .bind("test-project")
+        .bind("")
+        .bind("en")
+        .bind("2026-11-15T00:00:00Z")
+        .bind("2026-11-15T00:00:00Z")
+        .execute(&pool)
+        .await
+        .expect("project inserted");
+
+    // Create required run first to satisfy FK
+    sqlx::query("INSERT INTO runs (id, project_id, status, current_stage, gate_states, artifacts, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind("01J0000000000000000000001")
+        .bind(vec![0u8; 16])
+        .bind("starting")
+        .bind("planning")
+        .bind("{}")
+        .bind("{}")
+        .bind("2026-11-15T00:00:00Z")
+        .bind("2026-11-15T00:00:00Z")
+        .execute(&pool)
+        .await
+        .expect("run inserted");
+
+    // Insert a legacy row
+    sqlx::query("INSERT INTO costs (id, run_id, project_id, provider_id, model_id, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind("01J00000000000000000000000")
+        .bind("01J0000000000000000000001")
+        .bind(vec![0u8; 16])
+        .bind("provider")
+        .bind("model")
+        .bind("2026-11-15T00:00:00Z")
+        .execute(&pool)
+        .await
+        .expect("legacy row inserted");
+
+    pool.close().await;
+
+    // Migrate up to 007 and open
+    let store = Store::open_at(path.clone())
+        .await
+        .expect("migration succeeds");
+
+    // Check columns
+    assert!(has_column(store.pool(), "costs", "cache_read_tokens").await);
+    assert!(has_column(store.pool(), "costs", "source").await);
+
+    // Verify row
+    let row: (i64, String, bool, bool) = sqlx::query_as(
+        "SELECT cache_read_tokens, source, estimated, cost_known FROM costs WHERE id = ?",
+    )
+    .bind("01J00000000000000000000000")
+    .fetch_one(store.pool())
+    .await
+    .expect("row readable");
+
+    assert_eq!(row.0, 0); // Default value
+    assert_eq!(row.1, "api_metered"); // Default value
+    assert!(!row.2); // Default value
+    assert!(row.3); // Default value
 }
