@@ -6,13 +6,14 @@ import type { WarshaClient } from '@warsha/client';
 import { I18nProvider, type Locale } from '@warsha/i18n/v3';
 /* eslint-enable import/no-unresolved */
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ClientProvider } from '../../../app/ClientContext';
 import { DataReadyProvider } from '../../../app/DataReadyContext';
 import { DensityProvider } from '../../../app/DensityContext';
 import { ThemeProvider } from '../../../app/ThemeContext';
 import { SOUND_CUES_STORAGE_KEY } from '../../../app/soundCues';
+import { WEBMCP_STORAGE_KEY } from '../../../webmcp/setting';
 
 import { GeneralSection } from './GeneralSection';
 
@@ -112,5 +113,109 @@ describe('GeneralSection sound cues (R-UI-3 D2-b/D2-c, T5)', () => {
 
     expect(vi.mocked(client.recordPreference)).not.toHaveBeenCalled();
     expect(vi.mocked(client.listPreferences).mock.calls.length).toBe(listCallsBefore);
+  });
+});
+
+// R-EXT-5 T10: the browser-assistant switch (X9a). Off by default, advanced mode or on, device-scoped, no RPC,
+// and the one runtime fact it reports — whether this window has a browser assistant at all.
+function renderSectionIn(
+  client: WarshaClient,
+  locale: Locale,
+  mode: 'simple' | 'advanced'
+): ReturnType<typeof render> {
+  return render(
+    <I18nProvider initialLocale={locale}>
+      <ThemeProvider>
+        <DensityProvider initialMode={mode}>
+          <ClientProvider client={client}>
+            <DataReadyProvider>
+              <GeneralSection />
+            </DataReadyProvider>
+          </ClientProvider>
+        </DensityProvider>
+      </ThemeProvider>
+    </I18nProvider>
+  );
+}
+
+describe('GeneralSection browser assistant tools (R-EXT-5 T10)', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    Reflect.deleteProperty(document, 'modelContext');
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(document, 'modelContext');
+  });
+
+  it('is absent in simple mode while the device switch is off', async () => {
+    renderSectionIn(createClient(), 'en', 'simple');
+
+    await waitFor(() => screen.getByTestId('general-sound-cues'));
+    expect(screen.queryByTestId('general-webmcp')).toBeNull();
+  });
+
+  it('is present in advanced mode, off, and writes "on" on click with no RPC', async () => {
+    const client = createClient();
+    renderSectionIn(client, 'en', 'advanced');
+
+    const control = await waitFor(() => screen.getByTestId('general-webmcp'));
+    expect(control).toHaveAttribute('role', 'switch');
+    expect(control).toHaveAttribute('aria-checked', 'false');
+    expect(control).toHaveAttribute('data-action', 'settings.webmcp.set');
+    expect(control.getAttribute('aria-labelledby')).toBeTruthy();
+    expect(window.localStorage.getItem(WEBMCP_STORAGE_KEY)).toBeNull();
+
+    const listCallsBefore = vi.mocked(client.listPreferences).mock.calls.length;
+    fireEvent.click(control);
+
+    expect(window.localStorage.getItem(WEBMCP_STORAGE_KEY)).toBe('on');
+    expect(control).toHaveAttribute('aria-checked', 'true');
+    expect(vi.mocked(client.recordPreference)).not.toHaveBeenCalled();
+    expect(vi.mocked(client.listPreferences).mock.calls.length).toBe(listCallsBefore);
+  });
+
+  it('stays visible in simple mode once the device has it on', async () => {
+    window.localStorage.setItem(WEBMCP_STORAGE_KEY, 'on');
+    renderSectionIn(createClient(), 'en', 'simple');
+
+    expect(await waitFor(() => screen.getByTestId('general-webmcp'))).toHaveAttribute(
+      'aria-checked',
+      'true'
+    );
+  });
+
+  it('says the window has no browser assistant only while the switch is on and none exists', async () => {
+    window.localStorage.setItem(WEBMCP_STORAGE_KEY, 'on');
+    const withoutContext = renderSectionIn(createClient(), 'en', 'simple');
+
+    expect(await waitFor(() => screen.getByTestId('general-webmcp-unavailable'))).toHaveTextContent(
+      'No browser assistant is available in this window.'
+    );
+    withoutContext.unmount();
+
+    Object.defineProperty(document, 'modelContext', {
+      configurable: true,
+      value: { registerTool: () => Promise.resolve() },
+    });
+    renderSectionIn(createClient(), 'en', 'simple');
+
+    await waitFor(() => screen.getByTestId('general-webmcp'));
+    expect(screen.queryByTestId('general-webmcp-unavailable')).toBeNull();
+  });
+
+  it('renders in Arabic and in English by its translated name', async () => {
+    const labels = [
+      ['ar', 'أدوات مساعد المتصفّح'],
+      ['en', 'Browser assistant tools'],
+    ] as const;
+
+    for (const [locale, name] of labels) {
+      const view = renderSectionIn(createClient(), locale, 'advanced');
+      const control = await waitFor(() => screen.getByTestId('general-webmcp'));
+      expect(screen.getByRole('switch', { name })).toBe(control);
+      view.unmount();
+      window.localStorage.clear();
+    }
   });
 });
