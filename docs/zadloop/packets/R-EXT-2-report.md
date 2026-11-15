@@ -63,7 +63,7 @@ the phase label from the catalog, the "answer it in the Inbox" hint on the askin
 `bench-terminal-run-finished` line with `data-status`. Its existing transcript filter is kept: a `tool_call` that is
 not an MCP call (the `allow_once` answer) still lands in the transcript. The project page renders the ending with
 the status-specific key and still filters `tool_call` out of simple mode. `EVENT_KIND_TO_KEY` gained `run_finished`;
-ar and en carry `events.run_finished[.completed|.failed|.cancelled]`, `events.tool_call.<phase>` ×5 and
+ar and en carry `events.run_finished[.completed|.failed|.cancelled]`, `events.tool_call.phase.*` ×5 and
 `events.tool_call.answer_inbox`.
 
 ## Gates (final tree)

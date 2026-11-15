@@ -53,7 +53,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({ events }) => {
     const calls = mcpCalls.map(
       ({ ev, call }) =>
         `[${formatEventTime(ev.createdAt, locale)}] ${call.server} · ${call.tool} — ${t(
-          `events.tool_call.${call.phase}`
+          `events.tool_call.phase.${call.phase}`
         )}`
     );
     const raw = [...lines.map((l) => `[${l.timestamp}] ${l.content}`), ...calls].join('\n');
@@ -155,7 +155,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({ events }) => {
                   <span aria-hidden="true">·</span>
                   <span dir="ltr">{call.tool}</span>
                   <span aria-hidden="true">—</span>
-                  <span>{t(`events.tool_call.${call.phase}`)}</span>
+                  <span>{t(`events.tool_call.phase.${call.phase}`)}</span>
                   {call.phase === 'approval_required' && (
                     <span data-testid="bench-terminal-mcp-answer-inbox">
                       {t('events.tool_call.answer_inbox')}
