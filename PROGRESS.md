@@ -6752,3 +6752,7 @@ hypotheses left in this triage.
 ## Run 2026-11-15 — R-UI-4 Part B merged (remote harness CSP repair); Part A stays STOPPED
 - **R-UI-4B** (branch `zl-rui4b-csp`, 3 commits, merged clean): B-1 harness → 8765 (flows 7/7, CSP enforced) + B-2 harness-only `bypassCSP` (axe inline injection is outside allowed files; product CSP unchanged, hash-identical). 84 visual fails are pixel/font only (host drift, allowed class) — 0 CSP messages.
 - **Part A STOPPED** (no capture host): logged 2026-11-15. Unblock = CI billing + capture workflow, WSL host, or canary-passing pinned host.
+
+## Run 2026-11-15 — R-UI-5 merged (T3 RED on product finding)
+- **R-UI-5** (branch `zl-rui5-smoke`, 6 commits, merged clean): smoke script + VERIFY §3.4 + report. S1 boot FAILS on both AVDs (asset-base defect, machine evidence in target/, gitignored); S2–S5 not reached per STOP rule; logcat clean (no crash/token leak). No product files touched (diff vs base empty for apps/crates/packages). AVD safety kept (Athar never wiped); foreign warshad left untouched.
+- Follow-ups: (1) relative-base fix packet for apps/remote+mobile; (2) gradlew/Gradle-9 build-rot fix. T2 deferred.

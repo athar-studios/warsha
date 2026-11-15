@@ -1822,3 +1822,8 @@ reference `docs/designs/v3-preview.html`; run evidence `bridge-io/policy/2026-11
 ## 2026-11-15 — R-UI-4 Part A STOPPED (no capture host); Part B dispatched
 - Planner packet R-UI-4 frozen. Part A (416 v3 baselines) is STOP-gated: this host has font drift (B4a 233/560), CI billing failed, no capture job exists. Unblock: (a) CI billing + capture workflow, (b) original WSL host, or (c) pinned host passing the 84/84 + 0-pixel canary. Do NOT capture here.
 - Part B (remote harness 8799→8765 or harness-only bypassCSP; product CSP untouched) is host-independent → dispatched now.
+
+## 2026-11-15 — R-UI-5 T3 RED: WebView asset-base defect + Android build rot (follow-ups opened)
+- T3 smoke (script `scripts/android-smoke.sh`, report R-UI-5-report.md) proves the app installs/launches with no crash but the WebView never runs the page: Vite root-absolute `/assets/` URLs resolve to `file:///assets/` (origin null) → Chromium blocks. Needs product fix in apps/remote build (relative base) — new packet, not a drive-by.
+- Pre-existing: `gradlew` mode 100644 in git (exit 126 as scripted) + `app/build.gradle:128` uses Gradle-9-removed `Task.exec` — Android build path broken; needs its own fix.
+- T3 stays RED until a fix packet lands and the smoke passes; S2–S5 unexercised. T2 Windows still deferred (no runner).
