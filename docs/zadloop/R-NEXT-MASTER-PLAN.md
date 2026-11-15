@@ -1,13 +1,69 @@
-# Warsha R-NEXT — Final Master Plan (v2, execution copy)
+# Warsha R-NEXT — Final Master Plan (v3, execution copy)
 
-**Status:** frozen, pre-approved as a whole by the owner on 2026-11-15. Supersedes the v1 draft
-(`warsha-R-NEXT-master-plan.md`); where the two differ, this file wins.
+**Status:** v3 — v2 plus owner-approved amendments (2026-11-15). Frozen, pre-approved as a whole
+by the owner on 2026-11-15. Supersedes the v1 draft (`warsha-R-NEXT-master-plan.md`) and the v2
+execution copy; where the two differ, this file wins. The **Amendments** section immediately below
+overrides the v2 text wherever they differ.
 **Audience:** the ZadLoop fleet working inside this repository.
 **Contract:** the fleet executes this plan end to end and asks the owner nothing. Every decision
 is resolved here or by the decision rule in §0.4.
 
 Read order for any agent picking this up: `AGENTS.md` → `ENGINEERING_POLICY.md` → this file →
 `PROGRESS.md` (latest entries) → the packet you are assigned.
+
+---
+
+## Amendments (owner-approved, 2026-11-15) — these override the v2 text wherever they differ
+
+### A1 — Whole-run spend ceiling
+
+The run as a whole (Phase 0 → Z1) has a cumulative budget, not only per-run product budgets.
+
+- In F0 the fleet records a **run budget** in `PROGRESS.md`: a per-packet estimated cap for every
+  packet, plus a run total.
+- Cumulative estimated spend is tracked against it from the cost store — CLI usage included once
+  N0 lands; before that, the best available estimate, labelled **estimated**.
+- At **80%** of the total, an alert is appended to the owner checklist. The run continues.
+- At **100%**, the run **hard-stops**: no new packet starts; in-flight packets finish their
+  current gate or are marked blocked; Z1 is produced as-is.
+- A packet that would exceed its own cap stops and is marked blocked, with the figures logged.
+
+### A2 — In-app editing is deferred within Phase 4, not cancelled
+
+The code viewer (CodeMirror 6) ships read-only first, as v2 says — with two changes:
+
+- It is built on CodeMirror's **editable architecture**. No read-only-only shortcuts that would
+  force a rewrite when editing lands. (This overrides the §12 out-of-scope entry for an in-app
+  code editor.)
+- A follow-on packet **in the same phase** adds gated editing under the triple lock:
+  (a) Developers view mode only; (b) the project's permission axis allows writes; (c) no active
+  run is using that worktree.
+- Secret and protected files are never rendered and never editable — metadata-only state, as in
+  the approved design.
+- Acceptance for the viewer packet includes a test that the editor can switch a non-protected
+  file to editable under the triple lock in a fixture.
+
+### A3 — The approved UI designs are the acceptance reference
+
+The seven owner-approved design screens — Simple (secretary), Factory, Developers, Session
+detail, Providers, General settings, Project settings; reference images adopted into
+`docs/zadloop/r-next-designs/` in F0 — are the visual and behavioural target for the Series E
+packets. A surface is not accepted if it materially diverges from its reference without a logged
+decision.
+
+- **Factory:** the target look is the pixel floor built from the audited Pixel Agents asset pack
+  (MIT project art, CC0 characters; the Donarg tileset remains banned). Factory props not present
+  upstream were drawn in-house at the same pixel scale; they are documented in the `ASSET-NOTES.md`
+  shipped with the design references and are part of the adopted references.
+- The schematic floor may exist as an interim milestone inside the packet. It is **not** the
+  acceptance target; the packet accepts against the pixel reference.
+- The fleet reuses the existing asset pack files. It does not draw new character or furniture art.
+
+### A4 — Ask-routing fallback must be visible
+
+If the B2 VERIFY on CLI ask-routing (e.g. `--permission-prompt-tool`) fails and CLI asks degrade
+to deny-and-log, that degradation is surfaced to the owner — a secretary status line in Simple
+mode plus an entry in the owner checklist. Never silently.
 
 ---
 
@@ -1234,5 +1290,29 @@ Two lanes never edit the same file. On any doubt, run serially.
 - Weaken, skip, or delete a test or gate to get green. Never merge red.
 - Add an operating-system sandbox, an in-app code editor, a new mobile surface, a generic
   agent-protocol adapter, or a policy-engine dependency — all are out of scope for this run.
+
+---
+
+## Appendix — UI design references
+
+The approved design references live in `docs/zadloop/r-next-designs/` (adopted in F0; see
+Amendment A3).
+
+- `warsha-after-simple.png` — Simple mode: the secretary chat surface, inline decision cards,
+  proactive alerts and the status-bar quota gauge.
+- `warsha-after-factory.png` — Factory mode: the top-down pixel floor built from the audited
+  Pixel Agents assets, with agent life states and the gatekeeper click-panel.
+- `warsha-after-dev.png` — Developers mode: dense telemetry — the sessions table, tokens, TPS,
+  API-estimated cost, burn rate, cost per packet and provider quotas.
+- `warsha-after-session.png` — Session detail: one session's timeline of tool steps with
+  durations, files touched with +/−, usage figures, and Stop / Hand off / Open in IDE actions.
+- `warsha-after-providers.png` — Providers: the registry control centre — provider cards, add
+  provider with live probe result, role routing and quota status.
+- `warsha-after-settings.png` — General settings: the two-layer settings (quick + advanced) with
+  instant search and global defaults inherited by projects.
+- `warsha-after-project-settings.png` — Project settings: per-project overrides against inherited
+  defaults, the two-axis permission picker, the budget bar and the danger zone.
+- `ASSET-NOTES.md` — Provenance for the Factory floor: which assets are upstream Pixel Agents
+  files and their licences, and which factory props were drawn in-house at the same pixel scale.
 
 *End of plan.*
