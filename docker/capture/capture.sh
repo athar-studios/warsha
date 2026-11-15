@@ -6,8 +6,12 @@ OUTPUT_DIR=$3
 shift 3
 mkdir -p "$OUTPUT_DIR"
 docker run --rm \
+  --cpus=2 \
+  --memory=4g \
+  --shm-size=1g \
   --user "$(id -u):$(id -g)" \
   -e HOME=/tmp/pw-home \
+  -e LC_ALL=C \
   -v "$(pwd):/app" \
   -w /app \
   -e FONTCONFIG_FILE=/scripts/ci/capture-fontconfig.conf \

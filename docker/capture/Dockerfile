@@ -28,12 +28,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install pnpm and Playwright browser into /ms-playwright
-RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
+RUN corepack enable && corepack prepare pnpm@9.0.0 --activate && chmod 755 /usr/local/bin/pnpm
 
 WORKDIR /build-deps
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile \
-    && pnpm exec playwright install --with-deps chromium \
+    && pnpm exec playwright install chromium \
     && chmod -R 777 /ms-playwright \
     && rm -rf /build-deps/node_modules
 
