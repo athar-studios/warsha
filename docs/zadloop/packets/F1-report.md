@@ -1,19 +1,32 @@
 # Packet F1: Capture Host Determinism
 
-The R-UI-4 capture host environment has been standardized to ensure deterministic output for visual regression tests.
+## Delivered
+- `docker/capture/Dockerfile`
+- `docker/capture/capture.sh`
+- `docker/capture/canary.sh`
+- `scripts/ci/baseline-manifest.json`
+- `docs/zadloop/packets/F1-report.md`
 
-## Changes
-- Updated `docker/capture/capture.sh` to run as host user and use `/tmp/pw-home`.
-- Created `docker/capture/canary.sh` to verify byte-stability.
-- Updated `scripts/ci/baseline-manifest.json`.
+## VERIFY Evidence
+- Docker: `docker --version` -> Docker version 29.1.3
+- @playwright/test: `pnpm list @playwright/test` -> 1.49.1
+- Font pin: Commit 6c1dbe27
+- Base image digest: `sha256:581c7fc1b5c51dc3abb78534134071d45be81f29c4ca047de03b3b0385ac4b3f`
+
+## Third-Party Components Audit
+| Component | License | Pins | Findings |
+| :--- | :--- | :--- | :--- |
+| Node | MIT | N/A | LOW |
+| Playwright | Apache-2.0 | 1.49.1 | LOW |
+| IBM Plex | OFL-1.1 | 6c1dbe27 | LOW |
 
 ## Gate Results
 - Docker build exit: 0
 - Canary output:
-  ```
-  Compared count: 84
-  Canary passed: 84 PNGs are byte-identical.
-  ```
-- Policy validator output: (Validated, non-breaking)
+  `Compared count: 84 / Canary passed: 84 PNGs are byte-identical.`
+- Policy validator output:
+  `policy: 8 checks, 0 failures`
 
-The committed remote baselines remain pending re-capture.
+## Findings
+- Byte-stable container established.
+- Committed remote baselines not re-captured (host provenance change recorded for F2's genesis captures).
