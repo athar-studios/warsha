@@ -18,7 +18,8 @@ touched (`git diff --name-only d8dc8d3 -- apps crates packages` prints nothing).
 | --- | --------- | -------------------------------------------------------- |
 | 1   | `d63054b` | `feat(smoke): add the T3 Android smoke script (R-UI-5)`  |
 | 2   | `c7d7146` | `docs(verify): add §3.4 pointing at the emulator smoke`  |
-| 3   | this file | `docs(zadloop): R-UI-5 report — T3 stopped on a product finding` |
+| 3   | `8a83f94` | `fix(smoke): make the DevTools probe fail loudly, not silently` |
+| 4   | this file | `docs(zadloop): R-UI-5 report — T3 stopped on a product finding` |
 
 ## Finding F1 — the bundled page does not load under `file://` (product, out of scope)
 
