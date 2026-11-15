@@ -471,11 +471,14 @@ async fn process_and_mcp_control_are_owner_only_and_bounded_by_configuration() {
     )
     .await;
     assert_eq!(code, -32005, "a plain remote MCP endpoint was recorded");
+    // A secure endpoint passes the same url policy. Proved on the transport nothing
+    // dials (R-EXT-4 made `http` real): the policy is shared, and a `wss` config is
+    // still only *recorded*, so this asserts the url rule without a network call.
     rpc_ok(
         port,
         OWNER,
         "mcp.connect",
-        json!([{"name": "secure", "transport": {"kind": "http", "url": "https://mcp.example/mcp"}, "command": null, "args": []}]),
+        json!([{"name": "secure", "transport": {"kind": "web_socket", "url": "wss://mcp.example/ws"}, "command": null, "args": []}]),
     )
     .await;
 
