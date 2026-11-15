@@ -820,6 +820,95 @@ const RUN_EVENTS: readonly EventFixture[] = RUN_LOGS.map((line, index) => ({
   device_id: 'dev-laptop',
 }));
 
+/**
+ * One agent MCP tool call and the run's end, as `runs.subscribe` answers (R-EXT-2).
+ *
+ * The Terminal tab draws from these rows and not from a summary string: one line per
+ * phase, the server and tool as LTR tokens, then the run's own ending. The payloads
+ * carry no argument and no result — that is the daemon's rule, not this fixture's —
+ * so a screen that renders them shows a call and never its content.
+ *
+ * A case passes it as `openV3(..., { fixtures: { 'runs.subscribe': { result: AGENT_TOOL_STREAM } } })`.
+ * The wire shape is the daemon's: snake_case fields and the same kind strings every
+ * other event carries, so no new method and no new field is introduced.
+ */
+export const AGENT_TOOL_STREAM = {
+  seq: 4,
+  gap_detected: false,
+  resync_required: false,
+  dropped_count: 0,
+  run: null,
+  events: [
+    {
+      id: 'evt-mcp-1',
+      run_id: 'run-code',
+      stage: 'code',
+      role: null,
+      kind: 'tool_call',
+      payload: {
+        action: 'mcp_call',
+        phase: 'requested',
+        server: 'files',
+        tool: 'read_file',
+        role: 'agent',
+      },
+      cost_cents: null,
+      created_at: '2026-10-05T07:16:00.000Z',
+      device_id: null,
+      seq: 1,
+    },
+    {
+      id: 'evt-mcp-2',
+      run_id: 'run-code',
+      stage: 'code',
+      role: null,
+      kind: 'tool_call',
+      payload: {
+        action: 'mcp_call',
+        phase: 'approval_required',
+        server: 'files',
+        tool: 'read_file',
+        role: 'agent',
+        question_id: 'mcp-approval-1',
+      },
+      cost_cents: null,
+      created_at: '2026-10-05T07:16:30.000Z',
+      device_id: null,
+      seq: 2,
+    },
+    {
+      id: 'evt-mcp-3',
+      run_id: 'run-code',
+      stage: 'code',
+      role: null,
+      kind: 'tool_call',
+      payload: {
+        action: 'mcp_call',
+        phase: 'succeeded',
+        server: 'files',
+        tool: 'read_file',
+        role: 'agent',
+      },
+      cost_cents: null,
+      created_at: '2026-10-05T07:17:00.000Z',
+      device_id: null,
+      seq: 3,
+    },
+    {
+      id: 'evt-mcp-end',
+      run_id: 'run-code',
+      stage: 'feedback',
+      role: null,
+      kind: 'run_finished',
+      payload: { status: 'completed' },
+      cost_cents: null,
+      created_at: '2026-10-05T07:18:00.000Z',
+      device_id: null,
+      seq: 4,
+    },
+  ],
+} as const;
+
 /** What the stubs observed, so a test can assert the app really talked to them. */
 export interface StubReport {
   /** JSON-RPC methods the app called, in order. */

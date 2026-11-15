@@ -16,6 +16,9 @@ export const EVENT_KIND_TO_KEY: Record<string, string> = {
   fallback: 'events.fallback',
   budget_warning: 'events.budget_warning',
   budget_exceeded: 'events.budget_exceeded',
+  // R-EXT-2: the run's end, so a finished run reads as one line instead of the
+  // catch-all `events.unknown`.
+  run_finished: 'events.run_finished',
 };
 
 export function getEventKey(kind: string): string {

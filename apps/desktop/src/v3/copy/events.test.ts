@@ -16,6 +16,7 @@ describe('events copy mapping', () => {
     'fallback',
     'budget_warning',
     'budget_exceeded',
+    'run_finished',
   ];
 
   it('maps every EventKind to a catalog key', () => {

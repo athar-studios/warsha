@@ -957,3 +957,134 @@ describe('Advanced Workbench (U4)', () => {
     expect(onReload).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * R-EXT-2: the Terminal tab renders the agent's MCP tool calls and the run's end from
+ * the events themselves — the server and tool as LTR tokens, the phase in the catalog,
+ * and an approval-pending call pointing at the Inbox.
+ */
+describe('TerminalTab — agent MCP call lines and the run\'s end (R-EXT-2)', () => {
+  const events: WarshaEvent[] = [
+    {
+      id: 'evt-mcp-1',
+      runId: 'run-1' as RunId,
+      stage: 'code',
+      role: null,
+      kind: 'tool_call',
+      payload: {
+        action: 'mcp_call',
+        phase: 'requested',
+        server: 'files',
+        tool: 'read_file',
+        role: 'agent',
+      },
+      costCents: null,
+      createdAt: '2026-10-05T07:16:00.000Z',
+      deviceId: null,
+    },
+    {
+      id: 'evt-mcp-2',
+      runId: 'run-1' as RunId,
+      stage: 'code',
+      role: null,
+      kind: 'tool_call',
+      payload: {
+        action: 'mcp_call',
+        phase: 'approval_required',
+        server: 'files',
+        tool: 'read_file',
+        role: 'agent',
+        question_id: 'mcp-approval-1',
+        // A tool argument is never in the payload; this one is only here to prove the
+        // tab renders nothing it does not decode.
+        path: 'SECRET-ARG',
+      },
+      costCents: null,
+      createdAt: '2026-10-05T07:16:30.000Z',
+      deviceId: null,
+    },
+    {
+      id: 'evt-mcp-3',
+      runId: 'run-1' as RunId,
+      stage: 'code',
+      role: null,
+      kind: 'tool_call',
+      payload: {
+        action: 'mcp_call',
+        phase: 'succeeded',
+        server: 'files',
+        tool: 'read_file',
+        role: 'agent',
+      },
+      costCents: null,
+      createdAt: '2026-10-05T07:17:00.000Z',
+      deviceId: null,
+    },
+    {
+      id: 'evt-finish',
+      runId: 'run-1' as RunId,
+      stage: 'feedback',
+      role: null,
+      kind: 'run_finished',
+      payload: { status: 'completed' },
+      costCents: null,
+      createdAt: '2026-10-05T07:18:00.000Z',
+      deviceId: null,
+    },
+  ];
+
+  it('renders one line per phase, in event order, with LTR server and tool tokens', () => {
+    renderWithProviders(<TerminalTab events={events} />, undefined, 'en');
+
+    const items = screen.getAllByTestId('bench-terminal-mcp-call');
+    expect(items.map((item) => item.getAttribute('data-phase'))).toEqual([
+      'requested',
+      'approval_required',
+      'succeeded',
+    ]);
+    expect(items[0].textContent).toContain('files');
+    expect(items[0].textContent).toContain('read_file');
+    expect(items[0].textContent).toContain('requested');
+
+    const tokens = items[0].querySelectorAll('[dir="ltr"]');
+    expect(Array.from(tokens).map((token) => token.textContent)).toEqual(['files', 'read_file']);
+
+    // Only the asking phase points at the Inbox.
+    expect(screen.getAllByTestId('bench-terminal-mcp-answer-inbox')).toHaveLength(1);
+    expect(items[1].textContent).toContain('needs your approval');
+    expect(items[1].textContent).toContain('Answer it in the Inbox');
+  });
+
+  it('renders the run end as one status line and never the call\'s arguments', () => {
+    renderWithProviders(<TerminalTab events={events} />, undefined, 'en');
+
+    const finished = screen.getByTestId('bench-terminal-run-finished');
+    expect(finished).toHaveTextContent('Run finished: completed');
+    expect(finished).toHaveAttribute('data-status', 'completed');
+    expect(document.body.textContent).not.toContain('SECRET-ARG');
+  });
+
+  it('says the ending in Arabic too, and keeps the transcript empty when only calls exist', () => {
+    renderWithProviders(<TerminalTab events={[...events.slice(0, 1), events[3]]} />, undefined, 'ar');
+
+    expect(screen.getByTestId('bench-terminal-run-finished')).toHaveTextContent(
+      'انتهى التشغيل: مكتمل'
+    );
+    expect(screen.getByTestId('bench-terminal-mcp-calls')).toBeInTheDocument();
+    // A panel with calls but no transcript lines is not an empty panel.
+    expect(screen.queryByTestId('bench-terminal-empty')).toBeNull();
+  });
+
+  it('renders a failed run end and an unknown status as no ending at all', () => {
+    const failed: WarshaEvent = { ...events[3], payload: { status: 'failed' } };
+    renderWithProviders(
+      <TerminalTab events={[failed, { ...events[3], id: 'evt-unknown', payload: { status: 'skipped' } }]} />,
+      undefined,
+      'en'
+    );
+    expect(screen.getByTestId('bench-terminal-run-finished')).toHaveTextContent(
+      'Run finished: failed'
+    );
+    expect(screen.getAllByTestId('bench-terminal-run-finished')).toHaveLength(1);
+  });
+});
