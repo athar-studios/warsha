@@ -1551,14 +1551,45 @@ impl<S> Layer<S> for RpcAuthLayer {
     }
 }
 
-/// The app's own origins: the desktop webview on Unix and on Windows. They are
-/// always allowed whatever a `config.toml` lists, because an existing config that
-/// predates one of them must not lock its own app out of the daemon.
-pub(crate) const APP_ORIGINS: &[&str] = &["tauri://localhost", "http://tauri.localhost"];
+/// The app's own origins: the desktop webview on Unix and on Windows, and the
+/// Android shell's asset host. They are always allowed whatever a `config.toml`
+/// lists, because an existing config that predates one of them must not lock its
+/// own app out of the daemon.
+///
+/// The Android entry is the shell's real origin (`OD-UI7`, R-UI-7): `MainActivity`
+/// serves the bundled page from `https://appassets.androidplatform.net/` through a
+/// framework `shouldInterceptRequest` handler, so the page presents that one fixed
+/// string. The alternative — admitting `null` — is what a `file:` document can only
+/// present, and any web page can force a browser to send `null` (a sandboxed iframe,
+/// a `data:` document), so admitting it would delete the origin check while leaving
+/// it in the code. Exact match only: scheme, host and no port, at no trailing slash.
+pub(crate) const APP_ORIGINS: &[&str] = &[
+    "tauri://localhost",
+    "http://tauri.localhost",
+    "https://appassets.androidplatform.net",
+];
 
 /// Whether a present `Origin` is one the RPC listener accepts.
 pub(crate) fn origin_allowed(configured: &[String], origin: &str) -> bool {
     APP_ORIGINS.contains(&origin) || configured.iter().any(|allowed| allowed == origin)
+}
+
+/// The origins both CORS layers admit: [`APP_ORIGINS`] first, then the configured list.
+///
+/// The layers used to read `config.allowed_origins` alone — exactly the list `APP_ORIGINS` exists
+/// to outrank. The consequence was measured (R-UI-7 Step 2): the Android shell's page passed the
+/// WebSocket origin gate (401, the credential check) and then the browser refused to *read* any
+/// answer, because the preflight for its `POST /rpc` came back with no
+/// `Access-Control-Allow-Origin`. One union, written here once, so a CORS layer cannot drift from
+/// the gate that admits the same strings. A value that is not a valid header is dropped rather than
+/// failing the daemon's start — the configured half keeps the behaviour it always had.
+pub(crate) fn cors_origins(configured: &[String]) -> Vec<axum::http::HeaderValue> {
+    APP_ORIGINS
+        .iter()
+        .copied()
+        .chain(configured.iter().map(String::as_str))
+        .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
+        .collect()
 }
 
 /// Tower service for RPC authentication.

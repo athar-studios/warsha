@@ -19,6 +19,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing::warn;
 use warsha_remote::rate_limit::rate_key;
 
+use crate::auth::cors_origins;
 use crate::{
     bearer_token, events_handler, retry_after_header, subprotocol_token, DaemonConfig, DaemonError,
     DaemonState, HealthResponse, Result, EVENTS_PATH,
@@ -199,16 +200,13 @@ pub const REMOTE_CSP: &str = "default-src 'self' data: blob:; script-src 'self';
 /// layer writes itself (its 401 and its 429) is the one answer that does not pass through
 /// them — it is JSON, and it is the documented order rather than an oversight.
 pub(crate) fn http_app(state: Arc<DaemonState>) -> Router {
-    // The same origin list as the RPC server, from the configuration the state carries.
+    // The same origin list as the RPC server: the app's own origins — which no `config.toml` can
+    // outvote — unioned with the configured ones, from the configuration the state carries. The
+    // union is written once, in `cors_origins`, so this layer and the WebSocket origin gate admit
+    // the same strings (R-UI-7 Step 2 measured the drift: preflight without the app origin's
+    // `Access-Control-Allow-Origin`).
     let cors = CorsLayer::new()
-        .allow_origin(
-            state
-                .config
-                .allowed_origins
-                .iter()
-                .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
-                .collect::<Vec<axum::http::HeaderValue>>(),
-        )
+        .allow_origin(cors_origins(&state.config.allowed_origins))
         .allow_methods(Any)
         .allow_headers(Any);
 
