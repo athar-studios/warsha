@@ -6853,3 +6853,34 @@ hypotheses left in this triage.
 
 ## Run 2026-11-15 — 0.3.0 bump merged (owner decision 1)
 - **Version** (coder lane, `c1c4b78`): `check-versions --set 0.3.0` → 14 files, 32+/32- version strings only; `--expect 0.3.0` aligned (versionCode 300 per the checker's major*10000+minor*100+patch contract — the brief's "301" was my error, 300 stands). PM re-ran gates in lane worktree + post-merge. Owner: 1.0.0-rc.1 only after a clean pilot — recorded, not started.
+
+## Run 2026-11-15 — R-NEXT run budget (Amendment A1)
+- **Run budget, per-packet estimated caps** (unit: estimated US dollars at list price for the
+  fleet's delegated tokens; every figure in this section is **estimated**): Phase 0 — F0 2, F1 8,
+  F2 6, F3 8, FIN3 2, FIN4 12, FIN5 4. Phase 1 — N0 12, N1 16, A1 8, B1 10, A2 20, B2 20, A3 14,
+  A4 12, B3 16. Phase 2 — C1 16, C2 12, C3 12. Phase 3 — D1 16, D2 12, D3 8, D4 14. Phase 4 —
+  E1 20, E6 16, E4 16, E3 20, E2 24. Phase 5 — D5 20. Z1 12. **Run total 400** (headroom 12 over
+  the packet sum 388 for merges, gate re-runs and reviews).
+- **Tracking method:** until N0 lands, cumulative spend is the fleet's best estimate from
+  dispatched attempts and gate runs, labelled estimated; after N0, CLI-reported usage from
+  Warsha's own cost records is folded in. Alert at 320 (80%) → owner-checklist entry, run
+  continues; hard stop at 400 (100%) → no new packet starts, Z1 produced as-is.
+- **Cumulative estimated spend so far: 3** (plan adoption + F0 setup), 0.8% of 400.
+
+## Run 2026-11-15 — F0 run setup (plan adopted, integration branch cut)
+- **Plan v3 adopted** on `repair/dev-csp-f474776` @ `5b2bf5f`: `docs/zadloop/R-NEXT-MASTER-PLAN.md`
+  superseded with the v3 execution copy (amendments A1–A4), and the seven owner-approved design
+  screens + `ASSET-NOTES.md` adopted under `docs/zadloop/r-next-designs/` (A3 acceptance
+  references). Not pushed.
+- **`r-next/integration`** cut from the tip (`5b2bf5f`); standing worktree
+  `.agents/worktrees/r-next-integration`; F0 work on `r-next/f0-run-setup` in
+  `.agents/worktrees/rn-f0`, merged back with `--no-ff`.
+- **`ENGINEERING_POLICY.md` §8** "Owner delegation for the R-NEXT run" added (plan §0.2/§0.3);
+  `node scripts/check-engineering-policy.mjs` green (8 checks, 0 failures); validator unchanged so
+  no `--self-test` rerun needed.
+- **`D-RN-AUTONOMY`** recorded in `DECISIONS.md` (delegated acceptance + decision rule; main,
+  releases, publishing, product gates A–D stay owner-only).
+- **`docs/zadloop/R-NEXT-OWNER-CHECKLIST.md`** created with the ten §10.2 items plus the A1
+  80% alert item; Z1 finalises it.
+- **Owner's uncommitted change** `apps/remote/e2e/harness.ts` left untouched in the owner's
+  checkout, per plan F0.

@@ -1885,3 +1885,17 @@ Accepted `#[allow(clippy::too_many_arguments)]` on `create_pr` (8 args incl. sel
 
 ## D-VER-030 (2026-11-15)
 Owner decision 1 executed: version is 0.3.0 (`c1c4b78`, checker contract versionCode 300). 1.0.0-rc.1 gated on a clean pilot — no rc tag, no publish, no release until the pilot passes FIN4.
+
+## D-RN-AUTONOMY (2026-11-15)
+The owner pre-approved the R-NEXT master plan v3 as a whole (`docs/zadloop/R-NEXT-MASTER-PLAN.md`)
+and delegated, in advance, for the whole run (Phase 0 → Z1): acceptance of a packet into
+`r-next/integration` when the verifier role records every acceptance gate green and the evidence
+bundle is complete (PM performs the merge), and product decisions inside the plan's scope by the
+decision rule (§0.4: fail closed → follow the repo → smaller scope → reversible), logged here as
+`D-RN-<packet>-<n>`. The fleet asks the owner nothing. **Not delegated:** merging to `main`,
+releases, publishing, approving the product's own gates (Gate A–D) on behalf of a user, anything
+in plan §12 — agents can never approve gates. Mechanics: integration branch `r-next/integration`
+cut from `repair/dev-csp-f474776` @ `5b2bf5f`; packet branches in their own worktrees; pushes
+non-force to `warsha-dev` only; version stays 0.3.0 (D-VER-030); checkpoints are local annotated
+tags `r-next/cp-<phase>`. Written into `ENGINEERING_POLICY.md` §8 so policy and plan do not
+contradict each other.
