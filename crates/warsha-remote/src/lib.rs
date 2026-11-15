@@ -12,7 +12,6 @@ use qrcode::QrCode;
 use rand::rngs::OsRng;
 use rand::TryRngCore;
 use serde::{Deserialize, Serialize};
-use snow::{params::NoiseParams, Builder, HandshakeState, TransportState};
 use std::collections::HashMap;
 use std::fmt;
 use std::io::Cursor;
@@ -76,9 +75,6 @@ pub fn constant_time_eq(expected: &[u8], presented: &[u8]) -> bool {
         .fold(0u8, |differences, (a, b)| differences | (a ^ b))
         == 0
 }
-
-/// Noise XX parameters
-const NOISE_PARAMS: &str = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
 
 /// Long-term device identity
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -581,124 +577,6 @@ pub struct EncryptedFrame {
     pub timestamp: DateTime<Utc>,
 }
 
-/// An unfinished Noise XX channel.
-///
-/// No handshake advances: `initiate` and `respond` build a handshake and discard it,
-/// `transport` therefore stays `None`, and `write_message`/`read_message` fail with
-/// `Handshake("Handshake not complete")`. The only way to set `transport` is to pass
-/// `complete_handshake` a `HandshakeState` the caller built itself. Nothing in the
-/// daemon constructs one; the relay forwards `EncryptedFrame` values as JSON envelopes
-/// under bearer authentication today, with no ciphertext guarantee, and this channel
-/// encrypts and verifies nothing.
-#[allow(dead_code)]
-pub struct EncryptedChannel {
-    transport: Option<TransportState>,
-    local_static: StaticSecret,
-    remote_static: PublicKey,
-    local_device_id: DeviceId,
-    remote_device_id: DeviceId,
-    replay_cache: Arc<Mutex<Vec<[u8; 12]>>>,
-}
-
-impl EncryptedChannel {
-    /// Initiator side: build a Noise handshake and discard it.
-    ///
-    /// `transport` stays `None`; this constructor does not perform a handshake.
-    pub fn initiate(local_identity: &DeviceIdentity, remote_public: &[u8; 32]) -> Result<Self> {
-        let params: NoiseParams = NOISE_PARAMS
-            .parse::<NoiseParams>()
-            .map_err(|e: snow::Error| RemoteError::Crypto(e.to_string()))?;
-        let builder = Builder::new(params);
-
-        let mut secret_bytes = [0u8; 32];
-        OsRng
-            .try_fill_bytes(&mut secret_bytes)
-            .map_err(|e| RemoteError::Crypto(e.to_string()))?;
-        let local_static = StaticSecret::from(secret_bytes);
-
-        let _handshake = builder
-            .local_private_key(&local_static.to_bytes())
-            .remote_public_key(remote_public)
-            .build_initiator()
-            .map_err(|e| RemoteError::Handshake(e.to_string()))?;
-
-        Ok(Self {
-            transport: None,
-            local_static,
-            remote_static: PublicKey::from(*remote_public),
-            local_device_id: local_identity.device_id,
-            remote_device_id: DeviceId::new(), // Will be set after handshake
-            replay_cache: Arc::new(Mutex::new(Vec::new())),
-        })
-    }
-
-    /// Responder side: build a Noise handshake and discard it.
-    ///
-    /// `transport` stays `None`; this constructor does not perform a handshake.
-    pub fn respond(local_identity: &DeviceIdentity) -> Result<Self> {
-        let params: NoiseParams = NOISE_PARAMS
-            .parse::<NoiseParams>()
-            .map_err(|e: snow::Error| RemoteError::Crypto(e.to_string()))?;
-        let builder = Builder::new(params);
-
-        let mut secret_bytes = [0u8; 32];
-        OsRng
-            .try_fill_bytes(&mut secret_bytes)
-            .map_err(|e| RemoteError::Crypto(e.to_string()))?;
-        let local_static = StaticSecret::from(secret_bytes);
-
-        let _handshake = builder
-            .local_private_key(&local_static.to_bytes())
-            .build_responder()
-            .map_err(|e| RemoteError::Handshake(e.to_string()))?;
-
-        Ok(Self {
-            transport: None,
-            local_static,
-            remote_static: PublicKey::from([0u8; 32]), // Will be set after handshake
-            local_device_id: local_identity.device_id,
-            remote_device_id: DeviceId::new(),
-            replay_cache: Arc::new(Mutex::new(Vec::new())),
-        })
-    }
-
-    /// Write a message (encrypt)
-    pub fn write_message(&mut self, plaintext: &[u8], out: &mut [u8]) -> Result<()> {
-        if let Some(transport) = &mut self.transport {
-            transport
-                .write_message(plaintext, out)
-                .map_err(|e| RemoteError::Crypto(e.to_string()))?;
-            Ok(())
-        } else {
-            Err(RemoteError::Handshake("Handshake not complete".to_string()))
-        }
-    }
-
-    /// Read a message (decrypt)
-    pub fn read_message(&mut self, ciphertext: &[u8], out: &mut [u8]) -> Result<()> {
-        if let Some(transport) = &mut self.transport {
-            transport
-                .read_message(ciphertext, out)
-                .map_err(|e| RemoteError::Crypto(e.to_string()))?;
-
-            // Check replay protection
-            Ok(())
-        } else {
-            Err(RemoteError::Handshake("Handshake not complete".to_string()))
-        }
-    }
-
-    /// Complete handshake and get transport
-    pub fn complete_handshake(&mut self, handshake: HandshakeState) -> Result<()> {
-        self.transport = Some(
-            handshake
-                .into_transport_mode()
-                .map_err(|e| RemoteError::Handshake(e.to_string()))?,
-        );
-        Ok(())
-    }
-}
-
 /// An outbound relay client that is not implemented.
 ///
 /// Only [`RelayClient::new`] and [`RelayClient::credential`] do real work; there is no
@@ -709,16 +587,11 @@ impl EncryptedChannel {
 pub struct RelayClient {
     url: String,
     device_id: DeviceId,
-    channel: Arc<Mutex<Option<EncryptedChannel>>>,
 }
 
 impl RelayClient {
     pub fn new(url: String, device_id: DeviceId) -> Self {
-        Self {
-            url,
-            device_id,
-            channel: Arc::new(Mutex::new(None)),
-        }
+        Self { url, device_id }
     }
 
     /// The `Authorization` value this client must present to open a relay channel.
@@ -854,15 +727,6 @@ mod tests {
 
         registry.revoke_device(remote.device_id).await.unwrap();
         assert!(registry.is_revoked(remote.device_id).await);
-    }
-
-    #[test]
-    fn test_encrypted_channel_creation() {
-        let local = DeviceIdentity::generate("Local".to_string()).unwrap();
-        let remote_public = [1u8; 32]; // dummy
-
-        let channel = EncryptedChannel::initiate(&local, &remote_public).unwrap();
-        assert_eq!(channel.local_device_id, local.device_id);
     }
 
     /// A pairing an owner has handed the relay, five minutes from its expiry.
