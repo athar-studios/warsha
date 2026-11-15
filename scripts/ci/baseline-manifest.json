@@ -1,0 +1,8 @@
+{
+  "f1": {
+    "date": "2026-11-15",
+    "status": "partial",
+    "note": "Canary proves byte-stability of fresh captures; remote baselines not re-captured.",
+    "digest": "sha256:581c7fc1b5c51dc3abb78534134071d45be81f29c4ca047de03b3b0385ac4b3f"
+  }
+}
