@@ -6748,3 +6748,7 @@ hypotheses left in this triage.
 ## Run 2026-11-15 — R-UI-3 merged (D3/D2/D1 polish)
 - **R-UI-3** (branch `zl-rui3-polish`, 10 commits, merged clean as `4550721`): rem+unitless type scale (body ≥1.6), prop-less `dir="auto"`, defined keyframes honoring reduce, 2 Web Audio cues OFF-by-default in localStorage, press/Sheet/Stepper motion. Gates on merged tree (PM): actions 152/152/0, i18n 748/0, ds-v3 0, contrast all-ok. Worker evidence: ui 383/desktop 802, e2e non-visual 291/0, discrimination artifacts.
 - Known gaps (packet-anticipated, reported not papered): G1 cues don't fire for idle-window arrivals (needs subscription or Rust `run_finished` kind — R-EXT daemon-side candidate); G2 not audibly verified.
+
+## Run 2026-11-15 — R-UI-4 Part B merged (remote harness CSP repair); Part A stays STOPPED
+- **R-UI-4B** (branch `zl-rui4b-csp`, 3 commits, merged clean): B-1 harness → 8765 (flows 7/7, CSP enforced) + B-2 harness-only `bypassCSP` (axe inline injection is outside allowed files; product CSP unchanged, hash-identical). 84 visual fails are pixel/font only (host drift, allowed class) — 0 CSP messages.
+- **Part A STOPPED** (no capture host): logged 2026-11-15. Unblock = CI billing + capture workflow, WSL host, or canary-passing pinned host.
