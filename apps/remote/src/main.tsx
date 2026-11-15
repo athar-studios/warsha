@@ -7,9 +7,9 @@
 import { applyLocale, LocaleProvider, readStoredLocale } from '@warsha/i18n';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
 
 import App from './App';
+import ShellRouter from './ShellRouter';
 import { registerShellWorker } from './offline';
 import { applyStoredTheme } from './theme';
 // eslint-disable-next-line import/no-unresolved
@@ -34,9 +34,9 @@ if (root === null) {
 ReactDOM.createRoot(root).render(
   <React.StrictMode>
     <LocaleProvider initialLocale={storedLocale}>
-      <BrowserRouter>
+      <ShellRouter>
         <App />
-      </BrowserRouter>
+      </ShellRouter>
     </LocaleProvider>
   </React.StrictMode>
 );
