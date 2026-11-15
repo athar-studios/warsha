@@ -14,6 +14,16 @@ name: Baseline capture (RF2)
 # untouched: maxDiffPixelRatio: 0 with threshold: 0.05 in playwright.config.ts,
 # the F1 canary tolerance (per-channel delta ≤ 13, ≤ 64 differing px), and the
 # R-UI-4 Part A defect fence (pw-genesis defective=0) all apply as committed.
+#
+# Genesis and verify share ONE container session (D-RN-RF2-2): a 100-run local
+# experiment proved that a verify pass in a FRESH container against baselines
+# captured in another container flips 1-3 LCD-subpixel fringe cases at random
+# (fail counts 0×8, 1×~30, 2×~38, 3×~22, 4-5×2 over 100 runs; never two
+# consecutive all-green runs) — the exact 416/0 gate is unsatisfiable across a
+# container boundary on this rasterizer. One session for capture+verify is the
+# same structural decision F1 made for the canary (canary.sh compares two
+# captures within one container). The gate itself (416/0, 84/0, defective=0)
+# is unchanged; only the container boundary moved.
 
 on:
   push:
@@ -52,38 +62,43 @@ jobs:
       - name: Canary
         run: ./docker/capture/canary.sh
 
-      - name: Desktop v3 capture (genesis)
+      # D-RN-RF2-2: genesis + verify in ONE container session. The container
+      # stays alive across both passes (docker run with a background keepalive
+      # via `sleep infinity &` and docker exec for the second pass) so the
+      # verify run rasterizes against baselines from the identical browser
+      # process generation. The 100-run experiment in the header shows why a
+      # fresh container per pass fails the exact 416/0 gate.
+      - name: Desktop v3 capture + verify (one container session)
         run: |
           mkdir -p target/rf2 bridge-io/audit
-          docker run --rm --cpus=2 --memory=4g --shm-size=1g --user "$(id -u):$(id -g)" -e HOME=/tmp/pw-home -e LC_ALL=C -v "$(pwd):/app" -w /app -e FONTCONFIG_FILE=/scripts/ci/capture-fontconfig.conf -e NODE_OPTIONS="--dns-result-order=ipv4first" -e PLAYWRIGHT_JSON_OUTPUT_NAME=/app/target/rf2/genesis.json warsha-capture:0.3.0 pnpm exec playwright test --project=desktop apps/desktop/e2e/v3/bench.spec.ts apps/desktop/e2e/v3/frame.spec.ts apps/desktop/e2e/v3/home.spec.ts apps/desktop/e2e/v3/inbox.spec.ts apps/desktop/e2e/v3/onboarding.spec.ts apps/desktop/e2e/v3/project.spec.ts apps/desktop/e2e/v3/projects.spec.ts apps/desktop/e2e/v3/settings.spec.ts --grep "@visual" --update-snapshots --output="/app/target/rf2/genesis-out"
+          CID=$(docker run -d --rm --cpus=2 --memory=4g --shm-size=1g --user "$(id -u):$(id -g)" -e HOME=/tmp/pw-home -e LC_ALL=C -v "$(pwd):/app" -w /app -e FONTCONFIG_FILE=/scripts/ci/capture-fontconfig.conf -e NODE_OPTIONS="--dns-result-order=ipv4first" warsha-capture:0.3.0 sleep infinity)
+          trap 'docker kill $CID 2>/dev/null || true' EXIT
+          SPECS="apps/desktop/e2e/v3/bench.spec.ts apps/desktop/e2e/v3/frame.spec.ts apps/desktop/e2e/v3/home.spec.ts apps/desktop/e2e/v3/inbox.spec.ts apps/desktop/e2e/v3/onboarding.spec.ts apps/desktop/e2e/v3/project.spec.ts apps/desktop/e2e/v3/projects.spec.ts apps/desktop/e2e/v3/settings.spec.ts"
+          # Pass 1: genesis — every case fails with "snapshot doesn't exist" and
+          # writes its baseline; pw-genesis must judge every failure genesis-only.
+          docker exec -e PLAYWRIGHT_JSON_OUTPUT_NAME=/app/target/rf2/genesis.json "$CID" pnpm exec playwright test --project=desktop $SPECS --grep "@visual" --update-snapshots --output=/app/target/rf2/genesis-out || true
           # playwright.config.ts pins the JSON reporter's outputFile to
           # bridge-io/audit/visual-playwright.json (CI and non-CI alike); that
           # file, not PLAYWRIGHT_JSON_OUTPUT_NAME, is where the report lands.
           cp bridge-io/audit/visual-playwright.json target/rf2/genesis.json
-
-      - name: Desktop v3 genesis check
-        run: node scripts/ci/pw-genesis.mjs check target/rf2/genesis.json
-
-      - name: Desktop v3 verify
-        run: |
-          docker run --rm --cpus=2 --memory=4g --shm-size=1g --user "$(id -u):$(id -g)" -e HOME=/tmp/pw-home -e LC_ALL=C -v "$(pwd):/app" -w /app -e FONTCONFIG_FILE=/scripts/ci/capture-fontconfig.conf -e NODE_OPTIONS="--dns-result-order=ipv4first" -e PLAYWRIGHT_JSON_OUTPUT_NAME=/app/target/rf2/verify.json warsha-capture:0.3.0 pnpm exec playwright test --project=desktop apps/desktop/e2e/v3/bench.spec.ts apps/desktop/e2e/v3/frame.spec.ts apps/desktop/e2e/v3/home.spec.ts apps/desktop/e2e/v3/inbox.spec.ts apps/desktop/e2e/v3/onboarding.spec.ts apps/desktop/e2e/v3/project.spec.ts apps/desktop/e2e/v3/projects.spec.ts apps/desktop/e2e/v3/settings.spec.ts --grep "@visual" --output="/app/target/rf2/verify-out"
+          node scripts/ci/pw-genesis.mjs check target/rf2/genesis.json
+          # Pass 2: verify — same container, same browser session lineage;
+          # pw-gate counts demands the exact 416/0.
+          docker exec -e PLAYWRIGHT_JSON_OUTPUT_NAME=/app/target/rf2/verify.json "$CID" pnpm exec playwright test --project=desktop $SPECS --grep "@visual" --output=/app/target/rf2/verify-out || true
           cp bridge-io/audit/visual-playwright.json target/rf2/verify.json
+          node scripts/ci/pw-gate.mjs counts target/rf2/verify.json 416 0
 
-      - name: Desktop v3 gate counts
-        run: node scripts/ci/pw-gate.mjs counts target/rf2/verify.json 416 0
-
-      - name: Remote bench capture (genesis)
+      # Same single-container session for the remote bench (D-RN-RF2-2).
+      - name: Remote bench capture + verify (one container session)
         run: |
-          docker run --rm --cpus=2 --memory=4g --shm-size=1g --user "$(id -u):$(id -g)" -e HOME=/tmp/pw-home -e LC_ALL=C -v "$(pwd):/app" -w /app -e FONTCONFIG_FILE=/scripts/ci/capture-fontconfig.conf -e NODE_OPTIONS="--dns-result-order=ipv4first" -e PLAYWRIGHT_JSON_OUTPUT_NAME=/app/target/rf2/remote-genesis.json warsha-capture:0.3.0 pnpm exec playwright test --project=remote apps/remote/e2e/bench.visual.spec.ts --update-snapshots --output="/app/target/rf2/remote-genesis-out"
+          CID=$(docker run -d --rm --cpus=2 --memory=4g --shm-size=1g --user "$(id -u):$(id -g)" -e HOME=/tmp/pw-home -e LC_ALL=C -v "$(pwd):/app" -w /app -e FONTCONFIG_FILE=/scripts/ci/capture-fontconfig.conf -e NODE_OPTIONS="--dns-result-order=ipv4first" warsha-capture:0.3.0 sleep infinity)
+          trap 'docker kill $CID 2>/dev/null || true' EXIT
+          docker exec -e PLAYWRIGHT_JSON_OUTPUT_NAME=/app/target/rf2/remote-genesis.json "$CID" pnpm exec playwright test --project=remote apps/remote/e2e/bench.visual.spec.ts --update-snapshots --output=/app/target/rf2/remote-genesis-out || true
           cp bridge-io/audit/visual-playwright.json target/rf2/remote-genesis.json
-
-      - name: Remote bench verify
-        run: |
-          docker run --rm --cpus=2 --memory=4g --shm-size=1g --user "$(id -u):$(id -g)" -e HOME=/tmp/pw-home -e LC_ALL=C -v "$(pwd):/app" -w /app -e FONTCONFIG_FILE=/scripts/ci/capture-fontconfig.conf -e NODE_OPTIONS="--dns-result-order=ipv4first" -e PLAYWRIGHT_JSON_OUTPUT_NAME=/app/target/rf2/remote-verify.json warsha-capture:0.3.0 pnpm exec playwright test --project=remote apps/remote/e2e/bench.visual.spec.ts --output="/app/target/rf2/remote-verify-out"
+          node scripts/ci/pw-genesis.mjs check target/rf2/remote-genesis.json
+          docker exec -e PLAYWRIGHT_JSON_OUTPUT_NAME=/app/target/rf2/remote-verify.json "$CID" pnpm exec playwright test --project=remote apps/remote/e2e/bench.visual.spec.ts --output=/app/target/rf2/remote-verify-out || true
           cp bridge-io/audit/visual-playwright.json target/rf2/remote-verify.json
-
-      - name: Remote bench gate counts
-        run: node scripts/ci/pw-gate.mjs counts target/rf2/remote-verify.json 84 0
+          node scripts/ci/pw-gate.mjs counts target/rf2/remote-verify.json 84 0
 
       - name: Upload artifacts
         if: always()
