@@ -6756,3 +6756,6 @@ hypotheses left in this triage.
 ## Run 2026-11-15 — R-UI-5 merged (T3 RED on product finding)
 - **R-UI-5** (branch `zl-rui5-smoke`, 6 commits, merged clean): smoke script + VERIFY §3.4 + report. S1 boot FAILS on both AVDs (asset-base defect, machine evidence in target/, gitignored); S2–S5 not reached per STOP rule; logcat clean (no crash/token leak). No product files touched (diff vs base empty for apps/crates/packages). AVD safety kept (Athar never wiped); foreign warshad left untouched.
 - Follow-ups: (1) relative-base fix packet for apps/remote+mobile; (2) gradlew/Gradle-9 build-rot fix. T2 deferred.
+
+## Run 2026-11-15 — R-EXT-1 merged (X4 Connections)
+- **R-EXT-1** (branch `zl-rext1-connections`, 7 commits, merged clean as `507f21c`): mcpList/mcpConnect/mcpDisconnect wrappers + decoders (string+{error} McpStatus), Connections Settings section (6 actions, 80 catalog keys), harness stubs, 7 e2e cases (298/0 non-visual), DAEMON rows. PM-verified on merged tree: wire 11/0, actions 158/158/0, i18n 786/0. No Rust changed. (@visual for the new section stays ungated — non-capture host.)
