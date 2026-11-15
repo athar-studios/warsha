@@ -10,11 +10,13 @@
 // Three honesty rules hold the screen:
 //   * "Refresh status" re-reads `mcp.list`. The daemon has no probe method, so nothing here claims a
 //     connection was tested — `settings.connections.refresh_note` says so in both catalogs;
-//   * a server whose transport is `http`/`websocket` is *recorded, not dialled*
-//     (`McpServerConfig::is_wired`, `crates/warsha-pipeline/src/mcp_transport.rs:38`), so it is
-//     reported `disconnected` with no tools and the row says why instead of showing an empty list;
-//   * the daemon's own refusal text (an unpinned package, the process policy, a duplicate name)
-//     reaches the owner verbatim in a `Banner` — never reworded, never swallowed.
+//   * a `websocket` server — and an `http` one the daemon recorded without dialling — has never been
+//     connected, so it is reported `disconnected` with no tools and the row says why instead of
+//     showing an empty list. Since R-EXT-4 an `http` server *is* dialled, so a disconnected `http`
+//     row means what it says: nothing reached it yet;
+//   * the daemon's own refusal text (an unpinned package, the process policy, a duplicate name, a
+//     401 from a remote server) reaches the owner verbatim in a `Banner` — never reworded, never
+//     swallowed.
 import type {
   McpConnection,
   McpPermission,
@@ -64,6 +66,35 @@ const STATUS_VIEW: Record<
 /** The three values `mcp.permissions.set` accepts, in the order the selector offers them. */
 const PERMISSIONS: readonly McpPermission[] = ['allow', 'ask', 'deny'];
 
+/**
+ * The transports the add form offers. `websocket` is deliberately absent: the MCP revision defines
+ * stdio and Streamable HTTP, and the daemon records a websocket config without ever dialling it, so
+ * offering one here would be offering a server that can never connect.
+ */
+const TRANSPORTS: readonly { kind: 'stdio' | 'http'; labelKey: string }[] = [
+  { kind: 'stdio', labelKey: 'settings.connections.transport.stdio' },
+  { kind: 'http', labelKey: 'settings.connections.transport.http' },
+];
+
+/**
+ * Whether a url is one the daemon will dial: `https` anywhere, a plain `http` only on loopback.
+ *
+ * A hint, never a decision — the daemon re-checks the url against its own policy and its refusal is
+ * what the banner shows. Saying it here only saves the owner a round trip on a typo.
+ */
+function urlIsDiallable(raw: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw.trim());
+  } catch {
+    return false;
+  }
+  if (parsed.protocol === 'https:') return true;
+  if (parsed.protocol !== 'http:') return false;
+  const host = parsed.hostname;
+  return host === 'localhost' || host === '[::1]' || /^127\./u.test(host);
+}
+
 /** The catalog key for one permission value (`settings.mcp.permission.*`, B3b's own words). */
 function permissionLabelKey(permission: McpPermission): string {
   return `settings.mcp.permission.${permission}`;
@@ -106,10 +137,13 @@ export function ConnectionsSection(): React.ReactElement {
   const [disconnectTarget, setDisconnectTarget] = useState<McpConnection | null>(null);
 
   const [newName, setNewName] = useState('');
+  const [newTransport, setNewTransport] = useState<'stdio' | 'http'>('stdio');
   const [newCommand, setNewCommand] = useState('');
+  const [newUrl, setNewUrl] = useState('');
   const [newArgs, setNewArgs] = useState('');
   const [nameError, setNameError] = useState<string | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
+  const [urlError, setUrlError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!client) {
@@ -151,30 +185,48 @@ export function ConnectionsSection(): React.ReactElement {
   });
 
   /**
-   * Add a stdio server: the command is what the daemon runs, and the arguments are split on
-   * whitespace exactly as typed. A refusal (an unpinned package, a policy on the program, a duplicate
-   * name) is the daemon's own message and lands in the banner below, verbatim.
+   * Add a server: a stdio one runs the command it names with the arguments split on whitespace
+   * exactly as typed; an HTTP one is the url the daemon dials over Streamable HTTP. Either way the
+   * config is the daemon's own shape, and a refusal (an unpinned package, a policy on the program or
+   * the url, a duplicate name, a 401 from the server) is the daemon's own message and lands in the
+   * banner below, verbatim.
    */
   const addAction = useAction('settings.connections.add', async () => {
     if (!client) return;
     const name = newName.trim();
-    const command = newCommand.trim();
     setNameError(name.length === 0 ? t('settings.connections.add.name_required') : null);
-    setCommandError(command.length === 0 ? t('settings.connections.add.command_required') : null);
-    if (name.length === 0 || command.length === 0) return;
-    const config: McpServerConfig = {
-      name,
-      transport: { kind: 'stdio' },
-      command,
-      args: newArgs
-        .split(/\s+/)
-        .map((arg) => arg.trim())
-        .filter((arg) => arg.length > 0),
-    };
-    await client.mcpConnect(config);
+    if (newTransport === 'stdio') {
+      const command = newCommand.trim();
+      setCommandError(command.length === 0 ? t('settings.connections.add.command_required') : null);
+      if (name.length === 0 || command.length === 0) return;
+      const config: McpServerConfig = {
+        name,
+        transport: { kind: 'stdio' },
+        command,
+        args: newArgs
+          .split(/\s+/)
+          .map((arg) => arg.trim())
+          .filter((arg) => arg.length > 0),
+      };
+      await client.mcpConnect(config);
+      setNewArgs('');
+    } else {
+      const url = newUrl.trim();
+      const diallable = urlIsDiallable(url);
+      setUrlError(diallable ? null : t('settings.connections.add.url'));
+      if (name.length === 0 || !diallable) return;
+      // No command and no arguments: the url is the whole of an HTTP server's configuration.
+      const config: McpServerConfig = {
+        name,
+        transport: { kind: 'http', url },
+        command: null,
+        args: [],
+      };
+      await client.mcpConnect(config);
+      setNewUrl('');
+    }
     setNewName('');
     setNewCommand('');
-    setNewArgs('');
     setStatusMessage(t('settings.connections.added'));
     await load();
   });
@@ -231,7 +283,15 @@ export function ConnectionsSection(): React.ReactElement {
   const refusal = addAction.error?.message ?? null;
 
   const renderTools = (server: McpConnection): React.ReactElement => {
-    const recorded = server.config.transport.kind !== 'stdio';
+    // A `websocket` row has never been dialled. An `http` row has been — since R-EXT-4 the daemon
+    // dials it — so "recorded, not connected" only fits the one case where nothing reached it: still
+    // disconnected with no tools. A connected or failed HTTP server gets the ordinary copy, because
+    // claiming nothing dials an address the daemon just dialled would be the screen lying.
+    const recorded =
+      server.config.transport.kind === 'websocket' ||
+      (server.config.transport.kind === 'http' &&
+        server.status.kind === 'disconnected' &&
+        server.tools.length === 0);
     const tools: McpToolInfo[] = server.tools;
     if (tools.length === 0) {
       // A recorded transport says *why* it has no tools, so an empty list is never read as
@@ -470,23 +530,68 @@ export function ConnectionsSection(): React.ReactElement {
                     setNameError(null);
                   }}
                 />
-                <TextField
-                  label={t('settings.connections.add.command')}
-                  data-testid="mcp-connection-command"
-                  value={newCommand}
-                  error={commandError ?? undefined}
-                  onChange={(event) => {
-                    setNewCommand(event.target.value);
-                    setCommandError(null);
-                  }}
-                />
-                <TextField
-                  label={t('settings.connections.add.args')}
-                  hint={t('settings.connections.add.args_hint')}
-                  data-testid="mcp-connection-args"
-                  value={newArgs}
-                  onChange={(event) => setNewArgs(event.target.value)}
-                />
+                {/* The same segmented radiogroup the permission rows use: two words the owner
+                    picks between, and a native `select` would carry nothing a test can address. */}
+                <div
+                  role="radiogroup"
+                  aria-label={t('settings.connections.add.title')}
+                  className="v3-settings-segmented-group"
+                  data-testid="mcp-connection-transport"
+                >
+                  {TRANSPORTS.map((transport) => (
+                    <button
+                      key={transport.kind}
+                      type="button"
+                      role="radio"
+                      aria-checked={newTransport === transport.kind}
+                      data-value={transport.kind}
+                      className="v3-settings-segmented-item"
+                      onClick={() => {
+                        setNewTransport(transport.kind);
+                        setCommandError(null);
+                        setUrlError(null);
+                      }}
+                    >
+                      {t(transport.labelKey)}
+                    </button>
+                  ))}
+                </div>
+                {newTransport === 'stdio' ? (
+                  <>
+                    <TextField
+                      label={t('settings.connections.add.command')}
+                      data-testid="mcp-connection-command"
+                      value={newCommand}
+                      error={commandError ?? undefined}
+                      onChange={(event) => {
+                        setNewCommand(event.target.value);
+                        setCommandError(null);
+                      }}
+                    />
+                    <TextField
+                      label={t('settings.connections.add.args')}
+                      hint={t('settings.connections.add.args_hint')}
+                      data-testid="mcp-connection-args"
+                      value={newArgs}
+                      onChange={(event) => setNewArgs(event.target.value)}
+                    />
+                  </>
+                ) : (
+                  <TextField
+                    // The label carries the rule the daemon enforces, so the field says what it
+                    // accepts before the owner types rather than after a refused round trip.
+                    label={t('settings.connections.add.url')}
+                    data-testid="mcp-connection-url"
+                    // A url is LTR whatever the document direction is.
+                    dir="ltr"
+                    value={newUrl}
+                    error={urlError ?? undefined}
+                    onChange={(event) => {
+                      setNewUrl(event.target.value);
+                      setUrlError(null);
+                    }}
+                  />
+                )}
               </div>
               <div className="v3-settings-row-actions">
                 <Button

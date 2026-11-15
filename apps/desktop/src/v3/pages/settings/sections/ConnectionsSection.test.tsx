@@ -57,6 +57,32 @@ const RECORDED_HTTP: McpConnection = {
   tools: [],
 };
 
+/** An `http` server the daemon dialled (R-EXT-4): connected, no process, and no tools at all. */
+const CONNECTED_HTTP: McpConnection = {
+  config: {
+    name: 'dialled',
+    transport: { kind: 'http', url: 'https://mcp.example.test/mcp' },
+    command: null,
+    args: [],
+  },
+  status: { kind: 'connected' },
+  processId: null,
+  tools: [],
+};
+
+/** A websocket config: the one transport nothing dials, with our client or without it. */
+const RECORDED_WEBSOCKET: McpConnection = {
+  config: {
+    name: 'socket',
+    transport: { kind: 'websocket', url: 'wss://mcp.example.test/ws' },
+    command: null,
+    args: [],
+  },
+  status: { kind: 'disconnected' },
+  processId: null,
+  tools: [],
+};
+
 const ERRORED: McpConnection = {
   config: { name: 'flaky', transport: { kind: 'stdio' }, command: 'node', args: [] },
   status: { kind: 'error', message: 'handshake timed out' },
@@ -289,6 +315,91 @@ describe('ConnectionsSection (R-EXT-1)', () => {
     fireEvent.click(screen.getByText('Add and connect'));
 
     await waitFor(() => expect(screen.getByText(refusal)).toBeDefined());
+  });
+
+  it('does not call a dialled HTTP server “recorded, not connected” just because it has no tools', async () => {
+    await renderWith([CONNECTED_HTTP, RECORDED_WEBSOCKET]);
+
+    fireEvent.click(within(row('dialled')).getByText('Tools (0)'));
+    expect(within(row('dialled')).getByText('This server reported no tools.')).toBeDefined();
+    expect(
+      within(row('dialled')).queryByText('Recorded, not connected: nothing dials this address yet.')
+    ).toBeNull();
+
+    // A websocket row has still never been dialled, so it keeps saying so.
+    fireEvent.click(within(row('socket')).getByText('Tools (0)'));
+    expect(
+      within(row('socket')).getByText('Recorded, not connected: nothing dials this address yet.')
+    ).toBeDefined();
+  });
+
+  it('shows an HTTP server’s own failure reason instead of the recorded note', async () => {
+    await renderWith([
+      {
+        ...CONNECTED_HTTP,
+        status: { kind: 'error', message: 'server requires authorization, which this version does not support' },
+        tools: [],
+      },
+    ]);
+    expect(
+      within(row('dialled')).getByText(
+        'server requires authorization, which this version does not support'
+      )
+    ).toBeDefined();
+    fireEvent.click(within(row('dialled')).getByText('Tools (0)'));
+    expect(
+      within(row('dialled')).queryByText('Recorded, not connected: nothing dials this address yet.')
+    ).toBeNull();
+  });
+
+  it('adds an HTTP server: the config carries the url and no command', async () => {
+    const client = await renderWith([]);
+    fireEvent.change(
+      screen.getByTestId('mcp-connection-name').querySelector('input') as HTMLElement,
+      { target: { value: 'remote' } }
+    );
+    fireEvent.click(
+      within(screen.getByTestId('mcp-connection-transport')).getByRole('radio', { name: 'HTTP' })
+    );
+    fireEvent.change(
+      screen.getByTestId('mcp-connection-url').querySelector('input') as HTMLElement,
+      { target: { value: ' https://mcp.example.test/mcp ' } }
+    );
+    fireEvent.click(screen.getByText('Add and connect'));
+
+    await waitFor(() =>
+      expect(client.mcpConnect).toHaveBeenCalledWith({
+        name: 'remote',
+        transport: { kind: 'http', url: 'https://mcp.example.test/mcp' },
+        command: null,
+        args: [],
+      })
+    );
+  });
+
+  it('refuses an HTTP url the daemon would not dial, without calling it', async () => {
+    const client = await renderWith([]);
+    fireEvent.change(
+      screen.getByTestId('mcp-connection-name').querySelector('input') as HTMLElement,
+      { target: { value: 'remote' } }
+    );
+    fireEvent.click(
+      within(screen.getByTestId('mcp-connection-transport')).getByRole('radio', { name: 'HTTP' })
+    );
+    // A plain-http host that is not this machine: the daemon refuses it, and the form says so
+    // before spending a round trip.
+    fireEvent.change(
+      screen.getByTestId('mcp-connection-url').querySelector('input') as HTMLElement,
+      { target: { value: 'http://mcp.example.test/mcp' } }
+    );
+    fireEvent.click(screen.getByText('Add and connect'));
+
+    // The field itself says what it accepts, and nothing reached the daemon.
+    const input = screen
+      .getByTestId('mcp-connection-url')
+      .querySelector('input') as HTMLElement;
+    await waitFor(() => expect(input.getAttribute('aria-invalid')).toBe('true'));
+    expect(client.mcpConnect).not.toHaveBeenCalled();
   });
 
   it('shows the catalog’s Arabic copy in an RTL document', async () => {
