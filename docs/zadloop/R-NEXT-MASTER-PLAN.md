@@ -65,6 +65,36 @@ If the B2 VERIFY on CLI ask-routing (e.g. `--permission-prompt-tool`) fails and 
 to deny-and-log, that degradation is surfaced to the owner — a secretary status line in Simple
 mode plus an entry in the owner checklist. Never silently.
 
+### A5 — Final code-health audit (before Z1)
+
+After the last phase merges and before Z1 is written, one audit packet runs on the final tree:
+
+- Re-run the full §3.1 gate matrix end-to-end on the final tree.
+- Sweep for dead code and `TODO`/`FIXME`: each is either removed, or converted to a logged
+  owner-checklist item.
+- Report the largest files and any module that grew past the layout rules.
+- Check cross-packet duplication (the same helper implemented twice) and docs freshness
+  (README/docs statements vs the shipped tree).
+- Fixes in this packet are **mechanical only**: deletions, dedup of identical helpers,
+  comment/doc corrections. Anything structural is **not** fixed here — it is recorded in the Z1
+  report and the owner checklist with a recommendation.
+- **Acceptance:** the audit report exists with a HIGH / MEDIUM / LOW table, all HIGH mechanical
+  findings are fixed, and the suites are green after the fixes.
+
+### A6 — Parallel execution of this run (owner instruction, 2026-11-15)
+
+The fleet executes this plan with maximum safe parallelism:
+
+- Any packet whose dependencies are all merged may run concurrently with other packets, up to
+  **4 concurrent packet lanes**, each in its own worktree.
+- Per-packet budget caps and the A1 whole-run ceiling are unchanged and are shared across lanes.
+- Merges into `r-next/integration` are serialized through the PM role only — lanes never merge.
+- A lane never sits idle while a dependency-free packet is available.
+- A packet that cannot merge cleanly is marked blocked (reason + evidence logged) and the run
+  continues.
+- This amendment governs how the **fleet** executes the plan. It does not change the product's
+  Swarm packet (D5), which stays last and off by default.
+
 ---
 
 ## 0. Operating rules for the run
