@@ -327,7 +327,7 @@ async fn a_fresh_database_gets_the_whole_schema_once() {
     assert_full_schema(store.pool()).await;
     assert_eq!(
         applied_versions(store.pool()).await,
-        vec![1, 2, 3, 4, 6, 7],
+        vec![1, 2, 3, 4, 6, 7, 8],
         "the ledger is every applied migration, in order"
     );
     assert!(has_column(store.pool(), "pairing_devices", "expires_at").await);
@@ -340,7 +340,7 @@ async fn a_fresh_database_gets_the_whole_schema_once() {
         .expect("the second open applies nothing");
     assert_eq!(
         applied_versions(reopened.pool()).await,
-        vec![1, 2, 3, 4, 6, 7]
+        vec![1, 2, 3, 4, 6, 7, 8]
     );
     assert_full_schema(reopened.pool()).await;
 }
@@ -372,7 +372,10 @@ async fn a_legacy_daemon_database_migrates_and_keeps_its_rows() {
     let store = Store::open_at(path.clone())
         .await
         .expect("a legacy daemon database migrates cleanly");
-    assert_eq!(applied_versions(store.pool()).await, vec![1, 2, 3, 4, 6, 7]);
+    assert_eq!(
+        applied_versions(store.pool()).await,
+        vec![1, 2, 3, 4, 6, 7, 8]
+    );
     assert_full_schema(store.pool()).await;
     assert!(has_column(store.pool(), "pairing_devices", "expires_at").await);
 
@@ -435,7 +438,10 @@ async fn a_mid_upgrade_database_keeps_both_shapes_of_pairing() {
     let store = Store::open_at(path.clone())
         .await
         .expect("a post-H1 database migrates cleanly");
-    assert_eq!(applied_versions(store.pool()).await, vec![1, 2, 3, 4, 6, 7]);
+    assert_eq!(
+        applied_versions(store.pool()).await,
+        vec![1, 2, 3, 4, 6, 7, 8]
+    );
     assert_full_schema(store.pool()).await;
 
     let rows: Vec<(String, Option<i64>)> =

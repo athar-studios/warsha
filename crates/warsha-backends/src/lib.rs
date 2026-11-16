@@ -1,30 +1,35 @@
 //! Warsha Backends — Coding backends: builtin agent, OpenHands, Claude Code, Codex CLI, Gemini CLI, Cursor CLI
 
+pub mod stream;
 use async_trait::async_trait;
-use serde::Deserialize;
+use chrono::Utc;
 use std::collections::HashMap;
+use stream::*;
+use tokio::io::AsyncBufReadExt;
+use warsha_core::{EventKind, Role, Stage};
 pub use warsha_pipeline::coding_backend::{
     BackendError, CodingBackend, CodingResult, CodingTask, FileAction, Result, Sandbox, TaskFile,
 };
 
-#[derive(Debug, Clone, Deserialize)]
-struct CliOutput {
+#[derive(Debug, Clone, serde::Deserialize)]
+pub(crate) struct CliOutput {
     #[allow(dead_code)]
-    result: String,
-    usage: Option<CliUsage>,
+    pub result: String,
+    pub usage: Option<CliUsage>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-struct CliUsage {
-    input_tokens: u64,
-    output_tokens: u64,
+#[derive(Debug, Clone, serde::Deserialize)]
+pub(crate) struct CliUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
     #[allow(dead_code)]
-    cache_read_tokens: Option<u64>,
+    pub cache_read_tokens: Option<u64>,
     #[allow(dead_code)]
-    cache_write_tokens: Option<u64>,
+    pub cache_write_tokens: Option<u64>,
     #[allow(dead_code)]
-    cost_cents: Option<u64>,
+    pub cost_cents: Option<u64>,
 }
+
 use which::which;
 
 /// Built-in test backend (minimal implementation for testing)
@@ -40,7 +45,46 @@ impl CodingBackend for BuiltinBackend {
         true
     }
 
-    async fn execute(&self, task: CodingTask, _sandbox: &Sandbox) -> Result<CodingResult> {
+    async fn execute(&self, task: CodingTask, sandbox: &Sandbox) -> Result<CodingResult> {
+        let session_id = sandbox.session_id.unwrap_or_default();
+        if let Some(sender) = &sandbox.event_sender {
+            let start_event = warsha_core::Event {
+                id: ulid::Ulid::new(),
+                run_id: task.run_id,
+                stage: Stage::Code,
+                role: Some(Role::Coder),
+                kind: EventKind::SessionStarted,
+                payload: serde_json::json!({
+                    "session_id": session_id.to_string(),
+                    "backend": "builtin",
+                    "note": "no live telemetry for this backend",
+                }),
+                cost_cents: None,
+                tokens: None,
+                created_at: Utc::now(),
+                device_id: None,
+            };
+            let _ = sender.send(start_event);
+
+            let end_event = warsha_core::Event {
+                id: ulid::Ulid::new(),
+                run_id: task.run_id,
+                stage: Stage::Code,
+                role: Some(Role::Coder),
+                kind: EventKind::SessionEnded,
+                payload: serde_json::json!({
+                    "session_id": session_id.to_string(),
+                    "status": "done",
+                    "note": "no live telemetry for this backend",
+                }),
+                cost_cents: None,
+                tokens: None,
+                created_at: Utc::now(),
+                device_id: None,
+            };
+            let _ = sender.send(end_event);
+        }
+
         // Minimal implementation - just return success with no changes
         Ok(CodingResult {
             task_id: task.id,
@@ -113,16 +157,31 @@ impl CodingBackend for CliBackend {
             )));
         }
 
+        let session_id = sandbox.session_id.unwrap_or_default();
+        let live_sessions = sandbox.live_sessions.clone();
+
         let start = std::time::Instant::now();
         let prompt = Self::task_prompt(&task);
 
-        // The coding CLI receives the task as its last argument (after the
-        // backend-specific flags: `claude -p <prompt>`, `codex exec <prompt>`, …),
-        // runs in the sandbox directory, and inherits the caller's environment so
-        // its own authentication works. stdin is closed: a CLI waiting for one
-        // must fail rather than hang a run.
         let mut cmd = tokio::process::Command::new(&self.command);
-        cmd.args(&self.args)
+        let is_streaming = matches!(self.name.as_str(), "claude-code" | "codex-cli");
+
+        // Add streaming flags if missing
+        let mut args = self.args.clone();
+        if is_streaming {
+            if self.name == "claude-code" {
+                if !args.contains(&"--output-format=stream-json".to_string()) {
+                    args.extend([
+                        "--output-format=stream-json".to_string(),
+                        "--verbose".to_string(),
+                    ]);
+                }
+            } else if self.name == "codex-cli" && !args.contains(&"--json".to_string()) {
+                args.push("--json".to_string());
+            }
+        }
+
+        cmd.args(&args)
             .arg(&prompt)
             .current_dir(&sandbox.work_dir)
             .stdin(std::process::Stdio::null())
@@ -136,71 +195,351 @@ impl CodingBackend for CliBackend {
             cmd.env(k, v);
         }
 
-        let output = tokio::time::timeout(CODING_CLI_TIMEOUT, cmd.output())
-            .await
-            .map_err(|_| {
-                BackendError::Timeout(format!(
-                    "{} did not finish within {CODING_CLI_TIMEOUT:?}",
-                    self.name
-                ))
-            })?
+        #[cfg(unix)]
+        {
+            cmd.process_group(0);
+        }
+
+        let mut child = cmd
+            .spawn()
             .map_err(|e| BackendError::ExecutionFailed(e.to_string()))?;
+        let pid = child.id();
 
-        let duration = start.elapsed().as_millis() as u64;
+        let mut stop_rx = if let Some(mgr) = &live_sessions {
+            if let Some(pid) = pid {
+                mgr.update_pid(session_id, pid).await;
+            }
+            mgr.register(session_id, task.run_id, pid).await
+        } else {
+            let (_, rx) = tokio::sync::watch::channel(false);
+            rx
+        };
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let detail = if stderr.is_empty() { stdout } else { stderr };
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| BackendError::Sandbox("stdout not piped".to_string()))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| BackendError::Sandbox("stderr not piped".to_string()))?;
+
+        let mut stdout_reader = tokio::io::BufReader::new(stdout).lines();
+        let mut stderr_reader = tokio::io::BufReader::new(stderr).lines();
+
+        let send_event = |kind: EventKind, payload: serde_json::Value| {
+            if let Some(sender) = &sandbox.event_sender {
+                let event = warsha_core::Event {
+                    id: ulid::Ulid::new(),
+                    run_id: task.run_id,
+                    stage: Stage::Code,
+                    role: Some(Role::Coder),
+                    kind,
+                    payload,
+                    cost_cents: None,
+                    tokens: None,
+                    created_at: Utc::now(),
+                    device_id: None,
+                };
+                let _ = sender.send(event);
+            }
+        };
+
+        // Emit session started event
+        if is_streaming {
+            send_event(
+                EventKind::SessionStarted,
+                serde_json::json!({
+                    "session_id": session_id.to_string(),
+                    "backend": self.name,
+                }),
+            );
+        } else {
+            send_event(
+                EventKind::SessionStarted,
+                serde_json::json!({
+                    "session_id": session_id.to_string(),
+                    "backend": self.name,
+                    "note": "no live telemetry for this backend",
+                }),
+            );
+        }
+
+        let mut stdout_done = false;
+        let mut stderr_done = false;
+        let mut usage: Option<warsha_core::TokenUsage> = None;
+        let mut session_ended_emitted = false;
+        let mut captured_stdout = Vec::new();
+        let mut captured_stderr = Vec::new();
+        let exit_status;
+
+        let timeout = tokio::time::sleep(CODING_CLI_TIMEOUT);
+        tokio::pin!(timeout);
+
+        let process_line =
+            |l: &str, usage: &mut Option<warsha_core::TokenUsage>, ended: &mut bool| {
+                let parsed = if self.name == "claude-code" {
+                    parse_claude_stream_line(l)
+                } else {
+                    parse_codex_stream_line(l)
+                };
+                for ev in parsed {
+                    match ev {
+                        StreamEvent::SessionStarted {
+                            cli_session_id,
+                            model,
+                        } => {
+                            let mut p = serde_json::json!({
+                                "session_id": session_id.to_string(),
+                                "status": "starting",
+                            });
+                            if let Some(cid) = cli_session_id {
+                                p["cli_session_id"] = serde_json::Value::String(cid);
+                            }
+                            if let Some(m) = model {
+                                p["model"] = serde_json::Value::String(m);
+                            }
+                            send_event(EventKind::SessionStatusChanged, p);
+                        }
+                        StreamEvent::StatusChanged { status } => {
+                            send_event(
+                                EventKind::SessionStatusChanged,
+                                serde_json::json!({
+                                    "session_id": session_id.to_string(),
+                                    "status": status,
+                                }),
+                            );
+                        }
+                        StreamEvent::ToolStarted { tool, target } => {
+                            send_event(
+                                EventKind::ToolStarted,
+                                serde_json::json!({
+                                    "session_id": session_id.to_string(),
+                                    "tool": tool,
+                                    "target": target,
+                                }),
+                            );
+                        }
+                        StreamEvent::ToolFinished {
+                            tool,
+                            target,
+                            duration_ms,
+                            status,
+                        } => {
+                            let mut p = serde_json::json!({
+                                "session_id": session_id.to_string(),
+                                "tool": tool,
+                                "target": target,
+                                "status": status,
+                            });
+                            if let Some(d) = duration_ms {
+                                p["duration_ms"] = serde_json::Value::from(d);
+                            }
+                            send_event(EventKind::ToolFinished, p);
+                        }
+                        StreamEvent::FileTouched { path, action } => {
+                            send_event(
+                                EventKind::FileTouched,
+                                serde_json::json!({
+                                    "session_id": session_id.to_string(),
+                                    "path": path,
+                                    "action": action,
+                                }),
+                            );
+                        }
+                        StreamEvent::SessionEnded {
+                            status,
+                            duration_ms,
+                            usage: stream_usage,
+                        } => {
+                            if let Some(u) = stream_usage {
+                                *usage = Some(u);
+                            }
+                            *ended = true;
+                            let mut p = serde_json::json!({
+                                "session_id": session_id.to_string(),
+                                "status": status,
+                            });
+                            if let Some(d) = duration_ms {
+                                p["duration_ms"] = serde_json::Value::from(d);
+                            }
+                            send_event(EventKind::SessionEnded, p);
+                        }
+                    }
+                }
+            };
+
+        loop {
+            tokio::select! {
+                line = stdout_reader.next_line(), if !stdout_done => {
+                    match line {
+                        Ok(Some(l)) => {
+                            if let Some(mgr) = &live_sessions {
+                                mgr.push_tail_line(session_id, &l).await;
+                            }
+                            if is_streaming {
+                                process_line(&l, &mut usage, &mut session_ended_emitted);
+                            }
+                            captured_stdout.push(l);
+                        }
+                        Ok(None) | Err(_) => {
+                            stdout_done = true;
+                        }
+                    }
+                }
+                line = stderr_reader.next_line(), if !stderr_done => {
+                    match line {
+                        Ok(Some(l)) => {
+                            if let Some(mgr) = &live_sessions {
+                                mgr.push_tail_line(session_id, &l).await;
+                            }
+                            captured_stderr.push(l);
+                        }
+                        Ok(None) | Err(_) => {
+                            stderr_done = true;
+                        }
+                    }
+                }
+                _ = stop_rx.changed() => {
+                    if *stop_rx.borrow() {
+                        if let Some(mgr) = &live_sessions {
+                            mgr.unregister(session_id).await;
+                        }
+                        return Err(BackendError::ExecutionFailed("Stopped by owner".to_string()));
+                    }
+                }
+                _ = &mut timeout => {
+                    if let Some(mgr) = &live_sessions {
+                        mgr.unregister(session_id).await;
+                    }
+                    send_event(
+                        EventKind::SessionEnded,
+                        serde_json::json!({
+                            "session_id": session_id.to_string(),
+                            "status": "failed",
+                            "reason": "timeout",
+                        }),
+                    );
+                    return Err(BackendError::Timeout(format!("{} timed out", self.name)));
+                }
+                res = child.wait() => {
+                    match res {
+                        Ok(st) => {
+                            exit_status = st;
+                            break;
+                        }
+                        Err(e) => {
+                            if let Some(mgr) = &live_sessions {
+                                mgr.unregister(session_id).await;
+                            }
+                            return Err(BackendError::ExecutionFailed(e.to_string()));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Drain remaining lines
+        while let Ok(Some(l)) = stdout_reader.next_line().await {
+            if let Some(mgr) = &live_sessions {
+                mgr.push_tail_line(session_id, &l).await;
+            }
+            if is_streaming {
+                process_line(&l, &mut usage, &mut session_ended_emitted);
+            }
+            captured_stdout.push(l);
+        }
+        while let Ok(Some(l)) = stderr_reader.next_line().await {
+            if let Some(mgr) = &live_sessions {
+                mgr.push_tail_line(session_id, &l).await;
+            }
+            captured_stderr.push(l);
+        }
+
+        if let Some(mgr) = &live_sessions {
+            mgr.unregister(session_id).await;
+        }
+
+        let st = exit_status;
+
+        if !is_streaming {
+            send_event(
+                EventKind::SessionEnded,
+                serde_json::json!({
+                    "session_id": session_id.to_string(),
+                    "status": if st.success() { "done" } else { "failed" },
+                    "note": "no live telemetry for this backend",
+                }),
+            );
+        } else if !session_ended_emitted {
+            send_event(
+                EventKind::SessionEnded,
+                serde_json::json!({
+                    "session_id": session_id.to_string(),
+                    "status": if st.success() { "done" } else { "failed" },
+                }),
+            );
+        }
+
+        if usage.is_none() {
+            let full_stdout = captured_stdout.join("\n");
+            if let Ok(cli_out) = serde_json::from_str::<CliOutput>(&full_stdout) {
+                usage = Some(warsha_core::TokenUsage {
+                    input: cli_out.usage.as_ref().map(|u| u.input_tokens).unwrap_or(0),
+                    output: cli_out.usage.as_ref().map(|u| u.output_tokens).unwrap_or(0),
+                    total: cli_out
+                        .usage
+                        .as_ref()
+                        .map(|u| u.input_tokens + u.output_tokens)
+                        .unwrap_or(0),
+                    cost_cents: cli_out.usage.as_ref().and_then(|u| u.cost_cents),
+                });
+            } else if self.name == "codex-cli" {
+                let mut total_input = 0;
+                let mut total_output = 0;
+                for line in captured_stdout.iter() {
+                    if let Ok(line_out) = serde_json::from_str::<serde_json::Value>(line) {
+                        if let Some(u) = line_out.get("usage") {
+                            total_input +=
+                                u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                            total_output +=
+                                u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                        }
+                    }
+                }
+                if total_input > 0 || total_output > 0 {
+                    usage = Some(warsha_core::TokenUsage {
+                        input: total_input,
+                        output: total_output,
+                        total: total_input + total_output,
+                        cost_cents: None,
+                    });
+                }
+            }
+        }
+
+        if !st.success() {
+            if *stop_rx.borrow() {
+                return Err(BackendError::ExecutionFailed(
+                    "Stopped by owner".to_string(),
+                ));
+            }
+            let stderr_str = captured_stderr.join("\n").trim().to_string();
+            let stdout_str = captured_stdout.join("\n").trim().to_string();
+            let detail = if stderr_str.is_empty() {
+                stdout_str
+            } else {
+                stderr_str
+            };
             return Err(BackendError::ExecutionFailed(if detail.is_empty() {
-                format!("{} exited with {:?}", self.name, output.status.code())
+                format!("{} exited with {:?}", self.name, st.code())
             } else {
                 detail
             }));
         }
 
-        // The result is the change the CLI actually made, not a claim: the diff
-        // and the changed paths come from git in the sandbox. A non-git sandbox
-        // reports no diff instead of failing a successful run.
+        let duration = start.elapsed().as_millis() as u64;
         let (diff, files_changed) = capture_changes(&sandbox.work_dir).await;
-
-        let mut usage = None;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-
-        // Try parsing as JSON (Claude Code style)
-        if let Ok(cli_out) = serde_json::from_str::<CliOutput>(&stdout) {
-            usage = Some(warsha_core::TokenUsage {
-                input: cli_out.usage.as_ref().map(|u| u.input_tokens).unwrap_or(0),
-                output: cli_out.usage.as_ref().map(|u| u.output_tokens).unwrap_or(0),
-                total: cli_out
-                    .usage
-                    .as_ref()
-                    .map(|u| u.input_tokens + u.output_tokens)
-                    .unwrap_or(0),
-                cost_cents: cli_out.usage.as_ref().and_then(|u| u.cost_cents),
-            });
-        } else if self.name == "codex-cli" {
-            // Try parsing as JSONL (Codex CLI style)
-            let mut total_input = 0;
-            let mut total_output = 0;
-            for line in stdout.lines() {
-                if let Ok(line_out) = serde_json::from_str::<serde_json::Value>(line) {
-                    if let Some(u) = line_out.get("usage") {
-                        total_input += u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                        total_output +=
-                            u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                    }
-                }
-            }
-            if total_input > 0 || total_output > 0 {
-                usage = Some(warsha_core::TokenUsage {
-                    input: total_input,
-                    output: total_output,
-                    total: total_input + total_output,
-                    cost_cents: None,
-                });
-            }
-        }
 
         Ok(CodingResult {
             task_id: task.id,
@@ -354,6 +693,7 @@ pub const CODING_BACKEND_ENV: &str = "WARSHA_CODING_BACKEND";
 #[cfg(test)]
 mod tests {
     mod cli_parsing;
+    mod streaming_acceptance;
     use super::*;
     use std::path::PathBuf;
     use ulid::Ulid;

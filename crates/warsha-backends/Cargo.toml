@@ -17,6 +17,7 @@ tracing = { workspace = true }
 async-trait = "0.1"
 which = "6.0"
 ulid = { workspace = true }
+chrono = { workspace = true }
 
 [dev-dependencies]
 mockall = { workspace = true }
@@ -24,4 +25,3 @@ tempfile = { workspace = true }
 pretty_assertions = "1.4"
 warsha-store = { path = "../warsha-store" }
 warsha-providers = { path = "../warsha-providers" }
-chrono = { workspace = true }

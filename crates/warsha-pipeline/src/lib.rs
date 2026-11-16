@@ -22,9 +22,11 @@ mod agent_tools;
 mod agent_workflow;
 mod backend_kit;
 pub mod coding_backend;
+pub mod live_session;
 pub use crate::coding_backend::{
     BackendError, CodingBackend, CodingResult, CodingTask, FileAction, Sandbox, TaskFile,
 };
+pub use crate::live_session::{LiveSessionManager, MAX_TAIL_LINES};
 mod build_cache;
 mod command_policy;
 mod evals;
@@ -399,6 +401,8 @@ pub struct PipelineEngine<S: SettingsProvider> {
     coding_backend: Option<Arc<dyn CodingBackend>>,
     /// Per-run synchronization controls for execution serialization and real cancel
     run_controls: Arc<tokio::sync::Mutex<HashMap<RunId, Arc<RunControl>>>>,
+    /// Live session manager tracking in-memory tails and process cancellation
+    pub live_sessions: LiveSessionManager,
 }
 
 impl<S: SettingsProvider> PipelineEngine<S> {
@@ -414,6 +418,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             settings,
             coding_backend: None,
             run_controls: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            live_sessions: LiveSessionManager::new(),
         }
     }
 
@@ -820,6 +825,23 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         let completion = match cli_completion {
             Some(completion) => completion,
             None => {
+                let session_id = warsha_core::SessionId::new();
+                let session = warsha_core::Session {
+                    id: session_id,
+                    run_id: run.id,
+                    project_id: run.project_id,
+                    role,
+                    backend: "native".to_string(),
+                    provider: "routed".to_string(),
+                    model: "default".to_string(),
+                    status: warsha_core::SessionStatus::Working,
+                    started_at: Utc::now(),
+                    ended_at: None,
+                    parent_session_id: None,
+                    cli_session_id: None,
+                };
+                let _ = self.store.create_session(&session).await;
+
                 // Call the provider while watching the live cancellation channel.
                 let providers = {
                     let router = self.providers.read().await;
@@ -840,14 +862,19 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 let response = tokio::select! {
                     biased;
                     _ = cancel_rx.changed() => {
+                        let _ = self.store.finish_session(session_id, warsha_core::SessionStatus::Stopped, Utc::now()).await;
                         return Err(PipelineError::Other(
                             "Run cancelled during stage execution".to_string(),
                         ));
                     }
                     res = Self::dispatch_chat(&providers, role, &dispatch_project_id, request) => {
                         match res {
-                            Ok(response) => response,
+                            Ok(response) => {
+                                let _ = self.store.finish_session(session_id, warsha_core::SessionStatus::Done, Utc::now()).await;
+                                response
+                            }
                             Err(error) => {
+                                let _ = self.store.finish_session(session_id, warsha_core::SessionStatus::Failed, Utc::now()).await;
                                 return Err(self
                                     .record_stage_failure(run, *version, ctrl, stage, role, error)
                                     .await);
@@ -1079,9 +1106,58 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 ("stage".to_string(), stage_to_string(stage).to_string()),
             ]),
         };
-        let sandbox = Sandbox::new(PathBuf::from(repo_path));
+        let session_id = warsha_core::SessionId::new();
+        let session = warsha_core::Session {
+            id: session_id,
+            run_id: run.id,
+            project_id: run.project_id,
+            role: Role::Coder,
+            backend: backend_name.clone(),
+            provider: if backend_name == "builtin" {
+                "builtin".to_string()
+            } else {
+                "cli".to_string()
+            },
+            model: "default".to_string(),
+            status: warsha_core::SessionStatus::Working,
+            started_at: Utc::now(),
+            ended_at: None,
+            parent_session_id: None,
+            cli_session_id: None,
+        };
+        let _ = self.store.create_session(&session).await;
 
-        let result = backend.execute(task, &sandbox).await.map_err(|error| {
+        let mut sandbox = Sandbox::new(PathBuf::from(repo_path));
+        sandbox.session_id = Some(session_id);
+        sandbox.live_sessions = Some(Arc::new(self.live_sessions.clone()));
+
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
+        sandbox.event_sender = Some(event_tx);
+
+        let store_events = self.store.clone();
+        tokio::spawn(async move {
+            while let Some(ev) = event_rx.recv().await {
+                let _ = store_events.append_event(&ev).await;
+            }
+        });
+
+        let result = backend.execute(task, &sandbox).await;
+        match &result {
+            Ok(res) if res.success => {
+                let _ = self
+                    .store
+                    .finish_session(session_id, warsha_core::SessionStatus::Done, Utc::now())
+                    .await;
+            }
+            _ => {
+                let _ = self
+                    .store
+                    .finish_session(session_id, warsha_core::SessionStatus::Failed, Utc::now())
+                    .await;
+            }
+        }
+
+        let result = result.map_err(|error| {
             PipelineError::Other(format!(
                 "the coding backend `{backend_name}` failed: {error}"
             ))

@@ -7,6 +7,7 @@ pub mod config;
 pub mod harness;
 pub mod plugin;
 pub mod redaction;
+pub mod session;
 pub mod skill;
 
 pub use config::{
@@ -16,6 +17,7 @@ pub use config::{
 pub use harness::{bundled_harnesses, HarnessDefinition, HarnessRules, HarnessStage};
 pub use plugin::{bundled_plugins, PluginDefinition, PluginToolDefinition};
 pub use redaction::{mask_query_secrets, mask_secrets, REDACTED};
+pub use session::{Session, SessionId, SessionStatus};
 pub use skill::{bundled_skills, SkillDefinition};
 
 use chrono::{DateTime, Utc};
@@ -290,12 +292,19 @@ pub enum EventKind {
     /// "cancelled"}` and nothing else, so a client that watches the stream learns the
     /// run ended without re-polling `runs.list` (G1).
     ///
-    /// Last on purpose: the discriminant of a stored row only ever moves forward with
+    /// The discriminant of a stored row only ever moves forward with
     /// a new variant, and the store keeps this kind as its serde name (`run_finished`).
     RunFinished,
+    /// NEW variants for N1 (added at the end):
+    SessionStarted,
+    SessionStatusChanged,
+    ToolStarted,
+    ToolFinished,
+    FileTouched,
+    SessionEnded,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TokenUsage {
     pub input: u64,
     pub output: u64,

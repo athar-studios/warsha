@@ -486,6 +486,46 @@ impl WarshaApiServer for WarshaRpc {
         Ok(events)
     }
 
+    async fn list_sessions(&self, ext: &RpcExtensions, run_id: RunId) -> RpcResult<Vec<Session>> {
+        self.authorize(ext, "sessions.list").await?;
+        self.state
+            .store
+            .list_sessions_by_run(run_id)
+            .await
+            .map_err(rpc_error)
+    }
+
+    async fn session_tail(
+        &self,
+        ext: &RpcExtensions,
+        session_id: SessionId,
+    ) -> RpcResult<Vec<String>> {
+        self.authorize(ext, "sessions.tail").await?;
+        let token = self.state.config.auth_token.clone();
+        let tail = self.state.pipeline.live_sessions.get_tail(session_id).await;
+        let scrubbed = tail
+            .into_iter()
+            .map(|line| {
+                if crate::state::redact_string(&line, &token) {
+                    crate::state::REDACTED.to_string()
+                } else {
+                    line
+                }
+            })
+            .collect();
+        Ok(scrubbed)
+    }
+
+    async fn session_stop(&self, ext: &RpcExtensions, session_id: SessionId) -> RpcResult<()> {
+        self.authorize(ext, "sessions.stop").await?;
+        self.state
+            .pipeline
+            .live_sessions
+            .stop_session(session_id, &self.state.store)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+    }
+
     async fn approve_gate(
         &self,
         ext: &RpcExtensions,

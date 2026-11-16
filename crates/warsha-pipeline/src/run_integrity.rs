@@ -12,6 +12,7 @@ impl<S: crate::settings::SettingsProvider> crate::PipelineEngine<S> {
             settings: self.settings.clone(),
             coding_backend: self.coding_backend.clone(),
             run_controls: self.run_controls.clone(),
+            live_sessions: self.live_sessions.clone(),
         }
     }
 }
