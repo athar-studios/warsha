@@ -493,12 +493,15 @@ fn check_health(failures: &mut Vec<String>, ws_url: &str) {
 ///
 /// This is the zero-configuration path a fresh install takes its first steps on, proved
 /// end-to-end rather than by a unit test in one crate: `projects.create` → `runs.start` →
-/// `gates.approve` (Gate A) → `runs.advance` (which walks Idea → GateA → Research → PrdSpec
-/// and stops at the pending Gate B) → `runs.artifacts`. The stage calls are answered by the
-/// pipeline's deterministic `FakeProvider` (`crates/warsha-pipeline` dispatch case 3), which
-/// makes no network call; `WARSHA_LLM_PROVIDER=fake` is set here so a `WARSHA_LLM_API_KEY`
-/// inherited from this machine's environment cannot quietly turn the smoke run into a real,
-/// paid model call — the same guarantee the repository's rules make for every test.
+/// `runs.advance` (which walks Idea → GateA and stops at the pending Gate A — the
+/// gate-integrity rules require a gate to be the run's *current* stage before it can be
+/// decided) → `gates.approve` (Gate A) → `runs.advance` again (which passes the approved
+/// Gate A, walks Research → PrdSpec and stops at the pending Gate B) → `runs.artifacts`.
+/// The stage calls are answered by the pipeline's deterministic `FakeProvider`
+/// (`crates/warsha-pipeline` dispatch case 3), which makes no network call;
+/// `WARSHA_LLM_PROVIDER=fake` is set here so a `WARSHA_LLM_API_KEY` inherited from this
+/// machine's environment cannot quietly turn the smoke run into a real, paid model call —
+/// the same guarantee the repository's rules make for every test.
 ///
 /// The checks this appends are only run when the daemon answered with a result; a refusal at
 /// any step stops the walk early, because a `runs.advance` over a run that was never created
@@ -557,6 +560,31 @@ fn check_fake_provider_pipeline(
         return;
     };
 
+    let to_gate_a = raw_request(
+        host,
+        &rpc_post_request(
+            host,
+            token,
+            "runs.advance",
+            serde_json::json!({ "run_id": run_id }),
+        ),
+    );
+    let at_gate_a = rpc_result(&to_gate_a);
+    check(
+        failures,
+        at_gate_a
+            .as_ref()
+            .and_then(|run| run.get("current_stage"))
+            .and_then(|stage| stage.as_str())
+            == Some("gate_a"),
+        "runs.advance walks Idea → GateA and stops at the pending gate",
+        &response_detail(&to_gate_a),
+    );
+    if at_gate_a.is_none() {
+        failures.push("the zero-key FakeProvider run needs to reach Gate A".to_string());
+        return;
+    }
+
     let approve = raw_request(
         host,
         &rpc_post_request(
@@ -591,7 +619,7 @@ fn check_fake_provider_pipeline(
     check(
         failures,
         advanced.is_some(),
-        "runs.advance walks Idea → GateA → Research → PrdSpec on the zero-key FakeProvider",
+        "runs.advance passes the approved Gate A, walks Research → PrdSpec, stops at Gate B",
         &response_detail(&advance),
     );
     if let Some(run) = &advanced {
