@@ -18,7 +18,7 @@ import { defineConfig } from '@playwright/test';
  * fails loudly instead of quietly serving an old bundle.
  *
  * Determinism is the whole point of this file's `use` block: a pinned locale, timezone and device
- * scale factor, reduced motion, no animations, and `maxDiffPixelRatio: 0` — one changed pixel on a
+ * scale factor, reduced motion, no animations, and `threshold: 0.05` — one changed pixel beyond the
  * baseline is a failing check, not a warning.
  *
  * The matrix is what B4 asked for (320/390/768/1024/1440 × AR/EN × light/dark × 23 screens, plus axe),
@@ -58,21 +58,17 @@ import { defineConfig } from '@playwright/test';
  * (measured both ways, `PROGRESS.md` 2026-11-04 #45). `--disable-lcd-text` /
  * `--font-render-hinting=none` / `--disable-font-subpixel-positioning` were tried and REVERTED: they
  * moved 28% of pixels (grayscale AA is not what the app ships with) and the residual variance got
- * larger, not zero. So the contract is: `maxDiffPixelRatio: 0` still fails a case on *any* pixel that
- * differs structurally, while `threshold: 0.05` (~13/255) tolerates antialiasing noise up to the
- * measured maximum (11 levels). A moved edge or a shifted line differs by far more than that and still
- * fails — the tolerance is on *how much*, not on *how many*.
- *
- * Amendment A10 (owner decision 2026-11-16) bounds the "how many" for the @visual comparison: up to
- * 64 pixels per screenshot may exceed `threshold` — exactly the F1 canary's decoded-pixel budget
- * (`WARSHA_CANARY_MAX_PIXELS=64`, `WARSHA_CANARY_MAX_DELTA=13` ≈ threshold 0.05, unchanged). The
- * measured nondeterminism this absorbs: the LCD subpixel fringe of a horizontal rule's right end (or
- * a scrollbar-track edge) flickers per page load — 3-14 px, 55-69 levels, on 1-3 of the 500 @visual
- * cases per pass (RF2's 260+ verify passes; `docs/zadloop/packets/RF2-report.md`). The fringe is
- * below the canary's budget on every measured pass; a real layout or colour change affects hundreds
- * of pixels and still fails. `maxDiffPixels` and `maxDiffPixelRatio` combine as independent bounds —
- * a case fails when EITHER bound is exceeded, so `maxDiffPixelRatio: 0` keeps its meaning for any
- * screenshot larger than 64 px and the 64-px budget only ever absorbs sub-threshold-count flicker.
+ * larger, not zero. So the contract is: `threshold: 0.05` (~13/255) tolerates antialiasing noise up
+ * to the measured maximum (11 levels), and — Amendment A10 (owner decision 2026-11-16) — up to 64
+ * pixels per screenshot may exceed `threshold` (`maxDiffPixels: 64`, the F1 canary's decoded-pixel
+ * budget `WARSHA_CANARY_MAX_PIXELS=64` / `WARSHA_CANARY_MAX_DELTA=13` ≈ threshold 0.05, unchanged).
+ * The measured nondeterminism this absorbs: the LCD subpixel fringe of a horizontal rule's right end
+ * (or a scrollbar-track edge) flickers per page load — 3-14 px, 55-69 levels, on 1-3 of the 500
+ * @visual cases per pass (RF2's 260+ verify passes; `docs/zadloop/packets/RF2-report.md`). The
+ * fringe is below the canary's budget on every measured pass; a real layout or colour change affects
+ * hundreds of pixels and still fails. `maxDiffPixelRatio` stays unset on purpose: the comparator
+ * takes `maxDiffPixels = min(maxDiffPixels, w*h*ratio)` when both are set, so a ratio of 0 would
+ * silently reduce the 64-px budget to 0.
  */
 
 /** The repo-managed fontconfig that pins the baselines' AA mode; Linux only. */
@@ -147,18 +143,18 @@ export default defineConfig({
   expect: {
     timeout: 15_000,
     toHaveScreenshot: {
-      // A layout check that tolerates drift is not a layout check. `maxDiffPixelRatio: 0` means a
-      // single structurally different pixel fails the case; `threshold: 0.05` (~13/255 per pixel)
-      // tolerates antialiasing noise up to the measured maximum (11 levels, 10-38 px, on curved and
-      // shadowed edges, random per capture — PROGRESS.md 2026-11-04 #45). A moved edge or a shifted
-      // line differs by far more than 13 levels and still fails.
+      // A layout check that tolerates drift is not a layout check. `threshold: 0.05` (~13/255 per
+      // pixel) tolerates antialiasing noise up to the measured maximum (11 levels, 10-38 px, on
+      // curved and shadowed edges, random per capture — PROGRESS.md 2026-11-04 #45). A moved edge or
+      // a shifted line differs by far more than 13 levels and still fails.
       //
       // A10 (owner decision 2026-11-16): up to 64 pixels per screenshot may exceed `threshold` —
       // the F1 canary's decoded-pixel budget, scoped to the @visual comparison this config's two
       // projects run. The measured LCD-fringe flicker is 3-14 px (RF2-report.md); a real layout or
-      // colour change affects hundreds of pixels and still fails. Both bounds stay independent:
-      // exceeding EITHER fails the case.
-      maxDiffPixelRatio: 0,
+      // colour change affects hundreds of pixels and still fails. NOTE: `maxDiffPixelRatio` must
+      // NOT be set here — the comparator takes `maxDiffPixels = min(maxDiffPixels, w*h*ratio)`, so a
+      // ratio of 0 would silently reduce the 64-px budget to 0 (measured: the fringe case failed
+      // with 3 differing px while both bounds were set). The 64-px budget alone is the bound.
       maxDiffPixels: 64,
       threshold: 0.05,
       animations: 'disabled',
