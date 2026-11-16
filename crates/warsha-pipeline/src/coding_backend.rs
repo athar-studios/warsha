@@ -1,7 +1,9 @@
+use crate::live_session::LiveSessionManager;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 use thiserror::Error;
 use ulid::Ulid;
 use warsha_core::*;
@@ -81,6 +83,8 @@ pub struct Sandbox {
     pub allow_network: bool,
     pub env: HashMap<String, String>,
     pub event_sender: Option<EventSender>,
+    pub session_id: Option<SessionId>,
+    pub live_sessions: Option<Arc<LiveSessionManager>>,
 }
 
 impl Sandbox {
@@ -90,6 +94,8 @@ impl Sandbox {
             allow_network: true,
             env: HashMap::new(),
             event_sender: None,
+            session_id: None,
+            live_sessions: None,
         }
     }
 
@@ -100,6 +106,16 @@ impl Sandbox {
 
     pub fn with_env(mut self, key: String, value: String) -> Self {
         self.env.insert(key, value);
+        self
+    }
+
+    pub fn with_session(mut self, session_id: SessionId) -> Self {
+        self.session_id = Some(session_id);
+        self
+    }
+
+    pub fn with_live_sessions(mut self, live_sessions: Arc<LiveSessionManager>) -> Self {
+        self.live_sessions = Some(live_sessions);
         self
     }
 }

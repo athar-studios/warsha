@@ -2079,7 +2079,10 @@ mod tests {
             .expect("the test store opens");
 
         let project = sample_project();
-        store.create_project(&project).await.expect("project creates");
+        store
+            .create_project(&project)
+            .await
+            .expect("project creates");
         let run = sample_run(project.id);
         store.create_run(&run).await.expect("run creates");
 
@@ -2099,7 +2102,10 @@ mod tests {
             cli_session_id: None,
         };
 
-        store.create_session(&session).await.expect("session creates");
+        store
+            .create_session(&session)
+            .await
+            .expect("session creates");
 
         let fetched = store
             .get_session(session_id)

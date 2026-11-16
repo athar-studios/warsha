@@ -73,6 +73,15 @@ pub trait WarshaApi {
     #[method(name = "runs.events", with_extensions)]
     async fn get_events(&self, run_id: RunId) -> RpcResult<Vec<Event>>;
 
+    #[method(name = "sessions.list", with_extensions)]
+    async fn list_sessions(&self, run_id: RunId) -> RpcResult<Vec<Session>>;
+
+    #[method(name = "sessions.tail", with_extensions)]
+    async fn session_tail(&self, session_id: SessionId) -> RpcResult<Vec<String>>;
+
+    #[method(name = "sessions.stop", with_extensions)]
+    async fn session_stop(&self, session_id: SessionId) -> RpcResult<()>;
+
     // Gates (security audit H-03).
     //
     // The device that decided a gate is the device the *credential* authenticated —

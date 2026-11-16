@@ -307,6 +307,21 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Session,
         tier: Standard,
     },
+    M {
+        method: "sessions.list",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "sessions.tail",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "sessions.stop",
+        policy: Owner,
+        tier: Standard,
+    },
     // A run is a paid pipeline: it starts model work and writes files.
     M {
         method: "runs.start",
