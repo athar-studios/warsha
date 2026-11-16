@@ -82,6 +82,26 @@ export const ACTIONS: readonly ActionDef[] = [
     rpc: ['devices.revoke'],
   },
 
+  // Permissions section
+  {
+    id: 'settings.permissions.defaults.save',
+    labelKey: 'settings.permissions.defaults.save',
+    effect: 'rpc',
+    rpc: ['permissions.defaults.set'],
+  },
+  {
+    id: 'settings.permissions.project.save',
+    labelKey: 'settings.permissions.project.save',
+    effect: 'rpc',
+    rpc: ['permissions.project.set'],
+  },
+  {
+    id: 'settings.permissions.project.reset',
+    labelKey: 'settings.permissions.project.reset',
+    effect: 'rpc',
+    rpc: ['permissions.project.set'],
+  },
+
   // MCP permissions section — revoking a granted tool restores the fail-closed
   // default through `mcp.permissions.set` (B3a, `crates/warshad/src/lib.rs:3398`).
   {

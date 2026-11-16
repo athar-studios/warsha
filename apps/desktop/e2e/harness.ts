@@ -1851,6 +1851,39 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
         },
       };
     }
+    case 'permissions.defaults.get':
+      return {
+        ok: true,
+        result: { confinement: 'workspace-write', approvalMode: 'ask-for-risky', isOverride: false },
+      };
+    case 'permissions.defaults.set':
+      if (!paramEntry(params, 'confinement').found) return missingField('confinement');
+      if (!paramEntry(params, 'approval_mode').found) return missingField('approval_mode');
+      return {
+        ok: true,
+        result: {
+          confinement: paramValue(params, 'confinement'),
+          approvalMode: paramValue(params, 'approval_mode'),
+          isOverride: true,
+        },
+      };
+    case 'permissions.project.get':
+      if (!paramEntry(params, 'project_id').found) return missingField('project_id');
+      return {
+        ok: true,
+        result: { confinement: 'workspace-write', approvalMode: 'ask-for-risky', isOverride: false },
+      };
+    case 'permissions.project.set':
+      if (!paramEntry(params, 'project_id').found) return missingField('project_id');
+      return {
+        ok: true,
+        result: {
+          confinement: paramValue(params, 'confinement') ?? 'workspace-write',
+          approvalMode: paramValue(params, 'approval_mode') ?? 'ask-for-risky',
+          isOverride: paramEntry(params, 'confinement').found || paramEntry(params, 'approval_mode').found,
+        },
+      };
+
     // MCP connections (R-EXT-1). `mcp.list` answers "no server configured" so a capture that does
     // not override it keeps the baseline it had; a case that needs a connected, an `{error: …}` or
     // a recorded-not-dialled http row passes it through `fixtures`, the way the Wave 2 lists above

@@ -17,3 +17,14 @@ Replaced cosmetic permission switch with a robust, stored, two-axis permission s
 - Authorization surface expanded to include new RPC methods.
 - UI and client updated with new wire contracts.
 - i18n keys added for confinement and approval modes.
+
+## Desktop UI
+- Implemented global default and per-project override permissions in Settings (`PermissionsSection`) and Project pages (`data-testid="project-permissions-sheet"`).
+- Honest-copy info banner displayed in `PermissionsSection` in both languages:
+  - EN: "Warsha's own tools are confined by path checks. CLI stages are confined by the CLI's own sandbox and flags. There is no operating-system sandbox around Warsha itself. 'Full access' means no path confinement for Warsha's tools and the CLI runs without its sandbox."
+  - AR: "أدوات ورشة محصورة بفحوص المسار. مراحل CLI محصورة بصندوق الحماية ورايات CLI الخاصة بها. لا يوجد صندوق حماية على مستوى نظام التشغيل حول ورشة نفسها. 'وصول كامل' يعني عدم وجود حصر للمسار لأدوات ورشة ويعمل CLI بدون صندوق حمايته."
+- Updated settings navigation test count (14 -> 15) in `apps/desktop/e2e/v3/settings.spec.ts` and `apps/desktop/src/v3/pages/settings/Settings.test.tsx`.
+- Created `apps/desktop/e2e/v3/permissions.spec.ts` testing:
+  - Settings: global default selects and RPC dispatch (`permissions.defaults.set`).
+  - Project override: opening permissions sheet and setting override (`permissions.project.set`).
+  - Honest-copy banner presence and visibility.
