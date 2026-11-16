@@ -79,6 +79,15 @@ this file. Seeded by packet F0 from plan §10.2.
 - **Pass looks like:** S4/S5 rows pass in the official script, or you accept the recorded manual
   verification.
 
+### 13. RF2 blocked gate — CLOSED by Amendment 3 / A10 (2026-11-16)
+- **Was:** the @visual verify leg failed 1–3 cases per run on an LCD subpixel fringe (260+ measured
+  passes, ~12% all-green); owner decision required.
+- **Resolution:** owner chose the bounded decoded-pixel budget (maxDiffPixels 64, threshold 0.05
+  unchanged) — proof: 100-pass experiment 100/100, full 416 ×3 passes green, then 3 consecutive
+  green CI runs both legs (43833136416, 43837753064, 43842194783). No owner action remains; the
+  FIN4 @visual rows are recorded against the green runs.
+- **Pass looks like:** (closed — recorded here for the audit trail).
+
 ## Alerts appended by the fleet
 
 (none yet)
