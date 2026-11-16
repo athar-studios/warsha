@@ -93,6 +93,11 @@ export default {
   'settings.providers.kind.ollama': 'أولاما',
   'settings.providers.kind.custom': 'نقطة نهاية مخصّصة',
   'settings.providers.validation.required': 'يرجى إدخال اسم المزوّد ومفتاح API.',
+  'settings.providers.login': 'تسجيل الدخول',
+  'settings.providers.disconnect': 'قطع الاتصال',
+  'settings.providers.auth.authenticated': 'تم التحقق',
+  'settings.providers.auth.unauthenticated': 'غير محقق',
+  'settings.providers.auth.pending': 'قيد الانتظار',
 
   'settings.models.title': 'النماذج المخصّصة',
   'settings.models.empty': 'لا توجد نماذج مخصّصة مسجّلة.',

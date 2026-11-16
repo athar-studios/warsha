@@ -415,6 +415,28 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Owner,
         tier: Spend,
     },
+    // Provider auth: reading status is session-level; starting/completing auth and
+    // disconnecting touch keychain secrets, so they are owner decisions.
+    M {
+        method: "providers.auth_status",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "providers.auth_start",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "providers.auth_complete",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "providers.disconnect",
+        policy: Owner,
+        tier: Standard,
+    },
     M {
         method: "roles.list",
         policy: Session,

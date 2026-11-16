@@ -14,6 +14,8 @@ use warsha_core::*;
 mod anthropic;
 mod env_llm;
 mod fake;
+mod oauth;
+pub use oauth::{device, pkce, ChunkedSecretStore};
 mod ollama;
 mod openai;
 mod provider_setup;

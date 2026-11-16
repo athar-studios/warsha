@@ -1953,3 +1953,6 @@ Legacy settings values (AskAlways / AskForRisky / AutoInsideProject, stored in r
 
 ## D-RN-B1-4 — Lane repair: DECISIONS.md restored (2026-11-16, PM)
 Commit cc889ed ("fix(B1): compilation and test errors") accidentally replaced DECISIONS.md (1,943 lines of decision history) with a 5-line stub. Repair under §0.6 lane-health: restored the 0e457cc version verbatim via `git checkout 0e457cc -- DECISIONS.md`, then re-appended the B1 decisions (D-RN-B1-1..3 above). No other file touched by the repair. Evidence: `git show cc889ed --stat` shows DECISIONS.md −1,941 lines; `git show 31fd758:DECISIONS.md` tail matches the 0e457cc tail, proving 31fd758 still held the intact file.
+## D-RN-A2-1 — A2: WIP Commit limitation
+- **Decision**: Deferred initial wip(A2) commit due to read-only filesystem error (`index.lock`) in the worktree. Continuing work and will attempt commit once local environment permissions permit.
+- **Reason**: The worktree is currently experiencing a read-only filesystem error when attempting to stage/commit. Task must proceed to avoid blocking.

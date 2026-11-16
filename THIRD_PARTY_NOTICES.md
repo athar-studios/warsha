@@ -16,6 +16,8 @@ Last reviewed: 2026-11-02 (M16 and B0 design-skill intake).
 | **mdBook** | `0.5.4`, installed as a cargo binary | MPL-2.0 | Builds the documentation site in [`docs/`](docs/). Build tool only; not distributed with Warsha. | [`rust-lang/mdBook/LICENSE`](https://github.com/rust-lang/mdBook/blob/main/LICENSE) |
 | **IBM Plex Sans Arabic** | `5.3.0` (`@fontsource/ibm-plex-sans-arabic`) | OFL-1.1 | UI typography for Design System v3 (ar + en). Bundled as woff2 assets. | [`fontsource/ibm-plex-sans-arabic/LICENSE`](https://github.com/fontsource/fontsource/blob/main/fonts/google/ibm-plex-sans-arabic/LICENSE) |
 | **IBM Plex Mono** | `5.3.0` (`@fontsource/ibm-plex-mono`) | OFL-1.1 | Code and ID typography for Design System v3. Bundled as woff2 assets. | [`fontsource/ibm-plex-mono/LICENSE`](https://github.com/fontsource/fontsource/blob/main/fonts/google/ibm-plex-mono/LICENSE) |
+| **oauth2** | `4.4.2` | MIT OR Apache-2.0 | Generic OAuth 2.0 PKCE and device flow handling in `warsha-providers`. | [`ramosbugs/oauth2-rs/LICENSE-MIT`](https://github.com/ramosbugs/oauth2-rs/blob/main/LICENSE-MIT) |
+| **url** | `2.5.4` | MIT OR Apache-2.0 | URL parsing and query parameter handling for OAuth and HTTP endpoints. | [`servo/rust-url/LICENSE-MIT`](https://github.com/servo/rust-url/blob/master/LICENSE-MIT) |
 
 ## Reviewed external design skills — reference material only, not bundled
 

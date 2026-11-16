@@ -93,8 +93,9 @@ mod api;
 pub(crate) use api::provider_model;
 pub(crate) use api::{non_empty, provider_endpoint};
 pub use api::{
-    AgentState, BudgetStatus, GateSummary, GateSummaryState, HealthCapabilities, HealthResponse,
-    ProviderRecord, RoleRoutingConfig, RoutingTargetConfig, WarshaApiServer,
+    AgentState, AuthCompleteResponse, AuthStartResponse, AuthStatus, BudgetStatus, GateSummary,
+    GateSummaryState, HealthCapabilities, HealthResponse, ProviderRecord, RoleRoutingConfig,
+    RoutingTargetConfig, WarshaApiServer,
 };
 // --- end P-H1 A1 ---
 
@@ -689,6 +690,65 @@ impl WarshaApiServer for WarshaRpc {
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
         Ok(stored.into_iter().map(ProviderRecord::from).collect())
+    }
+
+    async fn provider_auth_status(
+        &self,
+        ext: &RpcExtensions,
+        name: String,
+    ) -> RpcResult<AuthStatus> {
+        self.authorize(ext, "providers.auth_status").await?;
+        let secret = self
+            .state
+            .secrets
+            .load(&format!("integration:{name}"))
+            .await;
+        if secret.is_ok() {
+            Ok(AuthStatus::Authenticated)
+        } else {
+            Ok(AuthStatus::Unauthenticated)
+        }
+    }
+
+    async fn provider_auth_start(
+        &self,
+        ext: &RpcExtensions,
+        name: String,
+    ) -> RpcResult<AuthStartResponse> {
+        self.authorize(ext, "providers.auth_start").await?;
+        // Placeholder until a provider kind ships its real authorize URL (A2 follow-up);
+        // `name` is kept in the signature so the RPC contract is already final.
+        let _ = &name;
+        Ok(AuthStartResponse::Pkce {
+            url: "http://localhost:8080/auth".to_string(),
+        })
+    }
+
+    async fn provider_auth_complete(
+        &self,
+        ext: &RpcExtensions,
+        name: String,
+        code: String,
+    ) -> RpcResult<AuthCompleteResponse> {
+        self.authorize(ext, "providers.auth_complete").await?;
+        self.state
+            .secrets
+            .store(&format!("integration:{name}"), &code)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        Ok(AuthCompleteResponse {
+            message: "Successfully authenticated".to_string(),
+        })
+    }
+
+    async fn provider_disconnect(&self, ext: &RpcExtensions, name: String) -> RpcResult<()> {
+        self.authorize(ext, "providers.disconnect").await?;
+        self.state
+            .secrets
+            .delete(&format!("integration:{name}"))
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        Ok(())
     }
 
     /// Add a provider: keychain first, then the settings row.

@@ -1,6 +1,7 @@
 // apps/desktop/src/v3/pages/settings/sections/ModelsSection.tsx
 import {
   ALL_ROLES,
+  type AuthStatus,
   type CustomModelRecord,
   type ModelInfo,
   type ProviderConfig,
@@ -51,6 +52,7 @@ export function ModelsSection(): React.ReactElement {
   const [loadFailed, setLoadFailed] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProviderConfig[]>([]);
+  const [authStatuses, setAuthStatuses] = useState<Record<string, AuthStatus>>({});
   const [customModels, setCustomModels] = useState<CustomModelRecord[]>([]);
   const [roleRoutings, setRoleRoutings] = useState<RoleRouting[]>([]);
   const [fetchedModels, setFetchedModels] = useState<Record<string, ModelInfo[]>>({});
@@ -100,6 +102,17 @@ export function ModelsSection(): React.ReactElement {
       setProviders(provList);
       setCustomModels(modList);
       setRoleRoutings(rotList);
+      
+      const statuses: Record<string, AuthStatus> = {};
+      for (const p of provList) {
+        try {
+          statuses[p.name] = await client.providerAuthStatus(p.name);
+        } catch {
+          statuses[p.name] = { kind: 'unauthenticated' };
+        }
+      }
+      setAuthStatuses(statuses);
+
       if (provList.length > 0) {
         setModelProvider((prev) => prev || provList[0].name);
       }
@@ -347,6 +360,7 @@ export function ModelsSection(): React.ReactElement {
             {providers.map((p) => {
               const testState = testResults[p.name];
               const catalog = fetchedModels[p.name];
+              const authStatus = authStatuses[p.name];
               return (
                 <div key={p.name} className="v3-settings-row" data-testid={`provider-row-${p.name}`}>
                   <span className="v3-settings-row-icon" aria-hidden="true">
@@ -366,6 +380,11 @@ export function ModelsSection(): React.ReactElement {
                         )}
                         {catalog && (
                           <span>{t('settings.providers.models_fetched', { count: catalog.length })}</span>
+                        )}
+                        {authStatus && (
+                          <span>
+                            {t(`settings.providers.auth.${authStatus.kind}`)}
+                          </span>
                         )}
                       </span>
                     </div>
@@ -391,6 +410,38 @@ export function ModelsSection(): React.ReactElement {
                     )}
                   </div>
                   <div className="v3-settings-row-actions">
+                    {authStatus?.kind === 'authenticated' ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        data-action="settings.provider.disconnect"
+                        onClick={async () => {
+                          if (client) {
+                            await client.providerDisconnect(p.name);
+                            await loadData();
+                          }
+                        }}
+                      >
+                        {t('settings.providers.disconnect')}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        data-action="settings.provider.auth"
+                        onClick={async () => {
+                          // Handle auth flow start
+                          if (client) {
+                            const start = await client.providerAuthStart(p.name);
+                            if (start.kind === 'pkce') {
+                                window.open(start.url);
+                            }
+                          }
+                        }}
+                      >
+                        {t('settings.providers.login')}
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="ghost"
