@@ -369,11 +369,18 @@ pub(crate) fn producing_stage_for_gate(gate: Stage) -> Option<Stage> {
 }
 
 /// What one stage produced, before it is committed as the stage's artifact.
+#[derive(Debug, Clone)]
 struct StageCompletion {
     /// The artifact body.
     content: String,
     /// What the stage cost; a coding CLI runs on the owner's own subscription.
     cost_cents: u64,
+    /// Source of cost data.
+    source: String,
+    /// Whether cost is estimated.
+    estimated: bool,
+    /// Whether cost is known.
+    cost_known: bool,
     /// Provider token usage; `None` when no provider answered.
     tokens: Option<TokenUsage>,
     /// The coding backend that ran the stage, when one did.
@@ -858,6 +865,9 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 StageCompletion {
                     content,
                     cost_cents,
+                    source: "api_metered".to_string(),
+                    estimated: false,
+                    cost_known: true,
                     tokens: Some(response.usage),
                     backend: None,
                 }
@@ -867,6 +877,9 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         let StageCompletion {
             content: artifact_body,
             cost_cents,
+            source,
+            estimated,
+            cost_known,
             tokens,
             backend,
         } = completion;
@@ -935,12 +948,25 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             .write_artifact(run.project_id, &artifact_name, &artifact_content)
             .await?;
 
-        let payload = match &backend {
-            Some(backend) => {
+        let payload = match (backend.as_deref(), tokens.as_ref()) {
+            (Some(backend), Some(_usage)) => {
+                serde_json::json!({
+                    "role": role,
+                    "stage": stage,
+                    "backend": backend,
+                    "cost_source": source,
+                    "cost_estimated": estimated,
+                    "cost_known": cost_known,
+                })
+            }
+            (Some(backend), None) => {
                 serde_json::json!({ "role": role, "stage": stage, "backend": backend })
             }
-            None => serde_json::json!({ "role": role, "stage": stage }),
+            (None, _) => {
+                serde_json::json!({ "role": role, "stage": stage })
+            }
         };
+
         let event = Event {
             id: Ulid::new(),
             run_id: run.id,
@@ -949,7 +975,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             kind: EventKind::AgentStep,
             payload,
             cost_cents: Some(cost_cents),
-            tokens,
+            tokens: tokens.clone(),
             created_at: Utc::now(),
             device_id: None,
         };
@@ -1067,10 +1093,22 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             )));
         }
 
+        let cost_cents = result
+            .usage
+            .as_ref()
+            .and_then(|u| u.cost_cents) // Need to check if usage has cost_cents
+            .unwrap_or(0);
+        let cost_known =
+            result.usage.is_some() && result.usage.as_ref().unwrap().cost_cents.is_some();
+        let estimated = true; // Always estimated for CLI
+
         Ok(Some(StageCompletion {
             content: code_stage_report(&backend_name, &result),
-            cost_cents: 0,
-            tokens: None,
+            cost_cents,
+            source: "cli_reported".to_string(),
+            estimated,
+            cost_known,
+            tokens: result.usage,
             backend: Some(backend_name),
         }))
     }
@@ -2709,6 +2747,7 @@ mod tests {
                         input: 10,
                         output: 5,
                         total: 15,
+                        cost_cents: None,
                     },
                 })
             }

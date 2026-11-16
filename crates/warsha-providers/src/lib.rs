@@ -330,6 +330,7 @@ impl ChatProvider for MockProvider {
                 input: 10,
                 output: 20,
                 total: 30,
+                cost_cents: None,
             },
         })
     }
@@ -1188,6 +1189,7 @@ mod tests {
                     input: 1,
                     output: 1,
                     total: 2,
+                    cost_cents: None,
                 },
             })
         }
@@ -1556,6 +1558,7 @@ mod tests {
                     input: 1,
                     output: 1,
                     total: 2,
+                    cost_cents: None,
                 },
             })
         }

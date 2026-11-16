@@ -835,6 +835,7 @@ async fn e2e_real_arabic_request_clinic_flow() {
             input: 2_000,
             output: 1_000,
             total: 3_000,
+            cost_cents: None,
         };
         let estimated_cost = providers
             .cost_of("test-model", &usage)

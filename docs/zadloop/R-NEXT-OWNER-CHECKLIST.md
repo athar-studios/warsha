@@ -82,3 +82,4 @@ this file. Seeded by packet F0 from plan §10.2.
 ## Alerts appended by the fleet
 
 (none yet)
+- [ ] Probe `codex exec --json` parsing when codex is installed on a host (N0's JSONL parser is fixture-tested only; codex absent on the run host).

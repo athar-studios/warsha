@@ -418,6 +418,7 @@ mod tests {
             input: 0,
             output: 0,
             total: 0,
+            cost_cents: None,
         }
     }
 

@@ -95,6 +95,44 @@ The fleet executes this plan with maximum safe parallelism:
 - This amendment governs how the **fleet** executes the plan. It does not change the product's
   Swarm packet (D5), which stays last and off by default.
 
+### A7 — RF2: F2 is unblocked via the CI capture route (owner instruction, 2026-11-15; insert before FIN4)
+
+F2 is blocked on a canary failure on the local F1 capture host. Do NOT repair the local host.
+Take the CI route instead:
+
+1. Build a GitHub Actions workflow in `warsha-dev` that runs the R-UI-4 Part A `@visual` capture
+   inside the same pinned-font Docker image the F1 host uses, so the capture environment is
+   identical and pixel-stable. Manual dispatch only.
+2. **Push exception (owner-authorized, this packet only):** one branch, `r-next/rf2-ci-capture`,
+   may be pushed to `warsha-dev` to run the workflow. Nothing else is pushed. Never touch `main`,
+   never tag, never release.
+3. Proof the route works: the canary passes **3 consecutive workflow runs**. If it cannot, stop
+   and report the root cause in `PROGRESS.md` with evidence. Never weaken a test or a gate
+   tolerance.
+4. Capture the Part A baselines (ar and en) in CI, commit them to the repair branch, bring them
+   back into the F2 branch locally, and verify: the `@visual` rows of the FIN4 matrix pass
+   against them. Merge F2 into `r-next/integration` only if green.
+5. Record the whole repair in `PROGRESS.md` like any other packet, with the workflow run links
+   as evidence.
+
+### A8 — CI gate referee for the integration branch (owner instruction, 2026-11-15)
+
+1. Add a GitHub Actions workflow that runs the §3.1 gate matrix (fmt, clippy `-D warnings`,
+   cargo test, architecture check, gitleaks) on `r-next/integration`, triggered on push to that
+   branch.
+2. **Push exception (extends A7's):** `r-next/integration` — and only it — may be pushed to
+   `warsha-dev` so the workflow can run. No other branch, no `main`, no tags, no releases.
+3. CI is a referee, not a replacement: local gates still run first and PM merges still follow
+   §0/A6. A red CI on a locally-green merge is recorded in `PROGRESS.md` as a finding and treated
+   as a blocked gate under §0.6 until explained. A green CI never merges anything by itself.
+
+### A9 — Release builds on CI (recorded direction, post-Z1, owner-gated)
+
+The fleet still never releases, tags, or publishes on its own (§12 stands). When the owner later
+orders the public release — outside this run — the installers are built in CI from the tagged
+tree, for reproducibility, not on the owner's laptop. Recorded now so FIN5 and Z1 reporting
+account for it.
+
 ---
 
 ## 0. Operating rules for the run

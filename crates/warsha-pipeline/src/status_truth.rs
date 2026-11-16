@@ -80,6 +80,7 @@ impl ChatProvider for TestTruthProvider {
                 input: 100,
                 output: 100,
                 total: 200,
+                cost_cents: None,
             },
         })
     }

@@ -140,6 +140,7 @@ impl ChatProvider for CapturingProvider {
                 input: 100,
                 output: 50,
                 total: 150,
+                cost_cents: None,
             },
         })
     }
