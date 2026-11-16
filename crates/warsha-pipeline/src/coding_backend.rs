@@ -73,11 +73,14 @@ pub trait CodingBackend: Send + Sync {
     async fn execute(&self, task: CodingTask, sandbox: &Sandbox) -> Result<CodingResult>;
 }
 
+pub type EventSender = tokio::sync::mpsc::UnboundedSender<Event>;
+
 /// Sandbox for code execution
 pub struct Sandbox {
     pub work_dir: PathBuf,
     pub allow_network: bool,
     pub env: HashMap<String, String>,
+    pub event_sender: Option<EventSender>,
 }
 
 impl Sandbox {
@@ -86,6 +89,7 @@ impl Sandbox {
             work_dir,
             allow_network: true,
             env: HashMap::new(),
+            event_sender: None,
         }
     }
 

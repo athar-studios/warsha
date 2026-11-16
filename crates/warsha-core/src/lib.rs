@@ -7,6 +7,7 @@ pub mod config;
 pub mod harness;
 pub mod plugin;
 pub mod redaction;
+pub mod session;
 pub mod skill;
 
 pub use config::{
@@ -16,6 +17,7 @@ pub use config::{
 pub use harness::{bundled_harnesses, HarnessDefinition, HarnessRules, HarnessStage};
 pub use plugin::{bundled_plugins, PluginDefinition, PluginToolDefinition};
 pub use redaction::{mask_query_secrets, mask_secrets, REDACTED};
+pub use session::{Session, SessionId, SessionStatus};
 pub use skill::{bundled_skills, SkillDefinition};
 
 use chrono::{DateTime, Utc};
@@ -285,6 +287,13 @@ pub enum EventKind {
     Fallback,
     BudgetWarning,
     BudgetExceeded,
+    /// NEW variants for N1:
+    SessionStarted,
+    SessionStatusChanged,
+    ToolStarted,
+    ToolFinished,
+    FileTouched,
+    SessionEnded,
     /// The run's end, appended once on the transition into `Completed`, `Failed` or
     /// `Cancelled` (R-EXT-2). The payload carries `{"status": "completed"|"failed"|
     /// "cancelled"}` and nothing else, so a client that watches the stream learns the

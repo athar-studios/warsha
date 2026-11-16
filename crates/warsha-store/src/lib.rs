@@ -26,7 +26,7 @@ use ulid::Ulid;
 use uuid::Uuid;
 use warsha_core::{
     Artifact, DeviceId, Event, EventKind, GateState, Project, ProjectId, Role, Run, RunId,
-    RunStatus, Stage, TokenUsage,
+    RunStatus, Session, SessionId, SessionStatus, Stage, TokenUsage,
 };
 
 mod settings;
@@ -637,7 +637,64 @@ impl Store {
         rows.iter().map(event_from_row).collect()
     }
 
-    // ------------------------------------------------------------------ gates
+    // ------------------------------------------------------------------ sessions
+
+    /// Create a session.
+    pub async fn create_session(&self, session: &Session) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO sessions (id, run_id, project_id, role, backend, provider, model, status, \
+             started_at, ended_at, parent_session_id, cli_session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(session.id.to_string())
+        .bind(session.run_id.0.to_string())
+        .bind(session.project_id.0.as_bytes().to_vec())
+        .bind(serde_json::to_string(&session.role)?)
+        .bind(&session.backend)
+        .bind(&session.provider)
+        .bind(&session.model)
+        .bind(serde_json::to_string(&session.status)?)
+        .bind(session.started_at.to_rfc3339())
+        .bind(session.ended_at.map(|t| t.to_rfc3339()))
+        .bind(session.parent_session_id.map(|id| id.to_string()))
+        .bind(&session.cli_session_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Update session status.
+    pub async fn update_session_status(&self, session_id: SessionId, status: SessionStatus) -> Result<()> {
+        sqlx::query("UPDATE sessions SET status = ? WHERE id = ?")
+            .bind(serde_json::to_string(&status)?)
+            .bind(session_id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Finish a session.
+    pub async fn finish_session(&self, session_id: SessionId, status: SessionStatus, ended_at: DateTime<Utc>) -> Result<()> {
+        sqlx::query("UPDATE sessions SET status = ?, ended_at = ? WHERE id = ?")
+            .bind(serde_json::to_string(&status)?)
+            .bind(ended_at.to_rfc3339())
+            .bind(session_id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// List a run's sessions in creation order.
+    pub async fn list_sessions_by_run(&self, run_id: RunId) -> Result<Vec<Session>> {
+        let rows = sqlx::query(
+            "SELECT id, run_id, project_id, role, backend, provider, model, status, \
+             started_at, ended_at, parent_session_id, cli_session_id FROM sessions \
+             WHERE run_id = ? ORDER BY started_at ASC",
+        )
+        .bind(run_id.0.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(session_from_row).collect()
+    }
 
     /// Insert a gate row for one stage of a run.
     pub async fn create_gate(&self, gate: &Gate) -> Result<()> {
@@ -1054,6 +1111,23 @@ fn gate_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Gate> {
     })
 }
 
+fn session_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Session> {
+    Ok(Session {
+        id: SessionId(parse_ulid("sessions.id", &column_text(row, "id")?)?),
+        run_id: RunId(parse_ulid("sessions.run_id", &column_text(row, "run_id")?)?),
+        project_id: ProjectId(parse_uuid("sessions.project_id", &column_blob(row, "project_id")?)?),
+        role: serde_json::from_str::<Role>(&column_text(row, "role")?)?,
+        backend: column_text(row, "backend")?,
+        provider: column_text(row, "provider")?,
+        model: column_text(row, "model")?,
+        status: serde_json::from_str::<SessionStatus>(&column_text(row, "status")?)?,
+        started_at: parse_time("sessions.started_at", &column_text(row, "started_at")?)?,
+        ended_at: column_opt_text(row, "ended_at")?.map(|t| parse_time("sessions.ended_at", &t)).transpose()?,
+        parent_session_id: column_opt_text(row, "parent_session_id")?.map(|t| parse_ulid("sessions.parent_session_id", &t)).transpose()?.map(SessionId),
+        cli_session_id: column_opt_text(row, "cli_session_id")?,
+    })
+}
+
 fn artifact_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<ArtifactRecord> {
     Ok(ArtifactRecord {
         id: parse_ulid("artifacts.id", &column_text(row, "id")?)?,
@@ -1210,7 +1284,7 @@ mod tests {
     fn embedded_migrator_versions_are_lf_only() {
         let migrator = migration_migrator();
         let versions: Vec<i64> = migrator.iter().map(|m| m.version).collect();
-        assert_eq!(versions, vec![1, 2, 3, 4, 6, 7]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 6, 7, 8]);
         for migration in migrator.iter() {
             assert!(
                 !migration.sql.contains('\r'),
@@ -1233,7 +1307,7 @@ mod tests {
                 .fetch_all(store.pool())
                 .await
                 .expect("the migration ledger is readable");
-        assert_eq!(applied, vec![1, 2, 3, 4, 6, 7]);
+        assert_eq!(applied, vec![1, 2, 3, 4, 6, 7, 8]);
 
         let tables: Vec<String> = sqlx::query_scalar(
             "SELECT name FROM sqlite_master \
