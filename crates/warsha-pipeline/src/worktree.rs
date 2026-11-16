@@ -88,10 +88,14 @@ pub async fn create_run_worktree(
         )));
     }
     tokio::fs::create_dir_all(root).await?;
+    // N3: the worktree lives on the run's own branch (`warsha/run-<id>`) from
+    // creation, so the daemon's stage commit lands on the named branch instead
+    // of a detached HEAD.
+    let branch = format!("warsha/run-{run_id}");
     let output = tokio::process::Command::new("git")
         .arg("-C")
         .arg(repo)
-        .args(["worktree", "add", "--detach"])
+        .args(["worktree", "add", "-b", &branch])
         .arg(&path)
         .arg(base)
         .output()
@@ -118,6 +122,46 @@ pub async fn remove_run_worktree(repo: &Path, worktree: &RunWorktree) -> Result<
         .arg(&worktree.path)
         .output()
         .await?;
+    if !output.status.success() {
+        return Err(WorktreeError::Git(
+            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        ));
+    }
+    Ok(())
+}
+
+pub async fn commit_run_worktree(worktree_path: &Path, message: &str) -> Result<()> {
+    let status_output = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(worktree_path)
+        .args(["status", "--porcelain"])
+        .output()
+        .await
+        .map_err(|e| WorktreeError::Git(e.to_string()))?;
+
+    if String::from_utf8_lossy(&status_output.stdout)
+        .trim()
+        .is_empty()
+    {
+        return Ok(());
+    }
+
+    tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(worktree_path)
+        .args(["add", "."])
+        .status()
+        .await
+        .map_err(|e| WorktreeError::Git(e.to_string()))?;
+
+    let output = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(worktree_path)
+        .args(["commit", "-m", message])
+        .output()
+        .await
+        .map_err(|e| WorktreeError::Git(e.to_string()))?;
+
     if !output.status.success() {
         return Err(WorktreeError::Git(
             String::from_utf8_lossy(&output.stderr).trim().to_string(),

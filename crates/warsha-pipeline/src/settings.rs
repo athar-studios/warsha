@@ -317,6 +317,7 @@ fn autonomous_factory_harness() -> Result<StoredHarness, SettingsError> {
         ],
         rules: HarnessRules {
             max_repair_iterations: 3,
+            coding_cli_timeout_seconds: None,
             budget_cap_cents: Some(2000),
             allow_parallel_subagents: true,
             require_verification_receipt: true,

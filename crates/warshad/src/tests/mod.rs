@@ -1251,6 +1251,8 @@ async fn stored_run(store: &Store, name: &str, repo_path: Option<&Path>) -> Run 
         status: RunStatus::Running,
         budget_cents: None,
         spent_cents: 0,
+        worktree_path: None,
+        worktree_branch: None,
     };
     store.create_run(&run).await.expect("the run is stored");
     run
@@ -3738,6 +3740,8 @@ mod runs_resume {
                 status: RunStatus::Running,
                 budget_cents: None,
                 spent_cents: 0,
+                worktree_path: None,
+                worktree_branch: None,
             };
             store.create_run(&run).await.unwrap();
             run.id

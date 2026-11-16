@@ -107,7 +107,7 @@ pub struct CliBackend {
 }
 
 /// The wall-clock bound a coding CLI gets before the backend gives up.
-pub const CODING_CLI_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+pub const DEFAULT_CODING_CLI_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 
 impl CliBackend {
     pub fn new(name: &str, command: &str, args: Vec<String>) -> Self {
@@ -273,7 +273,13 @@ impl CodingBackend for CliBackend {
         let mut captured_stderr = Vec::new();
         let exit_status;
 
-        let timeout = tokio::time::sleep(CODING_CLI_TIMEOUT);
+        let cli_timeout = task
+            .context
+            .get("coding_cli_timeout_seconds")
+            .and_then(|s| s.parse().ok())
+            .map(std::time::Duration::from_secs)
+            .unwrap_or(DEFAULT_CODING_CLI_TIMEOUT);
+        let timeout = tokio::time::sleep(cli_timeout);
         tokio::pin!(timeout);
 
         let process_line =
@@ -707,6 +713,7 @@ mod tests {
 
         let task = CodingTask {
             id: Ulid::new(),
+            worktree_path: None,
             run_id: RunId::new(),
             title: "Test".to_string(),
             description: "Test task".to_string(),
@@ -771,6 +778,7 @@ mod tests {
         fn task(title: &str, description: &str) -> CodingTask {
             CodingTask {
                 id: Ulid::new(),
+                worktree_path: None,
                 run_id: RunId::new(),
                 title: title.to_string(),
                 description: description.to_string(),
@@ -985,6 +993,11 @@ mod tests {
                 .expect("a run starts");
             let mut run = store.get_run(run.id).await.expect("the run is readable");
             run.current_stage = Stage::PlanTasks;
+            // The CLI stage requires an assigned run worktree (N3): point the
+            // run at the project checkout itself, the way the daemon's
+            // worktree creation would.
+            run.worktree_path = project.repo_path.clone();
+            run.worktree_branch = Some(format!("warsha/run-{}", run.id.0));
             store
                 .update_run(&run)
                 .await
