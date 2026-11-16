@@ -100,6 +100,7 @@ async fn create_project(store: &Arc<Store>) -> ProjectId {
         updated_at: Utc::now(),
         repo_path: None,
         repo_url: None,
+        permissions: Default::default(),
     };
     store.create_project(&project).await.expect("a project");
     project.id

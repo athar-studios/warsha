@@ -39,7 +39,30 @@ pub trait WarshaApi {
         name: String,
         description: String,
         language: String,
+        confinement: Option<Confinement>,
+        approval_mode: Option<ApprovalMode>,
     ) -> RpcResult<Project>;
+
+    #[method(name = "permissions.defaults.get", with_extensions)]
+    async fn get_default_permissions(&self) -> RpcResult<ProjectPermissions>;
+
+    #[method(name = "permissions.defaults.set", with_extensions)]
+    async fn set_default_permissions(
+        &self,
+        confinement: Confinement,
+        approval_mode: ApprovalMode,
+    ) -> RpcResult<ProjectPermissions>;
+
+    #[method(name = "permissions.project.get", with_extensions)]
+    async fn get_project_permissions(&self, project_id: ProjectId) -> RpcResult<ProjectPermissions>;
+
+    #[method(name = "permissions.project.set", with_extensions)]
+    async fn set_project_permissions(
+        &self,
+        project_id: ProjectId,
+        confinement: Option<Confinement>,
+        approval_mode: Option<ApprovalMode>,
+    ) -> RpcResult<ProjectPermissions>;
 
     #[method(name = "projects.get", with_extensions)]
     async fn get_project(&self, id: ProjectId) -> RpcResult<Project>;

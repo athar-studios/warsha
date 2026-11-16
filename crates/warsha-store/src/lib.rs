@@ -25,8 +25,9 @@ use tracing::info;
 use ulid::Ulid;
 use uuid::Uuid;
 use warsha_core::{
-    Artifact, DeviceId, Event, EventKind, GateState, Project, ProjectId, Role, Run, RunId,
-    RunStatus, Session, SessionId, SessionStatus, Stage, TokenUsage,
+    ApprovalMode, Artifact, Confinement, DeviceId, Event, EventKind, GateState, Project, ProjectId,
+    ProjectPermissions, Role, Run, RunId, RunStatus, Session, SessionId, SessionStatus, Stage,
+    TokenUsage,
 };
 
 mod settings;
@@ -39,6 +40,8 @@ pub use settings::{
 /// Errors raised by the persistence layer.
 #[derive(Debug, Error)]
 pub enum StoreError {
+    #[error("parse error for {0}: {1}")]
+    ParseError(&'static str, String),
     /// Underlying database failure.
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
@@ -1062,6 +1065,13 @@ fn parse_time(field: &'static str, value: &str) -> Result<DateTime<Utc>> {
 }
 
 fn project_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Project> {
+    let confinement: Option<Confinement> = column_opt_text(row, "confinement")?
+        .map(|s| s.parse().map_err(|e| StoreError::ParseError("confinement", e)))
+        .transpose()?;
+    let approval_mode: Option<ApprovalMode> = column_opt_text(row, "approval_mode")?
+        .map(|s| s.parse().map_err(|e| StoreError::ParseError("approval_mode", e)))
+        .transpose()?;
+
     Ok(Project {
         id: ProjectId(parse_uuid("projects.id", &column_blob(row, "id")?)?),
         name: column_text(row, "name")?,
@@ -1071,6 +1081,12 @@ fn project_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Project> {
         updated_at: parse_time("projects.updated_at", &column_text(row, "updated_at")?)?,
         repo_path: column_opt_text(row, "repo_path")?,
         repo_url: column_opt_text(row, "repo_url")?,
+        confinement,
+        approval_mode,
+        permissions: ProjectPermissions {
+            confinement: confinement.unwrap_or_default(),
+            approval_mode: approval_mode.unwrap_or_default(),
+        },
     })
 }
 
@@ -1266,6 +1282,7 @@ mod tests {
             updated_at: now,
             repo_path: None,
             repo_url: None,
+            permissions: Default::default(),
         }
     }
 

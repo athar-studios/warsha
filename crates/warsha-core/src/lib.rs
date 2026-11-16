@@ -207,6 +207,102 @@ impl Role {
     }
 }
 
+/// Project permission axes
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Confinement {
+    #[serde(alias = "read-only")]
+    ReadOnly,
+    #[serde(alias = "workspace-write")]
+    WorkspaceWrite,
+    #[serde(alias = "full-access")]
+    FullAccess,
+}
+
+impl Default for Confinement {
+    fn default() -> Self {
+        Self::WorkspaceWrite
+    }
+}
+
+impl std::fmt::Display for Confinement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ReadOnly => write!(f, "read-only"),
+            Self::WorkspaceWrite => write!(f, "workspace-write"),
+            Self::FullAccess => write!(f, "full-access"),
+        }
+    }
+}
+
+impl std::str::FromStr for Confinement {
+    type Err = String;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.trim().to_lowercase().replace('_', "-").as_str() {
+            "read-only" | "readonly" => Ok(Self::ReadOnly),
+            "workspace-write" | "workspacewrite" => Ok(Self::WorkspaceWrite),
+            "full-access" | "fullaccess" => Ok(Self::FullAccess),
+            other => Err(format!("unknown confinement: {other}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalMode {
+    #[serde(alias = "ask-always")]
+    AskAlways,
+    #[serde(alias = "ask-for-risky")]
+    AskForRisky,
+    #[serde(alias = "never-ask")]
+    NeverAsk,
+}
+
+impl Default for ApprovalMode {
+    fn default() -> Self {
+        Self::AskForRisky
+    }
+}
+
+impl std::fmt::Display for ApprovalMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AskAlways => write!(f, "ask-always"),
+            Self::AskForRisky => write!(f, "ask-for-risky"),
+            Self::NeverAsk => write!(f, "never-ask"),
+        }
+    }
+}
+
+impl std::str::FromStr for ApprovalMode {
+    type Err = String;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.trim().to_lowercase().replace('_', "-").as_str() {
+            "ask-always" | "askalways" => Ok(Self::AskAlways),
+            "ask-for-risky" | "askforrisky" => Ok(Self::AskForRisky),
+            "never-ask" | "neverask" => Ok(Self::NeverAsk),
+            other => Err(format!("unknown approval mode: {other}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ProjectPermissions {
+    pub confinement: Confinement,
+    #[serde(alias = "approval")]
+    pub approval_mode: ApprovalMode,
+}
+
+impl Default for ProjectPermissions {
+    fn default() -> Self {
+        Self {
+            confinement: Confinement::WorkspaceWrite,
+            approval_mode: ApprovalMode::AskForRisky,
+        }
+    }
+}
+
 /// Project configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Project {
@@ -218,6 +314,22 @@ pub struct Project {
     pub updated_at: DateTime<Utc>,
     pub repo_path: Option<String>,
     pub repo_url: Option<String>,
+    #[serde(default)]
+    pub confinement: Option<Confinement>,
+    #[serde(default)]
+    pub approval_mode: Option<ApprovalMode>,
+    #[serde(default)]
+    pub permissions: ProjectPermissions,
+}
+
+impl Project {
+    /// Compute the effective permissions using the given global default when fields are unset.
+    pub fn effective_permissions(&self, default: ProjectPermissions) -> ProjectPermissions {
+        ProjectPermissions {
+            confinement: self.confinement.unwrap_or(default.confinement),
+            approval_mode: self.approval_mode.unwrap_or(default.approval_mode),
+        }
+    }
 }
 
 /// Run represents a single execution of the pipeline for a project

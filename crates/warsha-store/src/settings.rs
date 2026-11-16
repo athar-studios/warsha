@@ -24,6 +24,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
+use warsha_core::ProjectPermissions;
 
 use crate::{
     column_int, column_opt_int, column_opt_text, column_text, repair_settings_expiry, Result,
@@ -480,6 +481,35 @@ impl SettingsRepo {
                 })
             })
             .transpose()
+    }
+
+    pub async fn get_default_permissions(&self) -> Result<ProjectPermissions> {
+        let mode = "permissions_default";
+        let row = sqlx::query("SELECT config_json FROM run_modes WHERE mode = ?")
+            .bind(mode)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if let Some(row) = row {
+            let config_json: String = row.get(0);
+            Ok(serde_json::from_str(&config_json)?)
+        } else {
+            Ok(ProjectPermissions::default())
+        }
+    }
+
+    pub async fn set_default_permissions(&self, permissions: &ProjectPermissions) -> Result<()> {
+        let mode = "permissions_default";
+        let config_json = serde_json::to_string(permissions)?;
+        sqlx::query(
+            "INSERT INTO run_modes (mode, config_json) VALUES (?, ?) \
+             ON CONFLICT(mode) DO UPDATE SET config_json = excluded.config_json",
+        )
+        .bind(mode)
+        .bind(config_json)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     // --------------------------------------------------------------- pairings

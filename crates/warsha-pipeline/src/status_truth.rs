@@ -131,6 +131,7 @@ async fn setup_fixture() -> (
         updated_at: chrono::Utc::now(),
         repo_path: None,
         repo_url: None,
+        permissions: Default::default(),
     };
     store
         .create_project(&project)
