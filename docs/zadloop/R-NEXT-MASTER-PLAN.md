@@ -1,9 +1,10 @@
-# Warsha R-NEXT — Final Master Plan (v3, execution copy)
+# Warsha R-NEXT — Final Master Plan (v5, final execution copy — Amendments 1–4 and the final review incorporated, 2026-11-16)
 
-**Status:** v3 — v2 plus owner-approved amendments (2026-11-15). Frozen, pre-approved as a whole
-by the owner on 2026-11-15. Supersedes the v1 draft (`warsha-R-NEXT-master-plan.md`) and the v2
-execution copy; where the two differ, this file wins. The **Amendments** section immediately below
-overrides the v2 text wherever they differ.
+**Status:** v5 — the v3 execution copy with Amendments 1–3 (A5–A10), Amendment 4 (A11–A15) and
+the owner-accepted outcomes of the final plan review (A16, 2026-11-16). Frozen. Supersedes v4 and
+every earlier copy; where they differ, this file wins. The **Amendments** sections immediately
+below override the older text wherever they differ. This is the last revision of the plan for
+this run: execution only from here.
 **Audience:** the ZadLoop fleet working inside this repository.
 **Contract:** the fleet executes this plan end to end and asks the owner nothing. Every decision
 is resolved here or by the decision rule in §0.4.
@@ -35,7 +36,8 @@ The code viewer (CodeMirror 6) ships read-only first, as v2 says — with two ch
 - It is built on CodeMirror's **editable architecture**. No read-only-only shortcuts that would
   force a rewrite when editing lands. (This overrides the §12 out-of-scope entry for an in-app
   code editor.)
-- A follow-on packet **in the same phase** adds gated editing under the triple lock:
+- A follow-on packet adds gated editing under the triple lock — **post-R1** (it is a §13
+  "later candidate", per A11 and the final review A16.12; it no longer runs in this phase):
   (a) Developers view mode only; (b) the project's permission axis allows writes; (c) no active
   run is using that worktree.
 - Secret and protected files are never rendered and never editable — metadata-only state, as in
@@ -93,7 +95,8 @@ The fleet executes this plan with maximum safe parallelism:
 - A packet that cannot merge cleanly is marked blocked (reason + evidence logged) and the run
   continues.
 - This amendment governs how the **fleet** executes the plan. It does not change the product's
-  Swarm packet (D5), which stays last and off by default.
+  Swarm packet (D5), which stays off by default. D5's position in the order is set by A11
+  (it is no longer last).
 
 ### A7 — RF2: F2 is unblocked via the CI capture route (owner instruction, 2026-11-15; insert before FIN4)
 
@@ -157,6 +160,93 @@ lottery under exact matching. The owner chose the F1-style decoded-pixel toleran
    record the FIN4 `@visual` rows against the green runs, close the blocked-gate item in
    `PROGRESS.md` and the owner checklist, and note the tolerance in the RF2 report.
 4. If step 3a is not 100/100, stop and report — do not widen the budget. (It was 100/100.)
+
+---
+
+## Amendment 4 (owner-approved, 2026-11-16) — release-first, Swarm in the release, engine catalog, self-host handover
+
+These clauses override the v2/v3 text wherever they differ. This is the final amendment
+round for this run: after it, execution only — new ideas go to the post-release queue (§13),
+not into new amendments.
+
+### A11 — Release-first re-sequencing
+The run's finish line is a **releasable Warsha with the new UI** (§13, release R1), not the
+completion of every packet. New canonical order (overrides §0.1 and §11):
+
+`B1 → A2 → B2 → A3 → A4 → B3 → N2 → N3 → D1 → D4 → D5 → E1 → E6 → E4 → E3 → E2 → (E5 sweep) → A5 → Z1`
+
+(Phase 0 and N0, N1, A1 are already merged.) Z1 in this run is the **release report**.
+C1–C3 and D2–D3 leave this run and form the **self-hosted queue** (§13) — deferred, not
+cancelled. N3 (A16.1) depends only on N1 and may start in any free lane at once. D5 may
+execute in a parallel lane as soon as B3, D4 and N3 are merged (A6 rules unchanged); its
+former dependency on E3 and E4 is waived (A16.2). §11 is rewritten to this order.
+
+### A12 — Swarm ceiling raised to a setting: max 20, default 4
+D5's maximum parallel agents becomes a per-project setting: **maximum 20, default 4**
+(overrides the D5 text wherever it fixes the cap at 4). The scheduler must never run two
+agents whose packets touch the same files concurrently; file-overlap serializes. Per-agent
+caps (run budget ÷ agents) and the A1 whole-run ceiling are unchanged — they, plus the
+host machine, are the real governors; 20 is a setting limit, not a throughput claim.
+D5's scheduler load-test acceptance is at the default (4) and at 8, plus a guard test at
+20 with mock agents (A16.6). The honesty rules of A16.6 and the budget reservation of
+A16.7 are part of D5's mandatory guardrails (full text in §9).
+
+### A13 — New packet N2: coding-engine catalog, custom backends, live adapters
+Insert packet **N2** in §5, after B3 (full text there). Cap **22**. Rationale (owner
+requirement, verified against the code 2026-11-16): `BackendFactory` builds a fixed set
+of six external coding CLIs; the owner requires *any* custom harness (e.g. Command Code,
+a DeepSeek-based CLI) to be addable by configuration, the market's known engines
+(~35, the set multi-engine runners such as Emdash detect) to be catalogued and usable
+out of the box, and OpenCode's work to be visible and measured like Claude's and
+Codex's. Per the final review (A16.4, A16.5, A16.11) the catalog promises engines in
+three labelled tiers, every entry carries its permission mapping, and an unknown
+backend name fails closed.
+
+### A14 — E2 dependency waiver (D2, D3)
+E2's stated dependency on D2 and D3 is waived: Simple mode ships in R1 **without**
+suggestion / `next_sprint` cards; those surfaces light up when D2/D3 land (release R3).
+No other E2 dependency changes. D1's soft dependency on C2 remains satisfied by the
+bundled skill, as §7 already records. E2's "promote a card" action and its
+"Suggestion inbox" scope bullet are removed from the R1 packet text (A16.12); they
+return with D2/D3. The approved Simple design reference shows no suggestion inbox, so
+this waiver is not a divergence from the A3 reference.
+
+### A15 — Budget scope of the A1 ceiling
+The A1 ceiling (400) governs **this (release) run only**. Release-run packet sum is
+**368**: 388 − 60 deferred (C1–C3 = 40, D2 + D3 = 20) + 22 for N2 + 10 for N3 + 8 for
+the A5 audit packet (A16.10). With the 12 headroom the total is **380 ≤ 400**. Every
+packet's `PROGRESS.md` entry states the cumulative estimated spend of the run after
+that packet (figure and percentage of 400), so the A1 80% alert can fire. The
+self-hosted queue executes later as a new run under a **new owner-set budget**, under
+the same gates and the same §0.6/§0.7 rules.
+
+### A16 — Outcomes of the final plan review (owner-accepted, 2026-11-16)
+The code-verified review of v4 (against `r-next/integration` @ `0e457cc`) produced twelve
+questions; the owner accepted every recommended answer. They are binding and are written
+into the sections named here.
+
+1. **New packet N3 — CLI run isolation**, cap 10, before D5 (§5). Reason: the CLI Code
+   stage runs in the project's own checkout, not the run's worktree, and never commits.
+2. **D5's dependency on E3 and E4 is waived.** D5 ships engine, scheduler and merger;
+   showing swarm child sessions becomes scope of E3 and E4 (§8, §9). A6 and §11 corrected.
+3. **Amendments 2 and 3 (A7–A10) are restored** in this file; v4 had dropped them.
+4. **N2 promises engines in three labelled tiers**; byte-identical migration is required
+   for `claude-code` and `codex-cli` only, the other four built-ins get a VERIFY (§5, N2).
+5. **Permission mapping for catalog and custom engines** (§5, N2; B2 keeps its mapping
+   table-shaped so N2 can turn it into data).
+6. **Swarm ceiling made honest at 20**: declared files per subtask, guard test at 20,
+   a setting hint, and a stop on new dispatch at the first rate-limit response (§9).
+7. **Budget reservation at dispatch** for Swarm agents (§9).
+8. **Bootstrap criterion rewritten** (§13); a spec-file entry for Plan mode (§7, D4) and a
+   per-project CLI timeout (§5, N3) make the trial packet possible.
+9. **Subscription boundary stated** in §13: the Code stage runs on the owner's CLI
+   subscription; other roles need a configured API provider.
+10. **Budget table**: N3 = 10, A5 = 8; packet sum 368, total 380 ≤ 400; cumulative spend in
+    every packet entry (A15).
+11. **An unknown backend name fails closed** (§5, N2).
+12. **Housekeeping**: E2's two card bullets removed; C1 removed from E5's list; in-app
+    editing marked post-R1 in Amendment A2; N2 no longer depends on A2 and D5 no longer
+    depends on N2.
 
 ---
 
@@ -384,7 +474,8 @@ but ideas.
 
 Each packet writes `docs/zadloop/packets/<id>-report.md`: what was delivered, VERIFY evidence,
 audit tables, fleet decisions, gate results with evidence paths, deviations, owner-checklist
-items added. `PROGRESS.md` gets one dated entry per packet in the existing style.
+items added. `PROGRESS.md` gets one dated entry per packet in the existing style; the entry
+states the run's cumulative estimated spend after the packet (A15).
 
 ---
 
@@ -777,6 +868,9 @@ and RTL parity.
   under any `ask-*` setting the run header states "Codex stages cannot ask; actions outside the
   sandbox are refused".
 - **Other backends:** run header states "this backend runs under its own defaults".
+- **Shape of the mapping (A16.5):** the confinement × approval → launch-arguments mapping is
+  implemented as one table keyed by backend name, in one place, so that N2 can move it into
+  the engine catalog as data without re-deciding any row.
 - **Read-only backstop, independent of flags:** hash the worktree tree before and after any
   stage that runs under read-only. If it changed, restore the worktree from git, fail the stage,
   and record a policy violation in the receipt.
@@ -842,6 +936,138 @@ tool call that tries to write the rule store is refused.
 *After B3: tag `r-next/cp-phase1`.*
 
 ---
+
+### N2 — Coding-engine catalog, custom backend registry, live output adapters
+
+**Goal.** Any coding CLI the owner has can drive Warsha's Code stage — not only the six
+built-in backends — with the market's known engines catalogued and honestly labelled,
+custom engines addable by configuration, and each engine's work visible and measured.
+
+**Baseline (code-verified 2026-11-16, `r-next/integration` @ `0e457cc`).**
+- `BackendFactory` (`crates/warsha-backends/src/lib.rs:597-650`) builds a fixed set:
+  builtin, `claude-code` (`claude -p`), `codex-cli` (`codex exec --json`), `gemini-cli`,
+  `cursor-cli`, `opencode` (`opencode run`), `openhands`.
+- Selection is one backend for the whole daemon, read once at startup from the
+  `WARSHA_CODING_BACKEND` env var (`crates/warshad/src/startup.rs:231`) and held in a
+  single engine-wide field (`crates/warsha-pipeline/src/lib.rs:401`). P-E4 deferred the
+  daemon selection plumbing.
+- A selected backend whose executable is absent fails by name, but a **misspelt or
+  unknown backend name** resolves to nothing and the stage silently uses the routed
+  provider (`lib.rs:660-677`).
+- N0/N1 parse streaming output and usage for claude (stream-json) and codex (--json)
+  only, dispatched by backend name in five places inside `CliBackend::execute`
+  (`lib.rs:167, 172, 179, 281, 497`). Every other backend runs to completion with no
+  live events (labelled no-stream); it gets a usage record only if its stdout happens
+  to parse as the generic JSON shape.
+- Only `claude` is installed on the owner's laptop. Codex is fixture-tested only; the
+  `gemini`, `cursor` and `openhands` invocations have never run against a real CLI.
+
+**Scope.**
+1. **Engine catalog (data, not code).** A validated catalog of known coding CLIs —
+   target the ~35 engines the market's multi-engine runners detect — each entry:
+   executable name, run-args template (with an explicit prompt placeholder), output
+   format (plain / stream-json / jsonl), install-detection probe, **permission mapping**
+   (item 5) and **verification tier** (item 4).
+2. **Built-in migration.** `claude-code` and `codex-cli` migrate into the catalog with
+   byte-identical argv (existing backend tests green, unchanged). The other four
+   built-ins (`gemini-cli`, `cursor-cli`, `opencode`, `openhands`) each get a **VERIFY**
+   of the invocation against the vendor's published documentation or an installed CLI;
+   a wrong invocation is corrected in the catalog and the change is listed in the packet
+   report. An invocation that cannot be verified is kept and labelled tier C.
+3. **Custom backend registry and selection plumbing.** The owner can define a backend
+   (display name, executable, args template, output format, env names, optional
+   permission mapping) in settings — no secrets in the definition (keys stay in the
+   keychain / env). This lands the deferred daemon selection plumbing: a backend is
+   selectable per project and per role, beside the provider routing, replacing the single
+   engine-wide field. This is pipeline work and is in scope here, once. Selecting an
+   absent executable fails with a named error. **A backend name that is set but unknown —
+   in settings or in `WARSHA_CODING_BACKEND` — is a named startup / run error, never a
+   fallback to the routed provider (A16.11).**
+4. **Three labelled tiers (A16.4).** Every catalog entry carries one tier, shown in the UI
+   beside the engine:
+   - **Tier A — full adapter:** live streaming events and usage parsing. `claude-code`,
+     `codex-cli`, and **opencode** (its JSON output mode), inside the N1 framework, with
+     fixture tests in N0's parser style.
+   - **Tier B — verified:** run-to-completion, labelled no-stream; the invocation was
+     recorded from an installed CLI (version and `--help` evidence in the packet report).
+   - **Tier C — catalogued, unverified:** run-to-completion, labelled no-stream and
+     "unverified"; the invocation comes from published documentation only.
+   The plan does not claim that ~35 engines are verified. It claims they are catalogued,
+   detectable and honestly labelled.
+5. **Permission mapping (A16.5).** A catalog or custom entry may carry a mapping from the
+   B1 confinement axis to launch arguments (the data form of B2's table). An engine with
+   no mapping shows the run header "this backend runs under its own defaults", and is
+   **refused under `read-only`** unless B2's tree-hash backstop is active for that stage.
+   No shipped catalog entry contains a permission-skipping flag; an owner may write one
+   into a custom entry, and that backend then carries a standing warning chip.
+6. **Detection.** A "detect installed engines" action (starting point: the six-name list
+   in `warsha-cli`'s `doctor` command, `crates/warsha-cli/src/lib.rs:808-823`) marking
+   every catalog entry installed / absent.
+7. **Adapter seam.** The name dispatch inside `CliBackend::execute` is refactored once
+   into an adapter interface chosen by the entry's output format. After this packet,
+   adding an adapter for a catalog engine is a parser plus fixtures — no pipeline change.
+
+**Depends on.** N1, B2 (for the mapping table). Ordered after B3.
+
+**Acceptance.** Catalog loads and validates; a malformed entry is rejected with a named
+error. `claude-code` and `codex-cli` produce byte-identical argv under the catalog
+(existing backend tests green, unchanged). A custom backend defined only in settings runs
+the Code stage end-to-end on the mock project and its absent-executable twin fails by
+name. An unknown backend name fails by name at startup and at run start, and the routed
+provider is not used (test). An engine without a permission mapping is refused under
+`read-only` when the backstop is off (test). No shipped entry contains a
+permission-skipping flag (test over the catalog). OpenCode sessions stream events and
+produce a usage record (estimated figures flagged honestly). Every entry renders its
+tier label. Detection marks a fixture PATH correctly. §3.1 gate matrix green.
+
+**Budget cap.** 22.
+
+**Fallback.** If the catalog migration puts `claude-code` or `codex-cli` at risk, ship
+registry + detection with those two untouched and migrate them in the self-hosted queue.
+Never ship a catalog that changes a built-in's behaviour silently.
+
+### N3 — CLI run isolation (A16.1)
+
+**Goal.** A Code stage that runs through a coding CLI works inside its run's own git
+worktree and leaves its work as a commit on the run's branch — the base that parallel
+runs, Swarm (D5) and the self-hosted queue (§13) stand on.
+
+**Baseline (code-verified 2026-11-16, `r-next/integration` @ `0e457cc`).**
+- The daemon creates a per-run worktree (`crates/warshad/src/lib.rs:313`) and the native
+  loop uses it (`:349`), but the CLI path builds its sandbox from the project's repository
+  path (`crates/warsha-pipeline/src/lib.rs:1130`). Two CLI runs of one project edit the
+  same checkout — the owner's.
+- The CLI stage only reads `git diff HEAD` (`crates/warsha-backends/src/lib.rs:568`). It
+  never commits; `branch_name` (`pipeline/src/lib.rs:1099`) is set and unused.
+- The CLI timeout is a fixed 30 minutes (`crates/warsha-backends/src/lib.rs:110`).
+
+**Scope.**
+- The CLI Code stage runs with the run's worktree as its working directory. A run with
+  an attached repository and no worktree fails by name — it never falls back to the
+  project checkout.
+- On success the stage's changes are committed on the run's branch (`warsha/run-<id>`)
+  inside the worktree, by the daemon, with a Conventional Commit message naming the run.
+  Nothing is pushed and no other branch is written. A stage that changed nothing makes
+  no commit and says so.
+- The run's worktree path and branch are recorded on the run (persisted, so they survive
+  a daemon restart) and shown in the receipt.
+- **Per-project CLI timeout** setting (default 30 minutes — today's value; bounded range),
+  with a global default; the timeout in force is recorded in the receipt (A16.8).
+
+**Acceptance.** Two concurrent CLI runs of one project (mock CLI) write only inside their
+own worktrees; the project checkout's tree hash is unchanged afterwards (test). A
+successful stage leaves exactly one commit on the run branch and none anywhere else
+(test). A run whose worktree is missing fails by name and the checkout is untouched
+(test). Timeout setting: a mock CLI that outlives the configured value is killed and the
+session ends `failed`; a longer configured value lets the same mock finish (test).
+Worktree path and branch survive a restart. §3.1 gate matrix green.
+
+**Out.** Merging run branches, pushing, pull requests, any change to native-tool
+confinement.
+
+**Depends on.** N1.
+
+**Budget cap.** 10.
 
 ## 6. Phase 2 — Scout and marketplaces
 
@@ -1040,6 +1266,11 @@ path (shared tests). Empty or malformed `next_sprint` yields zero cards and no e
   precedes the Code stage — identify it in `crates/warsha-core` `Stage` and name it in the
   report). If the owner approves, execution continues under the same run id; if not, the run
   ends cleanly as "plan only". The receipt records plan-approved-at.
+- **Start from an existing spec file (A16.8):** a Plan run on a project with an attached
+  repository may take a spec file inside that repository (for example a packet section of
+  a plan) as its input in place of the interview. The file's text enters as the run's
+  brief and is treated as untrusted quoted data; the run goes to the same plan-approval
+  gate and nothing later changes. No new stage and no new gate.
 - **Ask:** a **project-scoped secretary conversation**, not a pipeline run. It runs with
   confinement forced to read-only regardless of the project setting, uses read and search tools
   only, creates a session (N1) and cost records, and cannot open stages. It is listed alongside
@@ -1050,7 +1281,9 @@ path (shared tests). Empty or malformed `next_sprint` yields zero cards and no e
   Swarm appears in the picker only after D5 and only when its setting is on.
 
 **Acceptance.** Chip correct in list, header and receipt, surviving restart. Plan run makes zero
-workspace changes before approval (tree hash). Ask session with a mock model that attempts
+workspace changes before approval (tree hash). A Plan run started from a spec-file fixture
+reaches the plan-approval gate with the spec as its brief; a path outside the repository
+is refused (test). Ask session with a mock model that attempts
 writes and shell commands leaves the tree hash unchanged, and each refusal is in the event log.
 Ask in a full-access project still runs read-only and says so. No surface lists both axes
 together (snapshot).
@@ -1144,6 +1377,9 @@ same RPC rules and no merge view (unified diff text instead).
   session** and **Open in viewer**. A **Hand off** action is included only if a per-session
   handoff RPC already exists in `warshad`; if not, it is omitted and logged — do not build one.
 - Sessions on backends without live telemetry show that label instead of an empty timeline.
+- **Swarm child sessions (A16.2):** child sessions (N1 parent link) are grouped under their
+  parent session. Built against the N1 parent link with fixtures; it shows real swarm runs
+  once D5 is merged and does not depend on D5.
 - **Receipt export:** verification receipt + policy snapshot + failover events + permission
   decisions + session list.
 
@@ -1172,6 +1408,9 @@ threshold. Stop acts on the right session and is in the receipt.
   session; otherwise only the packet marker moves.
 - Click an agent → panel: current action, last action and when, run, role, model, session cost
   (same store as E4), last file touched (link to E6).
+- **Swarm child agents (A16.2):** child sessions (N1 parent link) are shown under one run
+  banner. Built against the N1 parent link with fixtures; it shows real swarm runs once D5
+  is merged and does not depend on D5.
 - **Owner's corner with STOP-ALL** using the existing pause path.
 - **Accessibility:** honours reduced-motion (no movement, state changes only); a list view of the
   same state is one key press away and is what screen readers get.
@@ -1201,7 +1440,7 @@ that shows what needs him, what is running, what is done.
 - **Tools:** read-only access to run, session, cost, gate and queue state, plus the interview
   engine. No file-write, shell, or network tool.
 - **Actions are proposals.** When the owner asks for an action (approve a gate, answer a queue
-  item, start or stop a run, promote a card), the secretary emits a structured proposal that the
+  item, start or stop a run), the secretary emits a structured proposal that the
   UI renders as a **confirm card with a button**. Only the button click, sent by the UI with the
   owner's credential, performs the action through the same RPC the normal UI uses. A chat
   message, however phrased, performs nothing. The receipt records "owner confirmed via
@@ -1215,7 +1454,6 @@ that shows what needs him, what is running, what is done.
 - **Alerts:** gate waiting over 10 minutes, failed run, quota near exhaustion, spend near cap.
   Once per condition, quiet hours respected, configurable in settings.
 - Pre-run cost estimate (A4) before a run start is confirmed.
-- **Suggestion inbox** (D2 and D3 cards).
 - **Phone approval:** reuse the existing remote stack. Add to `apps/remote` only what is
   missing: ask-queue items on NeedsYou, and the cost estimate on run start. Add a daemon setting
   for the remote listener's bind address with the values the listener supports today plus
@@ -1232,11 +1470,12 @@ not listen on other interfaces (test with a stub interface list).
 
 **Owner checklist.** Phone approval over Tailscale on a real device.
 
-**Depends on.** E1, A3, A4, B3, D1, D2, D3, D4.
+**Depends on.** E1, A3, A4, B3, D1, D4. (D2 and D3 waived by A14; the suggestion inbox and
+the "promote a card" action return with them in R3.)
 
 ### E5 — Visual baselines (rolling obligation)
 
-Not a standalone packet. Each UI packet (A2, A3, C1, D1, D4, E1–E4, E6) adds its own visual spec
+Not a standalone packet. Each UI packet (A2, A3, D1, D4, E1–E4, E6) adds its own visual spec
 and baselines on the F1 host in ar and en, and retires the baselines it replaces in the same
 change. After E2, run one sweep: every surface in the baseline manifest has a current capture or
 is recorded as pending under §3.1.6. Two consecutive captures of each new surface must be
@@ -1252,32 +1491,55 @@ byte-identical.
 
 **Goal.** A run can decompose into parallel subtasks, safely bounded.
 
-**Entry gate.** Start only if N0, N1, B2, B3 and D4 are merged. If any is blocked, D5 is blocked.
+**Entry gate.** Start only if N0, N1, N3, B2, B3 and D4 are merged. If any is blocked, D5 is
+blocked.
 
 **Scope.**
 - A setting **"Enable Swarm"**, default **off**. The mode appears in the run-mode picker only
   when on.
 - Decomposition of the Code stage's work into a subtask queue; each subtask runs as a child
-  session (N1 parent link) in its own git worktree and branch.
+  session (N1 parent link) in its own git worktree and branch (the N3 mechanism).
+- **Every subtask declares the files it will touch (A16.6).** The decomposition output is a
+  list of subtasks, each with a file list. A subtask with no declared files runs **alone**:
+  nothing else is dispatched while it runs.
 - **Guardrails (all mandatory):**
-  - Max parallel agents: default 4, configurable 1–8; never exceeded.
+  - Max parallel agents: a per-project setting, **default 4, maximum 20** (A12); never
+    exceeded.
+  - The scheduler never runs two subtasks whose declared files overlap at the same time;
+    overlap serializes (A12).
   - Each agent has a cap = run budget ÷ max agents; the run halts when the sum of agent spend
     reaches the run budget (estimated figures count and are labelled).
+  - **Budget reservation at dispatch (A16.7):** an agent's cap is reserved when it is
+    dispatched; no agent is dispatched unless its cap fits in the run budget that remains
+    after spend and outstanding reservations. The run surfaces state that CLI spend is
+    recorded when a session ends, not while it runs.
+  - **Rate-limit stop (A16.6):** at the first rate-limit response from any agent's provider
+    or CLI, the scheduler dispatches no new agent for that run; running agents finish. The
+    event is in the receipt and on the run surface.
   - Agents cannot read or write each other's worktrees.
   - One designated merger writes the integration branch of the run; subtask branches are
-    writable only by their owner.
+    writable only by their owner. The merger merges locally only — nothing is pushed.
   - A conflicting subtask returns to the queue marked conflicted, at most 2 re-dispatches, then
     it is reported as unmerged. Never force-merged.
   - Swarm agents run under the project's B policy and the shared ask-queue; parallelism widens
     nothing.
-- Visibility: Factory shows child agents under one run banner; Developers groups child sessions
-  under the parent; the secretary reports one summary per swarm run.
+- **Honest setting copy (A16.6):** beside the max-agents control the UI states that the
+  practical limit is the host machine and the provider's or subscription's rate window, not
+  the setting, and that 20 is a ceiling, not a throughput claim.
+- Visibility in this packet: the secretary-facing data — one summary per swarm run in the
+  receipt and the run surface. Showing child agents in Factory and child sessions in
+  Developers is E3's and E4's scope (A16.2).
 
-**Acceptance.** Scheduler load test at the cap. Budget-sum halt with fixture prices. Filesystem
-isolation test. Single-merger test. Conflict returns to queue and is in the receipt. With the
-setting off, no Swarm code path is reachable from the UI or RPC (test).
+**Acceptance.** Scheduler load test at 4 and at 8. **Guard test at 20 with mock agents:** the
+cap is never exceeded and per-agent caps equal run budget ÷ 20. Overlap test: two subtasks
+with a shared declared file never run concurrently; an undeclared subtask runs alone.
+Budget-sum halt with fixture prices. Reservation test: with the remaining budget below one
+agent cap, no agent is dispatched. Rate-limit test: a mock rate-limit response stops new
+dispatch and is in the receipt. Filesystem isolation test. Single-merger test. Conflict
+returns to queue and is in the receipt. With the setting off, no Swarm code path is reachable
+from the UI or RPC (test).
 
-**Depends on.** N0, N1, B2, B3, D4, E3, E4.
+**Depends on.** N0, N1, N3, B2, B3, D4.
 
 ---
 
@@ -1314,24 +1576,32 @@ start of the run.
 
 ## 11. Order of execution
 
-**Canonical serial order** (use this unless running lanes in parallel):
+**Canonical serial order of this (release) run** (A11; use this unless running lanes in
+parallel):
 
 ```
-F0 → F1 → F2 → F3 → FIN3 → FIN4 → FIN5
-→ N0 → N1 → A1 → B1 → A2 → B2 → A3 → A4 → B3
-→ C1 → C2 → C3
-→ D1 → D2 → D3 → D4
-→ E1 → E6 → E4 → E3 → E2 → (E5 sweep)
+F0 → F1 → F2 → F3 → RF2 → FIN3 → FIN4 → FIN5          (merged)
+→ N0 → N1 → A1                                         (merged)
+→ B1 → A2 → B2 → A3 → A4 → B3
+→ N2 → N3
+→ D1 → D4
 → D5
-→ Z1
+→ E1 → E6 → E4 → E3 → E2 → (E5 sweep)
+→ A5 (audit packet)
+→ Z1 (release report)
 ```
 
-**Parallel lanes** are allowed only between packets with no dependency edge and no shared files:
+**Deferred to the self-hosted queue (§13), not part of this run:** C1 → C2 → C3 (R2);
+D2 → D3 (R3).
 
-- Phase 0: F1→F2 alongside F3.
-- Phase 1: the A chain alongside the B chain, both after N1 (B1 and A1 may start after FIN5).
-- Phase 2 (C chain) alongside Phase 3's D1→D2→D3 once B3 is merged.
-- Phase 4: E6, E4 and E3 alongside each other after E1; E2 last.
+**Parallel lanes** (A6: up to 4) are allowed only between packets with no dependency edge
+and no shared files:
+
+- The A chain alongside the B chain.
+- N3 alongside anything: it depends only on N1 and may start at once.
+- N2 after B2, ordered after B3; D1 alongside N2.
+- D5 in its own lane as soon as B3, D4 and N3 are merged, alongside the E-series.
+- E6, E4 and E3 alongside each other after E1; E2 last.
 
 Two lanes never edit the same file. On any doubt, run serially.
 
@@ -1347,20 +1617,23 @@ Two lanes never edit the same file. On any doubt, run serially.
 | A4 | A1, A2 |
 | B2 | B1, N1 |
 | B3 | B2 |
-| C1 | (B3 for the queue) |
-| C2 | C1 |
-| C3 | C2 |
-| D1 | (C2 soft) |
-| D2 | D1 |
-| D3 | D2 |
+| N2 | N1, B2 (ordered after B3) |
+| N3 | N1 |
+| D1 | (C2 soft — satisfied by the bundled skill) |
 | D4 | B2, D1 |
+| D5 | N0, N1, N3, B2, B3, D4 |
 | E1 | A2, B1 |
 | E6 | E1, N1 |
 | E4 | E1, E6, N1, A3 |
 | E3 | E1, E6, N1, A3 |
-| E2 | E1, A3, A4, B3, D1–D4 |
-| D5 | N1, B3, D4, E3, E4 |
-| Z1 | everything merged or blocked |
+| E2 | E1, A3, A4, B3, D1, D4 |
+| A5 | every release-run packet merged or blocked |
+| Z1 | A5 |
+| *Deferred:* C1 | (B3 for the queue) |
+| *Deferred:* C2 | C1 |
+| *Deferred:* C3 | C2 |
+| *Deferred:* D2 | D1 |
+| *Deferred:* D3 | D2 |
 
 ---
 
@@ -1386,6 +1659,58 @@ Two lanes never edit the same file. On any doubt, run serially.
 
 ---
 
+## 13. Release definitions and the self-hosted queue (Amendment 4)
+
+### R1 — the first public release (this run's output)
+Phase 0 + the A11 order + the A5 audit + the release Z1. What the user gets: the complete
+engine; real two-axis permissions with enforcement and the ask-queue; the providers page
+with OAuth and the model catalog; the engine catalog and custom backend registry (N2);
+isolated, committed CLI runs (N3); usage / quota / cost visibility; the intake interview; run modes Plan / Agent / Ask /
+**Swarm** (off by default; max 20, default 4); the three-mode UI against the A3 design
+references; the existing mobile approve surface. **Explicitly not in R1:** marketplaces
+(C1–C3) and ideation / suggestion cards (D2–D3). The version number is the owner's
+decision at tag time; tagging, publishing and releasing stay owner-only (§12), and
+installers are built in CI from the tagged tree (A9). The Tauri updater signing key is a
+release prerequisite on the owner checklist — the update strategy depends on it.
+
+**Subscription boundary (A16.9).** In R1 the **Code stage** runs on the owner's own CLI
+subscription, through the selected coding engine. Every other role — planning, review, the
+secretary — runs through a configured API provider and is metered there. R1 does not claim
+that a whole run costs nothing beyond the subscription. A CLI-backed provider for the other
+roles is a later candidate.
+
+### The bootstrap criterion — when Warsha is ready to develop Warsha
+All of the following (A16.8):
+
+1. **Merged:** N3, B1–B3, A2, N2, D4 and D5.
+2. **One trial packet** from the self-hosted queue is executed inside Warsha on the Warsha
+   repository: started as a Plan run from the packet's spec file (D4), approved at the
+   plan gate by the owner, coded through a CLI engine in the run's own worktree and
+   committed on the run's branch (N3), with the project's CLI timeout set for packet-sized
+   work (N3).
+3. **Verified by ZadLoop, not by Warsha:** the ZadLoop verifier role runs the full §3.1
+   gate matrix on the trial run's branch and records every row green with evidence under
+   `bridge-io/policy/<run-id>/`. The owner's checkout and every fleet worktree are
+   unchanged by the trial (tree hashes recorded before and after).
+4. **The A4 ask-degradation surfacing is verified live** during the trial: no ask is
+   dropped silently.
+
+From that moment the self-hosted queue may run under Warsha **in parallel** with the
+remaining E-series under ZadLoop. Packet ownership is exclusive — one runner per packet —
+merges stay serialized through the single integration line and are performed by the PM
+role (Warsha's runs deliver a branch; they do not merge into `r-next/integration`), and
+PROGRESS.md / DECISIONS.md have exactly one writer at a time; the handover is recorded in
+PROGRESS.md when it happens. ZadLoop remains the fallback runner for any packet Warsha
+cannot finish (§0.6 rules apply).
+
+### R2 — first update: marketplaces (C1–C3), executed by Warsha itself
+### R3 — second update: ideation (D2–D3); E2's card surfaces light up
+### Later candidates (not committed)
+The in-app editing packet deferred by Amendment A2; live output adapters for more
+catalog engines; a CLI-backed provider so roles other than Code can run on the owner's
+subscription (A16.9); Swarm ceiling tuning from A3 telemetry; OAuth lanes beyond A2's
+scope.
+
 ## Appendix — UI design references
 
 The approved design references live in `docs/zadloop/r-next-designs/` (adopted in F0; see
@@ -1407,5 +1732,26 @@ Amendment A3).
   defaults, the two-axis permission picker, the budget bar and the danger zone.
 - `ASSET-NOTES.md` — Provenance for the Factory floor: which assets are upstream Pixel Agents
   files and their licences, and which factory props were drawn in-house at the same pixel scale.
+
+---
+
+## Appendix B — Competitor grounding for the v4 scope (25-tool survey, 2026-11-15)
+
+Full survey: the owner's research notes, *warsha-like-harnesses survey, 2026-11-15*
+(25 tools verified). The findings the v4 scope rests on:
+
+| Capability | What the field actually has | v4 decision |
+|---|---|---|
+| Parallel agents | Composio AO up to 30 worktree agents; Aperant up to 12 terminals; Gastown 20–30 with a merge queue | Swarm in R1; ceiling a setting, max 20 / default 4 (A12) |
+| External coding engines | AO runs 23+ engines on the user's own subscriptions; Emdash auto-detects ~35 CLIs | Engine catalog + open registry + detection (N2) — Warsha's fixed six were behind the field |
+| Enforced spend ceiling | Operon is the only surveyed tool with enforced budget ceilings; OpenHands Enterprise has org budgets with alerts | A1 ceiling kept; it is a validated rarity |
+| Permissions | Codex's two-axis model (sandbox × approval) is the serious end's standard | B1–B3 stay in R1, non-deferrable |
+| Marketplaces | Present in agent tools (Claude Code / Cursor plugin marketplaces); no surveyed factory leads with one | Deferred to R2 |
+| Ideation from research | Claimed by **nobody** surveyed (Aperant partial: ideation + roadmap) | Deferred to R3 — Warsha's clearest differentiator, kept as the headline update |
+| Owner-first UX (secretary, factory floor) | Nobody surveyed offers a non-programmer owner surface | R1's identity; the A3 designs remain the acceptance reference |
+| Ship-early, then updates | The field's norm (Aperant 2.x maintained while 3.0 rebuilds; Emdash ships small releases); Terragon shut down and Google Jules is winding down | Release-first (A11) |
+
+Net: no surveyed tool matches the R1 set, and the two deferrals are exactly the two
+capabilities the field itself treats as non-core for a first release.
 
 *End of plan.*
