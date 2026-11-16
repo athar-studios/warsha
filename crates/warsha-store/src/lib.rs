@@ -705,6 +705,33 @@ impl Store {
         rows.iter().map(session_from_row).collect()
     }
 
+    /// Read one session by id.
+    pub async fn get_session(&self, session_id: SessionId) -> Result<Option<Session>> {
+        let row = sqlx::query(
+            "SELECT id, run_id, project_id, role, backend, provider, model, status, \
+             started_at, ended_at, parent_session_id, cli_session_id FROM sessions \
+             WHERE id = ?",
+        )
+        .bind(session_id.to_string())
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|r| session_from_row(&r)).transpose()
+    }
+
+    /// Update a session's CLI-reported session id.
+    pub async fn update_session_cli_id(
+        &self,
+        session_id: SessionId,
+        cli_session_id: &str,
+    ) -> Result<()> {
+        sqlx::query("UPDATE sessions SET cli_session_id = ? WHERE id = ?")
+            .bind(cli_session_id)
+            .bind(session_id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Insert a gate row for one stage of a run.
     pub async fn create_gate(&self, gate: &Gate) -> Result<()> {
         sqlx::query(
@@ -2042,5 +2069,84 @@ mod tests {
             refused.is_err(),
             "the CHECK constraint accepted an unknown permission"
         );
+    }
+
+    #[tokio::test]
+    async fn sessions_crud_round_trip() {
+        let temp = fresh_tempdir();
+        let store = Store::open_at(temp.path().join("sessions_test.db"))
+            .await
+            .expect("the test store opens");
+
+        let project = sample_project();
+        store.create_project(&project).await.expect("project creates");
+        let run = sample_run(project.id);
+        store.create_run(&run).await.expect("run creates");
+
+        let session_id = SessionId::new();
+        let session = Session {
+            id: session_id,
+            run_id: run.id,
+            project_id: project.id,
+            role: Role::Coder,
+            backend: "claude-code".to_string(),
+            provider: "anthropic".to_string(),
+            model: "claude-3-7-sonnet".to_string(),
+            status: SessionStatus::Starting,
+            started_at: Utc::now(),
+            ended_at: None,
+            parent_session_id: None,
+            cli_session_id: None,
+        };
+
+        store.create_session(&session).await.expect("session creates");
+
+        let fetched = store
+            .get_session(session_id)
+            .await
+            .expect("session fetches")
+            .expect("session is found");
+        assert_eq!(fetched.id, session_id);
+        assert_eq!(fetched.status, SessionStatus::Starting);
+        assert_eq!(fetched.backend, "claude-code");
+
+        store
+            .update_session_status(session_id, SessionStatus::Working)
+            .await
+            .expect("status updates");
+
+        store
+            .update_session_cli_id(session_id, "cli-sess-1234")
+            .await
+            .expect("cli id updates");
+
+        let working = store
+            .get_session(session_id)
+            .await
+            .expect("session fetches")
+            .expect("session is found");
+        assert_eq!(working.status, SessionStatus::Working);
+        assert_eq!(working.cli_session_id.as_deref(), Some("cli-sess-1234"));
+
+        let end_time = Utc::now();
+        store
+            .finish_session(session_id, SessionStatus::Done, end_time)
+            .await
+            .expect("session finishes");
+
+        let done = store
+            .get_session(session_id)
+            .await
+            .expect("session fetches")
+            .expect("session is found");
+        assert_eq!(done.status, SessionStatus::Done);
+        assert!(done.ended_at.is_some());
+
+        let list = store
+            .list_sessions_by_run(run.id)
+            .await
+            .expect("sessions list");
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, session_id);
     }
 }

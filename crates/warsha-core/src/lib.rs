@@ -287,21 +287,21 @@ pub enum EventKind {
     Fallback,
     BudgetWarning,
     BudgetExceeded,
-    /// NEW variants for N1:
+    /// The run's end, appended once on the transition into `Completed`, `Failed` or
+    /// `Cancelled` (R-EXT-2). The payload carries `{"status": "completed"|"failed"|
+    /// "cancelled"}` and nothing else, so a client that watches the stream learns the
+    /// run ended without re-polling `runs.list` (G1).
+    ///
+    /// The discriminant of a stored row only ever moves forward with
+    /// a new variant, and the store keeps this kind as its serde name (`run_finished`).
+    RunFinished,
+    /// NEW variants for N1 (added at the end):
     SessionStarted,
     SessionStatusChanged,
     ToolStarted,
     ToolFinished,
     FileTouched,
     SessionEnded,
-    /// The run's end, appended once on the transition into `Completed`, `Failed` or
-    /// `Cancelled` (R-EXT-2). The payload carries `{"status": "completed"|"failed"|
-    /// "cancelled"}` and nothing else, so a client that watches the stream learns the
-    /// run ended without re-polling `runs.list` (G1).
-    ///
-    /// Last on purpose: the discriminant of a stored row only ever moves forward with
-    /// a new variant, and the store keeps this kind as its serde name (`run_finished`).
-    RunFinished,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
