@@ -1,17 +1,17 @@
 {
-  "surfaces": [
-    { "id": "remote-bench", "spec": "apps/remote/e2e/bench.visual.spec.ts", "status": "pending", "image_digest": "pending", "capture_date": "pending" },
-    { "id": "ru3-projects", "spec": "apps/desktop/e2e/v3/projects.spec.ts", "status": "pending", "image_digest": "pending", "capture_date": "pending" },
-    { "id": "ru3-home", "spec": "apps/desktop/e2e/v3/home.spec.ts", "status": "pending", "image_digest": "pending", "capture_date": "pending" },
-    { "id": "ru3-frame", "spec": "apps/desktop/e2e/v3/frame.spec.ts", "status": "pending", "image_digest": "pending", "capture_date": "pending" },
-    { "id": "ru4-inbox", "spec": "apps/desktop/e2e/v3/inbox.spec.ts", "status": "pending", "image_digest": "pending", "capture_date": "pending" },
-    { "id": "ru5-project", "spec": "apps/desktop/e2e/v3/project.spec.ts", "status": "pending", "image_digest": "pending", "capture_date": "pending" },
-    { "id": "ru5-bench", "spec": "apps/desktop/e2e/v3/bench.spec.ts", "status": "pending", "image_digest": "pending", "capture_date": "pending" },
-    { "id": "ru6-settings", "spec": "apps/desktop/e2e/v3/settings.spec.ts", "status": "pending", "image_digest": "pending", "capture_date": "pending" },
-    { "id": "ru6-onboarding", "spec": "apps/desktop/e2e/v3/onboarding.spec.ts", "status": "pending", "image_digest": "pending", "capture_date": "pending" }
-  ],
   "f1": {
     "capture_date": "2026-11-15",
     "image_digest": "sha256:581c7fc1b5c51dc3abb78534134071d45be81f29c4ca047de03b3b0385ac4b3f"
-  }
+  },
+  "surfaces": [
+    { "id": "remote-bench", "spec": "apps/remote/e2e/bench.visual.spec.ts", "status": "captured", "image_digest": "sha256:581c7fc1b5c51dc3abb78534134071d45be81f29c4ca047de03b3b0385ac4b3f", "capture_date": "2026-11-15" },
+    { "id": "ru3-projects", "spec": "apps/desktop/e2e/v3/projects.spec.ts", "status": "captured", "image_digest": "sha256:581c7fc1b5c51dc3abb78534134071d45be81f29c4ca047de03b3b0385ac4b3f", "capture_date": "2026-11-15" },
+    { "id": "ru3-home", "spec": "apps/desktop/e2e/v3/home.spec.ts", "status": "captured", "image_digest": "sha256:581c7fc1b5c51dc3abb78534134071d45be81f29c4ca047de03b3b0385ac4b3f", "capture_date": "2026-11-15" },
+    { "id": "ru3-frame", "spec": "apps/desktop/e2e/v3/frame.spec.ts", "status": "captured", "image_digest": "sha256:581c7fc1b5c51dc3abb78534134071d45be81f29c4ca047de03b3b0385ac4b3f", "capture_date": "2026-11-15" },
+    { "id": "ru4-inbox", "spec": "apps/desktop/e2e/v3/inbox.spec.ts", "status": "captured", "image_digest": "sha256:581c7fc1b5c51dc3abb78534134071d45be81f29c4ca047de03b3b0385ac4b3f", "capture_date": "2026-11-15" },
+    { "id": "ru5-project", "spec": "apps/desktop/e2e/v3/project.spec.ts", "status": "captured", "image_digest": "sha256:581c7fc1b5c51dc3abb78534134071d45be81f29c4ca047de03b3b0385ac4b3f", "capture_date": "2026-11-15" },
+    { "id": "ru5-bench", "spec": "apps/desktop/e2e/v3/bench.spec.ts", "status": "captured", "image_digest": "sha256:581c7fc1b5c51dc3abb78534134071d45be81f29c4ca047de03b3b0385ac4b3f", "capture_date": "2026-11-15" },
+    { "id": "ru6-settings", "spec": "apps/desktop/e2e/v3/settings.spec.ts", "status": "captured", "image_digest": "sha256:581c7fc1b5c51dc3abb78534134071d45be81f29c4ca047de03b3b0385ac4b3f", "capture_date": "2026-11-15" },
+    { "id": "ru6-onboarding", "spec": "apps/desktop/e2e/v3/onboarding.spec.ts", "status": "captured", "image_digest": "sha256:581c7fc1b5c51dc3abb78534134071d45be81f29c4ca047de03b3b0385ac4b3f", "capture_date": "2026-11-15" }
+  ]
 }
