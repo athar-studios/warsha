@@ -148,17 +148,20 @@ export function decodeProjectSummary(source: unknown): ProjectSummary {
     | 'never-ask'
     | undefined;
 
+  // A daemon without the B1 columns omits `permissions` entirely; an absent or non-object
+  // value decodes to the workspace-write x ask-for-risky default (B1's new-project default),
+  // so old payloads stay readable and a garbage payload never reaches a screen.
   const permissionsRaw = field(record, 'permissions');
+  const permissionsRecord =
+    permissionsRaw === undefined || permissionsRaw === null
+      ? {}
+      : summaryObject(permissionsRaw, 'project permissions');
   const permissions = {
-    confinement: summaryString(field(permissionsRaw, 'confinement')) as
-      | 'read-only'
-      | 'workspace-write'
-      | 'full-access',
-    approvalMode: summaryString(field(permissionsRaw, 'approval_mode', 'approvalMode')) as
-      | 'ask-always'
-      | 'ask-for-risky'
-      | 'never-ask',
-    isOverride: !!field(permissionsRaw, 'is_override', 'isOverride'),
+    confinement: (summaryString(field(permissionsRecord, 'confinement')) ??
+      'workspace-write') as 'read-only' | 'workspace-write' | 'full-access',
+    approvalMode: (summaryString(field(permissionsRecord, 'approval_mode', 'approvalMode')) ??
+      'ask-for-risky') as 'ask-always' | 'ask-for-risky' | 'never-ask',
+    isOverride: !!field(permissionsRecord, 'is_override', 'isOverride'),
   };
 
   return {

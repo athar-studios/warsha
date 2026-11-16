@@ -701,6 +701,11 @@ describe('client', () => {
       name: 'Test',
       createdAt: '',
       updatedAt: '',
+      permissions: {
+        confinement: 'workspace-write',
+        approvalMode: 'ask-for-risky',
+        isOverride: false,
+      },
     };
     const run: RunSummary = {
       id: runId,
@@ -1576,6 +1581,9 @@ describe('summary decoding — the snake_case wire into camelCase screens (P0 bl
       name: 'ورشة',
       createdAt: '2026-10-28T00:00:00Z',
       updatedAt: '2026-10-28T00:05:00Z',
+      // B1: a payload without the permissions object decodes to the new-project default
+      // (workspace-write x ask-for-risky), never to undefined.
+      permissions: { confinement: 'workspace-write', approvalMode: 'ask-for-risky', isOverride: false },
     });
   });
 
@@ -1592,6 +1600,7 @@ describe('summary decoding — the snake_case wire into camelCase screens (P0 bl
       name: 'P',
       createdAt: '2026-01-01T00:00:00Z',
       updatedAt: '2026-01-02T00:00:00Z',
+      permissions: { confinement: 'workspace-write', approvalMode: 'ask-for-risky', isOverride: false },
     });
   });
 
@@ -1711,6 +1720,7 @@ describe('summary decoding — the snake_case wire into camelCase screens (P0 bl
         name: 'P',
         createdAt: '2026-10-28T00:00:00Z',
         updatedAt: '2026-10-28T00:00:00Z',
+        permissions: { confinement: 'workspace-write', approvalMode: 'ask-for-risky', isOverride: false },
       },
     ]);
 
@@ -1794,6 +1804,7 @@ describe('summary decoding — the snake_case wire into camelCase screens (P0 bl
       name: 'n',
       createdAt: '2026-10-28T00:00:00Z',
       updatedAt: '2026-10-28T00:00:00Z',
+      permissions: { confinement: 'workspace-write', approvalMode: 'ask-for-risky', isOverride: false },
     });
 
     fetchMock.mockResolvedValueOnce(
