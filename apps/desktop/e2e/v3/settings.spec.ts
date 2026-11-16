@@ -187,8 +187,8 @@ test.describe('Settings v3', () => {
 
     // Toggle advanced disclosure
     await act(page, 'settings.advanced.toggle');
-    // 14 with R-EXT-1's Connections section: the four primary ones plus ten advanced.
-    await expect(nav.locator('a[data-action="settings.nav.open"]')).toHaveCount(14);
+    // 15 with R-EXT-1's Connections section and permissions: the four primary ones plus eleven advanced.
+    await expect(nav.locator('a[data-action="settings.nav.open"]')).toHaveCount(15);
 
     // Navigate to Models & Providers
     await page.locator('a[href="#/settings/models"]').click();

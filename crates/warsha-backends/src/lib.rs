@@ -968,7 +968,7 @@ mod tests {
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
                 repo_path: repo_path.map(|path| path.to_string_lossy().into_owned()),
-                repo_url: None,
+                ..Default::default()
             }
         }
 

@@ -154,6 +154,8 @@ impl WarshaApiServer for WarshaRpc {
         name: String,
         description: String,
         language: String,
+        confinement: Option<Confinement>,
+        approval_mode: Option<ApprovalMode>,
     ) -> RpcResult<Project> {
         self.authorize(ext, "projects.create").await?;
         let project = Project {
@@ -165,6 +167,13 @@ impl WarshaApiServer for WarshaRpc {
             updated_at: Utc::now(),
             repo_path: None,
             repo_url: None,
+            confinement,
+            approval_mode,
+            permissions: ProjectPermissions {
+                confinement: confinement.unwrap_or_default(),
+                approval_mode: approval_mode.unwrap_or_default(),
+                is_override: confinement.is_some() || approval_mode.is_some(),
+            },
         };
         self.state
             .store
@@ -172,6 +181,63 @@ impl WarshaApiServer for WarshaRpc {
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
         Ok(project)
+    }
+
+    async fn get_default_permissions(&self, ext: &RpcExtensions) -> RpcResult<ProjectPermissions> {
+        self.authorize(ext, "permissions.defaults.get").await?;
+        self.state
+            .store
+            .get_default_permissions()
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+    }
+
+    async fn set_default_permissions(
+        &self,
+        ext: &RpcExtensions,
+        confinement: Confinement,
+        approval_mode: ApprovalMode,
+    ) -> RpcResult<ProjectPermissions> {
+        self.authorize(ext, "permissions.defaults.set").await?;
+        let permissions = ProjectPermissions {
+            confinement,
+            approval_mode,
+            is_override: true,
+        };
+        self.state
+            .store
+            .set_default_permissions(&permissions)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        Ok(permissions)
+    }
+
+    async fn get_project_permissions(
+        &self,
+        ext: &RpcExtensions,
+        project_id: ProjectId,
+    ) -> RpcResult<ProjectPermissions> {
+        self.authorize(ext, "permissions.project.get").await?;
+        self.state
+            .store
+            .get_project_effective_permissions(project_id)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+    }
+
+    async fn set_project_permissions(
+        &self,
+        ext: &RpcExtensions,
+        project_id: ProjectId,
+        confinement: Option<Confinement>,
+        approval_mode: Option<ApprovalMode>,
+    ) -> RpcResult<ProjectPermissions> {
+        self.authorize(ext, "permissions.project.set").await?;
+        self.state
+            .store
+            .set_project_permissions(project_id, confinement, approval_mode)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
     }
 
     async fn get_project(&self, ext: &RpcExtensions, id: ProjectId) -> RpcResult<Project> {

@@ -294,8 +294,7 @@ async fn test_engine() -> (
         language: "en".to_string(),
         created_at: Utc::now(),
         updated_at: Utc::now(),
-        repo_path: None,
-        repo_url: None,
+        ..Default::default()
     };
     store
         .create_project(&project)

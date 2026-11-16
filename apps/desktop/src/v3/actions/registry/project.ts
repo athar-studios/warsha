@@ -96,6 +96,23 @@ export const ACTIONS: readonly ActionDef[] = [
     rpc: ['runs.start'],
   },
   {
+    id: 'project.permissions.open',
+    labelKey: 'project.permissions.open',
+    effect: 'state',
+  },
+  {
+    id: 'project.permissions.save',
+    labelKey: 'project.permissions.save',
+    effect: 'rpc',
+    rpc: ['permissions.project.set'],
+  },
+  {
+    id: 'project.permissions.reset',
+    labelKey: 'project.permissions.reset',
+    effect: 'rpc',
+    rpc: ['permissions.project.set'],
+  },
+  {
     id: 'project.open-advanced',
     labelKey: 'project.open_advanced',
     effect: 'state',

@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type {
   GateSummary,
   ProjectId,
+  ProjectPermissions,
   RunArtifact,
   RunId,
   RunSummary,
@@ -23,11 +24,13 @@ import {
   IconEdit,
   IconExternal,
   IconGitBranch,
+  IconLock,
   IconPlay,
   IconRefresh,
   IconSend,
   IconStop,
   Sheet,
+  Select,
   Skeleton,
   StatusPill,
   Stepper,
@@ -238,6 +241,8 @@ export default function ProjectPage(): React.ReactElement {
   const [testsSheetOpen, setTestsSheetOpen] = useState(false);
   const [budgetSheetOpen, setBudgetSheetOpen] = useState(false);
   const [budgetDraft, setBudgetDraft] = useState<number | string>(10);
+  const [permissionsSheetOpen, setPermissionsSheetOpen] = useState(false);
+  const [permissionsDraft, setPermissionsDraft] = useState<ProjectPermissions | null>(null);
 
   // Capability-gated run-ending dialog/form states
   const [changesOpen, setChangesOpen] = useState(false);
@@ -393,6 +398,27 @@ export default function ProjectPage(): React.ReactElement {
     const currentTotal = budgetResult.data?.totalBudgetUsd;
     setBudgetDraft(typeof currentTotal === 'number' ? currentTotal : 10);
     setBudgetSheetOpen(true);
+  });
+
+  const permissionsOpenAction = useAction('project.permissions.open', async () => {
+    if (!client || !projectId) return;
+    const perms = await client.getProjectPermissions(projectId as ProjectId);
+    setPermissionsDraft(perms);
+    setPermissionsSheetOpen(true);
+  });
+
+  const savePermissionsAction = useAction('project.permissions.save', async (confinement: 'read-only' | 'workspace-write' | 'full-access', approvalMode: 'ask-always' | 'ask-for-risky' | 'never-ask') => {
+    if (!client || !projectId || !permissionsDraft) return;
+    const nextPerms = await client.setProjectPermissions(projectId as ProjectId, confinement, approvalMode);
+    setPermissionsDraft(nextPerms);
+    setPermissionsSheetOpen(false);
+  });
+
+  const resetPermissionsAction = useAction('project.permissions.reset', async () => {
+    if (!client || !projectId) return;
+    const nextPerms = await client.setProjectPermissions(projectId as ProjectId, undefined, undefined);
+    setPermissionsDraft(nextPerms);
+    setPermissionsSheetOpen(false);
   });
 
   const budgetSaveAction = useAction('project.budget.save', async () => {
@@ -630,6 +656,17 @@ export default function ProjectPage(): React.ReactElement {
             }}
           >
             {t('project.budget_open')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<IconLock size={14} />}
+            data-action="project.permissions.open"
+            onClick={() => {
+              void permissionsOpenAction.run();
+            }}
+          >
+            {t('project.permissions.open')}
           </Button>
         </div>
       </header>
@@ -995,6 +1032,60 @@ export default function ProjectPage(): React.ReactElement {
               {t('project.budget_save')}
             </Button>
           </div>
+        </div>
+      </Sheet>
+
+      {/* Permissions Sheet */}
+      <Sheet
+        open={permissionsSheetOpen}
+        onClose={() => setPermissionsSheetOpen(false)}
+        title={t('project.permissions.sheet_title')}
+        closeLabel={t('common.close')}
+        data-testid="project-permissions-sheet"
+      >
+        <div className="v3-project-changes-box">
+          {permissionsDraft && (
+            <>
+              <Select
+                label={t('settings.permissions.confinement_label')}
+                options={[
+                  { value: 'read-only', label: t('settings.permissions.confinement.read_only') },
+                  { value: 'workspace-write', label: t('settings.permissions.confinement.workspace_write') },
+                  { value: 'full-access', label: t('settings.permissions.confinement.full_access') },
+                ]}
+                value={permissionsDraft.confinement}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setPermissionsDraft((prev: ProjectPermissions | null) => prev ? ({ ...prev, confinement: e.target.value as any }) : null)}
+              />
+              <Select
+                label={t('settings.permissions.approval_label')}
+                options={[
+                  { value: 'ask-always', label: t('settings.permissions.approval.ask_always') },
+                  { value: 'ask-for-risky', label: t('settings.permissions.approval.ask_for_risky') },
+                  { value: 'never-ask', label: t('settings.permissions.approval.never_ask') },
+                ]}
+                value={permissionsDraft.approvalMode}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setPermissionsDraft((prev: ProjectPermissions | null) => prev ? ({ ...prev, approvalMode: e.target.value as any }) : null)}
+              />
+              <div className="v3-project-dock-actions">
+                <Button
+                  variant="primary"
+                  data-action="project.permissions.save"
+                  loading={savePermissionsAction.pending}
+                  onClick={() => void savePermissionsAction.run(permissionsDraft.confinement, permissionsDraft.approvalMode)}
+                >
+                  {t('project.permissions.save')}
+                </Button>
+                <Button
+                  variant="ghost"
+                  data-action="project.permissions.reset"
+                  loading={resetPermissionsAction.pending}
+                  onClick={() => void resetPermissionsAction.run()}
+                >
+                  {t('project.permissions.reset')}
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       </Sheet>
 

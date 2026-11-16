@@ -305,8 +305,7 @@ async fn approved_agent_run(state: &Arc<DaemonState>, store: &Arc<Store>) -> Run
         language: "en".to_string(),
         created_at: Utc::now(),
         updated_at: Utc::now(),
-        repo_path: None,
-        repo_url: None,
+        ..Default::default()
     };
     store.create_project(&project).await.expect("the project");
     let rpc = WarshaRpc::new(state.clone());
@@ -1234,7 +1233,7 @@ async fn stored_run(store: &Store, name: &str, repo_path: Option<&Path>) -> Run 
         created_at: Utc::now(),
         updated_at: Utc::now(),
         repo_path: repo_path.map(|path| path.to_string_lossy().into_owned()),
-        repo_url: None,
+        ..Default::default()
     };
     store
         .create_project(&project)
@@ -2222,6 +2221,7 @@ async fn stored_project(store: &Store) -> Project {
         updated_at: Utc::now(),
         repo_path: None,
         repo_url: None,
+        ..Default::default()
     };
     store
         .create_project(&project)
@@ -3548,6 +3548,8 @@ mod runs_resume {
                 "Resume Auth Project".to_string(),
                 "Test auth on runs.resume".to_string(),
                 "en".to_string(),
+                None,
+                None,
             )
             .await
             .expect("project created");
@@ -3591,6 +3593,8 @@ mod runs_resume {
                 "Change Request Loop Project".to_string(),
                 "Test change-request resume".to_string(),
                 "en".to_string(),
+                None,
+                None,
             )
             .await
             .expect("project created");
@@ -3652,6 +3656,8 @@ mod runs_resume {
                 "Budget Resume Project".to_string(),
                 "Test budget pause & resume".to_string(),
                 "en".to_string(),
+                None,
+                None,
             )
             .await
             .expect("project created");
@@ -3711,6 +3717,7 @@ mod runs_resume {
                 updated_at: now,
                 repo_path: None,
                 repo_url: None,
+                ..Default::default()
             };
             store.create_project(&project).await.unwrap();
 
@@ -3775,6 +3782,8 @@ mod runs_start_budget {
                 "Budget Start Project".to_string(),
                 "Test start-time budget refusal".to_string(),
                 "en".to_string(),
+                None,
+                None,
             )
             .await
             .expect("project created");
@@ -3836,6 +3845,8 @@ mod runs_followup {
                 "Followup Integrity Project".to_string(),
                 "Test followup CAS and cancel refusal".to_string(),
                 "en".to_string(),
+                None,
+                None,
             )
             .await
             .expect("project created");
@@ -3967,6 +3978,8 @@ mod provider_truth {
                 "Provider Truth Project".to_string(),
                 "Verify unrouted role fails explicitly".to_string(),
                 "en".to_string(),
+                None,
+                None,
             )
             .await
             .expect("project created");
@@ -4032,6 +4045,8 @@ mod provider_truth {
                 "Followup Truth Project".to_string(),
                 "Test unrouted followup".to_string(),
                 "en".to_string(),
+                None,
+                None,
             )
             .await
             .expect("project created");
@@ -4085,6 +4100,8 @@ mod provider_truth {
                 "Explicit Routing Project".to_string(),
                 "Test explicit routing".to_string(),
                 "en".to_string(),
+                None,
+                None,
             )
             .await
             .expect("project created");
@@ -4122,6 +4139,8 @@ mod provider_truth {
                 "Resume After Routing Project".to_string(),
                 "Test resuming after adding provider".to_string(),
                 "en".to_string(),
+                None,
+                None,
             )
             .await
             .expect("project created");
@@ -6113,6 +6132,7 @@ mod agent_tool_events {
             updated_at: Utc::now(),
             repo_path: None,
             repo_url: None,
+            ..Default::default()
         };
         store.create_project(&project).await.expect("the project");
         let rpc = WarshaRpc::new(state.clone());
@@ -6543,6 +6563,7 @@ mod agent_tool_events {
             updated_at: Utc::now(),
             repo_path: None,
             repo_url: None,
+            ..Default::default()
         };
         store
             .create_project(&paused_project)
@@ -6601,6 +6622,7 @@ mod agent_tool_events {
             updated_at: Utc::now(),
             repo_path: None,
             repo_url: None,
+            ..Default::default()
         };
         failing_store
             .create_project(&failing_project)

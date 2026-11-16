@@ -65,11 +65,20 @@ export interface RpcError {
   data?: unknown;
 }
 
+export interface ProjectPermissions {
+  confinement: 'read-only' | 'workspace-write' | 'full-access';
+  approvalMode: 'ask-always' | 'ask-for-risky' | 'never-ask';
+  isOverride: boolean;
+}
+
 export interface ProjectSummary {
   id: ProjectId;
   name: string;
   createdAt: string;
   updatedAt: string;
+  confinement?: 'read-only' | 'workspace-write' | 'full-access';
+  approvalMode?: 'ask-always' | 'ask-for-risky' | 'never-ask';
+  permissions?: ProjectPermissions;
 }
 
 export interface RunSummary {
@@ -130,11 +139,41 @@ function summaryId(value: unknown, name: string): string {
 export function decodeProjectSummary(source: unknown): ProjectSummary {
   const record = summaryObject(source, 'project');
   const createdAt = summaryString(field(record, 'created_at', 'createdAt')) ?? '';
+  const confinement = summaryString(field(record, 'confinement')) as
+    | 'read-only'
+    | 'workspace-write'
+    | 'full-access'
+    | undefined;
+  const approvalMode = summaryString(field(record, 'approval_mode', 'approvalMode')) as
+    | 'ask-always'
+    | 'ask-for-risky'
+    | 'never-ask'
+    | undefined;
+
+  // A daemon without the B1 columns omits `permissions` entirely; an absent or non-object
+  // value decodes to the workspace-write x ask-for-risky default (B1's new-project default),
+  // so old payloads stay readable and a garbage payload never reaches a screen.
+  const permissionsRaw = field(record, 'permissions');
+  const permissionsRecord =
+    permissionsRaw === undefined || permissionsRaw === null
+      ? {}
+      : summaryObject(permissionsRaw, 'project permissions');
+  const permissions = {
+    confinement: (summaryString(field(permissionsRecord, 'confinement')) ??
+      'workspace-write') as 'read-only' | 'workspace-write' | 'full-access',
+    approvalMode: (summaryString(field(permissionsRecord, 'approval_mode', 'approvalMode')) ??
+      'ask-for-risky') as 'ask-always' | 'ask-for-risky' | 'never-ask',
+    isOverride: !!field(permissionsRecord, 'is_override', 'isOverride'),
+  };
+
   return {
     id: summaryId(field(record, 'id'), 'project') as ProjectId,
     name: summaryString(field(record, 'name')) ?? '',
     createdAt,
     updatedAt: summaryString(field(record, 'updated_at', 'updatedAt')) ?? createdAt,
+    confinement,
+    approvalMode,
+    permissions,
   };
 }
 
@@ -2028,15 +2067,55 @@ export class WarshaClient
   async createProject(
     name: string,
     description: string,
-    language: string
+    language: string,
+    confinement?: 'read-only' | 'workspace-write' | 'full-access',
+    approvalMode?: 'ask-always' | 'ask-for-risky' | 'never-ask'
   ): Promise<ProjectSummary> {
-    const row = await this.rpc<unknown>('projects.create', { name, description, language });
+    const row = await this.rpc<unknown>('projects.create', {
+      name,
+      description,
+      language,
+      confinement,
+      approval_mode: approvalMode,
+    });
     return decodeProjectSummary(row);
   }
 
   async getProject(id: ProjectId): Promise<ProjectSummary> {
     const row = await this.rpc<unknown>('projects.get', { id });
     return decodeProjectSummary(row);
+  }
+
+  async getDefaultPermissions(): Promise<ProjectPermissions> {
+    return this.rpc<ProjectPermissions>('permissions.defaults.get', {});
+  }
+
+  async setDefaultPermissions(
+    confinement: 'read-only' | 'workspace-write' | 'full-access',
+    approvalMode: 'ask-always' | 'ask-for-risky' | 'never-ask'
+  ): Promise<ProjectPermissions> {
+    return this.rpc<ProjectPermissions>('permissions.defaults.set', {
+      confinement,
+      approval_mode: approvalMode,
+    });
+  }
+
+  async getProjectPermissions(projectId: ProjectId): Promise<ProjectPermissions> {
+    return this.rpc<ProjectPermissions>('permissions.project.get', {
+      project_id: projectId,
+    });
+  }
+
+  async setProjectPermissions(
+    projectId: ProjectId,
+    confinement?: 'read-only' | 'workspace-write' | 'full-access',
+    approvalMode?: 'ask-always' | 'ask-for-risky' | 'never-ask'
+  ): Promise<ProjectPermissions> {
+    return this.rpc<ProjectPermissions>('permissions.project.set', {
+      project_id: projectId,
+      confinement,
+      approval_mode: approvalMode,
+    });
   }
 
   // Runs

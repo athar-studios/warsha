@@ -24,6 +24,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
+use warsha_core::ProjectPermissions;
 
 use crate::{
     column_int, column_opt_int, column_opt_text, column_text, repair_settings_expiry, Result,
@@ -480,6 +481,66 @@ impl SettingsRepo {
                 })
             })
             .transpose()
+    }
+
+    pub async fn get_default_permissions(&self) -> Result<ProjectPermissions> {
+        for mode in ["permissions_default", "permission_mode", "work_protection"] {
+            let row = sqlx::query("SELECT config_json FROM run_modes WHERE mode = ?")
+                .bind(mode)
+                .fetch_optional(&self.pool)
+                .await?;
+
+            if let Some(row) = row {
+                let config_json: String = column_text(&row, "config_json")?;
+                // 1. Try parsing as ProjectPermissions directly
+                if let Ok(mut perms) = serde_json::from_str::<ProjectPermissions>(&config_json) {
+                    perms.is_override = false;
+                    return Ok(perms);
+                }
+                // 2. Try parsing as legacy string e.g. "ask_always", "AskAlways", "auto_inside_project"
+                if let Ok(legacy_mode) = serde_json::from_str::<String>(&config_json) {
+                    if let Ok(approval) = legacy_mode.parse::<warsha_core::ApprovalMode>() {
+                        return Ok(ProjectPermissions {
+                            confinement: warsha_core::Confinement::WorkspaceWrite,
+                            approval_mode: approval,
+                            is_override: false,
+                        });
+                    }
+                }
+                // 3. Try parsing as legacy object e.g. {"mode": "..."}
+                #[derive(serde::Deserialize)]
+                struct LegacyConfig {
+                    #[serde(default)]
+                    mode: Option<String>,
+                }
+                if let Ok(legacy_obj) = serde_json::from_str::<LegacyConfig>(&config_json) {
+                    if let Some(m) = legacy_obj.mode {
+                        if let Ok(approval) = m.parse::<warsha_core::ApprovalMode>() {
+                            return Ok(ProjectPermissions {
+                                confinement: warsha_core::Confinement::WorkspaceWrite,
+                                approval_mode: approval,
+                                is_override: false,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        Ok(ProjectPermissions::default())
+    }
+
+    pub async fn set_default_permissions(&self, permissions: &ProjectPermissions) -> Result<()> {
+        let mode = "permissions_default";
+        let config_json = serde_json::to_string(permissions)?;
+        sqlx::query(
+            "INSERT INTO run_modes (mode, config_json) VALUES (?, ?) \
+             ON CONFLICT(mode) DO UPDATE SET config_json = excluded.config_json",
+        )
+        .bind(mode)
+        .bind(config_json)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     // --------------------------------------------------------------- pairings

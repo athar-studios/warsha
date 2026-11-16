@@ -63,8 +63,7 @@ async fn create_project(store: &Arc<Store>) -> ProjectId {
         language: "ar".to_string(),
         created_at: Utc::now(),
         updated_at: Utc::now(),
-        repo_path: None,
-        repo_url: None,
+        ..Default::default()
     };
     store.create_project(&project).await.expect("a project");
     project.id

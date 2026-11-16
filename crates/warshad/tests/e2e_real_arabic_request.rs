@@ -642,6 +642,8 @@ async fn e2e_real_arabic_request_clinic_flow() {
             PACKAGE_NAME.to_string(),
             ARABIC_REQUEST.to_string(),
             "ar".to_string(),
+            None,
+            None,
         )
         .await
         .expect("projects.create succeeds");
