@@ -177,12 +177,12 @@ JAVA_HOME="<Android Studio JBR>" ANDROID_HOME="<SDK>" \
   apps/mobile/android/gradlew -p apps/mobile/android assembleRelease
 # → apps/mobile/android/app/build/outputs/apk/release/warsha-remote-release.apk
 
-# 3) verify the signature and print the signing certificate:
-"$ANDROID_HOME/build-tools/36.0.0/apksigner.bat" verify --verbose --print-certs \
+# 3) verify the signature and print the signing certificate (Windows hosts: apksigner.bat):
+"$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs \
   apps/mobile/android/app/build/outputs/apk/release/warsha-remote-release.apk
 
 # 4) verify the manifest truth as the platform sees it (package id, label, permissions, deep link):
-"$ANDROID_HOME/build-tools/36.0.0/aapt2.exe" dump badging \
+"$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging \
   apps/mobile/android/app/build/outputs/apk/release/warsha-remote-release.apk | head -40
 ```
 

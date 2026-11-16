@@ -50,9 +50,11 @@ JAVA_HOME="<Android Studio JBR>" ANDROID_HOME="<SDK>" \
 # → apps/mobile/android/app/build/outputs/apk/release/warsha-remote-release.apk
 ```
 
-`syncRemoteWebAssets` (runs before `preBuild`) copies `apps/remote/dist` into
-`app/src/main/assets/public/` (gitignored; rebuilt on every assemble) and always
-builds `apps/remote` with pnpm before syncing. The WebView loads
+`syncRemoteWebAssets` (hooked onto `preBuild` via AGP 9's live task
+collection) depends on `buildRemoteWebAssets`, which always builds
+`apps/remote` with pnpm and then copies `apps/remote/dist` into
+`app/src/main/assets/public/` (gitignored; rebuilt on every assemble;
+`**/*.map` excluded so the APK stays reproducible). The WebView loads
 `file:///android_asset/public/index.html`.
 
 Verify a built APK:

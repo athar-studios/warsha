@@ -48,7 +48,7 @@ Warsha follows a **modular, crate-based architecture** with clear separation of 
 | `warsha-backends` | Coding agent backends | `CodingBackend` trait, `BuiltinBackend`, `CliBackend`, adapters |
 | `warsha-git` | Git + GitHub types | `GitRepo`, `GitHubClient`, `ProjectTemplate`. **Nothing in the daemon or the app calls them:** no `github.*` RPC is served, and `DaemonState.github` is built from a keychain token and then never used (`crates/warshad/src/lib.rs:504`, `:3203`) |
 | `warsha-relay` | Optional relay server | `RelayState`, WebSocket frame forwarding |
-| `warsha-remote` | Pairing, E2E crypto, relay client | `DeviceIdentity`, `PairingData` (both in use); `EncryptedChannel` exists but its handshake is a stub — see [Security Model](security.md) |
+| `warsha-remote` | Pairing, E2E crypto, relay client | `DeviceIdentity`, `PairingData` (both in use); the E2E handshake channel is **not built** (crypto stubs deleted, OD-R6/KEEL K7) — see [Security Model](security.md) |
 | `warshad` | Daemon binary | HTTP/WS server, JSON-RPC methods, sidecar support |
 | `warsha-cli` | CLI binary | All 15 commands, RPC client, config management |
 
