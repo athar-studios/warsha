@@ -53,3 +53,27 @@ Public repository, GitHub-hosted minutes free. Worker + PM local runs used the p
 - **D-RN-RF2-2** — genesis+verify share one container session; header documents the 100-run experiment; gates unchanged.
 - **D-RN-RF2-3** — fonts.ts isolated-page probe (above).
 - **D-RN-RF2-4** — light-theme `--w-text-faint` #7A756B → #6B665C (above).
+
+## Addendum — A10 resolution (2026-11-16)
+
+Amendment 3 / A10 (owner decision, m03702) resolved this packet's blocked gate with option (i):
+the `@visual` comparison adopts the F1 canary's decoded-pixel budget — `maxDiffPixels: 64` with
+`threshold: 0.05` unchanged (`playwright.config.ts`, commits 9fb28ad + 0ecb65e; `maxDiffPixelRatio`
+must stay unset — the comparator takes `min(maxDiffPixels, w·h·ratio)`, so a ratio of 0 zeroes the
+budget). Recorded as D-RN-RF2-5.
+
+Proof, in order:
+1. **100-pass experiment (step 3a): 100/100 green.** inbox.spec.ts (32 cases) vs the run-6 CI
+   genesis baselines, fresh container per pass, tolerance on: 32 passed in every pass (100
+   sequential passes, 47–60 s each). Extended to the full 416 desktop cases: 3 fresh-container
+   passes over all 8 v3 specs (216 + 104 + 96 per pass) — 416 passed in every pass.
+2. **A7 proof (step b): 3 consecutive green workflow runs, both legs** — 43833136416 (1cd7518),
+   43837753064 (7bd8fae), 43842194783 (5784a37). Run 3's artifact gate reports: desktop genesis
+   416/0, desktop verify 416/0, remote genesis 84/0, remote verify 84/0 (flaky 0 everywhere).
+   Desktop baselines in the artifact are byte-identical to the committed set (cmp, 416/416).
+3. **Merge + close (step c):** the A10 branch carries the config change, the amendment text, and
+   fresh CI-captured remote baselines (9a225ac). Discovery: the remote snapshots on the
+   integration line were still the stale 1019506 vintage (structural drift vs the current remote
+   app — 164195 px beyond threshold on gates-320x568-ar-light), never replaced by the F2 merge
+   (88b41ba committed desktop-only despite its message). The fresh 84 are what all three green
+   runs verified against.

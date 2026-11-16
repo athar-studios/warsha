@@ -133,6 +133,31 @@ orders the public release — outside this run — the installers are built in C
 tree, for reproducibility, not on the owner's laptop. Recorded now so FIN5 and Z1 reporting
 account for it.
 
+### A10 — Bounded decoded-pixel tolerance for the @visual verify (owner decision 2026-11-16)
+
+Resolves the RF2 blocked gate (§0.6) recorded in `docs/zadloop/packets/RF2-report.md`. The RF2 CI
+capture leg is green (416 desktop + 84 remote baselines captured in the pinned image); the verify
+leg fails 1–3 cases per run on an LCD subpixel fringe that flips per page load — measured over
+260+ verify passes: ~12% all-green per pass, so A7's "3 consecutive green runs" proof is a ~0.2%
+lottery under exact matching. The owner chose the F1-style decoded-pixel tolerance (option i).
+
+1. The `@visual` screenshot comparison (desktop 416 + remote 84) adopts the F1 canary's
+   decoded-pixel tolerance, exactly: a screenshot passes if at most **64 pixels** differ beyond the
+   existing Playwright threshold (**0.05, unchanged**) — `maxDiffPixels = 64`, the canary's budget.
+   The observed fringe worst case is 14 px (~4.5× headroom); any real layout or colour change
+   affects hundreds of pixels and still fails. `maxDiffPixelRatio` must stay unset: the comparator
+   takes `min(maxDiffPixels, w·h·ratio)` when both are set, so a ratio of 0 would zero the budget.
+2. Scope: the `@visual` comparison only. No other gate, threshold, or test changes. Recorded in
+   `DECISIONS.md` (D-RN-RF2-5) and appended to the plan's Amendments section (repo file + both
+   plan copies).
+3. Proof, in order: (a) the 100-pass verify experiment against the CI genesis baselines with the
+   tolerance on — required 100/100 green (measured: 100/100 on the inbox spec, then 416/416 in
+   3 fresh-container passes over all 8 v3 specs); (b) the A7 proof as written — 3 consecutive
+   green "Baseline capture (RF2)" workflow runs, both legs; (c) merge into `r-next/integration`,
+   record the FIN4 `@visual` rows against the green runs, close the blocked-gate item in
+   `PROGRESS.md` and the owner checklist, and note the tolerance in the RF2 report.
+4. If step 3a is not 100/100, stop and report — do not widen the budget. (It was 100/100.)
+
 ---
 
 ## 0. Operating rules for the run

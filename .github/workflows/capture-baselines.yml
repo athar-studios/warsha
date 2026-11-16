@@ -27,7 +27,7 @@ name: Baseline capture (RF2)
 
 on:
   push:
-    branches: [r-next/rf2-ci-capture]
+    branches: [r-next/rf2-ci-capture, r-next/rf2-a10-tolerance]
 
 permissions:
   contents: read
