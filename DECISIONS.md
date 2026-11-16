@@ -1914,3 +1914,15 @@ CLI cost mapping (correction 2): when the CLI output carries `cost_cents` (claud
 
 ## D-RN-N0-2 (2026-11-15)
 Budget-enforcement test completed by the PM, not the worker: correction 2's worker left the plan's budget test undone ("complex test setup requirements") while the infrastructure it needed (ensure_budget, spent_cents accumulation) was already wired in its own delivery. The PM wrote `a_cli_reported_cost_counts_toward_the_run_budget` from the worker's own e4_coding_cli fixtures (7-cent CLI spend vs 5-cent budget → Paused + BudgetExceeded). Also PM-fixed in the same pass: two clippy `-D warnings` violations in settings_migration.rs (assert_eq! on literal bools), a cargo fmt diff, and the leftover `#[allow(dead_code)]` on StageCompletion. Recorded so the report's authorship is honest.
+
+## D-RN-RF2-1 — capture workflow trigger: push, not workflow_dispatch (2026-11-16)
+The workflow_dispatch API can only start workflows whose file exists on the default branch; A7 forbids touching main. The manual trigger is realized as `on: push: branches: [r-next/rf2-ci-capture]` — the one branch the A7 push exception already authorizes. Each push = one capture run; the A7 proof is 3 consecutive green runs of one head SHA.
+
+## D-RN-RF2-2 — genesis and verify share one container session (2026-11-16)
+A 100-run experiment (fresh container per verify pass vs CI genesis baselines) showed 1-3 LCD-subpixel fringe cases flip at random per page load (0F ×8/100; never two consecutive all-green runs): the exact 416/0 gate is unsatisfiable across a container boundary on this rasterizer. The workflow now runs genesis and verify via `docker exec` in ONE container session — the same structural decision F1 made for the canary. Gates unchanged (416/0, 84/0, defective=0); no tolerance touched.
+
+## D-RN-RF2-3 — fonts.ts canvas metrics probe moved to an isolated page (2026-11-16)
+The cross-check ran on the app page, where @fontsource @font-face rules for IBM Plex send measureText through the webfont path; an unloaded unicode-range subset made the mono width coincide with the unknown-family width (240 == 240) → 16 false "IBM Plex Mono not installed" audit failures while CDP proved real Plex glyphs. The probe now runs on an isolated about:blank page in the same context; CDP element probes still verify the app page itself. Check meaning unchanged — not a tolerance change.
+
+## D-RN-RF2-4 — light-theme --w-text-faint #7A756B → #6B665C (2026-11-16)
+axe wcag2aa color-contrast (RF2 run 4): faint text on --w-danger-soft measured 3.92:1 (remote run feed timestamps, RunScreen.tsx:424-436). #6B665C passes 4.5:1 on every light background it can land on (danger-soft 4.88, sunken 4.84, bg 5.19, surface 5.71) and stays a step below muted #5F5B53; dark theme untouched. Verified: contrast.test.ts 50/50, ui 383/383, ui+desktop tsc clean. Product repair carried by RF2 because a committed gate (axeIsClean) blocked the packet — same pattern as the Dockerfile libpango fix.
