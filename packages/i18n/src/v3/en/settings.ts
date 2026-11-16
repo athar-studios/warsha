@@ -37,6 +37,8 @@ export default {
   'settings.section.postlaunch.desc': 'Crash reports and app store reviews after release.',
   'settings.section.backend': 'Backend',
   'settings.section.backend.desc': 'Select the backend platform, toggle features, and export kit.',
+  'settings.section.catalog': 'Model catalog',
+  'settings.section.catalog.desc': 'View installed models and check for price updates.',
   'settings.section.about': 'About Warsha',
   'settings.section.about.desc': 'Version details and local daemon status.',
 
@@ -321,4 +323,11 @@ export default {
   'settings.common.confirm_remove': 'Yes, remove',
   'settings.common.confirm_revoke': 'Yes, revoke',
   'settings.common.confirm_disconnect': 'Yes, disconnect',
+  'settings.catalog.refresh': 'Check for catalog update',
+  'settings.catalog.refresh.desc': 'Check for new models and updated pricing from models.dev.',
+  'settings.catalog.updated': 'Catalog updated successfully.',
+  'settings.catalog.no_update': 'No updates available.',
+  'settings.catalog.diff.title': 'Catalog update available',
+  'settings.catalog.diff.desc': 'New models added: {added}. Prices updated for: {updated}.',
+  'settings.catalog.apply': 'Apply update',
 };

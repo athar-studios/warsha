@@ -1,4 +1,7 @@
-# DECISIONS.md — Warsha Design Decisions
+## 2026-11-16 — A1: Model Catalog Persistence
+- **Decision**: Catalog metadata (JSON) is embedded in binary; refreshed catalog is stored in app data directory with digest verification; custom models are stored in app data directory to survive refresh.
+- **Alternatives**: Always fetch from URL, build-time code generation for catalog, no custom model support.
+- **Reason**: Offline functionality is a primary goal. Refreshing must be explicit and verifiable. Custom models must survive updates, so app data storage is necessary.
 
 ## 2026-10-28 — Project Initialization
 - **Decision**: License is Apache-2.0 (as specified in BUILD_PROMPT.md §1)
