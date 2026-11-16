@@ -101,6 +101,8 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
   const [added, setAdded] = useState<string | null>(null);
   const [removed, setRemoved] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [catalogUpdate, setCatalogUpdate] = useState<{ diff: { added: string, removed: string, price_changed: string } } | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [roleChoice, setRoleChoice] = useState<Record<string, string>>({});
   const [assigned, setAssigned] = useState<string | null>(null);
   const [assigning, setAssigning] = useState<Role | null>(null);
@@ -224,6 +226,29 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
     }
   };
 
+  const checkCatalogUpdate = async () => {
+    setRefreshing(true);
+    setActionError(null);
+    try {
+      const update = await client.refreshCatalog();
+      if (update === null) {
+        setActionError(label('settings.catalog.no_update'));
+      } else {
+        setCatalogUpdate({
+          diff: {
+            added: update.added.map(a => a[1]).join(', '),
+            removed: update.removed.map(a => a[1]).join(', '),
+            price_changed: update.price_changed.map(a => a[1]).join(', '),
+          }
+        });
+      }
+    } catch {
+      setActionError(label('models.refresh_failed'));
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const routingFor = (role: Role): RoleRouting | undefined => routings.find((routing) => routing.role === role);
 
   const assignRole = async (role: Role) => {
@@ -294,18 +319,28 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
             {label('models.desc')}
           </Text>
         </Box>
-        <Button
-          variant={showAdd ? 'secondary' : 'primary'}
-          dir={dir}
-          aria-expanded={showAdd}
-          data-testid="models-add-open"
-          onClick={() => {
-            setShowAdd((open) => !open);
-            setFormError(null);
-          }}
-        >
-          {label('models.add')}
-        </Button>
+        <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)' }}>
+          <Button
+            variant="secondary"
+            dir={dir}
+            onClick={() => void checkCatalogUpdate()}
+            disabled={refreshing}
+          >
+            {refreshing ? label('models.refreshing') : label('settings.catalog.refresh')}
+          </Button>
+          <Button
+            variant={showAdd ? 'secondary' : 'primary'}
+            dir={dir}
+            aria-expanded={showAdd}
+            data-testid="models-add-open"
+            onClick={() => {
+              setShowAdd((open) => !open);
+              setFormError(null);
+            }}
+          >
+            {label('models.add')}
+          </Button>
+        </Box>
       </header>
 
       {/* Settings scope sentence (t3code pattern): shows whether these settings apply globally or to a specific project */}
@@ -346,6 +381,30 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
 
       {actionError && (
         <Banner tone="error">{actionError}</Banner>
+      )}
+
+      {catalogUpdate && (
+        <Panel title={label('settings.catalog.diff.title')} label={label('settings.catalog.diff.title')}>
+          <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' }}>
+            <Text size="sm" dir={dir}>
+              {label('settings.catalog.diff.desc', {
+                added: catalogUpdate.diff.added,
+                updated: catalogUpdate.diff.price_changed,
+              })}
+            </Text>
+            <Button variant="primary" dir={dir} onClick={async () => {
+              try {
+                await client.applyCatalogUpdate();
+                setCatalogUpdate(null);
+                setActionError(label('settings.catalog.updated'));
+              } catch {
+                setActionError(label('models.refresh_failed'));
+              }
+            }}>
+              {label('settings.catalog.apply')}
+            </Button>
+          </Box>
+        </Panel>
       )}
 
       {showAdd && (
@@ -550,6 +609,11 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
       ) : (
         <>
           <Panel title={label('models.catalog')} label={label('models.catalog')}>
+            <Box dir={dir} style={{ paddingBlockEnd: 'var(--warsha-space-2)' }}>
+              <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
+                {label('settings.catalog.prices_estimated')}
+              </Text>
+            </Box>
             {models.length === 0 ? (
               <EmptyState
                 title={label('models.empty')}

@@ -11,6 +11,7 @@ members = [
     "crates/warshad",
     "crates/warsha-cli",
     "crates/warsha-relay",
+    "crates/warsha-catalog",
 ]
 exclude = []
 

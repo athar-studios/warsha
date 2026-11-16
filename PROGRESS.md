@@ -1,5 +1,7 @@
 # PROGRESS.md — Warsha Build Log
 
+- [ ] A1: Model catalog (in progress)
+
 ## Run 2026-11-15 — R-EXT-5 (X9a WebMCP, desktop v3): four navigation tools behind an off-by-default switch
 
 - **Delivered** (Coder, branch `zl-rext5-webmcp` off `cd94f53`, see commits below): new `apps/desktop/src/v3/webmcp/` module — `modelContext.ts` (structural slice of the registration API, `unknown`+guards, no `any`, no provider-side members), `safeList.ts` (the four ids and the derivation: unknown id, non-`nav` effect, `rpc`, `capability`, parameterised/fragment route, onboarding area all throw), `setting.ts` (`warsha.webmcp`, `'on'` or absent, in-tab + `storage` events, copied in shape from the sound-cue switch), `WebMcpBridge.tsx` (one effect keyed on `enabled`/`inOnboarding`/`context`, one `AbortController`, cleanup aborts). Mounted as the first child of `<RouterProvider>` in `V3App.tsx`. Settings › General gains one hand-rolled `role="switch"` row (`data-action="settings.webmcp.set"`, testid `general-webmcp`, advanced mode or on) with the "no browser assistant in this window" line when on and `detectModelContext()` is null; registry entry `settings.webmcp.set` (`state`); three catalog keys in ar+en with plain Arabic (I4-safe).

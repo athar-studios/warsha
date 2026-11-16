@@ -37,6 +37,8 @@ export default {
   'settings.section.postlaunch.desc': 'تقارير الأعطال ومراجعات المتاجر بعد النشر.',
   'settings.section.backend': 'الواجهة الخلفية',
   'settings.section.backend.desc': 'اختيار منصة الخلفية والخدمات المفعّلة وتصدير الحزمة.',
+  'settings.section.catalog': 'كتالوج النماذج',
+  'settings.section.catalog.desc': 'عرض النماذج المثبتة والتحقق من تحديثات الأسعار.',
   'settings.section.about': 'حول ورشة',
   'settings.section.about.desc': 'معلومات الإصدار وحالة الخادم المحلّي.',
 
@@ -321,4 +323,14 @@ export default {
   'settings.common.confirm_remove': 'نعم، أزِل',
   'settings.common.confirm_revoke': 'نعم، ألغِ الوصول',
   'settings.common.confirm_disconnect': 'نعم، اقطع الاتصال',
+  'models.refresh_failed': 'فشل التحقق من تحديثات الكتالوج.',
+  'models.refreshing': 'جاري التحقق...',
+  'settings.catalog.refresh': 'تحقق من تحديث الكتالوج',
+  'settings.catalog.refresh.desc': 'تحقق من وجود نماذج جديدة وأسعار محدثة من models.dev.',
+  'settings.catalog.updated': 'تم تحديث الكتالوج بنجاح.',
+  'settings.catalog.no_update': 'لا توجد تحديثات متاحة.',
+  'settings.catalog.diff.title': 'تحديث الكتالوج متاح',
+  'settings.catalog.diff.desc': 'تمت إضافة نماذج جديدة: {added}. تم تحديث الأسعار لـ: {updated}.',
+  'settings.catalog.apply': 'تطبيق التحديث',
+  'settings.catalog.prices_estimated': 'جميع الأسعار تقديرية من models.dev.',
 };
