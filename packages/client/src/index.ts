@@ -65,6 +65,12 @@ export interface RpcError {
   data?: unknown;
 }
 
+export interface ProjectPermissions {
+  confinement: 'read-only' | 'workspace-write' | 'full-access';
+  approvalMode: 'ask-always' | 'ask-for-risky' | 'never-ask';
+  isOverride: boolean;
+}
+
 export interface ProjectSummary {
   id: ProjectId;
   name: string;
@@ -72,11 +78,7 @@ export interface ProjectSummary {
   updatedAt: string;
   confinement?: 'read-only' | 'workspace-write' | 'full-access';
   approvalMode?: 'ask-always' | 'ask-for-risky' | 'never-ask';
-  permissions: {
-    confinement: 'read-only' | 'workspace-write' | 'full-access';
-    approvalMode: 'ask-always' | 'ask-for-risky' | 'never-ask';
-    isOverride: boolean;
-  };
+  permissions?: ProjectPermissions;
 }
 
 export interface RunSummary {
@@ -2084,22 +2086,22 @@ export class WarshaClient
     return decodeProjectSummary(row);
   }
 
-  async getDefaultPermissions(): Promise<ProjectSummary['permissions']> {
-    return this.rpc<ProjectSummary['permissions']>('permissions.defaults.get', {});
+  async getDefaultPermissions(): Promise<ProjectPermissions> {
+    return this.rpc<ProjectPermissions>('permissions.defaults.get', {});
   }
 
   async setDefaultPermissions(
     confinement: 'read-only' | 'workspace-write' | 'full-access',
     approvalMode: 'ask-always' | 'ask-for-risky' | 'never-ask'
-  ): Promise<ProjectSummary['permissions']> {
-    return this.rpc<ProjectSummary['permissions']>('permissions.defaults.set', {
+  ): Promise<ProjectPermissions> {
+    return this.rpc<ProjectPermissions>('permissions.defaults.set', {
       confinement,
       approval_mode: approvalMode,
     });
   }
 
-  async getProjectPermissions(projectId: ProjectId): Promise<ProjectSummary['permissions']> {
-    return this.rpc<ProjectSummary['permissions']>('permissions.project.get', {
+  async getProjectPermissions(projectId: ProjectId): Promise<ProjectPermissions> {
+    return this.rpc<ProjectPermissions>('permissions.project.get', {
       project_id: projectId,
     });
   }
@@ -2108,8 +2110,8 @@ export class WarshaClient
     projectId: ProjectId,
     confinement?: 'read-only' | 'workspace-write' | 'full-access',
     approvalMode?: 'ask-always' | 'ask-for-risky' | 'never-ask'
-  ): Promise<ProjectSummary['permissions']> {
-    return this.rpc<ProjectSummary['permissions']>('permissions.project.set', {
+  ): Promise<ProjectPermissions> {
+    return this.rpc<ProjectPermissions>('permissions.project.set', {
       project_id: projectId,
       confinement,
       approval_mode: approvalMode,
