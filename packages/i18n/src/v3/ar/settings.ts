@@ -326,11 +326,11 @@ export default {
   'models.refresh_failed': 'فشل التحقق من تحديثات الكتالوج.',
   'models.refreshing': 'جاري التحقق...',
   'settings.catalog.refresh': 'تحقق من تحديث الكتالوج',
-  'settings.catalog.refresh.desc': 'تحقق من وجود نماذج جديدة وأسعار محدثة من models.dev.',
+  'settings.catalog.refresh.desc': 'تحقق من وجود نماذج جديدة وأسعار محدثة من دليل النماذج المرجعي.',
   'settings.catalog.updated': 'تم تحديث الكتالوج بنجاح.',
   'settings.catalog.no_update': 'لا توجد تحديثات متاحة.',
   'settings.catalog.diff.title': 'تحديث الكتالوج متاح',
   'settings.catalog.diff.desc': 'تمت إضافة نماذج جديدة: {added}. تم تحديث الأسعار لـ: {updated}.',
   'settings.catalog.apply': 'تطبيق التحديث',
-  'settings.catalog.prices_estimated': 'جميع الأسعار تقديرية من models.dev.',
+  'settings.catalog.prices_estimated': 'جميع الأسعار تقديرية من دليل النماذج المرجعي.',
 };
