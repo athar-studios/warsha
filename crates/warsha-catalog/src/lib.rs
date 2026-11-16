@@ -46,8 +46,10 @@ pub struct CatalogDiff {
     pub price_changed: Vec<String>,
 }
 
-impl Catalog {
-    pub fn compute_diff(&self, new: &Catalog) -> CatalogDiff {
+pub struct CatalogWrapper(pub Catalog);
+
+impl CatalogWrapper {
+    pub fn compute_diff(&self, _new: &Catalog) -> CatalogDiff {
         // TODO: Implement actual diff logic
         CatalogDiff {
             added: vec![],
@@ -65,7 +67,7 @@ pub fn refresh_catalog(downloaded_bytes: &[u8], current: &Catalog) -> anyhow::Re
     let new_catalog: Catalog = serde_json::from_slice(downloaded_bytes)
         .map_err(|e| anyhow::anyhow!("Failed to parse catalog: {}", e))?;
 
-    let diff = current.compute_diff(&new_catalog);
+    let diff = CatalogWrapper(current.clone()).compute_diff(&new_catalog);
 
     Ok((new_catalog, diff))
 }
