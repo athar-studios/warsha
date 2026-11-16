@@ -28,6 +28,7 @@ const RULE_IDS = ['R1', 'R2', 'R3', 'R4', 'R5'];
 const CRATE_TIERS = new Map([
   ['warsha-core', 0],
   ['warsha-store', 1],
+  ['warsha-catalog', 1],
   ['warsha-providers', 2],
   ['warsha-git', 2],
   ['warsha-remote', 2],
