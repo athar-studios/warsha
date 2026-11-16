@@ -6959,3 +6959,7 @@ hypotheses left in this triage.
 - **§0.6 repairs on this lane:** first dispatch settled with an uncompilable test stub (worker never ran it); PM rewrote the acceptance tests against the real APIs (IsolationProbe backend, gate-walking fixture) and fixed the detached-HEAD commit gap (D-RN-N3-1..2 in DECISIONS.md). Tests and gates never weakened.
 - **Merge gates (PM on integration @ 8ad0bad):** fmt clean; clippy workspace 0 warnings; pipeline 508+6+4+14+3+1+1+13 / 0; warshad 252/0; store 26+19+5 / 0; backends 21/0; core 19/0; client 193/193; i18n 58/58; desktop 854/854; arch 5/0; policy 8/0; i18n-gate 835/0; cargo-deny ok; gitleaks clean. Wire contract still carries the 4 pre-existing catalog.refresh/apply violations (A1 debt, unchanged).
 - **Budget (A15):** N3 spend ≈ 8 of cap 10. Cumulative ≈ 55 of 400 (13.8%). Next alert threshold 320.
+
+## 2026-11-17 — A2 merged (correction of the earlier entry's merge state)
+- The 2026-11-17 A2 entry recorded the branch commit (8e0bf56) before the PM merge. A2 merged into `r-next/integration` as `9fdb797` (conflicts: DECISIONS.md — kept B1 history, appended D-RN-A2-1; ar/settings.ts — kept B1 permissions keys + A2 provider-auth keys). Post-merge gates re-run on the merged tree: clippy workspace 0 warnings; warshad 252/0, providers 59/0; arch 5/0; policy 8/0; i18n-gate 840 keys/0 violations; client 193/193; i18n 58/58; desktop 854/854; client typecheck clean.
+- **Budget (A15):** unchanged — cumulative ≈ 55 of 400 (13.8%) including A2's ≈ 7 (already counted in the prior entry's arithmetic).
