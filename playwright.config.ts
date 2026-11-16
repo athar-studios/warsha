@@ -62,6 +62,17 @@ import { defineConfig } from '@playwright/test';
  * differs structurally, while `threshold: 0.05` (~13/255) tolerates antialiasing noise up to the
  * measured maximum (11 levels). A moved edge or a shifted line differs by far more than that and still
  * fails — the tolerance is on *how much*, not on *how many*.
+ *
+ * Amendment A10 (owner decision 2026-11-16) bounds the "how many" for the @visual comparison: up to
+ * 64 pixels per screenshot may exceed `threshold` — exactly the F1 canary's decoded-pixel budget
+ * (`WARSHA_CANARY_MAX_PIXELS=64`, `WARSHA_CANARY_MAX_DELTA=13` ≈ threshold 0.05, unchanged). The
+ * measured nondeterminism this absorbs: the LCD subpixel fringe of a horizontal rule's right end (or
+ * a scrollbar-track edge) flickers per page load — 3-14 px, 55-69 levels, on 1-3 of the 500 @visual
+ * cases per pass (RF2's 260+ verify passes; `docs/zadloop/packets/RF2-report.md`). The fringe is
+ * below the canary's budget on every measured pass; a real layout or colour change affects hundreds
+ * of pixels and still fails. `maxDiffPixels` and `maxDiffPixelRatio` combine as independent bounds —
+ * a case fails when EITHER bound is exceeded, so `maxDiffPixelRatio: 0` keeps its meaning for any
+ * screenshot larger than 64 px and the 64-px budget only ever absorbs sub-threshold-count flicker.
  */
 
 /** The repo-managed fontconfig that pins the baselines' AA mode; Linux only. */
@@ -141,7 +152,14 @@ export default defineConfig({
       // tolerates antialiasing noise up to the measured maximum (11 levels, 10-38 px, on curved and
       // shadowed edges, random per capture — PROGRESS.md 2026-11-04 #45). A moved edge or a shifted
       // line differs by far more than 13 levels and still fails.
+      //
+      // A10 (owner decision 2026-11-16): up to 64 pixels per screenshot may exceed `threshold` —
+      // the F1 canary's decoded-pixel budget, scoped to the @visual comparison this config's two
+      // projects run. The measured LCD-fringe flicker is 3-14 px (RF2-report.md); a real layout or
+      // colour change affects hundreds of pixels and still fails. Both bounds stay independent:
+      // exceeding EITHER fails the case.
       maxDiffPixelRatio: 0,
+      maxDiffPixels: 64,
       threshold: 0.05,
       animations: 'disabled',
       caret: 'hide',
