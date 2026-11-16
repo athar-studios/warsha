@@ -17,6 +17,7 @@ fn project(repo_path: Option<String>) -> Project {
         updated_at: Utc::now(),
         repo_path,
         repo_url: None,
+        ..Default::default()
     }
 }
 
