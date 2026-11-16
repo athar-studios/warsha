@@ -91,6 +91,11 @@ export default {
   'settings.providers.kind.ollama': 'Ollama',
   'settings.providers.kind.custom': 'Custom endpoint',
   'settings.providers.validation.required': 'Please enter provider name and API key.',
+  'settings.providers.login': 'Log in',
+  'settings.providers.disconnect': 'Disconnect',
+  'settings.providers.auth.authenticated': 'Authenticated',
+  'settings.providers.auth.unauthenticated': 'Unauthenticated',
+  'settings.providers.auth.pending': 'Pending',
 
   'settings.models.title': 'Custom models',
   'settings.models.empty': 'No custom models registered.',

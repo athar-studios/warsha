@@ -142,6 +142,22 @@ pub trait WarshaApi {
     #[method(name = "providers.list", with_extensions)]
     async fn list_providers(&self) -> RpcResult<Vec<ProviderRecord>>;
 
+    #[method(name = "providers.auth_status", with_extensions)]
+    async fn provider_auth_status(&self, name: String) -> RpcResult<AuthStatus>;
+
+    #[method(name = "providers.auth_start", with_extensions)]
+    async fn provider_auth_start(&self, name: String) -> RpcResult<AuthStartResponse>;
+
+    #[method(name = "providers.auth_complete", with_extensions)]
+    async fn provider_auth_complete(
+        &self,
+        name: String,
+        code: String,
+    ) -> RpcResult<AuthCompleteResponse>;
+
+    #[method(name = "providers.disconnect", with_extensions)]
+    async fn provider_disconnect(&self, name: String) -> RpcResult<()>;
+
     /// Add a provider and put its API key in the OS keychain.
     ///
     /// Four named parameters, which is the object the wizard already sends
@@ -651,6 +667,32 @@ impl From<StoredProvider> for ProviderRecord {
             api_base: provider.api_base,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AuthStatus {
+    Authenticated,
+    Unauthenticated,
+    Pending {
+        user_code: String,
+        verification_uri: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AuthStartResponse {
+    Pkce {
+        url: String,
+    },
+    Device {
+        user_code: String,
+        verification_uri: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthCompleteResponse {
+    pub message: String,
 }
 
 /// The endpoint `provider` is tested against: the owner's own, else its kind's

@@ -8,6 +8,35 @@
 export type ProjectId = string & { readonly __brand: unique symbol };
 export type RunId = string & { readonly __brand: unique symbol };
 export type DeviceId = string & { readonly __brand: unique symbol };
+export interface AuthStatus {
+  kind: 'authenticated' | 'unauthenticated' | 'pending';
+  user_code?: string;
+  verification_uri?: string;
+}
+
+export interface AuthStartResponse {
+  kind: 'pkce' | 'device';
+  url?: string;
+  user_code?: string;
+  verification_uri?: string;
+}
+
+export interface AuthCompleteResponse {
+  message: string;
+}
+
+function decodeAuthStatus(value: unknown): AuthStatus {
+  // Simple decoder for now
+  return value as AuthStatus;
+}
+
+function decodeAuthStartResponse(value: unknown): AuthStartResponse {
+  return value as AuthStartResponse;
+}
+
+function decodeAuthCompleteResponse(value: unknown): AuthCompleteResponse {
+  return value as AuthCompleteResponse;
+}
 
 export type Stage =
   | 'idea'
@@ -2563,6 +2592,25 @@ export class WarshaClient
       context_window: contextWindow ?? null,
     });
     return decodeCustomModelRecord(row);
+  }
+
+  async providerAuthStatus(name: string): Promise<AuthStatus> {
+    const row = await this.rpc<unknown>('providers.auth_status', { name });
+    return decodeAuthStatus(row);
+  }
+
+  async providerAuthStart(name: string): Promise<AuthStartResponse> {
+    const row = await this.rpc<unknown>('providers.auth_start', { name });
+    return decodeAuthStartResponse(row);
+  }
+
+  async providerAuthComplete(name: string, code: string): Promise<AuthCompleteResponse> {
+    const row = await this.rpc<unknown>('providers.auth_complete', { name, code });
+    return decodeAuthCompleteResponse(row);
+  }
+
+  async providerDisconnect(name: string): Promise<void> {
+    await this.rpc<unknown>('providers.disconnect', { name });
   }
 
   async removeCustomModel(provider: string, modelId: string): Promise<void> {

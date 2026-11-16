@@ -28,7 +28,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use warsha_core::CredentialsRef;
@@ -102,7 +102,20 @@ impl SecretStore for KeychainSecretStore {
     }
 }
 
-/// An in-process secret store: the test double, and nothing the daemon defaults to.
+#[async_trait]
+impl<S: SecretStore + ?Sized> SecretStore for Arc<S> {
+    async fn store(&self, account: &str, key: &str) -> Result<()> {
+        self.as_ref().store(account, key).await
+    }
+
+    async fn load(&self, account: &str) -> Result<String> {
+        self.as_ref().load(account).await
+    }
+
+    async fn delete(&self, account: &str) -> Result<()> {
+        self.as_ref().delete(account).await
+    }
+}
 ///
 /// It is deliberately not a file-backed store. The point of the keychain is that
 /// the secret never touches the disk the configuration is on, and a fallback file
