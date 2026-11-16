@@ -101,6 +101,7 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
   const [added, setAdded] = useState<string | null>(null);
   const [removed, setRemoved] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [roleChoice, setRoleChoice] = useState<Record<string, string>>({});
   const [assigned, setAssigned] = useState<string | null>(null);
   const [assigning, setAssigning] = useState<Role | null>(null);
@@ -224,6 +225,20 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
     }
   };
 
+  const checkCatalogUpdate = async () => {
+    setRefreshing(true);
+    setActionError(null);
+    try {
+      // TODO: Call daemon RPC: catalog::refresh()
+      // const update = await client.refreshCatalog();
+      // ...
+    } catch {
+      setActionError(label('models.refresh_failed'));
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const routingFor = (role: Role): RoleRouting | undefined => routings.find((routing) => routing.role === role);
 
   const assignRole = async (role: Role) => {
@@ -294,18 +309,28 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
             {label('models.desc')}
           </Text>
         </Box>
-        <Button
-          variant={showAdd ? 'secondary' : 'primary'}
-          dir={dir}
-          aria-expanded={showAdd}
-          data-testid="models-add-open"
-          onClick={() => {
-            setShowAdd((open) => !open);
-            setFormError(null);
-          }}
-        >
-          {label('models.add')}
-        </Button>
+        <Box dir={dir} style={{ display: 'flex', gap: 'var(--warsha-space-2)' }}>
+          <Button
+            variant="secondary"
+            dir={dir}
+            onClick={() => void checkCatalogUpdate()}
+            disabled={refreshing}
+          >
+            {refreshing ? label('models.refreshing') : label('settings.catalog.refresh')}
+          </Button>
+          <Button
+            variant={showAdd ? 'secondary' : 'primary'}
+            dir={dir}
+            aria-expanded={showAdd}
+            data-testid="models-add-open"
+            onClick={() => {
+              setShowAdd((open) => !open);
+              setFormError(null);
+            }}
+          >
+            {label('models.add')}
+          </Button>
+        </Box>
       </header>
 
       {/* Settings scope sentence (t3code pattern): shows whether these settings apply globally or to a specific project */}

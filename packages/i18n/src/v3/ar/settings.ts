@@ -323,6 +323,8 @@ export default {
   'settings.common.confirm_remove': 'نعم، أزِل',
   'settings.common.confirm_revoke': 'نعم، ألغِ الوصول',
   'settings.common.confirm_disconnect': 'نعم، اقطع الاتصال',
+  'models.refresh_failed': 'فشل التحقق من تحديثات الكتالوج.',
+  'models.refreshing': 'جاري التحقق...',
   'settings.catalog.refresh': 'تحقق من تحديث الكتالوج',
   'settings.catalog.refresh.desc': 'تحقق من وجود نماذج جديدة وأسعار محدثة من models.dev.',
   'settings.catalog.updated': 'تم تحديث الكتالوج بنجاح.',

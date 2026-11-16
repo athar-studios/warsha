@@ -323,6 +323,8 @@ export default {
   'settings.common.confirm_remove': 'Yes, remove',
   'settings.common.confirm_revoke': 'Yes, revoke',
   'settings.common.confirm_disconnect': 'Yes, disconnect',
+  'models.refresh_failed': 'Failed to check for catalog updates.',
+  'models.refreshing': 'Checking...',
   'settings.catalog.refresh': 'Check for catalog update',
   'settings.catalog.refresh.desc': 'Check for new models and updated pricing from models.dev.',
   'settings.catalog.updated': 'Catalog updated successfully.',
