@@ -12,7 +12,12 @@
   --w-line-strong: #8C877C;
   --w-text: #1B1A17;
   --w-text-muted: #5F5B53;
-  --w-text-faint: #7A756B;
+  /* D-RN-RF2-4: light-theme faint text sat at 3.92:1 on --w-danger-soft
+     (remote run feed timestamps, axe wcag2aa color-contrast — RF2 run 4).
+     #6B665C keeps the faint role's step below muted (#5F5B53) and passes
+     4.5:1 on every light background it can land on (danger-soft 4.88,
+     sunken 4.84, bg 5.19, surface 5.71). Dark theme unchanged. */
+  --w-text-faint: #6B665C;
   --w-primary: #FFD400;
   --w-primary-hover: #F2C600;
   --w-on-primary: #1B1A17;
