@@ -6914,3 +6914,9 @@ hypotheses left in this triage.
 - Proof: 100-pass inbox experiment 100/100 green; full 416 desktop cases 416/416 ×3 fresh-container passes; 3 consecutive green CI runs both legs (43833136416, 43837753064, 43842194783 — run 3 reports: desktop 416/0, remote 84/0, flaky 0).
 - Discovery: the remote snapshots on the integration line were still the stale 1019506 vintage (structural drift, 164195 px on gates-320x568-ar-light); F2's 88b41ba committed desktop-only despite its message. Replaced with the fresh CI-captured 84 (9a225ac) — the vintage all three green runs verified against.
 - A10 merged into r-next/integration as 1ef5020; owner checklist item 13 records the closure; RF2-report.md addendum appended (808ce3d). FIN4 @visual rows: verified green by the 3 CI runs.
+
+## 2026-11-16 — FIN5 complete: FINAL_REPORT.md draft + checkpoint tag
+- docs/zadloop/packets/FINAL_REPORT.md written from FIN4 gate logs (every claim cites evidence paths; uncovered rows listed: main push, installers, owner-PC install, T3 S2-S5, T2 Windows, codex probe).
+- Mock-provider greenfield e2e: fake_e2e 6/6. Self-check: 12/12 PASS ×3 after the walk-order fix (0e610fb, D-RN-FIN5-1) — owner checklist item 2 (OD-B6) unblocked.
+- Tag r-next/cp-phase0 created locally @ fc9565d (not pushed — no release/publish).
+- PHASE 0 COMPLETE (F0-FIN5 + RF2 + N0). Next per §11: Phase 1 (N1, A1, B1, A2, B2, A3, A4, B3), Phases 2-5, A5, Z1.
