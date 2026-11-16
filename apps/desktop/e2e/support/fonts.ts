@@ -254,24 +254,41 @@ export async function auditUsedFonts(page: Page, rootSelector: string): Promise<
     );
   }
 
-  const metrics = await page.evaluate(
-    ({ probe, sans, mono }): Record<string, number> => {
-      const canvas = document.createElement('canvas');
-      const context = canvas.getContext('2d');
-      if (context === null) return {};
-      const widthOf = (family: string): number => {
-        context.font = `16px "${family}"`;
-        return Math.round(context.measureText(probe).width * 100) / 100;
-      };
-      return {
-        [sans]: widthOf(sans),
-        [mono]: widthOf(mono),
-        'no such family': widthOf('Warsha Does Not Exist Family'),
-        serif: widthOf('serif'),
-      };
-    },
-    { probe: METRICS_PROBE, sans: SANS_FAMILY, mono: MONO_FAMILY }
-  );
+  // The canvas cross-check runs on an ISOLATED page in the same context, not
+  // on the app page (D-RN-RF2-3). A page that registers `@font-face` rules for
+  // the audited family — the app bundles IBM Plex via @fontsource
+  // (`@warsha/ui/v3/fonts.css`, imported by apps/remote/src/main.tsx:16 and
+  // apps/desktop/src/v3/app/V3App.tsx:6) — sends canvas font resolution through
+  // the webfont path, where an unloaded unicode-range subset makes the measured
+  // width coincide with the default font's (240px for both mono and an unknown
+  // name on the remote bench pages). A probe on about:blank keeps the check's
+  // original meaning: "the family resolves to real, distinct metrics on this
+  // host" — which is what §11 needs the capture host to prove. The element
+  // probes above still verify the app page itself was DRAWN with Plex (CDP).
+  const metricsPage = await page.context().newPage();
+  try {
+    await metricsPage.goto('about:blank');
+    var metrics = await metricsPage.evaluate(
+      ({ probe, sans, mono }): Record<string, number> => {
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        if (context === null) return {};
+        const widthOf = (family: string): number => {
+          context.font = `16px "${family}"`;
+          return Math.round(context.measureText(probe).width * 100) / 100;
+        };
+        return {
+          [sans]: widthOf(sans),
+          [mono]: widthOf(mono),
+          'no such family': widthOf('Warsha Does Not Exist Family'),
+          serif: widthOf('serif'),
+        };
+      },
+      { probe: METRICS_PROBE, sans: SANS_FAMILY, mono: MONO_FAMILY }
+    );
+  } finally {
+    await metricsPage.close();
+  }
 
   const unknown = metrics['no such family'] ?? 0;
   for (const family of [SANS_FAMILY, MONO_FAMILY]) {

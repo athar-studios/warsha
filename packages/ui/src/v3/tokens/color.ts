@@ -37,7 +37,9 @@ export const lightColors: ThemeColors = {
   lineStrong: '#8C877C',
   text: '#1B1A17',
   textMuted: '#5F5B53',
-  textFaint: '#7A756B',
+  // D-RN-RF2-4: raised from #7A756B — 3.92:1 on danger-soft (axe wcag2aa,
+  // RF2 run 4); #6B665C passes 4.5:1 on every light background (see tokens.css).
+  textFaint: '#6B665C',
   primary: '#FFD400',
   primaryHover: '#F2C600',
   onPrimary: '#1B1A17',
