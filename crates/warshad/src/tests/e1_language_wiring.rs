@@ -198,6 +198,8 @@ async fn a_project_created_in_arabic_renders_its_run_prompts_in_arabic() {
             "عيادة أسنان".to_string(),
             "A dental clinic booking app".to_string(),
             "ar".to_string(),
+            None,
+            None,
         )
         .await
         .expect("the project is created");

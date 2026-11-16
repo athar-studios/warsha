@@ -305,8 +305,7 @@ async fn approved_agent_run(state: &Arc<DaemonState>, store: &Arc<Store>) -> Run
         language: "en".to_string(),
         created_at: Utc::now(),
         updated_at: Utc::now(),
-        repo_path: None,
-        repo_url: None,
+        ..Default::default()
     };
     store.create_project(&project).await.expect("the project");
     let rpc = WarshaRpc::new(state.clone());
@@ -1234,7 +1233,7 @@ async fn stored_run(store: &Store, name: &str, repo_path: Option<&Path>) -> Run 
         created_at: Utc::now(),
         updated_at: Utc::now(),
         repo_path: repo_path.map(|path| path.to_string_lossy().into_owned()),
-        repo_url: None,
+        ..Default::default()
     };
     store
         .create_project(&project)
@@ -3548,6 +3547,8 @@ mod runs_resume {
                 "Resume Auth Project".to_string(),
                 "Test auth on runs.resume".to_string(),
                 "en".to_string(),
+                None,
+                None,
             )
             .await
             .expect("project created");
@@ -3587,6 +3588,8 @@ mod runs_resume {
 
         let project = rpc
             .create_project(
+                None,
+                None,
                 &owner,
                 "Change Request Loop Project".to_string(),
                 "Test change-request resume".to_string(),
@@ -3648,6 +3651,8 @@ mod runs_resume {
 
         let project = rpc
             .create_project(
+                None,
+                None,
                 &owner,
                 "Budget Resume Project".to_string(),
                 "Test budget pause & resume".to_string(),
@@ -3771,6 +3776,8 @@ mod runs_start_budget {
 
         let project = rpc
             .create_project(
+                None,
+                None,
                 &owner,
                 "Budget Start Project".to_string(),
                 "Test start-time budget refusal".to_string(),
@@ -3832,6 +3839,8 @@ mod runs_followup {
 
         let project = rpc
             .create_project(
+                None,
+                None,
                 &owner,
                 "Followup Integrity Project".to_string(),
                 "Test followup CAS and cancel refusal".to_string(),
@@ -3963,6 +3972,8 @@ mod provider_truth {
 
         let project = rpc
             .create_project(
+                None,
+                None,
                 &owner,
                 "Provider Truth Project".to_string(),
                 "Verify unrouted role fails explicitly".to_string(),
@@ -4028,6 +4039,8 @@ mod provider_truth {
 
         let project = rpc
             .create_project(
+                None,
+                None,
                 &owner,
                 "Followup Truth Project".to_string(),
                 "Test unrouted followup".to_string(),
@@ -4081,6 +4094,8 @@ mod provider_truth {
 
         let project = rpc
             .create_project(
+                None,
+                None,
                 &owner,
                 "Explicit Routing Project".to_string(),
                 "Test explicit routing".to_string(),
@@ -4118,6 +4133,8 @@ mod provider_truth {
 
         let project = rpc
             .create_project(
+                None,
+                None,
                 &owner,
                 "Resume After Routing Project".to_string(),
                 "Test resuming after adding provider".to_string(),
@@ -6603,7 +6620,7 @@ mod agent_tool_events {
             repo_url: None,
         };
         failing_store
-            .create_project(&failing_project)
+            .create_project(None, None, &failing_project)
             .await
             .expect("the project");
         let failing_run = failing_rpc

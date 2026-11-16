@@ -112,6 +112,8 @@ async fn attaching_an_existing_repository_records_it_on_the_project() {
             "Attach Project".to_string(),
             "Test".to_string(),
             "en".to_string(),
+            None,
+            None,
         )
         .await
         .expect("the project is created");
@@ -151,6 +153,8 @@ async fn attaching_a_path_that_is_not_a_repository_is_refused_and_changes_nothin
             "Attach Project".to_string(),
             "Test".to_string(),
             "en".to_string(),
+            None,
+            None,
         )
         .await
         .expect("the project is created");

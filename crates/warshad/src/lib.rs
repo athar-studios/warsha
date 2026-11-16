@@ -172,6 +172,7 @@ impl WarshaApiServer for WarshaRpc {
             permissions: ProjectPermissions {
                 confinement: confinement.unwrap_or_default(),
                 approval_mode: approval_mode.unwrap_or_default(),
+                is_override: confinement.is_some() || approval_mode.is_some(),
             },
         };
         self.state
@@ -198,7 +199,11 @@ impl WarshaApiServer for WarshaRpc {
         approval_mode: ApprovalMode,
     ) -> RpcResult<ProjectPermissions> {
         self.authorize(ext, "permissions.defaults.set").await?;
-        let permissions = ProjectPermissions { confinement, approval_mode };
+        let permissions = ProjectPermissions {
+            confinement,
+            approval_mode,
+            is_override: true,
+        };
         self.state
             .store
             .set_default_permissions(&permissions)
@@ -207,7 +212,11 @@ impl WarshaApiServer for WarshaRpc {
         Ok(permissions)
     }
 
-    async fn get_project_permissions(&self, ext: &RpcExtensions, project_id: ProjectId) -> RpcResult<ProjectPermissions> {
+    async fn get_project_permissions(
+        &self,
+        ext: &RpcExtensions,
+        project_id: ProjectId,
+    ) -> RpcResult<ProjectPermissions> {
         self.authorize(ext, "permissions.project.get").await?;
         self.state
             .store

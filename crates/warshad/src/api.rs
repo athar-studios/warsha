@@ -2,7 +2,7 @@
 //! and the 15 DTOs it carries. Split out of `lib.rs` (P-H1 step A1, pure move).
 
 use chrono::Utc;
-use jsonrpsee::{core::RpcResult, proc_macros::rpc};
+use jsonrpsee::{core::RpcResult, proc_macros::rpc, server::Extensions};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use warsha_core::*;
@@ -14,7 +14,10 @@ use warsha_pipeline::{
 use warsha_providers::{HealthCheck, OneClickProvider};
 use warsha_store::StoredProvider;
 
-use crate::{McpApproval, McpApprovalAnswer, McpPermissionRow, McpPermissionsReply, RunStreamSync};
+use crate::{
+    McpApproval, McpApprovalAnswer, McpPermissionRow, McpPermissionsReply, RpcExtensions,
+    RunStreamSync,
+};
 
 /// JSON-RPC API trait
 #[rpc(server)]
@@ -54,7 +57,8 @@ pub trait WarshaApi {
     ) -> RpcResult<ProjectPermissions>;
 
     #[method(name = "permissions.project.get", with_extensions)]
-    async fn get_project_permissions(&self, project_id: ProjectId) -> RpcResult<ProjectPermissions>;
+    async fn get_project_permissions(&self, project_id: ProjectId)
+        -> RpcResult<ProjectPermissions>;
 
     #[method(name = "permissions.project.set", with_extensions)]
     async fn set_project_permissions(

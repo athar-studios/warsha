@@ -354,8 +354,8 @@ impl Store {
     pub async fn create_project(&self, project: &Project) -> Result<()> {
         sqlx::query(
             "INSERT INTO projects \
-             (id, name, description, language, created_at, updated_at, repo_path, repo_url) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+             (id, name, description, language, created_at, updated_at, repo_path, repo_url, confinement, approval_mode) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(project.id.0.as_bytes().to_vec())
         .bind(&project.name)
@@ -365,6 +365,8 @@ impl Store {
         .bind(project.updated_at.to_rfc3339())
         .bind(&project.repo_path)
         .bind(&project.repo_url)
+        .bind(project.confinement.as_ref().map(|c| c.to_string()))
+        .bind(project.approval_mode.as_ref().map(|a| a.to_string()))
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -373,7 +375,7 @@ impl Store {
     /// Fetch a project by id.
     pub async fn get_project(&self, id: ProjectId) -> Result<Project> {
         let row = sqlx::query(
-            "SELECT id, name, description, language, created_at, updated_at, repo_path, repo_url \
+            "SELECT id, name, description, language, created_at, updated_at, repo_path, repo_url, confinement, approval_mode \
              FROM projects WHERE id = ?",
         )
         .bind(id.0.as_bytes().to_vec())
@@ -386,7 +388,7 @@ impl Store {
     /// List all projects, newest first.
     pub async fn list_projects(&self) -> Result<Vec<Project>> {
         let rows = sqlx::query(
-            "SELECT id, name, description, language, created_at, updated_at, repo_path, repo_url \
+            "SELECT id, name, description, language, created_at, updated_at, repo_path, repo_url, confinement, approval_mode \
              FROM projects ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
@@ -398,7 +400,7 @@ impl Store {
     pub async fn update_project(&self, project: &Project) -> Result<()> {
         sqlx::query(
             "UPDATE projects SET name = ?, description = ?, language = ?, updated_at = ?, \
-             repo_path = ?, repo_url = ? WHERE id = ?",
+             repo_path = ?, repo_url = ?, confinement = ?, approval_mode = ? WHERE id = ?",
         )
         .bind(&project.name)
         .bind(&project.description)
@@ -406,10 +408,56 @@ impl Store {
         .bind(project.updated_at.to_rfc3339())
         .bind(&project.repo_path)
         .bind(&project.repo_url)
+        .bind(project.confinement.as_ref().map(|c| c.to_string()))
+        .bind(project.approval_mode.as_ref().map(|a| a.to_string()))
         .bind(project.id.0.as_bytes().to_vec())
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    /// Fetch global default project permissions.
+    pub async fn get_default_permissions(&self) -> Result<ProjectPermissions> {
+        self.settings().get_default_permissions().await
+    }
+
+    /// Set global default project permissions.
+    pub async fn set_default_permissions(&self, permissions: &ProjectPermissions) -> Result<()> {
+        self.settings().set_default_permissions(permissions).await
+    }
+
+    /// Get effective permissions for a project (override if set, else global default).
+    pub async fn get_project_effective_permissions(
+        &self,
+        id: ProjectId,
+    ) -> Result<ProjectPermissions> {
+        let project = self.get_project(id).await?;
+        let default = self.get_default_permissions().await?;
+        Ok(project.effective_permissions(default))
+    }
+
+    /// Set explicit per-project permissions override (null clears to inherit from default).
+    pub async fn set_project_permissions(
+        &self,
+        id: ProjectId,
+        confinement: Option<Confinement>,
+        approval_mode: Option<ApprovalMode>,
+    ) -> Result<ProjectPermissions> {
+        let mut project = self.get_project(id).await?;
+        sqlx::query(
+            "UPDATE projects SET confinement = ?, approval_mode = ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(confinement.as_ref().map(|c| c.to_string()))
+        .bind(approval_mode.as_ref().map(|a| a.to_string()))
+        .bind(Utc::now().to_rfc3339())
+        .bind(id.0.as_bytes().to_vec())
+        .execute(&self.pool)
+        .await?;
+
+        project.confinement = confinement;
+        project.approval_mode = approval_mode;
+        let default = self.get_default_permissions().await?;
+        Ok(project.effective_permissions(default))
     }
 
     // ------------------------------------------------------------------- runs
@@ -1066,10 +1114,16 @@ fn parse_time(field: &'static str, value: &str) -> Result<DateTime<Utc>> {
 
 fn project_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Project> {
     let confinement: Option<Confinement> = column_opt_text(row, "confinement")?
-        .map(|s| s.parse().map_err(|e| StoreError::ParseError("confinement", e)))
+        .map(|s| {
+            s.parse()
+                .map_err(|e| StoreError::ParseError("confinement", e))
+        })
         .transpose()?;
     let approval_mode: Option<ApprovalMode> = column_opt_text(row, "approval_mode")?
-        .map(|s| s.parse().map_err(|e| StoreError::ParseError("approval_mode", e)))
+        .map(|s| {
+            s.parse()
+                .map_err(|e| StoreError::ParseError("approval_mode", e))
+        })
         .transpose()?;
 
     Ok(Project {
@@ -1086,6 +1140,7 @@ fn project_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Project> {
         permissions: ProjectPermissions {
             confinement: confinement.unwrap_or_default(),
             approval_mode: approval_mode.unwrap_or_default(),
+            is_override: confinement.is_some() || approval_mode.is_some(),
         },
     })
 }
@@ -1282,6 +1337,8 @@ mod tests {
             updated_at: now,
             repo_path: None,
             repo_url: None,
+            confinement: None,
+            approval_mode: None,
             permissions: Default::default(),
         }
     }
@@ -1326,6 +1383,10 @@ mod tests {
                 "007_cli_usage_costs.sql",
                 &include_bytes!("../migrations/007_cli_usage_costs.sql")[..],
             ),
+            (
+                "009_project_permissions.sql",
+                &include_bytes!("../migrations/009_project_permissions.sql")[..],
+            ),
         ] {
             assert!(
                 !bytes.contains(&b'\r'),
@@ -1345,7 +1406,7 @@ mod tests {
     fn embedded_migrator_versions_are_lf_only() {
         let migrator = migration_migrator();
         let versions: Vec<i64> = migrator.iter().map(|m| m.version).collect();
-        assert_eq!(versions, vec![1, 2, 3, 4, 6, 7, 8]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 6, 7, 8, 9]);
         for migration in migrator.iter() {
             assert!(
                 !migration.sql.contains('\r'),
@@ -1368,7 +1429,7 @@ mod tests {
                 .fetch_all(store.pool())
                 .await
                 .expect("the migration ledger is readable");
-        assert_eq!(applied, vec![1, 2, 3, 4, 6, 7, 8]);
+        assert_eq!(applied, vec![1, 2, 3, 4, 6, 7, 8, 9]);
 
         let tables: Vec<String> = sqlx::query_scalar(
             "SELECT name FROM sqlite_master \

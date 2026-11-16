@@ -220,7 +220,7 @@ async fn test_killed_cli_leaves_failed_or_stopped_session() {
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
         repo_path: Some(dir.path().to_string_lossy().to_string()),
-        repo_url: None,
+        ..Default::default()
     };
     store
         .create_project(&project)

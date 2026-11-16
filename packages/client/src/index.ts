@@ -70,6 +70,13 @@ export interface ProjectSummary {
   name: string;
   createdAt: string;
   updatedAt: string;
+  confinement?: 'read-only' | 'workspace-write' | 'full-access';
+  approvalMode?: 'ask-always' | 'ask-for-risky' | 'never-ask';
+  permissions: {
+    confinement: 'read-only' | 'workspace-write' | 'full-access';
+    approvalMode: 'ask-always' | 'ask-for-risky' | 'never-ask';
+    isOverride: boolean;
+  };
 }
 
 export interface RunSummary {
@@ -130,11 +137,38 @@ function summaryId(value: unknown, name: string): string {
 export function decodeProjectSummary(source: unknown): ProjectSummary {
   const record = summaryObject(source, 'project');
   const createdAt = summaryString(field(record, 'created_at', 'createdAt')) ?? '';
+  const confinement = summaryString(field(record, 'confinement')) as
+    | 'read-only'
+    | 'workspace-write'
+    | 'full-access'
+    | undefined;
+  const approvalMode = summaryString(field(record, 'approval_mode', 'approvalMode')) as
+    | 'ask-always'
+    | 'ask-for-risky'
+    | 'never-ask'
+    | undefined;
+
+  const permissionsRaw = field(record, 'permissions');
+  const permissions = {
+    confinement: summaryString(field(permissionsRaw, 'confinement')) as
+      | 'read-only'
+      | 'workspace-write'
+      | 'full-access',
+    approvalMode: summaryString(field(permissionsRaw, 'approval_mode', 'approvalMode')) as
+      | 'ask-always'
+      | 'ask-for-risky'
+      | 'never-ask',
+    isOverride: !!field(permissionsRaw, 'is_override', 'isOverride'),
+  };
+
   return {
     id: summaryId(field(record, 'id'), 'project') as ProjectId,
     name: summaryString(field(record, 'name')) ?? '',
     createdAt,
     updatedAt: summaryString(field(record, 'updated_at', 'updatedAt')) ?? createdAt,
+    confinement,
+    approvalMode,
+    permissions,
   };
 }
 
@@ -2028,15 +2062,55 @@ export class WarshaClient
   async createProject(
     name: string,
     description: string,
-    language: string
+    language: string,
+    confinement?: 'read-only' | 'workspace-write' | 'full-access',
+    approvalMode?: 'ask-always' | 'ask-for-risky' | 'never-ask'
   ): Promise<ProjectSummary> {
-    const row = await this.rpc<unknown>('projects.create', { name, description, language });
+    const row = await this.rpc<unknown>('projects.create', {
+      name,
+      description,
+      language,
+      confinement,
+      approval_mode: approvalMode,
+    });
     return decodeProjectSummary(row);
   }
 
   async getProject(id: ProjectId): Promise<ProjectSummary> {
     const row = await this.rpc<unknown>('projects.get', { id });
     return decodeProjectSummary(row);
+  }
+
+  async getDefaultPermissions(): Promise<ProjectSummary['permissions']> {
+    return this.rpc<ProjectSummary['permissions']>('permissions.defaults.get', {});
+  }
+
+  async setDefaultPermissions(
+    confinement: 'read-only' | 'workspace-write' | 'full-access',
+    approvalMode: 'ask-always' | 'ask-for-risky' | 'never-ask'
+  ): Promise<ProjectSummary['permissions']> {
+    return this.rpc<ProjectSummary['permissions']>('permissions.defaults.set', {
+      confinement,
+      approval_mode: approvalMode,
+    });
+  }
+
+  async getProjectPermissions(projectId: ProjectId): Promise<ProjectSummary['permissions']> {
+    return this.rpc<ProjectSummary['permissions']>('permissions.project.get', {
+      project_id: projectId,
+    });
+  }
+
+  async setProjectPermissions(
+    projectId: ProjectId,
+    confinement?: 'read-only' | 'workspace-write' | 'full-access',
+    approvalMode?: 'ask-always' | 'ask-for-risky' | 'never-ask'
+  ): Promise<ProjectSummary['permissions']> {
+    return this.rpc<ProjectSummary['permissions']>('permissions.project.set', {
+      project_id: projectId,
+      confinement,
+      approval_mode: approvalMode,
+    });
   }
 
   // Runs

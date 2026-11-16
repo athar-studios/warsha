@@ -286,6 +286,26 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Session,
         tier: Standard,
     },
+    M {
+        method: "permissions.defaults.get",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "permissions.defaults.set",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "permissions.project.get",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "permissions.project.set",
+        policy: Owner,
+        tier: Standard,
+    },
     // Mutates a project's repository, like `projects.create`, so it is the owner's.
     M {
         method: "projects.attach",

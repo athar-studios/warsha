@@ -189,6 +189,8 @@ async fn e2e_request_to_artifact() {
             PACKAGE_NAME.to_string(),
             HELLO_REQUEST.to_string(),
             "en".to_string(),
+            None,
+            None,
         )
         .await
         .expect("projects.create succeeds");
