@@ -199,6 +199,7 @@ async fn execute_stage_uses_harness_prompt_template_when_available() {
         ],
         rules: warsha_core::HarnessRules {
             max_repair_iterations: 3,
+            coding_cli_timeout_seconds: None,
             budget_cap_cents: Some(2000),
             allow_parallel_subagents: true,
             require_verification_receipt: true,
@@ -410,6 +411,7 @@ async fn execute_stage_combines_harness_template_and_skills() {
         }],
         rules: warsha_core::HarnessRules {
             max_repair_iterations: 3,
+            coding_cli_timeout_seconds: None,
             budget_cap_cents: Some(2000),
             allow_parallel_subagents: true,
             require_verification_receipt: true,
@@ -557,6 +559,7 @@ async fn execute_stage_uses_default_prompt_when_no_harness_template() {
         }],
         rules: warsha_core::HarnessRules {
             max_repair_iterations: 3,
+            coding_cli_timeout_seconds: None,
             budget_cap_cents: Some(2000),
             allow_parallel_subagents: true,
             require_verification_receipt: true,

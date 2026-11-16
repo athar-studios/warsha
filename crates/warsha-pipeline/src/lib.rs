@@ -55,7 +55,8 @@ pub use crate::mcp_permission::{
     AskEverything, McpPermissionSource, McpPermissionStore, StaticPermissions, MCP_AGENT_ROLE,
 };
 pub use crate::worktree::{
-    create_run_worktree, remove_run_worktree, worktree_path, RunWorktree, WorktreeError,
+    commit_run_worktree, create_run_worktree, remove_run_worktree, worktree_path, RunWorktree,
+    WorktreeError,
 };
 /// The Streamable HTTP transport's client seam and its pure SSE parser (R-EXT-4):
 /// the daemon implements [`McpHttpClient`] and injects it, and the pipeline keeps
@@ -516,6 +517,8 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             status: RunStatus::Running,
             budget_cents: project_budget_cents,
             spent_cents: 0,
+            worktree_path: None,
+            worktree_branch: None,
         };
 
         // Initialize gate states for all gate stages
@@ -911,6 +914,14 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             backend,
         } = completion;
 
+        if let Some(worktree_path) = run.worktree_path.as_ref() {
+            let _ = commit_run_worktree(
+                &PathBuf::from(worktree_path),
+                &format!("chore(run-{}): CLI code stage", run.id.0),
+            )
+            .await;
+        }
+
         // Re-check cancellation and commit under state_lock via CAS before writing any artifact.
         let (artifact_name, artifact_content, budget_exceeded_info, budget_warn_info) = {
             let _state_guard = ctrl.state_lock.lock().await;
@@ -1090,12 +1101,15 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 ))
             })?;
 
+        let timeout = self.get_coding_cli_timeout(run).await;
+
         let task = CodingTask {
             id: Ulid::new(),
             run_id: run.id,
             title: format!("{} — Code", project.name),
             description: prompt.to_string(),
             repo_path: PathBuf::from(repo_path),
+            worktree_path: run.worktree_path.as_ref().map(PathBuf::from),
             branch_name: format!("warsha/run-{}", run.id.0),
             base_branch: "HEAD".to_string(),
             files: Vec::new(),
@@ -1104,6 +1118,10 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 ("language".to_string(), language.to_string()),
                 ("run".to_string(), run.id.0.to_string()),
                 ("stage".to_string(), stage_to_string(stage).to_string()),
+                (
+                    "coding_cli_timeout_seconds".to_string(),
+                    timeout.to_string(),
+                ),
             ]),
         };
         let session_id = warsha_core::SessionId::new();
@@ -1127,7 +1145,15 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         };
         let _ = self.store.create_session(&session).await;
 
-        let mut sandbox = Sandbox::new(PathBuf::from(repo_path));
+        let sandbox_path = run
+            .worktree_path
+            .as_ref()
+            .map(PathBuf::from)
+            .ok_or_else(|| {
+                PipelineError::Other(format!("run `{}` has no assigned worktree", run.id.0))
+            })?;
+
+        let mut sandbox = Sandbox::new(sandbox_path);
         sandbox.session_id = Some(session_id);
         sandbox.live_sessions = Some(Arc::new(self.live_sessions.clone()));
 
@@ -1187,6 +1213,23 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             tokens: result.usage,
             backend: Some(backend_name),
         }))
+    }
+
+    async fn get_coding_cli_timeout(&self, run: &Run) -> u64 {
+        let harness_id = self
+            .settings
+            .get_active_harness(&run.project_id.to_string())
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "autonomous-factory".to_string());
+        let harness = self.settings.get_harness(&harness_id).await.ok().flatten();
+
+        harness
+            .and_then(|h| serde_json::from_str::<HarnessDefinition>(&h.data_json).ok())
+            .and_then(|d| d.rules.coding_cli_timeout_seconds)
+            .map(|t| t.min(4 * 3600))
+            .unwrap_or(30 * 60)
     }
 
     /// Take one stage/follow-up request to the provider that should answer it.
@@ -2892,6 +2935,7 @@ mod tests {
                 }],
                 rules: HarnessRules {
                     max_repair_iterations: 1,
+                    coding_cli_timeout_seconds: None,
                     budget_cap_cents: None,
                     allow_parallel_subagents: false,
                     require_verification_receipt: false,
@@ -3086,6 +3130,7 @@ mod tests {
                 stages,
                 rules: HarnessRules {
                     max_repair_iterations: 1,
+                    coding_cli_timeout_seconds: None,
                     budget_cap_cents: None,
                     allow_parallel_subagents: false,
                     require_verification_receipt: false,

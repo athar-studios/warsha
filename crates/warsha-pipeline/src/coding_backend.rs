@@ -34,6 +34,7 @@ pub struct CodingTask {
     pub title: String,
     pub description: String,
     pub repo_path: PathBuf,
+    pub worktree_path: Option<PathBuf>,
     pub branch_name: String,
     pub base_branch: String,
     pub files: Vec<TaskFile>,

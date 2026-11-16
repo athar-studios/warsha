@@ -233,6 +233,8 @@ pub struct Run {
     pub status: RunStatus,
     pub budget_cents: Option<u64>,
     pub spent_cents: u64,
+    pub worktree_path: Option<String>,
+    pub worktree_branch: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

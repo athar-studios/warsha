@@ -136,6 +136,7 @@ async fn store_language_harness(settings: &SettingsStore, project_id: ProjectId)
         ],
         rules: HarnessRules {
             max_repair_iterations: 1,
+            coding_cli_timeout_seconds: None,
             budget_cap_cents: None,
             allow_parallel_subagents: false,
             require_verification_receipt: false,

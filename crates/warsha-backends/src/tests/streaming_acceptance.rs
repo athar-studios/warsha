@@ -239,6 +239,8 @@ async fn test_killed_cli_leaves_failed_or_stopped_session() {
         status: warsha_core::RunStatus::Running,
         budget_cents: Some(1000),
         spent_cents: 0,
+        worktree_path: None,
+        worktree_branch: None,
     };
     store.create_run(&run).await.expect("create run");
 
@@ -275,6 +277,7 @@ async fn test_killed_cli_leaves_failed_or_stopped_session() {
 
     let task = CodingTask {
         id: ulid::Ulid::new(),
+        worktree_path: None,
         run_id,
         title: "sleep task".to_string(),
         description: "sleep".to_string(),
@@ -337,6 +340,7 @@ async fn test_stalled_stream_does_not_block_run_loop() {
 
     let task = CodingTask {
         id: ulid::Ulid::new(),
+        worktree_path: None,
         run_id,
         title: "stall test".to_string(),
         description: "stall".to_string(),
@@ -371,6 +375,7 @@ async fn test_no_stream_telemetry_label() {
 
     let task = CodingTask {
         id: ulid::Ulid::new(),
+        worktree_path: None,
         run_id,
         title: "builtin test".to_string(),
         description: "test".to_string(),

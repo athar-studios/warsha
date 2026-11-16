@@ -172,6 +172,8 @@ struct ImportRules {
     #[serde(default)]
     max_repair_iterations: Option<u32>,
     #[serde(default)]
+    coding_cli_timeout_seconds: Option<u64>,
+    #[serde(default)]
     budget_cap_cents: Option<u64>,
     #[serde(default)]
     allow_parallel_subagents: Option<bool>,
@@ -188,6 +190,7 @@ struct ImportRules {
 fn default_harness_rules() -> HarnessRules {
     HarnessRules {
         max_repair_iterations: 3,
+        coding_cli_timeout_seconds: None,
         budget_cap_cents: None,
         allow_parallel_subagents: false,
         require_verification_receipt: false,
@@ -201,6 +204,9 @@ impl From<ImportRules> for HarnessRules {
             max_repair_iterations: rules
                 .max_repair_iterations
                 .unwrap_or(defaults.max_repair_iterations),
+            coding_cli_timeout_seconds: rules
+                .coding_cli_timeout_seconds
+                .or(defaults.coding_cli_timeout_seconds),
             budget_cap_cents: rules.budget_cap_cents.or(defaults.budget_cap_cents),
             allow_parallel_subagents: rules
                 .allow_parallel_subagents
