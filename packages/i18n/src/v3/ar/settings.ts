@@ -332,4 +332,5 @@ export default {
   'settings.catalog.diff.title': 'تحديث الكتالوج متاح',
   'settings.catalog.diff.desc': 'تمت إضافة نماذج جديدة: {added}. تم تحديث الأسعار لـ: {updated}.',
   'settings.catalog.apply': 'تطبيق التحديث',
+  'settings.catalog.prices_estimated': 'جميع الأسعار تقديرية من models.dev.',
 };

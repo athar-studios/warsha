@@ -332,4 +332,5 @@ export default {
   'settings.catalog.diff.title': 'Catalog update available',
   'settings.catalog.diff.desc': 'New models added: {added}. Prices updated for: {updated}.',
   'settings.catalog.apply': 'Apply update',
+  'settings.catalog.prices_estimated': 'All prices are estimates from models.dev.',
 };

@@ -101,6 +101,7 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
   const [added, setAdded] = useState<string | null>(null);
   const [removed, setRemoved] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [catalogUpdate, setCatalogUpdate] = useState<{ diff: { added: string, removed: string, price_changed: string } } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [roleChoice, setRoleChoice] = useState<Record<string, string>>({});
   const [assigned, setAssigned] = useState<string | null>(null);
@@ -229,9 +230,18 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
     setRefreshing(true);
     setActionError(null);
     try {
-      // TODO: Call daemon RPC: catalog::refresh()
-      // const update = await client.refreshCatalog();
-      // ...
+      const update = await client.refreshCatalog();
+      if (update === null) {
+        setActionError(label('settings.catalog.no_update'));
+      } else {
+        setCatalogUpdate({
+          diff: {
+            added: update.added.map(a => a[1]).join(', '),
+            removed: update.removed.map(a => a[1]).join(', '),
+            price_changed: update.price_changed.map(a => a[1]).join(', '),
+          }
+        });
+      }
     } catch {
       setActionError(label('models.refresh_failed'));
     } finally {
@@ -371,6 +381,30 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
 
       {actionError && (
         <Banner tone="error">{actionError}</Banner>
+      )}
+
+      {catalogUpdate && (
+        <Panel title={label('settings.catalog.diff.title')} label={label('settings.catalog.diff.title')}>
+          <Box dir={dir} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-2)' }}>
+            <Text size="sm" dir={dir}>
+              {label('settings.catalog.diff.desc', {
+                added: catalogUpdate.diff.added,
+                updated: catalogUpdate.diff.price_changed,
+              })}
+            </Text>
+            <Button variant="primary" dir={dir} onClick={async () => {
+              try {
+                await client.applyCatalogUpdate();
+                setCatalogUpdate(null);
+                setActionError(label('settings.catalog.updated'));
+              } catch {
+                setActionError(label('models.refresh_failed'));
+              }
+            }}>
+              {label('settings.catalog.apply')}
+            </Button>
+          </Box>
+        </Panel>
       )}
 
       {showAdd && (
@@ -575,6 +609,11 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
       ) : (
         <>
           <Panel title={label('models.catalog')} label={label('models.catalog')}>
+            <Box dir={dir} style={{ paddingBlockEnd: 'var(--warsha-space-2)' }}>
+              <Text size="xs" dir={dir} style={{ color: 'var(--warsha-color-text-muted)' }}>
+                {label('settings.catalog.prices_estimated')}
+              </Text>
+            </Box>
             {models.length === 0 ? (
               <EmptyState
                 title={label('models.empty')}

@@ -1166,6 +1166,12 @@ export interface CustomModelRecord {
   enabled: boolean;
 }
 
+export interface CatalogDiff {
+  added: [string, string][];
+  removed: [string, string][];
+  price_changed: [string, string][];
+}
+
 /** What one model costs, in cents per million tokens (`warsha_core::ModelPricing`). */
 export interface ModelPricing {
   input_per_million_cents: number;
@@ -1828,6 +1834,9 @@ export interface WarshaWave2Api {
     contextWindow?: number
   ): Promise<CustomModelRecord>;
   removeCustomModel(provider: string, modelId: string): Promise<void>;
+
+  refreshCatalog(): Promise<CatalogDiff | null>;
+  applyCatalogUpdate(): Promise<void>;
 
   listIntegrations(): Promise<IntegrationStatus[]>;
   connectIntegration(id: string, config: IntegrationConfig): Promise<IntegrationStatus>;
@@ -2558,6 +2567,14 @@ export class WarshaClient
 
   async removeCustomModel(provider: string, modelId: string): Promise<void> {
     await this.rpc<unknown>('models.remove', { provider, model_id: modelId });
+  }
+
+  async refreshCatalog(): Promise<CatalogDiff | null> {
+    return await this.rpc<CatalogDiff | null>('catalog.refresh');
+  }
+
+  async applyCatalogUpdate(): Promise<void> {
+    await this.rpc<unknown>('catalog.apply');
   }
 
   // Wave 2 — integrations. The token material rides the write once, like
