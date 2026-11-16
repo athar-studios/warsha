@@ -1,9 +1,9 @@
 //! Session entity for live CLI event tracking.
 
+use crate::{ProjectId, Role, RunId};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
-use crate::{ProjectId, Role, RunId};
 
 /// Unique identifier for a session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

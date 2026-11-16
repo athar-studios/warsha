@@ -663,7 +663,11 @@ impl Store {
     }
 
     /// Update session status.
-    pub async fn update_session_status(&self, session_id: SessionId, status: SessionStatus) -> Result<()> {
+    pub async fn update_session_status(
+        &self,
+        session_id: SessionId,
+        status: SessionStatus,
+    ) -> Result<()> {
         sqlx::query("UPDATE sessions SET status = ? WHERE id = ?")
             .bind(serde_json::to_string(&status)?)
             .bind(session_id.to_string())
@@ -673,7 +677,12 @@ impl Store {
     }
 
     /// Finish a session.
-    pub async fn finish_session(&self, session_id: SessionId, status: SessionStatus, ended_at: DateTime<Utc>) -> Result<()> {
+    pub async fn finish_session(
+        &self,
+        session_id: SessionId,
+        status: SessionStatus,
+        ended_at: DateTime<Utc>,
+    ) -> Result<()> {
         sqlx::query("UPDATE sessions SET status = ?, ended_at = ? WHERE id = ?")
             .bind(serde_json::to_string(&status)?)
             .bind(ended_at.to_rfc3339())
@@ -1115,15 +1124,23 @@ fn session_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Session> {
     Ok(Session {
         id: SessionId(parse_ulid("sessions.id", &column_text(row, "id")?)?),
         run_id: RunId(parse_ulid("sessions.run_id", &column_text(row, "run_id")?)?),
-        project_id: ProjectId(parse_uuid("sessions.project_id", &column_blob(row, "project_id")?)?),
+        project_id: ProjectId(parse_uuid(
+            "sessions.project_id",
+            &column_blob(row, "project_id")?,
+        )?),
         role: serde_json::from_str::<Role>(&column_text(row, "role")?)?,
         backend: column_text(row, "backend")?,
         provider: column_text(row, "provider")?,
         model: column_text(row, "model")?,
         status: serde_json::from_str::<SessionStatus>(&column_text(row, "status")?)?,
         started_at: parse_time("sessions.started_at", &column_text(row, "started_at")?)?,
-        ended_at: column_opt_text(row, "ended_at")?.map(|t| parse_time("sessions.ended_at", &t)).transpose()?,
-        parent_session_id: column_opt_text(row, "parent_session_id")?.map(|t| parse_ulid("sessions.parent_session_id", &t)).transpose()?.map(SessionId),
+        ended_at: column_opt_text(row, "ended_at")?
+            .map(|t| parse_time("sessions.ended_at", &t))
+            .transpose()?,
+        parent_session_id: column_opt_text(row, "parent_session_id")?
+            .map(|t| parse_ulid("sessions.parent_session_id", &t))
+            .transpose()?
+            .map(SessionId),
         cli_session_id: column_opt_text(row, "cli_session_id")?,
     })
 }
