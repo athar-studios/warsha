@@ -6922,3 +6922,8 @@ hypotheses left in this triage.
 - Mock-provider greenfield e2e: fake_e2e 6/6. Self-check: 12/12 PASS ×3 after the walk-order fix (0e610fb, D-RN-FIN5-1) — owner checklist item 2 (OD-B6) unblocked.
 - Tag r-next/cp-phase0 created locally @ fc9565d (not pushed — no release/publish).
 - PHASE 0 COMPLETE (F0-FIN5 + RF2 + N0). Next per §11: Phase 1 (N1, A1, B1, A2, B2, A3, A4, B3), Phases 2-5, A5, Z1.
+
+## 2026-11-16 — Phase 1: N1 + A1 (parallel lanes)
+- N1 (sessions + live CLI events): sessions table (008) + CRUD + core Session types + EventKind SessionStarted/StatusChanged/ToolStarted/ToolFinished/FileTouched/SessionEnded; streaming CLI adapter (claude stream-json, codex --json) replacing run-to-completion reads; 256-line redacted tail ring buffer; process-group stop (SIGTERM→SIGKILL, taskkill /T on Windows); sessions.list/tail/stop RPC. Acceptance tests: fixture sequences, killed-CLI terminal state, content-rule canary (5 CANARY_* secrets absent), no-stream label, stalled-stream. Branch r-next/n1-sessions @ 2889ae3, merged 602f360. Gates: workspace 1146/0 (post-A1), arch 5/0, policy 8/0, wire 11/0.
+- A1 (model catalog): data/catalog/api.json vendored (models.dev, 2026-11-16, SHA-256 a5cd1e38…) + provenance; crates/warsha-catalog (parse, digest, diff added/removed/price_changed, apply with custom-override survival, 8MB cap, malformed rejection); settings UI check-catalog-update → diff preview → confirm-apply; prices_estimated labels en+ar. Branch r-next/a1-model-catalog @ 6ada34d, merged 797721c. Daemon-side catalog.refresh/apply handlers = documented TODO (wired in a later packet; client fails gracefully meanwhile).
+- Arch: warsha-catalog placed tier 1 (012808b, ARCH_RULES sketch updated).
