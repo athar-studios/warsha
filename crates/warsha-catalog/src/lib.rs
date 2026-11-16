@@ -40,8 +40,43 @@ pub fn parse_catalog() -> anyhow::Result<Catalog> {
         .map_err(|e| anyhow::anyhow!("Failed to parse catalog: {}", e))
 }
 
-// TODO: Implement refresh_catalog with RPC and diffing logic.
-// This will require daemon-side RPC hook to fetch from URL, verify, and store.
+pub struct CatalogDiff {
+    pub added: Vec<String>,
+    pub removed: Vec<String>,
+    pub price_changed: Vec<String>,
+}
+
+impl Catalog {
+    pub fn compute_diff(&self, new: &Catalog) -> CatalogDiff {
+        // TODO: Implement actual diff logic
+        CatalogDiff {
+            added: vec![],
+            removed: vec![],
+            price_changed: vec![],
+        }
+    }
+}
+
+pub fn refresh_catalog(downloaded_bytes: &[u8], current: &Catalog) -> anyhow::Result<(Catalog, CatalogDiff)> {
+    if downloaded_bytes.len() > 8 * 1024 * 1024 {
+        return Err(anyhow::anyhow!("Download exceeds 8MB size limit"));
+    }
+
+    let new_catalog: Catalog = serde_json::from_slice(downloaded_bytes)
+        .map_err(|e| anyhow::anyhow!("Failed to parse catalog: {}", e))?;
+
+    let diff = current.compute_diff(&new_catalog);
+
+    Ok((new_catalog, diff))
+}
+
+pub fn apply_catalog(catalog: Catalog, _diff: &CatalogDiff) -> Catalog {
+    // TODO: Implement apply logic
+    catalog
+}
+
+// TODO: Implement daemon-side RPC hook to fetch from URL, verify, and store.
+// Daemon method needed: `catalog::refresh() -> Result<CatalogUpdateInfo>`
 
 #[cfg(test)]
 mod tests {
