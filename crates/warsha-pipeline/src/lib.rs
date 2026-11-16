@@ -17,6 +17,8 @@ use warsha_providers::{
 use warsha_store::Store;
 
 mod agent_loop;
+pub mod receipt;
+pub use receipt::{build_run_receipt, RunReceipt};
 pub mod agent_sessions;
 mod agent_tools;
 mod agent_workflow;
@@ -243,15 +245,33 @@ fn stage_to_string(stage: Stage) -> &'static str {
 /// The Code-stage artifact a coding CLI's run leaves behind: the files it changed
 /// and the diff git reports, both read from the run's repository after the CLI
 /// exited. The stage records the change that exists, not one the CLI claims.
-fn code_stage_report(backend: &str, result: &CodingResult) -> String {
+fn code_stage_report(
+    backend: &str,
+    result: &CodingResult,
+    worktree_path: Option<&str>,
+    worktree_branch: Option<&str>,
+    timeout_seconds: Option<u64>,
+) -> String {
     let mut report = format!("# Code\n\nThe coding backend `{backend}` ran this stage.\n");
     report.push_str(&format!("Duration: {} ms\n", result.duration_ms));
+    if let Some(path) = worktree_path {
+        report.push_str(&format!("Worktree: {path}\n"));
+    }
+    if let Some(branch) = worktree_branch {
+        report.push_str(&format!("Branch: {branch}\n"));
+    }
+    if let Some(timeout) = timeout_seconds {
+        report.push_str(&format!("Timeout: {timeout}s\n"));
+    }
     if result.files_changed.is_empty() {
-        report.push_str("\nFiles changed: none\n");
+        report.push_str("\nFiles changed: none\nNo commit made (clean working tree).\n");
     } else {
         report.push_str("\nFiles changed:\n");
         for path in &result.files_changed {
             report.push_str(&format!("- {path}\n"));
+        }
+        if let Some(branch) = worktree_branch {
+            report.push_str(&format!("\nCommitted on branch `{branch}`.\n"));
         }
     }
     match result.diff.as_deref() {
@@ -1205,7 +1225,13 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         let estimated = true; // Always estimated for CLI
 
         Ok(Some(StageCompletion {
-            content: code_stage_report(&backend_name, &result),
+            content: code_stage_report(
+                &backend_name,
+                &result,
+                run.worktree_path.as_deref(),
+                run.worktree_branch.as_deref(),
+                Some(timeout),
+            ),
             cost_cents,
             source: "cli_reported".to_string(),
             estimated,

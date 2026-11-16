@@ -88,10 +88,14 @@ pub async fn create_run_worktree(
         )));
     }
     tokio::fs::create_dir_all(root).await?;
+    // N3: the worktree lives on the run's own branch (`warsha/run-<id>`) from
+    // creation, so the daemon's stage commit lands on the named branch instead
+    // of a detached HEAD.
+    let branch = format!("warsha/run-{run_id}");
     let output = tokio::process::Command::new("git")
         .arg("-C")
         .arg(repo)
-        .args(["worktree", "add", "--detach"])
+        .args(["worktree", "add", "-b", &branch])
         .arg(&path)
         .arg(base)
         .output()
