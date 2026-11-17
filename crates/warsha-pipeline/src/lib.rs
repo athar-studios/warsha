@@ -186,9 +186,9 @@ pub use crate::skills::{
     SkillError, SkillManifest, SkillRegistry, SkillSource, SkillsLockEntry, SkillsLockfile,
 };
 pub use crate::work_protection::{
-    policy_for_permissions, InMemorySnapshotStore, PermissionMode, ReadBeforeWriteGuard, Snapshot,
-    SnapshotFile, SnapshotStore, UndoEntry, UndoStack, WorkProtectionError, WorkProtectionPolicy,
-    MAX_UNDO_ENTRIES,
+    classify_command, policy_for_permissions, InMemorySnapshotStore, PermissionMode,
+    ReadBeforeWriteGuard, RiskClass, Snapshot, SnapshotFile, SnapshotStore, UndoEntry, UndoStack,
+    WorkProtectionError, WorkProtectionPolicy, MAX_UNDO_ENTRIES,
 };
 
 /// The one event a run's end appends (R-EXT-2 A2).

@@ -336,6 +336,52 @@ fn normalize_path(path: &str) -> &str {
     trimmed.strip_prefix("./").unwrap_or(trimmed)
 }
 
+/// Classification of operations based on their risk level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RiskClass {
+    Safe,
+    Risky,
+}
+
+/// Classifies a command as safe or risky.
+pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
+    // Shell commands are risky.
+    if matches!(program, "sh" | "bash" | "cmd" | "powershell" | "pwsh") {
+        return RiskClass::Risky;
+    }
+
+    // Network egress is risky.
+    let risky_commands = [
+        "curl", "wget", "ssh", "scp", // Network
+        "npm", "pip", "cargo", // Package managers
+        "git",   // Pushing/Publishing
+    ];
+    if risky_commands.contains(&program) {
+        if matches!(program, "curl" | "wget" | "ssh" | "scp") {
+            return RiskClass::Risky;
+        }
+        if matches!(program, "npm" | "pip" | "cargo")
+            && args
+                .iter()
+                .any(|arg| matches!(arg.as_str(), "publish" | "install" | "add"))
+        {
+            return RiskClass::Risky;
+        }
+        if program == "git" && args.iter().any(|arg| arg == "push") {
+            return RiskClass::Risky;
+        }
+    }
+
+    // Writes outside the workspace or deleting >20 files (conservative).
+    for arg in args {
+        if arg.starts_with('/') || arg.contains("..") {
+            return RiskClass::Risky;
+        }
+    }
+
+    RiskClass::Safe
+}
+
 /// Maps project permissions to a work protection policy.
 pub fn policy_for_permissions(p: ProjectPermissions) -> WorkProtectionPolicy {
     let mode = match (p.confinement, p.approval_mode) {
@@ -357,6 +403,28 @@ pub fn policy_for_permissions(p: ProjectPermissions) -> WorkProtectionPolicy {
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_classify_command() {
+        assert_eq!(classify_command("ls", &[]), RiskClass::Safe);
+        assert_eq!(classify_command("bash", &[]), RiskClass::Risky);
+        assert_eq!(classify_command("curl", &[]), RiskClass::Risky);
+        assert_eq!(
+            classify_command("git", &["push".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("npm", &["install".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cat", &["../secret.txt".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cat", &["/etc/passwd".to_string()]),
+            RiskClass::Risky
+        );
+    }
     fn snapshot(id: &str, run_id: &str, files: &[(&str, &str)]) -> Snapshot {
         Snapshot {
             id: id.to_string(),
