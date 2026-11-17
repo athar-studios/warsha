@@ -229,6 +229,12 @@ pub trait WarshaApi {
         project_id: Option<ProjectId>,
     ) -> RpcResult<Vec<UsageTimeRow>>;
 
+    /// A CLI-managed provider's rolling subscription window (A3): spend and
+    /// request counts over the last 5 hours and the last 7 days, estimated
+    /// from the daemon's own cost records — the provider exposes no limit.
+    #[method(name = "usage.subscription_window", with_extensions)]
+    async fn usage_subscription_window(&self) -> RpcResult<SubscriptionWindow>;
+
     #[method(name = "devices.list", with_extensions)]
     async fn list_devices(&self) -> RpcResult<Vec<warsha_remote::DeviceIdentity>>;
 
@@ -824,6 +830,27 @@ pub struct UsageTimeRow {
     pub completion_tokens: u64,
     pub cache_read_tokens: u64,
     pub cache_write_tokens: u64,
+    pub requests: u64,
+}
+
+/// A CLI-managed provider's rolling subscription window, as
+/// `usage.subscription_window` answers it (A3). Both windows are estimated
+/// from the daemon's own cost records; the provider exposes no limit, so
+/// none is invented here.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubscriptionWindow {
+    /// Rolling 5-hour window (the CLI's short subscription bucket).
+    pub five_hour: WindowUsage,
+    /// Rolling 7-day window (the CLI's weekly bucket).
+    pub seven_day: WindowUsage,
+}
+
+/// One window's estimated usage (A3).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WindowUsage {
+    /// Estimated spend inside the window, in cents.
+    pub cost_cents: u64,
+    /// Request count inside the window.
     pub requests: u64,
 }
 

@@ -989,28 +989,32 @@ impl Store {
     }
 
     /// Aggregate costs by a specified dimension (e.g., 'provider_id', 'model_id', 'agent_role', 'project_id').
-    pub async fn aggregate_costs_by(&self, dimension: &str, project_id: Option<ProjectId>) -> Result<HashMap<String, u64>> {
+    pub async fn aggregate_costs_by(
+        &self,
+        dimension: &str,
+        project_id: Option<ProjectId>,
+    ) -> Result<HashMap<String, u64>> {
         let whitelisted = ["provider_id", "model_id", "agent_role", "project_id"];
         if !whitelisted.contains(&dimension) {
             return Err(StoreError::UnexpectedType("invalid dimension"));
         }
-        
+
         let mut query = format!(
             "SELECT {} AS dim, SUM(cost_cents) AS total FROM costs",
             dimension
         );
-        
+
         if project_id.is_some() {
             query.push_str(" WHERE project_id = ?");
         }
-        
+
         query.push_str(" GROUP BY dim");
-        
+
         let mut query_builder = sqlx::query(&query);
         if let Some(pid) = project_id {
             query_builder = query_builder.bind(pid.0.as_bytes().to_vec());
         }
-        
+
         let rows = query_builder.fetch_all(&self.pool).await?;
 
         let mut results = HashMap::new();
@@ -1025,23 +1029,23 @@ impl Store {
 
     /// Aggregate tokens by dimension and time (day/month).
     pub async fn aggregate_tokens_by(
-        &self, 
+        &self,
         dimension: &str,
         time_format: &str, // "%Y-%m-%d" or "%Y-%m"
-        project_id: Option<ProjectId>
+        project_id: Option<ProjectId>,
     ) -> Result<HashMap<(String, String), (u64, u64, u64, u64, u64)>> {
         let whitelisted = ["provider_id", "model_id", "agent_role", "project_id"];
         if !whitelisted.contains(&dimension) {
             return Err(StoreError::UnexpectedType("invalid dimension"));
         }
-        
+
         // SQLite date formatting: strftime(format, created_at)
         let time_sql = match time_format {
             "%Y-%m-%d" => "DATE(created_at)",
             "%Y-%m" => "strftime('%Y-%m', created_at)",
             _ => return Err(StoreError::UnexpectedType("invalid time format")),
         };
-        
+
         let mut query = format!(
             "SELECT {dim} AS dim, {time_sql} AS time, \
              SUM(prompt_tokens) AS p, SUM(completion_tokens) AS c, \
@@ -1051,20 +1055,20 @@ impl Store {
             dim = dimension,
             time_sql = time_sql
         );
-        
+
         if project_id.is_some() {
             query.push_str(" WHERE project_id = ?");
         }
-        
+
         query.push_str(" GROUP BY dim, time");
-        
+
         let mut query_builder = sqlx::query(&query);
         if let Some(pid) = project_id {
             query_builder = query_builder.bind(pid.0.as_bytes().to_vec());
         }
-        
+
         let rows = query_builder.fetch_all(&self.pool).await?;
-        
+
         let mut results = HashMap::new();
         for row in rows {
             let dim = column_text(&row, "dim")?;
@@ -1130,6 +1134,29 @@ impl Store {
             );
         }
         Ok(results)
+    }
+
+    /// Costs and requests inside a trailing window ending now (A3 subscription
+    /// windows: a rolling 5-hour or 7-day window over the daemon's own cost
+    /// records). The window is one of the whitelisted presets — never
+    /// interpolated from caller input. `created_at` is stored as RFC 3339
+    /// (see `record_cost`), so the cutoff is formatted the same way.
+    pub async fn costs_in_window(&self, window: &str) -> Result<(u64, u64)> {
+        let cutoff = match window {
+            "5h" => Utc::now() - chrono::Duration::hours(5),
+            "7d" => Utc::now() - chrono::Duration::days(7),
+            _ => return Err(StoreError::UnexpectedType("invalid window")),
+        };
+        let row = sqlx::query(
+            "SELECT COUNT(*) AS requests, COALESCE(SUM(cost_cents), 0) AS total \
+             FROM costs WHERE created_at >= ?",
+        )
+        .bind(cutoff.to_rfc3339())
+        .fetch_one(&self.pool)
+        .await?;
+        let requests = column_int(&row, "requests")?.unsigned_abs();
+        let total = column_int(&row, "total")?.unsigned_abs();
+        Ok((requests, total))
     }
 
     // -------------------------------------------------------------- artifacts

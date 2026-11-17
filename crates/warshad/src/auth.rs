@@ -433,6 +433,11 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Session,
         tier: Standard,
     },
+    M {
+        method: "usage.subscription_window",
+        policy: Session,
+        tier: Standard,
+    },
     // Provider auth: reading status is session-level; starting/completing auth and
     // disconnecting touch keychain secrets, so they are owner decisions.
     M {

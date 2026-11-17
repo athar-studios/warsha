@@ -95,7 +95,8 @@ pub(crate) use api::{non_empty, provider_endpoint};
 pub use api::{
     AgentState, AuthCompleteResponse, AuthStartResponse, AuthStatus, BudgetStatus, GateSummary,
     GateSummaryState, HealthCapabilities, HealthResponse, ProviderQuotaStatus, ProviderRecord,
-    QuotaState, RoleRoutingConfig, RoutingTargetConfig, UsageRow, UsageTimeRow, WarshaApiServer,
+    QuotaState, RoleRoutingConfig, RoutingTargetConfig, SubscriptionWindow, UsageRow, UsageTimeRow,
+    WarshaApiServer, WindowUsage,
 };
 // --- end P-H1 A1 ---
 
@@ -1087,16 +1088,50 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
         Ok(periods
             .into_iter()
-            .map(|(period, (prompt, completion, cache_read, cache_write, requests))| UsageTimeRow {
-                cost_cents: cost_rows.get(&period).copied().unwrap_or(0),
-                period,
-                prompt_tokens: prompt,
-                completion_tokens: completion,
-                cache_read_tokens: cache_read,
-                cache_write_tokens: cache_write,
-                requests,
-            })
+            .map(
+                |(period, (prompt, completion, cache_read, cache_write, requests))| UsageTimeRow {
+                    cost_cents: cost_rows.get(&period).copied().unwrap_or(0),
+                    period,
+                    prompt_tokens: prompt,
+                    completion_tokens: completion,
+                    cache_read_tokens: cache_read,
+                    cache_write_tokens: cache_write,
+                    requests,
+                },
+            )
             .collect())
+    }
+
+    /// A CLI-managed provider's rolling subscription windows (A3): both are
+    /// estimated from the daemon's own cost records — the provider exposes no
+    /// limit, so none is invented here.
+    async fn usage_subscription_window(
+        &self,
+        ext: &RpcExtensions,
+    ) -> RpcResult<SubscriptionWindow> {
+        self.authorize(ext, "usage.subscription_window").await?;
+        let (five_hour_requests, five_hour_cost) = self
+            .state
+            .store
+            .costs_in_window("5h")
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        let (seven_day_requests, seven_day_cost) = self
+            .state
+            .store
+            .costs_in_window("7d")
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        Ok(SubscriptionWindow {
+            five_hour: WindowUsage {
+                cost_cents: five_hour_cost,
+                requests: five_hour_requests,
+            },
+            seven_day: WindowUsage {
+                cost_cents: seven_day_cost,
+                requests: seven_day_requests,
+            },
+        })
     }
 
     async fn list_devices(
