@@ -2,8 +2,9 @@
 import type { ProviderQuotaStatus } from '@warsha/client';
 
 import { useClient } from '../app/ClientContext';
+import { CrossingTracker, QUOTA_ALERT_THRESHOLD } from '../app/quotaAlerts';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export interface QuotaGaugeState {
   /** Tightest known quota as a percentage used (0-100), or null when no limit is known. */
@@ -79,6 +80,9 @@ export function useQuotaGauge(
     status: null,
   });
   const [nonce, setNonce] = useState(0);
+  // Alerts fire exactly once per crossing (A3): the tracker remembers which
+  // provider is currently past the threshold and notifies on the transition.
+  const crossingTracker = useRef(new CrossingTracker());
 
   useEffect(() => {
     if (!client) return;
@@ -101,7 +105,21 @@ export function useQuotaGauge(
           })
         );
         if (!active) return;
-        setState(tightestQuota(statuses.filter((s): s is ProviderQuotaStatus => s !== null)));
+        const known = statuses.filter((s): s is ProviderQuotaStatus => s !== null);
+        setState(tightestQuota(known));
+        for (const entry of known) {
+          const pct = quotaPercentage(entry.quota);
+          crossingTracker.current.check(
+            entry.provider,
+            pct,
+            QUOTA_ALERT_THRESHOLD,
+            entry.quota.state === 'reported'
+              ? `${entry.provider}: used ${entry.quota.used} of ${entry.quota.limit}`
+              : entry.quota.state === 'estimated'
+                ? `${entry.provider}: estimated usage ${entry.quota.usagePercentage}%`
+                : `${entry.provider}: quota unknown`
+          );
+        }
       } catch {
         // Provider list failure leaves the gauge unchanged
       } finally {
