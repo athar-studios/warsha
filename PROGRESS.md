@@ -6994,3 +6994,12 @@ hypotheses left in this triage.
 2026-11-17: Packet A4 (Failover and routing) implementation started. Packet spend: 0 (est. total: 5).
 Packet A4 spend: 18/20. Cumulative spend: 18.
 2026-11-17: Packet A4 spend: 18/20. Cumulative spend: 90.
+
+## 2026-11-17 — A4 completed (PM lane takeover after worker stalls)
+
+- **Packet**: A4 (ordered failover routing + pre-run cost estimate). Branch `r-next/a4-failover-routing` @ ddb101e (c06a786 estimate RPC + failover events + tests; 40db758 harness wire fix; ddb101e home estimate line + i18n).
+- **Deliveries**: `should_failover()` classification on `ProviderError` (transient triggers failover: connection/5xx/rate-limit/timeout/Other; 400/401/403/404/422 + budget stops do NOT); cooldown registry on `ProviderRouter` (60 s, doubling to the 10-min cap, reset on success, poisoning-tolerant locks); `FailoverRecord{from_provider, to_provider, reason, at}` on `RunReceipt` + `build_run_receipt_with_failovers`; `runs.estimate` RPC (`compute_run_estimate` in `crates/warshad/src/api_estimate.rs`: walks the 10 roles' routings, dedups model ids, DEFAULT_PRICING 100/200, floor 20k/5k tokens, ceiling 200k/50k, warnings "unknown for <model>" + empty-routing warning); client `estimateRun(projectId, idea)` with strict wire decoding (`CostEstimate{minCents, maxCents, estimated, warnings}` + `wiringStringArray` helper); 5 failover acceptance tests in `crates/warsha-providers/tests/failover.rs` (kill-the-primary completes on the fallback; no routing outside the configured list; cooldown skips + reset reopens; budget cap stops through the existing gate; estimate range floor < ceiling).
+- **Home estimate line**: `estimateRun` wired into the start flow (useResource, recomputed as the idea is edited, min 12 chars to start), rendered as `home.estimate.line` (ar/en, estimated label, warnings listed) under `data-testid="home-estimate"`.
+- **Lane note**: worker attempt stalled 3× on false read-only claims (index.lock); PM took the lane over and completed it directly (D-RN-A4-001..003).
+- **Gates** (rn-a4 @ ddb101e): cargo fmt --check clean; clippy -p warsha-providers + -p warshad --all-targets -D warnings 0; warsha-providers failover 5/0; warshad lib 252/0; client 193/193 + typecheck rc=0; desktop 870/870 + typecheck rc=0; i18n 58/58; i18n-gate 877 keys 0 violations; arch 5/0; policy 8/0; wire 11 checks / 4 violations (pre-existing A1 debt).
+- **Budget**: A4 spend 18 of cap 20. Cumulative ≈ 90 of 400 (22.5%) — B1 9, A2 7, N3 8, B2 8, A3 9, A4 18, F0/F1/N0/RF2 ≈ 31. Alert threshold 320 (80%); hard stop 400.
