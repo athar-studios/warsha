@@ -5,6 +5,7 @@ export default {
   'home.idea_label': 'فكرتك',
   'home.idea_placeholder': 'مثال: تطبيق حجز مواعيد لعيادة أسنان، فيه تذكير بالرسائل ولوحة للطبيب.',
   'home.start': 'ابدأ المشروع',
+  'home.estimate.line': 'التكلفة التقديرية لهذه الجولة: ${min}–${max} (تقديرية)',
   'home.provider_add': 'أضِف مزوّدًا أولًا',
   'home.defaults_prefix': 'يعمل بـ',
   'home.defaults_budget_prefix': 'حدّ الإنفاق',

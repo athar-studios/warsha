@@ -1,5 +1,7 @@
 import type {
+  CostEstimate,
   GateSummary,
+  ProjectId,
   ProjectSummary,
   RoleRouting,
   RunSummary,
@@ -30,6 +32,7 @@ import { useDensity } from '../../app/DensityContext';
 import { notify } from '../../app/toast';
 import { getSimpleStageLabelKey, toSimpleStage, type SimpleStage } from '../../copy/stages';
 import { useModels, usePreferences, useProjects, useRoles } from '../../data';
+import { useResource } from '../../data/useResource';
 import { useNavigate } from '../../router';
 import { countPendingGatesAtCurrentStage } from '../frame/Frame';
 
@@ -345,6 +348,20 @@ export default function HomePage(): React.ReactElement {
     void startAction.run();
   };
 
+  // A4: the pre-run estimate, fetched once the idea is long enough to start
+  // from and recomputed as the owner edits it. Before the project exists the
+  // daemon estimates against the global role routings, so the project id is
+  // the wildcard.
+  const estimateResult = useResource<CostEstimate | null>(
+    () =>
+      client && idea.trim().length >= 12
+        ? client.estimateRun('*' as ProjectId, idea)
+        : Promise.resolve(null),
+    () => false,
+    [client, idea],
+  );
+  const estimate = estimateResult.data ?? null;
+
   const handleChipClick = (chipKey: string): void => {
     setIdea(t(chipKey));
   };
@@ -525,6 +542,24 @@ export default function HomePage(): React.ReactElement {
               </Button>
             )}
           </div>
+          {estimate && (
+            <p
+              className="home-estimate"
+              data-testid="home-estimate"
+              data-action="home.estimate.show"
+            >
+              {t('home.estimate.line', {
+                min: (estimate.minCents / 100).toFixed(2),
+                max: (estimate.maxCents / 100).toFixed(2),
+              })}
+              {estimate.warnings.length > 0 && (
+                <span className="home-estimate-warnings">
+                  {' '}
+                  {estimate.warnings.join(' · ')}
+                </span>
+              )}
+            </p>
+          )}
         </div>
 
         {/* Four starter example chips */}
