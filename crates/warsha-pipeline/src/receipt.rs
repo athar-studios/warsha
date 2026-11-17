@@ -1,5 +1,14 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use warsha_core::{ApprovalMode, Confinement, ProjectId, Run, RunId, RunStatus, Stage};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FailoverRecord {
+    pub from_provider: String,
+    pub to_provider: String,
+    pub reason: String,
+    pub at: DateTime<Utc>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunReceipt {
@@ -14,6 +23,8 @@ pub struct RunReceipt {
     pub current_stage: Stage,
     pub effective_confinement: Option<Confinement>,
     pub effective_approval_mode: Option<ApprovalMode>,
+    #[serde(default)]
+    pub failovers: Vec<FailoverRecord>,
 }
 
 pub fn build_run_receipt(
@@ -21,6 +32,22 @@ pub fn build_run_receipt(
     coding_cli_timeout_seconds: Option<u64>,
     effective_confinement: Option<Confinement>,
     effective_approval_mode: Option<ApprovalMode>,
+) -> RunReceipt {
+    build_run_receipt_with_failovers(
+        run,
+        coding_cli_timeout_seconds,
+        effective_confinement,
+        effective_approval_mode,
+        Vec::new(),
+    )
+}
+
+pub fn build_run_receipt_with_failovers(
+    run: &Run,
+    coding_cli_timeout_seconds: Option<u64>,
+    effective_confinement: Option<Confinement>,
+    effective_approval_mode: Option<ApprovalMode>,
+    failovers: Vec<FailoverRecord>,
 ) -> RunReceipt {
     RunReceipt {
         run_id: run.id,
@@ -34,5 +61,6 @@ pub fn build_run_receipt(
         current_stage: run.current_stage,
         effective_confinement,
         effective_approval_mode,
+        failovers,
     }
 }

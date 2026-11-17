@@ -5,6 +5,7 @@ export default {
   'home.idea_label': 'Your idea',
   'home.idea_placeholder': 'e.g. Appointment booking app for a dental clinic with SMS reminders and a doctor dashboard.',
   'home.start': 'Start project',
+  'home.estimate.line': 'Estimated cost for this run: ${min}–${max} (estimated)',
   'home.provider_add': 'Add a provider first',
   'home.defaults_prefix': 'Powered by',
   'home.defaults_budget_prefix': 'Budget limit',

@@ -182,6 +182,7 @@ export const RPC_METHODS = [
   'runs.advance',
   'runs.artifacts',
   'runs.cancel',
+  'runs.estimate',
   'runs.events',
   'runs.followup',
   'runs.get',

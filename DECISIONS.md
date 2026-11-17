@@ -1960,3 +1960,9 @@ Commit cc889ed ("fix(B1): compilation and test errors") accidentally replaced DE
 ## D-RN-A3-001: Update OpenAIProvider to differentiate by ProviderKind
 
 To properly implement provider-specific `get_quota` logic (specifically for OpenRouter), I have updated `OpenAIProvider` to store its `ProviderKind` and added logic in `get_quota` to query the OpenRouter `/key` endpoint when the kind is `ProviderKind::OpenRouter`.
+
+### D-RN-A4-001 (2026-11-17): Failover Classification
+Introduce  to distinguish between retryable errors (transient) and failover triggers (auth, 5xx, rate-limit), as required by A4 plan.
+
+### D-RN-A4-001 (2026-11-17): Failover Classification
+Introduce `should_failover(&ProviderError) -> bool` to distinguish between retryable errors (transient) and failover triggers (auth, 5xx, rate-limit), as required by A4 plan.

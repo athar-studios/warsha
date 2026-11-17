@@ -90,14 +90,15 @@ pub(crate) use rpc::{
 
 // --- P-H1 A1: `api` region (WarshaApi trait + DTOs) moved to api.rs; kept crate-visible here. ---
 mod api;
+mod api_estimate;
 #[allow(unused_imports)] // read only by `mod tests`
 pub(crate) use api::provider_model;
 pub(crate) use api::{non_empty, provider_endpoint};
 pub use api::{
-    AgentState, AuthCompleteResponse, AuthStartResponse, AuthStatus, BudgetStatus, GateSummary,
-    GateSummaryState, HealthCapabilities, HealthResponse, ProviderQuotaStatus, ProviderRecord,
-    QuotaState, RoleRoutingConfig, RoutingTargetConfig, SubscriptionWindow, UsageRow, UsageTimeRow,
-    WarshaApiServer, WindowUsage,
+    AgentState, AuthCompleteResponse, AuthStartResponse, AuthStatus, BudgetStatus, CostEstimate,
+    GateSummary, GateSummaryState, HealthCapabilities, HealthResponse, ProviderQuotaStatus,
+    ProviderRecord, QuotaState, RoleRoutingConfig, RoutingTargetConfig, SubscriptionWindow,
+    UsageRow, UsageTimeRow, WarshaApiServer, WindowUsage,
 };
 // --- end P-H1 A1 ---
 
@@ -306,6 +307,18 @@ impl WarshaApiServer for WarshaRpc {
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
         Ok(project)
+    }
+
+    async fn estimate_run(
+        &self,
+        ext: &RpcExtensions,
+        project_id: ProjectId,
+        idea: String,
+    ) -> RpcResult<CostEstimate> {
+        self.authorize(ext, "runs.estimate").await?;
+        crate::api_estimate::compute_run_estimate(self, project_id, &idea)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
     }
 
     async fn start_run(
