@@ -12,6 +12,7 @@ use warsha_core::{CredentialsRef, ProviderKind, ProviderQuota};
 
 /// OpenAI-compatible provider
 pub struct OpenAIProvider {
+    kind: ProviderKind,
     id: String,
     client: Client,
     api_base: String,
@@ -23,6 +24,7 @@ impl OpenAIProvider {
     /// Create a new OpenAI-compatible provider
     pub async fn new(
         id: String,
+        kind: ProviderKind,
         api_base: Option<String>,
         credentials: &CredentialsRef,
         keyring_service: &str,
@@ -46,6 +48,7 @@ impl OpenAIProvider {
 
         let provider = Self {
             id: id.clone(),
+            kind,
             client,
             api_base,
             _api_key: api_key,
@@ -71,7 +74,7 @@ impl OpenAIProvider {
     /// A config with no key cannot serve a hosted endpoint, so this refuses with
     /// [`ProviderError::Auth`] rather than building a client that would fail at
     /// the first call. The key never appears in the error text.
-    pub fn from_env_config(id: String, config: &EnvLlmConfig) -> Result<Self> {
+    pub fn from_env_config(id: String, kind: ProviderKind, config: &EnvLlmConfig) -> Result<Self> {
         let api_key = config.api_key.as_ref().ok_or_else(|| {
             ProviderError::Auth(format!(
                 "no API key in the environment (WARSHA_LLM_API_KEY) for provider {id}"
@@ -95,6 +98,7 @@ impl OpenAIProvider {
         Ok(Self {
             models: vec![default_model_info(&id, &config.model)],
             id,
+            kind,
             client,
             api_base: config.base_url.clone(),
             _api_key: api_key.clone(),
@@ -193,7 +197,7 @@ impl ChatProvider for OpenAIProvider {
         &self.id
     }
     fn kind(&self) -> ProviderKind {
-        ProviderKind::OpenAI
+        self.kind
     }
 
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
@@ -347,6 +351,30 @@ impl ChatProvider for OpenAIProvider {
     }
 
     async fn get_quota(&self) -> Result<ProviderQuota> {
+        if self.kind == ProviderKind::OpenRouter {
+            // OpenRouter quota logic
+            let url = format!("{}/key", self.api_base.trim_end_matches('/'));
+            let resp = self
+                .client
+                .get(&url)
+                .send()
+                .await
+                .map_err(|e| ProviderError::Other(e.to_string()))?;
+            if !resp.status().is_success() {
+                return Ok(ProviderQuota::Unknown);
+            }
+            let data: serde_json::Value = resp
+                .json()
+                .await
+                .map_err(|e| ProviderError::Other(e.to_string()))?;
+            // Based on OpenRouter docs, GET /api/v1/key returns:
+            // { "data": { "limit": ..., "limit_remaining": ..., "usage": ... } }
+            if let Some(data) = data["data"].as_object() {
+                let used = data.get("usage").and_then(|v| v.as_u64()).unwrap_or(0);
+                let limit = data.get("limit").and_then(|v| v.as_u64()).unwrap_or(0);
+                return Ok(ProviderQuota::Reported { used, limit });
+            }
+        }
         Ok(ProviderQuota::Unknown)
     }
 }
@@ -497,9 +525,12 @@ mod tests {
         // Construction reads nothing but the config it is given: no keychain and
         // no model fetch. `list_models` answering from the stored catalog proves
         // the built client carries the config's model.
-        let provider =
-            OpenAIProvider::from_env_config("env-openai".to_string(), &config_with_key())
-                .expect("a config with a key builds");
+        let provider = OpenAIProvider::from_env_config(
+            "env-openai".to_string(),
+            ProviderKind::OpenAI,
+            &config_with_key(),
+        )
+        .expect("a config with a key builds");
         assert_eq!(provider.id(), "env-openai");
         let models = provider
             .list_models()
@@ -518,7 +549,11 @@ mod tests {
         };
         // `OpenAIProvider` carries live request headers, so it deliberately has no
         // `Debug`; the result is matched by hand instead of `expect_err`.
-        let error = match OpenAIProvider::from_env_config("env-openai".to_string(), &config) {
+        let error = match OpenAIProvider::from_env_config(
+            "env-openai".to_string(),
+            ProviderKind::OpenAI,
+            &config,
+        ) {
             Ok(_) => panic!("a config without a key must not build a provider"),
             Err(error) => error,
         };
@@ -539,6 +574,7 @@ mod tests {
         // provider unchanged — the base url and model wiring is the whole point.
         match OpenAIProvider::from_env_config(
             "env-openai".to_string(),
+            ProviderKind::OpenAI,
             &EnvLlmConfig::from_lookup(|_| None),
         ) {
             Ok(_) => panic!("the default config has no key"),
@@ -550,8 +586,12 @@ mod tests {
             api_key: Some("sk-again-not-real".to_string()),
             ..EnvLlmConfig::from_lookup(|_| None)
         };
-        let provider = OpenAIProvider::from_env_config("env-openai".to_string(), &config)
-            .expect("a key completes the default config");
+        let provider = OpenAIProvider::from_env_config(
+            "env-openai".to_string(),
+            ProviderKind::OpenAI,
+            &config,
+        )
+        .expect("a key completes the default config");
         assert_eq!(provider.api_base, DEFAULT_LLM_BASE_URL);
         assert_eq!(provider.models[0].id, DEFAULT_LLM_MODEL);
     }

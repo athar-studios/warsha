@@ -1081,6 +1081,7 @@ pub async fn create_provider(
         | warsha_core::ProviderKind::CustomOpenAICompatible => Box::new(
             OpenAIProvider::new(
                 config.id.clone(),
+                config.kind,
                 config.models.first().map(|m| m.id.clone()),
                 &config.credentials,
                 keyring_service,

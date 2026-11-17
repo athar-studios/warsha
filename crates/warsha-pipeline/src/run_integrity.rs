@@ -26,8 +26,8 @@ mod tests {
     use std::sync::Arc;
     use tokio::sync::{Notify, RwLock};
     use warsha_core::{
-        DeviceId, EventKind, GateState, ModelPricing, Project, ProjectId, ProviderKind, Role,
-        RoleRouting, RoutingTarget, RunStatus, Stage, TokenUsage,
+        DeviceId, EventKind, GateState, ModelPricing, Project, ProjectId, ProviderKind,
+        ProviderQuota, Role, RoleRouting, RoutingTarget, RunStatus, Stage, TokenUsage,
     };
     use warsha_providers::{
         ChatChoice, ChatMessage, ChatProvider, ChatRequest, ChatResponse, ChatStreamChunk,
