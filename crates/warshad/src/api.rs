@@ -14,6 +14,7 @@ use warsha_pipeline::{
 use warsha_providers::{HealthCheck, OneClickProvider};
 use warsha_store::StoredProvider;
 
+use crate::mcp_approvals::{PermissionAskAccepted, PermissionDecision};
 use crate::{McpApproval, McpApprovalAnswer, McpPermissionRow, McpPermissionsReply, RunStreamSync};
 
 /// JSON-RPC API trait
@@ -367,6 +368,26 @@ pub trait WarshaApi {
     /// matching call. It writes no permission row: a restart is back to `Ask`.
     #[method(name = "mcp.approvals.allow_once", with_extensions)]
     async fn allow_once_mcp_approval(&self, id: String) -> RpcResult<McpApprovalAnswer>;
+
+    /// Submit one permission ask on behalf of a run (B2: the approval bridge).
+    ///
+    /// The bridge (a subcommand of the CLI) forwards the backend CLI's asks
+    /// here; the ask joins the same queue `mcp.approvals.list` serves, so the
+    /// owner answers it through the one approval surface. The run-scoped token
+    /// that authorises this call grants nothing else.
+    #[method(name = "permissions.ask", with_extensions)]
+    async fn submit_permission_ask(
+        &self,
+        run_id: String,
+        server: String,
+        tool: String,
+        arguments: serde_json::Value,
+        summary: String,
+    ) -> RpcResult<PermissionAskAccepted>;
+
+    /// Poll one submitted ask for its decision (B2: the approval bridge).
+    #[method(name = "permissions.decision", with_extensions)]
+    async fn poll_permission_decision(&self, id: String) -> RpcResult<PermissionDecision>;
 
     // Live preview dev server (PLAN.md M5b + M20)
     #[method(name = "preview.start", with_extensions)]

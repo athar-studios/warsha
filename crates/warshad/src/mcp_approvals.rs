@@ -374,3 +374,21 @@ mod tests {
         assert_eq!(wire["id"], json!("mcp-approval-1"));
     }
 }
+
+/// The acknowledgement `permissions.ask` returns to the bridge (B2): the
+/// question id the bridge then polls with `permissions.decision`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionAskAccepted {
+    /// The question id the ask registered under.
+    pub id: String,
+}
+
+/// The decision `permissions.decision` reports to the bridge (B2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionDecision {
+    /// `pending` until the owner (or a permission row) resolves the ask.
+    pub status: String,
+    /// The resolved answer: `true` allow, `false` deny. Absent while pending.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allow: Option<bool>,
+}
