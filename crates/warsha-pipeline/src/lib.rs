@@ -1145,6 +1145,16 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                     "coding_cli_timeout_seconds".to_string(),
                     timeout.to_string(),
                 ),
+                // B2: the CLI stage is launched to match the run's confinement
+                // and approval mode (the mapping table in warsha-backends).
+                (
+                    "confinement".to_string(),
+                    run.confinement.unwrap_or_default().to_string(),
+                ),
+                (
+                    "approval_mode".to_string(),
+                    project.permissions.approval_mode.to_string(),
+                ),
             ]),
         };
         let session_id = warsha_core::SessionId::new();

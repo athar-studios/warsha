@@ -241,6 +241,7 @@ async fn test_killed_cli_leaves_failed_or_stopped_session() {
         spent_cents: 0,
         worktree_path: None,
         worktree_branch: None,
+        confinement: None,
     };
     store.create_run(&run).await.expect("create run");
 

@@ -182,6 +182,26 @@ impl CodingBackend for CliBackend {
             }
         }
 
+        // B2: the CLI stage is launched to match the run's confinement and
+        // approval mode — the mapping table (permissions.rs) turns the run's
+        // policy into backend launch args and an honest header. The plan's args
+        // come after the streaming flags so the CLI parses them as its own.
+        if let (Some(confinement), Some(approval)) = (
+            task.context.get("confinement"),
+            task.context.get("approval_mode"),
+        ) {
+            let plan = permissions::permission_plan(
+                &self.name,
+                confinement
+                    .parse()
+                    .map_err(|e: String| BackendError::Other(e))?,
+                approval
+                    .parse()
+                    .map_err(|e: String| BackendError::Other(e))?,
+            );
+            args.extend(plan.args.iter().cloned());
+        }
+
         cmd.args(&args)
             .arg(&prompt)
             .current_dir(&sandbox.work_dir)
