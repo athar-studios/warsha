@@ -186,8 +186,8 @@ pub use crate::skills::{
     SkillError, SkillManifest, SkillRegistry, SkillSource, SkillsLockEntry, SkillsLockfile,
 };
 pub use crate::work_protection::{
-    InMemorySnapshotStore, PermissionMode, ReadBeforeWriteGuard, Snapshot, SnapshotFile,
-    SnapshotStore, UndoEntry, UndoStack, WorkProtectionError, WorkProtectionPolicy,
+    policy_for_permissions, InMemorySnapshotStore, PermissionMode, ReadBeforeWriteGuard, Snapshot,
+    SnapshotFile, SnapshotStore, UndoEntry, UndoStack, WorkProtectionError, WorkProtectionPolicy,
     MAX_UNDO_ENTRIES,
 };
 

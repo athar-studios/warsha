@@ -22,7 +22,7 @@ use warsha_core::*;
 use warsha_pipeline::{
     AgentLoop, AskUserQueue, BackendKit, CommandPolicy, FilesystemToolExecutor, McpApprovals,
     McpManager, MessageBus, ModeManager, ProviderRouterAdapter, StaticPermissions, TodoList,
-    WorkProtectionPolicy, AGENT_ROLE,
+    AGENT_ROLE,
 };
 use warsha_providers::ProviderRouter;
 
@@ -77,6 +77,7 @@ pub(crate) fn build_agent_loop(
         // never registers a pending entry: its `agent.turn` is retired (OD-E2).
         None,
         backend_kit,
+        None,
     )))
 }
 
@@ -98,9 +99,12 @@ pub(crate) fn build_agent_loop_in(
     mcp_approvals: Arc<McpApprovals>,
     run_id: Option<String>,
     backend_kit: Arc<RwLock<BackendKit>>,
+    permissions: Option<ProjectPermissions>,
 ) -> AgentLoop {
     // Effective permission resolved from run-specific policy.
-    let policy = WorkProtectionPolicy::default(); // TODO: Replace with effective_permissions
+    let policy = permissions
+        .map(warsha_pipeline::policy_for_permissions)
+        .unwrap_or_default();
     if let Err(error) = std::fs::create_dir_all(workspace_dir) {
         // The turn still starts; every `RunCommand`/file tool that needs the
         // workspace will fail its `current_dir`, so say why here instead of

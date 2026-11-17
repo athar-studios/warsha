@@ -25,6 +25,7 @@ use std::collections::{HashSet, VecDeque};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use warsha_core::{ApprovalMode, Confinement, ProjectPermissions};
 
 /// How many [`UndoEntry`] values one [`UndoStack`] keeps.
 ///
@@ -333,6 +334,23 @@ impl Default for UndoStack {
 fn normalize_path(path: &str) -> &str {
     let trimmed = path.trim();
     trimmed.strip_prefix("./").unwrap_or(trimmed)
+}
+
+/// Maps project permissions to a work protection policy.
+pub fn policy_for_permissions(p: ProjectPermissions) -> WorkProtectionPolicy {
+    let mode = match (p.confinement, p.approval_mode) {
+        (Confinement::FullAccess, ApprovalMode::NeverAsk) => PermissionMode::FullAccess,
+        (_, ApprovalMode::AskAlways) => PermissionMode::AskAlways,
+        (_, ApprovalMode::AskForRisky) => PermissionMode::AskForRisky,
+        (_, ApprovalMode::NeverAsk) => PermissionMode::AutoInsideProject,
+    };
+
+    WorkProtectionPolicy {
+        mode,
+        snapshot_before_edit: true,
+        worktree_isolation: false,
+        read_before_write: true,
+    }
 }
 
 #[cfg(test)]

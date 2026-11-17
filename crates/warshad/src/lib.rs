@@ -370,6 +370,14 @@ impl WarshaApiServer for WarshaRpc {
             .get_project(project_id)
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+
+        let effective = self
+            .state
+            .store
+            .get_project_effective_permissions(project_id)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+
         if let Some(repo_path) = project
             .repo_path
             .as_deref()
@@ -431,6 +439,7 @@ impl WarshaApiServer for WarshaRpc {
             self.state.mcp_approvals.clone(),
             Some(run.id.0.to_string()),
             backend_kit,
+            Some(effective),
         )
         .with_mcp_observer(Arc::new(StoreMcpCallObserver::new(
             self.state.store.clone(),
