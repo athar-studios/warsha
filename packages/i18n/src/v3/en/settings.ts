@@ -311,6 +311,10 @@ export default {
   'settings.usage.thresholds.label': 'Gauge thresholds',
   'settings.usage.thresholds.amber': 'Amber from',
   'settings.usage.thresholds.red': 'Red from',
+  'settings.usage.windows.title': 'Subscription windows (estimated)',
+  'settings.usage.windows.five_hour': 'Last 5 hours',
+  'settings.usage.windows.seven_day': 'Last 7 days',
+  'settings.usage.windows.line': '${cost} · {requests} requests',
 
   'settings.postlaunch.crashes_title': 'Crash reports',
   'settings.postlaunch.reviews_title': 'Store reviews',

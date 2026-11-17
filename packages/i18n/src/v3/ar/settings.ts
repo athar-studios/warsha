@@ -311,6 +311,10 @@ export default {
   'settings.usage.thresholds.label': 'حدود المقياس',
   'settings.usage.thresholds.amber': 'الكهرماني من',
   'settings.usage.thresholds.red': 'الأحمر من',
+  'settings.usage.windows.title': 'نوافذ الاشتراك (تقديرية)',
+  'settings.usage.windows.five_hour': 'آخر ٥ ساعات',
+  'settings.usage.windows.seven_day': 'آخر ٧ أيام',
+  'settings.usage.windows.line': '{cost} · {requests} طلبًا',
 
   'settings.postlaunch.crashes_title': 'تقارير الأعطال',
   'settings.postlaunch.reviews_title': 'مراجعات المتاجر',

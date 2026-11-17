@@ -1,5 +1,5 @@
 // apps/desktop/src/v3/pages/settings/sections/UsageSection.tsx — A3 usage + quota section
-import type { ProviderQuotaStatus, UsageRow, UsageTimeRow } from '@warsha/client';
+import type { ProviderQuotaStatus, SubscriptionWindow, UsageRow, UsageTimeRow } from '@warsha/client';
 /* eslint-disable import/no-unresolved */
 import { useT } from '@warsha/i18n/v3';
 import {
@@ -68,6 +68,26 @@ export function UsageSection(): React.ReactElement {
   const byDimension = useUsageByDimension(dimension);
   const byTime = useUsageByTime(granularity);
   const providers = useProviders();
+
+  // Subscription windows load once with the section (estimated, from own records).
+  const [windowData, setWindowData] = useState<SubscriptionWindow | null>(null);
+  const [windowError, setWindowError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!client) return;
+    let active = true;
+    client
+      .usageSubscriptionWindow()
+      .then((w) => {
+        if (active) setWindowData(w);
+      })
+      .catch(() => {
+        if (active) setWindowError(t('settings.usage.quota.unknown'));
+      });
+    return () => {
+      active = false;
+    };
+  }, [client, t]);
 
   const [quotas, setQuotas] = useState<Record<string, ProviderQuotaStatus>>({});
   const [quotaErrors, setQuotaErrors] = useState<Record<string, string>>({});
@@ -215,6 +235,38 @@ export function UsageSection(): React.ReactElement {
                     <span role="cell" dir="ltr">{row.requests}</span>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {windowData && (
+              <div style={{ padding: 'var(--w-space-4)' }} data-testid="usage-subscription-windows">
+                <div className="v3-settings-row-title">{t('settings.usage.windows.title')}</div>
+                <div className="v3-settings-row" data-testid="usage-window-5h">
+                  <div className="v3-settings-row-main">
+                    <div className="v3-settings-row-title">{t('settings.usage.windows.five_hour')}</div>
+                    <div className="v3-settings-row-subtitle" dir="ltr">
+                      {t('settings.usage.windows.line', {
+                        cost: `$${(windowData.fiveHour.costCents / 100).toFixed(2)}`,
+                        requests: windowData.fiveHour.requests,
+                      })}
+                      {' · '}
+                      <span>{t('settings.usage.estimated')}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="v3-settings-row" data-testid="usage-window-7d">
+                  <div className="v3-settings-row-main">
+                    <div className="v3-settings-row-title">{t('settings.usage.windows.seven_day')}</div>
+                    <div className="v3-settings-row-subtitle" dir="ltr">
+                      {t('settings.usage.windows.line', {
+                        cost: `$${(windowData.sevenDay.costCents / 100).toFixed(2)}`,
+                        requests: windowData.sevenDay.requests,
+                      })}
+                      {' · '}
+                      <span>{t('settings.usage.estimated')}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
