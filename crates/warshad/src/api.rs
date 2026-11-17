@@ -680,6 +680,40 @@ pub trait WarshaApi {
 
     #[method(name = "files.read", with_extensions)]
     async fn read_project_file(&self, project_id: String, path: String) -> RpcResult<FileContent>;
+
+    // ----------------------------------------------------- tool rules (B3)
+
+    /// The global owner-authored tool rules (deny/ask/allow lists).
+    #[method(name = "rules.global.get", with_extensions)]
+    async fn get_global_rules(&self) -> RpcResult<ToolRulesReply>;
+
+    /// Replace the global tool rules (owner-only; empty lists clear them).
+    #[method(name = "rules.global.set", with_extensions)]
+    async fn set_global_rules(&self, rules: ToolRulesReply) -> RpcResult<ToolRulesReply>;
+
+    /// One project's tool-rules override (empty lists = inherit global).
+    #[method(name = "rules.project.get", with_extensions)]
+    async fn get_project_rules(&self, project_id: String) -> RpcResult<ToolRulesReply>;
+
+    /// Replace one project's tool-rules override (owner-only).
+    #[method(name = "rules.project.set", with_extensions)]
+    async fn set_project_rules(
+        &self,
+        project_id: String,
+        rules: ToolRulesReply,
+    ) -> RpcResult<ToolRulesReply>;
+}
+
+/// The deny/ask/allow pattern lists one rules scope carries (B3). Patterns are
+/// exact tool names, trailing-`*` prefix wildcards, or `*`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolRulesReply {
+    #[serde(default)]
+    pub deny: Vec<String>,
+    #[serde(default)]
+    pub ask: Vec<String>,
+    #[serde(default)]
+    pub allow: Vec<String>,
 }
 
 /// Probed capabilities reported by health.

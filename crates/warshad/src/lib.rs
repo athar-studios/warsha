@@ -98,7 +98,7 @@ pub use api::{
     AgentState, AuthCompleteResponse, AuthStartResponse, AuthStatus, BudgetStatus, CostEstimate,
     GateSummary, GateSummaryState, HealthCapabilities, HealthResponse, ProviderQuotaStatus,
     ProviderRecord, QuotaState, RoleRoutingConfig, RoutingTargetConfig, SubscriptionWindow,
-    UsageRow, UsageTimeRow, WarshaApiServer, WindowUsage,
+    ToolRulesReply, UsageRow, UsageTimeRow, WarshaApiServer, WindowUsage,
 };
 // --- end P-H1 A1 ---
 
@@ -3489,6 +3489,81 @@ impl WarshaApiServer for WarshaRpc {
         let joined = wave2::safe_join(&root, &path).map_err(rpc_invalid_params)?;
         let file = wave2::resolve_inside(&root, &joined).map_err(rpc_invalid_params)?;
         wave2::read_text(&root, &file).map_err(rpc_error)
+    }
+
+    async fn get_global_rules(&self, ext: &RpcExtensions) -> RpcResult<ToolRulesReply> {
+        self.authorize(ext, "rules.global.get").await?;
+        let settings = self.state.store.settings();
+        match settings
+            .load_tool_rules("global")
+            .await
+            .map_err(rpc_error)?
+        {
+            Some(rules_json) => Ok(serde_json::from_str(&rules_json)
+                .map_err(|error| rpc_error(format!("stored tool rules are malformed: {error}")))?),
+            None => Ok(ToolRulesReply::default()),
+        }
+    }
+
+    async fn set_global_rules(
+        &self,
+        ext: &RpcExtensions,
+        rules: ToolRulesReply,
+    ) -> RpcResult<ToolRulesReply> {
+        self.authorize(ext, "rules.global.set").await?;
+        let settings = self.state.store.settings();
+        let rules_json = serde_json::to_string(&rules)
+            .map_err(|error| rpc_error(format!("tool rules could not be serialised: {error}")))?;
+        settings
+            .save_tool_rules("global", &rules_json)
+            .await
+            .map_err(rpc_error)?;
+        Ok(rules)
+    }
+
+    async fn get_project_rules(
+        &self,
+        ext: &RpcExtensions,
+        project_id: String,
+    ) -> RpcResult<ToolRulesReply> {
+        self.authorize(ext, "rules.project.get").await?;
+        let settings = self.state.store.settings();
+        match settings
+            .load_tool_rules(&project_id)
+            .await
+            .map_err(rpc_error)?
+        {
+            Some(rules_json) => Ok(serde_json::from_str(&rules_json)
+                .map_err(|error| rpc_error(format!("stored tool rules are malformed: {error}")))?),
+            None => Ok(ToolRulesReply::default()),
+        }
+    }
+
+    async fn set_project_rules(
+        &self,
+        ext: &RpcExtensions,
+        project_id: String,
+        rules: ToolRulesReply,
+    ) -> RpcResult<ToolRulesReply> {
+        self.authorize(ext, "rules.project.set").await?;
+        // Fail named on a project that does not exist: rules attach to a project,
+        // and a typo'd id must not silently write an orphan row.
+        let parsed = ProjectId(uuid::Uuid::parse_str(&project_id).map_err(|error| {
+            rpc_error(format!("project id `{project_id}` is not one: {error}"))
+        })?);
+        self.state
+            .store
+            .get_project(parsed)
+            .await
+            .map_err(rpc_error)?;
+        let settings = self.state.store.settings();
+        let rules_json = serde_json::to_string(&rules)
+            .map_err(|error| rpc_error(format!("tool rules could not be serialised: {error}")))?;
+        settings
+            .save_tool_rules(&project_id, &rules_json)
+            .await
+            .map_err(rpc_error)?;
+        Ok(rules)
     }
 }
 
