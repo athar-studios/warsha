@@ -544,8 +544,7 @@ impl FilesystemToolExecutor {
                         let command_line = format!("{command} {}", args.join(" "));
                         // One shared ask-queue (B3): register the native ask so
                         // the owner's approval UI shows it beside MCP asks.
-                        if let (Some(approvals), Some(run_id)) =
-                            (&self.mcp_approvals, &self.run_id)
+                        if let (Some(approvals), Some(run_id)) = (&self.mcp_approvals, &self.run_id)
                         {
                             let summary = format!("run the command `{command_line}`");
                             match approvals.register_pending(
