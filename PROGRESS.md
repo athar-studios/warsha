@@ -6990,3 +6990,5 @@ hypotheses left in this triage.
 - **B2 tests**: permissions.rs mapping/argv-matrix unit tests (7); executor protection tests (6: read-only refuses writes, risky refused under ask-for-risky, safe runs, risky refused under never-ask, full-access runs, no-protection keeps today's behaviour); read-only proof e2e in n3_cli_isolation.rs (mock CLI writes → violation + restore); receipt snapshot test; bridge tests (warsha-cli/tests/permission_bridge.rs).
 - **Merge gates** (integration @ adc5b0b): cargo fmt --check clean; clippy --workspace --all-targets -D warnings 0; pipeline all suites green (558 tests, 0 failed); warshad lib 252/0; warsha-cli 7 suites ok; store lib 26/0; backends 28/0; client 193/193; i18n-gate 876 keys 0 violations; arch 5/0; policy 8/0; wire 11 checks / 4 violations (pre-existing A1 debt, unchanged).
 - **Budget**: B2 spend ≈ 8 of cap 20. Cumulative ≈ 72 of 400 (18%) — B1 9, A2 7, N3 8, B2 8, A3 9, F0/F1/N0/RF2 ≈ 31. Alert threshold 320 (80%); hard stop 400.
+
+2026-11-17: Packet A4 (Failover and routing) implementation started. Packet spend: 0 (est. total: 5).
