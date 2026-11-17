@@ -120,8 +120,9 @@ mod runtime;
 pub use runtime::AgentLoopSnapshot;
 pub(crate) use runtime::{
     apply_role_routings, build_agent_loop, build_agent_loop_in, register_configured_providers,
-    routing_config, routing_for, seed_agent_snapshot, seed_role_routings, store_agent_snapshot,
-    store_role_routings, AGENT_METER_KEY, AGENT_WORKSPACE_DIR, MOCK_PROVIDER_ID,
+    routing_config, routing_for, seed_agent_snapshot, seed_backend_routings, seed_custom_backends,
+    seed_role_routings, store_agent_snapshot, store_role_routings, AGENT_METER_KEY,
+    AGENT_WORKSPACE_DIR, MOCK_PROVIDER_ID,
 };
 // --- end P-H1 A7 ---
 

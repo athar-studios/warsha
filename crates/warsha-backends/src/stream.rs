@@ -304,3 +304,159 @@ pub fn parse_codex_stream_line(line: &str) -> Vec<StreamEvent> {
     }
     events
 }
+
+/// Parse a single line from OpenCode JSONL output (`opencode run --format json`).
+///
+/// OpenCode emits JSONL with step_start, tool_use, step_finish, and text events.
+/// Estimated usage is clearly flagged when cost is zero or absent.
+pub fn parse_opencode_stream_line(line: &str) -> Vec<StreamEvent> {
+    let Ok(v) = serde_json::from_str::<Value>(line) else {
+        return vec![];
+    };
+    let Some(obj) = v.as_object() else {
+        return vec![];
+    };
+
+    let mut events = Vec::new();
+    match obj.get("type").and_then(|v| v.as_str()) {
+        Some("step_start") | Some("session_start") => {
+            let session_id = obj
+                .get("sessionID")
+                .or_else(|| obj.get("sessionId"))
+                .or_else(|| obj.get("session_id"))
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            let model = obj
+                .get("model")
+                .or_else(|| obj.get("part").and_then(|p| p.get("model")))
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            events.push(StreamEvent::SessionStarted {
+                cli_session_id: session_id,
+                model,
+            });
+        }
+        Some("tool_use") => {
+            let part = obj.get("part");
+            let tool = part
+                .and_then(|p| p.get("tool"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+
+            let state = part.and_then(|p| p.get("state"));
+            let input = state.and_then(|s| s.get("input"));
+            let target = if let Some(cmd) = input
+                .and_then(|i| i.get("command"))
+                .and_then(|v| v.as_str())
+            {
+                command_name_without_args(cmd)
+            } else if let Some(path) = input
+                .and_then(|i| i.get("path").or_else(|| i.get("filePath")))
+                .and_then(|v| v.as_str())
+            {
+                path.to_string()
+            } else {
+                "unknown".to_string()
+            };
+
+            let status = state
+                .and_then(|s| s.get("status"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("running");
+
+            let duration_ms = state.and_then(|s| s.get("time")).and_then(|t| {
+                let start = t.get("start").and_then(|v| v.as_u64())?;
+                let end = t.get("end").and_then(|v| v.as_u64())?;
+                Some(end.saturating_sub(start))
+            });
+
+            if status == "running" {
+                events.push(StreamEvent::ToolStarted {
+                    tool: tool.clone(),
+                    target: target.clone(),
+                });
+            } else {
+                events.push(StreamEvent::ToolStarted {
+                    tool: tool.clone(),
+                    target: target.clone(),
+                });
+                events.push(StreamEvent::ToolFinished {
+                    tool: tool.clone(),
+                    target: target.clone(),
+                    duration_ms,
+                    status: if status == "failed" {
+                        "failed".to_string()
+                    } else {
+                        "success".to_string()
+                    },
+                });
+
+                if matches!(tool.as_str(), "edit" | "write" | "patch" | "file") {
+                    if let Some(path) = input
+                        .and_then(|i| i.get("path").or_else(|| i.get("filePath")))
+                        .and_then(|v| v.as_str())
+                    {
+                        events.push(StreamEvent::FileTouched {
+                            path: path.to_string(),
+                            action: "modify".to_string(),
+                        });
+                    }
+                } else if matches!(tool.as_str(), "read" | "view") {
+                    if let Some(path) = input
+                        .and_then(|i| i.get("path").or_else(|| i.get("filePath")))
+                        .and_then(|v| v.as_str())
+                    {
+                        events.push(StreamEvent::FileTouched {
+                            path: path.to_string(),
+                            action: "read".to_string(),
+                        });
+                    }
+                }
+            }
+        }
+        Some("step_finish") | Some("session_end") => {
+            let part = obj.get("part");
+            let tokens = part
+                .and_then(|p| p.get("tokens"))
+                .or_else(|| obj.get("tokens"));
+            let usage = tokens.map(|tok| {
+                let input = tok.get("input").and_then(|v| v.as_u64()).unwrap_or(0);
+                let output = tok.get("output").and_then(|v| v.as_u64()).unwrap_or(0);
+                let cost_num = part
+                    .and_then(|p| p.get("cost"))
+                    .or_else(|| obj.get("cost"))
+                    .and_then(|v| v.as_f64());
+                let cost_cents = cost_num
+                    .filter(|&c| c > 0.0)
+                    .map(|c| (c * 100.0).round() as u64);
+                TokenUsage {
+                    input,
+                    output,
+                    total: input + output,
+                    cost_cents,
+                }
+            });
+
+            let reason = part
+                .and_then(|p| p.get("reason"))
+                .or_else(|| obj.get("reason"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("stop");
+
+            let status = if reason == "error" || reason == "failed" {
+                "failed"
+            } else {
+                "success"
+            };
+
+            events.push(StreamEvent::SessionEnded {
+                status: status.to_string(),
+                duration_ms: None,
+                usage,
+            });
+        }
+        _ => {}
+    }
+    events
+}

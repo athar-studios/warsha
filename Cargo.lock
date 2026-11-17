@@ -4373,6 +4373,7 @@ dependencies = [
  "tracing-subscriber",
  "ulid",
  "uuid",
+ "warsha-backends",
  "warsha-core",
  "warsha-providers",
  "warsha-remote",

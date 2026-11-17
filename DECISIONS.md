@@ -1970,3 +1970,14 @@ Introduce `should_failover(&ProviderError) -> bool` to distinguish between retry
 ## 2026-11-17 — Tool Permissioning Location: `warsha-core`
 - **Decision**: Define `Rule` model and `RuleStore` trait in `crates/warsha-core`.
 - **Reason**: Tool permissioning is a core domain requirement, not specific to pipeline execution. Placing these in `warsha-core` (the base tier of the architecture) ensures universal accessibility by `warsha-pipeline` and other future components (e.g., `warshad` daemon, `warsha-remote`) without creating upward dependency edges.
+D-RN-N2-001: Implement coding-engine catalog (data, not code), custom backend registry, and live output adapters. Use  for data and  for registry.
+
+## 2026-11-18 — D-RN-N2-001: Implement coding-engine catalog, custom backend registry, and live output adapters
+- **Decision**: Implemented  for data-driven engine catalog, migrated  to use it. Added  in  for custom registry/selection. Added OpenCode streaming adapter.
+- **Alternatives**: Keeping hardcoded engine list, hardcoded CLI argv.
+- **Reason**: Plan N2 requirement for data-driven engine registry and extensibility.
+
+## 2026-11-18 — D-RN-N2-001: Implement coding-engine catalog, custom backend registry, and live output adapters
+- **Decision**: Implemented `crates/warsha-backends/src/catalog.rs` for data-driven engine catalog, migrated `BackendFactory` to use it. Added `CodingBackendRegistry` in `crates/warsha-pipeline` for custom registry/selection. Added OpenCode streaming adapter.
+- **Alternatives**: Keeping hardcoded engine list, hardcoded CLI argv.
+- **Reason**: Plan N2 requirement for data-driven engine registry and extensibility.
