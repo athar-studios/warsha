@@ -463,6 +463,22 @@ export interface UsageTimeRow {
   requests: number;
 }
 
+/** One rolling window's estimated usage (A3). */
+export interface WindowUsage {
+  /** Estimated spend inside the window, in cents. */
+  costCents: number;
+  /** Request count inside the window. */
+  requests: number;
+}
+
+/** A CLI-managed provider's rolling subscription windows (A3). */
+export interface SubscriptionWindow {
+  /** Rolling 5-hour window (the CLI's short subscription bucket). */
+  fiveHour: WindowUsage;
+  /** Rolling 7-day window (the CLI's weekly bucket). */
+  sevenDay: WindowUsage;
+}
+
 /** The three quota states, in the wire shape the desktop renders (A3). */
 export type QuotaState =
   | { state: 'reported'; used: number; limit: number }
@@ -2545,6 +2561,23 @@ export class WarshaClient
     };
   }
 
+  /**
+   * A CLI-managed provider's rolling subscription windows (`usage.subscription_window`):
+   * spend and request counts over the last 5 hours and the last 7 days, estimated from
+   * the daemon's own cost records — the provider exposes no limit, so none is invented.
+   */
+  async usageSubscriptionWindow(): Promise<SubscriptionWindow> {
+    const wire = await this.rpc<unknown>('usage.subscription_window', {});
+    if (typeof wire !== 'object' || wire === null || Array.isArray(wire)) {
+      throw new Error(`${WIRING_RESULT_ERROR} from usage.subscription_window: expected an object`);
+    }
+    const source = wire as Record<string, unknown>;
+    return {
+      fiveHour: decodeWindowUsage(source['five_hour'], 'usage.subscription_window', 'five_hour'),
+      sevenDay: decodeWindowUsage(source['seven_day'], 'usage.subscription_window', 'seven_day'),
+    };
+  }
+
   // Roles.
   //
   // `roles.list` answers the daemon's routing table — one `RoleRoutingConfig` per role the
@@ -3296,6 +3329,18 @@ function nonNegativeInt(value: unknown, method: string, name: string): number {
     throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "${name}" is not a non-negative integer`);
   }
   return n;
+}
+
+/** One rolling window (`five_hour`/`seven_day`) of `usage.subscription_window`. */
+function decodeWindowUsage(value: unknown, method: string, name: string): WindowUsage {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "${name}" is not an object`);
+  }
+  const source = value as Record<string, unknown>;
+  return {
+    costCents: nonNegativeInt(source['cost_cents'], method, `${name}.cost_cents`),
+    requests: nonNegativeInt(source['requests'], method, `${name}.requests`),
+  };
 }
 
 function wiringBoolean(value: unknown, method: string, name: string): boolean {
