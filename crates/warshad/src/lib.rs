@@ -5,7 +5,7 @@ use jsonrpsee::{
     core::{async_trait, RpcResult},
     types::ErrorObject,
 };
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -94,8 +94,8 @@ pub(crate) use api::provider_model;
 pub(crate) use api::{non_empty, provider_endpoint};
 pub use api::{
     AgentState, AuthCompleteResponse, AuthStartResponse, AuthStatus, BudgetStatus, GateSummary,
-    GateSummaryState, HealthCapabilities, HealthResponse, ProviderRecord, RoleRoutingConfig,
-    RoutingTargetConfig, WarshaApiServer,
+    GateSummaryState, HealthCapabilities, HealthResponse, ProviderQuotaStatus, ProviderRecord,
+    QuotaState, RoleRoutingConfig, RoutingTargetConfig, UsageRow, UsageTimeRow, WarshaApiServer,
 };
 // --- end P-H1 A1 ---
 
@@ -935,6 +935,168 @@ impl WarshaApiServer for WarshaRpc {
             .check_model_updates(&name, &[])
             .await
             .map_err(|e| rpc_error(e.to_string()))
+    }
+
+    async fn provider_quota(
+        &self,
+        ext: &RpcExtensions,
+        name: String,
+    ) -> RpcResult<ProviderQuotaStatus> {
+        self.authorize(ext, "providers.quota").await?;
+        let kind = self
+            .state
+            .settings
+            .load_providers()
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?
+            .into_iter()
+            .find(|p| p.name == name)
+            .map(|p| p.kind)
+            .ok_or_else(|| rpc_error(format!("provider `{name}` is not configured")))?;
+        // A handle rather than a lock held across the quota call (audit N-3): the
+        // adapter may reach the network, and a read guard kept through it would make
+        // an owner's `providers.add` wait for a round trip it has nothing to do with.
+        let router = {
+            let guard = self.state.providers.read().await;
+            (*guard).clone()
+        };
+        let provider = router
+            .get_provider(&name)
+            .ok_or_else(|| rpc_error(format!("provider `{name}` is not registered")))?;
+        let quota = provider.get_quota().await.unwrap_or(ProviderQuota::Unknown);
+        // The local estimate from the daemon's own cost records: spend against the
+        // recorded per-run ceiling is not a provider quota, so a quota the provider
+        // does not expose stays Unknown rather than wearing an invented limit.
+        let state = match quota {
+            ProviderQuota::Reported { used, limit } => QuotaState::Reported { used, limit },
+            ProviderQuota::Estimated { usage_percentage } => {
+                QuotaState::Estimated { usage_percentage }
+            }
+            ProviderQuota::Unknown => QuotaState::Unknown,
+        };
+        Ok(ProviderQuotaStatus {
+            provider: name,
+            kind,
+            quota: state,
+            checked_at: Some(Utc::now().to_rfc3339()),
+        })
+    }
+
+    async fn usage_by_dimension(
+        &self,
+        ext: &RpcExtensions,
+        dimension: String,
+        project_id: Option<ProjectId>,
+    ) -> RpcResult<Vec<UsageRow>> {
+        self.authorize(ext, "usage.by_dimension").await?;
+        let tokens = self
+            .state
+            .store
+            .aggregate_tokens_by(&dimension, "%Y-%m-%d", project_id)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        let costs = self
+            .state
+            .store
+            .aggregate_costs_by(&dimension, project_id)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        // One row per (dimension, key): the cost map answers the cents, the token map
+        // answers the token sums and the request count. A key in one map but not the
+        // other is still a row — zeros where the other aggregate has nothing.
+        let mut keys: Vec<String> = costs.keys().cloned().collect();
+        for (dim, _) in tokens.keys() {
+            keys.push(dim.clone());
+        }
+        keys.sort();
+        keys.dedup();
+        Ok(keys
+            .into_iter()
+            .map(|key| {
+                let cost_cents = costs.get(&key).copied().unwrap_or(0);
+                let tokens_row = tokens
+                    .iter()
+                    .find(|((dim, _), _)| dim == &key)
+                    .map(|(_, sums)| *sums);
+                match tokens_row {
+                    Some((prompt, completion, cache_read, cache_write, requests)) => UsageRow {
+                        dimension: dimension.clone(),
+                        key,
+                        cost_cents,
+                        prompt_tokens: prompt,
+                        completion_tokens: completion,
+                        cache_read_tokens: cache_read,
+                        cache_write_tokens: cache_write,
+                        requests,
+                    },
+                    None => UsageRow {
+                        dimension: dimension.clone(),
+                        key,
+                        cost_cents,
+                        prompt_tokens: 0,
+                        completion_tokens: 0,
+                        cache_read_tokens: 0,
+                        cache_write_tokens: 0,
+                        requests: 0,
+                    },
+                }
+            })
+            .collect())
+    }
+
+    async fn usage_by_time(
+        &self,
+        ext: &RpcExtensions,
+        granularity: String,
+        project_id: Option<ProjectId>,
+    ) -> RpcResult<Vec<UsageTimeRow>> {
+        self.authorize(ext, "usage.by_time").await?;
+        let time_format = match granularity.as_str() {
+            "day" => "%Y-%m-%d",
+            "month" => "%Y-%m",
+            other => {
+                return Err(rpc_error(format!(
+                    "granularity `{other}` is not `day` or `month`"
+                )));
+            }
+        };
+        let tokens = self
+            .state
+            .store
+            .aggregate_tokens_by("project_id", time_format, project_id)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        // The token aggregate groups by (project, period): every project's rows are
+        // summed here into one row per period, which is what the usage page's chart
+        // reads. A project filter already narrows the query, so the merge is only for
+        // the unfiltered case.
+        let mut periods: BTreeMap<String, (u64, u64, u64, u64, u64)> = BTreeMap::new();
+        for ((_, period), sums) in tokens {
+            let entry = periods.entry(period).or_insert((0, 0, 0, 0, 0));
+            entry.0 += sums.0;
+            entry.1 += sums.1;
+            entry.2 += sums.2;
+            entry.3 += sums.3;
+            entry.4 += sums.4;
+        }
+        let cost_rows = self
+            .state
+            .store
+            .aggregate_costs_by_time(time_format, project_id)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        Ok(periods
+            .into_iter()
+            .map(|(period, (prompt, completion, cache_read, cache_write, requests))| UsageTimeRow {
+                cost_cents: cost_rows.get(&period).copied().unwrap_or(0),
+                period,
+                prompt_tokens: prompt,
+                completion_tokens: completion,
+                cache_read_tokens: cache_read,
+                cache_write_tokens: cache_write,
+                requests,
+            })
+            .collect())
     }
 
     async fn list_devices(

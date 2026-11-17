@@ -208,6 +208,27 @@ pub trait WarshaApi {
         name: String,
     ) -> RpcResult<warsha_providers::ModelCatalogDiff>;
 
+    /// One provider's quota (A3): what the provider reports, what the daemon
+    /// estimated from its own records, or unknown — never an invented limit.
+    #[method(name = "providers.quota", with_extensions)]
+    async fn provider_quota(&self, name: String) -> RpcResult<ProviderQuotaStatus>;
+
+    /// Usage aggregated by one whitelisted dimension (A3).
+    #[method(name = "usage.by_dimension", with_extensions)]
+    async fn usage_by_dimension(
+        &self,
+        dimension: String,
+        project_id: Option<ProjectId>,
+    ) -> RpcResult<Vec<UsageRow>>;
+
+    /// Usage aggregated by day or by month (A3).
+    #[method(name = "usage.by_time", with_extensions)]
+    async fn usage_by_time(
+        &self,
+        granularity: String,
+        project_id: Option<ProjectId>,
+    ) -> RpcResult<Vec<UsageTimeRow>>;
+
     #[method(name = "devices.list", with_extensions)]
     async fn list_devices(&self) -> RpcResult<Vec<warsha_remote::DeviceIdentity>>;
 
@@ -773,6 +794,64 @@ pub struct BudgetStatus {
     pub budget_cents: Option<u64>,
     pub spent_cents: u64,
     pub remaining_cents: Option<u64>,
+}
+
+/// One usage aggregate row, as `usage.summary` answers it (A3).
+///
+/// `dimension` is the whitelisted dimension the aggregate grouped by
+/// (`provider_id`/`model_id`/`agent_role`/`project_id`), `key` is the value in that
+/// dimension, and the numbers are the sums over the rows in the group. A group with
+/// no recorded rows simply does not appear.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UsageRow {
+    pub dimension: String,
+    pub key: String,
+    pub cost_cents: u64,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub requests: u64,
+}
+
+/// One day's or month's usage, as `usage.by_time` answers it (A3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UsageTimeRow {
+    /// `YYYY-MM-DD` for a day, `YYYY-MM` for a month.
+    pub period: String,
+    pub cost_cents: u64,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub requests: u64,
+}
+
+/// One provider's quota, as `providers.quota` answers it (A3).
+///
+/// `estimated` is the local estimate from the daemon's own cost records when the
+/// provider exposes no quota endpoint; `checked_at` is when the daemon last asked,
+/// so a stale answer can be shown with its age.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderQuotaStatus {
+    pub provider: String,
+    pub kind: String,
+    pub quota: QuotaState,
+    /// RFC 3339 timestamp of the last successful check, when there was one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checked_at: Option<String>,
+}
+
+/// The three quota states, in the wire shape the desktop renders.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum QuotaState {
+    /// The provider reported its own usage and limit.
+    Reported { used: u64, limit: u64 },
+    /// The daemon estimated usage from its own cost records.
+    Estimated { usage_percentage: u8 },
+    /// The provider exposes no quota and the daemon has no estimate.
+    Unknown,
 }
 
 /// One gate of one run, as `gates.list` answers it (#25).

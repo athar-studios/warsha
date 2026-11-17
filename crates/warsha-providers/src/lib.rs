@@ -736,7 +736,7 @@ impl ProviderRouter {
 
     /// The ids of every registered adapter, in name order. Not a secret — an adapter's
     /// *key* is, and it is inside the adapter, which is why this reports ids.
-    fn provider_ids(&self) -> Vec<String> {
+    pub fn provider_ids(&self) -> Vec<String> {
         let mut ids: Vec<String> = {
             let providers = self
                 .core

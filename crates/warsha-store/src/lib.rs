@@ -1079,6 +1079,42 @@ impl Store {
         Ok(results)
     }
 
+    /// Aggregate costs by a time bucket (`"%Y-%m-%d"` for a day, `"%Y-%m"` for a
+    /// month), optionally narrowed to one project. The bucket format is
+    /// whitelisted, never interpolated from caller input.
+    pub async fn aggregate_costs_by_time(
+        &self,
+        time_format: &str,
+        project_id: Option<ProjectId>,
+    ) -> Result<HashMap<String, u64>> {
+        let time_sql = match time_format {
+            "%Y-%m-%d" => "DATE(created_at)",
+            "%Y-%m" => "strftime('%Y-%m', created_at)",
+            _ => return Err(StoreError::UnexpectedType("invalid time format")),
+        };
+        let mut query = format!(
+            "SELECT {time_sql} AS period, SUM(cost_cents) AS total FROM costs",
+            time_sql = time_sql
+        );
+        if project_id.is_some() {
+            query.push_str(" WHERE project_id = ?");
+        }
+        query.push_str(" GROUP BY period");
+        let mut query_builder = sqlx::query(&query);
+        if let Some(pid) = project_id {
+            query_builder = query_builder.bind(pid.0.as_bytes().to_vec());
+        }
+        let rows = query_builder.fetch_all(&self.pool).await?;
+        let mut results = HashMap::new();
+        for row in rows {
+            results.insert(
+                column_text(&row, "period")?,
+                column_int(&row, "total")?.unsigned_abs(),
+            );
+        }
+        Ok(results)
+    }
+
     /// Aggregate costs by day.
     pub async fn aggregate_costs_by_day(&self) -> Result<HashMap<String, u64>> {
         let rows = sqlx::query(
