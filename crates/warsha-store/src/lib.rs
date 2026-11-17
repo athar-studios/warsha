@@ -930,7 +930,31 @@ impl Store {
         rows.iter().map(artifact_from_row).collect()
     }
 
-    // ------------------------------------------------------------------ costs
+    // ------------------------------------------------------------------ secretary_interviews
+    pub async fn save_secretary_interview(&self, project_id: ProjectId, state: &str) -> Result<()> {
+        sqlx::query("INSERT OR REPLACE INTO secretary_interviews (project_id, state) VALUES (?, ?)")
+            .bind(project_id.0.as_bytes().to_vec())
+            .bind(state)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn load_secretary_interview(&self, project_id: ProjectId) -> Result<Option<String>> {
+        let row: Option<(String,)> = sqlx::query_as("SELECT state FROM secretary_interviews WHERE project_id = ?")
+            .bind(project_id.0.as_bytes().to_vec())
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|r| r.0))
+    }
+
+    pub async fn delete_secretary_interview(&self, project_id: ProjectId) -> Result<()> {
+        sqlx::query("DELETE FROM secretary_interviews WHERE project_id = ?")
+            .bind(project_id.0.as_bytes().to_vec())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 
     /// Record one model call's token usage and cost.
     pub async fn record_cost(&self, cost: &CostRecord) -> Result<()> {
@@ -1602,7 +1626,7 @@ mod tests {
     fn embedded_migrator_versions_are_lf_only() {
         let migrator = migration_migrator();
         let versions: Vec<i64> = migrator.iter().map(|m| m.version).collect();
-        assert_eq!(versions, vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13]);
         for migration in migrator.iter() {
             assert!(
                 !migration.sql.contains('\r'),
@@ -1625,7 +1649,7 @@ mod tests {
                 .fetch_all(store.pool())
                 .await
                 .expect("the migration ledger is readable");
-        assert_eq!(applied, vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12]);
+        assert_eq!(applied, vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13]);
 
         let tables: Vec<String> = sqlx::query_scalar(
             "SELECT name FROM sqlite_master \

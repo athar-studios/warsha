@@ -2,7 +2,7 @@
 
 - [ ] A1: Model catalog (in progress)
 - [x] A2: OAuth engine, Warshad RPC, Providers UI (implementation complete, WIP commit blocked by read-only filesystem; estimated spend 7/20)
-- [ ] D1: Secretary role (in progress, spend 0/400, cumulative 93)
+- [ ] D1: Secretary role (in progress, spend 95/400, cumulative 188)
 
 ## Run 2026-11-15 — R-EXT-5 (X9a WebMCP, desktop v3): four navigation tools behind an off-by-default switch
 
