@@ -448,7 +448,7 @@ impl FilesystemToolExecutor {
         let resolved = self.resolve(path)?;
         // B2: read-only confinement refuses every write by name.
         if let Some(policy) = &self.protection {
-            if policy.mode == PermissionMode::FullAccess {
+            if policy.mode == PermissionMode::ReadOnly {
                 return Ok(ToolResult::failed(
                     tool,
                     format!(
@@ -503,6 +503,12 @@ impl FilesystemToolExecutor {
                                     .into(),
                         });
                     }
+                }
+                PermissionMode::ReadOnly => {
+                    return Err(ToolError::CommandRefused {
+                        command: format!("{command} {}", args.join(" ")),
+                        reason: "commands are refused under read-only permissions".into(),
+                    });
                 }
                 PermissionMode::AskAlways | PermissionMode::AskForRisky => {
                     let risky = classify_command(command, args) == RiskClass::Risky;
@@ -1266,26 +1272,22 @@ mod protection_tests {
         let dir = std::env::temp_dir().join("b2-readonly-test");
         let _ = std::fs::create_dir_all(&dir);
         let executor = FilesystemToolExecutor::new(&dir).with_protection(policy(
-            PermissionMode::AskForRisky, // confinement is read-only in the real mapping; mode here only gates the ask path
+            PermissionMode::ReadOnly, // read-only confinement refuses every write
         ));
-        // A policy with read-only confinement maps to AskForRisky with writes refused;
-        // simulate via a policy whose mode is AskAlways and a write attempt:
-        let executor = executor.with_protection(Some(WorkProtectionPolicy {
-            mode: PermissionMode::AskAlways,
-            snapshot_before_edit: false,
-            worktree_isolation: false,
-            read_before_write: false,
-        }));
         let result = executor
             .execute(&AgentTool::WriteFile {
                 path: "new.txt".to_string(),
                 content: "x".to_string(),
             })
             .await;
-        // AskAlways does not block writes inside the workspace — only commands.
         assert!(
-            result.success,
-            "workspace-write must allow workspace writes"
+            !result.success,
+            "read-only confinement must refuse workspace writes"
+        );
+        assert!(
+            result.output.contains("read-only permissions"),
+            "refusal names the confinement: {}",
+            result.output
         );
     }
 

@@ -48,6 +48,9 @@ pub enum PermissionMode {
     AutoInsideProject,
     /// Bypasses permission checks entirely.
     FullAccess,
+    /// Read-only confinement: the agent may read and run safe reads, but no
+    /// write and no command lands anywhere (B2).
+    ReadOnly,
 }
 
 /// The work-protection settings of one project or session.
@@ -385,6 +388,7 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
 /// Maps project permissions to a work protection policy.
 pub fn policy_for_permissions(p: ProjectPermissions) -> WorkProtectionPolicy {
     let mode = match (p.confinement, p.approval_mode) {
+        (Confinement::ReadOnly, _) => PermissionMode::ReadOnly,
         (Confinement::FullAccess, ApprovalMode::NeverAsk) => PermissionMode::FullAccess,
         (_, ApprovalMode::AskAlways) => PermissionMode::AskAlways,
         (_, ApprovalMode::AskForRisky) => PermissionMode::AskForRisky,
