@@ -114,7 +114,13 @@ pub(crate) fn build_agent_loop_in(
             workspace_dir.display()
         );
     }
-    let command_policy = CommandPolicy::from_config(allowed_commands);
+    let command_policy = CommandPolicy::from_config(allowed_commands)
+        // B3: owner rules sit on top of the allowlist, never instead of it.
+        // The daemon-wide loop carries no rules yet — the per-run store is
+        // loaded from the settings table when a run starts (rules.load RPC).
+        // An empty store evaluates every tool to `Allow` (= axis default), so
+        // installing it unconditionally changes nothing until rules are set.
+        .with_rule_store(Arc::new(InMemoryRuleStore::new()));
     let tools = FilesystemToolExecutor::new(workspace_dir.to_path_buf())
         .with_protection(Some(policy))
         .with_read_before_write(policy.read_before_write)

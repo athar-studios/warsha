@@ -33,6 +33,7 @@
 
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 
 use thiserror::Error;
@@ -40,6 +41,7 @@ use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
 use crate::process_spawn::{split_command, ProcessError};
+use warsha_core::rules::{RuleAction, RuleStore};
 
 /// The default programs the agent may run: the toolchains a generated project
 /// builds and tests with, and no shells or arbitrary command-line interpreters.
@@ -282,12 +284,34 @@ impl CommandOutput {
 }
 
 /// Pipeline-side allow-list and execution policy for `RunCommand`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+use std::fmt;
+
+#[derive(Clone)]
 pub struct CommandPolicy {
     allowed: Vec<String>,
+    rule_store: Option<Arc<dyn RuleStore>>,
     timeout: Duration,
     output_cap_bytes: usize,
 }
+
+impl fmt::Debug for CommandPolicy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CommandPolicy")
+            .field("allowed", &self.allowed)
+            .field("timeout", &self.timeout)
+            .field("output_cap_bytes", &self.output_cap_bytes)
+            .finish()
+    }
+}
+
+impl PartialEq for CommandPolicy {
+    fn eq(&self, other: &Self) -> bool {
+        self.allowed == other.allowed
+            && self.timeout == other.timeout
+            && self.output_cap_bytes == other.output_cap_bytes
+    }
+}
+impl Eq for CommandPolicy {}
 
 impl Default for CommandPolicy {
     fn default() -> Self {
@@ -316,6 +340,7 @@ impl CommandPolicy {
         };
         Self {
             allowed,
+            rule_store: None,
             timeout: DEFAULT_COMMAND_TIMEOUT,
             output_cap_bytes: DEFAULT_OUTPUT_CAP_BYTES,
         }
@@ -325,9 +350,16 @@ impl CommandPolicy {
     pub fn deny_all() -> Self {
         Self {
             allowed: Vec::new(),
+            rule_store: None,
             timeout: DEFAULT_COMMAND_TIMEOUT,
             output_cap_bytes: DEFAULT_OUTPUT_CAP_BYTES,
         }
+    }
+
+    /// Set rule store
+    pub fn with_rule_store(mut self, rule_store: Arc<dyn RuleStore>) -> Self {
+        self.rule_store = Some(rule_store);
+        self
     }
 
     /// Override the execution timeout.
@@ -411,14 +443,48 @@ impl CommandPolicy {
         }
 
         let program = program_name(trimmed);
+
         if program.is_empty() {
             return Err(CommandPolicyError::BlankCommand);
         }
 
+        // The allowlist is the hard floor: it is checked FIRST and a rule can
+        // never widen it (B3 spec — rules only deny or add an ask on top).
         let allowed = self
             .allowed
             .iter()
             .any(|entry| entry == trimmed || program_name(entry) == program);
+        if !allowed {
+            // A rule may still DENY a program the allowlist would refuse —
+            // denial is recorded with the rule's reason, not the generic one.
+            if let Some(ref store) = self.rule_store {
+                if store.evaluate(&program) == RuleAction::Deny {
+                    return Err(CommandPolicyError::NotAllowed { command: program });
+                }
+            }
+            // Shells are refused by name, not by the missing list entry: the
+            // refusal says "shell" so an edit that adds one reads as that.
+            if SHELL_COMMANDS.contains(&program.as_str()) {
+                return Err(CommandPolicyError::ShellRefused { command: program });
+            }
+            return Err(CommandPolicyError::NotAllowed { command: program });
+        }
+
+        // Inside the allowlist, owner rules can deny or ask on top of it.
+        if let Some(ref store) = self.rule_store {
+            match store.evaluate(&program) {
+                RuleAction::Deny => {
+                    return Err(CommandPolicyError::NotAllowed { command: program });
+                }
+                RuleAction::Ask => {
+                    return Err(CommandPolicyError::InvalidCommand {
+                        command: program,
+                        reason: "rule engine requires approval".to_string(),
+                    })
+                }
+                RuleAction::Allow => {}
+            }
+        }
         if allowed {
             return Ok(());
         }

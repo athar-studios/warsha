@@ -257,6 +257,9 @@ impl ToolExecutor for NoToolExecutor {
 /// By default a write needs no prior read. [`FilesystemToolExecutor::with_read_before_write`]
 /// installs a shared [`ReadBeforeWriteGuard`] so an unread file cannot be
 /// overwritten; clones of the executor share the same guard.
+use crate::mcp_approval::McpApprovals;
+// ... (existing imports)
+
 #[derive(Debug, Clone)]
 pub struct FilesystemToolExecutor {
     working_dir: PathBuf,
@@ -268,6 +271,10 @@ pub struct FilesystemToolExecutor {
     /// `None` keeps today's behaviour; `Some` classifies every `RunCommand` and
     /// routes risky ones to the approval queue under ask-for-risky confinement.
     protection: Option<WorkProtectionPolicy>,
+    /// Shared MCP approvals queue for native/MCP/bridge asks.
+    mcp_approvals: Option<Arc<McpApprovals>>,
+    /// Run ID for context in approvals.
+    run_id: Option<String>,
 }
 
 impl PartialEq for FilesystemToolExecutor {
@@ -278,6 +285,8 @@ impl PartialEq for FilesystemToolExecutor {
             && self.read_guard.is_some() == other.read_guard.is_some()
             && self.command_policy == other.command_policy
             && self.protection.is_some() == other.protection.is_some()
+            && self.mcp_approvals.is_some() == other.mcp_approvals.is_some()
+            && self.run_id == other.run_id
     }
 }
 
@@ -303,7 +312,20 @@ impl FilesystemToolExecutor {
             read_guard: None,
             command_policy: CommandPolicy::deny_all(),
             protection: None,
+            mcp_approvals: None,
+            run_id: None,
         }
+    }
+
+    /// Attach the shared MCP approvals queue and run context.
+    pub fn with_mcp_approvals(
+        mut self,
+        approvals: Arc<McpApprovals>,
+        run_id: Option<String>,
+    ) -> Self {
+        self.mcp_approvals = Some(approvals);
+        self.run_id = run_id;
+        self
     }
 
     /// Install the work-protection policy this run resolved from its project

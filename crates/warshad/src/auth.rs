@@ -917,6 +917,26 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Session,
         tier: Standard,
     },
+    M {
+        method: "rules.global.get",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "rules.global.set",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "rules.project.get",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "rules.project.set",
+        policy: Owner,
+        tier: Standard,
+    },
 ];
 
 /// The policy of a method, or `None` for one the table does not name.

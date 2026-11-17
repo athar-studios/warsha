@@ -1966,3 +1966,7 @@ Introduce  to distinguish between retryable errors (transient) and failover trig
 
 ### D-RN-A4-001 (2026-11-17): Failover Classification
 Introduce `should_failover(&ProviderError) -> bool` to distinguish between retryable errors (transient) and failover triggers (auth, 5xx, rate-limit), as required by A4 plan.
+
+## 2026-11-17 — Tool Permissioning Location: `warsha-core`
+- **Decision**: Define `Rule` model and `RuleStore` trait in `crates/warsha-core`.
+- **Reason**: Tool permissioning is a core domain requirement, not specific to pipeline execution. Placing these in `warsha-core` (the base tier of the architecture) ensures universal accessibility by `warsha-pipeline` and other future components (e.g., `warshad` daemon, `warsha-remote`) without creating upward dependency edges.

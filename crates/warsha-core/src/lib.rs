@@ -7,8 +7,11 @@ pub mod config;
 pub mod harness;
 pub mod plugin;
 pub mod redaction;
+pub mod rules;
 pub mod session;
 pub mod skill;
+
+pub use rules::{InMemoryRuleStore, RuleAction, RuleStore, ToolRules};
 
 pub use config::{
     CustomModelRecord, FileContent, FileEntry, IntegrationConfig, IntegrationStatus,

@@ -1592,7 +1592,8 @@ mod tests {
     }
 
     /// Checksum-stability proxy: the compile-time embedded migrator must
-    /// expose exactly versions 1, 2, 3, 4 and 6, with no CR in any embedded SQL.
+    /// expose exactly versions 1, 2, 3, 4, 6, 7, 8, 9, 10, 11 and 12, with no CR
+    /// in any embedded SQL.
     ///
     /// 5 is deliberately absent: the pairing-expiry column it added is part of
     /// 006 now (P-E7), and no database can have recorded it, because the
@@ -1601,7 +1602,7 @@ mod tests {
     fn embedded_migrator_versions_are_lf_only() {
         let migrator = migration_migrator();
         let versions: Vec<i64> = migrator.iter().map(|m| m.version).collect();
-        assert_eq!(versions, vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12]);
         for migration in migrator.iter() {
             assert!(
                 !migration.sql.contains('\r'),
@@ -1624,7 +1625,7 @@ mod tests {
                 .fetch_all(store.pool())
                 .await
                 .expect("the migration ledger is readable");
-        assert_eq!(applied, vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11]);
+        assert_eq!(applied, vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12]);
 
         let tables: Vec<String> = sqlx::query_scalar(
             "SELECT name FROM sqlite_master \
