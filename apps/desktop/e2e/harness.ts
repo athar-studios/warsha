@@ -161,8 +161,13 @@ export const RPC_METHODS = [
   'projects.get',
   'projects.list',
   'providers.add',
+  'providers.auth_complete',
+  'providers.auth_start',
+  'providers.auth_status',
   'providers.check_models',
+  'providers.disconnect',
   'providers.list',
+  'providers.quota',
   'providers.remove',
   'providers.test',
   'roles.list',
@@ -187,6 +192,9 @@ export const RPC_METHODS = [
   'skills.import',
   'skills.list',
   'skills.toggle',
+  'usage.by_dimension',
+  'usage.by_time',
+  'usage.subscription_window',
 ] as const;
 export type RpcMethod = (typeof RPC_METHODS)[number];
 
