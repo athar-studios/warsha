@@ -467,8 +467,8 @@ impl Store {
         sqlx::query(
             "INSERT INTO runs (id, project_id, current_stage, gate_states, artifacts, \
              created_at, updated_at, status, budget_cents, spent_cents, version, \
-             worktree_path, worktree_branch) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+             worktree_path, worktree_branch, confinement) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)",
         )
         .bind(run.id.0.to_string())
         .bind(run.project_id.0.as_bytes().to_vec())
@@ -482,6 +482,7 @@ impl Store {
         .bind(run.spent_cents as i64)
         .bind(&run.worktree_path)
         .bind(&run.worktree_branch)
+        .bind(run.confinement.map(|c| c.to_string()))
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -498,7 +499,7 @@ impl Store {
         let row = sqlx::query(
             "SELECT id, project_id, current_stage, gate_states, artifacts, created_at, \
              updated_at, status, budget_cents, spent_cents, version, worktree_path, \
-             worktree_branch FROM runs WHERE id = ?",
+             worktree_branch, confinement FROM runs WHERE id = ?",
         )
         .bind(id.0.to_string())
         .fetch_optional(&self.pool)
@@ -587,7 +588,7 @@ impl Store {
         let rows = sqlx::query(
             "SELECT id, project_id, current_stage, gate_states, artifacts, created_at, \
              updated_at, status, budget_cents, spent_cents, version, worktree_path, \
-             worktree_branch FROM runs \
+             worktree_branch, confinement FROM runs \
              WHERE project_id = ? ORDER BY created_at DESC",
         )
         .bind(project_id.0.as_bytes().to_vec())
@@ -601,7 +602,7 @@ impl Store {
         let rows = sqlx::query(
             "SELECT id, project_id, current_stage, gate_states, artifacts, created_at, \
              updated_at, status, budget_cents, spent_cents, version, worktree_path, \
-             worktree_branch FROM runs \
+             worktree_branch, confinement FROM runs \
              ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
@@ -616,7 +617,7 @@ impl Store {
         let rows = sqlx::query(
             "SELECT id, project_id, current_stage, gate_states, artifacts, created_at, \
              updated_at, status, budget_cents, spent_cents, version, worktree_path, \
-             worktree_branch FROM runs \
+             worktree_branch, confinement FROM runs \
              WHERE status = '\"running\"'",
         )
         .fetch_all(&self.pool)
@@ -1180,6 +1181,12 @@ fn run_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Run> {
             .map_or(0, |v| u64::from_ne_bytes(i64::to_ne_bytes(v))),
         worktree_path: column_opt_text(row, "worktree_path")?,
         worktree_branch: column_opt_text(row, "worktree_branch")?,
+        // B2: the confinement the run is confined by, persisted with the run so
+        // the backstop survives a restart. Legacy rows read NULL → None.
+        confinement: column_opt_text(row, "confinement")?
+            .map(|s| s.parse())
+            .transpose()
+            .map_err(|e: String| StoreError::ParseError("runs.confinement", e))?,
     })
 }
 
@@ -1421,7 +1428,7 @@ mod tests {
     fn embedded_migrator_versions_are_lf_only() {
         let migrator = migration_migrator();
         let versions: Vec<i64> = migrator.iter().map(|m| m.version).collect();
-        assert_eq!(versions, vec![1, 2, 3, 4, 6, 7, 8, 9, 10]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11]);
         for migration in migrator.iter() {
             assert!(
                 !migration.sql.contains('\r'),
@@ -1444,7 +1451,7 @@ mod tests {
                 .fetch_all(store.pool())
                 .await
                 .expect("the migration ledger is readable");
-        assert_eq!(applied, vec![1, 2, 3, 4, 6, 7, 8, 9, 10]);
+        assert_eq!(applied, vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11]);
 
         let tables: Vec<String> = sqlx::query_scalar(
             "SELECT name FROM sqlite_master \
@@ -1522,6 +1529,7 @@ mod tests {
             spent_cents: 0,
             worktree_path: None,
             worktree_branch: None,
+            confinement: None,
         };
         store.create_run(&run).await.unwrap();
 
@@ -1550,6 +1558,7 @@ mod tests {
             spent_cents: 0,
             worktree_path: None,
             worktree_branch: None,
+            confinement: None,
         };
         store.create_run(&run).await.unwrap();
 
@@ -1707,6 +1716,7 @@ mod tests {
             spent_cents: 0,
             worktree_path: None,
             worktree_branch: None,
+            confinement: None,
         }
     }
 

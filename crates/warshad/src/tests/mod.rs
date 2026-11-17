@@ -1254,6 +1254,7 @@ async fn stored_run(store: &Store, name: &str, repo_path: Option<&Path>) -> Run 
         spent_cents: 0,
         worktree_path: None,
         worktree_branch: None,
+        confinement: None,
     };
     store.create_run(&run).await.expect("the run is stored");
     run
@@ -3743,6 +3744,7 @@ mod runs_resume {
                 spent_cents: 0,
                 worktree_path: None,
                 worktree_branch: None,
+                confinement: None,
             };
             store.create_run(&run).await.unwrap();
             run.id

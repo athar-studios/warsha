@@ -367,6 +367,9 @@ pub struct Run {
     pub spent_cents: u64,
     pub worktree_path: Option<String>,
     pub worktree_branch: Option<String>,
+    /// B2: the confinement this run is confined by (resolved at start from the
+    /// project's effective permissions). The read-only backstop keys on it.
+    pub confinement: Option<Confinement>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

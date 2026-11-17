@@ -57,8 +57,8 @@ pub use crate::mcp_permission::{
     AskEverything, McpPermissionSource, McpPermissionStore, StaticPermissions, MCP_AGENT_ROLE,
 };
 pub use crate::worktree::{
-    commit_run_worktree, create_run_worktree, remove_run_worktree, worktree_path, RunWorktree,
-    WorktreeError,
+    commit_run_worktree, create_run_worktree, remove_run_worktree, restore_run_worktree, tree_hash,
+    worktree_path, RunWorktree, WorktreeError,
 };
 /// The Streamable HTTP transport's client seam and its pure SSE parser (R-EXT-4):
 /// the daemon implements [`McpHttpClient`] and injects it, and the pipeline keeps
@@ -513,7 +513,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
     /// the ceiling the owner set is not dropped on the next run; a project with no
     /// budget stays unbudgeted, which is allowed.
     pub async fn start_run(&self, project_id: ProjectId, idea: &str) -> Result<Run> {
-        let _project = self.store.get_project(project_id).await?;
+        let project = self.store.get_project(project_id).await?;
 
         let (project_budget_cents, project_spent_cents) =
             self.project_budget_state(project_id).await?;
@@ -539,6 +539,9 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             spent_cents: 0,
             worktree_path: None,
             worktree_branch: None,
+            // B2: the run carries the confinement it is confined by — the
+            // read-only backstop keys on it.
+            confinement: Some(project.permissions.confinement),
         };
 
         // Initialize gate states for all gate stages
@@ -1173,7 +1176,27 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 PipelineError::Other(format!("run `{}` has no assigned worktree", run.id.0))
             })?;
 
-        let mut sandbox = Sandbox::new(sandbox_path);
+        // B2: the read-only backstop. A run confined read-only may not move the
+        // tree, so the tree is hashed before the stage runs and hashed again
+        // after; a moved tree is restored from HEAD, the stage fails, and the
+        // violation is named in the receipt.
+        let backstop = run
+            .confinement
+            .as_ref()
+            .map(|c| *c == Confinement::ReadOnly)
+            .unwrap_or(false);
+        let tree_before = if backstop {
+            Some(worktree::tree_hash(&sandbox_path).await.map_err(|e| {
+                PipelineError::Other(format!(
+                    "the read-only backstop could not hash run `{}`'s worktree: {e}",
+                    run.id.0
+                ))
+            })?)
+        } else {
+            None
+        };
+
+        let mut sandbox = Sandbox::new(sandbox_path.clone());
         sandbox.session_id = Some(session_id);
         sandbox.live_sessions = Some(Arc::new(self.live_sessions.clone()));
 
@@ -1188,6 +1211,31 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         });
 
         let result = backend.execute(task, &sandbox).await;
+
+        // B2: the read-only backstop's comparison half — a moved tree under a
+        // read-only confinement is restored from HEAD and the stage fails with
+        // the violation named.
+        if let Some(before) = tree_before {
+            let after = worktree::tree_hash(&sandbox_path).await.map_err(|e| {
+                PipelineError::Other(format!(
+                    "the read-only backstop could not re-hash run `{}`'s worktree: {e}",
+                    run.id.0
+                ))
+            })?;
+            if after != before {
+                let restored = worktree::restore_run_worktree(&sandbox_path)
+                    .await
+                    .unwrap_or_default();
+                return Err(PipelineError::Other(format!(
+                    "read-only violation: run `{}` modified its worktree under read-only \
+                     confinement ({} paths restored); the stage failed and the tree was \
+                     restored",
+                    run.id.0,
+                    restored.len()
+                )));
+            }
+        }
+
         match &result {
             Ok(res) if res.success => {
                 let _ = self

@@ -19,6 +19,7 @@ fn test_run_receipt_builder() {
         spent_cents: 10,
         worktree_path: Some("/tmp/wt".to_string()),
         worktree_branch: Some("warsha/run-1".to_string()),
+        confinement: Some(Confinement::WorkspaceWrite),
     };
     let receipt = build_run_receipt(
         &run,
