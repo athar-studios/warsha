@@ -308,6 +308,9 @@ export default {
   'settings.usage.quota.stale': 'Last checked: {age}',
   'settings.usage.quota.check': 'Check now',
   'settings.usage.quota.checked': 'Checked the quota for {name}.',
+  'settings.usage.thresholds.label': 'Gauge thresholds',
+  'settings.usage.thresholds.amber': 'Amber from',
+  'settings.usage.thresholds.red': 'Red from',
 
   'settings.postlaunch.crashes_title': 'Crash reports',
   'settings.postlaunch.reviews_title': 'Store reviews',

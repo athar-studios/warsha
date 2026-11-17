@@ -308,6 +308,9 @@ export default {
   'settings.usage.quota.stale': 'آخر تحقق: {age}',
   'settings.usage.quota.check': 'تحقّق الآن',
   'settings.usage.quota.checked': 'تمّ التحقق من حصة {name}.',
+  'settings.usage.thresholds.label': 'حدود المقياس',
+  'settings.usage.thresholds.amber': 'الكهرماني من',
+  'settings.usage.thresholds.red': 'الأحمر من',
 
   'settings.postlaunch.crashes_title': 'تقارير الأعطال',
   'settings.postlaunch.reviews_title': 'مراجعات المتاجر',

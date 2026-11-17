@@ -21,4 +21,9 @@ export default {
   'frame.status_done': 'مكتمل',
   'frame.status_failed': 'فشل',
   'frame.status_paused': 'موقوف مؤقتاً',
+  'frame.quota_gauge_label': 'مقياس حصص المزودين',
+  'frame.quota_gauge_none': 'لا توجد حصة معروفة لأي مزود',
+  'frame.quota_gauge.tightest': 'أضيق حصة: {name}',
+  'frame.quota_alert.exhaustion': 'حصة {name} على وشك النفاد',
+  'frame.quota_alert.spend_cap': 'المشروع {name} يقترب من سقف الإنفاق',
 };

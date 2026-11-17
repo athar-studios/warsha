@@ -21,4 +21,9 @@ export default {
   'frame.status_done': 'Done',
   'frame.status_failed': 'Failed',
   'frame.status_paused': 'Paused',
+  'frame.quota_gauge_label': 'Provider quota gauge',
+  'frame.quota_gauge_none': 'No provider quota known',
+  'frame.quota_gauge.tightest': 'Tightest quota: {name}',
+  'frame.quota_alert.exhaustion': 'Quota for {name} is nearly exhausted',
+  'frame.quota_alert.spend_cap': 'Project {name} is close to its spend cap',
 };
