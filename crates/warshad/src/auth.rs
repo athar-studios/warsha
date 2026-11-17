@@ -348,6 +348,11 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Owner,
         tier: Spend,
     },
+    M {
+        method: "runs.estimate",
+        policy: Session,
+        tier: Standard,
+    },
     // The worktree path is local information, not a credential; a verified session
     // that can read the run may read where its own checkout lives.
     M {

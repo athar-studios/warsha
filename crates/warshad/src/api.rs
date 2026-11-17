@@ -75,6 +75,9 @@ pub trait WarshaApi {
     #[method(name = "projects.attach", with_extensions)]
     async fn attach_project(&self, project_id: ProjectId, repo_path: String) -> RpcResult<Project>;
 
+    #[method(name = "runs.estimate", with_extensions)]
+    async fn estimate_run(&self, project_id: ProjectId, idea: String) -> RpcResult<CostEstimate>;
+
     #[method(name = "runs.start", with_extensions)]
     async fn start_run(&self, project_id: ProjectId, idea: String) -> RpcResult<Run>;
 
@@ -817,10 +820,18 @@ pub struct RoutingTargetConfig {
 /// Budget status for RPC
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BudgetStatus {
-    pub project_id: ProjectId,
+    pub project_id: crate::ProjectId,
     pub budget_cents: Option<u64>,
     pub spent_cents: u64,
     pub remaining_cents: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CostEstimate {
+    pub min_cents: u64,
+    pub max_cents: u64,
+    pub estimated: bool,
+    pub warnings: Vec<String>,
 }
 
 /// One usage aggregate row, as `usage.summary` answers it (A3).

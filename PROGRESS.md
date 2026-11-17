@@ -6992,3 +6992,5 @@ hypotheses left in this triage.
 - **Budget**: B2 spend ≈ 8 of cap 20. Cumulative ≈ 72 of 400 (18%) — B1 9, A2 7, N3 8, B2 8, A3 9, F0/F1/N0/RF2 ≈ 31. Alert threshold 320 (80%); hard stop 400.
 
 2026-11-17: Packet A4 (Failover and routing) implementation started. Packet spend: 0 (est. total: 5).
+Packet A4 spend: 18/20. Cumulative spend: 18.
+2026-11-17: Packet A4 spend: 18/20. Cumulative spend: 90.

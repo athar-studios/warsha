@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, PoisonError, RwLock};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::Semaphore;
@@ -85,15 +85,15 @@ impl ProviderError {
     }
 
     pub fn should_failover(&self) -> bool {
-        match self {
+        matches!(
+            self,
             ProviderError::RateLimited(_)
-            | ProviderError::QuotaExhausted(_)
-            | ProviderError::Timeout(_)
-            | ProviderError::Auth(_)
-            | ProviderError::Http(401 | 403 | 500..=599, _) => true,
-            ProviderError::Other(_) => true,
-            _ => false,
-        }
+                | ProviderError::QuotaExhausted(_)
+                | ProviderError::Timeout(_)
+                | ProviderError::Auth(_)
+                | ProviderError::Http(401 | 403 | 500..=599, _)
+                | ProviderError::Other(_)
+        )
     }
 }
 
@@ -888,6 +888,21 @@ impl ProviderRouter {
         self.lock_ledger().record(project_id, cost);
     }
 
+    /// A4 (test seam): seed the spend ledger directly, so the budget gate can be
+    /// exercised without dialling a provider first. Test-only.
+    #[doc(hidden)]
+    pub fn record_spend_for_test(&self, project_id: &str, cost: u64) {
+        self.record_spend(project_id, cost);
+    }
+
+    /// A4: clear one provider's cooldown. A success inside the walk does this
+    /// automatically; tests use it to reopen a provider without waiting out
+    /// the cooldown window.
+    pub fn reset_cooldown(&self, provider_id: &str) {
+        let mut cooldowns = self.cooldowns.lock().unwrap_or_else(|e| e.into_inner());
+        cooldowns.remove(provider_id);
+    }
+
     /// Get the best provider/model for a role
     pub fn route(&self, role: Role) -> Option<(String, String)> {
         let routings = self
@@ -916,6 +931,18 @@ impl ProviderRouter {
             .get(&role)
             .ok_or_else(|| ProviderError::NotFound(format!("No routing for role {:?}", role)))?;
         Ok((routing.targets.clone(), routing.fallback_enabled))
+    }
+
+    /// A4: read-only view of a role's configured targets, for the pre-run cost
+    /// estimate (`runs.estimate`). Absent routing is `None`, not a provider
+    /// error — an unrouted role simply contributes no models to the estimate.
+    pub fn routing_targets_for(&self, role: Role) -> Option<Vec<RoutingTarget>> {
+        let routings = self
+            .core
+            .role_routings
+            .read()
+            .unwrap_or_else(PoisonError::into_inner);
+        routings.get(&role).map(|routing| routing.targets.clone())
     }
 
     /// Calculate cost for a model using the appropriate provider
@@ -1043,10 +1070,11 @@ impl ProviderRouter {
                         let provider = self
                             .get_provider(&target.provider_id)
                             .ok_or_else(|| ProviderError::NotFound(target.provider_id.clone()))?;
-                        
+
                         // Reset cooldown on success
                         {
-                            let mut cooldowns = self.cooldowns.lock().unwrap_or_else(|e| e.into_inner());
+                            let mut cooldowns =
+                                self.cooldowns.lock().unwrap_or_else(|e| e.into_inner());
                             cooldowns.remove(&target.provider_id);
                         }
 
@@ -1059,7 +1087,8 @@ impl ProviderRouter {
                         let failover = err.should_failover();
                         last_error = Some(err);
 
-                        if retryable && target_retries < retry.max_retries_per_target
+                        if retryable
+                            && target_retries < retry.max_retries_per_target
                             && total_attempts < retry.max_total_attempts
                             && !self.budget_exhausted(project_id)
                         {
@@ -1075,9 +1104,13 @@ impl ProviderRouter {
                         if failover {
                             // Update cooldown for this provider
                             {
-                                let mut cooldowns = self.cooldowns.lock().unwrap_or_else(|e| e.into_inner());
+                                let mut cooldowns =
+                                    self.cooldowns.lock().unwrap_or_else(|e| e.into_inner());
                                 // Basic cooldown implementation: 60s
-                                cooldowns.insert(target.provider_id.clone(), Instant::now() + Duration::from_secs(60));
+                                cooldowns.insert(
+                                    target.provider_id.clone(),
+                                    Instant::now() + Duration::from_secs(60),
+                                );
                             }
                             break;
                         }
@@ -1396,12 +1429,9 @@ mod tests {
             .chat_with_fallback(Role::Coder, "project-1", request())
             .await;
 
-        assert!(matches!(result, Ok(_)));
+        assert!(result.is_ok());
         // The primary fails over, so it should be 1 call.
-        assert_eq!(
-            primary_calls.load(Ordering::SeqCst),
-            1
-        );
+        assert_eq!(primary_calls.load(Ordering::SeqCst), 1);
         assert_eq!(fallback_calls.load(Ordering::SeqCst), 1);
     }
 
@@ -1653,7 +1683,8 @@ mod tests {
             overlapped: Arc::clone(&overlapped),
         }));
         router.set_role_routing(coder_routing(vec![target("overlap")], false));
-        let router: Arc<tokio::sync::RwLock<ProviderRouter>> = Arc::new(tokio::sync::RwLock::new(router));
+        let router: Arc<tokio::sync::RwLock<ProviderRouter>> =
+            Arc::new(tokio::sync::RwLock::new(router));
 
         let mut handles = Vec::new();
         for _ in 0..2 {
@@ -1762,7 +1793,8 @@ mod tests {
             fallback_enabled: false,
             budget_cents_per_run: None,
         });
-        let router: Arc<tokio::sync::RwLock<ProviderRouter>> = Arc::new(tokio::sync::RwLock::new(router));
+        let router: Arc<tokio::sync::RwLock<ProviderRouter>> =
+            Arc::new(tokio::sync::RwLock::new(router));
 
         let walking = {
             let router = Arc::clone(&router);
@@ -1801,7 +1833,9 @@ mod tests {
         let second = {
             let router = Arc::clone(&router);
             let guard = router.read().await;
-            guard.chat_with_fallback(Role::Coder, "project-2", request()).await
+            guard
+                .chat_with_fallback(Role::Coder, "project-2", request())
+                .await
         };
         assert!(
             matches!(second, Err(ProviderError::RateLimited(_))),
