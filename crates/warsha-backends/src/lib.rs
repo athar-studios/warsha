@@ -1,5 +1,6 @@
 //! Warsha Backends — Coding backends: builtin agent, OpenHands, Claude Code, Codex CLI, Gemini CLI, Cursor CLI
 
+pub mod permissions;
 pub mod stream;
 use async_trait::async_trait;
 use chrono::Utc;

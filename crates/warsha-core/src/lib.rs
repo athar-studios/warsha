@@ -208,7 +208,7 @@ impl Role {
 }
 
 /// Project permission axes
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Confinement {
     #[serde(alias = "read-only", alias = "ReadOnly")]
@@ -242,7 +242,7 @@ impl std::str::FromStr for Confinement {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalMode {
     #[serde(alias = "ask-always", alias = "AskAlways")]
