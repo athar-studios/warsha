@@ -72,7 +72,8 @@ export type Role =
   | 'security'
   | 'release'
   | 'marketer'
-  | 'feedback';
+  | 'feedback'
+  | 'secretary';
 
 export interface RpcRequest<T = unknown> {
   jsonrpc: '2.0';
@@ -346,6 +347,7 @@ export interface RoleRoutingConfig {
   targets: RoutingTargetConfig[];
   fallback_enabled: boolean;
   budget_cents_per_run: number;
+  daily_spend_cap_cents: number | null;
 }
 
 /**
@@ -360,6 +362,7 @@ export interface RoleRouting {
   targets: RoutingTargetConfig[];
   fallback_enabled: boolean;
   budget_cents_per_run: number | null;
+  daily_spend_cap_cents: number | null;
 }
 
 /** The agent loop's mode, as the daemon serialises `AgentMode`. */

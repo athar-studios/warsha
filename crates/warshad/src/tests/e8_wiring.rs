@@ -122,6 +122,7 @@ async fn route_the_walk_to_the_mock(rpc: &WarshaRpc, owner: &RpcExtensions) {
                 }],
                 fallback_enabled: false,
                 budget_cents_per_run: None,
+                daily_spend_cap_cents: None,
             },
         )
         .await

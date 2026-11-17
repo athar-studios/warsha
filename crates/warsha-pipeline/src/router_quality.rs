@@ -113,7 +113,7 @@ impl RouterPolicy {
             .iter()
             .map(|role| {
                 let tier = match role {
-                    Role::Intake | Role::Marketer | Role::Feedback | Role::Release => {
+                    Role::Intake | Role::Marketer | Role::Feedback | Role::Release | Role::Secretary => {
                         ModelTier::Small
                     }
                     Role::Researcher

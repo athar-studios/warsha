@@ -1,3 +1,7 @@
+## 2026-11-18 — D1: Secretary Role Implementation
+- **Decision**: Implement Secretary interview using a new `Secretary` role with a bundled `interview` skill and a new state management approach that reuses `ProjectBrief` for state persistence.
+- **Reason**: Reusing `ProjectBrief` for interview state minimizes schema drift and simplifies pipeline integration (Gate A).
+
 ## 2026-11-16 — A1: Model Catalog Persistence
 - **Decision**: Catalog metadata (JSON) is embedded in binary; refreshed catalog is stored in app data directory with digest verification; custom models are stored in app data directory to survive refresh.
 - **Alternatives**: Always fetch from URL, build-time code generation for catalog, no custom model support.

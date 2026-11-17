@@ -406,6 +406,7 @@ pub(crate) fn routing_config(role: Role, routing: &RoleRouting) -> RoleRoutingCo
             .collect(),
         fallback_enabled: routing.fallback_enabled,
         budget_cents_per_run: routing.budget_cents_per_run,
+        daily_spend_cap_cents: None,
     }
 }
 

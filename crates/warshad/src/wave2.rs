@@ -1353,6 +1353,7 @@ fn role_label(role: Role) -> String {
         Role::Release => "Release",
         Role::Marketer => "Marketing",
         Role::Feedback => "Feedback",
+        Role::Secretary => "Secretary",
     }
     .to_string()
 }

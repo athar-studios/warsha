@@ -842,6 +842,7 @@ pub struct RoleRoutingConfig {
     pub targets: Vec<RoutingTargetConfig>,
     pub fallback_enabled: bool,
     pub budget_cents_per_run: Option<u64>,
+    pub daily_spend_cap_cents: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
