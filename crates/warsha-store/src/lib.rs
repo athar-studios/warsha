@@ -989,18 +989,92 @@ impl Store {
     }
 
     /// Aggregate costs by a specified dimension (e.g., 'provider_id', 'model_id', 'agent_role', 'project_id').
-    pub async fn aggregate_costs_by(&self, dimension: &str) -> Result<HashMap<String, u64>> {
-        let query = format!(
-            "SELECT {} AS dim, SUM(cost_cents) AS total FROM costs GROUP BY dim",
+    pub async fn aggregate_costs_by(&self, dimension: &str, project_id: Option<ProjectId>) -> Result<HashMap<String, u64>> {
+        let whitelisted = ["provider_id", "model_id", "agent_role", "project_id"];
+        if !whitelisted.contains(&dimension) {
+            return Err(StoreError::UnexpectedType("invalid dimension"));
+        }
+        
+        let mut query = format!(
+            "SELECT {} AS dim, SUM(cost_cents) AS total FROM costs",
             dimension
         );
-        let rows = sqlx::query(&query).fetch_all(&self.pool).await?;
+        
+        if project_id.is_some() {
+            query.push_str(" WHERE project_id = ?");
+        }
+        
+        query.push_str(" GROUP BY dim");
+        
+        let mut query_builder = sqlx::query(&query);
+        if let Some(pid) = project_id {
+            query_builder = query_builder.bind(pid.0.as_bytes().to_vec());
+        }
+        
+        let rows = query_builder.fetch_all(&self.pool).await?;
+
         let mut results = HashMap::new();
         for row in rows {
             results.insert(
                 column_text(&row, "dim")?,
                 column_int(&row, "total")?.unsigned_abs(),
             );
+        }
+        Ok(results)
+    }
+
+    /// Aggregate tokens by dimension and time (day/month).
+    pub async fn aggregate_tokens_by(
+        &self, 
+        dimension: &str,
+        time_format: &str, // "%Y-%m-%d" or "%Y-%m"
+        project_id: Option<ProjectId>
+    ) -> Result<HashMap<(String, String), (u64, u64, u64, u64, u64)>> {
+        let whitelisted = ["provider_id", "model_id", "agent_role", "project_id"];
+        if !whitelisted.contains(&dimension) {
+            return Err(StoreError::UnexpectedType("invalid dimension"));
+        }
+        
+        // SQLite date formatting: strftime(format, created_at)
+        let time_sql = match time_format {
+            "%Y-%m-%d" => "DATE(created_at)",
+            "%Y-%m" => "strftime('%Y-%m', created_at)",
+            _ => return Err(StoreError::UnexpectedType("invalid time format")),
+        };
+        
+        let mut query = format!(
+            "SELECT {dim} AS dim, {time_sql} AS time, \
+             SUM(prompt_tokens) AS p, SUM(completion_tokens) AS c, \
+             SUM(cache_read_tokens) AS cr, SUM(cache_write_tokens) AS cw, \
+             COUNT(*) AS reqs \
+             FROM costs",
+            dim = dimension,
+            time_sql = time_sql
+        );
+        
+        if project_id.is_some() {
+            query.push_str(" WHERE project_id = ?");
+        }
+        
+        query.push_str(" GROUP BY dim, time");
+        
+        let mut query_builder = sqlx::query(&query);
+        if let Some(pid) = project_id {
+            query_builder = query_builder.bind(pid.0.as_bytes().to_vec());
+        }
+        
+        let rows = query_builder.fetch_all(&self.pool).await?;
+        
+        let mut results = HashMap::new();
+        for row in rows {
+            let dim = column_text(&row, "dim")?;
+            let time = column_text(&row, "time")?;
+            let p = column_int(&row, "p")?.unsigned_abs();
+            let c = column_int(&row, "c")?.unsigned_abs();
+            let cr = column_int(&row, "cr")?.unsigned_abs();
+            let cw = column_int(&row, "cw")?.unsigned_abs();
+            let reqs = column_int(&row, "reqs")?.unsigned_abs();
+            results.insert((dim, time), (p, c, cr, cw, reqs));
         }
         Ok(results)
     }
