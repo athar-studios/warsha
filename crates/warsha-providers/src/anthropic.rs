@@ -8,7 +8,7 @@ use reqwest::{
 };
 use serde_json::json;
 use std::time::Duration;
-use warsha_core::{CredentialsRef, ProviderKind};
+use warsha_core::{CredentialsRef, ProviderKind, ProviderQuota};
 
 /// Anthropic provider
 pub struct AnthropicProvider {
@@ -312,6 +312,10 @@ impl ChatProvider for AnthropicProvider {
         let output_cost =
             (usage.output as f64 / 1_000_000.0) * pricing.output_per_million_cents as f64;
         Ok((input_cost + output_cost).ceil() as u64)
+    }
+
+    async fn get_quota(&self) -> Result<ProviderQuota> {
+        Ok(ProviderQuota::Unknown)
     }
 }
 

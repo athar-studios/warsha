@@ -10,6 +10,7 @@ export type SettingsSectionId =
   | 'integrations'
   | 'routines'
   | 'budgets'
+  | 'usage'
   | 'permissions'
   | 'postlaunch'
   | 'backend'
@@ -109,6 +110,13 @@ export const SETTINGS_SECTIONS: readonly SectionMeta[] = [
     labelKey: 'settings.section.budgets',
     descKey: 'settings.section.budgets.desc',
     scopeKey: 'settings.scope.project',
+    isAdvanced: true,
+  },
+  {
+    id: 'usage',
+    labelKey: 'settings.section.usage',
+    descKey: 'settings.section.usage.desc',
+    scopeKey: 'settings.scope.all_runs',
     isAdvanced: true,
   },
   {

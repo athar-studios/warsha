@@ -1,0 +1,17 @@
+.gauge-container {
+  width: 100%;
+  height: 8px;
+  background-color: var(--color-bg-subtle);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.gauge-bar {
+  height: 100%;
+  transition: width 0.3s ease-in-out;
+}
+
+.gauge--green { background-color: var(--color-status-success); }
+.gauge--amber { background-color: var(--color-status-warning); }
+.gauge--red { background-color: var(--color-status-error); }
+.gauge--default { background-color: var(--color-brand-primary); }

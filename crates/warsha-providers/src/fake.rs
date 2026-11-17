@@ -14,7 +14,7 @@ use crate::{
     MessageRole, ModelInfo, ModelPricing, Result, StreamChoice,
 };
 use async_trait::async_trait;
-use warsha_core::{ProviderKind, TokenUsage};
+use warsha_core::{ProviderKind, ProviderQuota, TokenUsage};
 
 /// The provider id every [`crate::ProviderRouter`] pre-registers this provider
 /// under, so `"fake"` is always available for a deterministic end-to-end run.
@@ -352,6 +352,10 @@ impl ChatProvider for FakeProvider {
         // One cent per stage call, whatever the tokens: the fake is free but its
         // spend is still visible to the budget machinery.
         Ok(1)
+    }
+
+    async fn get_quota(&self) -> Result<ProviderQuota> {
+        Ok(ProviderQuota::Unknown)
     }
 }
 

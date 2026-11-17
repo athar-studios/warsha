@@ -430,6 +430,15 @@ export const IconGitBranch = createIcon(
   </>
 );
 
+export const IconGauge = createIcon(
+  'gauge',
+  <>
+    <path d="M12 15l3.5-5.5" />
+    <path d="M20.5 15a8.5 8.5 0 1 0-17 0" />
+    <line x1="12" y1="15" x2="12" y2="15.01" />
+  </>
+);
+
 export const ALL_ICONS = {
   IconHome,
   IconInbox,
@@ -477,4 +486,5 @@ export const ALL_ICONS = {
   IconUpload,
   IconLock,
   IconGitBranch,
+  IconGauge,
 } as const;

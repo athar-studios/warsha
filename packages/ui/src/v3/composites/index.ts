@@ -27,3 +27,4 @@ export * from './SettingsSection';
 export * from './CopyField';
 export * from './KeyValue';
 export * from './QrCode';
+export * from './Gauge';

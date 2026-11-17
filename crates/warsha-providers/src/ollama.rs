@@ -8,7 +8,7 @@ use reqwest::{
 };
 use serde_json::json;
 use std::time::Duration;
-use warsha_core::{CredentialsRef, ProviderKind};
+use warsha_core::{CredentialsRef, ProviderKind, ProviderQuota};
 
 /// Ollama provider for local LLMs
 pub struct OllamaProvider {
@@ -385,6 +385,10 @@ impl ChatProvider for OllamaProvider {
     fn cost_of(&self, _model: &str, _usage: &TokenUsage) -> Result<u64> {
         // Local models have zero cost
         Ok(0)
+    }
+
+    async fn get_quota(&self) -> Result<ProviderQuota> {
+        Ok(ProviderQuota::Unknown)
     }
 }
 

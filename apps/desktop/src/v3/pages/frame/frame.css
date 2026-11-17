@@ -106,3 +106,20 @@
   flex-wrap: wrap;
   gap: var(--w-space-2);
 }
+
+/* A3: status-bar quota gauge (green/amber/red from the tightest known quota). */
+.v3-frame-quota-gauge {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  padding: var(--w-space-1);
+  cursor: pointer;
+  border-radius: var(--w-radius-sm);
+  min-inline-size: 72px;
+}
+
+.v3-frame-quota-gauge:hover,
+.v3-frame-quota-gauge:focus-visible {
+  background: var(--w-sunken);
+}

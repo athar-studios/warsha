@@ -556,6 +556,7 @@ impl RealOrMockProvider {
                     .ok();
                 let provider = OpenAIProvider::new(
                     "openai".to_string(),
+                    warsha_core::ProviderKind::OpenAI,
                     api_base,
                     &CredentialsRef::EnvVar {
                         var: var_name.to_string(),

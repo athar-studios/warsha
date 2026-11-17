@@ -1956,3 +1956,7 @@ Commit cc889ed ("fix(B1): compilation and test errors") accidentally replaced DE
 ## D-RN-A2-1 — A2: WIP Commit limitation
 - **Decision**: Deferred initial wip(A2) commit due to read-only filesystem error (`index.lock`) in the worktree. Continuing work and will attempt commit once local environment permissions permit.
 - **Reason**: The worktree is currently experiencing a read-only filesystem error when attempting to stage/commit. Task must proceed to avoid blocking.
+
+## D-RN-A3-001: Update OpenAIProvider to differentiate by ProviderKind
+
+To properly implement provider-specific `get_quota` logic (specifically for OpenRouter), I have updated `OpenAIProvider` to store its `ProviderKind` and added logic in `get_quota` to query the OpenRouter `/key` endpoint when the kind is `ProviderKind::OpenRouter`.

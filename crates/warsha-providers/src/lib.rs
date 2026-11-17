@@ -204,6 +204,9 @@ pub trait ChatProvider: Send + Sync {
 
     /// Calculate cost for usage
     fn cost_of(&self, model: &str, usage: &TokenUsage) -> Result<u64>; // cents
+
+    /// Get current provider quota status
+    async fn get_quota(&self) -> Result<ProviderQuota>;
 }
 
 /// Mock provider for testing
@@ -363,6 +366,10 @@ impl ChatProvider for MockProvider {
     fn cost_of(&self, _model: &str, usage: &TokenUsage) -> Result<u64> {
         // $0.001 per 1k tokens = 1 cent per 100k tokens
         Ok((usage.total as f64 * 0.01).ceil() as u64)
+    }
+
+    async fn get_quota(&self) -> Result<ProviderQuota> {
+        Ok(ProviderQuota::Unknown)
     }
 }
 
@@ -729,7 +736,7 @@ impl ProviderRouter {
 
     /// The ids of every registered adapter, in name order. Not a secret — an adapter's
     /// *key* is, and it is inside the adapter, which is why this reports ids.
-    fn provider_ids(&self) -> Vec<String> {
+    pub fn provider_ids(&self) -> Vec<String> {
         let mut ids: Vec<String> = {
             let providers = self
                 .core
@@ -1074,6 +1081,7 @@ pub async fn create_provider(
         | warsha_core::ProviderKind::CustomOpenAICompatible => Box::new(
             OpenAIProvider::new(
                 config.id.clone(),
+                config.kind,
                 config.models.first().map(|m| m.id.clone()),
                 &config.credentials,
                 keyring_service,
@@ -1206,6 +1214,9 @@ mod tests {
         }
         fn cost_of(&self, _model: &str, _usage: &TokenUsage) -> Result<u64> {
             Ok(0)
+        }
+        async fn get_quota(&self) -> Result<ProviderQuota> {
+            Ok(ProviderQuota::Unknown)
         }
     }
 
@@ -1574,6 +1585,9 @@ mod tests {
         fn cost_of(&self, _model: &str, _usage: &TokenUsage) -> Result<u64> {
             Ok(1)
         }
+        async fn get_quota(&self) -> Result<ProviderQuota> {
+            Ok(ProviderQuota::Unknown)
+        }
     }
 
     /// Two paid calls on the integrated shape are in flight at the same moment, and the
@@ -1679,6 +1693,9 @@ mod tests {
             }
             fn cost_of(&self, _model: &str, _usage: &TokenUsage) -> Result<u64> {
                 Ok(0)
+            }
+            async fn get_quota(&self) -> Result<ProviderQuota> {
+                Ok(ProviderQuota::Unknown)
             }
         }
 

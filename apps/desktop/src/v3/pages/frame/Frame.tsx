@@ -29,6 +29,7 @@ import { useNavigate, useRoute } from '../../router';
 import '@warsha/ui/v3/tokens/tokens.css';
 
 import { FrameProjectSwitcher } from './FrameProjectSwitcher';
+import { QuotaGaugeButton } from './QuotaGaugeButton';
 import './frame.css';
 
 export interface FrameProps {
@@ -426,6 +427,7 @@ export function Frame({ children }: FrameProps): React.ReactElement {
             modeSwitch={modeSwitchElement}
             inbox={inboxElement}
             settings={settingsElement}
+            actions={<QuotaGaugeButton />}
           />
         </header>
 

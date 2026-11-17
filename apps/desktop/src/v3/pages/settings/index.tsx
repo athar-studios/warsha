@@ -20,6 +20,7 @@ import { PluginsSection } from './sections/PluginsSection';
 import { PostLaunchSection } from './sections/PostLaunchSection';
 import { RoutinesSection } from './sections/RoutinesSection';
 import { SkillsSection } from './sections/SkillsSection';
+import { UsageSection } from './sections/UsageSection';
 import { WorkflowsSection } from './sections/WorkflowsSection';
 import {
   isSettingsSectionId,
@@ -80,6 +81,8 @@ export default function SettingsPage(): React.ReactElement {
         return <RoutinesSection />;
       case 'budgets':
         return <BudgetsSection />;
+      case 'usage':
+        return <UsageSection />;
       case 'permissions':
         return <PermissionsSection />;
       case 'postlaunch':

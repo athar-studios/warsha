@@ -1286,7 +1286,11 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             .map(|value| value.trim() == "fake")
             .unwrap_or(false);
         if env_cfg.api_key.is_some() && !forced_fake {
-            let provider = OpenAIProvider::from_env_config("env-openai".to_string(), &env_cfg)?;
+            let provider = OpenAIProvider::from_env_config(
+                "env-openai".to_string(),
+                ProviderKind::OpenAI,
+                &env_cfg,
+            )?;
             let request = ChatRequest {
                 model: env_cfg.model.clone(),
                 ..request
@@ -2913,6 +2917,10 @@ mod tests {
                 _usage: &TokenUsage,
             ) -> std::result::Result<u64, ProviderError> {
                 Ok(1)
+            }
+
+            async fn get_quota(&self) -> std::result::Result<ProviderQuota, ProviderError> {
+                Ok(ProviderQuota::Unknown)
             }
         }
 

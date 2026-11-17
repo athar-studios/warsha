@@ -439,6 +439,61 @@ export interface BudgetStatus {
   remainingUsd: number;
 }
 
+/** One usage aggregate row, as `usage.by_dimension` answers it (A3). */
+export interface UsageRow {
+  dimension: string;
+  key: string;
+  costCents: number;
+  promptTokens: number;
+  completionTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  requests: number;
+}
+
+/** One day's or month's usage, as `usage.by_time` answers it (A3). */
+export interface UsageTimeRow {
+  /** `YYYY-MM-DD` for a day, `YYYY-MM` for a month. */
+  period: string;
+  costCents: number;
+  promptTokens: number;
+  completionTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  requests: number;
+}
+
+/** One rolling window's estimated usage (A3). */
+export interface WindowUsage {
+  /** Estimated spend inside the window, in cents. */
+  costCents: number;
+  /** Request count inside the window. */
+  requests: number;
+}
+
+/** A CLI-managed provider's rolling subscription windows (A3). */
+export interface SubscriptionWindow {
+  /** Rolling 5-hour window (the CLI's short subscription bucket). */
+  fiveHour: WindowUsage;
+  /** Rolling 7-day window (the CLI's weekly bucket). */
+  sevenDay: WindowUsage;
+}
+
+/** The three quota states, in the wire shape the desktop renders (A3). */
+export type QuotaState =
+  | { state: 'reported'; used: number; limit: number }
+  | { state: 'estimated'; usagePercentage: number }
+  | { state: 'unknown' };
+
+/** One provider's quota, as `providers.quota` answers it (A3). */
+export interface ProviderQuotaStatus {
+  provider: string;
+  kind: string;
+  quota: QuotaState;
+  /** RFC 3339 timestamp of the last successful check, when there was one. */
+  checkedAt?: string;
+}
+
 /** Event kinds the daemon emits (`warsha_core::EventKind`, snake_case on the wire). */
 export type EventKind = string;
 
@@ -2380,6 +2435,149 @@ export class WarshaClient
     return this.rpc('budget.set', { projectId, cents });
   }
 
+  // Usage and quota (A3).
+  //
+  // `usage.by_dimension` groups the cost ledger by one whitelisted dimension; the
+  // daemon refuses any other name. `usage.by_time` buckets the same ledger by day
+  // or month. `providers.quota` asks one provider's quota: what the provider
+  // reports, what the daemon estimated from its own records, or unknown — never an
+  // invented limit.
+  async usageByDimension(
+    dimension: 'provider_id' | 'model_id' | 'agent_role' | 'project_id',
+    projectId?: ProjectId,
+  ): Promise<UsageRow[]> {
+    const wire = await this.rpc<unknown>('usage.by_dimension', {
+      dimension,
+      projectId: projectId ?? null,
+    });
+    if (!Array.isArray(wire)) {
+      throw new Error(`${WIRING_RESULT_ERROR} from usage.by_dimension: expected an array`);
+    }
+    return wire.map((row) => {
+      const source = row as Record<string, unknown>;
+      return {
+        dimension: String(source['dimension'] ?? ''),
+        key: String(source['key'] ?? ''),
+        costCents: nonNegativeInt(source['cost_cents'], 'usage.by_dimension', 'cost_cents'),
+        promptTokens: nonNegativeInt(source['prompt_tokens'], 'usage.by_dimension', 'prompt_tokens'),
+        completionTokens: nonNegativeInt(
+          source['completion_tokens'],
+          'usage.by_dimension',
+          'completion_tokens',
+        ),
+        cacheReadTokens: nonNegativeInt(
+          source['cache_read_tokens'],
+          'usage.by_dimension',
+          'cache_read_tokens',
+        ),
+        cacheWriteTokens: nonNegativeInt(
+          source['cache_write_tokens'],
+          'usage.by_dimension',
+          'cache_write_tokens',
+        ),
+        requests: nonNegativeInt(source['requests'], 'usage.by_dimension', 'requests'),
+      };
+    });
+  }
+
+  async usageByTime(
+    granularity: 'day' | 'month',
+    projectId?: ProjectId,
+  ): Promise<UsageTimeRow[]> {
+    const wire = await this.rpc<unknown>('usage.by_time', {
+      granularity,
+      projectId: projectId ?? null,
+    });
+    if (!Array.isArray(wire)) {
+      throw new Error(`${WIRING_RESULT_ERROR} from usage.by_time: expected an array`);
+    }
+    return wire.map((row) => {
+      const source = row as Record<string, unknown>;
+      return {
+        period: String(source['period'] ?? ''),
+        costCents: nonNegativeInt(source['cost_cents'], 'usage.by_time', 'cost_cents'),
+        promptTokens: nonNegativeInt(source['prompt_tokens'], 'usage.by_time', 'prompt_tokens'),
+        completionTokens: nonNegativeInt(
+          source['completion_tokens'],
+          'usage.by_time',
+          'completion_tokens',
+        ),
+        cacheReadTokens: nonNegativeInt(
+          source['cache_read_tokens'],
+          'usage.by_time',
+          'cache_read_tokens',
+        ),
+        cacheWriteTokens: nonNegativeInt(
+          source['cache_write_tokens'],
+          'usage.by_time',
+          'cache_write_tokens',
+        ),
+        requests: nonNegativeInt(source['requests'], 'usage.by_time', 'requests'),
+      };
+    });
+  }
+
+  async providerQuota(name: string): Promise<ProviderQuotaStatus> {
+    const wire = await this.rpc<unknown>('providers.quota', { name });
+    if (typeof wire !== 'object' || wire === null || Array.isArray(wire)) {
+      throw new Error(`${WIRING_RESULT_ERROR} from providers.quota: expected an object`);
+    }
+    const source = wire as Record<string, unknown>;
+    const quotaWire = source['quota'];
+    if (typeof quotaWire !== 'object' || quotaWire === null) {
+      throw new Error(`${WIRING_RESULT_ERROR} from providers.quota: "quota" is not an object`);
+    }
+    const quota = quotaWire as Record<string, unknown>;
+    const state = quota['state'];
+    let decoded: QuotaState;
+    if (state === 'reported') {
+      decoded = {
+        state: 'reported',
+        used: nonNegativeInt(quota['used'], 'providers.quota', 'used'),
+        limit: nonNegativeInt(quota['limit'], 'providers.quota', 'limit'),
+      };
+    } else if (state === 'estimated') {
+      decoded = {
+        state: 'estimated',
+        usagePercentage: nonNegativeInt(
+          quota['usage_percentage'],
+          'providers.quota',
+          'usage_percentage',
+        ),
+      };
+    } else if (state === 'unknown') {
+      decoded = { state: 'unknown' };
+    } else {
+      throw new Error(
+        `${WIRING_RESULT_ERROR} from providers.quota: "state" is not reported, estimated or unknown`,
+      );
+    }
+    const checkedAt = source['checked_at'];
+    return {
+      provider: String(source['provider'] ?? ''),
+      kind: String(source['kind'] ?? ''),
+      quota: decoded,
+      ...(typeof checkedAt === 'string' ? { checkedAt } : {}),
+    };
+  }
+
+  /**
+   * A CLI-managed provider's rolling subscription windows (`usage.subscription_window`):
+   * spend and request counts over the last 5 hours and the last 7 days, estimated from
+   * the daemon's own cost records — the provider exposes no limit, so none is invented.
+   */
+  async usageSubscriptionWindow(): Promise<SubscriptionWindow> {
+    const wire = await this.rpc<unknown>('usage.subscription_window', {});
+    if (typeof wire !== 'object' || wire === null || Array.isArray(wire)) {
+      throw new Error(`${WIRING_RESULT_ERROR} from usage.subscription_window: expected an object`);
+    }
+    const source = wire as Record<string, unknown>;
+    return {
+      fiveHour: decodeWindowUsage(source['five_hour'], 'usage.subscription_window', 'five_hour'),
+      sevenDay: decodeWindowUsage(source['seven_day'], 'usage.subscription_window', 'seven_day'),
+    };
+  }
+
   // Roles.
   //
   // `roles.list` answers the daemon's routing table — one `RoleRoutingConfig` per role the
@@ -3121,6 +3319,28 @@ function wiringNumber(value: unknown, method: string, name: string): number {
     throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "${name}" is not a number`);
   }
   return value;
+}
+
+/** A count the wire should carry as a non-negative integer; `null`/absent read as `0`. */
+function nonNegativeInt(value: unknown, method: string, name: string): number {
+  if (value === null || value === undefined) return 0;
+  const n = wiringNumber(value, method, name);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "${name}" is not a non-negative integer`);
+  }
+  return n;
+}
+
+/** One rolling window (`five_hour`/`seven_day`) of `usage.subscription_window`. */
+function decodeWindowUsage(value: unknown, method: string, name: string): WindowUsage {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "${name}" is not an object`);
+  }
+  const source = value as Record<string, unknown>;
+  return {
+    costCents: nonNegativeInt(source['cost_cents'], method, `${name}.cost_cents`),
+    requests: nonNegativeInt(source['requests'], method, `${name}.requests`),
+  };
 }
 
 function wiringBoolean(value: unknown, method: string, name: string): boolean {

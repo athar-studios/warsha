@@ -21,3 +21,5 @@ export * from './usePreferences';
 export * from './useHealth';
 export * from './useFiles';
 export * from './useAgent';
+export * from './useUsage';
+export * from './useQuotaGauge';

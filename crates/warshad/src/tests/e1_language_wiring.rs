@@ -1,4 +1,5 @@
 use super::*;
+use warsha_core::ProviderQuota;
 use warsha_providers::{
     ChatChoice, ChatMessage, ChatProvider, ChatRequest, ChatResponse, ChatStreamChunk, HealthCheck,
     MessageRole, ModelInfo, ProviderError,
@@ -96,6 +97,10 @@ impl ChatProvider for PromptCapturingProvider {
         _usage: &TokenUsage,
     ) -> std::result::Result<u64, ProviderError> {
         Ok(1)
+    }
+
+    async fn get_quota(&self) -> std::result::Result<ProviderQuota, ProviderError> {
+        Ok(ProviderQuota::Unknown)
     }
 }
 

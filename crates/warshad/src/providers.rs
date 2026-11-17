@@ -41,7 +41,7 @@ use futures::Stream;
 use jsonrpsee::core::async_trait;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
-use warsha_core::{CredentialsRef, ProviderKind, TokenUsage};
+use warsha_core::{CredentialsRef, ProviderKind, ProviderQuota, TokenUsage};
 use warsha_providers::{
     AnthropicProvider, ChatProvider, ChatRequest, ChatResponse, ChatStreamChunk, HealthCheck,
     KeychainSecretStore, MockProvider, ModelInfo, OllamaProvider, OpenAIProvider, ProviderError,
@@ -164,9 +164,15 @@ impl ProviderFactory for KeychainProviderFactory {
         let id = provider.name.clone();
         let adapter: Box<dyn ChatProvider> = match adapter_kind(&provider.kind) {
             AdapterKind::OpenAiCompatible => Box::new(
-                OpenAIProvider::new(id, Some(endpoint), &credentials, service)
-                    .await
-                    .map_err(DaemonError::Provider)?,
+                OpenAIProvider::new(
+                    id,
+                    adapter_kind(&provider.kind).provider_kind(),
+                    Some(endpoint),
+                    &credentials,
+                    service,
+                )
+                .await
+                .map_err(DaemonError::Provider)?,
             ),
             AdapterKind::Anthropic => Box::new(
                 AnthropicProvider::new(id, Some(endpoint), &credentials, service)
@@ -308,6 +314,10 @@ impl ChatProvider for DeferredProvider {
         self.adapter().await?.chat_stream(request).await
     }
 
+    async fn get_quota(&self) -> ProviderResult<ProviderQuota> {
+        self.adapter().await?.get_quota().await
+    }
+
     /// Cost follows a call that happened, so by the time the router asks, the adapter
     /// is built. Before that this refuses rather than quoting a price for a provider
     /// it has not reached: an estimate nobody checked is how a budget stops meaning
@@ -390,6 +400,10 @@ impl ChatProvider for RemovedProvider {
 
     async fn chat_stream(&self, _request: ChatRequest) -> ProviderStream {
         Err(self.refusal())
+    }
+
+    async fn get_quota(&self) -> ProviderResult<ProviderQuota> {
+        Ok(ProviderQuota::Unknown)
     }
 
     fn cost_of(&self, _model: &str, _usage: &TokenUsage) -> ProviderResult<u64> {

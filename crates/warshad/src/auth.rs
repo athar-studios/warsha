@@ -415,6 +415,29 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Owner,
         tier: Spend,
     },
+    // Usage and quota: reading spend history is session-level (the same bar as
+    // `budget.show`); a quota probe calls the provider's endpoint, so it is an
+    // owner decision like the other provider actions that reach the network.
+    M {
+        method: "providers.quota",
+        policy: Owner,
+        tier: Spend,
+    },
+    M {
+        method: "usage.by_dimension",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "usage.by_time",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "usage.subscription_window",
+        policy: Session,
+        tier: Standard,
+    },
     // Provider auth: reading status is session-level; starting/completing auth and
     // disconnecting touch keychain secrets, so they are owner decisions.
     M {

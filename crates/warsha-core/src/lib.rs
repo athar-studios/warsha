@@ -30,6 +30,13 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ProjectId(pub Uuid);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ProviderQuota {
+    Reported { used: u64, limit: u64 },
+    Estimated { usage_percentage: u8 },
+    Unknown,
+}
+
 impl ProjectId {
     pub fn new() -> Self {
         Self(Uuid::new_v4())
