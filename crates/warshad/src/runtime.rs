@@ -150,6 +150,23 @@ const ROLE_ROUTINGS_DOCUMENT: &str = "role-routings";
 /// The settings document the agent loop's conversation state is kept in.
 const AGENT_LOOP_DOCUMENT: &str = "agent-loop";
 
+/// The settings document owner-defined custom coding backends are kept in (R-NEXT N2).
+pub(crate) const CUSTOM_BACKENDS_DOCUMENT: &str = "custom-backends";
+
+/// The settings document per-project and per-role coding backend selections are kept in (R-NEXT N2).
+pub(crate) const BACKEND_ROUTINGS_DOCUMENT: &str = "backend-routings";
+
+/// Stored per-project / per-role coding backend selection configuration.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct BackendRoutingsConfig {
+    #[serde(default)]
+    pub default_backend: Option<String>,
+    #[serde(default)]
+    pub role_backends: HashMap<String, String>,
+    #[serde(default)]
+    pub project_backends: HashMap<String, String>,
+}
+
 /// The provider id the daemon's own offline provider is registered under.
 ///
 /// A routing may name it, and it is the only adapter that answers without a key or a
@@ -241,6 +258,52 @@ pub(crate) async fn seed_role_routings(
         }
     }
     Ok(routings)
+}
+
+/// The custom coding engine backends as stored in settings (R-NEXT N2).
+pub(crate) async fn seed_custom_backends(
+    settings: &SettingsStore,
+) -> Result<Vec<warsha_core::config::CustomBackendDefinition>> {
+    let stored = match settings.load_document(CUSTOM_BACKENDS_DOCUMENT).await {
+        Ok(stored) => stored,
+        Err(error) => {
+            warn!("the custom backends document could not be read: {error}");
+            return Ok(Vec::new());
+        }
+    };
+    let Some(stored) = stored else {
+        return Ok(Vec::new());
+    };
+    match serde_json::from_value::<Vec<warsha_core::config::CustomBackendDefinition>>(stored) {
+        Ok(defs) => Ok(defs),
+        Err(error) => {
+            warn!("the custom backends document is not valid: {error}");
+            Ok(Vec::new())
+        }
+    }
+}
+
+/// The per-project / per-role backend routing config as stored in settings (R-NEXT N2).
+pub(crate) async fn seed_backend_routings(
+    settings: &SettingsStore,
+) -> Result<BackendRoutingsConfig> {
+    let stored = match settings.load_document(BACKEND_ROUTINGS_DOCUMENT).await {
+        Ok(stored) => stored,
+        Err(error) => {
+            warn!("the backend routings document could not be read: {error}");
+            return Ok(BackendRoutingsConfig::default());
+        }
+    };
+    let Some(stored) = stored else {
+        return Ok(BackendRoutingsConfig::default());
+    };
+    match serde_json::from_value::<BackendRoutingsConfig>(stored) {
+        Ok(cfg) => Ok(cfg),
+        Err(error) => {
+            warn!("the backend routings document is not valid: {error}");
+            Ok(BackendRoutingsConfig::default())
+        }
+    }
 }
 
 /// The loop's stored conversation, if there is one.

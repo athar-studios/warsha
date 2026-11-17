@@ -9,6 +9,7 @@ description = "CLI binary: warsha command"
 warsha-core = { path = "../warsha-core" }
 warsha-providers = { path = "../warsha-providers" }
 warsha-remote = { path = "../warsha-remote" }
+warsha-backends = { path = "../warsha-backends" }
 warshad = { path = "../warshad" }
 thiserror = { workspace = true }
 anyhow = { workspace = true }

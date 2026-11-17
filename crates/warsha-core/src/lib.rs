@@ -14,8 +14,8 @@ pub mod skill;
 pub use rules::{InMemoryRuleStore, RuleAction, RuleStore, ToolRules};
 
 pub use config::{
-    CustomModelRecord, FileContent, FileEntry, IntegrationConfig, IntegrationStatus,
-    IntegrationTestResult,
+    CustomBackendDefinition, CustomModelRecord, FileContent, FileEntry, IntegrationConfig,
+    IntegrationStatus, IntegrationTestResult,
 };
 pub use harness::{bundled_harnesses, HarnessDefinition, HarnessRules, HarnessStage};
 pub use plugin::{bundled_plugins, PluginDefinition, PluginToolDefinition};

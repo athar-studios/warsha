@@ -168,6 +168,121 @@ fn test_codex_stream_fixture_sequence() {
 }
 
 #[test]
+fn test_opencode_stream_fixture_sequence() {
+    let fixture = include_str!("../../tests/fixtures/opencode_stream.jsonl");
+    let mut all_events = Vec::new();
+
+    for line in fixture.lines() {
+        let events = parse_opencode_stream_line(line);
+        all_events.extend(events);
+    }
+
+    assert_eq!(all_events.len(), 8);
+
+    // 1. SessionStarted
+    match &all_events[0] {
+        StreamEvent::SessionStarted {
+            cli_session_id,
+            model,
+        } => {
+            assert_eq!(
+                cli_session_id.as_deref(),
+                Some("ses_e14721b8dffe2AMxpbQc4R24AO")
+            );
+            assert!(model.is_none());
+        }
+        other => panic!("expected SessionStarted, got {:?}", other),
+    }
+
+    // 2. ToolStarted (running)
+    match &all_events[1] {
+        StreamEvent::ToolStarted { tool, target } => {
+            assert_eq!(tool, "shell");
+            assert_eq!(target, "echo");
+        }
+        other => panic!("expected ToolStarted, got {:?}", other),
+    }
+
+    // 3. ToolStarted (completed)
+    match &all_events[2] {
+        StreamEvent::ToolStarted { tool, target } => {
+            assert_eq!(tool, "shell");
+            assert_eq!(target, "echo");
+        }
+        other => panic!("expected ToolStarted, got {:?}", other),
+    }
+
+    // 4. ToolFinished (shell completed)
+    match &all_events[3] {
+        StreamEvent::ToolFinished {
+            tool,
+            target,
+            duration_ms,
+            status,
+        } => {
+            assert_eq!(tool, "shell");
+            assert_eq!(target, "echo");
+            assert_eq!(*duration_ms, Some(100));
+            assert_eq!(status, "success");
+        }
+        other => panic!("expected ToolFinished, got {:?}", other),
+    }
+
+    // 5. ToolStarted (write)
+    match &all_events[4] {
+        StreamEvent::ToolStarted { tool, target } => {
+            assert_eq!(tool, "write");
+            assert_eq!(target, "src/test.txt");
+        }
+        other => panic!("expected ToolStarted, got {:?}", other),
+    }
+
+    // 6. ToolFinished (write)
+    match &all_events[5] {
+        StreamEvent::ToolFinished {
+            tool,
+            target,
+            duration_ms,
+            status,
+        } => {
+            assert_eq!(tool, "write");
+            assert_eq!(target, "src/test.txt");
+            assert_eq!(*duration_ms, Some(50));
+            assert_eq!(status, "success");
+        }
+        other => panic!("expected ToolFinished, got {:?}", other),
+    }
+
+    // 7. FileTouched
+    match &all_events[6] {
+        StreamEvent::FileTouched { path, action } => {
+            assert_eq!(path, "src/test.txt");
+            assert_eq!(action, "modify");
+        }
+        other => panic!("expected FileTouched, got {:?}", other),
+    }
+
+    // 8. SessionEnded
+    match &all_events[7] {
+        StreamEvent::SessionEnded {
+            status,
+            duration_ms,
+            usage,
+        } => {
+            assert_eq!(status, "success");
+            assert_eq!(*duration_ms, None);
+            assert!(usage.is_some());
+            let u = usage.as_ref().unwrap();
+            assert_eq!(u.input, 150);
+            assert_eq!(u.output, 50);
+            assert_eq!(u.total, 200);
+            assert_eq!(u.cost_cents, None);
+        }
+        other => panic!("expected SessionEnded, got {:?}", other),
+    }
+}
+
+#[test]
 fn test_content_rule_canary() {
     let claude_fixture = include_str!("../../tests/fixtures/claude_stream.jsonl");
     let codex_fixture = include_str!("../../tests/fixtures/codex_stream.jsonl");
@@ -410,4 +525,75 @@ async fn test_no_stream_telemetry_label() {
         events[1].payload["note"],
         "no live telemetry for this backend"
     );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_opencode_end_to_end_streams_events_and_flags_estimated_usage() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempdir().expect("tempdir");
+    let script_path = dir.path().join("fake-opencode");
+    let fixture = include_str!("../../tests/fixtures/opencode_stream.jsonl");
+    let script = format!("#!/bin/sh\ncat << 'EOF'\n{}\nEOF\n", fixture);
+    std::fs::write(&script_path, script).expect("write fake opencode");
+    std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755))
+        .expect("chmod fake opencode");
+
+    let backend = crate::CliBackend::new(
+        "opencode",
+        script_path.to_str().expect("utf8"),
+        vec![
+            "run".to_string(),
+            "--format".to_string(),
+            "json".to_string(),
+        ],
+    );
+
+    let session_id = SessionId::new();
+    let run_id = RunId::new();
+    let mut sandbox = Sandbox::new(dir.path().to_path_buf());
+    sandbox.session_id = Some(session_id);
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    sandbox.event_sender = Some(tx);
+
+    let task = CodingTask {
+        id: ulid::Ulid::new(),
+        worktree_path: None,
+        run_id,
+        title: "opencode test".to_string(),
+        description: "stream test".to_string(),
+        repo_path: dir.path().to_path_buf(),
+        branch_name: "test".to_string(),
+        base_branch: "HEAD".to_string(),
+        files: vec![],
+        context: std::collections::HashMap::new(),
+    };
+
+    let res = backend
+        .execute(task, &sandbox)
+        .await
+        .expect("opencode execute");
+    assert!(res.success);
+    let usage = res.usage.expect("usage parsed");
+    assert_eq!(usage.input, 150);
+    assert_eq!(usage.output, 50);
+    assert_eq!(usage.total, 200);
+    assert_eq!(usage.cost_cents, None);
+
+    let mut events = Vec::new();
+    while let Ok(ev) = rx.try_recv() {
+        events.push(ev);
+    }
+
+    assert!(events.iter().any(|e| e.kind == EventKind::ToolStarted));
+    assert!(events.iter().any(|e| e.kind == EventKind::ToolFinished));
+    assert!(events.iter().any(|e| e.kind == EventKind::FileTouched));
+    let ended = events
+        .iter()
+        .find(|e| e.kind == EventKind::SessionEnded)
+        .expect("SessionEnded event");
+    assert_eq!(ended.payload["usage_estimated"], true);
+    assert_eq!(ended.payload["usage"]["estimated"], true);
 }
