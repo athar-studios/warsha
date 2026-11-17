@@ -163,6 +163,10 @@ mod tests {
         ) -> std::result::Result<u64, ProviderError> {
             Ok(self.cost_per_call_cents)
         }
+
+        async fn get_quota(&self) -> std::result::Result<ProviderQuota, ProviderError> {
+            Ok(ProviderQuota::Unknown)
+        }
     }
 
     async fn test_fixture() -> (

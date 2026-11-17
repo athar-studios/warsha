@@ -988,6 +988,40 @@ impl Store {
         Ok(column_int(&row, "total")?.unsigned_abs())
     }
 
+    /// Aggregate costs by a specified dimension (e.g., 'provider_id', 'model_id', 'agent_role', 'project_id').
+    pub async fn aggregate_costs_by(&self, dimension: &str) -> Result<HashMap<String, u64>> {
+        let query = format!(
+            "SELECT {} AS dim, SUM(cost_cents) AS total FROM costs GROUP BY dim",
+            dimension
+        );
+        let rows = sqlx::query(&query).fetch_all(&self.pool).await?;
+        let mut results = HashMap::new();
+        for row in rows {
+            results.insert(
+                column_text(&row, "dim")?,
+                column_int(&row, "total")?.unsigned_abs(),
+            );
+        }
+        Ok(results)
+    }
+
+    /// Aggregate costs by day.
+    pub async fn aggregate_costs_by_day(&self) -> Result<HashMap<String, u64>> {
+        let rows = sqlx::query(
+            "SELECT DATE(created_at) AS day, SUM(cost_cents) AS total FROM costs GROUP BY day",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        let mut results = HashMap::new();
+        for row in rows {
+            results.insert(
+                column_text(&row, "day")?,
+                column_int(&row, "total")?.unsigned_abs(),
+            );
+        }
+        Ok(results)
+    }
+
     // -------------------------------------------------------------- artifacts
 
     /// Directory holding a project's generated artifacts.

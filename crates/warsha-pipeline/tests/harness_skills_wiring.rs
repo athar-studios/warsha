@@ -158,6 +158,10 @@ impl ChatProvider for CapturingProvider {
     fn cost_of(&self, _model: &str, _usage: &TokenUsage) -> ProviderResult<u64> {
         Ok(1)
     }
+
+    async fn get_quota(&self) -> ProviderResult<warsha_core::ProviderQuota> {
+        Ok(warsha_core::ProviderQuota::Unknown)
+    }
 }
 
 #[tokio::test]

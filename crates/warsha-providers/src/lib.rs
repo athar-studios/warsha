@@ -204,6 +204,9 @@ pub trait ChatProvider: Send + Sync {
 
     /// Calculate cost for usage
     fn cost_of(&self, model: &str, usage: &TokenUsage) -> Result<u64>; // cents
+
+    /// Get current provider quota status
+    async fn get_quota(&self) -> Result<ProviderQuota>;
 }
 
 /// Mock provider for testing
@@ -363,6 +366,10 @@ impl ChatProvider for MockProvider {
     fn cost_of(&self, _model: &str, usage: &TokenUsage) -> Result<u64> {
         // $0.001 per 1k tokens = 1 cent per 100k tokens
         Ok((usage.total as f64 * 0.01).ceil() as u64)
+    }
+
+    async fn get_quota(&self) -> Result<ProviderQuota> {
+        Ok(ProviderQuota::Unknown)
     }
 }
 
@@ -1207,6 +1214,9 @@ mod tests {
         fn cost_of(&self, _model: &str, _usage: &TokenUsage) -> Result<u64> {
             Ok(0)
         }
+        async fn get_quota(&self) -> Result<ProviderQuota> {
+            Ok(ProviderQuota::Unknown)
+        }
     }
 
     #[tokio::test]
@@ -1574,6 +1584,9 @@ mod tests {
         fn cost_of(&self, _model: &str, _usage: &TokenUsage) -> Result<u64> {
             Ok(1)
         }
+        async fn get_quota(&self) -> Result<ProviderQuota> {
+            Ok(ProviderQuota::Unknown)
+        }
     }
 
     /// Two paid calls on the integrated shape are in flight at the same moment, and the
@@ -1679,6 +1692,9 @@ mod tests {
             }
             fn cost_of(&self, _model: &str, _usage: &TokenUsage) -> Result<u64> {
                 Ok(0)
+            }
+            async fn get_quota(&self) -> Result<ProviderQuota> {
+                Ok(ProviderQuota::Unknown)
             }
         }
 

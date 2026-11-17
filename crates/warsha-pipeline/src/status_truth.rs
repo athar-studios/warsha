@@ -108,6 +108,10 @@ impl ChatProvider for TestTruthProvider {
     ) -> std::result::Result<u64, ProviderError> {
         Ok(10)
     }
+
+    async fn get_quota(&self) -> std::result::Result<ProviderQuota, ProviderError> {
+        Ok(ProviderQuota::Unknown)
+    }
 }
 
 async fn setup_fixture() -> (

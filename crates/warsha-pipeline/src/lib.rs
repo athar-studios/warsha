@@ -2914,6 +2914,10 @@ mod tests {
             ) -> std::result::Result<u64, ProviderError> {
                 Ok(1)
             }
+
+            async fn get_quota(&self) -> std::result::Result<ProviderQuota, ProviderError> {
+                Ok(ProviderQuota::Unknown)
+            }
         }
 
         /// A project whose language the test names, stored in `store`.
