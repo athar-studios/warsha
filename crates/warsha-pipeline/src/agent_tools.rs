@@ -258,7 +258,8 @@ impl ToolExecutor for NoToolExecutor {
 /// installs a shared [`ReadBeforeWriteGuard`] so an unread file cannot be
 /// overwritten; clones of the executor share the same guard.
 use crate::mcp_approval::McpApprovals;
-// ... (existing imports)
+use crate::mcp_permission::MCP_AGENT_ROLE;
+use serde_json::json;
 
 #[derive(Debug, Clone)]
 pub struct FilesystemToolExecutor {
@@ -508,6 +509,11 @@ impl FilesystemToolExecutor {
     /// outside the workspace), the ask-for-risky mode routes it to the approval
     /// queue instead of running it; never-ask (auto-inside-project) runs it only
     /// when safe. Read-only confinement refuses every command by name.
+    ///
+    /// B3: an ask-mode refusal registers a pending entry on the shared queue
+    /// (the same one MCP and bridge asks use) so the owner sees the native ask
+    /// with the tool, exact arguments, role, and run — and the refusal text
+    /// points at the queue either way.
     async fn run_command(&self, command: &str, args: &[String]) -> Result<ToolResult, ToolError> {
         let tool = AgentTool::RunCommand {
             command: command.to_string(),
@@ -535,8 +541,37 @@ impl FilesystemToolExecutor {
                 PermissionMode::AskAlways | PermissionMode::AskForRisky => {
                     let risky = classify_command(command, args) == RiskClass::Risky;
                     if risky || policy.mode == PermissionMode::AskAlways {
+                        let command_line = format!("{command} {}", args.join(" "));
+                        // One shared ask-queue (B3): register the native ask so
+                        // the owner's approval UI shows it beside MCP asks.
+                        if let (Some(approvals), Some(run_id)) =
+                            (&self.mcp_approvals, &self.run_id)
+                        {
+                            let summary = format!("run the command `{command_line}`");
+                            match approvals.register_pending(
+                                run_id,
+                                "native",
+                                "run_command",
+                                MCP_AGENT_ROLE,
+                                &json!({ "command": command, "args": args }),
+                                summary,
+                            ) {
+                                Ok(_question_id) => {}
+                                Err(error) => {
+                                    // The queue refused (cap, dedupe, persistence):
+                                    // fail closed — the ask cannot be answered, so
+                                    // the command is refused, never run.
+                                    return Err(ToolError::CommandRefused {
+                                        command: command_line,
+                                        reason: format!(
+                                            "the approval queue refused the ask: {error}"
+                                        ),
+                                    });
+                                }
+                            }
+                        }
                         return Err(ToolError::CommandRefused {
-                            command: format!("{command} {}", args.join(" ")),
+                            command: command_line,
                             reason: "this command needs the owner's approval under the project's permission settings; ask via the approval queue".into(),
                         });
                     }
@@ -1403,6 +1438,59 @@ mod protection_tests {
             !result.output.contains("approval"),
             "no policy must keep the old behaviour, got: {}",
             result.output
+        );
+    }
+
+    #[tokio::test]
+    async fn risky_command_under_ask_registers_on_the_shared_queue() {
+        let approvals = Arc::new(McpApprovals::new(None));
+        let dir = std::env::temp_dir().join("b3-queue-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let executor = FilesystemToolExecutor::new(&dir)
+            .with_command_policy(CommandPolicy::from_config(&["git".to_string()]))
+            .with_protection(policy(PermissionMode::AskForRisky))
+            .with_mcp_approvals(approvals.clone(), Some("run-b3-1".to_string()));
+        let result = executor
+            .execute(&AgentTool::RunCommand {
+                command: "bash".to_string(),
+                args: vec!["-c".to_string(), "echo hi".to_string()],
+            })
+            .await;
+        assert!(
+            !result.success,
+            "the ask-mode refusal still refuses the command"
+        );
+        let pending = approvals.pending();
+        assert_eq!(
+            pending.len(),
+            1,
+            "the native ask must register on the shared queue"
+        );
+        assert_eq!(pending[0].server, "native");
+        assert_eq!(pending[0].tool, "run_command");
+        assert_eq!(pending[0].run_id, "run-b3-1");
+        assert_eq!(pending[0].role, "agent");
+    }
+
+    #[tokio::test]
+    async fn ask_without_a_run_id_never_registers() {
+        let approvals = Arc::new(McpApprovals::new(None));
+        let dir = std::env::temp_dir().join("b3-norun-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let executor = FilesystemToolExecutor::new(&dir)
+            .with_command_policy(CommandPolicy::from_config(&["git".to_string()]))
+            .with_protection(policy(PermissionMode::AskAlways))
+            .with_mcp_approvals(approvals.clone(), None);
+        let result = executor
+            .execute(&AgentTool::RunCommand {
+                command: "git".to_string(),
+                args: vec!["push".to_string()],
+            })
+            .await;
+        assert!(!result.success);
+        assert!(
+            approvals.pending().is_empty(),
+            "a daemon-wide loop (no run id) must never register a pending ask"
         );
     }
 }

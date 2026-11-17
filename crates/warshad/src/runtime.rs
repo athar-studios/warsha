@@ -124,7 +124,11 @@ pub(crate) fn build_agent_loop_in(
     let tools = FilesystemToolExecutor::new(workspace_dir.to_path_buf())
         .with_protection(Some(policy))
         .with_read_before_write(policy.read_before_write)
-        .with_command_policy(command_policy);
+        .with_command_policy(command_policy)
+        // B3: native `RunCommand` asks go to the same shared queue the MCP
+        // asks use. The daemon-wide loop (run id `None`) can never register
+        // one — `register_pending` is only reached with a run id present.
+        .with_mcp_approvals(mcp_approvals.clone(), run_id.clone());
     let router = ProviderRouterAdapter::new(providers, AGENT_ROLE, AGENT_METER_KEY);
     let agent_loop = AgentLoop::with_tool_executor(Box::new(tools))
         .with_router(Arc::new(router))
