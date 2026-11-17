@@ -7003,3 +7003,10 @@ Packet A4 spend: 18/20. Cumulative spend: 18.
 - **Lane note**: worker attempt stalled 3× on false read-only claims (index.lock); PM took the lane over and completed it directly (D-RN-A4-001..003).
 - **Gates** (rn-a4 @ ddb101e): cargo fmt --check clean; clippy -p warsha-providers + -p warshad --all-targets -D warnings 0; warsha-providers failover 5/0; warshad lib 252/0; client 193/193 + typecheck rc=0; desktop 870/870 + typecheck rc=0; i18n 58/58; i18n-gate 877 keys 0 violations; arch 5/0; policy 8/0; wire 11 checks / 4 violations (pre-existing A1 debt).
 - **Budget**: A4 spend 18 of cap 20. Cumulative ≈ 90 of 400 (22.5%) — B1 9, A2 7, N3 8, B2 8, A3 9, A4 18, F0/F1/N0/RF2 ≈ 31. Alert threshold 320 (80%); hard stop 400.
+
+## 2026-11-17 — A4 merged into r-next/integration
+
+- **Packet**: A4 (ordered failover routing + pre-run cost estimate). Branch `r-next/a4-failover-routing` merged as **ff41b0e** (`--no-ff`, 0 conflicts; report A4-report.md).
+- **Deliveries**: `should_failover()` on `ProviderError` (connection/5xx/rate-limit/timeout/Other fail over; 400/401/403/404/422 + budget stops do not); cooldown registry (60 s doubling to 10-min cap, reset on success); `FailoverRecord` on `RunReceipt`; `runs.estimate` RPC + client `estimateRun` (strict wire decode); home estimate line (ar/en, estimated label, warnings); 5 failover acceptance tests.
+- **Merge gates** (integration @ ff41b0e): cargo fmt --check clean; clippy --workspace --all-targets -D warnings 0; warsha-providers failover 5/0; warshad lib 252/0; client 193/193; i18n 58/58; desktop 870/870; i18n-gate 877 keys 0 violations; arch 5/0; policy 8/0; wire 11 checks / 4 violations (pre-existing A1 debt catalog.refresh/apply, unchanged).
+- **Budget**: A4 spend 18 of cap 20. Cumulative ≈ 90 of 400 (22.5%). Alert threshold 320 (80%); hard stop 400.
