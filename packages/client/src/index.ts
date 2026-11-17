@@ -479,6 +479,18 @@ export interface SubscriptionWindow {
   sevenDay: WindowUsage;
 }
 
+/** The pre-run cost estimate `runs.estimate` answers with (A4). */
+export interface CostEstimate {
+  /** Cheapest plausible cost for the run, in cents. */
+  minCents: number;
+  /** Heavier plausible cost for the run, in cents. */
+  maxCents: number;
+  /** Always true today — every number here is an estimate. */
+  estimated: boolean;
+  /** Models with no price ("unknown for <model>") and empty routings. */
+  warnings: string[];
+}
+
 /** The three quota states, in the wire shape the desktop renders (A3). */
 export type QuotaState =
   | { state: 'reported'; used: number; limit: number }
@@ -2435,6 +2447,21 @@ export class WarshaClient
     return this.rpc('budget.set', { projectId, cents });
   }
 
+  // Pre-run cost estimate (A4): what the run the owner is about to start would
+  // cost, as a range over the models the project's role routings name. Every
+  // number is an estimate; `warnings` names models with no price ("unknown for
+  // <model>") and empty routings.
+  async estimateRun(projectId: ProjectId, idea: string): Promise<CostEstimate> {
+    const wire = await this.rpc<unknown>('runs.estimate', { projectId, idea });
+    const source = wiringObject(wire, 'runs.estimate');
+    return {
+      minCents: nonNegativeInt(source['min_cents'], 'runs.estimate', 'min_cents'),
+      maxCents: nonNegativeInt(source['max_cents'], 'runs.estimate', 'max_cents'),
+      estimated: source['estimated'] === true,
+      warnings: wiringStringArray(source['warnings'], 'runs.estimate', 'warnings'),
+    };
+  }
+
   // Usage and quota (A3).
   //
   // `usage.by_dimension` groups the cost ledger by one whitelisted dimension; the
@@ -3312,6 +3339,15 @@ function wiringString(value: unknown, method: string, name: string): string {
     throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "${name}" is not a string`);
   }
   return value;
+}
+
+/** A string array the wire should carry as such; absent reads as an empty list. */
+function wiringStringArray(value: unknown, method: string, name: string): string[] {
+  if (value === null || value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "${name}" is not an array`);
+  }
+  return value.map((item, i) => wiringString(item, method, `${name}[${i}]`));
 }
 
 function wiringNumber(value: unknown, method: string, name: string): number {
