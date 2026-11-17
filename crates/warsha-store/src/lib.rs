@@ -525,7 +525,7 @@ impl Store {
         let outcome = sqlx::query(
             "UPDATE runs SET current_stage = ?, gate_states = ?, artifacts = ?, updated_at = ?, \
              status = ?, budget_cents = ?, spent_cents = ?, version = version + 1, \
-             worktree_path = ?, worktree_branch = ? WHERE id = ?",
+             worktree_path = ?, worktree_branch = ?, confinement = ? WHERE id = ?",
         )
         .bind(serde_json::to_string(&run.current_stage)?)
         .bind(serde_json::to_string(&run.gate_states)?)
@@ -536,6 +536,7 @@ impl Store {
         .bind(run.spent_cents as i64)
         .bind(&run.worktree_path)
         .bind(&run.worktree_branch)
+        .bind(run.confinement.map(|c| c.to_string()))
         .bind(run.id.0.to_string())
         .execute(&self.pool)
         .await?;
@@ -554,7 +555,7 @@ impl Store {
         let outcome = sqlx::query(
             "UPDATE runs SET current_stage = ?, gate_states = ?, artifacts = ?, updated_at = ?, \
              status = ?, budget_cents = ?, spent_cents = ?, version = version + 1, \
-             worktree_path = ?, worktree_branch = ? \
+             worktree_path = ?, worktree_branch = ?, confinement = ? \
              WHERE id = ? AND version = ?",
         )
         .bind(serde_json::to_string(&run.current_stage)?)
@@ -566,6 +567,7 @@ impl Store {
         .bind(run.spent_cents as i64)
         .bind(&run.worktree_path)
         .bind(&run.worktree_branch)
+        .bind(run.confinement.map(|c| c.to_string()))
         .bind(run.id.0.to_string())
         .bind(expected_version as i64)
         .execute(&self.pool)

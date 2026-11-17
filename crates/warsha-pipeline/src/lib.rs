@@ -57,7 +57,7 @@ pub use crate::mcp_permission::{
     AskEverything, McpPermissionSource, McpPermissionStore, StaticPermissions, MCP_AGENT_ROLE,
 };
 pub use crate::worktree::{
-    commit_run_worktree, create_run_worktree, remove_run_worktree, restore_run_worktree, tree_hash,
+    commit_run_worktree, create_run_worktree, dirty_set, remove_run_worktree, restore_run_worktree,
     worktree_path, RunWorktree, WorktreeError,
 };
 /// The Streamable HTTP transport's client seam and its pure SSE parser (R-EXT-4):
@@ -1196,7 +1196,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             .map(|c| *c == Confinement::ReadOnly)
             .unwrap_or(false);
         let tree_before = if backstop {
-            Some(worktree::tree_hash(&sandbox_path).await.map_err(|e| {
+            Some(worktree::dirty_set(&sandbox_path).await.map_err(|e| {
                 PipelineError::Other(format!(
                     "the read-only backstop could not hash run `{}`'s worktree: {e}",
                     run.id.0
@@ -1226,7 +1226,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         // read-only confinement is restored from HEAD and the stage fails with
         // the violation named.
         if let Some(before) = tree_before {
-            let after = worktree::tree_hash(&sandbox_path).await.map_err(|e| {
+            let after = worktree::dirty_set(&sandbox_path).await.map_err(|e| {
                 PipelineError::Other(format!(
                     "the read-only backstop could not re-hash run `{}`'s worktree: {e}",
                     run.id.0

@@ -327,3 +327,107 @@ async fn worktree_fields_survive_a_store_round_trip() {
 /// non-unix targets (the whole file is unix-gated anyway).
 #[allow(dead_code)]
 fn _pathbuf_witness(_: PathBuf) {}
+
+/// B2: a read-only run's CLI stage cannot modify its worktree — the stage
+/// fails with the violation named and the tree is restored from HEAD.
+#[tokio::test]
+async fn read_only_stage_writing_fails_named_and_restores_the_tree() {
+    let (engine, store, dir, project) = engine().await;
+    let repo = project.repo_path.clone().expect("attached repo");
+
+    let run = engine
+        .start_run(project.id, "Build a todo app")
+        .await
+        .expect("a run starts");
+    let worktree = warsha_pipeline::create_run_worktree(
+        std::path::Path::new(&repo),
+        &dir.path().join("worktrees"),
+        &run.id.0.to_string(),
+        "HEAD",
+    )
+    .await
+    .expect("the run worktree is created");
+    let mut run = store.get_run(run.id).await.expect("run readable");
+    run.worktree_path = Some(worktree.path.to_string_lossy().into_owned());
+    run.worktree_branch = Some(format!("warsha/run-{}", run.id.0));
+    // B2: the run is read-only — resolved at start, persisted on the Run row.
+    run.confinement = Some(warsha_core::Confinement::ReadOnly);
+    store.update_run(&run).await.expect("run updated");
+
+    // A backend that writes into the worktree it is handed.
+    struct WritingProbe;
+    #[async_trait::async_trait]
+    impl CodingBackend for WritingProbe {
+        fn name(&self) -> &str {
+            "writing-probe"
+        }
+        fn is_available(&self) -> bool {
+            true
+        }
+        async fn execute(
+            &self,
+            task: CodingTask,
+            sandbox: &Sandbox,
+        ) -> Result<CodingResult, BackendError> {
+            std::fs::write(sandbox.work_dir.join("violation.txt"), "written")
+                .map_err(|e| BackendError::ExecutionFailed(e.to_string()))?;
+            Ok(CodingResult {
+                task_id: task.id,
+                success: true,
+                diff: Some("diff --git a/violation.txt".to_string()),
+                files_changed: vec!["violation.txt".to_string()],
+                usage: None,
+                error: None,
+                duration_ms: 1,
+            })
+        }
+    }
+    let engine = engine.with_coding_backend(Arc::new(WritingProbe));
+
+    // Walk to the Code stage and run it: the stage must fail with the
+    // violation named, and the tree must be restored.
+    let mut latest = engine
+        .advance_stage(run.id)
+        .await
+        .expect("the Idea stage runs");
+    let outcome = loop {
+        if latest.current_stage == Stage::Code {
+            break engine.advance_stage(run.id).await;
+        }
+        if latest.current_stage.is_gate() {
+            engine
+                .approve_gate(run.id, latest.current_stage, DeviceId::new())
+                .await
+                .expect("gate approves");
+        }
+        latest = match engine.advance_stage(run.id).await {
+            Ok(next) => next,
+            Err(error) => break Err(error),
+        };
+    };
+    match outcome {
+        Err(error) => assert!(
+            error.to_string().contains("read-only violation"),
+            "the failure must name the violation, got: {error}"
+        ),
+        Ok(run_after) => panic!(
+            "a read-only stage must not succeed after writing; stage={:?}, violation.txt={}",
+            run_after.current_stage,
+            worktree.path.join("violation.txt").exists()
+        ),
+    }
+    assert!(
+        !worktree.path.join("violation.txt").exists(),
+        "the written file must be restored away"
+    );
+    // The worktree (not the project checkout) is back at its base tree.
+    let wt_head = Command::new("git")
+        .args(["rev-parse", "HEAD^{tree}"])
+        .current_dir(&worktree.path)
+        .output()
+        .expect("git runs");
+    assert!(
+        wt_head.status.success(),
+        "the run worktree must still be a valid git tree"
+    );
+}
