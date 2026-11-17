@@ -116,6 +116,7 @@ pub(crate) fn build_agent_loop_in(
     }
     let command_policy = CommandPolicy::from_config(allowed_commands);
     let tools = FilesystemToolExecutor::new(workspace_dir.to_path_buf())
+        .with_protection(Some(policy))
         .with_read_before_write(policy.read_before_write)
         .with_command_policy(command_policy);
     let router = ProviderRouterAdapter::new(providers, AGENT_ROLE, AGENT_METER_KEY);
