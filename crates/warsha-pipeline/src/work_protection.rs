@@ -45,6 +45,8 @@ pub enum PermissionMode {
     AskForRisky,
     /// Never ask while the agent stays inside the project directory.
     AutoInsideProject,
+    /// Bypasses permission checks entirely.
+    FullAccess,
 }
 
 /// The work-protection settings of one project or session.

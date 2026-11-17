@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use warsha_core::{ProjectId, Run, RunId, RunStatus, Stage};
+use warsha_core::{ApprovalMode, Confinement, ProjectId, Run, RunId, RunStatus, Stage};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunReceipt {
@@ -12,9 +12,16 @@ pub struct RunReceipt {
     pub spent_cents: u64,
     pub budget_cents: Option<u64>,
     pub current_stage: Stage,
+    pub effective_confinement: Option<Confinement>,
+    pub effective_approval_mode: Option<ApprovalMode>,
 }
 
-pub fn build_run_receipt(run: &Run, coding_cli_timeout_seconds: Option<u64>) -> RunReceipt {
+pub fn build_run_receipt(
+    run: &Run,
+    coding_cli_timeout_seconds: Option<u64>,
+    effective_confinement: Option<Confinement>,
+    effective_approval_mode: Option<ApprovalMode>,
+) -> RunReceipt {
     RunReceipt {
         run_id: run.id,
         project_id: run.project_id,
@@ -25,5 +32,7 @@ pub fn build_run_receipt(run: &Run, coding_cli_timeout_seconds: Option<u64>) -> 
         spent_cents: run.spent_cents,
         budget_cents: run.budget_cents,
         current_stage: run.current_stage,
+        effective_confinement,
+        effective_approval_mode,
     }
 }

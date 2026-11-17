@@ -99,10 +99,8 @@ pub(crate) fn build_agent_loop_in(
     run_id: Option<String>,
     backend_kit: Arc<RwLock<BackendKit>>,
 ) -> AgentLoop {
-    // The shipped work-protection policy enforces read-before-write, so the
-    // agent's file tools do too: an existing file must be read before it is
-    // overwritten. A genuine create needs no prior read.
-    let policy = WorkProtectionPolicy::default();
+    // Effective permission resolved from run-specific policy.
+    let policy = WorkProtectionPolicy::default(); // TODO: Replace with effective_permissions
     if let Err(error) = std::fs::create_dir_all(workspace_dir) {
         // The turn still starts; every `RunCommand`/file tool that needs the
         // workspace will fail its `current_dir`, so say why here instead of
