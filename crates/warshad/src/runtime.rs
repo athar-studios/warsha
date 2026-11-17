@@ -22,7 +22,7 @@ use warsha_core::*;
 use warsha_pipeline::{
     AgentLoop, AskUserQueue, BackendKit, CommandPolicy, FilesystemToolExecutor, McpApprovals,
     McpManager, MessageBus, ModeManager, ProviderRouterAdapter, StaticPermissions, TodoList,
-    WorkProtectionPolicy, AGENT_ROLE,
+    AGENT_ROLE,
 };
 use warsha_providers::ProviderRouter;
 
@@ -77,6 +77,7 @@ pub(crate) fn build_agent_loop(
         // never registers a pending entry: its `agent.turn` is retired (OD-E2).
         None,
         backend_kit,
+        None,
     )))
 }
 
@@ -98,11 +99,12 @@ pub(crate) fn build_agent_loop_in(
     mcp_approvals: Arc<McpApprovals>,
     run_id: Option<String>,
     backend_kit: Arc<RwLock<BackendKit>>,
+    permissions: Option<ProjectPermissions>,
 ) -> AgentLoop {
-    // The shipped work-protection policy enforces read-before-write, so the
-    // agent's file tools do too: an existing file must be read before it is
-    // overwritten. A genuine create needs no prior read.
-    let policy = WorkProtectionPolicy::default();
+    // Effective permission resolved from run-specific policy.
+    let policy = permissions
+        .map(warsha_pipeline::policy_for_permissions)
+        .unwrap_or_default();
     if let Err(error) = std::fs::create_dir_all(workspace_dir) {
         // The turn still starts; every `RunCommand`/file tool that needs the
         // workspace will fail its `current_dir`, so say why here instead of
@@ -114,6 +116,7 @@ pub(crate) fn build_agent_loop_in(
     }
     let command_policy = CommandPolicy::from_config(allowed_commands);
     let tools = FilesystemToolExecutor::new(workspace_dir.to_path_buf())
+        .with_protection(Some(policy))
         .with_read_before_write(policy.read_before_write)
         .with_command_policy(command_policy);
     let router = ProviderRouterAdapter::new(providers, AGENT_ROLE, AGENT_METER_KEY);

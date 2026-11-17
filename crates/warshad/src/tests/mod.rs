@@ -331,6 +331,7 @@ fn agent_loop_for_run(state: &DaemonState) -> AgentLoop {
         state.mcp_approvals.clone(),
         None,
         Arc::new(RwLock::new(default_backend_kit("run"))),
+        None,
     )
 }
 
@@ -1253,6 +1254,7 @@ async fn stored_run(store: &Store, name: &str, repo_path: Option<&Path>) -> Run 
         spent_cents: 0,
         worktree_path: None,
         worktree_branch: None,
+        confinement: None,
     };
     store.create_run(&run).await.expect("the run is stored");
     run
@@ -3742,6 +3744,7 @@ mod runs_resume {
                 spent_cents: 0,
                 worktree_path: None,
                 worktree_branch: None,
+                confinement: None,
             };
             store.create_run(&run).await.unwrap();
             run.id
@@ -5652,6 +5655,7 @@ mod mcp_approval {
                 state.mcp_approvals.clone(),
                 Some(run_id.0.to_string()),
                 Arc::new(RwLock::new(default_backend_kit("run"))),
+                None,
             );
             agent
                 .approve_agent_mode("owner")
@@ -5908,6 +5912,7 @@ mod mcp_approval {
             restarted.mcp_approvals.clone(),
             Some(run_id.0.to_string()),
             Arc::new(RwLock::new(default_backend_kit("run"))),
+            None,
         );
         agent
             .approve_agent_mode("owner")
@@ -6450,6 +6455,7 @@ mod agent_tool_events {
             state.mcp_approvals.clone(),
             Some(run_id.0.to_string()),
             Arc::new(RwLock::new(default_backend_kit("run"))),
+            None,
         );
         agent
             .approve_agent_mode("owner")

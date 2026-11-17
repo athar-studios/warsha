@@ -20,6 +20,10 @@
 - **Pre-existing red flake, named not fixed**: `process_spawn::k5_repair::stderr_secret_spawned_child_redacts_sentinel_from_ring_and_tracing` fails when run alone on the untouched base (`cargo test -p warsha-pipeline --lib process_spawn::k5_repair` at `1b9bc69` → 9 passed / 1 failed, "tracing event must contain masked output: "), passed in the final two full-suite runs, and failed once mid-branch. Order/timing dependent; `process_spawn.rs` is out of scope.
 - **Carried**: remote credentials (bearer/OAuth) stay out of scope — a `401` is reported, never solved; SSRF hardening for an owner-chosen `https` host resolving to a private address is unchanged from the recorded-only surface (`DECISIONS.md`); `docs/DAEMON.md`'s `mcp.disconnect` row still describes only the child stop, because only the `mcp.connect` row was in the packet's allowed list.
 
+## Run 2026-11-17 — B2 (Permission Enforcement)
+- 2026-11-17: Initialized B2 packet, defined todo list, investigated `build_agent_loop_in` injection points, updated receipt schema and tests, started B2-report.md and DECISIONS.md.
+- Cumulative spend: 5 units (of 20).
+
 ## Run 2026-11-17 — N3 (CLI run isolation)
 - 2026-11-17: Initialized N3, investigated implementation requirements, created `RunReceipt` struct, updated `code_stage_report` to include worktree path, branch, and timeout, and added `commit_run_worktree` call after CLI stage success.
 - Cumulative spend: ~40 units (of 400).

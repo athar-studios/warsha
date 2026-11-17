@@ -1,6 +1,7 @@
 //! Warsha CLI — `warsha` binary
 
 pub mod mcp_serve;
+pub mod permission_bridge;
 
 use clap::{Parser, Subcommand};
 use jsonrpsee::core::client::ClientT;
@@ -269,6 +270,12 @@ pub enum DeviceAction {
 pub enum McpAction {
     /// Start a stdio MCP server exposing read tools and run creation
     Serve,
+
+    /// Serve the claude-code permission bridge for one run (internal)
+    PermissionBridge {
+        /// The run the bridge submits asks for
+        run_id: String,
+    },
 }
 
 /// The language `warsha` writes its own human messages in.
@@ -869,6 +876,11 @@ impl CliApp {
     async fn cmd_mcp(&self, action: McpAction) -> Result<()> {
         match action {
             McpAction::Serve => mcp_serve::serve_stdio(&self.client).await,
+            McpAction::PermissionBridge { run_id } => {
+                crate::permission_bridge::serve(&self.client, &run_id)
+                    .await
+                    .map_err(|error| CliError::Other(error.to_string()))
+            }
         }
     }
 

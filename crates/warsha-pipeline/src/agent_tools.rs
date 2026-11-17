@@ -27,7 +27,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::command_policy::{CommandPolicy, CommandPolicyError};
-use crate::work_protection::ReadBeforeWriteGuard;
+use crate::work_protection::{
+    classify_command, PermissionMode, ReadBeforeWriteGuard, RiskClass, WorkProtectionPolicy,
+};
 
 /// One tool call.
 ///
@@ -262,6 +264,10 @@ pub struct FilesystemToolExecutor {
     read_guard: Option<Arc<Mutex<ReadBeforeWriteGuard>>>,
     /// Command execution policy bounding `RunCommand` invocations.
     command_policy: CommandPolicy,
+    /// Work-protection policy carried from the run's effective permissions (B2):
+    /// `None` keeps today's behaviour; `Some` classifies every `RunCommand` and
+    /// routes risky ones to the approval queue under ask-for-risky confinement.
+    protection: Option<WorkProtectionPolicy>,
 }
 
 impl PartialEq for FilesystemToolExecutor {
@@ -271,6 +277,7 @@ impl PartialEq for FilesystemToolExecutor {
         self.working_dir == other.working_dir
             && self.read_guard.is_some() == other.read_guard.is_some()
             && self.command_policy == other.command_policy
+            && self.protection.is_some() == other.protection.is_some()
     }
 }
 
@@ -295,7 +302,20 @@ impl FilesystemToolExecutor {
             working_dir: working_dir.into(),
             read_guard: None,
             command_policy: CommandPolicy::deny_all(),
+            protection: None,
         }
+    }
+
+    /// Install the work-protection policy this run resolved from its project
+    /// permissions (B2). `None` keeps the executor out of the approval path.
+    pub fn with_protection(mut self, policy: Option<WorkProtectionPolicy>) -> Self {
+        self.protection = policy;
+        self
+    }
+
+    /// The work-protection policy installed on this executor, if any.
+    pub fn protection(&self) -> Option<&WorkProtectionPolicy> {
+        self.protection.as_ref()
     }
 
     /// Set the command execution policy for `RunCommand` invocations.
@@ -426,6 +446,18 @@ impl FilesystemToolExecutor {
             content: content.to_string(),
         };
         let resolved = self.resolve(path)?;
+        // B2: read-only confinement refuses every write by name.
+        if let Some(policy) = &self.protection {
+            if policy.mode == PermissionMode::ReadOnly {
+                return Ok(ToolResult::failed(
+                    tool,
+                    format!(
+                        "writes are refused under read-only permissions ({})",
+                        resolved.display()
+                    ),
+                ));
+            }
+        }
         if let Some(parent) = resolved.parent() {
             if let Err(error) = std::fs::create_dir_all(parent) {
                 return Ok(ToolResult::failed(
@@ -447,11 +479,48 @@ impl FilesystemToolExecutor {
     }
 
     /// Run a program in the working directory under the command execution policy.
+    ///
+    /// B2: the command allowlist stays the hard floor — a program outside the
+    /// policy is refused, never asked. When a work-protection policy is installed
+    /// and the command classifies risky (shell, network, publish/push, paths
+    /// outside the workspace), the ask-for-risky mode routes it to the approval
+    /// queue instead of running it; never-ask (auto-inside-project) runs it only
+    /// when safe. Read-only confinement refuses every command by name.
     async fn run_command(&self, command: &str, args: &[String]) -> Result<ToolResult, ToolError> {
         let tool = AgentTool::RunCommand {
             command: command.to_string(),
             args: args.to_vec(),
         };
+        if let Some(policy) = &self.protection {
+            match policy.mode {
+                PermissionMode::FullAccess => {}
+                PermissionMode::AutoInsideProject => {
+                    if classify_command(command, args) == RiskClass::Risky {
+                        return Err(ToolError::CommandRefused {
+                            command: format!("{command} {}", args.join(" ")),
+                            reason:
+                                "risky command under never-ask permissions; the owner must allow it"
+                                    .into(),
+                        });
+                    }
+                }
+                PermissionMode::ReadOnly => {
+                    return Err(ToolError::CommandRefused {
+                        command: format!("{command} {}", args.join(" ")),
+                        reason: "commands are refused under read-only permissions".into(),
+                    });
+                }
+                PermissionMode::AskAlways | PermissionMode::AskForRisky => {
+                    let risky = classify_command(command, args) == RiskClass::Risky;
+                    if risky || policy.mode == PermissionMode::AskAlways {
+                        return Err(ToolError::CommandRefused {
+                            command: format!("{command} {}", args.join(" ")),
+                            reason: "this command needs the owner's approval under the project's permission settings; ask via the approval queue".into(),
+                        });
+                    }
+                }
+            }
+        }
         let output = self
             .command_policy
             .execute(command, args, &self.working_dir)
@@ -1172,6 +1241,146 @@ mod tests {
             }
             .to_string(),
             "approval required: files::write is ask by default"
+        );
+    }
+}
+
+#[cfg(test)]
+mod protection_tests {
+    use super::*;
+
+    fn executor_with(policy: Option<WorkProtectionPolicy>) -> FilesystemToolExecutor {
+        FilesystemToolExecutor::new("/tmp/b2-test")
+            .with_command_policy(CommandPolicy::from_config(&[
+                "git".to_string(),
+                "bash".to_string(),
+            ]))
+            .with_protection(policy)
+    }
+
+    fn policy(mode: PermissionMode) -> Option<WorkProtectionPolicy> {
+        Some(WorkProtectionPolicy {
+            mode,
+            snapshot_before_edit: false,
+            worktree_isolation: false,
+            read_before_write: false,
+        })
+    }
+
+    #[tokio::test]
+    async fn read_only_refuses_writes_by_name() {
+        let dir = std::env::temp_dir().join("b2-readonly-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let executor = FilesystemToolExecutor::new(&dir).with_protection(policy(
+            PermissionMode::ReadOnly, // read-only confinement refuses every write
+        ));
+        let result = executor
+            .execute(&AgentTool::WriteFile {
+                path: "new.txt".to_string(),
+                content: "x".to_string(),
+            })
+            .await;
+        assert!(
+            !result.success,
+            "read-only confinement must refuse workspace writes"
+        );
+        assert!(
+            result.output.contains("read-only permissions"),
+            "refusal names the confinement: {}",
+            result.output
+        );
+    }
+
+    #[tokio::test]
+    async fn risky_command_under_ask_for_risky_is_refused() {
+        let executor = executor_with(policy(PermissionMode::AskForRisky));
+        let result = executor
+            .execute(&AgentTool::RunCommand {
+                command: "bash".to_string(),
+                args: vec!["-c".to_string(), "echo hi".to_string()],
+            })
+            .await;
+        assert!(
+            !result.success,
+            "risky command must be refused under ask-for-risky"
+        );
+        assert!(
+            result.output.contains("approval"),
+            "refusal must name the approval path, got: {}",
+            result.output
+        );
+    }
+
+    #[tokio::test]
+    async fn safe_command_under_ask_for_risky_runs() {
+        let dir = std::env::temp_dir().join("b2-safe-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let executor = FilesystemToolExecutor::new(&dir)
+            .with_command_policy(CommandPolicy::from_config(&["git".to_string()]))
+            .with_protection(policy(PermissionMode::AskForRisky));
+        let result = executor
+            .execute(&AgentTool::RunCommand {
+                command: "git".to_string(),
+                args: vec!["status".to_string()],
+            })
+            .await;
+        // git status is safe: it runs (its success depends on the dir, but it must not be refused by the protection layer)
+        assert!(
+            result.success
+                || result.output.contains("fatal")
+                || result.output.contains("not a git repository")
+                || !result.output.contains("approval"),
+            "safe command must not be refused by the protection layer, got: {}",
+            result.output
+        );
+    }
+
+    #[tokio::test]
+    async fn risky_command_under_never_ask_is_refused() {
+        let executor = executor_with(policy(PermissionMode::AutoInsideProject));
+        let result = executor
+            .execute(&AgentTool::RunCommand {
+                command: "bash".to_string(),
+                args: vec![],
+            })
+            .await;
+        assert!(
+            !result.success,
+            "risky command must be refused under never-ask"
+        );
+    }
+
+    #[tokio::test]
+    async fn full_access_runs_everything_the_policy_allows() {
+        let executor = executor_with(policy(PermissionMode::FullAccess));
+        let result = executor
+            .execute(&AgentTool::RunCommand {
+                command: "bash".to_string(),
+                args: vec![],
+            })
+            .await;
+        // Full access skips the protection layer entirely; the command policy still applies
+        // (bash is in the test config), so the result must not be a protection refusal.
+        assert!(
+            !result.output.contains("approval") && !result.output.contains("never-ask"),
+            "full access must not consult the protection layer, got: {}",
+            result.output
+        );
+    }
+
+    #[tokio::test]
+    async fn no_protection_keeps_today_behaviour() {
+        let executor = executor_with(None);
+        let result = executor
+            .execute(&AgentTool::RunCommand {
+                command: "bash".to_string(),
+                args: vec![],
+            })
+            .await;
+        assert!(
+            !result.output.contains("approval"),
+            "no policy must keep the old behaviour, got: {}",
+            result.output
         );
     }
 }

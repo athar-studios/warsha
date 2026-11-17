@@ -702,6 +702,20 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Owner,
         tier: Spend,
     },
+    // B2: the approval bridge's two calls. The run-scoped token that carries
+    // them authorises exactly these two — an ask is a question, not a write,
+    // and the decision poll reads one answer — so they run at Session tier,
+    // not Owner: the CLI's bridge never approves its own ask.
+    M {
+        method: "permissions.ask",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "permissions.decision",
+        policy: Session,
+        tier: Standard,
+    },
     // A preview is a dev server the daemon starts.
     M {
         method: "preview.start",

@@ -170,6 +170,109 @@ pub async fn commit_run_worktree(worktree_path: &Path, message: &str) -> Result<
     Ok(())
 }
 
+/// The worktree's tree hash, or `None` when the path is not a git repository.
+///
+/// `git write-tree` hashes the index's current content — the same value before
+/// and after a stage means the tree did not move. This is the read-only
+/// backstop's probe (B2): it never mutates the tree.
+pub async fn tree_hash(worktree_path: &Path) -> Result<Option<String>> {
+    let output = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(worktree_path)
+        .args(["write-tree"])
+        .output()
+        .await
+        .map_err(|e| WorktreeError::Git(e.to_string()))?;
+
+    if !output.status.success() {
+        // Not a repository (or an index git refuses to hash): the backstop
+        // treats both as "no hash to compare" and reports the git error in the
+        // violation when one is found.
+        return Err(WorktreeError::Git(
+            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        ));
+    }
+    Ok(Some(
+        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+    ))
+}
+
+/// The worktree's dirty state as a sorted list of `git status --porcelain`
+/// lines — the read-only backstop's probe (B2).
+///
+/// `git write-tree` hashes the index, which never sees untracked files; a
+/// stage that writes new files would compare equal and slip past the
+/// tree-hash probe. The porcelain status sees every untracked write, so the
+/// backstop compares this list before and after the stage instead.
+pub async fn dirty_set(worktree_path: &Path) -> Result<Vec<String>> {
+    let output = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(worktree_path)
+        .args(["status", "--porcelain"])
+        .output()
+        .await
+        .map_err(|e| WorktreeError::Git(e.to_string()))?;
+    if !output.status.success() {
+        return Err(WorktreeError::Git(
+            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        ));
+    }
+    let mut lines: Vec<String> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|l| l.to_string())
+        .collect();
+    lines.sort();
+    Ok(lines)
+}
+
+/// Restore `worktree_path` from its base revision and report what changed.
+///
+/// The read-only backstop's undo half (B2): a stage that moved a tree it was
+/// confined not to move loses its changes and fails. `git checkout -- .`
+/// resets tracked files to HEAD; untracked files are removed by hand, so the
+/// restore is exact for what a CLI stage can leave behind. Returns the list
+/// of paths that were restored.
+pub async fn restore_run_worktree(worktree_path: &Path) -> Result<Vec<String>> {
+    let status_output = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(worktree_path)
+        .args(["status", "--porcelain"])
+        .output()
+        .await
+        .map_err(|e| WorktreeError::Git(e.to_string()))?;
+
+    let dirty: Vec<String> = String::from_utf8_lossy(&status_output.stdout)
+        .lines()
+        .filter_map(|line| line.get(3..))
+        .map(str::to_string)
+        .collect();
+    if dirty.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(worktree_path)
+        .args(["checkout", "--", "."])
+        .output()
+        .await
+        .map_err(|e| WorktreeError::Git(e.to_string()))?;
+
+    // Untracked files never appear in HEAD; remove exactly the dirty ones.
+    // A porcelain line is `XY path` (3 chars before the path) — a file that
+    // still exists after `checkout -- .` was untracked, not tracked, so it is
+    // removed by hand.
+    let untracked: Vec<String> = dirty
+        .iter()
+        .filter(|path| worktree_path.join(path.as_str()).exists())
+        .cloned()
+        .collect();
+    for path in &untracked {
+        std::fs::remove_file(worktree_path.join(path)).map_err(WorktreeError::Io)?;
+    }
+    Ok(dirty)
+}
+
 /// Validate that `repo` is a usable git work tree.
 ///
 /// This is the exact probe [`create_run_worktree`] runs before it asks git for a

@@ -215,7 +215,7 @@ impl Role {
 }
 
 /// Project permission axes
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Confinement {
     #[serde(alias = "read-only", alias = "ReadOnly")]
@@ -249,7 +249,7 @@ impl std::str::FromStr for Confinement {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalMode {
     #[serde(alias = "ask-always", alias = "AskAlways")]
@@ -374,6 +374,9 @@ pub struct Run {
     pub spent_cents: u64,
     pub worktree_path: Option<String>,
     pub worktree_branch: Option<String>,
+    /// B2: the confinement this run is confined by (resolved at start from the
+    /// project's effective permissions). The read-only backstop keys on it.
+    pub confinement: Option<Confinement>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

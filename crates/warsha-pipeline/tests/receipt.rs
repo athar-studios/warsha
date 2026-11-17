@@ -1,7 +1,7 @@
 use chrono::Utc;
 use std::collections::HashMap;
 use ulid::Ulid;
-use warsha_core::{ProjectId, Run, RunId, RunStatus, Stage};
+use warsha_core::{ApprovalMode, Confinement, ProjectId, Run, RunId, RunStatus, Stage};
 use warsha_pipeline::receipt::build_run_receipt;
 
 #[test]
@@ -19,9 +19,23 @@ fn test_run_receipt_builder() {
         spent_cents: 10,
         worktree_path: Some("/tmp/wt".to_string()),
         worktree_branch: Some("warsha/run-1".to_string()),
+        confinement: Some(Confinement::WorkspaceWrite),
     };
-    let receipt = build_run_receipt(&run, Some(3600));
+    let receipt = build_run_receipt(
+        &run,
+        Some(3600),
+        Some(Confinement::WorkspaceWrite),
+        Some(ApprovalMode::AskForRisky),
+    );
     assert_eq!(receipt.run_id, run.id);
     assert_eq!(receipt.worktree_path, Some("/tmp/wt".to_string()));
     assert_eq!(receipt.coding_cli_timeout_seconds, Some(3600));
+    assert_eq!(
+        receipt.effective_confinement,
+        Some(Confinement::WorkspaceWrite)
+    );
+    assert_eq!(
+        receipt.effective_approval_mode,
+        Some(ApprovalMode::AskForRisky)
+    );
 }

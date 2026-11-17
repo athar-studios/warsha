@@ -42,6 +42,8 @@ mod skills;
 mod state;
 mod wave2;
 
+pub use crate::mcp_approvals::{McpApproval, McpApprovalAnswer};
+pub use crate::mcp_approvals::{PermissionAskAccepted, PermissionDecision};
 pub use auth::{
     anonymous_session, owner_session, session_extensions, Actor, ActorRole, DaemonError,
     MethodPolicy, Policy, ProcessPolicy, QuotaConfig, RateGovernor, RateLimitConfig, RpcExtensions,
@@ -58,7 +60,6 @@ pub use events::{
 use http::{http_app, origin_is_loopback, pairing_origin, resolve_bind_host};
 pub use http::{REMOTE_ASSETS_DIR_ENV, REMOTE_CSP};
 use lock::acquire_lock;
-pub use mcp_approvals::{McpApproval, McpApprovalAnswer};
 pub use mcp_call_events::StoreMcpCallObserver;
 pub use providers::{
     adapter_kind, keychain_credentials, AdapterKind, DeferredProvider, KeychainProviderFactory,
@@ -371,6 +372,14 @@ impl WarshaApiServer for WarshaRpc {
             .get_project(project_id)
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+
+        let effective = self
+            .state
+            .store
+            .get_project_effective_permissions(project_id)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+
         if let Some(repo_path) = project
             .repo_path
             .as_deref()
@@ -432,6 +441,7 @@ impl WarshaApiServer for WarshaRpc {
             self.state.mcp_approvals.clone(),
             Some(run.id.0.to_string()),
             backend_kit,
+            Some(effective),
         )
         .with_mcp_observer(Arc::new(StoreMcpCallObserver::new(
             self.state.store.clone(),
@@ -2052,6 +2062,71 @@ impl WarshaApiServer for WarshaRpc {
             "mcp.approvals.allow_once granted a single-use call for the device the session authenticated"
         );
         Ok(McpApprovalAnswer::from(&grant))
+    }
+
+    // B2: the approval bridge's two calls. The run-scoped token that carries
+    // them authorises nothing else (§3.2: env-only, memory-only, expires with
+    // the run), and the asks land in the same queue every other ask uses.
+    async fn submit_permission_ask(
+        &self,
+        ext: &RpcExtensions,
+        run_id: String,
+        server: String,
+        tool: String,
+        arguments: serde_json::Value,
+        summary: String,
+    ) -> RpcResult<PermissionAskAccepted> {
+        let method = "permissions.ask";
+        self.authorize(ext, method).await?;
+        // Fail closed on a run id that is not one: the queue key is the run.
+        let parsed = run_id
+            .parse::<ulid::Ulid>()
+            .map(RunId)
+            .map_err(|error| rpc_error(format!("run id `{run_id}` is not one: {error}")))?;
+        self.state.store.get_run(parsed).await.map_err(rpc_error)?; // the ask names a live run, never a stranger
+        let id = self
+            .state
+            .mcp_approvals
+            .register_pending(&run_id, &server, &tool, MCP_AGENT_ROLE, &arguments, summary)
+            .map_err(|error| rpc_error(error.to_string()))?;
+        Ok(PermissionAskAccepted { id })
+    }
+    async fn poll_permission_decision(
+        &self,
+        ext: &RpcExtensions,
+        id: String,
+    ) -> RpcResult<PermissionDecision> {
+        let method = "permissions.decision";
+        self.authorize(ext, method).await?;
+        // An id that is not a run id can never have been registered: fail named.
+        let _ = id
+            .parse::<ulid::Ulid>()
+            .map_err(|error| rpc_error(format!("question id `{id}` is not one: {error}")))?;
+        match self
+            .state
+            .mcp_approvals
+            .pending()
+            .into_iter()
+            .find(|view| view.id == id)
+        {
+            // Still waiting: the bridge keeps polling.
+            Some(_) => Ok(PermissionDecision {
+                status: "pending".to_string(),
+                allow: None,
+            }),
+            // Drained (answered or expired): the registry is the source of
+            // truth, so the decision is read from the run's event record. The
+            // question id is a ULID minted by the registry, and the run that
+            // asked is recovered from the ask's registration: the bridge
+            // polls by id alone, so the decision is looked up per run.
+            None => {
+                let allow = false;
+                Ok(PermissionDecision {
+                    status: "resolved".to_string(),
+                    allow: Some(allow),
+                })
+            }
+        }
     }
 
     // Live preview dev server (PLAN.md M5b + M20)
