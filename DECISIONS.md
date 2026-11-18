@@ -2026,3 +2026,40 @@ Three worker checkpoint-faults (two 502s, one mechanical-only run) + four correc
 
 ### D-RN-E1-003: E1 stories/fixtures repair (bounded §0.6 repair, PM).
 E1's commit ed9666d changed ModeSwitchProps (+required factoryLabel; WorkbenchMode → simple|factory|developers) without updating the stories/fixtures/keyboard-test — packages/ui `tsc --noEmit` red on integration since fe438bf. PM repaired: stories rewritten to the three-rung shape, 2 compound fixtures filled, keyboard test re-queries the factory button instead of passing a possibly-null activeElement. Commit 26229c9 (test/story-only, no production code). Root cause: the packet's own fixture layer never re-ran after the props change (E1's batch ran against the pre-edit shape).
+
+## D-RN-D5-001 — Flat subtask worktree/branch naming
+`create_run_worktree` validates the run-id charset (`[A-Za-z0-9_-]`) and
+derives both the path (`run-{run_id}`) and the branch (`warsha/run-{run_id}`)
+from the same string, so the speculative slash form (`{run}/subtask-{ulid}`)
+made every dispatch fail with "invalid run id". Subtask worktrees use the
+flat form `run-{id}-subtask-{ulid}` and branches
+`warsha/run-{id}-subtask-{ulid}`.
+
+## D-RN-D5-002 — Budget reservations release on settle
+The dispatch loop reserves one per-agent cap at dispatch (A16.7). Without a
+release when an agent settles, reservations grow to the total and the loop
+spins forever; reservations now release on every settle and the loop
+re-evaluates dispatch after each settle (only the rate-limit flag is
+sticky). `try_reserve`'s signature and error text are unchanged (existing
+tests stay green).
+
+## D-RN-D5-003 — Swarm spend accounts only through per-receipt record_cost
+The first runtime draft put the swarm total into the swarm StageCompletion,
+which the stage commit block added on top of the per-receipt costs
+(double-count). The swarm completion now carries cost 0; per-receipt
+`record_cost` (CAS + CostRecorded event) is the single accounting path.
+Recorded CLI spend is session-end, per A16.7.
+
+## D-RN-D5-004 — No separate swarm wire mode
+A swarm run is an agent run in a swarm-enabled project: the picker's Swarm
+choice maps to `runs.start` run_mode `agent`, and the daemon's Code stage
+decomposes the run when the project's `enable_swarm` is on. The picker
+hides the choice while the setting is off, so the wire mode list
+(agent/plan/spec-file/ask) is untouched.
+
+## D-RN-D5-005 — Swarm i18n lives in the settings.ts catalogs
+The i18n gate reads `.ts` catalogs only; the worker's `swarm.json` files
+were inert. The four keys were folded into `packages/i18n/src/v3/{en,ar}/
+settings.ts` (ar reworded to strip Latin per gate rule I4) and the orphan
+json files removed. UI strings for the swarm settings section and picker
+entry live there now.
