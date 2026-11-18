@@ -24,10 +24,11 @@ use tokio::sync::broadcast;
 use tracing::info;
 use ulid::Ulid;
 use uuid::Uuid;
+#[allow(unused_imports)]
 use warsha_core::{
     ApprovalMode, Artifact, Confinement, DeviceId, Event, EventKind, GateState, Project, ProjectId,
-    ProjectPermissions, Role, Run, RunId, RunStatus, Session, SessionId, SessionStatus, Stage,
-    TokenUsage,
+    ProjectPermissions, Role, Run, RunId, RunMode, RunStatus, Session, SessionId, SessionStatus,
+    Stage, TokenUsage,
 };
 
 mod settings;
@@ -467,8 +468,8 @@ impl Store {
         sqlx::query(
             "INSERT INTO runs (id, project_id, current_stage, gate_states, artifacts, \
              created_at, updated_at, status, budget_cents, spent_cents, version, \
-             worktree_path, worktree_branch, confinement) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)",
+             worktree_path, worktree_branch, confinement, run_mode) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)",
         )
         .bind(run.id.0.to_string())
         .bind(run.project_id.0.as_bytes().to_vec())
@@ -483,6 +484,7 @@ impl Store {
         .bind(&run.worktree_path)
         .bind(&run.worktree_branch)
         .bind(run.confinement.map(|c| c.to_string()))
+        .bind(run.run_mode.to_string())
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -499,7 +501,7 @@ impl Store {
         let row = sqlx::query(
             "SELECT id, project_id, current_stage, gate_states, artifacts, created_at, \
              updated_at, status, budget_cents, spent_cents, version, worktree_path, \
-             worktree_branch, confinement FROM runs WHERE id = ?",
+             worktree_branch, confinement, run_mode FROM runs WHERE id = ?",
         )
         .bind(id.0.to_string())
         .fetch_optional(&self.pool)
@@ -590,7 +592,7 @@ impl Store {
         let rows = sqlx::query(
             "SELECT id, project_id, current_stage, gate_states, artifacts, created_at, \
              updated_at, status, budget_cents, spent_cents, version, worktree_path, \
-             worktree_branch, confinement FROM runs \
+             worktree_branch, confinement, run_mode FROM runs \
              WHERE project_id = ? ORDER BY created_at DESC",
         )
         .bind(project_id.0.as_bytes().to_vec())
@@ -604,7 +606,7 @@ impl Store {
         let rows = sqlx::query(
             "SELECT id, project_id, current_stage, gate_states, artifacts, created_at, \
              updated_at, status, budget_cents, spent_cents, version, worktree_path, \
-             worktree_branch, confinement FROM runs \
+             worktree_branch, confinement, run_mode FROM runs \
              ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
@@ -619,7 +621,7 @@ impl Store {
         let rows = sqlx::query(
             "SELECT id, project_id, current_stage, gate_states, artifacts, created_at, \
              updated_at, status, budget_cents, spent_cents, version, worktree_path, \
-             worktree_branch, confinement FROM runs \
+             worktree_branch, confinement, run_mode FROM runs \
              WHERE status = '\"running\"'",
         )
         .fetch_all(&self.pool)
@@ -1453,6 +1455,10 @@ fn run_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Run> {
             .map(|s| s.parse())
             .transpose()
             .map_err(|e: String| StoreError::ParseError("runs.confinement", e))?,
+        run_mode: column_opt_text(row, "run_mode")?
+            .unwrap_or_else(|| "agent".to_string())
+            .parse()
+            .map_err(|e: String| StoreError::ParseError("runs.run_mode", e))?,
     })
 }
 
@@ -1695,7 +1701,10 @@ mod tests {
     fn embedded_migrator_versions_are_lf_only() {
         let migrator = migration_migrator();
         let versions: Vec<i64> = migrator.iter().map(|m| m.version).collect();
-        assert_eq!(versions, vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+        assert_eq!(
+            versions,
+            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        );
         for migration in migrator.iter() {
             assert!(
                 !migration.sql.contains('\r'),
@@ -1718,7 +1727,10 @@ mod tests {
                 .fetch_all(store.pool())
                 .await
                 .expect("the migration ledger is readable");
-        assert_eq!(applied, vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+        assert_eq!(
+            applied,
+            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        );
 
         let tables: Vec<String> = sqlx::query_scalar(
             "SELECT name FROM sqlite_master \
@@ -1797,6 +1809,7 @@ mod tests {
             worktree_path: None,
             worktree_branch: None,
             confinement: None,
+            run_mode: RunMode::Agent,
         };
         store.create_run(&run).await.unwrap();
 
@@ -1826,6 +1839,7 @@ mod tests {
             worktree_path: None,
             worktree_branch: None,
             confinement: None,
+            run_mode: RunMode::Agent,
         };
         store.create_run(&run).await.unwrap();
 
@@ -1984,6 +1998,7 @@ mod tests {
             worktree_path: None,
             worktree_branch: None,
             confinement: None,
+            run_mode: RunMode::Agent,
         }
     }
 

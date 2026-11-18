@@ -573,6 +573,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             // B2: the run carries the confinement it is confined by — the
             // read-only backstop keys on it.
             confinement: Some(project.permissions.confinement),
+            run_mode: warsha_core::RunMode::default(),
         };
 
         // Initialize gate states for all gate stages

@@ -1996,3 +1996,9 @@ tier name (`green | amber | red`) that maps to CSS classes (`gauge--green`…), 
 actual colours are token references inside @warsha/ui. UsageSection now reuses
 `quotaPercentage`/`gaugeStatus` from useQuotaGauge via a shared identity tier map derived
 from `GaugeStatus` — one source of truth, zero quoted colour words, R6 back to 0.
+
+### D-RN-D4-001: Added run_mode to runs table.
+Added run_mode field to the runs table via migration 015_run_modes.sql, defaulting to 'agent'.
+
+### D-RN-D4-002: RunMode enum implementation.
+Implemented RunMode enum in warsha-core, including FromStr and Display traits for database and UI interaction.

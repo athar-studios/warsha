@@ -7029,3 +7029,9 @@ Packet A4 spend: 18/20. Cumulative spend: 18.
 - **Merge gates** (integration @ c500b7a): cargo fmt --check clean; clippy --workspace --all-targets -D warnings 0; warshad lib 257/0 (secretary 5/0); store lib 26/0; settings_migration ledger 1..14; pipeline lib 517/0 (+7 ign); warsha-cli 16+4+7+2+3/0; warsha-providers 58/0; warsha-backends lib 37/0; client 193/193 + typecheck rc=0; desktop 870/870 + typecheck rc=0; ui 383/383; i18n 58/58; i18n-gate 881 keys 0 violations; arch 5/0; policy 8/0; wire 11 checks / 4 violations (pre-existing A1 debt catalog.refresh/apply, unchanged); gitleaks clean.
 - **Checkpoint**: none (D1 per plan §11 triggers no tag; next tag = cp-phase3 after D4).
 - **Budget**: reconciliation — D1 spend 12 of cap 20 (A4 18 + D1 12). Cumulative ≈ 122 of 400 (26.3%). Alert threshold 320 (80%); hard stop 400.
+
+## [2026-11-18] Packet D4: Run modes (Agent/Plan/SpecFile/Ask)
+- [x] Run mode types and migration 015_run_modes.sql
+- [x] Store layer updates
+- [x] CI gates passed
+- [x] Report created (docs/zadloop/packets/D4-report.md)

@@ -1,7 +1,7 @@
 use chrono::Utc;
 use std::collections::HashMap;
 use ulid::Ulid;
-use warsha_core::{ApprovalMode, Confinement, ProjectId, Run, RunId, RunStatus, Stage};
+use warsha_core::{ApprovalMode, Confinement, ProjectId, Run, RunId, RunMode, RunStatus, Stage};
 use warsha_pipeline::receipt::build_run_receipt;
 
 #[test]
@@ -20,6 +20,7 @@ fn test_run_receipt_builder() {
         worktree_path: Some("/tmp/wt".to_string()),
         worktree_branch: Some("warsha/run-1".to_string()),
         confinement: Some(Confinement::WorkspaceWrite),
+        run_mode: warsha_core::RunMode::Agent,
     };
     let receipt = build_run_receipt(
         &run,
