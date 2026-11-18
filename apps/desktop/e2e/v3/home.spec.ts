@@ -162,7 +162,7 @@ test.describe('Home action ids', () => {
     await openV3(page, '/', { lang: 'en' });
     await expect(page.locator('[data-testid="home-needsyou"]')).toBeVisible();
     await act(page, 'home.needsyou.open');
-    await expect(page).toHaveURL(/#\/p\/|#/);
+    await expect(page).toHaveURL(/#\/p\/[^/]+\/r\//);
   });
 
   test('home.interview.start dials projects.create then interview.start', async ({ page }) => {

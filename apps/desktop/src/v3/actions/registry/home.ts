@@ -63,7 +63,7 @@ export const ACTIONS: readonly ActionDef[] = [
   {
     // E2: opens the longest-waiting gate or ask from the needs-you strip.
     id: 'home.needsyou.open',
-    labelKey: 'home.needsyou_open',
+    labelKey: 'home.needsyou.open',
     effect: 'nav',
     route: '/inbox',
   },

@@ -1330,13 +1330,9 @@ export const messages: Record<Locale, Record<string, string>> = {
 
     // The session plate's paired-device list: the one word the revoke control needs there.
     'settings.devices_revoke': 'ألغِ إقران الجهاز',
-    'secretary.role.owner': 'المالك',
-    'secretary.role.assistant': 'المساعد',
   },
   en: {
     'app.name': 'Warsha',
-    'secretary.role.owner': 'Owner',
-    'secretary.role.assistant': 'Assistant',
     'app.tagline': 'Arabic-first AI software factory',
     'app.loading': 'Loading...',
     'gate.approve': 'Approve',

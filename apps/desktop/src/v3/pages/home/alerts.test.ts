@@ -1,4 +1,5 @@
 // E2: the alert engine's once-per-condition, quiet-hours and threshold rules.
+import type { ProjectId, RunId, RunSummary } from '@warsha/client';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -9,7 +10,6 @@ import {
   raisedKeysAfter,
   type OwnerAlertInput,
 } from './alerts';
-import type { ProjectId, RunId, RunSummary } from '@warsha/client';
 
 const base = (): OwnerAlertInput => ({
   oldestWaitingGateAt: null,

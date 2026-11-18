@@ -1,4 +1,5 @@
 // E2: the secretary chat panel — proposals, injection refusal, confirm flow.
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type {
   CostEstimate,
   ProposalAction,
@@ -7,12 +8,13 @@ import type {
   SecretaryTurn,
   WarshaClient,
 } from '@warsha/client';
+// eslint-disable-next-line import/no-unresolved
 import { I18nProvider } from '@warsha/i18n/v3';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ClientProvider } from '../../app/ClientContext';
+
 import SecretaryChat from './SecretaryChat';
 
 type ProjectId = Parameters<WarshaClient['startRun']>[0];
@@ -51,6 +53,7 @@ function mockClient(overrides: {
   turns?: SecretaryTurn[];
   reply?: SecretaryChatReply;
   approve?: ReturnType<typeof vi.fn>;
+  startRun?: ReturnType<typeof vi.fn>;
 }): WarshaClient {
   return {
     listSecretaryThreads: vi.fn().mockResolvedValue(THREads),
@@ -66,7 +69,7 @@ function mockClient(overrides: {
     approveGate: overrides.approve ?? vi.fn().mockResolvedValue(undefined),
     rejectGate: vi.fn().mockResolvedValue(undefined),
     mcpAllowOnce: vi.fn().mockResolvedValue({ id: 'q1', granted: true }),
-    startRun: vi.fn().mockResolvedValue({ id: 'r2' }),
+    startRun: overrides.startRun ?? vi.fn().mockResolvedValue({ id: 'r2' }),
     cancelRun: vi.fn().mockResolvedValue({ id: 'run-1' }),
     estimateRun: vi.fn().mockResolvedValue({
       minCents: 12,
@@ -92,10 +95,16 @@ describe('SecretaryChat', () => {
     vi.clearAllMocks();
   });
 
-  it('does not call mcpAllowOnce when allow: false', async () => {
+  it('calls mcpPermissionsSet(..., "deny") when allow: false', async () => {
+    const mcpApprovalsList = vi.fn().mockResolvedValue([
+        { id: 'q1', runId: 'r1', server: 's1', tool: 't1', role: 'role1', summary: 'test', requestedAt: 'now' }
+    ]);
+    const mcpPermissionsSet = vi.fn().mockResolvedValue({ server: 's1', tool: 't1', role: 'role1', permission: 'deny' });
     const mcpAllowOnce = vi.fn().mockResolvedValue({ id: 'q1', granted: true });
     const client = {
       ...mockClient({}),
+      mcpApprovalsList,
+      mcpPermissionsSet,
       mcpAllowOnce,
     } as unknown as WarshaClient;
 
@@ -118,7 +127,7 @@ describe('SecretaryChat', () => {
     fireEvent.click(confirmBtn);
 
     await waitFor(() => {
-      expect(screen.getByText('secretary.refused')).toBeTruthy();
+      expect(mcpPermissionsSet).toHaveBeenCalledWith('s1', 't1', 'role1', 'deny');
     });
     expect(mcpAllowOnce).not.toHaveBeenCalled();
   });
@@ -127,8 +136,9 @@ describe('SecretaryChat', () => {
     await waitFor(() => {
       expect(screen.getByTestId('secretary-proposal-card')).toBeTruthy();
     });
+    // H4: rendered localized UI text via secretary.proposal.<type> instead of raw model text
     expect(screen.getByTestId('secretary-proposal-card').textContent).toContain(
-      'Approve gate B on the current run'
+      'secretary.proposal.gate_approve'
     );
   });
 
@@ -201,5 +211,54 @@ describe('SecretaryChat', () => {
     expect(screen.getByTestId('secretary-estimate').textContent).toContain(
       'secretary.proposal.estimate_line'
     );
+  });
+
+  it('falls back to active projectId on run_start with zero projectId', async () => {
+    const startRun = vi.fn().mockResolvedValue({ id: 'r2' });
+    const client = mockClient({ startRun });
+    // Simulate turn with run_start action: { type: 'run_start', projectId: '0000...', ... }
+    const turn = {
+      ...proposalTurn('turn-1'),
+      proposal: {
+        label: 'Start run',
+        action: { type: 'run_start', projectId: '00000000-0000-0000-0000-000000000000' as ProjectId, idea: 'new idea' } as ProposalAction,
+      },
+    };
+    client.getSecretaryTurns = vi.fn().mockResolvedValue([ownerTurn, turn]);
+
+    renderPanel(client, 'p1' as ProjectId);
+    await waitFor(() => {
+      expect(screen.getByTestId('secretary-confirm')).toBeTruthy();
+    });
+    fireEvent.click(screen.getByTestId('secretary-confirm'));
+
+    await waitFor(() => {
+      expect(startRun).toHaveBeenCalledWith('p1', 'new idea');
+    });
+  });
+
+  it('rejects gate_approve with unknown runId', async () => {
+    const approve = vi.fn().mockResolvedValue(undefined);
+    const client = mockClient({ approve });
+    // Simulate turn with gate_approve action: { type: 'gate_approve', runId: 'unknown', ... }
+    const turn = {
+      ...proposalTurn('turn-1'),
+      proposal: {
+        label: 'Approve',
+        action: { type: 'gate_approve', runId: 'unknown', stage: 'gate_b' } as ProposalAction,
+      },
+    };
+    client.getSecretaryTurns = vi.fn().mockResolvedValue([ownerTurn, turn]);
+
+    renderPanel(client, 'p1' as ProjectId);
+    await waitFor(() => {
+      expect(screen.getByTestId('secretary-confirm')).toBeTruthy();
+    });
+    fireEvent.click(screen.getByTestId('secretary-confirm'));
+
+    await waitFor(() => {
+      expect(screen.getByText('secretary.error')).toBeTruthy();
+    });
+    expect(approve).not.toHaveBeenCalled();
   });
 });

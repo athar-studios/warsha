@@ -1,4 +1,5 @@
 // The projects ledger — rebuilt on @warsha/ui/v3 per DESIGN_SYSTEM_V3.md.
+import type { CostEstimate } from '@warsha/client';
 import { t, useDirection, useLocale } from '@warsha/i18n';
 /* eslint-disable import/no-unresolved */
 import {
@@ -14,8 +15,6 @@ import {
 /* eslint-enable import/no-unresolved */
 import React, { useCallback, useEffect, useId, useState } from 'react';
 import { Link } from 'react-router-dom';
-
-import type { CostEstimate } from '@warsha/client';
 
 import { useRemote } from '../bench';
 import { Machine, ScreenTitle } from '../chrome';

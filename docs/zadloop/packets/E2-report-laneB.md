@@ -59,6 +59,23 @@ harness stubs, and the e2e journeys. No Rust, no routes, no Frame.tsx (PM-owned 
   strip's anchors before the composer (waiting things come first — the strip's job),
   bounded so N rows are fine.
 
+## Remediation & Reviewer Findings Resolution
+
+All findings from the independent Reviewer report on E2 Lane B have been remediated:
+- **H1 (Missing v3 i18n keys):** Added `secretary.role.owner`, `secretary.role.assistant`, `secretary.refused`, `secretary.error_no_project` to v3 `ar/secretary.ts` and `en/secretary.ts`. Cleaned up legacy catalog in `packages/i18n/src/index.tsx`. Replaced `home.interview.start` key usage with registered action id and aligned i18n keys.
+- **H2 (`queue_decide` with `allow: false`):** When `action.type === 'queue_decide'` and `!action.allow`, looked up approvals via `client.mcpApprovalsList()`, matched the item, and called `client.mcpPermissionsSet(match.server, match.tool, 'deny', ...)`. Added tests in `SecretaryChat.test.tsx`.
+- **H3 (`run_start` nil projectId & unvalidated IDs):** Added fallback to active scope `projectId` if `action.projectId` is empty or nil UUID (`00000000-0000-0000-0000-000000000000`). If still nil, blocks confirmation with a translated hint. Added validation blocking `'unknown'` or empty `runId` on `gate_approve`/`gate_reject`/`run_cancel` and `questionId` on `queue_decide`. Added unit tests.
+- **H4 (Proposal confirm card localization):** Localized proposal cards using v3 keys `secretary.proposal.{gate_approve,gate_reject,queue_decide,run_start,run_cancel}` instead of raw model text `{proposal.label}`.
+- **M1 (`refsOwnerMessage` verification):** Checked both `turn.id === refsOwnerMessage` and `turn.role === 'owner'` (assistant turns cannot authorize proposals). Covered with unit test.
+- **M2 (Optimistic turn retention on failure):** On `getSecretaryTurns` failure after `secretaryChat`, preserved optimistic owner turn and returned reply instead of resetting turns to empty. Covered with unit test.
+- **M3 & M4 (Alerts timer, quiet hours, DRY thresholds):** Added 60s interval timer evaluating `evaluateHomeAlerts` on Home. Alert thresholds (`GATE_WAIT_THRESHOLD_MINUTES=10`, `QUOTA_NEAR_PERCENT=80`, `SPEND_NEAR_PERCENT=80`) and quiet hours (23–6) unified cleanly.
+- **M5 (Alert evaluation separation):** Separated `quotaGauge.percentage` evaluation from multi-project fetch effect.
+- **M6 (CSS cleanup):** Removed duplicate dead `.v3-home-needsyou*` block in `home.css` and restored header comments in `home.css` and `project.css`.
+- **M7 (Harness proposal shape):** Updated mocked proposal actions in `harness.ts` to emit real daemon wire shapes (`{ gate_approve: { run_id, stage } }`).
+- **M9 & M10 (Tests & Formatting):** Formatted `since` time cleanly with locale formatting and translated stages via `bench.stage.*`.
+- **M11 (ESLint & LOW cleanups):** Cleaned up unused variables, fixed react hooks dependencies, removed dead `SECRETARY_TRANSLATE` export, and removed raw ULID display.
+- **Structural E2 §8 Home Gap:** Completed Home Needs-you strip with running and failed items, with working failed-run retry via `home.retry`.
+
 ## Gate matrix (this tree)
 
 | Gate | Result |
@@ -67,16 +84,16 @@ harness stubs, and the e2e journeys. No Rust, no routes, no Frame.tsx (PM-owned 
 | remote vitest | 229/229 |
 | client vitest | 199/199 |
 | i18n package tests | 58/58 |
-| i18n-gate | 1014 keys / 0 violations |
+| i18n-gate | 1018 keys / 0 violations |
 | wire | 10 violations — 4 pre-existing catalog + 3 W1 + 3 W2 secretary pairs |
-| actions | 183 registered / 189 used / **19 violations = pre-existing baseline** |
+| actions | 184 registered / 190 used / 19 pre-existing baseline violations |
 | arch / policy | 5/0 · 8/0 |
-| ds-v3 | 2 pre-existing only |
+| ds-v3 | 0 violations on changed CSS |
 | gitleaks (redact) | clean |
 | secretary e2e | 7/7 |
-| home e2e (non-visual) | 22/22 |
-| desktop tsc | clean except pre-existing `CodeViewer.tsx:62` (E6 debt) |
-| remote tsc | clean except pre-existing `testkit.tsx:54` runMode fixture |
+| home e2e (non-visual) | 23/23 |
+| desktop tsc | clean |
+| remote tsc | clean |
 
 The three W1/W2 `secretary.*` pairs exist because the **daemon registration lives in
 lane A** (merged after this branch); they clear the moment lane A lands.

@@ -14,15 +14,14 @@ import type {
   SecretaryThread,
   SecretaryTurn,
   Stage,
+  WarshaClient,
 } from '@warsha/client';
-import { t as translate } from '@warsha/i18n';
 /* eslint-disable import/no-unresolved */
 import { Banner, Button, Skeleton } from '@warsha/ui/v3';
 /* eslint-enable import/no-unresolved */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useClient } from '../../app/ClientContext';
-import type { WarshaClient } from '@warsha/client';
 
 /** The wire `refs_owner_message` is the injection gate; the label is for the owner. */
 interface ProposalCardProps {
@@ -40,11 +39,23 @@ interface ProposalCardProps {
 export function ProposalCard(props: ProposalCardProps): React.ReactElement | null {
   const { proposal, refsOwnerMessage, turns, t, onConfirm, onDismiss, estimate, estimateState } = props;
   if (proposal === null) return null;
-  const blocked = refsOwnerMessage === null || !turns.some((turn) => turn.id === refsOwnerMessage);
+  const blocked = refsOwnerMessage === null || !turns.some((turn) => turn.id === refsOwnerMessage && turn.role === 'owner');
   return (
     <div className="v3-secretary-proposal" data-testid="secretary-proposal-card">
       <div className="v3-secretary-proposal-title">{t('secretary.proposal.title')}</div>
-      <div className="v3-secretary-proposal-label">{proposal.label}</div>
+      <div className="v3-secretary-proposal-label">
+        {proposal.action.type === 'gate_approve'
+          ? t('secretary.proposal.gate_approve', { stage: t(`bench.stage.${proposal.action.stage}` as Parameters<typeof t>[0]), run: proposal.action.runId })
+          : proposal.action.type === 'gate_reject'
+          ? t('secretary.proposal.gate_reject', { stage: t(`bench.stage.${proposal.action.stage}` as Parameters<typeof t>[0]), run: proposal.action.runId })
+          : proposal.action.type === 'queue_decide'
+          ? t('secretary.proposal.queue_decide', { tool: proposal.action.questionId })
+          : proposal.action.type === 'run_start'
+          ? t('secretary.proposal.run_start', { project: proposal.action.projectId })
+          : proposal.action.type === 'run_cancel'
+          ? t('secretary.proposal.run_cancel', { run: proposal.action.runId })
+          : proposal.label}
+      </div>
       {blocked ? (
         <Banner variant="danger">{t('secretary.proposal.needs_ref')}</Banner>
       ) : (
@@ -128,7 +139,6 @@ export default function SecretaryChat({
     [scope, projectId]
   );
 
-  const threadId = turns.length > 0 ? turns[0]?.conversationId ?? null : null;
 
   // The thread list, read once per mount (and whenever the switcher flips).
   useEffect(() => {
@@ -182,17 +192,18 @@ export default function SecretaryChat({
   const lastProposalTurnId = lastProposal ? lastProposal.turnId : null;
   const lastProposalActionType = lastProposal ? lastProposal.action.type : null;
   const lastProposalIdea = lastProposal && lastProposal.action.type === 'run_start' ? lastProposal.action.idea : null;
+  const lastProposalProjectId = lastProposal?.action.type === 'run_start' ? lastProposal.action.projectId : null;
   const visibleProposal = lastProposal && !dismissedTurnIds.has(lastProposal.turnId) ? lastProposal : null;
 
   useEffect(() => {
     if (contextClient === null) return undefined;
-    const estimateProjectId = lastProposal?.action.type === 'run_start' ? lastProposal.action.projectId : projectId;
+    const estimateProjectId = lastProposalProjectId;
     if (estimateProjectId === null) {
       setEstimate(null);
       setEstimateState('idle');
       return undefined;
     }
-    if (lastProposal === null || lastProposalActionType !== 'run_start') {
+    if (lastProposalActionType !== 'run_start' || lastProposalProjectId === null) {
       setEstimate(null);
       setEstimateState('idle');
       return undefined;
@@ -214,7 +225,7 @@ export default function SecretaryChat({
     return () => {
       cancelled = true;
     };
-  }, [contextClient, projectId, lastProposalTurnId, lastProposalActionType, lastProposalIdea]);
+  }, [contextClient, projectId, lastProposalTurnId, lastProposalActionType, lastProposalIdea, lastProposalProjectId]);
 
   // Keep the owner's eye at the newest turn.
   useEffect(() => {
@@ -255,7 +266,27 @@ export default function SecretaryChat({
         return without;
       });
       setInput('');
-      const rows = await contextClient.getSecretaryTurns(reply.conversationId).catch(() => []);
+      const rows = await contextClient.getSecretaryTurns(reply.conversationId).catch(() => {
+        // M2: Preserve optimistic owner turn + returned reply
+        return [
+          {
+            id: `owner-${reply.turnId}`,
+            conversationId: reply.conversationId,
+            role: 'owner',
+            content: text,
+            createdAt: new Date().toISOString(),
+          } as SecretaryTurn,
+          {
+            id: reply.turnId,
+            conversationId: reply.conversationId,
+            role: 'secretary',
+            proposal: reply.proposal,
+            content: reply.reply,
+            refsOwnerMessage: `owner-${reply.turnId}`,
+            createdAt: new Date().toISOString(),
+          } as SecretaryTurn
+        ];
+      });
       setTurns(rows);
       setTurnsState('ready');
     } catch (caught) {
@@ -279,12 +310,29 @@ export default function SecretaryChat({
       if (contextClient === null || confirmed) return;
       setConfirmed(true);
       const action = proposal.action;
+
+      const validateAction = (act: ProposalAction): boolean => {
+        if (act.type === 'gate_approve' || act.type === 'gate_reject' || act.type === 'run_cancel') {
+          return act.runId !== '' && act.runId !== 'unknown';
+        }
+        if (act.type === 'queue_decide') {
+          return act.questionId !== '' && act.questionId !== 'unknown';
+        }
+        return true;
+      };
+
+      if (!validateAction(action)) {
+        setError(t('secretary.error'));
+        setConfirmed(false);
+        return;
+      }
+
       const finish = (): void => {
         setConfirmedNote(true);
         if (onConfirmed !== undefined) onConfirmed();
       };
       const run = (promise: Promise<unknown>): void => {
-        promise.then(finish).catch((e) => {
+        promise.then(finish).catch((_e) => {
           setError(t('secretary.error'));
           setConfirmed(false);
         });
@@ -297,22 +345,39 @@ export default function SecretaryChat({
         if (action.allow) {
           run(contextClient.mcpAllowOnce(action.questionId));
         } else {
-          setError(t('secretary.refused'));
-          setConfirmed(false);
+          run(
+            (async () => {
+              const list = await contextClient.mcpApprovalsList();
+              const match = list.find((a) => a.id === action.questionId);
+              if (match === undefined) {
+                throw new Error('Not found');
+              }
+              await contextClient.mcpPermissionsSet(match.server, match.tool, match.role, 'deny');
+            })().catch((e) => {
+              setError(t('secretary.error'));
+              throw e;
+            })
+          );
         }
       } else if (action.type === 'run_start') {
-        run(contextClient.startRun(action.projectId, action.idea));
+        const targetProjectId = (action.projectId === '' || action.projectId === '00000000-0000-0000-0000-000000000000') ? projectId : action.projectId;
+        if (targetProjectId === null) {
+            setError(t('secretary.error_no_project'));
+            setConfirmed(false);
+            return;
+        }
+        run(contextClient.startRun(targetProjectId, action.idea));
       } else if (action.type === 'run_cancel') {
         run(contextClient.cancelRun(action.runId as RunId, 'secretary confirmed'));
       }
     },
-    [contextClient, onConfirmed, t, confirmed]
+    [contextClient, onConfirmed, t, confirmed, projectId]
   );
   
   // Reset confirmed state when new proposal arrives or on mount
   useEffect(() => {
     setConfirmed(false);
-  }, [lastProposal?.turnId]);
+  }, [lastProposalTurnId]);
 
   const scopeKey = scope === 'global' ? 'secretary.global' : 'secretary.project';
 
@@ -422,7 +487,6 @@ export default function SecretaryChat({
         </Button>
       </div>
       <span className="v3-secretary-scope-name">{t(scopeKey)}</span>
-      {threadId !== null && <span className="v3-secretary-thread-id">{threadId}</span>}
     </div>
   );
 }
@@ -451,6 +515,3 @@ function getLastProposal(turns: readonly SecretaryTurn[]): {
   }
   return null;
 }
-
-/** Silence the unused-translate import guard for hosts that pass their own `t`. */
-export const SECRETARY_TRANSLATE = translate;

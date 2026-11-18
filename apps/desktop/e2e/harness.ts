@@ -1630,7 +1630,7 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
             content: 'Gate B is ready for your decision.',
             proposal_json: JSON.stringify({
               label: 'Approve gate B on the current run',
-              action: { type: 'gate_approve', run_id: 'run-1', stage: 'gate_b' },
+              action: { gate_approve: { run_id: 'run-1', stage: 'gate_b' } },
             }),
             refs_owner_message: 'turn-1',
             created_at: '2026-11-18T09:11:00Z',
@@ -1651,7 +1651,7 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
           proposal: wantsProposal
             ? {
                 label: 'Approve gate B on the current run',
-                action: { type: 'gate_approve', run_id: 'run-1', stage: 'gate_b' },
+                action: { gate_approve: { run_id: 'run-1', stage: 'gate_b' } },
               }
             : null,
           conversation_id: paramValue(params, 'conversation_id') ?? 'sec-conv-1',

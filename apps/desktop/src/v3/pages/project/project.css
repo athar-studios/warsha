@@ -1,9 +1,12 @@
+/* apps/desktop/src/v3/pages/project/project.css — Project chat view styling */
+
 .v3-secretary {
   padding: var(--w-space-4);
   display: flex;
   flex-direction: column;
   gap: var(--w-space-4);
 }
+
 
 .v3-secretary-scope {
   display: flex;
