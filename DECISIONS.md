@@ -2063,3 +2063,12 @@ were inert. The four keys were folded into `packages/i18n/src/v3/{en,ar}/
 settings.ts` (ar reworded to strip Latin per gate rule I4) and the orphan
 json files removed. UI strings for the swarm settings section and picker
 entry live there now.
+
+## D-RN-E3/E4-001 — Mode switch stays state-only; /factory and /developers enter by URL
+The PM's merge-time attempt to wire `handleSwitchMode` to navigate to `/factory`, `/developers`, `/` broke 14 pre-existing e2e journeys (mode-soak, settings navigation, webmcp, frame density) because E1 built the mode switch as a shell-state control (persisted `app_mode`, no navigation). The switch now remains state-only; the E3/E4 pages are reachable by their routes and their own specs. Deeper mode→surface integration is deferred to the E5 legacy sweep. Evidence: e2e run diffs before/after the wiring (14 failures each) + the reverted commit patch never landed.
+
+## D-RN-E3/E4-002 — Per-session telemetry derives from the run event stream (no session_id in daemon events)
+The daemon's StageStarted/AgentStep/ToolCall events carry `role`/`stage`/`cost_cents`/`tokens` but no `session_id`. E4 therefore keys agents by `payload.session` when a backend reports one and by `runId:role` otherwise, and derives per-session figures within the session's time window (started→ended). Hand off is omitted from the session detail (the daemon's handoff RPC is run-level, not per-session) and logged in the E4 report.
+
+## D-RN-E3/E4-003 — Pixel-skin audit skipped for E3
+No CC0/MIT-verified pixel-art asset set was provided at a pinned commit, so the floor is the plain SVG+CSS schematic (movement by transform/opacity, reduced-motion honored). The audit requirement (per-file license verification + ASSETS.md ledger) stays available for a later lane.
