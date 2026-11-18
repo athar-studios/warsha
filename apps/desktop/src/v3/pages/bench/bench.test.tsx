@@ -60,6 +60,7 @@ const SAMPLE_RUN: RunSummary = {
   status: 'running',
   startedAt: '2026-10-05T07:15:00.000Z',
   updatedAt: '2026-10-05T07:20:00.000Z',
+  runMode: 'agent',
 };
 
 const SAMPLE_EVENTS: WarshaEvent[] = [
@@ -221,6 +222,42 @@ describe('Advanced Workbench (U4)', () => {
     const runBtn = screen.getByRole('button', { name: /التشغيل/ });
     fireEvent.click(runBtn);
     expect(onSelectRun).toHaveBeenCalledWith('proj-1', 'run-1');
+  });
+
+  it('BenchRail renders RunModeChip for non-agent runs (plan) and hides it for agent runs', () => {
+    const planRun: RunSummary = {
+      ...SAMPLE_RUN,
+      id: 'run-plan' as RunId,
+      runMode: 'plan',
+    };
+    const agentRun: RunSummary = {
+      ...SAMPLE_RUN,
+      id: 'run-agent' as RunId,
+      runMode: 'agent',
+    };
+
+    renderWithProviders(
+      <BenchRail
+        projects={[SAMPLE_PROJECT]}
+        projectsStatus="ready"
+        runsByProject={{ 'proj-1': [planRun, agentRun] }}
+        activeProjectId="proj-1"
+        activeRunId="run-plan"
+        onNewProject={vi.fn()}
+        onSelectRun={vi.fn()}
+        onRetryProjects={vi.fn()}
+      />
+    );
+
+    const chips = screen.getAllByTestId('runmode-chip');
+    expect(chips).toHaveLength(1);
+    expect(chips[0]).toHaveAttribute('data-runmode', 'plan');
+    expect(chips[0]).toHaveTextContent('خطة');
+
+    // Agent run row does not contain a runmode-chip
+    const agentRow = document.querySelector('[data-run-id="run-agent"]');
+    expect(agentRow).not.toBeNull();
+    expect(agentRow?.querySelector('[data-testid="runmode-chip"]')).toBeNull();
   });
 
   it('BenchRail shows empty runs and error retry state', () => {
@@ -758,6 +795,26 @@ describe('Advanced Workbench (U4)', () => {
     fireEvent.change(budgetInput, { target: { value: '30' } });
     fireEvent.click(screen.getByTestId('bench-composer-budget-save-btn'));
     expect(onSaveBudget).toHaveBeenCalledWith(3000);
+  });
+
+  it('AdvancedComposer renders run mode picker with aria-label from picker_label key', () => {
+    const onStartRun = vi.fn();
+    renderWithProviders(
+      <AdvancedComposer
+        harnesses={[]}
+        runModes={[]}
+        onSendFollowup={vi.fn()}
+        onSelectHarness={vi.fn()}
+        onSetRunMode={vi.fn()}
+        onSaveBudget={vi.fn()}
+        onStartRun={onStartRun}
+        runModeChoice="plan"
+      />
+    );
+
+    const select = screen.getByTestId('bench-newrun-mode-select').querySelector('select');
+    expect(select).not.toBeNull();
+    expect(select).toHaveAttribute('aria-label', 'وضع التشغيل');
   });
 
   it('BenchPage integration renders Workbench via V3App with main[data-ready="true"]', async () => {

@@ -1334,6 +1334,7 @@ describe('run stream RPCs (WS3)', () => {
       status: 'running',
       startedAt: '2026-10-28T00:00:00Z',
       updatedAt: '2026-10-28T00:01:00Z',
+      runMode: 'agent',
     });
   });
 
@@ -1637,6 +1638,7 @@ describe('summary decoding — the snake_case wire into camelCase screens (P0 bl
       status: 'running',
       startedAt: '2026-10-28T00:00:00Z',
       updatedAt: '2026-10-28T00:03:00Z',
+      runMode: 'agent',
     });
   });
 
@@ -1658,6 +1660,39 @@ describe('summary decoding — the snake_case wire into camelCase screens (P0 bl
     expect(typeof run.stage).toBe('string');
     expect(run.startedAt).toBe('');
     expect(run.updatedAt).toBe('');
+    expect(run.runMode).toBe('agent');
+  });
+
+  it('decodes run_mode: absent -> agent, valid mode preserved, junk throws strict decode error', () => {
+    expect(
+      decodeRunSummary({ id: 'run-absent', project_id: 'p', status: 'running' }).runMode
+    ).toBe('agent');
+    expect(
+      decodeRunSummary({ id: 'run-null', project_id: 'p', status: 'running', run_mode: null })
+        .runMode
+    ).toBe('agent');
+    expect(
+      decodeRunSummary({ id: 'run-plan', project_id: 'p', status: 'running', run_mode: 'plan' })
+        .runMode
+    ).toBe('plan');
+    expect(
+      decodeRunSummary({
+        id: 'run-spec',
+        project_id: 'p',
+        status: 'running',
+        runMode: 'spec-file',
+      }).runMode
+    ).toBe('spec-file');
+    expect(
+      decodeRunSummary({ id: 'run-ask', project_id: 'p', status: 'running', run_mode: 'ask' })
+        .runMode
+    ).toBe('ask');
+    expect(() =>
+      decodeRunSummary({ id: 'run-junk', project_id: 'p', status: 'running', run_mode: 'turbo' })
+    ).toThrow('Malformed summary: "run" has an invalid "run_mode"');
+    expect(() =>
+      decodeRunSummary({ id: 'run-num', project_id: 'p', status: 'running', run_mode: 42 })
+    ).toThrow('Malformed summary: "run" has an invalid "run_mode"');
   });
 
   it('decodes a devices.list row: device_id/created_at become id/pairedAt, preserves revoked and does not fabricate lastSeen', () => {
@@ -1741,6 +1776,7 @@ describe('summary decoding — the snake_case wire into camelCase screens (P0 bl
       status: 'running',
       startedAt: '2026-10-28T00:00:00Z',
       updatedAt: '2026-10-28T00:01:00Z',
+      runMode: 'agent' as const,
     };
 
     fetchMock.mockResolvedValueOnce(okResponse(RUN_WIRE));
