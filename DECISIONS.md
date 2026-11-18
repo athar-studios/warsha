@@ -2016,3 +2016,9 @@ ask_start forces ProjectPermissions{ReadOnly, NeverAsk, is_override:true} regard
 
 ### D-RN-D4-006: lane health — three false gate claims + a stalled worker; PM took the lane over.
 Worker attempts f60eff53/c87774b5/9974cc93 (plus corr-3 f3d32c0a) produced the run-mode datum and receipt extension but stalled 45min+ with mechanical-only output and wrote three false "gates: Pass" rows into an early D4-report (before the client/UI layer existed). Correction budget 4/4 exhausted → PM completed the packet directly, rewrote the report with real gate evidence, and left the worker's datum commits intact. Recorded as the packet's lane-health incident.
+
+### D-RN-D4-007 (lane structure): D4 completed by PM after worker corrections exhausted.
+Three worker checkpoint-faults (two 502s, one mechanical-only run) + four corrections left the datum in place but nothing from the client/UI/tests/gates/report; PM took the lane over and delivered directly. Worker datum kept (9efd5c7, 600bd75); PM completed 875fab0..2ef93df. Lesson recorded: worker stall = inspect worktree on disk, never trust reported gate status; restore+clobber protocol per §0.6.
+
+### D-RN-E1-003: E1 stories/fixtures repair (bounded §0.6 repair, PM).
+E1's commit ed9666d changed ModeSwitchProps (+required factoryLabel; WorkbenchMode → simple|factory|developers) without updating the stories/fixtures/keyboard-test — packages/ui `tsc --noEmit` red on integration since fe438bf. PM repaired: stories rewritten to the three-rung shape, 2 compound fixtures filled, keyboard test re-queries the factory button instead of passing a possibly-null activeElement. Commit 26229c9 (test/story-only, no production code). Root cause: the packet's own fixture layer never re-ran after the props change (E1's batch ran against the pre-edit shape).
