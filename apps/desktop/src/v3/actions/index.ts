@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react';
 import { notify } from '../app/toast';
 
 import { ACTIONS as benchActions } from './registry/bench';
+import { ACTIONS as factoryActions } from './registry/factory';
 import { ACTIONS as frameActions } from './registry/frame';
 import { ACTIONS as homeActions } from './registry/home';
 import { ACTIONS as inboxActions } from './registry/inbox';
@@ -24,6 +25,7 @@ export const ALL_ACTIONS: readonly ActionDef[] = [
   ...inboxActions,
   ...benchActions,
   ...settingsActions,
+  ...factoryActions,
 ];
 
 export function validateActionRegistry(actions: readonly ActionDef[]): void {

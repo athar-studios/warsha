@@ -8,6 +8,7 @@ import ProjectPage from '../pages/project';
 import ProjectsPage from '../pages/projects';
 import SettingsPage from '../pages/settings';
 import CodePage from '../pages/code';
+import { FactoryPage } from '../pages/factory';
 
 export type RouteArea =
   | 'onboarding'
@@ -17,7 +18,8 @@ export type RouteArea =
   | 'bench'
   | 'inbox'
   | 'settings'
-  | 'code';
+  | 'code'
+  | 'factory';
 
 export interface RouteDefinition {
   path: string;
@@ -52,6 +54,7 @@ export const ROUTES: readonly RouteDefinition[] = [
   compileRoute('/p/:projectId', 'project', ProjectPage),
   compileRoute('/p/:projectId/r/:runId/:tab', 'bench', BenchPage),
   compileRoute('/p/:projectId/code', 'code', CodePage),
+  compileRoute('/factory', 'factory', FactoryPage),
   compileRoute('/inbox', 'inbox', InboxPage),
   compileRoute('/settings/:section', 'settings', SettingsPage),
 ];
