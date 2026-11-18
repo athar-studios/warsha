@@ -342,6 +342,53 @@ export interface RoutingTargetConfig {
   weight: number;
 }
 
+/** One fixed interview topic (D1). The topic list is fixed in code, never model-chosen. */
+export type InterviewTopic =
+  | 'audience'
+  | 'problem'
+  | 'alternative'
+  | 'direction'
+  | 'constraints'
+  | 'success_criteria'
+  | 'non_goals';
+
+/** The secretary interview's live state, as `interview.start/turn/status` carry it. */
+export interface InterviewState {
+  project_id: string;
+  brief: {
+    problem_statement?: string;
+    target_users?: string;
+    key_features?: string[];
+    technical_constraints?: string;
+    success_criteria?: string[];
+    language?: string;
+  };
+  covered_topics: InterviewTopic[];
+  open_topics: InterviewTopic[];
+  current_topic?: InterviewTopic;
+  next_question?: string;
+  transcript: { question: string; answer: string }[];
+  is_done: boolean;
+  updated_at: string;
+}
+
+/** What one interview turn answers with (D1). */
+export type InterviewTurnOutcome =
+  | { kind: 'next_question'; question: string; topic: InterviewTopic; state: InterviewState }
+  | {
+      kind: 'done';
+      state: InterviewState;
+      idea_text: string;
+      direction_card: { covered_topics: InterviewTopic[]; open_topics: InterviewTopic[] };
+    }
+  | {
+      kind: 'daily_limit_reached';
+      message: string;
+      spent_cents: number;
+      cap_cents: number;
+      state: InterviewState;
+    };
+
 export interface RoleRoutingConfig {
   role: Role;
   targets: RoutingTargetConfig[];
@@ -2969,22 +3016,23 @@ export class WarshaClient
   // Action: home.interview_start — creation-flow interview (packet D1). The
   // owner's rough idea goes in; the engine asks one question per fixed topic
   // until "enough", then finalizes a schema-checked Brief + Direction Card.
-  async interviewStart(projectId: ProjectId, seedIdea?: string): Promise<unknown> {
+  async interviewStart(projectId: ProjectId, seedIdea?: string): Promise<InterviewTurnOutcome> {
     return this.rpc<unknown>('interview.start', {
       project_id: projectId,
       seed_idea: seedIdea ?? null,
-    });
+    }) as Promise<InterviewTurnOutcome>;
   }
 
-  async interviewTurn(projectId: ProjectId, reply: string): Promise<unknown> {
+  async interviewTurn(projectId: ProjectId, reply: string): Promise<InterviewTurnOutcome> {
     return this.rpc<unknown>('interview.turn', {
       project_id: projectId,
       reply,
-    });
+    }) as Promise<InterviewTurnOutcome>;
   }
 
-  async interviewStatus(projectId: ProjectId): Promise<unknown> {
-    return this.rpc<unknown>('interview.status', { project_id: projectId });
+  async interviewStatus(projectId: ProjectId): Promise<InterviewState | null> {
+    const row = await this.rpc<unknown>('interview.status', { project_id: projectId });
+    return row === null || row === undefined ? null : (row as InterviewState);
   }
 
   // Wave 2 — the project file browser.

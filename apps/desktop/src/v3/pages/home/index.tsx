@@ -1,23 +1,12 @@
 import type {
   CostEstimate,
   GateSummary,
+  InterviewState,
   ProjectId,
   ProjectSummary,
   RoleRouting,
   RunSummary,
 } from '@warsha/client';
-type InterviewOutcome =
-  | { kind: 'next_question'; question: string; topic: string; state: unknown }
-  | { kind: 'done'; brief: unknown; direction_card: unknown; idea_text: string; state: unknown }
-  | { kind: 'daily_limit_reached'; message: string; spent_cents: number; cap_cents: number; state: unknown };
-type InterviewStateView = {
-  project_id: string;
-  next_question?: string;
-  open_topics: string[];
-  covered_topics: string[];
-  transcript: { question: string; answer: string }[];
-  is_done: boolean;
-};
 // eslint-disable-next-line import/no-unresolved
 import { useLocale, useT } from '@warsha/i18n/v3';
 import {
@@ -299,15 +288,15 @@ export default function HomePage(): React.ReactElement {
 
   // Action: home.interview_start
   const [interviewProjectId, setInterviewProjectId] = useState<ProjectId | null>(null);
-  const [interviewState, setInterviewState] = useState<InterviewStateView | null>(null);
+  const [interviewState, setInterviewState] = useState<InterviewState | null>(null);
   const startInterviewAction = useAction('home.interview_start', async () => {
     if (!client) throw new Error(t('common.error'));
     const projectName = deriveProjectName(idea.trim());
     const project = await client.createProject(projectName, idea.trim(), locale);
-    const outcome = (await client.interviewStart(project.id, idea.trim())) as InterviewOutcome;
+    const outcome = await client.interviewStart(project.id, idea.trim());
     setInterviewProjectId(project.id);
     if (outcome.kind === 'next_question') {
-      setInterviewState(outcome.state as InterviewStateView);
+      setInterviewState(outcome.state);
     }
   });
   // Action: home.start

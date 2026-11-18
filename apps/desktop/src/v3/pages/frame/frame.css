@@ -116,7 +116,7 @@
   padding: var(--w-space-1);
   cursor: pointer;
   border-radius: var(--w-radius-sm);
-  min-inline-size: 72px;
+  min-inline-size: var(--w-space-10);
 }
 
 .v3-frame-quota-gauge:hover,
