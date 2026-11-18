@@ -20,7 +20,9 @@ export interface AdvancedComposerProps {
   onSaveBudget: (cents: number) => Promise<void> | void;
   budgetPending?: boolean;
   /** D4: the mode for the NEXT run; plan/spec-file stop at GateB for approval. */
-  runModeChoice?: 'agent' | 'plan' | 'spec-file';
+  runModeChoice?: 'agent' | 'plan' | 'spec-file' | 'swarm';
+  /** D5: the swarm choice appears only when the project's enable_swarm is on. */
+  swarmAvailable?: boolean;
   onRunModeChoice?: (mode: 'agent' | 'plan' | 'spec-file') => void;
   /** D4: start a run with the chosen mode (topic = the run idea). */
   onStartRun?: (idea: string) => Promise<void> | void;
@@ -39,6 +41,7 @@ export const AdvancedComposer: React.FC<AdvancedComposerProps> = ({
   onSaveBudget,
   budgetPending = false,
   runModeChoice = 'agent',
+  swarmAvailable = false,
   onRunModeChoice,
   onStartRun,
 }) => {
@@ -118,10 +121,14 @@ export const AdvancedComposer: React.FC<AdvancedComposerProps> = ({
 
   // D4: distinct per-run mode picker (view-mode switch is elsewhere; this
   // chooses how the next run behaves).
-  const runModeChoices: { value: 'agent' | 'plan' | 'spec-file'; label: string }[] = [
+  const runModeChoices: { value: 'agent' | 'plan' | 'spec-file' | 'swarm'; label: string }[] = [
     { value: 'agent', label: t('bench.runmode.agent') },
     { value: 'plan', label: t('bench.runmode.plan') },
     { value: 'spec-file', label: t('bench.runmode.spec-file') },
+    // v5 note: Swarm in the picker only after D5 and only when the setting is on.
+    ...(swarmAvailable
+      ? [{ value: 'swarm' as const, label: t('bench.runmode.swarm') }]
+      : []),
   ];
 
   return (

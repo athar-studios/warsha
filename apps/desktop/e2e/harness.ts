@@ -154,6 +154,8 @@ export const RPC_METHODS = [
   'permissions.defaults.set',
   'permissions.project.get',
   'permissions.project.set',
+  'swarm.project.get',
+  'swarm.project.set',
   'postlaunch.reviews',
   'preferences.list',
   'preferences.record',
@@ -191,6 +193,7 @@ export const RPC_METHODS = [
   'runs.get',
   'runs.list',
   'runs.start',
+  'runs.subtasks',
   'runs.subscribe',
   'skills.delete',
   'skills.import',
@@ -1593,6 +1596,12 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
     // daemon method), so the stub answers the rows and not the text.
     case 'runs.events':
       return { ok: true, result: RUN_EVENTS };
+    case 'runs.subtasks': {
+      // `warshad` binds `run_id` positionally (crates/warshad/src/api.rs runs.subtasks).
+      if (!paramEntry(params, 'run_id').found) return missingField('run_id');
+      // No seeded subtasks yet — the desktop reads an empty list as "not a swarm run".
+      return { ok: true, result: [] };
+    }
     case 'runs.start':
       // D4: echo the requested mode back so the chip could be exercised. The
       // daemon accepts the mode as a positional Option; unknown words decode
@@ -1965,6 +1974,31 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
           isOverride: paramEntry(params, 'confinement').found || paramEntry(params, 'approval_mode').found,
         },
       };
+
+    // D5 swarm settings: project-scoped, defaults off/4 — the daemon's stored
+    // defaults (`migration 017 project_settings`). The stub mirrors the daemon
+    // shape: `enable_swarm` boolean + `max_parallel_agents` integer.
+    case 'swarm.project.get':
+      if (!paramEntry(params, 'project_id').found) return missingField('project_id');
+      return { ok: true, result: { project_id: paramValue(params, 'project_id'), enable_swarm: false, max_parallel_agents: 4 } };
+    case 'swarm.project.set': {
+      if (!paramEntry(params, 'project_id').found) return missingField('project_id');
+      const maxAgents = paramEntry(params, 'max_parallel_agents');
+      const max = maxAgents.found ? Number(maxAgents.value) : 4;
+      if (!Number.isInteger(max) || max < 1 || max > 20) {
+        return { ok: false, code: -32000, message: 'max_parallel_agents must be between 1 and 20' };
+      }
+      return {
+        ok: true,
+        result: {
+          project_id: paramValue(params, 'project_id'),
+          enable_swarm: paramEntry(params, 'enable_swarm').found
+            ? (paramEntry(params, 'enable_swarm').value === true)
+            : false,
+          max_parallel_agents: max,
+        },
+      };
+    }
 
     // MCP connections (R-EXT-1). `mcp.list` answers "no server configured" so a capture that does
     // not override it keeps the baseline it had; a case that needs a connected, an `{error: …}` or

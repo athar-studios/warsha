@@ -12,6 +12,7 @@ export type SettingsSectionId =
   | 'budgets'
   | 'usage'
   | 'permissions'
+  | 'swarm'
   | 'postlaunch'
   | 'backend'
   | 'export'
@@ -132,6 +133,13 @@ export const SETTINGS_SECTIONS: readonly SectionMeta[] = [
     scopeKey: 'settings.scope.daemon',
     isAdvanced: true,
     isQuick: true,
+  },
+  {
+    id: 'swarm',
+    labelKey: 'settings.section.swarm',
+    descKey: 'settings.section.swarm.desc',
+    scopeKey: 'settings.scope.run',
+    isAdvanced: true,
   },
   {
     id: 'postlaunch',

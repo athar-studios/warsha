@@ -143,6 +143,9 @@ function createMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
     listHarnesses: vi.fn().mockResolvedValue([]),
     selectHarness: vi.fn().mockResolvedValue(undefined),
     listRunModes: vi.fn().mockResolvedValue([]),
+    // D5: swarm off in the default bench fixture — the picker shows no swarm choice.
+    getSwarmSettings: vi.fn().mockResolvedValue({ enableSwarm: false, maxParallelAgents: 4 }),
+    setSwarmSettings: vi.fn().mockResolvedValue({ enableSwarm: false, maxParallelAgents: 4 }),
     setRunMode: vi.fn().mockResolvedValue({ mode: 'local', bindHost: '127.0.0.1', allowedHosts: [], relayUrl: null }),
     getFilesTree: vi.fn().mockResolvedValue([]),
     readFileContent: vi.fn().mockResolvedValue({ path: 'src/index.ts', content: 'export const x = 1;', mimeType: 'text/typescript' }),

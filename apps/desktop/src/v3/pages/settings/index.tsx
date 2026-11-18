@@ -17,6 +17,7 @@ import { IntegrationsSection } from './sections/IntegrationsSection';
 import { McpPermissionsSection } from './sections/McpPermissionsSection';
 import { ModelsSection } from './sections/ModelsSection';
 import { PermissionsSection } from './sections/PermissionsSection';
+import { SwarmSection } from './sections/SwarmSection';
 import { PluginsSection } from './sections/PluginsSection';
 import { PostLaunchSection } from './sections/PostLaunchSection';
 import { RoutinesSection } from './sections/RoutinesSection';
@@ -88,6 +89,8 @@ export default function SettingsPage(): React.ReactElement {
         return <UsageSection />;
       case 'permissions':
         return <PermissionsSection />;
+      case 'swarm':
+        return <SwarmSection />;
       case 'postlaunch':
         return <PostLaunchSection />;
       case 'backend':

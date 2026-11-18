@@ -214,6 +214,7 @@ export default {
   'bench.runmode.plan': 'خطة',
   'bench.runmode.spec-file': 'ملف مواصفات',
   'bench.runmode.ask': 'اسأل',
+  'bench.runmode.swarm': 'سرب',
   'bench.runmode.picker_label': 'وضع التشغيل',
   'bench.runmode.picker_hint': 'تشغيلات الخطة وملف المواصفات تتوقف عند بوابة الخطة لموافقتك.',
 };

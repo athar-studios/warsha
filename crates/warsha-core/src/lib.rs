@@ -10,6 +10,7 @@ pub mod redaction;
 pub mod rules;
 pub mod session;
 pub mod skill;
+pub mod subtask;
 
 pub use rules::{InMemoryRuleStore, RuleAction, RuleStore, ToolRules};
 
@@ -22,6 +23,7 @@ pub use plugin::{bundled_plugins, PluginDefinition, PluginToolDefinition};
 pub use redaction::{mask_query_secrets, mask_secrets, REDACTED};
 pub use session::{Session, SessionId, SessionStatus};
 pub use skill::{bundled_skills, SkillDefinition};
+pub use subtask::{parse_subtask_status, RunSubtask, RunSubtaskStatus};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

@@ -116,7 +116,29 @@ export default function BenchPage(): React.ReactElement {
   // D4: the chosen mode for the NEXT run (plan / spec-file stop at GateB for
   // the owner's approval; agent runs straight through). Kept local — the mode
   // travels with the runs.start call, not with the project.
-  const [newRunMode, setNewRunMode] = useState<'agent' | 'plan' | 'spec-file'>('agent');
+  const [newRunMode, setNewRunMode] = useState<'agent' | 'plan' | 'spec-file' | 'swarm'>('agent');
+
+  // D5: the Swarm choice appears in the run-mode picker only when the active
+  // project's `enable_swarm` is on (the setting default is off).
+  const [swarmAvailable, setSwarmAvailable] = useState(false);
+  useEffect(() => {
+    if (!client || !effectiveProjectId) {
+      setSwarmAvailable(false);
+      return;
+    }
+    let cancelled = false;
+    client
+      .getSwarmSettings(effectiveProjectId as ProjectId)
+      .then((settings) => {
+        if (!cancelled) setSwarmAvailable(settings.enableSwarm);
+      })
+      .catch(() => {
+        if (!cancelled) setSwarmAvailable(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, effectiveProjectId]);
 
   // Below 768px the rail leaves the layout and opens from a labelled button (planner decision 4): the
   // Workbench has no room for a 264px column beside the screen at 390, and squeezing the screen into
@@ -165,12 +187,16 @@ export default function BenchPage(): React.ReactElement {
   // Actions wired to useAction
   const startNewRunAction = useAction(
     'bench.run.start',
-    async (pId: string, idea: string, runMode?: 'agent' | 'plan' | 'spec-file' | 'ask') => {
+    async (pId: string, idea: string, runMode?: 'agent' | 'plan' | 'spec-file' | 'ask' | 'swarm') => {
       if (!client) return;
+      // D5: a swarm run is an agent run in a swarm-enabled project — the
+      // daemon's Code stage decomposes it into subtasks. There is no separate
+      // wire mode; the project setting carries the behaviour.
+      const wireMode = runMode === 'swarm' ? 'agent' : runMode;
       const newRun = await client.startRun(
         pId as ProjectId,
         idea || t('bench.header.new_run'),
-        runMode ?? 'agent',
+        wireMode ?? 'agent',
       );
       runHook.reload();
       activeProjectRunsHook.reload();
@@ -610,6 +636,7 @@ export default function BenchPage(): React.ReactElement {
           // D4: the run-MODE picker for new runs — separate from the view-mode
           // switch and from the listen-mode runmode select above.
           runModeChoice={newRunMode}
+          swarmAvailable={swarmAvailable}
           onRunModeChoice={setNewRunMode}
           onStartRun={(idea) => void startNewRunAction.run(effectiveProjectId, idea, newRunMode)}
         />

@@ -404,4 +404,12 @@ export default {
   'settings.permissions.defaults_title': 'الأذونات الافتراضية العامة',
   'settings.permissions.projects_title': 'تجاوزات خاصة بالمشروع',
   'settings.permissions.reset_to_inherit': 'إعادة التعيين لوراثة الافتراضيات',
+  'settings.section.swarm': 'السرب',
+  'settings.section.swarm.desc': 'تنفيذ مرحلة الكود كوكلاء فرعيين متوازيين لكل منهم شجرة عمل خاصة.',
+  'swarm.enable': 'تمكين السرب',
+  'swarm.enable.description': 'يستخدم السرب توازيًا أكبر للموارد، مما يستهلك المزيد من التوكنز والميزانية. مناسب لإعادة الهيكلة الكبيرة أو التغييرات في ملفات متعددة. ميزة تجريبية.',
+  'swarm.max_agents': 'الحد الأقصى للعملاء المتوازيين',
+  'swarm.max_agents.capped': 'الحد الأقصى 20',
+  'swarm.select_project': 'المشروع',
+  'swarm.saved': 'تم حفظ إعدادات السرب.',
 };

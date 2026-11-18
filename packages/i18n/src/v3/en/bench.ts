@@ -214,6 +214,7 @@ export default {
   'bench.runmode.plan': 'Plan',
   'bench.runmode.spec-file': 'Spec file',
   'bench.runmode.ask': 'Ask',
+  'bench.runmode.swarm': 'Swarm',
   'bench.runmode.picker_label': 'Run mode',
   'bench.runmode.picker_hint': 'Plan and spec-file runs stop at the plan gate for your approval.',
 };

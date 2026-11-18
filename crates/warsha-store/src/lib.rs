@@ -26,16 +26,17 @@ use ulid::Ulid;
 use uuid::Uuid;
 #[allow(unused_imports)]
 use warsha_core::{
-    ApprovalMode, Artifact, Confinement, DeviceId, Event, EventKind, GateState, Project, ProjectId,
-    ProjectPermissions, Role, Run, RunId, RunMode, RunStatus, Session, SessionId, SessionStatus,
-    Stage, TokenUsage,
+    parse_subtask_status, ApprovalMode, Artifact, Confinement, DeviceId, Event, EventKind,
+    GateState, Project, ProjectId, ProjectPermissions, Role, Run, RunId, RunMode, RunStatus,
+    RunSubtask, RunSubtaskStatus, Session, SessionId, SessionStatus, Stage, TokenUsage,
 };
 
 mod settings;
 
 pub use settings::{
     SettingsRepo, StoredBackendKit, StoredCustomModel, StoredHarness, StoredIntegration,
-    StoredPairing, StoredPlugin, StoredPreference, StoredProvider, StoredRunMode, StoredSkill,
+    StoredPairing, StoredPlugin, StoredPreference, StoredProjectSwarmSettings, StoredProvider,
+    StoredRunMode, StoredSkill,
 };
 
 /// Errors raised by the persistence layer.
@@ -817,6 +818,56 @@ impl Store {
         Ok(())
     }
 
+    /// Insert one swarm subtask row (D5).
+    pub async fn create_run_subtask(&self, subtask: &RunSubtask) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO run_subtasks (id, run_id, session_id, title, files, status, \
+             created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(subtask.id.to_string())
+        .bind(subtask.run_id.0.to_string())
+        .bind(subtask.session_id.map(|id| id.to_string()))
+        .bind(&subtask.title)
+        .bind(serde_json::to_string(&subtask.files)?)
+        .bind(subtask.status.to_string())
+        .bind(subtask.created_at.to_rfc3339())
+        .bind(subtask.updated_at.to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Update one subtask's status, session link and touched-files list.
+    pub async fn update_run_subtask(
+        &self,
+        subtask_id: Ulid,
+        status: RunSubtaskStatus,
+        session_id: Option<SessionId>,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE run_subtasks SET status = ?, session_id = ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(status.to_string())
+        .bind(session_id.map(|id| id.to_string()))
+        .bind(Utc::now().to_rfc3339())
+        .bind(subtask_id.to_string())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// List one run's subtasks in creation order.
+    pub async fn list_run_subtasks(&self, run_id: RunId) -> Result<Vec<RunSubtask>> {
+        let rows = sqlx::query(
+            "SELECT id, run_id, session_id, title, files, status, created_at, updated_at \
+             FROM run_subtasks WHERE run_id = ? ORDER BY created_at ASC",
+        )
+        .bind(run_id.0.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(run_subtask_from_row).collect()
+    }
+
     /// Insert a gate row for one stage of a run.
     pub async fn create_gate(&self, gate: &Gate) -> Result<()> {
         sqlx::query(
@@ -1528,6 +1579,33 @@ fn gate_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Gate> {
     })
 }
 
+/// Map one `run_subtasks` row onto the domain struct.
+fn run_subtask_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<RunSubtask> {
+    let files_json = column_text(row, "files")?;
+    let status_raw = column_text(row, "status")?;
+    Ok(RunSubtask {
+        id: parse_ulid("run_subtasks.id", &column_text(row, "id")?)?,
+        run_id: RunId(parse_ulid(
+            "run_subtasks.run_id",
+            &column_text(row, "run_id")?,
+        )?),
+        session_id: column_opt_text(row, "session_id")?
+            .map(|t| parse_ulid("run_subtasks.session_id", &t))
+            .transpose()?
+            .map(SessionId),
+        title: column_text(row, "title")?,
+        files: serde_json::from_str(&files_json)?,
+        status: parse_subtask_status(&status_raw).ok_or_else(|| {
+            StoreError::ParseError(
+                "run_subtasks.status",
+                format!("not a known subtask status: {status_raw}"),
+            )
+        })?,
+        created_at: parse_time("run_subtasks.created_at", &column_text(row, "created_at")?)?,
+        updated_at: parse_time("run_subtasks.updated_at", &column_text(row, "updated_at")?)?,
+    })
+}
+
 fn session_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Session> {
     Ok(Session {
         id: SessionId(parse_ulid("sessions.id", &column_text(row, "id")?)?),
@@ -1722,7 +1800,7 @@ mod tests {
         let versions: Vec<i64> = migrator.iter().map(|m| m.version).collect();
         assert_eq!(
             versions,
-            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
         );
         for migration in migrator.iter() {
             assert!(
@@ -1748,7 +1826,7 @@ mod tests {
                 .expect("the migration ledger is readable");
         assert_eq!(
             applied,
-            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
         );
 
         let tables: Vec<String> = sqlx::query_scalar(

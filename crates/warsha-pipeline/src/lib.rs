@@ -42,6 +42,8 @@ pub mod mcp;
 pub mod mcp_approval;
 pub mod mcp_observer;
 pub mod mcp_permission;
+pub mod swarm;
+pub mod swarm_runtime;
 pub mod worktree;
 pub use crate::agent_sessions::{AgentSessionError, RunAgentSessions};
 pub use crate::gate_evidence::{
@@ -1043,7 +1045,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                     "Run cancelled before committing stage artifact".to_string(),
                 ));
             }
-            let (latest, _latest_v) = self.store.get_run_versioned(run.id).await?;
+            let (mut latest, latest_v) = self.store.get_run_versioned(run.id).await?;
             if latest.status == RunStatus::Cancelled {
                 return Err(PipelineError::Other(
                     "Run cancelled before committing stage artifact".to_string(),
@@ -1053,7 +1055,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             let artifact_content = artifact_body;
 
             let artifact_name = stage_to_string(stage).to_lowercase();
-            let prev_version = run
+            let prev_version = latest
                 .artifacts
                 .get(&artifact_name)
                 .map(|a| a.version)
@@ -1068,23 +1070,36 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 version: prev_version + 1,
             };
 
-            run.artifacts.insert(artifact_name.clone(), artifact);
-            run.spent_cents += cost_cents;
-            run.updated_at = Utc::now();
+            // The stage itself may have moved the run row (a swarm stage
+            // records each subagent's spend through record_cost), so the
+            // CAS commit builds on `latest` — its spend, artifacts, budget
+            // and version — not on the pre-stage snapshot.
+            latest.artifacts.insert(artifact_name.clone(), artifact);
+            latest.spent_cents += cost_cents;
+            latest.updated_at = Utc::now();
 
             let mut budget_exceeded_info = None;
             let mut budget_warn_info = None;
-            if let Some(budget) = run.budget_cents {
-                if run.spent_cents >= budget {
-                    run.status = RunStatus::Paused;
-                    budget_exceeded_info = Some((budget, run.spent_cents));
-                } else if run.spent_cents as f64 >= budget as f64 * 0.8 {
-                    budget_warn_info = Some((budget, run.spent_cents));
+            if let Some(budget) = latest.budget_cents {
+                if latest.spent_cents >= budget {
+                    latest.status = RunStatus::Paused;
+                    budget_exceeded_info = Some((budget, latest.spent_cents));
+                } else if latest.spent_cents as f64 >= budget as f64 * 0.8 {
+                    budget_warn_info = Some((budget, latest.spent_cents));
                 }
             }
 
             // Atomic CAS update: refuses to overwrite if a concurrent cancel or writer bumped version.
-            *version = self.store.update_run_cas(run, *version).await?;
+            *version = self.store.update_run_cas(&latest, latest_v).await?;
+
+            // Sync the caller's snapshot with what was committed: a stage may
+            // have moved the row mid-flight (a swarm stage records each
+            // subagent's spend through record_cost), so the run struct the
+            // caller advances carries the committed spend and status.
+            run.status = latest.status;
+            run.spent_cents = latest.spent_cents;
+            run.artifacts = latest.artifacts.clone();
+            run.updated_at = latest.updated_at;
 
             (
                 artifact_name,
@@ -1227,6 +1242,35 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             })?;
 
         let timeout = self.get_coding_cli_timeout(run).await;
+
+        // D5: a project with swarm enabled runs the Code stage as a swarm —
+        // decomposed subtasks in isolated worktrees, bounded by the project's
+        // max-parallel setting and the run's budget — instead of one CLI run.
+        let swarm_settings = self
+            .store
+            .settings()
+            .load_project_swarm_settings(&run.project_id.0.to_string())
+            .await
+            .unwrap_or(warsha_store::StoredProjectSwarmSettings {
+                project_id: run.project_id.0.to_string(),
+                enable_swarm: false,
+                max_parallel_agents: 4,
+            });
+        if swarm_settings.enable_swarm {
+            return Ok(Some(
+                self.swarm_code_completion(
+                    run,
+                    backend,
+                    &backend_name,
+                    repo_path,
+                    prompt,
+                    language,
+                    timeout,
+                    &swarm_settings,
+                )
+                .await?,
+            ));
+        }
 
         let task = CodingTask {
             id: Ulid::new(),
