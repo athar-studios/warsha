@@ -247,6 +247,53 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
     }
 
+    async fn get_swarm_settings(
+        &self,
+        ext: &RpcExtensions,
+        project_id: ProjectId,
+    ) -> RpcResult<warsha_store::StoredProjectSwarmSettings> {
+        self.authorize(ext, "swarm.project.get").await?;
+        self.state
+            .store
+            .settings()
+            .load_project_swarm_settings(&project_id.0.to_string())
+            .await
+            .map_err(rpc_error)
+    }
+
+    async fn set_swarm_settings(
+        &self,
+        ext: &RpcExtensions,
+        project_id: ProjectId,
+        enable_swarm: bool,
+        max_parallel_agents: Option<u32>,
+    ) -> RpcResult<warsha_store::StoredProjectSwarmSettings> {
+        self.authorize(ext, "swarm.project.set").await?;
+        let current = self
+            .state
+            .store
+            .settings()
+            .load_project_swarm_settings(&project_id.0.to_string())
+            .await
+            .map_err(rpc_error)?;
+        self.state
+            .store
+            .settings()
+            .save_project_swarm_settings(&warsha_store::StoredProjectSwarmSettings {
+                project_id: project_id.0.to_string(),
+                enable_swarm,
+                max_parallel_agents: max_parallel_agents.unwrap_or(current.max_parallel_agents),
+            })
+            .await
+            .map_err(rpc_error)?;
+        self.state
+            .store
+            .settings()
+            .load_project_swarm_settings(&project_id.0.to_string())
+            .await
+            .map_err(rpc_error)
+    }
+
     async fn get_project(&self, ext: &RpcExtensions, id: ProjectId) -> RpcResult<Project> {
         self.authorize(ext, "projects.get").await?;
         self.state
@@ -656,6 +703,19 @@ impl WarshaApiServer for WarshaRpc {
         self.state
             .store
             .list_sessions_by_run(run_id)
+            .await
+            .map_err(rpc_error)
+    }
+
+    async fn list_run_subtasks(
+        &self,
+        ext: &RpcExtensions,
+        run_id: RunId,
+    ) -> RpcResult<Vec<warsha_core::RunSubtask>> {
+        self.authorize(ext, "runs.subtasks").await?;
+        self.state
+            .store
+            .list_run_subtasks(run_id)
             .await
             .map_err(rpc_error)
     }

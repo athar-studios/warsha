@@ -102,6 +102,14 @@ export const ACTIONS: readonly ActionDef[] = [
     rpc: ['permissions.project.set'],
   },
 
+  // D5 swarm section — the toggle fires `swarm.project.set` per project row.
+  {
+    id: 'settings.swarm.save',
+    labelKey: 'swarm.enable',
+    effect: 'rpc',
+    rpc: ['swarm.project.set'],
+  },
+
   // MCP permissions section — revoking a granted tool restores the fail-closed
   // default through `mcp.permissions.set` (B3a, `crates/warshad/src/lib.rs:3398`).
   {

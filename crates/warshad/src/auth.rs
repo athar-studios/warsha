@@ -306,6 +306,16 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Owner,
         tier: Standard,
     },
+    M {
+        method: "swarm.project.get",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "swarm.project.set",
+        policy: Owner,
+        tier: Standard,
+    },
     // Mutates a project's repository, like `projects.create`, so it is the owner's.
     M {
         method: "projects.attach",
@@ -319,6 +329,11 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
     },
     M {
         method: "runs.get",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "runs.subtasks",
         policy: Session,
         tier: Standard,
     },

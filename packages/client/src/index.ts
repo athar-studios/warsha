@@ -219,6 +219,52 @@ export function decodeProjectSummary(source: unknown): ProjectSummary {
  * a screen never calls `.startsWith` on an object. A missing stage decodes to `''` — never
  * `undefined`, which is what made `InstrumentStrip` throw and black the desktop.
  */
+export interface RunSubtask {
+  id: string;
+  runId: string;
+  sessionId: string | null;
+  title: string;
+  files: string[];
+  status: 'queued' | 'dispatched' | 'succeeded' | 'failed' | 'conflicted' | 'unmerged';
+}
+
+const SUBTASK_ERROR = 'Malformed subtask';
+
+export function decodeRunSubtask(source: unknown): RunSubtask {
+  if (typeof source !== 'object' || source === null) {
+    throw new Error(`${SUBTASK_ERROR}: "subtask" is not a JSON object`);
+  }
+  const record = source as Record<string, unknown>;
+  const statusValue = field(record, 'status');
+  const status =
+    statusValue === 'queued' ||
+    statusValue === 'dispatched' ||
+    statusValue === 'succeeded' ||
+    statusValue === 'failed' ||
+    statusValue === 'conflicted' ||
+    statusValue === 'unmerged'
+      ? statusValue
+      : null;
+  if (status === null) {
+    throw new Error(`${SUBTASK_ERROR}: "subtask" has an invalid "status"`);
+  }
+  const filesValue = field(record, 'files');
+  const files = Array.isArray(filesValue) ? filesValue.filter((f): f is string => typeof f === 'string') : null;
+  if (files === null) {
+    throw new Error(`${SUBTASK_ERROR}: "subtask" has an invalid "files" list`);
+  }
+  const sessionValue = field(record, 'session_id', 'sessionId');
+  const sessionId = typeof sessionValue === 'string' ? sessionValue : null;
+  return {
+    id: String(field(record, 'id')),
+    runId: String(field(record, 'run_id', 'runId')),
+    sessionId,
+    title: String(field(record, 'title')),
+    files,
+    status,
+  };
+}
+
 export function decodeRunSummary(source: unknown): RunSummary {
   const record = summaryObject(source, 'run');
   const stage = summaryString(field(record, 'current_stage', 'currentStage', 'stage')) ?? '';
@@ -2287,6 +2333,46 @@ export class WarshaClient
   async listRuns(projectId: ProjectId): Promise<RunSummary[]> {
     const rows = await this.rpc<unknown>('runs.list', { projectId });
     return summaryList(rows, 'runs.list', decodeRunSummary);
+  }
+
+  async getSwarmSettings(projectId: ProjectId): Promise<{ enableSwarm: boolean; maxParallelAgents: number }> {
+    const row = await this.rpc<unknown>('swarm.project.get', { project_id: projectId });
+    if (typeof row !== 'object' || row === null) {
+      throw new Error('Malformed swarm settings: not a JSON object');
+    }
+    const record = row as Record<string, unknown>;
+    return {
+      enableSwarm: record['enable_swarm'] === true,
+      maxParallelAgents: nonNegativeInt(field(record, 'max_parallel_agents'), 'swarm.project', 'max_parallel_agents'),
+    };
+  }
+
+  async setSwarmSettings(
+    projectId: ProjectId,
+    enableSwarm: boolean,
+    maxParallelAgents?: number,
+  ): Promise<{ enableSwarm: boolean; maxParallelAgents: number }> {
+    // Literal object (no spread, no variable): the wire parser checks param
+    // names on the call-site literal. `undefined` serialises as absent — the
+    // daemon binds `Option<u32>`.
+    const row = await this.rpc<unknown>('swarm.project.set', {
+      project_id: projectId,
+      enable_swarm: enableSwarm,
+      max_parallel_agents: maxParallelAgents,
+    });
+    if (typeof row !== 'object' || row === null) {
+      throw new Error('Malformed swarm settings: not a JSON object');
+    }
+    const record = row as Record<string, unknown>;
+    return {
+      enableSwarm: record['enable_swarm'] === true,
+      maxParallelAgents: nonNegativeInt(field(record, 'max_parallel_agents'), 'swarm.project', 'max_parallel_agents'),
+    };
+  }
+
+  async listRunSubtasks(runId: RunId): Promise<RunSubtask[]> {
+    const rows = await this.rpc<unknown>('runs.subtasks', { run_id: runId });
+    return summaryList(rows, 'runs.subtasks', decodeRunSubtask);
   }
 
   async startRun(

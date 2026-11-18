@@ -714,6 +714,7 @@ describe('client', () => {
       status: 'running',
       startedAt: '',
       updatedAt: '',
+      runMode: 'agent',
     };
     const gate: GateSummary = { stage, state: gateState };
     const provider: ProviderConfig = { name: 'ollama', kind: 'ollama', enabled: true };

@@ -66,6 +66,20 @@ pub trait WarshaApi {
         approval_mode: Option<ApprovalMode>,
     ) -> RpcResult<ProjectPermissions>;
 
+    #[method(name = "swarm.project.get", with_extensions)]
+    async fn get_swarm_settings(
+        &self,
+        project_id: ProjectId,
+    ) -> RpcResult<warsha_store::StoredProjectSwarmSettings>;
+
+    #[method(name = "swarm.project.set", with_extensions)]
+    async fn set_swarm_settings(
+        &self,
+        project_id: ProjectId,
+        enable_swarm: bool,
+        max_parallel_agents: Option<u32>,
+    ) -> RpcResult<warsha_store::StoredProjectSwarmSettings>;
+
     #[method(name = "projects.get", with_extensions)]
     async fn get_project(&self, id: ProjectId) -> RpcResult<Project>;
 
@@ -142,6 +156,9 @@ pub trait WarshaApi {
 
     #[method(name = "runs.get", with_extensions)]
     async fn get_run(&self, run_id: RunId) -> RpcResult<Run>;
+
+    #[method(name = "runs.subtasks", with_extensions)]
+    async fn list_run_subtasks(&self, run_id: RunId) -> RpcResult<Vec<warsha_core::RunSubtask>>;
 
     #[method(name = "runs.list", with_extensions)]
     async fn list_runs(&self, project_id: ProjectId) -> RpcResult<Vec<Run>>;

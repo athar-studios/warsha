@@ -404,4 +404,12 @@ export default {
   'settings.permissions.defaults_title': 'Global default permissions',
   'settings.permissions.projects_title': 'Project-specific overrides',
   'settings.permissions.reset_to_inherit': 'Reset to inherit defaults',
+  'settings.section.swarm': 'Swarm',
+  'settings.section.swarm.desc': 'Run the Code stage as parallel subagents with their own worktrees.',
+  'swarm.enable': 'Enable Swarm',
+  'swarm.enable.description': 'Swarm parallelism uses more tokens and budget. Suitable for large refactors or multi-file changes. Experimental.',
+  'swarm.max_agents': 'Max Parallel Agents',
+  'swarm.max_agents.capped': 'Hard cap 20',
+  'swarm.select_project': 'Project',
+  'swarm.saved': 'Swarm settings saved.',
 };
