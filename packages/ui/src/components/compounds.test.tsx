@@ -152,6 +152,7 @@ const BENCH = (
       mode="simple"
       onModeChange={() => undefined}
       simpleLabel="simple"
+      factoryLabel="factory"
       advancedLabel="advanced"
     />
     <Segmented label="theme" value="dark" onChange={() => undefined} options={[{ value: 'dark', label: 'dark' }]} />
@@ -1056,7 +1057,7 @@ describe('the inventory as a system', () => {
         <Ledger label="l">
           <Ledger.Row onSelect={() => undefined}>line</Ledger.Row>
         </Ledger>
-        <ModeSwitch label="mode" mode="simple" onModeChange={() => undefined} simpleLabel="a" advancedLabel="b" />
+        <ModeSwitch label="mode" mode="simple" onModeChange={() => undefined} simpleLabel="a" factoryLabel="f" advancedLabel="b" />
         <Segmented label="theme" value="x" onChange={() => undefined} options={[{ value: 'x', label: 'x' }]} />
         <Tabs label="tabs">
           <Tabs.Tab panelId="p" selected onSelect={() => undefined}>
