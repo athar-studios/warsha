@@ -66,6 +66,7 @@ import {
   useRuns,
 } from '../../data';
 import { useRoute } from '../../router';
+import SecretaryChat from './SecretaryChat';
 import { RunModeChip, toRunModeChip } from '../bench/components/RunModeChip';
 
 import './project.css';
@@ -243,6 +244,7 @@ export default function ProjectPage(): React.ReactElement {
   const [budgetSheetOpen, setBudgetSheetOpen] = useState(false);
   const [budgetDraft, setBudgetDraft] = useState<number | string>(10);
   const [permissionsSheetOpen, setPermissionsSheetOpen] = useState(false);
+  const [secretarySheetOpen, setSecretarySheetOpen] = useState(false);
   const [permissionsDraft, setPermissionsDraft] = useState<ProjectPermissions | null>(null);
 
   // Capability-gated run-ending dialog/form states
@@ -393,6 +395,10 @@ export default function ProjectPage(): React.ReactElement {
     setFollowupText('');
     eventsResult.reload();
     runsResult.reload();
+  });
+
+  const secretaryOpenAction = useAction('project.secretary.open', async () => {
+    setSecretarySheetOpen(true);
   });
 
   const budgetOpenAction = useAction('project.budget.open', async () => {
@@ -673,6 +679,17 @@ export default function ProjectPage(): React.ReactElement {
             }}
           >
             {t('project.permissions.open')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            data-action="project.secretary.open"
+            data-testid="project-secretary-open"
+            onClick={() => {
+              void secretaryOpenAction.run();
+            }}
+          >
+            {t('secretary.open')}
           </Button>
         </div>
       </header>
@@ -984,6 +1001,17 @@ export default function ProjectPage(): React.ReactElement {
           </Button>
         </div>
       </section>
+
+      {/* E2: the secretary chat sheet — proposals confirm through the owner's own RPCs. */}
+      <Sheet
+        open={secretarySheetOpen}
+        onClose={() => setSecretarySheetOpen(false)}
+        title={t('secretary.title')}
+        closeLabel={t('common.close')}
+        data-testid="project-secretary-sheet"
+      >
+        <SecretaryChat projectId={projectId as ProjectId | null} t={t} onConfirmed={() => setSecretarySheetOpen(false)} />
+      </Sheet>
 
       {/* Tests Artifact Sheet */}
       <Sheet

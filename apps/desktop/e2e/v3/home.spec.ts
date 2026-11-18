@@ -156,6 +156,24 @@ test.describe('Home action ids', () => {
     await expect(page.locator('[data-testid="home-defaults-sheet"]')).toBeVisible();
   });
 
+  test('home.needsyou.open navigates to the longest-waiting item', async ({ page }) => {
+    // The default fixtures carry a run with a pending gate, so the strip shows
+    // exactly one waiting row; opening it is the whole job of the strip.
+    await openV3(page, '/', { lang: 'en' });
+    await expect(page.locator('[data-testid="home-needsyou"]')).toBeVisible();
+    await act(page, 'home.needsyou.open');
+    await expect(page).toHaveURL(/#\/p\/|#/);
+  });
+
+  test('home.interview.start dials projects.create then interview.start', async ({ page }) => {
+    await openV3(page, '/', { lang: 'en' });
+    const textarea = page.locator('main textarea');
+    await expect(textarea).toBeVisible();
+    await textarea.fill('متجر أدوات ورشة للتصنيع');
+    await act(page, 'home.interview.start');
+    await expectRpc(page, 'interview.start');
+  });
+
   test('home.defaults.budget.save records preference', async ({ page }) => {
     await openV3(page, '/');
     await act(page, 'home.defaults.open');
@@ -245,8 +263,18 @@ test.describe('Home accessibility (@a11y)', () => {
     await page.keyboard.press('Tab'); // inbox button
     await page.keyboard.press('Tab'); // settings button
 
-    // Now tab reaches composer textarea in main
-    await page.keyboard.press('Tab');
+    // Now tab reaches the needs-you strip first (E2: waiting things come before
+    // the composer — that is the strip's whole job). The strip holds one anchor
+    // per waiting row, so walk every one of them before the composer textarea.
+    for (let guard = 0; guard < 8; guard += 1) {
+      await page.keyboard.press('Tab');
+      const active = await page.evaluate(() => ({
+        tag: document.activeElement?.tagName.toLowerCase(),
+        action: document.activeElement?.getAttribute('data-action'),
+      }));
+      if (active.tag === 'textarea') break;
+      expect(active.action).toBe('home.needsyou.open');
+    }
     const activeTextarea = await page.evaluate(() => document.activeElement?.tagName.toLowerCase());
     expect(activeTextarea).toBe('textarea');
 

@@ -23,7 +23,7 @@ import {
   type StatusPillState,
   // eslint-disable-next-line import/no-unresolved
 } from '@warsha/ui/v3';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAction } from '../../actions';
 import { useCapabilities } from '../../app/CapabilitiesContext';
@@ -33,6 +33,7 @@ import { useDensity } from '../../app/DensityContext';
 import { notify } from '../../app/toast';
 import { getSimpleStageLabelKey, toSimpleStage, type SimpleStage } from '../../copy/stages';
 import { useModels, usePreferences, useProjects, useRoles } from '../../data';
+import { ownerAlerts, raisedKeysAfter, type OwnerAlert } from './alerts';
 import { useResource } from '../../data/useResource';
 import { useNavigate } from '../../router';
 import { RunModeChip, toRunModeChip } from '../bench/components/RunModeChip';
@@ -180,6 +181,82 @@ export function computeMiniSegments(
   });
 }
 
+/** One row of the home needs-you strip: a gate wait or an approval ask, oldest first. */
+export interface NeedsYouRow {
+  key: string;
+  kind: 'gate' | 'ask';
+  /** Stable i18n label: `home.needsyou.gate` / `home.needsyou.ask`. */
+  labelKey: string;
+  /** What waits: the gate's stage word, or the ask's tool name. */
+  subject: string;
+  /** The run the row belongs to. */
+  runId: string;
+  /** RFC 3339 the row started waiting; oldest first is the strip's order. */
+  since: string;
+  /** Navigate target for the row's Open button. */
+  href: string;
+}
+
+/**
+ * E2: merge gate waits with approval asks into one longest-waiting-first strip.
+ * A gate's waiting time is its run's `updatedAt` (the daemon's last change to the run row,
+ * which for a parked run is the gate's arrival); an ask carries its own `requestedAt`.
+ */
+export function buildNeedsYou(
+  runs: readonly RunSummary[],
+  gatesByRun: Readonly<Record<string, { runId: string; runUpdatedAt: string; stage: string; pending: boolean }[]>>,
+  asks: readonly { id: string; runId: string; tool: string; requestedAt: string }[]
+): NeedsYouRow[] {
+  const rows: NeedsYouRow[] = [];
+  for (const run of runs) {
+    const pending = gatesByRun[run.id] ?? [];
+    for (const gate of pending) {
+      if (!gate.pending) continue;
+      rows.push({
+        key: `gate-${run.id}-${gate.stage}`,
+        kind: 'gate',
+        labelKey: 'home.needsyou.gate',
+        subject: gate.stage,
+        runId: run.id,
+        since: gate.runUpdatedAt,
+        href: `/p/${run.projectId}/r/${run.id}/${gate.stage}`,
+      });
+    }
+  }
+  for (const ask of asks) {
+    rows.push({
+      key: `ask-${ask.id}`,
+      kind: 'ask',
+      labelKey: 'home.needsyou.ask',
+      subject: ask.tool,
+      runId: ask.runId,
+      since: ask.requestedAt,
+      href: '/inbox',
+    });
+  }
+  return rows.sort((left, right) => left.since.localeCompare(right.since));
+}
+
+/** The once-per-condition owner alerts, computed from daemon records only. */
+export function homeAlerts(params: {
+  oldestWaitingGateAt: string | null;
+  failedRuns: readonly RunSummary[];
+  quotaPercent: number | null;
+  spendPercent: number | null;
+  raised: Readonly<Record<string, string>>;
+}): OwnerAlert[] {
+  const hour = new Date().getHours();
+  return ownerAlerts({
+    oldestWaitingGateAt: params.oldestWaitingGateAt,
+    failedRuns: params.failedRuns,
+    quotaPercent: params.quotaPercent,
+    spendPercent: params.spendPercent,
+    hour,
+    raised: params.raised,
+    quietHours: { start: 23, end: 6 },
+  });
+}
+
 export default function HomePage(): React.ReactElement {
   const t = useT();
   const { locale } = useLocale();
@@ -194,6 +271,11 @@ export default function HomePage(): React.ReactElement {
   const [runsByProject, setRunsByProject] = useState<Record<string, RunSummary[]>>({});
   const [waitingGatesByProject, setWaitingGatesByProject] = useState<Record<string, number>>({});
   const [totalWaitingGates, setTotalWaitingGates] = useState(0);
+  // E2: the needs-you strip rows (gates + approval asks, longest waiting first) and the
+  // once-per-condition alert bookkeeping.
+  const [needsYou, setNeedsYou] = useState<NeedsYouRow[]>([]);
+  const [queueTotal, setQueueTotal] = useState(0);
+  const raisedRef = useRef<Record<string, string>>({});
 
   const projectsResult = useProjects();
   const rolesResult = useRoles();
@@ -273,10 +355,83 @@ export default function HomePage(): React.ReactElement {
         })
       );
 
+      // E2: per-run pending-gate rows + the approval asks, merged longest-waiting-first.
+      const gateRows: Record<string, { runId: string; runUpdatedAt: string; stage: string; pending: boolean }[]> = {};
+      let oldestWaitingGateAt: string | null = null;
+      const failedRuns: RunSummary[] = [];
+      for (const project of projectList) {
+        const runs = runsMap[project.id] ?? [];
+        for (const run of runs) {
+          let pendingRows: { runId: string; runUpdatedAt: string; stage: string; pending: boolean }[] = [];
+          try {
+            const gates: GateSummary[] = await client.getGates(run.id);
+            pendingRows = gates.map((gate) => ({
+              runId: run.id,
+              runUpdatedAt: run.updatedAt,
+              stage: gate.stage,
+              pending: gate.state.state === 'pending',
+            }));
+          } catch {
+            pendingRows = [];
+          }
+          gateRows[run.id] = pendingRows;
+          for (const row of pendingRows) {
+            if (row.pending && (oldestWaitingGateAt === null || row.runUpdatedAt < oldestWaitingGateAt)) {
+              oldestWaitingGateAt = row.runUpdatedAt;
+            }
+          }
+          if (run.status === 'failed') failedRuns.push(run);
+        }
+      }
+
+      let asks: { id: string; runId: string; tool: string; requestedAt: string }[] = [];
+      try {
+        const approvals = await client.mcpApprovalsList();
+        asks = approvals.map((ask) => ({
+          id: ask.id,
+          runId: ask.runId,
+          tool: ask.tool,
+          requestedAt: ask.requestedAt,
+        }));
+      } catch {
+        asks = [];
+      }
+
       if (active) {
         setRunsByProject(runsMap);
         setWaitingGatesByProject(waitingMap);
         setTotalWaitingGates(totalWaiting);
+        setNeedsYou(buildNeedsYou(
+          projectList.flatMap((project) => runsMap[project.id] ?? []),
+          gateRows,
+          asks
+        ));
+        setQueueTotal(asks.length);
+
+        // E2: once-per-condition alerts. Raised keys persist until their condition
+        // clears (ownerAlerts refuses a raised key; raisedKeysAfter merges what still holds).
+        const alertList = homeAlerts({
+          oldestWaitingGateAt,
+          failedRuns,
+          quotaPercent: null,
+          spendPercent: null,
+          raised: raisedRef.current,
+        });
+        if (alertList.length > 0) {
+          for (const alert of alertList) {
+            notify({
+              type: 'warning',
+              message: t(alert.messageKey, alert.params),
+              actionId: 'home.alerts.dismiss',
+            });
+          }
+          raisedRef.current = {
+            ...raisedRef.current,
+            ...raisedKeysAfter(alertList),
+          };
+        } else {
+          raisedRef.current = {};
+        }
       }
     };
 
@@ -287,10 +442,10 @@ export default function HomePage(): React.ReactElement {
     };
   }, [client, projectsResult.data]);
 
-  // Action: home.interview_start
+  // Action: home.interview.start
   const [interviewProjectId, setInterviewProjectId] = useState<ProjectId | null>(null);
   const [interviewState, setInterviewState] = useState<InterviewState | null>(null);
-  const startInterviewAction = useAction('home.interview_start', async () => {
+  const startInterviewAction = useAction('home.interview.start', async () => {
     if (!client) throw new Error(t('common.error'));
     const projectName = deriveProjectName(idea.trim());
     const project = await client.createProject(projectName, idea.trim(), locale);
@@ -503,6 +658,33 @@ export default function HomePage(): React.ReactElement {
           </div>
         )}
 
+        {/* E2: the needs-you strip — gates and asks merged, longest waiting first. */}
+        {needsYou.length > 0 && (
+          <div role="region" aria-label={t('home.needsyou.title')} data-testid="home-needsyou">
+            <ul className="v3-home-needsyou" aria-label={t('home.needsyou.title')}>
+              {needsYou.map((row) => (
+                <li key={row.key} className="v3-home-needsyou-row">
+                  <span className="v3-home-needsyou-label">{t(row.labelKey)}</span>
+                  <span className="v3-home-needsyou-subject">{row.subject}</span>
+                  <span className="v3-home-needsyou-wait">{t('home.needsyou.since', { since: row.since })}</span>
+                  <a
+                    href={row.href}
+                    className="v3-home-needsyou-open"
+                    data-action="home.needsyou.open"
+                    data-testid={`home-needsyou-open-${row.key}`}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      navigate(row.href);
+                    }}
+                  >
+                    {t('home.needsyou.open')}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {/* The single composer card */}
         <div className="v3-home-composer-card" data-testid="home-composer-card">
           <label htmlFor="home-idea-input" className="v3-home-composer-label">
@@ -548,9 +730,9 @@ export default function HomePage(): React.ReactElement {
                   disabled={!idea.trim() || startInterviewAction.pending}
                   loading={startInterviewAction.pending}
                   onClick={() => startInterviewAction.run()}
-                  data-action="home.interview_start"
+                  data-action="home.interview.start"
                 >
-                  {t('home.interview_start')}
+                  {t('home.interview.start')}
                 </Button>
                 <Button
                   variant="primary"

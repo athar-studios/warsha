@@ -12,12 +12,14 @@ import {
   TextField,
 } from '@warsha/ui/v3';
 /* eslint-enable import/no-unresolved */
-import React, { useCallback, useId, useState } from 'react';
+import React, { useCallback, useEffect, useId, useState } from 'react';
 import { Link } from 'react-router-dom';
+
+import type { CostEstimate } from '@warsha/client';
 
 import { useRemote } from '../bench';
 import { Machine, ScreenTitle } from '../chrome';
-import { clock, shortId } from '../format';
+import { clock, money, shortId } from '../format';
 import { UnpairedScreen } from '../pairing';
 
 export function ProjectsScreen() {
@@ -34,6 +36,7 @@ export function ProjectsScreen() {
     session,
     createNewProject,
     startNewRun,
+    estimateRunAction,
     actionError,
     clearActionError,
   } = useRemote();
@@ -43,6 +46,36 @@ export function ProjectsScreen() {
   const [nameMissing, setNameMissing] = useState(false);
   const [idea, setIdea] = useState('');
   const [ideaMissing, setIdeaMissing] = useState(false);
+  // E2 (A4): the pre-run estimate, fetched as the idea grows past the startable
+  // length and recomputed on each edit. A refused estimate (or a daemon that does
+  // not serve `runs.estimate`) shows nothing — never an invented number.
+  const [estimate, setEstimate] = useState<CostEstimate | null>(null);
+  const [estimateState, setEstimateState] = useState<'idle' | 'loading' | 'ready' | 'failed'>('idle');
+
+  useEffect(() => {
+    const trimmed = idea.trim();
+    if (estimateRunAction === null || trimmed.length < 12 || projectId === null) {
+      setEstimate(null);
+      setEstimateState('idle');
+      return undefined;
+    }
+    let cancelled = false;
+    setEstimateState('loading');
+    estimateRunAction(projectId, trimmed)
+      .then((answer) => {
+        if (cancelled) return;
+        setEstimate(answer);
+        setEstimateState('ready');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setEstimate(null);
+        setEstimateState('failed');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [estimateRunAction, idea, projectId]);
 
   const nameId = useId();
   const descId = useId();
@@ -301,6 +334,17 @@ export function ProjectsScreen() {
               <Button type="submit" variant="primary" data-testid="remote-run-start-submit">
                 {t('remote.run_start_submit', {}, locale)}
               </Button>
+              {estimateState === 'loading' && (
+                <Machine>{t('remote.estimate_loading', {}, locale)}</Machine>
+              )}
+              {estimateState === 'failed' && (
+                <Machine>{t('remote.estimate_unavailable', {}, locale)}</Machine>
+              )}
+              {estimateState === 'ready' && estimate !== null && (
+                <span data-testid="remote-run-estimate"><Machine>
+                  {`${t('remote.estimate_line', { min: money(estimate.minCents / 100), max: money(estimate.maxCents / 100) }, locale)}`}
+                </Machine></span>
+              )}
             </form>
           </Card>
         </section>

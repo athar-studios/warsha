@@ -124,3 +124,34 @@ export const ACTIONS: readonly ActionDef[] = [
     rpc: ['projects.get'],
   },
 ];
+// E2: the secretary chat panel — proposals confirm through the same RPCs the
+// owner would call by hand; each id names its effect so the gate can follow it.
+export const SECRETARY_ACTIONS: ActionDef[] = [
+  {
+    id: 'project.secretary.open',
+    labelKey: 'secretary.open',
+    effect: 'state',
+  },
+  {
+    id: 'secretary.send',
+    labelKey: 'secretary.send',
+    effect: 'rpc',
+    rpc: ['secretary.chat'],
+  },
+  {
+    id: 'secretary.confirm',
+    labelKey: 'secretary.proposal.confirm',
+    effect: 'rpc',
+    rpc: ['gates.approve', 'gates.reject', 'mcp.approvals.allow_once', 'runs.start', 'runs.cancel'],
+  },
+  {
+    id: 'secretary.proposal.dismiss',
+    labelKey: 'secretary.proposal.dismiss',
+    effect: 'state',
+  },
+  {
+    id: 'secretary.thread.switch',
+    labelKey: 'secretary.global',
+    effect: 'state',
+  },
+];

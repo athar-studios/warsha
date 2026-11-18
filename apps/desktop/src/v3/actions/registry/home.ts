@@ -60,4 +60,18 @@ export const ACTIONS: readonly ActionDef[] = [
     effect: 'rpc',
     rpc: ['projects.list'],
   },
+  {
+    // E2: opens the longest-waiting gate or ask from the needs-you strip.
+    id: 'home.needsyou.open',
+    labelKey: 'home.needsyou_open',
+    effect: 'nav',
+    route: '/inbox',
+  },
+  {
+    // D1 lineage: starts the secretary interview from the home composer.
+    id: 'home.interview.start',
+    labelKey: 'home.interview_start',
+    effect: 'rpc',
+    rpc: ['projects.create', 'interview.start'],
+  },
 ];

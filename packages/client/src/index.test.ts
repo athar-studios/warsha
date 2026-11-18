@@ -15,6 +15,9 @@ import {
   decodeMcpStatus,
   decodeMcpCall,
   decodeMcpTransport,
+  decodeSecretaryChatReply,
+  decodeSecretaryThread,
+  decodeSecretaryTurn,
   decodeProjectSummary,
   decodeRunFinished,
   decodeRoutine,
@@ -262,6 +265,71 @@ describe('client', () => {
         body: expect.stringContaining('"method":"budget.show"'),
       })
     );
+  });
+
+  it('decodes a secretary thread row (snake and camel)', () => {
+    const row = decodeSecretaryThread({
+      id: 'conv-1',
+      project_id: 'proj-1',
+      created_at: '2026-11-18T10:00:00Z',
+      updated_at: '2026-11-18T11:00:00Z',
+    });
+    expect(row.id).toBe('conv-1');
+    expect(row.projectId).toBe('proj-1');
+    expect(row.createdAt).toBe('2026-11-18T10:00:00Z');
+    expect(row.updatedAt).toBe('2026-11-18T11:00:00Z');
+    expect(decodeSecretaryThread({ id: 'g', project_id: null, created_at: 'x', updated_at: 'y' }).projectId).toBeNull();
+    expect(() => decodeSecretaryThread('no')).toThrow(/not a JSON object/);
+  });
+
+  it('decodes a secretary turn and keeps an invalid proposal_json as a null proposal', () => {
+    const base = {
+      id: 'turn-1',
+      conversation_id: 'conv-1',
+      role: 'secretary',
+      content: 'hi',
+      created_at: '2026-11-18T10:00:00Z',
+    };
+    const good = decodeSecretaryTurn({
+      ...base,
+      proposal_json: JSON.stringify({ label: 'Run it', action: { run_start: { project_id: 'p1', idea: 'x' } } }),
+      refs_owner_message: 'turn-0',
+    });
+    expect(good.role).toBe('secretary');
+    expect(good.proposal).not.toBeNull();
+    expect(good.proposal?.action).toEqual({ type: 'run_start', projectId: 'p1', idea: 'x' });
+    expect(good.refsOwnerMessage).toBe('turn-0');
+
+    const bare = decodeSecretaryTurn({ ...base, proposal_json: null });
+    expect(bare.proposal).toBeNull();
+    // Junk JSON keeps the turn, drops the proposal.
+    const junk = decodeSecretaryTurn({ ...base, proposal_json: '{not json' });
+    expect(junk.proposal).toBeNull();
+    expect(junk.content).toBe('hi');
+    // A wrong-action shape also drops the proposal.
+    const bad = decodeSecretaryTurn({
+      ...base,
+      proposal_json: JSON.stringify({ label: 'x', action: { teleport: {} } }),
+    });
+    expect(bad.proposal).toBeNull();
+    expect(() => decodeSecretaryTurn({ ...base, role: 'robot' })).toThrow(/invalid "role"/);
+  });
+
+  it('decodes the chat reply with and without a proposal', () => {
+    const wire = {
+      reply: 'ok',
+      proposal: { label: 'Approve', action: { gate_approve: { run_id: 'r1', stage: 'code' } } },
+      conversation_id: 'conv-1',
+      turn_id: 'turn-2',
+    };
+    const reply = decodeSecretaryChatReply(wire);
+    expect(reply.reply).toBe('ok');
+    expect(reply.proposal?.action).toEqual({ type: 'gate_approve', runId: 'r1', stage: 'code' });
+    expect(reply.conversationId).toBe('conv-1');
+    expect(reply.turnId).toBe('turn-2');
+    const bare = decodeSecretaryChatReply({ reply: 'r', proposal: null, conversation_id: 'c', turn_id: 't' });
+    expect(bare.proposal).toBeNull();
+    expect(() => decodeSecretaryChatReply({ reply: 'r' })).toThrow(/missing conversation_id/);
   });
 
   it('reads a null budget ceiling as no budget, and refuses a malformed one', async () => {

@@ -23,7 +23,10 @@
 
 import {
   type BudgetStatus,
+  type CostEstimate,
   type DeviceId,
+  type McpApproval,
+  type McpApprovalAnswer,
   type DeviceSummary,
   type EventSubscription,
   type GateState,
@@ -123,6 +126,12 @@ export interface BenchApi {
   applyHandoff?(path: string, ownerWins: boolean): Promise<HandoffApplySummary>;
   listDevices?(): Promise<DeviceInfo[]>;
   revokeDevice?(deviceId: DeviceId): Promise<void>;
+  /** E2: the pre-run estimate (`runs.estimate`) — a `null` ceiling is no estimate on screen. */
+  estimateRun?(projectId: ProjectId, idea: string): Promise<CostEstimate>;
+  /** E2: the ask-queue read (`mcp.approvals.list`) — calls waiting for the owner's answer. */
+  mcpApprovalsList?(): Promise<McpApproval[]>;
+  /** E2: one ask answered with a single-use grant (`mcp.approvals.allow_once`). */
+  mcpAllowOnce?(id: string): Promise<McpApprovalAnswer>;
 }
 
 /** How the `/events` feed is opened. The app hands in `subscribeEvents`; a test hands in a recorder. */
@@ -281,6 +290,15 @@ export interface RemoteContextValue {
   devices: DeviceInfo[];
   devicesState: LoadState;
 
+  /**
+   * E2: the ask-queue (`mcp.approvals.list`) — every MCP call waiting for the owner's
+   * answer, across runs. Empty and `idle` on a daemon (or stub) that does not serve it.
+   */
+  approvals: McpApproval[];
+  approvalsState: LoadState;
+  /** E2: answer one ask with a single-use grant; `null` when the daemon does not serve it. */
+  allowOnceApproval: ((id: string) => Promise<boolean>) | null;
+
   /** The bundle path the last `handoff.create` wrote on the server, or `null`. */
   handoffPath: string | null;
   /** The summary the last `handoff.apply` answered with, or `null`. */
@@ -295,6 +313,8 @@ export interface RemoteContextValue {
   // RPC name — capability gating, not a disabled control: the screen renders nothing it cannot honour.
   createNewProject: ((name: string, description: string) => Promise<boolean>) | null;
   startNewRun: ((idea: string) => Promise<boolean>) | null;
+  /** E2: the pre-run estimate, capability-gated like every other optional action. */
+  estimateRunAction: ((projectId: ProjectId, idea: string) => Promise<CostEstimate>) | null;
   advanceCurrentRun: (() => Promise<boolean>) | null;
   cancelCurrentRun: (() => Promise<boolean>) | null;
   sendFollowup: ((prompt: string) => Promise<boolean>) | null;
@@ -337,6 +357,12 @@ export function RemoteProvider({
     // screens built on it — call it by what it does. One adapter line, so the names cannot drift.
     return Object.assign(client, {
       revokeDevice: (deviceId: DeviceId): Promise<void> => client.removeDevice(deviceId),
+      // E2: the client spells these closer to their RPC names; the bench surface
+      // keeps its own words. Adapter lines only — the names cannot drift.
+      estimateRun: (projectId: ProjectId, idea: string): Promise<CostEstimate> =>
+        client.estimateRun(projectId, idea),
+      mcpApprovalsList: (): Promise<McpApproval[]> => client.mcpApprovalsList(),
+      mcpAllowOnce: (id: string): Promise<McpApprovalAnswer> => client.mcpAllowOnce(id),
     });
   }, [apiOverride, session]);
 
@@ -379,6 +405,10 @@ export function RemoteProvider({
 
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [devicesState, setDevicesState] = useState<LoadState>('idle');
+
+  const [approvals, setApprovals] = useState<McpApproval[]>([]);
+  const [approvalsState, setApprovalsState] = useState<LoadState>('idle');
+  const [approvalsNonce, setApprovalsNonce] = useState(0);
 
   const [handoffPath, setHandoffPath] = useState<string | null>(null);
   const [handoffSummary, setHandoffSummary] = useState<HandoffApplySummary | null>(null);
@@ -655,6 +685,34 @@ export function RemoteProvider({
     };
   }, [api, session, reloadNonce]);
 
+  // ---------------------------------------------------------------------------- the ask-queue (E2)
+  // Every MCP call waiting for the owner's answer, across runs — the phone's "is anything
+  // waiting on me" is gates AND asks. Capability-gated: a daemon that does not serve the
+  // name (or an unpaired session) leaves the list empty and `idle`, never a fake empty OK.
+  useEffect(() => {
+    if (api === null || api.mcpApprovalsList === undefined || session === null) {
+      setApprovals([]);
+      setApprovalsState('idle');
+      return undefined;
+    }
+    let cancelled = false;
+    setApprovalsState('loading');
+    api
+      .mcpApprovalsList()
+      .then((answer) => {
+        if (cancelled) return;
+        setApprovals(answer);
+        setApprovalsState('ready');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setApprovalsState('failed');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, session, reloadNonce, approvalsNonce]);
+
   // -------------------------------------------------------------------------------- the live feed
   // A new session is a new daemon: its sequence numbers mean nothing to the last one, so the cursor
   // starts over. Declared before the feed effect, so on a session change the reset lands first.
@@ -922,6 +980,24 @@ export function RemoteProvider({
       });
   }, [api, runAction]);
 
+  const allowOnceApproval = useMemo(() => {
+    const allow = api?.mcpAllowOnce?.bind(api);
+    if (allow === undefined) return null;
+    return (id: string): Promise<boolean> =>
+      runAction(async () => {
+        await allow(id);
+        setApprovals((previous) => previous.filter((row) => row.id !== id));
+        // The queue moved under the owner's thumb: read it again on the next visit.
+        setApprovalsNonce((nonce) => nonce + 1);
+      });
+  }, [api, runAction]);
+
+  const estimateRunAction = useMemo(() => {
+    const estimate = api?.estimateRun?.bind(api);
+    if (estimate === undefined) return null;
+    return (projectId: ProjectId, idea: string): Promise<CostEstimate> => estimate(projectId, idea);
+  }, [api]);
+
   // -------------------------------------------------------------------------------------- the queue
   const queue = useMemo<BenchGate[]>(
     () => (gates !== null ? gates : stageQueue(run, localDecisions)),
@@ -977,12 +1053,16 @@ export function RemoteProvider({
       artifactsState,
       devices,
       devicesState,
+      approvals,
+      approvalsState,
+      allowOnceApproval,
       handoffPath,
       handoffSummary,
       actionError,
       clearActionError,
       createNewProject,
       startNewRun,
+      estimateRunAction,
       advanceCurrentRun,
       cancelCurrentRun,
       sendFollowup,
@@ -1000,6 +1080,9 @@ export function RemoteProvider({
     [
       actionError,
       advanceCurrentRun,
+      allowOnceApproval,
+      approvals,
+      approvalsState,
       applyHandoffBundle,
       artifacts,
       artifactsState,
@@ -1044,6 +1127,7 @@ export function RemoteProvider({
       setProjectId,
       setRunId,
       startNewRun,
+      estimateRunAction,
       streamState,
       triggerHandoff,
     ]

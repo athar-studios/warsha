@@ -552,6 +552,10 @@ const BENCH_API_TO_RPC = {
   applyHandoff: 'handoff.apply',
   listDevices: 'devices.list',
   revokeDevice: 'devices.revoke',
+  // E2 lane B: the three adapter methods the remote bench gained.
+  estimateRun: 'runs.estimate',
+  mcpApprovalsList: 'mcp.approvals.list',
+  mcpAllowOnce: 'mcp.approvals.allow_once',
 };
 
 /** Parse `BenchApi` method declarations in `apps/remote/src/bench.tsx`. */
