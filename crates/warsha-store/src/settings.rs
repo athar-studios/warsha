@@ -37,7 +37,13 @@ use crate::{
 /// Shown in place of a pairing secret by [`StoredPairing`]'s `Debug` impl.
 pub const REDACTED_SECRET: &str = "<redacted>";
 
-/// One derived preference as it is stored: the decayed score per project target.
+/// Project swarm settings.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StoredProjectSwarmSettings {
+    pub project_id: String,
+    pub enable_swarm: bool,
+    pub max_parallel_agents: u32,
+}
 ///
 /// This is a snapshot, not a live value — `score` is whatever the pipeline
 /// computed when it saved the row, and ageing it further is the pipeline's job
@@ -1025,7 +1031,55 @@ impl SettingsRepo {
         Ok(enabled)
     }
 
-    // ------------------------------------------------------------ integrations
+    // -------------------------------------------------------- project settings
+
+    /// Get project swarm settings.
+    pub async fn load_project_swarm_settings(
+        &self,
+        project_id: &str,
+    ) -> Result<StoredProjectSwarmSettings> {
+        let row = sqlx::query(
+            "SELECT enable_swarm, max_parallel_agents FROM project_settings WHERE project_id = ?",
+        )
+        .bind(project_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        if let Some(row) = row {
+            Ok(StoredProjectSwarmSettings {
+                project_id: project_id.to_string(),
+                enable_swarm: column_bool(&row, "enable_swarm")?,
+                max_parallel_agents: column_int(&row, "max_parallel_agents")? as u32,
+            })
+        } else {
+            // Defaults
+            Ok(StoredProjectSwarmSettings {
+                project_id: project_id.to_string(),
+                enable_swarm: false,
+                max_parallel_agents: 4,
+            })
+        }
+    }
+
+    /// Save project swarm settings.
+    pub async fn save_project_swarm_settings(
+        &self,
+        settings: &StoredProjectSwarmSettings,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO project_settings (project_id, enable_swarm, max_parallel_agents) \
+             VALUES (?, ?, ?) \
+             ON CONFLICT(project_id) DO UPDATE SET \
+             enable_swarm = excluded.enable_swarm, \
+             max_parallel_agents = excluded.max_parallel_agents",
+        )
+        .bind(&settings.project_id)
+        .bind(i64::from(settings.enable_swarm))
+        .bind(settings.max_parallel_agents as i64)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
 
     /// Insert or replace one integration row.
     ///

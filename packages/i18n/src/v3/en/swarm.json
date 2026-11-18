@@ -1,0 +1,7 @@
+// packages/i18n/src/v3/en/swarm.json
+{
+  "swarm.enable": "Enable Swarm",
+  "swarm.enable.description": "Swarm parallelism uses more tokens and budget. Suitable for large refactors or multi-file changes. Experimental.",
+  "swarm.max_agents": "Max Parallel Agents",
+  "swarm.max_agents.capped": "Hard cap 20"
+}

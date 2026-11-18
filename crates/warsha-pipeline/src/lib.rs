@@ -42,6 +42,7 @@ pub mod mcp;
 pub mod mcp_approval;
 pub mod mcp_observer;
 pub mod mcp_permission;
+pub mod swarm;
 pub mod worktree;
 pub use crate::agent_sessions::{AgentSessionError, RunAgentSessions};
 pub use crate::gate_evidence::{

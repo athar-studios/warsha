@@ -35,7 +35,8 @@ mod settings;
 
 pub use settings::{
     SettingsRepo, StoredBackendKit, StoredCustomModel, StoredHarness, StoredIntegration,
-    StoredPairing, StoredPlugin, StoredPreference, StoredProvider, StoredRunMode, StoredSkill,
+    StoredPairing, StoredPlugin, StoredPreference, StoredProjectSwarmSettings, StoredProvider,
+    StoredRunMode, StoredSkill,
 };
 
 /// Errors raised by the persistence layer.
@@ -1722,7 +1723,7 @@ mod tests {
         let versions: Vec<i64> = migrator.iter().map(|m| m.version).collect();
         assert_eq!(
             versions,
-            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
         );
         for migration in migrator.iter() {
             assert!(
@@ -1748,7 +1749,7 @@ mod tests {
                 .expect("the migration ledger is readable");
         assert_eq!(
             applied,
-            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
         );
 
         let tables: Vec<String> = sqlx::query_scalar(

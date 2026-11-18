@@ -1,3 +1,4 @@
+use crate::swarm::SubtaskReceipt;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use warsha_core::{ApprovalMode, Confinement, ProjectId, Run, RunId, RunMode, RunStatus, Stage};
@@ -10,7 +11,7 @@ pub struct FailoverRecord {
     pub at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunReceipt {
     pub run_id: RunId,
     pub project_id: ProjectId,
@@ -33,6 +34,8 @@ pub struct RunReceipt {
     pub plan_approved_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub failovers: Vec<FailoverRecord>,
+    #[serde(default)]
+    pub subtasks: Vec<SubtaskReceipt>,
 }
 
 pub fn build_run_receipt(
@@ -46,6 +49,7 @@ pub fn build_run_receipt(
         coding_cli_timeout_seconds,
         effective_confinement,
         effective_approval_mode,
+        Vec::new(),
         Vec::new(),
     )
 }
@@ -65,6 +69,7 @@ pub fn build_run_receipt_with_failovers(
     effective_confinement: Option<Confinement>,
     effective_approval_mode: Option<ApprovalMode>,
     failovers: Vec<FailoverRecord>,
+    subtasks: Vec<SubtaskReceipt>,
 ) -> RunReceipt {
     RunReceipt {
         run_id: run.id,
@@ -81,5 +86,6 @@ pub fn build_run_receipt_with_failovers(
         run_mode: run.run_mode,
         plan_approved_at: plan_approved_at_of(run),
         failovers,
+        subtasks,
     }
 }
