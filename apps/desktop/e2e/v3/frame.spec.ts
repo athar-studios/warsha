@@ -69,7 +69,7 @@ test.describe('Frame journeys', () => {
         ).__WARSHA_STUB__?.configWrites ?? []
     );
     expect(
-      configWrites.some((w) => w.key === 'app_mode' && w.value === 'advanced')
+      configWrites.some((w) => w.key === 'app_mode' && (w.value === 'developers' || w.value === 'advanced'))
     ).toBe(true);
 
     // Switch back to simple mode

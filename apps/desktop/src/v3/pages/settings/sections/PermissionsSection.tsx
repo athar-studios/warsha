@@ -126,14 +126,14 @@ export function PermissionsSection(): React.ReactElement {
           label={t('settings.permissions.confinement_label')}
           options={confinementOptions}
           value={defaultPerms.confinement}
-          onChange={(e) => void saveDefaultsAction.run(e.target.value as any, defaultPerms.approvalMode)}
+          onChange={(e) => void saveDefaultsAction.run(e.target.value as ProjectPermissions['confinement'], defaultPerms.approvalMode)}
           data-testid="settings-permissions-default-confinement"
         />
         <Select
           label={t('settings.permissions.approval_label')}
           options={approvalOptions}
           value={defaultPerms.approvalMode}
-          onChange={(e) => void saveDefaultsAction.run(defaultPerms.confinement, e.target.value as any)}
+          onChange={(e) => void saveDefaultsAction.run(defaultPerms.confinement, e.target.value as ProjectPermissions['approvalMode'])}
           data-testid="settings-permissions-default-approval"
         />
       </div>

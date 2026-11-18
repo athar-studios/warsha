@@ -1,8 +1,8 @@
 .gauge-container {
   width: 100%;
-  height: 8px;
+  height: var(--w-space-2);
   background-color: var(--color-bg-subtle);
-  border-radius: 4px;
+  border-radius: var(--w-space-1);
   overflow: hidden;
 }
 

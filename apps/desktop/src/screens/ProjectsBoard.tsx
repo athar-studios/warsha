@@ -544,7 +544,7 @@ export function ProjectsBoard({ client, onProjectSelect }: ProjectsBoardProps) {
             // The scrim is a token, not a raw colour or a colour function (R6): a screen may not mix one.
             // The dialog itself is the one `xl` radius on the bench (§1.1).
             backgroundColor: 'var(--warsha-color-bg)',
-            zIndex: 1000,
+            zIndex: 'var(--w-layer-modal)',
           }}
         >
           <div

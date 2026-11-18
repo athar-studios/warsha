@@ -14,7 +14,7 @@ test.describe('Permissions v3', () => {
 
   test('project override: open project permissions', async ({ page }) => {
     // Navigate to a project, open sheet
-    await openV3(page, '/projects/1', { lang: 'en' });
+    await openV3(page, '/p/proj-ui', { lang: 'en' });
     await expect(page.locator('[data-action="project.permissions.open"]')).toBeVisible();
     await page.locator('[data-action="project.permissions.open"]').click();
     await expect(page.getByTestId('project-permissions-sheet')).toBeVisible();
@@ -28,11 +28,11 @@ test.describe('Swarm settings v3 (D5)', () => {
     // The honest copy (A16.6) is visible beside the control.
     await expect(page.getByTestId('settings-swarm-honest-copy')).toBeVisible();
 
-    const toggle = page.getByTestId('project-swarm-toggle-1');
+    const toggle = page.getByTestId('project-swarm-toggle-proj-ui');
     await expect(toggle).toBeVisible();
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
 
-    await page.locator('[data-action="settings.swarm.save"]').click();
+    await toggle.click();
     await expectRpc(page, 'swarm.project.set');
     await expect(toggle).toHaveAttribute('aria-checked', 'true');
   });

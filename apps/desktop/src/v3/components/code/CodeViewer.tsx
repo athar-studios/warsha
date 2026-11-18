@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { EditorView, lineNumbers, highlightActiveLine, highlightSpecialChars, drawSelection, dropCursor, keymap } from '@codemirror/view';
-import { EditorState } from '@codemirror/state';
+import { EditorState, type Extension } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { search, searchKeymap } from '@codemirror/search';
 import { javascript } from '@codemirror/lang-javascript';
@@ -14,7 +14,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useT } from '@warsha/i18n/v3';
 import { useClient } from '../../app/ClientContext';
 
-const langMap: Record<string, any> = {
+const langMap: Record<string, Extension> = {
   rs: rust(),
   ts: javascript({ typescript: true }),
   tsx: javascript({ typescript: true }),

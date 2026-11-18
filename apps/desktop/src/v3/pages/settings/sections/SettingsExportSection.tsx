@@ -42,7 +42,7 @@ export function SettingsExportSection() {
   return (
     <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-3)' }}>
       <Text size="sm">{t('settings.export.desc', {}, locale)}</Text>
-      <Button variant="primary" onClick={handleExport}>{t('settings.export.export', {}, locale)}</Button>
+      <Button variant="primary" data-action="settings.backend.export" onClick={handleExport}>{t('settings.export.export', {}, locale)}</Button>
       {exportedData && (
         <Panel title={t('settings.export.title', {}, locale)}>
           <Text size="xs" style={{ fontFamily: 'var(--warsha-font-mono)' }}>{exportedData}</Text>

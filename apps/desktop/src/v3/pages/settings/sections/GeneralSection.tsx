@@ -453,6 +453,7 @@ export function GeneralSection(): React.ReactElement {
             role="switch"
             aria-checked={webMcpEnabled}
             aria-labelledby={webMcpLabelId}
+            aria-label={t('settings.general.webmcp')}
             data-action="settings.webmcp.set"
             data-testid="general-webmcp"
             onClick={() => {

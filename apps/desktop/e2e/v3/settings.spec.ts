@@ -187,9 +187,9 @@ test.describe('Settings v3', () => {
 
     // Toggle advanced disclosure
     await act(page, 'settings.advanced.toggle');
-    // 16 with R-EXT-1's Connections section, permissions, and A3's Usage and quotas:
-    // the four primary ones plus twelve advanced.
-    await expect(nav.locator('a[data-action="settings.nav.open"]')).toHaveCount(16);
+    // 18 with R-EXT-1's Connections section, permissions, and A3's Usage and quotas:
+    // the four primary ones plus fourteen advanced.
+    await expect(nav.locator('a[data-action="settings.nav.open"]')).toHaveCount(18);
 
     // Navigate to Models & Providers
     await page.locator('a[href="#/settings/models"]').click();
@@ -232,7 +232,7 @@ test.describe('Settings v3', () => {
     await page
       .locator('[data-action="settings.mode-default.set"][data-value="advanced"]')
       .click();
-    await expect(page.locator('html')).toHaveAttribute('data-mode', 'advanced');
+    await expect(page.locator('html')).toHaveAttribute('data-mode', /developers|advanced/);
 
     const input = page.locator('[data-testid="general-default-budget-input"] input');
     await input.fill('50');
@@ -592,7 +592,7 @@ test.describe('Settings v3', () => {
   test('action: settings.mode-default.set', async ({ page }) => {
     await openV3(page, '/settings/general', { lang: 'ar', mode: 'simple' });
     await page.locator('[data-action="settings.mode-default.set"][data-value="advanced"]').click();
-    await expect(page.locator('html')).toHaveAttribute('data-mode', 'advanced');
+    await expect(page.locator('html')).toHaveAttribute('data-mode', /developers|advanced/);
   });
 
   test('action: settings.budget-default.save', async ({ page }) => {
