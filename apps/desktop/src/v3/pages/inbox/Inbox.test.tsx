@@ -278,6 +278,46 @@ describe('InboxPage component journeys and states', () => {
     expect(screen.queryByTestId('inbox-reject-reason')).toBeNull();
   });
 
+  it('renders runmode-chip for a plan fixture row and none for agent rows', async () => {
+    const proj1: ProjectSummary = {
+      id: 'proj-1' as ProjectId,
+      name: 'Project Plan',
+      createdAt: '2026-10-01T08:00:00.000Z',
+      updatedAt: '2026-10-02T09:00:00.000Z',
+    };
+    const proj2: ProjectSummary = {
+      id: 'proj-2' as ProjectId,
+      name: 'Project Agent',
+      createdAt: '2026-10-03T08:00:00.000Z',
+      updatedAt: '2026-10-04T09:00:00.000Z',
+    };
+    const gate: GateSummary = {
+      stage: 'gate_a',
+      state: { state: 'pending' },
+      decidedAt: null,
+      decisionPayload: null,
+    };
+    const client = createMockClient({
+      listProjects: vi.fn().mockResolvedValue([proj1, proj2]),
+      listRuns: vi.fn().mockImplementation((projectId: string) => {
+        if (projectId === 'proj-1')
+          return Promise.resolve([{ id: 'run-plan', stage: 'gate_a', status: 'awaiting_gate', runMode: 'plan' }]);
+        if (projectId === 'proj-2')
+          return Promise.resolve([{ id: 'run-agent', stage: 'gate_a', status: 'awaiting_gate', runMode: 'agent' }]);
+        return Promise.resolve([]);
+      }),
+      getGates: vi.fn().mockResolvedValue([gate]),
+      mcpApprovalsList: vi.fn().mockResolvedValue([]),
+    });
+    renderInbox(client);
+    await waitFor(() => {
+      expect(screen.getByTestId('inbox-ready')).toBeDefined();
+    });
+    const chips = screen.getAllByTestId('runmode-chip');
+    expect(chips.length).toBe(1);
+    expect(chips[0].getAttribute('data-runmode')).toBe('plan');
+  });
+
   it('calls approveGate then advanceRun IN THAT EXACT ORDER on inbox.gate.approve', async () => {
     const callOrder: string[] = [];
     const client = createMockClient({

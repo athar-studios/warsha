@@ -427,4 +427,29 @@ describe('ProjectPage component', () => {
       expect(client.rejectGate).toHaveBeenCalledWith('run-gate', 'gate_a', 'Rejected by owner');
     });
   });
+
+  it('renders runmode-chip for a plan fixture row and none for agent rows', async () => {
+    // Agent run: no runmode chip
+    const agentClient = createMockClient({
+      listRuns: vi.fn().mockResolvedValue([{ ...RUNNING_RUN, runMode: 'agent' }]),
+    });
+    const { unmount } = renderProject(agentClient);
+    await waitFor(() => {
+      expect(screen.getByTestId('project-ready')).toBeDefined();
+    });
+    expect(screen.queryByTestId('runmode-chip')).toBeNull();
+    unmount();
+
+    // Plan run: renders runmode chip
+    const planClient = createMockClient({
+      listRuns: vi.fn().mockResolvedValue([{ ...RUNNING_RUN, runMode: 'plan' }]),
+    });
+    renderProject(planClient);
+    await waitFor(() => {
+      expect(screen.getByTestId('project-ready')).toBeDefined();
+    });
+    const chip = screen.getByTestId('runmode-chip');
+    expect(chip).toBeDefined();
+    expect(chip.getAttribute('data-runmode')).toBe('plan');
+  });
 });

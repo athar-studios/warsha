@@ -66,6 +66,7 @@ import {
   useRuns,
 } from '../../data';
 import { useRoute } from '../../router';
+import { RunModeChip, toRunModeChip } from '../bench/components/RunModeChip';
 
 import './project.css';
 
@@ -614,6 +615,11 @@ export default function ProjectPage(): React.ReactElement {
               label={statusLabels[statusPillState]}
               data-testid="project-status-pill"
             />
+            {currentRun && currentRun.runMode && toRunModeChip(currentRun.runMode) !== 'agent' ? (
+              <RunModeChip
+                runMode={currentRun.runMode}
+              />
+            ) : null}
           </div>
 
           <div className="v3-project-header-actions">

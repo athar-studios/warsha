@@ -40,6 +40,7 @@ import {
 } from '../../copy/stages';
 import { useProjects } from '../../data';
 import { useNavigate } from '../../router';
+import { RunModeChip, toRunModeChip } from '../bench/components/RunModeChip';
 
 import './inbox.css';
 
@@ -57,6 +58,7 @@ export interface InboxDecisionItem {
   runStage: Stage;
   gateStage: Stage;
   updatedAt: string;
+  runMode?: string;
 }
 
 /**
@@ -148,6 +150,7 @@ export function collectPendingDecisions(
           runStage: run.stage,
           gateStage: pendingGate.stage,
           updatedAt,
+          runMode: run.runMode,
         });
       }
     }
@@ -500,6 +503,9 @@ export default function InboxPage(): React.ReactElement {
 
     const rowMetaElement = (
       <div className="v3-inbox-row-meta">
+        {item.runMode && toRunModeChip(item.runMode) !== 'agent' ? (
+          <RunModeChip runMode={item.runMode} />
+        ) : null}
         <Badge variant="attention">{t(getSimpleStageLabelKey(item.gateStage))}</Badge>
         {item.updatedAt ? (
           <span className="v3-inbox-time">
@@ -795,6 +801,12 @@ export default function InboxPage(): React.ReactElement {
                   <bdi dir="auto">{selectedDecision.projectName}</bdi>
                 </span>
                 <span>·</span>
+                {selectedDecision.runMode && toRunModeChip(selectedDecision.runMode) !== 'agent' ? (
+                  <>
+                    <RunModeChip runMode={selectedDecision.runMode} />
+                    <span>·</span>
+                  </>
+                ) : null}
                 <Badge variant="attention">
                   {t(getSimpleStageLabelKey(selectedDecision.gateStage))}
                 </Badge>

@@ -31,6 +31,7 @@ import { useDensity } from '../../app/DensityContext';
 import { getSimpleStageLabelKey } from '../../copy/stages';
 import { useProjects } from '../../data';
 import { useNavigate } from '../../router';
+import { RunModeChip, toRunModeChip } from '../bench/components/RunModeChip';
 import { countPendingGatesAtCurrentStage } from '../frame/Frame';
 import { computeProjectStatus } from '../home';
 
@@ -343,7 +344,15 @@ export default function ProjectsPage(): React.ReactElement {
           const runs = runsByProject[row.id];
           const waiting = waitingGatesByProject[row.id] ?? 0;
           const { status } = computeProjectStatus(runs, waiting);
-          return <StatusPill status={status} label={statusLabels[status]} />;
+          const latestRun = runs?.[0];
+          return (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--w-space-2)' }}>
+              {latestRun?.runMode && toRunModeChip(latestRun.runMode) !== 'agent' ? (
+                <RunModeChip runMode={latestRun.runMode} />
+              ) : null}
+              <StatusPill status={status} label={statusLabels[status]} />
+            </span>
+          );
         },
       },
       {
@@ -551,7 +560,12 @@ export default function ProjectsPage(): React.ReactElement {
                     <h2 className="v3-projects-card-title">
                       <bdi dir="auto">{project.name || t('projects.unnamed')}</bdi>
                     </h2>
-                    <StatusPill status={status} label={statusLabels[status]} />
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--w-space-2)' }}>
+                      {runs?.[0]?.runMode && toRunModeChip(runs[0].runMode) !== 'agent' ? (
+                        <RunModeChip runMode={runs[0].runMode} />
+                      ) : null}
+                      <StatusPill status={status} label={statusLabels[status]} />
+                    </span>
                   </div>
 
                   <div className="v3-projects-card-body">

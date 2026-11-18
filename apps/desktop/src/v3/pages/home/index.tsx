@@ -35,6 +35,7 @@ import { getSimpleStageLabelKey, toSimpleStage, type SimpleStage } from '../../c
 import { useModels, usePreferences, useProjects, useRoles } from '../../data';
 import { useResource } from '../../data/useResource';
 import { useNavigate } from '../../router';
+import { RunModeChip, toRunModeChip } from '../bench/components/RunModeChip';
 import { countPendingGatesAtCurrentStage } from '../frame/Frame';
 
 import './home.css';
@@ -414,7 +415,15 @@ export default function HomePage(): React.ReactElement {
             failed: t('home.status_failed'),
             paused: t('home.status_paused'),
           };
-          return <StatusPill status={status} label={statusLabels[status]} />;
+          const latestRun = runs?.[0];
+          return (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--w-space-2)' }}>
+              {latestRun?.runMode && toRunModeChip(latestRun.runMode) !== 'agent' ? (
+                <RunModeChip runMode={latestRun.runMode} />
+              ) : null}
+              <StatusPill status={status} label={statusLabels[status]} />
+            </span>
+          );
         },
       },
       {
@@ -710,7 +719,12 @@ export default function HomePage(): React.ReactElement {
                         <h3 className="v3-home-card-title">
                           <bdi dir="auto">{project.name || t('home.project_unnamed')}</bdi>
                         </h3>
-                        <StatusPill status={status} label={statusLabels[status]} />
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--w-space-2)' }}>
+                          {runs?.[0]?.runMode && toRunModeChip(runs[0].runMode) !== 'agent' ? (
+                            <RunModeChip runMode={runs[0].runMode} />
+                          ) : null}
+                          <StatusPill status={status} label={statusLabels[status]} />
+                        </span>
                       </div>
 
                       <div
