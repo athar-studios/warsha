@@ -2403,6 +2403,24 @@ describe('wiring client methods (M16/M19/M20)', () => {
     );
   });
 
+  it('sends correct RPC request for listRunSessions', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse([]));
+    await client.listRunSessions('run-1' as RunId);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        body: expect.stringContaining('"method":"sessions.list"'),
+      })
+    );
+  });
+
+  it('refuses a listRunSessions answer that is not a list', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ session_id: 's-1' }));
+    await expect(client.listRunSessions('run-1' as RunId)).rejects.toThrow(
+      'Malformed RPC result from sessions.list: expected a list'
+    );
+  });
+
   it('refuses a preferences.record row missing its score', async () => {
     fetchMock.mockResolvedValueOnce(okResponse([{ key: 'dark mode' }]));
     await expect(client.recordPreference(SIGNAL)).rejects.toThrow('Malformed RPC result');

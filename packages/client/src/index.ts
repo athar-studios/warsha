@@ -135,6 +135,24 @@ export interface DeviceSummary {
   revoked?: boolean;
 }
 
+export type SessionId = string & { readonly __brand: unique symbol };
+export type SessionStatus = 'starting' | 'working' | 'waiting_on_owner' | 'idle' | 'done' | 'failed' | 'stopped';
+
+export interface Session {
+  id: SessionId;
+  runId: RunId | null;
+  projectId: ProjectId;
+  role: Role;
+  backend: string;
+  provider: string;
+  model: string;
+  status: SessionStatus;
+  startedAt: string;
+  endedAt: string | null;
+  parentSessionId: SessionId | null;
+  cliSessionId: string | null;
+}
+
 const SUMMARY_ERROR = 'Malformed summary';
 
 /** The object half of a summary decode: anything but a JSON object is refused by name. */
@@ -633,6 +651,11 @@ export interface WarshaEvent {
   kind: EventKind;
   payload: unknown;
   costCents: number | null;
+  /**
+   * E4: the event's token usage when the stage carried one (`warsha_core::Event.tokens`,
+   * `TokenUsage{input,output,total,cost_cents}`); absent when the row had none.
+   */
+  tokens?: { input: number | null; output: number | null; total: number | null; costCents: number | null } | null;
   createdAt: string;
   deviceId: DeviceId | null;
   /**
@@ -930,6 +953,20 @@ function decodeWarshaEvent(source: Record<string, unknown>): WarshaEvent {
 
   const kind = requiredString(field(source, 'kind'), 'kind');
   const costCents = optionalNumber(field(source, 'cost_cents', 'costCents'), 'cost_cents');
+  const tokensWire = field(source, 'tokens');
+  let tokens: WarshaEvent['tokens'] = null;
+  if (tokensWire !== null && tokensWire !== undefined) {
+    if (typeof tokensWire !== 'object' || Array.isArray(tokensWire)) {
+      throw new Error(`${EVENT_FRAME_ERROR}: malformed "tokens"`);
+    }
+    const tokenRecord = tokensWire as Record<string, unknown>;
+    tokens = {
+      input: optionalNumber(field(tokenRecord, 'input'), 'tokens.input'),
+      output: optionalNumber(field(tokenRecord, 'output'), 'tokens.output'),
+      total: optionalNumber(field(tokenRecord, 'total'), 'tokens.total'),
+      costCents: optionalNumber(field(tokenRecord, 'cost_cents', 'costCents'), 'tokens.cost_cents'),
+    };
+  }
   const createdAt = requiredString(field(source, 'created_at', 'createdAt'), 'created_at');
   const deviceId = optionalString(field(source, 'device_id', 'deviceId'), 'device_id');
 
@@ -957,6 +994,7 @@ function decodeWarshaEvent(source: Record<string, unknown>): WarshaEvent {
     kind,
     payload: field(source, 'payload') ?? null,
     costCents,
+    tokens,
     createdAt,
     deviceId: deviceId === null ? null : (deviceId as DeviceId),
   };
@@ -1745,7 +1783,25 @@ export function decodeFileContent(source: unknown): FileContent {
   };
 }
 
-/** One row of the MCP permission table (`warshad::McpPermissionRow`, `crates/warshad/src/lib.rs:581-592`). */
+/** Decodes a `warsha_core::Session` snake_case wire object to `Session`. */
+export function decodeSession(source: unknown): Session {
+  const record = wave2Object(source, 'session');
+  return {
+    id: wave2Id(record, 'id') as SessionId,
+    runId: wave2NullableString(record, 'run_id') as RunId | null,
+    projectId: wave2Id(record, 'project_id') as ProjectId,
+    role: wave2String(record, 'role') as Role,
+    backend: wave2String(record, 'backend'),
+    provider: wave2String(record, 'provider'),
+    model: wave2String(record, 'model'),
+    status: wave2String(record, 'status') as SessionStatus,
+    startedAt: wave2String(record, 'started_at'),
+    endedAt: wave2NullableString(record, 'ended_at'),
+    parentSessionId: wave2NullableString(record, 'parent_session_id') as SessionId | null,
+    cliSessionId: wave2NullableString(record, 'cli_session_id'),
+  };
+}
+
 export interface McpPermissionRow {
   server: string;
   tool: string;
@@ -2187,6 +2243,26 @@ export class WarshaClient
       args,
     });
     return decodeGateEvidence(row, 'gates.evidence');
+  }
+
+  async stopSession(sessionId: SessionId): Promise<void> {
+    await this.rpc('sessions.stop', { session_id: sessionId });
+  }
+
+  async listRunSessions(runId: RunId): Promise<Session[]> {
+    const rows = await this.rpc<unknown[]>('sessions.list', { run_id: runId });
+    return wiringList(rows, 'sessions.list', decodeSession);
+  }
+
+  async getRunEvents(runId: RunId): Promise<WarshaEvent[]> {
+    const rows = await this.rpc<unknown[]>('runs.events', { run_id: runId });
+    return wiringList(rows, 'runs.events', (row, method) =>
+      decodeWarshaEvent(wiringObject(row, method))
+    );
+  }
+
+  async getSessionTail(sessionId: SessionId): Promise<string[]> {
+    return await this.rpc<string[]>('sessions.tail', { session_id: sessionId });
   }
 
   // MCP approvals and permissions (R-BRIDGE-B3b).

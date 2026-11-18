@@ -195,6 +195,9 @@ export const RPC_METHODS = [
   'runs.start',
   'runs.subtasks',
   'runs.subscribe',
+  'sessions.list',
+  'sessions.stop',
+  'sessions.tail',
   'skills.delete',
   'skills.import',
   'skills.list',
@@ -2122,6 +2125,48 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
           backup_dir: '/tmp/warsha/.warsha-backup/1764939300',
         }),
       };
+    case 'sessions.list': {
+      // E4: `warshad` binds `run_id` positionally; the stub answers one parent
+      // session plus one swarm child (N1 parent link) for the seeded code run.
+      if (!paramEntry(params, 'run_id').found) return missingField('run_id');
+      return {
+        ok: true,
+        result: [
+          {
+            id: '01HCODER000000000000000000',
+            run_id: 'run-code',
+            project_id: 'proj-ui',
+            role: 'coder',
+            backend: 'claude-code',
+            provider: 'cli',
+            model: 'default',
+            status: 'working',
+            started_at: '2026-10-05T09:40:00.000Z',
+            ended_at: null,
+            parent_session_id: null,
+            cli_session_id: null,
+          },
+          {
+            id: '01HSWARM1000000000000000000',
+            run_id: 'run-code',
+            project_id: 'proj-ui',
+            role: 'coder',
+            backend: 'claude-code',
+            provider: 'cli',
+            model: 'default',
+            status: 'working',
+            started_at: '2026-10-05T09:41:00.000Z',
+            ended_at: null,
+            parent_session_id: '01HCODER000000000000000000',
+            cli_session_id: null,
+          },
+        ],
+      };
+    }
+    case 'sessions.tail':
+      return { ok: true, result: ['line 1', 'line 2'] };
+    case 'sessions.stop':
+      return { ok: true, result: null };
     // Wave 2 reads and writes plus the wiring batch (PLAN.md M16/M19/M20). These stubs exist to keep
     // W9 honest (every client method has a stub) and to model the daemon's own answers: reads list
     // `[]` or answer `null`, and the mutations echo a minimal valid row built from the request.
