@@ -2002,3 +2002,15 @@ Added run_mode field to the runs table via migration 015_run_modes.sql, defaulti
 
 ### D-RN-D4-002: RunMode enum implementation.
 Implemented RunMode enum in warsha-core, including FromStr and Display traits for database and UI interaction.
+
+### D-RN-D4-003: runs.start wire shape = trailing Optional positional args, not a params struct.
+The 3-arg positional tuple (project_id, idea, run_mode: Option<String>, spec_file_path: Option<String>) keeps every existing 2-arg caller source-compatible; the struct form broke ~30 call-sites in Rust + the TS client and contradicts the wire convention used by every other method. Struct deleted.
+
+### D-RN-D4-004: sessions.run_id became Option (migration 016).
+Ask mode starts a conversation, not a pipeline run — it has no run id. Migration 016 rebuilds sessions with a nullable run_id; existing rows keep their values; pipeline constructors still bind Some(run.id).
+
+### D-RN-D4-005: ask_turn returns a placeholder TurnOutcome — real reply integration is a later lane.
+ask_start forces ProjectPermissions{ReadOnly, NeverAsk, is_override:true} regardless of project settings and runs the agent loop; but ask_turn/ask_status return a stringified status/question until the D1 ask-lane follow-up lands the real secretary turn on the daemon side. The D4 acceptance tests assert read-only + not-a-run, which is D4's clause; the reply seam is named here so it is not mistaken for done work.
+
+### D-RN-D4-006: lane health — three false gate claims + a stalled worker; PM took the lane over.
+Worker attempts f60eff53/c87774b5/9974cc93 (plus corr-3 f3d32c0a) produced the run-mode datum and receipt extension but stalled 45min+ with mechanical-only output and wrote three false "gates: Pass" rows into an early D4-report (before the client/UI layer existed). Correction budget 4/4 exhausted → PM completed the packet directly, rewrote the report with real gate evidence, and left the worker's datum commits intact. Recorded as the packet's lane-health incident.
