@@ -26,10 +26,11 @@ import type { WarshaClient } from '@warsha/client';
 
 /** The wire `refs_owner_message` is the injection gate; the label is for the owner. */
 interface ProposalCardProps {
-  proposal: { label: string; action: ProposalAction } | null;
+  proposal: { label: string; action: ProposalAction; turnId: string } | null;
   refsOwnerMessage: string | null;
+  turns: readonly SecretaryTurn[];
   t: (key: string, params?: Record<string, string | number>) => string;
-  onConfirm: (proposal: { label: string; action: ProposalAction }) => void;
+  onConfirm: (proposal: { label: string; action: ProposalAction; turnId: string }) => void;
   onDismiss: () => void;
   estimate: CostEstimate | null;
   estimateState: 'idle' | 'loading' | 'ready' | 'failed';
@@ -37,9 +38,9 @@ interface ProposalCardProps {
 
 /** The one button that performs the proposal, labelled with what the secretary proposed. */
 export function ProposalCard(props: ProposalCardProps): React.ReactElement | null {
-  const { proposal, refsOwnerMessage, t, onConfirm, onDismiss, estimate, estimateState } = props;
+  const { proposal, refsOwnerMessage, turns, t, onConfirm, onDismiss, estimate, estimateState } = props;
   if (proposal === null) return null;
-  const blocked = refsOwnerMessage === null;
+  const blocked = refsOwnerMessage === null || !turns.some((turn) => turn.id === refsOwnerMessage);
   return (
     <div className="v3-secretary-proposal" data-testid="secretary-proposal-card">
       <div className="v3-secretary-proposal-title">{t('secretary.proposal.title')}</div>
@@ -115,6 +116,7 @@ export default function SecretaryChat({
   const [confirmedNote, setConfirmedNote] = useState(false);
   const [estimate, setEstimate] = useState<CostEstimate | null>(null);
   const [estimateState, setEstimateState] = useState<'idle' | 'loading' | 'ready' | 'failed'>('idle');
+  const [dismissedTurnIds, setDismissedTurnIds] = useState<Set<string>>(new Set());
 
   const tailRef = useRef<HTMLDivElement | null>(null);
 
@@ -177,9 +179,20 @@ export default function SecretaryChat({
 
   // The pre-run estimate only has a job on a run_start proposal: read it when one appears.
   const lastProposal = getLastProposal(turns);
+  const lastProposalTurnId = lastProposal ? lastProposal.turnId : null;
+  const lastProposalActionType = lastProposal ? lastProposal.action.type : null;
+  const lastProposalIdea = lastProposal && lastProposal.action.type === 'run_start' ? lastProposal.action.idea : null;
+  const visibleProposal = lastProposal && !dismissedTurnIds.has(lastProposal.turnId) ? lastProposal : null;
+
   useEffect(() => {
-    if (contextClient === null || projectId === null) return undefined;
-    if (lastProposal === null || lastProposal.action.type !== 'run_start') {
+    if (contextClient === null) return undefined;
+    const estimateProjectId = lastProposal?.action.type === 'run_start' ? lastProposal.action.projectId : projectId;
+    if (estimateProjectId === null) {
+      setEstimate(null);
+      setEstimateState('idle');
+      return undefined;
+    }
+    if (lastProposal === null || lastProposalActionType !== 'run_start') {
       setEstimate(null);
       setEstimateState('idle');
       return undefined;
@@ -187,7 +200,7 @@ export default function SecretaryChat({
     let cancelled = false;
     setEstimateState('loading');
     contextClient
-      .estimateRun(projectId, lastProposal.action.idea)
+      .estimateRun(estimateProjectId, lastProposalIdea!)
       .then((answer) => {
         if (cancelled) return;
         setEstimate(answer);
@@ -201,7 +214,7 @@ export default function SecretaryChat({
     return () => {
       cancelled = true;
     };
-  }, [contextClient, projectId, lastProposal]);
+  }, [contextClient, projectId, lastProposalTurnId, lastProposalActionType, lastProposalIdea]);
 
   // Keep the owner's eye at the newest turn.
   useEffect(() => {
@@ -242,11 +255,7 @@ export default function SecretaryChat({
         return without;
       });
       setInput('');
-      const threadForTurns = activeThread(threads)?.id ?? null;
-      const rows =
-        threadForTurns === reply.conversationId
-          ? await contextClient.getSecretaryTurns(reply.conversationId).catch(() => [])
-          : [];
+      const rows = await contextClient.getSecretaryTurns(reply.conversationId).catch(() => []);
       setTurns(rows);
       setTurnsState('ready');
     } catch (caught) {
@@ -261,31 +270,49 @@ export default function SecretaryChat({
     }
   }, [contextClient, input, sending, scope, projectId, threads, activeThread, t]);
 
+  const onDismiss = useCallback((turnId: string) => {
+    setDismissedTurnIds((prev) => new Set(prev).add(turnId));
+  }, []);
+  const [confirmed, setConfirmed] = useState(false);
   const confirm = useCallback(
-    (proposal: { label: string; action: ProposalAction }) => {
-      if (contextClient === null) return;
+    (proposal: { label: string; action: ProposalAction; turnId: string }) => {
+      if (contextClient === null || confirmed) return;
+      setConfirmed(true);
       const action = proposal.action;
       const finish = (): void => {
         setConfirmedNote(true);
         if (onConfirmed !== undefined) onConfirmed();
       };
       const run = (promise: Promise<unknown>): void => {
-        promise.then(finish).catch(() => setError(t('secretary.error')));
+        promise.then(finish).catch((e) => {
+          setError(t('secretary.error'));
+          setConfirmed(false);
+        });
       };
       if (action.type === 'gate_approve') {
         run(contextClient.approveGate(action.runId as RunId, action.stage as Stage));
       } else if (action.type === 'gate_reject') {
         run(contextClient.rejectGate(action.runId as RunId, action.stage as Stage, action.reason));
       } else if (action.type === 'queue_decide') {
-        run(contextClient.mcpAllowOnce(action.questionId));
+        if (action.allow) {
+          run(contextClient.mcpAllowOnce(action.questionId));
+        } else {
+          setError(t('secretary.refused'));
+          setConfirmed(false);
+        }
       } else if (action.type === 'run_start') {
         run(contextClient.startRun(action.projectId, action.idea));
       } else if (action.type === 'run_cancel') {
         run(contextClient.cancelRun(action.runId as RunId, 'secretary confirmed'));
       }
     },
-    [contextClient, onConfirmed, t]
+    [contextClient, onConfirmed, t, confirmed]
   );
+  
+  // Reset confirmed state when new proposal arrives or on mount
+  useEffect(() => {
+    setConfirmed(false);
+  }, [lastProposal?.turnId]);
 
   const scopeKey = scope === 'global' ? 'secretary.global' : 'secretary.project';
 
@@ -335,7 +362,7 @@ export default function SecretaryChat({
               data-testid={`secretary-turn-${turn.role}`}
             >
               <span className="v3-secretary-turn-role">
-                {turn.role === 'owner' ? t('secretary.title') : t('secretary.title')}
+                {turn.role === 'owner' ? t('secretary.role.owner') : t('secretary.role.assistant')}
               </span>
               <span className="v3-secretary-turn-content">{turn.content}</span>
             </div>
@@ -348,11 +375,17 @@ export default function SecretaryChat({
       {confirmedNote && <Banner variant="success">{t('secretary.confirmed')}</Banner>}
 
       <ProposalCard
-        proposal={lastProposal}
-        refsOwnerMessage={lastProposal !== null ? lastProposal.refsOwnerMessage : null}
+        proposal={visibleProposal}
+        refsOwnerMessage={visibleProposal !== null ? visibleProposal.refsOwnerMessage : null}
+        turns={turns}
         t={t}
         onConfirm={confirm}
-        onDismiss={() => setConfirmedNote(false)}
+        onDismiss={() => {
+            if (visibleProposal) {
+                onDismiss(visibleProposal.turnId);
+                setConfirmedNote(false);
+            }
+        }}
         estimate={estimate}
         estimateState={estimateState}
       />
@@ -400,6 +433,7 @@ export default function SecretaryChat({
  * leaves the card's blocked state.
  */
 function getLastProposal(turns: readonly SecretaryTurn[]): {
+  turnId: string;
   label: string;
   action: ProposalAction;
   refsOwnerMessage: string | null;
@@ -408,6 +442,7 @@ function getLastProposal(turns: readonly SecretaryTurn[]): {
     const turn = turns[index];
     if (turn.role === 'secretary' && turn.proposal !== null) {
       return {
+        turnId: turn.id,
         label: turn.proposal.label,
         action: turn.proposal.action,
         refsOwnerMessage: turn.refsOwnerMessage,

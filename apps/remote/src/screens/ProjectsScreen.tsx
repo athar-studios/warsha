@@ -59,21 +59,26 @@ export function ProjectsScreen() {
       setEstimateState('idle');
       return undefined;
     }
+    
     let cancelled = false;
-    setEstimateState('loading');
-    estimateRunAction(projectId, trimmed)
-      .then((answer) => {
-        if (cancelled) return;
-        setEstimate(answer);
-        setEstimateState('ready');
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setEstimate(null);
-        setEstimateState('failed');
-      });
+    const handler = setTimeout(() => {
+      setEstimateState('loading');
+      estimateRunAction(projectId, trimmed)
+        .then((answer) => {
+          if (cancelled) return;
+          setEstimate(answer);
+          setEstimateState('ready');
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setEstimate(null);
+          setEstimateState('failed');
+        });
+    }, 350);
+
     return () => {
       cancelled = true;
+      clearTimeout(handler);
     };
   }, [estimateRunAction, idea, projectId]);
 

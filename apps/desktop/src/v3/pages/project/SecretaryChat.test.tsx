@@ -92,6 +92,36 @@ describe('SecretaryChat', () => {
     vi.clearAllMocks();
   });
 
+  it('does not call mcpAllowOnce when allow: false', async () => {
+    const mcpAllowOnce = vi.fn().mockResolvedValue({ id: 'q1', granted: true });
+    const client = {
+      ...mockClient({}),
+      mcpAllowOnce,
+    } as unknown as WarshaClient;
+
+    // Simulate turn with queue_decide action: { type: 'queue_decide', allow: false, ... }
+    const turn = {
+      ...proposalTurn('turn-1'),
+      proposal: {
+        label: 'Allow MCP',
+        action: { type: 'queue_decide', questionId: 'q1', allow: false } as ProposalAction,
+      },
+    };
+    client.getSecretaryTurns = vi.fn().mockResolvedValue([ownerTurn, turn]);
+
+    renderPanel(client, 'p1' as ProjectId);
+    await waitFor(() => {
+      expect(screen.getByTestId('secretary-proposal-card')).toBeTruthy();
+    });
+
+    const confirmBtn = screen.getByTestId('secretary-confirm');
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('secretary.refused')).toBeTruthy();
+    });
+    expect(mcpAllowOnce).not.toHaveBeenCalled();
+  });
   it('renders the thread turns and the newest proposal as a confirm card', async () => {
     renderPanel(mockClient({}), 'p1' as ProjectId);
     await waitFor(() => {

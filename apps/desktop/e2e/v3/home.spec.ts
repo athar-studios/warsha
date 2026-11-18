@@ -227,6 +227,12 @@ test.describe('Home action ids', () => {
     const call = await expectRpc(page, 'projects.list');
     expect(call.method).toBe('projects.list');
   });
+
+  test('home.secretary.open opens the secretary sheet', async ({ page }) => {
+    await openV3(page, '/');
+    await act(page, 'home.secretary.open');
+    await expect(page.locator('[data-testid="home-secretary-sheet"]')).toBeVisible();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -262,6 +268,13 @@ test.describe('Home accessibility (@a11y)', () => {
     await page.keyboard.press('Tab'); // mode radio
     await page.keyboard.press('Tab'); // inbox button
     await page.keyboard.press('Tab'); // settings button
+
+    // Tab to global secretary button in the home header
+    await page.keyboard.press('Tab');
+    const activeSecretary = await page.evaluate(() =>
+      document.activeElement?.getAttribute('data-action')
+    );
+    expect(activeSecretary).toBe('home.secretary.open');
 
     // Now tab reaches the needs-you strip first (E2: waiting things come before
     // the composer — that is the strip's whole job). The strip holds one anchor

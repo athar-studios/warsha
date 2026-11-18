@@ -74,4 +74,9 @@ export const ACTIONS: readonly ActionDef[] = [
     effect: 'rpc',
     rpc: ['projects.create', 'interview.start'],
   },
+  {
+    id: 'home.secretary.open',
+    labelKey: 'secretary.title',
+    effect: 'state',
+  },
 ];

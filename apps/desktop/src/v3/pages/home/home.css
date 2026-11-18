@@ -1,4 +1,56 @@
+.v3-home-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-block-end: var(--w-space-4);
+}
+
+.v3-home-needsyou {
+  margin-block: var(--w-space-6);
+  padding: var(--w-space-4);
+  background: var(--w-surface-2);
+  border-radius: var(--w-radius-lg);
+}
+
+.v3-home-needsyou-row {
+  display: flex;
+  align-items: center;
+  gap: var(--w-space-3);
+  margin-block: var(--w-space-2);
+}
+
+.v3-home-needsyou-label {
+  font-size: var(--w-font-size-sm);
+  color: var(--w-text-muted);
+}
+
+.v3-home-needsyou-subject {
+  font-weight: var(--w-font-weight-bold);
+  flex: 1;
+}
+
+.v3-home-needsyou-wait {
+  color: var(--w-text-muted);
+  font-size: var(--w-font-size-xs);
+}
+
+.v3-home-needsyou-open {
+  padding-inline: var(--w-space-2);
+}
+
+.home-estimate {
+  padding: var(--w-space-3);
+  border-block: var(--w-border-width) solid var(--w-line);
+}
+
+.home-estimate-warnings {
+  color: var(--w-text-muted);
+  font-size: var(--w-font-size-xs);
+  margin-block-start: var(--w-space-1);
+}
+
 /* apps/desktop/src/v3/pages/home/home.css — Design System v3 Home Styles (DS v3 §2, UI_V3_PLAN §3.2) */
+
 
 .v3-home-root {
   display: flex;

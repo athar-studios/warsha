@@ -26,13 +26,14 @@ import {
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAction } from '../../actions';
+import SecretaryChat from '../project/SecretaryChat';
 import { useCapabilities } from '../../app/CapabilitiesContext';
 import { useClient } from '../../app/ClientContext';
 import { useDataReady } from '../../app/DataReadyContext';
 import { useDensity } from '../../app/DensityContext';
 import { notify } from '../../app/toast';
 import { getSimpleStageLabelKey, toSimpleStage, type SimpleStage } from '../../copy/stages';
-import { useModels, usePreferences, useProjects, useRoles } from '../../data';
+import { useModels, usePreferences, useProjects, useQuotaGauge, useRoles } from '../../data';
 import { ownerAlerts, raisedKeysAfter, type OwnerAlert } from './alerts';
 import { useResource } from '../../data/useResource';
 import { useNavigate } from '../../router';
@@ -275,12 +276,15 @@ export default function HomePage(): React.ReactElement {
   // once-per-condition alert bookkeeping.
   const [needsYou, setNeedsYou] = useState<NeedsYouRow[]>([]);
   const [queueTotal, setQueueTotal] = useState(0);
+  const [secretarySheetOpen, setSecretarySheetOpen] = useState(false);
   const raisedRef = useRef<Record<string, string>>({});
 
   const projectsResult = useProjects();
   const rolesResult = useRoles();
   const modelsResult = useModels();
   const preferencesResult = usePreferences('*');
+
+  const quotaGauge = useQuotaGauge();
 
   // Honest data-ready signaling
   useEffect(() => {
@@ -321,7 +325,11 @@ export default function HomePage(): React.ReactElement {
     const loadRunsAndGates = async (): Promise<void> => {
       const runsMap: Record<string, RunSummary[]> = {};
       const waitingMap: Record<string, number> = {};
+      const gatesByRunId: Record<string, GateSummary[]> = {};
       let totalWaiting = 0;
+      let oldestWaitingGateAt: string | null = null;
+      const failedRuns: RunSummary[] = [];
+      const gateRows: Record<string, { runId: string; runUpdatedAt: string; stage: string; pending: boolean }[]> = {};
 
       await Promise.all(
         projectList.map(async (project: ProjectSummary) => {
@@ -331,22 +339,35 @@ export default function HomePage(): React.ReactElement {
 
             let projectWaiting = 0;
             for (const run of runs) {
-              if (
-                run.status === 'completed' ||
-                run.status === 'cancelled' ||
-                run.status === 'failed'
-              ) {
+              if (run.status === 'failed') failedRuns.push(run);
+              
+              if (run.status === 'completed' || run.status === 'cancelled' || run.status === 'failed') {
                 continue;
               }
 
               try {
-                const gates: GateSummary[] = await client.getGates(run.id);
+                if (!gatesByRunId[run.id]) {
+                  gatesByRunId[run.id] = await client.getGates(run.id);
+                }
+                const gates = gatesByRunId[run.id];
                 projectWaiting += countPendingGatesAtCurrentStage(gates, run.stage);
+
+                gateRows[run.id] = gates.map((g) => ({
+                  runId: run.id,
+                  runUpdatedAt: run.updatedAt,
+                  stage: g.stage,
+                  pending: g.state.state === 'pending',
+                }));
+                
+                for (const row of gateRows[run.id]) {
+                  if (row.pending && (oldestWaitingGateAt === null || row.runUpdatedAt < oldestWaitingGateAt)) {
+                    oldestWaitingGateAt = row.runUpdatedAt;
+                  }
+                }
               } catch {
                 // Ignore single run gate failure
               }
             }
-
             waitingMap[project.id] = projectWaiting;
             totalWaiting += projectWaiting;
           } catch {
@@ -354,35 +375,6 @@ export default function HomePage(): React.ReactElement {
           }
         })
       );
-
-      // E2: per-run pending-gate rows + the approval asks, merged longest-waiting-first.
-      const gateRows: Record<string, { runId: string; runUpdatedAt: string; stage: string; pending: boolean }[]> = {};
-      let oldestWaitingGateAt: string | null = null;
-      const failedRuns: RunSummary[] = [];
-      for (const project of projectList) {
-        const runs = runsMap[project.id] ?? [];
-        for (const run of runs) {
-          let pendingRows: { runId: string; runUpdatedAt: string; stage: string; pending: boolean }[] = [];
-          try {
-            const gates: GateSummary[] = await client.getGates(run.id);
-            pendingRows = gates.map((gate) => ({
-              runId: run.id,
-              runUpdatedAt: run.updatedAt,
-              stage: gate.stage,
-              pending: gate.state.state === 'pending',
-            }));
-          } catch {
-            pendingRows = [];
-          }
-          gateRows[run.id] = pendingRows;
-          for (const row of pendingRows) {
-            if (row.pending && (oldestWaitingGateAt === null || row.runUpdatedAt < oldestWaitingGateAt)) {
-              oldestWaitingGateAt = row.runUpdatedAt;
-            }
-          }
-          if (run.status === 'failed') failedRuns.push(run);
-        }
-      }
 
       let asks: { id: string; runId: string; tool: string; requestedAt: string }[] = [];
       try {
@@ -408,15 +400,49 @@ export default function HomePage(): React.ReactElement {
         ));
         setQueueTotal(asks.length);
 
-        // E2: once-per-condition alerts. Raised keys persist until their condition
-        // clears (ownerAlerts refuses a raised key; raisedKeysAfter merges what still holds).
+        // Calculate max spend percent
+        let maxSpendPercent: number | null = null;
+        await Promise.all(
+          projectList.map(async (project) => {
+            try {
+              const budget = await client.getProjectBudget(project.id);
+              if (budget.totalBudgetUsd > 0) {
+                const pct = (budget.spentUsd / budget.totalBudgetUsd) * 100;
+                if (maxSpendPercent === null || pct > maxSpendPercent) {
+                  maxSpendPercent = pct;
+                }
+              }
+            } catch {
+              // Ignore budget fetch error
+            }
+          })
+        );
+
+        // E2: once-per-condition alerts.
         const alertList = homeAlerts({
           oldestWaitingGateAt,
           failedRuns,
-          quotaPercent: null,
-          spendPercent: null,
+          quotaPercent: quotaGauge.percentage,
+          spendPercent: maxSpendPercent,
           raised: raisedRef.current,
         });
+        
+        // Compute currently active condition keys
+        const now = Date.now();
+        const activeConditionKeys = new Set<string>();
+        if (oldestWaitingGateAt !== null && (now - Date.parse(oldestWaitingGateAt)) / 60_000 >= 10) activeConditionKeys.add('gate_waiting');
+        if (failedRuns.length > 0) activeConditionKeys.add('run_failed');
+        if (quotaGauge.percentage !== null && quotaGauge.percentage >= 80) activeConditionKeys.add('quota_near');
+        if (maxSpendPercent !== null && maxSpendPercent >= 80) activeConditionKeys.add('spend_near');
+
+        // Retain only currently active keys in raisedRef
+        const nextRaised: Record<string, string> = {};
+        for (const [key, msgKey] of Object.entries(raisedRef.current)) {
+          if (activeConditionKeys.has(key)) {
+            nextRaised[key] = msgKey;
+          }
+        }
+
         if (alertList.length > 0) {
           for (const alert of alertList) {
             notify({
@@ -426,11 +452,11 @@ export default function HomePage(): React.ReactElement {
             });
           }
           raisedRef.current = {
-            ...raisedRef.current,
+            ...nextRaised,
             ...raisedKeysAfter(alertList),
           };
         } else {
-          raisedRef.current = {};
+          raisedRef.current = nextRaised;
         }
       }
     };
@@ -440,7 +466,7 @@ export default function HomePage(): React.ReactElement {
     return () => {
       active = false;
     };
-  }, [client, projectsResult.data]);
+  }, [client, projectsResult.data, quotaGauge.percentage]);
 
   // Action: home.interview.start
   const [interviewProjectId, setInterviewProjectId] = useState<ProjectId | null>(null);
@@ -637,8 +663,27 @@ export default function HomePage(): React.ReactElement {
   return (
     <div className="v3-home-root">
       <div className="v3-home-narrow">
-        <h1 className="v3-home-title">{t('home.greeting')}</h1>
+        <div className="v3-home-header">
+           <h1 className="v3-home-title">{t('home.greeting')}</h1>
+           <Button
+             data-action="home.secretary.open"
+             data-testid="home-secretary-open"
+             onClick={() => setSecretarySheetOpen(true)}
+           >
+             {t('secretary.title')}
+           </Button>
+        </div>
         <p className="v3-home-help">{t('home.help')}</p>
+
+        <Sheet
+          open={secretarySheetOpen}
+          onClose={() => setSecretarySheetOpen(false)}
+          title={t('secretary.title')}
+          closeLabel={t('common.close')}
+          data-testid="home-secretary-sheet"
+        >
+          <SecretaryChat projectId={null} t={t} />
+        </Sheet>
 
         {/* Error state */}
         {projectsResult.status === 'error' && (
