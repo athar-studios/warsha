@@ -30,6 +30,12 @@ export const ACTIONS: readonly ActionDef[] = [
     effect: 'state',
   },
   {
+    id: 'frame.mode.factory',
+    labelKey: 'frame.mode_factory',
+    effect: 'nav',
+    route: '/factory',
+  },
+  {
     id: 'frame.mode.advanced',
     labelKey: 'frame.mode_advanced',
     effect: 'state',

@@ -5,7 +5,7 @@
 // here is a fixture value.
 import { test, expect } from '@playwright/test';
 
-import { openV3, expectRpc } from './support';
+import { openV3, act, expectRpc } from './support';
 
 test('Developers screen lists the fixture sessions with real figures', async ({ page }) => {
   await openV3(page, '/developers', { lang: 'en' });
@@ -20,9 +20,8 @@ test('Developers screen lists the fixture sessions with real figures', async ({ 
 
 test('developers.list.refresh re-reads sessions', async ({ page }) => {
   await openV3(page, '/developers', { lang: 'en' });
-  await expectRpc(page, 'sessions.list', async () => {
-    await page.locator('[data-action="developers.list.refresh"]').click();
-  });
+  await act(page, 'developers.list.refresh');
+  await expectRpc(page, 'sessions.list');
 });
 
 test('developers.detail.nav opens the session detail', async ({ page }) => {
@@ -35,9 +34,8 @@ test('developers.detail.nav opens the session detail', async ({ page }) => {
 test('developers.session.stop asks the daemon to stop the right session', async ({ page }) => {
   await openV3(page, '/developers', { lang: 'en' });
   await page.getByTestId('developers-row').first().click();
-  await expectRpc(page, 'sessions.stop', async () => {
-    await page.locator('[data-action="developers.session.stop"]').click();
-  });
+  await act(page, 'developers.session.stop');
+  await expectRpc(page, 'sessions.stop');
 });
 
 test('developers.session.view links to the code viewer', async ({ page }) => {

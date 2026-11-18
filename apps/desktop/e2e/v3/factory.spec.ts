@@ -4,7 +4,7 @@
 // renders an empty state unless the harness reports active runs.
 import { test, expect } from '@playwright/test';
 
-import { openV3, expectRpc } from './support';
+import { openV3, act, expectRpc } from './support';
 
 test('Factory floor renders the schematic with its stations', async ({ page }) => {
   await openV3(page, '/factory', { lang: 'en' });
@@ -15,15 +15,15 @@ test('Factory floor renders the schematic with its stations', async ({ page }) =
 
 test('factory.stop_all cancels active runs through the daemon', async ({ page }) => {
   await openV3(page, '/factory', { lang: 'en' });
-  await expectRpc(page, 'runs.cancel', async () => {
-    await page.locator('[data-action="factory.stop.all"]').click();
-  });
+  await act(page, 'factory.stop.all');
+  await expectRpc(page, 'runs.cancel');
 });
 
-test('factory.view_toggle switches to the list view', async ({ page }) => {
+test('factory.view.toggle switches to the list view', async ({ page }) => {
   await openV3(page, '/factory', { lang: 'en' });
   await page.locator('[data-action="factory.view.toggle"]').click();
   await expect(page.getByTestId('factory-list-view')).toBeVisible();
+});
 
 test('factory.agent.view opens the panel for a floor marker', async ({ page }) => {
   await openV3(page, '/factory', { lang: 'en' });
