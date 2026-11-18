@@ -173,7 +173,9 @@ export const BenchRail: React.FC<BenchRailProps> = ({
                           {t('bench.header.run_num', { number: runs.length - idx })}
                         </span>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--w-space-2)' }}>
-                          <RunModeChip runMode={run.runMode} data-testid="bench-rail-runmode" />
+                          {run.runMode && run.runMode !== 'agent' ? (
+                            <RunModeChip runMode={run.runMode} data-testid="runmode-chip" />
+                          ) : null}
                           <StatusPill status={pillState} label={t(getStatusLabelKey(run.status))} />
                         </span>
                       </button>

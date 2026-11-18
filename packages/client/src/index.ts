@@ -119,7 +119,7 @@ export interface RunSummary {
   startedAt: string;
   updatedAt: string;
   /** D4: how the run was started — absent on older daemons decodes to `agent`. */
-  runMode?: 'agent' | 'plan' | 'spec-file' | 'ask';
+  runMode: 'agent' | 'plan' | 'spec-file' | 'ask';
 }
 
 export interface GateSummary {
@@ -235,13 +235,22 @@ export function decodeRunSummary(source: unknown): RunSummary {
   }
   const startedAt =
     summaryString(field(record, 'created_at', 'createdAt', 'started_at', 'startedAt')) ?? '';
-  // D4: optional run mode. Older daemons omit the field; a non-string answer
-  // (or an unknown word) folds to undefined rather than guessing a mode.
-  const runModeRaw = summaryString(field(record, 'run_mode', 'runMode'));
-  const runMode =
-    runModeRaw === 'agent' || runModeRaw === 'plan' || runModeRaw === 'spec-file' || runModeRaw === 'ask'
-      ? runModeRaw
-      : undefined;
+  // D4: optional run mode. Older daemons omit the field -> default 'agent'.
+  // If present (not undefined/null), it must be a valid RunMode string or throw a strict decode error.
+  const runModeField = field(record, 'run_mode', 'runMode');
+  let runMode: 'agent' | 'plan' | 'spec-file' | 'ask' = 'agent';
+  if (runModeField !== undefined && runModeField !== null) {
+    if (
+      runModeField === 'agent' ||
+      runModeField === 'plan' ||
+      runModeField === 'spec-file' ||
+      runModeField === 'ask'
+    ) {
+      runMode = runModeField;
+    } else {
+      throw new Error(`${SUMMARY_ERROR}: "run" has an invalid "run_mode"`);
+    }
+  }
   return {
     id: summaryId(field(record, 'id'), 'run') as RunId,
     projectId: (summaryString(field(record, 'project_id', 'projectId')) ?? '') as ProjectId,

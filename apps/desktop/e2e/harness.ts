@@ -578,6 +578,7 @@ const RUNS = [
     status: 'running',
     startedAt: RUN_STARTED,
     updatedAt: '2026-10-05T09:45:00.000Z',
+    run_mode: 'agent',
   },
   {
     id: 'run-gate-a',
@@ -586,6 +587,7 @@ const RUNS = [
     status: 'awaiting_gate',
     startedAt: RUN_STARTED,
     updatedAt: '2026-10-05T09:00:00.000Z',
+    run_mode: 'plan',
   },
   {
     id: 'run-research',
@@ -594,6 +596,7 @@ const RUNS = [
     status: 'running',
     startedAt: RUN_STARTED,
     updatedAt: '2026-10-05T09:10:00.000Z',
+    run_mode: 'spec-file',
   },
   {
     id: 'run-review',
@@ -602,6 +605,7 @@ const RUNS = [
     status: 'running',
     startedAt: RUN_STARTED,
     updatedAt: '2026-10-05T09:20:00.000Z',
+    run_mode: 'ask',
   },
   {
     id: 'run-gate-c',
@@ -610,6 +614,7 @@ const RUNS = [
     status: 'awaiting_gate',
     startedAt: RUN_STARTED,
     updatedAt: '2026-10-05T09:45:00.000Z',
+    run_mode: 'agent',
   },
 ];
 
@@ -1566,9 +1571,13 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
       return { ok: true, result: PROJECTS };
     case 'runs.list': {
       const projectId = paramValue(params, 'project_id');
+      const runs = projectId === null ? RUNS : RUNS.filter((run) => run.projectId === projectId);
       return {
         ok: true,
-        result: projectId === null ? RUNS : RUNS.filter((run) => run.projectId === projectId),
+        result: runs.map(run => ({
+          ...run,
+          run_mode: run.run_mode,
+        })),
       };
     }
     case 'runs.get': {

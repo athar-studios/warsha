@@ -237,6 +237,7 @@ export const AdvancedComposer: React.FC<AdvancedComposerProps> = ({
             >
               <Select
                 label={t('bench.runmode.picker_label')}
+                aria-label={t('bench.runmode.picker_label')}
                 options={runModeChoices}
                 value={runModeChoice}
                 onChange={(e) => onRunModeChoice?.(e.target.value as 'agent' | 'plan' | 'spec-file')}
