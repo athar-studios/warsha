@@ -1976,3 +1976,17 @@ Introduce `should_failover(&ProviderError) -> bool` to distinguish between retry
 - **Reason**: Tool permissioning is a core domain requirement, not specific to pipeline execution. Placing these in `warsha-core` (the base tier of the architecture) ensures universal accessibility by `warsha-pipeline` and other future components (e.g., `warshad` daemon, `warsha-remote`) without creating upward dependency edges.
 D-RN-D1-001: Secretary interview state persisted in secretary_interviews table.
 D-RN-D1-002: Daily spend cap enforcement implemented in RPC handler using aggregated costs.
+
+## D-RN-D1-003 — Client types instead of loose unknowns (2026-11-18)
+The worker's client methods answered `Promise<unknown>` and the home page re-declared its
+own duplicate `InterviewStateView`. Fixed by declaring `InterviewState`/`InterviewTurnOutcome`
+wire types in `@warsha/client` once and typing the three methods strictly; the home page
+imports the client's type. Rationale: the client is the wire contract's TS side; a second
+local shape would drift from the daemon's serde output exactly where nobody watches.
+
+## D-RN-D1-004 — Gauge tier words are names, colours are tokens (2026-11-18)
+The R6 app-drift gate flags quoted colour words in app sources, and the gauge status is a
+tier name (`green | amber | red`) that maps to CSS classes (`gauge--green`…), where the
+actual colours are token references inside @warsha/ui. UsageSection now reuses
+`quotaPercentage`/`gaugeStatus` from useQuotaGauge via a shared identity tier map derived
+from `GaugeStatus` — one source of truth, zero quoted colour words, R6 back to 0.
