@@ -46,6 +46,10 @@ fn init_prompts() -> HashMap<Role, String> {
         Role::Feedback,
         include_str!("prompts/feedback.md").to_string(),
     );
+    map.insert(
+        Role::Secretary,
+        include_str!("prompts/secretary_interview.md").to_string(),
+    );
 
     map
 }

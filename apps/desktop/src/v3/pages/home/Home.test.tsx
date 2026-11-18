@@ -82,6 +82,7 @@ const SAMPLE_ROLES: RoleRouting[] = [
     role: 'intake',
     targets: [{ provider_id: 'open_router', model_id: 'openai/gpt-5', weight: 100 }],
     fallback_enabled: true,
+    daily_spend_cap_cents: null,
     budget_cents_per_run: 500,
   },
 ];

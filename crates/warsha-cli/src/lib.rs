@@ -734,6 +734,7 @@ impl CliApp {
                     targets: target_vec,
                     fallback_enabled: true,
                     budget_cents_per_run: None,
+                    daily_spend_cap_cents: None,
                 };
                 self.client.request::<(), _>("roles.set", (config,)).await?;
                 self.output(role_routing_set_message(lang, &role))?;

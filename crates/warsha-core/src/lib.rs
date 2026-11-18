@@ -196,6 +196,7 @@ pub enum Role {
     Release,
     Marketer,
     Feedback,
+    Secretary,
 }
 
 impl Role {
@@ -213,6 +214,7 @@ impl Role {
             Role::Release,
             Role::Marketer,
             Role::Feedback,
+            Role::Secretary,
         ]
     }
 }

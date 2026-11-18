@@ -50,6 +50,28 @@ impl WarshaRpc {
         }
     }
 
+    /// Resolve the Secretary's daily spend cap in cents:
+    /// 1. Explicit `daily_spend_cap_cents` on `Role::Secretary` routing config when set.
+    /// 2. Otherwise the smallest existing per-run default (`solo-bench` = 100 cents),
+    ///    capped lower if a role already configures a smaller per-run budget.
+    pub(crate) async fn secretary_daily_cap_cents(&self) -> u64 {
+        let routings = self.state.role_routings.read().await;
+        if let Some(cap) = routings
+            .get(&Role::Secretary)
+            .and_then(|cfg| cfg.daily_spend_cap_cents)
+        {
+            return cap;
+        }
+        let smallest_configured = routings
+            .values()
+            .filter_map(|cfg| cfg.budget_cents_per_run)
+            .min();
+        match smallest_configured {
+            Some(configured) => configured.min(crate::secretary::DEFAULT_SECRETARY_DAILY_CAP_CENTS),
+            None => crate::secretary::DEFAULT_SECRETARY_DAILY_CAP_CENTS,
+        }
+    }
+
     /// The run a preview for `project_id` is in context of, if there is one.
     ///
     /// The newest run of the project that has not finished: that is the run a
