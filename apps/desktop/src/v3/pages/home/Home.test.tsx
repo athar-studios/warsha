@@ -473,4 +473,39 @@ describe('HomePage', () => {
     fireEvent.click(openBtns[0]);
     expect(screen.getByTestId('route-inspector').textContent).toBe('/p/proj-1');
   });
+
+  it('renders runmode-chip for a plan fixture row and none for agent rows', async () => {
+    const planRun: RunSummary = {
+      id: 'run-plan' as RunId,
+      projectId: 'proj-1' as ProjectId,
+      stage: 'plan',
+      status: 'running',
+      runMode: 'plan',
+      startedAt: '2026-10-02T08:00:00.000Z',
+      updatedAt: '2026-10-02T09:00:00.000Z',
+    };
+    const agentRun: RunSummary = {
+      id: 'run-agent' as RunId,
+      projectId: 'proj-2' as ProjectId,
+      stage: 'gate_a',
+      status: 'awaiting_gate',
+      runMode: 'agent',
+      startedAt: '2026-10-04T08:00:00.000Z',
+      updatedAt: '2026-10-04T09:00:00.000Z',
+    };
+    const client = makeMockClient({
+      listRuns: vi.fn().mockImplementation(async (projectId: string) => {
+        if (projectId === 'proj-1') return [planRun];
+        if (projectId === 'proj-2') return [agentRun];
+        return [];
+      }),
+    });
+    await renderHome({ client, locale: 'en' });
+    await waitFor(() => {
+      expect(screen.getByTestId('home-projects-grid')).toBeDefined();
+    });
+    const chips = screen.getAllByTestId('runmode-chip');
+    expect(chips.length).toBe(1);
+    expect(chips[0].getAttribute('data-runmode')).toBe('plan');
+  });
 });
