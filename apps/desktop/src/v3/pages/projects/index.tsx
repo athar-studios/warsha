@@ -503,7 +503,7 @@ export default function ProjectsPage(): React.ReactElement {
               </Button>
             </form>
 
-            {mode === 'advanced' && (
+            {mode === 'developers' && (
               <Button
                 variant="secondary"
                 size="sm"
@@ -573,7 +573,7 @@ export default function ProjectsPage(): React.ReactElement {
         )}
 
         {/* Advanced mode: DataTable */}
-        {hasProjects && !isSearchEmpty && mode === 'advanced' && (
+        {hasProjects && !isSearchEmpty && mode === 'developers' && (
           <DataTable
             columns={tableColumns}
             data={filteredAndSortedProjects}

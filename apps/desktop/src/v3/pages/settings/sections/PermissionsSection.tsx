@@ -142,26 +142,37 @@ export function PermissionsSection(): React.ReactElement {
       {projects?.map(p => {
         const pPerms = projectPermsMap[p.id];
         if (!pPerms) return null;
+        const effectiveConf = pPerms.confinement;
+        const effectiveApp = pPerms.approvalMode;
+        const confLabel = confinementOptions.find((o) => o.value === effectiveConf)?.label ?? effectiveConf;
+        const appLabel = approvalOptions.find((o) => o.value === effectiveApp)?.label ?? effectiveApp;
         return (
           <div key={p.id} className="v3-settings-row" data-testid={'project-permissions-row-' + p.id}>
-            <span>{p.name}</span>
-            <StatusPill 
-              status={pPerms.isOverride ? 'waiting' : 'idle'}
-              label={t(pPerms.isOverride ? 'settings.permissions.override' : 'settings.permissions.inherits')}
-              data-testid={'project-permission-status-' + p.id}
-            />
+            <div className="v3-settings-row-main">
+              <div className="v3-settings-row-title" style={{ display: 'flex', alignItems: 'center', gap: 'var(--w-space-2)' }}>
+                <span>{p.name}</span>
+                <StatusPill 
+                  status={pPerms.isOverride ? 'waiting' : 'idle'}
+                  label={t(pPerms.isOverride ? 'settings.permissions.override' : 'settings.permissions.inherits')}
+                  data-testid={'project-permission-status-' + p.id}
+                />
+              </div>
+              <div className="v3-settings-row-subtitle">
+                {t('settings.override.effective', { value: `${confLabel} · ${appLabel}` })}
+              </div>
+            </div>
             <Select
               label={t('settings.permissions.confinement_label')}
               options={confinementOptions}
               value={pPerms.confinement}
-              onChange={(e) => void saveProjectAction.run(p.id, e.target.value as any, pPerms.approvalMode)}
+              onChange={(e) => void saveProjectAction.run(p.id, e.target.value as 'read-only' | 'workspace-write' | 'full-access', pPerms.approvalMode)}
               data-testid={'project-permission-confinement-' + p.id}
             />
             <Select
               label={t('settings.permissions.approval_label')}
               options={approvalOptions}
               value={pPerms.approvalMode}
-              onChange={(e) => void saveProjectAction.run(p.id, pPerms.confinement, e.target.value as any)}
+              onChange={(e) => void saveProjectAction.run(p.id, pPerms.confinement, e.target.value as 'ask-always' | 'ask-for-risky' | 'never-ask')}
               data-testid={'project-permission-approval-' + p.id}
             />
             {pPerms.isOverride && (

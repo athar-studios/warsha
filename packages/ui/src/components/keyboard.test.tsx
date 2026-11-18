@@ -319,6 +319,7 @@ describe('Roving focus in control groups', () => {
         mode="simple"
         onModeChange={onModeChange}
         simpleLabel="simple"
+        factoryLabel="factory"
         advancedLabel="advanced"
       />
     );
@@ -327,12 +328,16 @@ describe('Roving focus in control groups', () => {
 
     simple.focus();
     fireEvent.keyDown(simple, { key: 'ArrowRight' });
+    // The Factory rung sits between Simple and Advanced in the ladder.
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'factory' }));
+
+    fireEvent.keyDown(document.activeElement, { key: 'ArrowRight' });
     expect(document.activeElement).toBe(advanced);
     // Focus moved; the mode is still the owner's to change, by pressing the rung.
     expect(onModeChange).not.toHaveBeenCalled();
 
     fireEvent.click(advanced);
-    expect(onModeChange).toHaveBeenCalledWith('advanced');
+    expect(onModeChange).toHaveBeenCalledWith('developers');
 
     render(
       <Segmented

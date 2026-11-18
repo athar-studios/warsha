@@ -601,6 +601,6 @@ describe('SimpleMode mission composer', () => {
     const toggle = await screen.findByTestId('mode-toggle');
     expect(toggle).toHaveTextContent(t('simple.switch_to_complex', {}, 'ar'));
     fireEvent.click(toggle);
-    expect(onModeChange).toHaveBeenCalledWith('advanced');
+    expect(onModeChange).toHaveBeenCalledWith('developers');
   });
 });

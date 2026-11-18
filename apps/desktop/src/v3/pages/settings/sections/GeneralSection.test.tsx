@@ -121,7 +121,7 @@ describe('GeneralSection sound cues (R-UI-3 D2-b/D2-c, T5)', () => {
 function renderSectionIn(
   client: WarshaClient,
   locale: Locale,
-  mode: 'simple' | 'advanced'
+  mode: 'simple' | 'developers'
 ): ReturnType<typeof render> {
   return render(
     <I18nProvider initialLocale={locale}>
@@ -157,7 +157,7 @@ describe('GeneralSection browser assistant tools (R-EXT-5 T10)', () => {
 
   it('is present in advanced mode, off, and writes "on" on click with no RPC', async () => {
     const client = createClient();
-    renderSectionIn(client, 'en', 'advanced');
+    renderSectionIn(client, 'en', 'developers');
 
     const control = await waitFor(() => screen.getByTestId('general-webmcp'));
     expect(control).toHaveAttribute('role', 'switch');
@@ -211,7 +211,7 @@ describe('GeneralSection browser assistant tools (R-EXT-5 T10)', () => {
     ] as const;
 
     for (const [locale, name] of labels) {
-      const view = renderSectionIn(createClient(), locale, 'advanced');
+      const view = renderSectionIn(createClient(), locale, 'developers');
       const control = await waitFor(() => screen.getByTestId('general-webmcp'));
       expect(screen.getByRole('switch', { name })).toBe(control);
       view.unmount();

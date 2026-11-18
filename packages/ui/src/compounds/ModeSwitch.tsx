@@ -27,7 +27,7 @@ import {
 } from './internal';
 
 /** The two modes the product ships. Switching them preserves everything else (§3). */
-export type WorkbenchMode = 'simple' | 'advanced';
+export type WorkbenchMode = 'simple' | 'factory' | 'developers';
 
 /** A rung of the ladder: pressed, or quietly waiting to be. */
 function Rung({
@@ -75,6 +75,8 @@ export interface ModeSwitchProps {
   onModeChange: (mode: WorkbenchMode) => void;
   /** The Simple rung's label — `t('app.simpleMode')`. */
   simpleLabel: React.ReactNode;
+  /** The Factory rung's label — `t('app.factoryMode')`. */
+  factoryLabel: React.ReactNode;
   /** The Advanced rung's label — `t('app.advancedMode')`. */
   advancedLabel: React.ReactNode;
   /** The group's accessible name: "نمط الواجهة" / "interface mode". */
@@ -89,6 +91,7 @@ export function ModeSwitch({
   mode,
   onModeChange,
   simpleLabel,
+  factoryLabel,
   advancedLabel,
   label,
   disabled = false,
@@ -123,7 +126,10 @@ export function ModeSwitch({
       <Rung pressed={mode === 'simple'} disabled={disabled} onPress={() => onModeChange('simple')}>
         {simpleLabel}
       </Rung>
-      <Rung pressed={mode === 'advanced'} disabled={disabled} onPress={() => onModeChange('advanced')}>
+      <Rung pressed={mode === 'factory'} disabled={disabled} onPress={() => onModeChange('factory')}>
+        {factoryLabel}
+      </Rung>
+      <Rung pressed={mode === 'developers'} disabled={disabled} onPress={() => onModeChange('developers')}>
         {advancedLabel}
       </Rung>
     </div>

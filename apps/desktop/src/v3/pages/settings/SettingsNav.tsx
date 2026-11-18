@@ -1,6 +1,6 @@
 // apps/desktop/src/v3/pages/settings/SettingsNav.tsx — Settings SideNav with Simple/Advanced disclosure
 /* eslint-disable import/no-unresolved */
-import { useT } from '@warsha/i18n/v3';
+import { arCatalog, enCatalog, useT } from '@warsha/i18n/v3';
 import {
   Button,
   IconAlert,
@@ -18,16 +18,23 @@ import {
   IconSparkle,
   IconTerminal,
   IconWallet,
+  TextField,
 } from '@warsha/ui/v3';
 /* eslint-enable import/no-unresolved */
 import React from 'react';
 
-import { SETTINGS_SECTIONS, type SettingsSectionId } from './types';
+import { SETTINGS_SECTIONS, type SectionMeta, type SettingsSectionId } from './types';
+
+export type SettingsLayer = 'quick' | 'developers';
 
 export interface SettingsNavProps {
   activeSection: SettingsSectionId;
   onSelectSection: (id: SettingsSectionId) => void;
-  mode: 'simple' | 'advanced';
+  mode: 'simple' | 'factory' | 'developers';
+  layer: SettingsLayer;
+  onLayerChange: (layer: SettingsLayer) => void;
+  searchQuery: string;
+  onSearchChange: (q: string) => void;
   advancedExpanded: boolean;
   onToggleAdvanced: () => void;
 }
@@ -65,27 +72,107 @@ function getSectionIcon(id: SettingsSectionId): React.ReactNode {
   }
 }
 
+function matchesSearch(sec: SectionMeta, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const fields = [
+    sec.id,
+    enCatalog[sec.labelKey] ?? '',
+    enCatalog[sec.descKey] ?? '',
+    arCatalog[sec.labelKey] ?? '',
+    arCatalog[sec.descKey] ?? '',
+  ];
+  return fields.some((f) => f.toLowerCase().includes(q));
+}
+
 export function SettingsNav({
   activeSection,
   onSelectSection,
   mode,
+  layer,
+  onLayerChange,
+  searchQuery,
+  onSearchChange,
   advancedExpanded,
   onToggleAdvanced,
 }: SettingsNavProps): React.ReactElement {
   const t = useT();
 
-  const primarySections = SETTINGS_SECTIONS.filter((s) => !s.isAdvanced);
-  const advancedSections = SETTINGS_SECTIONS.filter((s) => s.isAdvanced);
+  const isSearching = searchQuery.trim().length > 0;
 
-  const showAdvanced = mode === 'advanced' || advancedExpanded;
+  let visiblePrimary: SectionMeta[] = [];
+  let visibleAdvanced: SectionMeta[] = [];
 
+  if (isSearching) {
+    const matched = SETTINGS_SECTIONS.filter((s) => matchesSearch(s, searchQuery));
+    visiblePrimary = matched.filter((s) => !s.isAdvanced);
+    visibleAdvanced = matched.filter((s) => s.isAdvanced);
+  } else if (layer === 'quick') {
+    const quick = SETTINGS_SECTIONS.filter((s) => s.isQuick);
+    visiblePrimary = quick;
+    visibleAdvanced = [];
+  } else {
+    visiblePrimary = SETTINGS_SECTIONS.filter((s) => !s.isAdvanced);
+    visibleAdvanced = SETTINGS_SECTIONS.filter((s) => s.isAdvanced);
+  }
+
+  const showAdvanced = isSearching || (layer === 'developers' && (mode !== 'simple' || advancedExpanded));
+  
   return (
     <nav
       className="v3-settings-nav"
       aria-label={t('settings.nav.label')}
     >
+      <div style={{ padding: 'var(--w-space-2)', display: 'flex', flexDirection: 'column', gap: 'var(--w-space-2)' }}>
+        <TextField
+          label={t('settings.search.label')}
+          placeholder={t('settings.search.placeholder')}
+          value={searchQuery}
+          onChange={(e) => onSearchChange(e.target.value)}
+          data-testid="settings-search-input"
+        />
+
+        {!isSearching && (
+          <div
+            role="radiogroup"
+            aria-label={t('settings.nav.label')}
+            className="v3-settings-segmented-group"
+            style={{ width: '100%' }}
+          >
+            <button
+              type="button"
+              role="radio"
+              aria-checked={layer === 'quick'}
+              data-action="settings.layer.quick"
+              className="v3-settings-segmented-item"
+              onClick={() => onLayerChange('quick')}
+              style={{ flex: 1 }}
+            >
+              {t('settings.layer.quick')}
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={layer === 'developers'}
+              data-action="settings.layer.advanced"
+              className="v3-settings-segmented-item"
+              onClick={() => onLayerChange('developers')}
+              style={{ flex: 1 }}
+            >
+              {t('settings.layer.advanced')}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {isSearching && visiblePrimary.length === 0 && visibleAdvanced.length === 0 && (
+        <div style={{ padding: 'var(--w-space-4)', color: 'var(--w-text-muted)', fontSize: 'var(--w-font-size-sm)' }}>
+          {t('settings.search.empty')}
+        </div>
+      )}
+
       <ul className="v3-settings-nav-list">
-        {primarySections.map((sec) => {
+        {visiblePrimary.map((sec) => {
           const isActive = sec.id === activeSection;
           return (
             <li key={sec.id}>
@@ -109,7 +196,7 @@ export function SettingsNav({
         })}
       </ul>
 
-      {mode === 'simple' && (
+      {!isSearching && layer === 'developers' && mode === 'simple' && (
         <div style={{ paddingInline: 'var(--w-space-1)' }}>
           <Button
             variant="ghost"
@@ -137,7 +224,7 @@ export function SettingsNav({
         </div>
       )}
 
-      {showAdvanced && (
+      {showAdvanced && visibleAdvanced.length > 0 && (
         <div
           style={{
             display: 'flex',
@@ -145,11 +232,13 @@ export function SettingsNav({
             gap: 'var(--w-space-1)',
           }}
         >
-          <div className="v3-settings-nav-group-title">
-            {t('settings.nav.advanced_group')}
-          </div>
+          {!isSearching && (
+            <div className="v3-settings-nav-group-title">
+              {t('settings.nav.advanced_group')}
+            </div>
+          )}
           <ul className="v3-settings-nav-list">
-            {advancedSections.map((sec) => {
+            {visibleAdvanced.map((sec) => {
               const isActive = sec.id === activeSection;
               return (
                 <li key={sec.id}>

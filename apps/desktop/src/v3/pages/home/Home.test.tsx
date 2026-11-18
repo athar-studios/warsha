@@ -155,7 +155,7 @@ async function renderHome(
   options: {
     client?: WarshaClient;
     locale?: 'ar' | 'en';
-    mode?: 'simple' | 'advanced';
+    mode?: 'simple' | 'developers';
     providerAvailable?: boolean;
   } = {}
 ) {
@@ -462,7 +462,7 @@ describe('HomePage', () => {
   });
 
   it('renders recent projects as a DataTable in advanced mode', async () => {
-    await renderHome({ locale: 'en', mode: 'advanced' });
+    await renderHome({ locale: 'en', mode: 'developers' });
 
     await waitFor(() => {
       expect(document.querySelector('table.w-data-table')).not.toBeNull();

@@ -304,11 +304,22 @@ export function GeneralSection(): React.ReactElement {
             <button
               type="button"
               role="radio"
-              aria-checked={mode === 'advanced'}
+              aria-checked={mode === 'factory'}
+              data-action="settings.mode-default.set"
+              data-value="factory"
+              className="v3-settings-segmented-item"
+              onClick={() => handleModeChange('factory')}
+            >
+              {t('settings.general.mode.factory')}
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={mode === 'developers'}
               data-action="settings.mode-default.set"
               data-value="advanced"
               className="v3-settings-segmented-item"
-              onClick={() => handleModeChange('advanced')}
+              onClick={() => handleModeChange('developers')}
             >
               {t('settings.general.mode.advanced')}
             </button>
@@ -399,7 +410,7 @@ export function GeneralSection(): React.ReactElement {
           above, and the same reason for it: the action gate reads the literal `data-action` off the interactive
           element. Shown in advanced mode *or* whenever it is on — a live switch is never hidden — and it reports
           the one runtime fact the owner cannot see: whether this window has a browser assistant at all. */}
-      {(mode === 'advanced' || webMcpEnabled) && (
+      {(mode === 'developers' || webMcpEnabled) && (
         <div
           style={{
             display: 'flex',

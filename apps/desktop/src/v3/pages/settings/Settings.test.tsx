@@ -394,7 +394,7 @@ function createMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
 function renderSettings(
   initialPath = '/settings/general',
   client: WarshaClient = createMockClient(),
-  mode: 'simple' | 'advanced' = 'simple',
+  mode: 'simple' | 'developers' = 'simple',
   locale: 'ar' | 'en' = 'ar'
 ) {
   return render(
@@ -448,16 +448,16 @@ describe('SettingsPage (Slice 1)', () => {
     fireEvent.click(toggle as HTMLElement);
 
     const expandedLinks = nav.querySelectorAll('a[data-action="settings.nav.open"]');
-    expect(expandedLinks.length).toBe(16);
+    expect(expandedLinks.length).toBe(17);
   });
 
-  it('shows all 16 nav sections immediately in Advanced mode', async () => {
-    renderSettings('/settings/general', createMockClient(), 'advanced');
+  it('shows all 17 nav sections immediately in Advanced mode', async () => {
+    renderSettings('/settings/general', createMockClient(), 'developers');
     await waitFor(() => expect(screen.getByTestId('settings-section-general')).toBeDefined());
 
     const nav = screen.getByRole('navigation');
     const links = nav.querySelectorAll('a[data-action="settings.nav.open"]');
-    expect(links.length).toBe(16);
+    expect(links.length).toBe(17);
     expect(nav.querySelector('button[data-action="settings.advanced.toggle"]')).toBeNull();
   });
 
@@ -479,7 +479,7 @@ describe('SettingsPage (Slice 1)', () => {
     const advBtn = document.querySelector('button[data-action="settings.mode-default.set"][data-value="advanced"]');
     expect(advBtn).not.toBeNull();
     fireEvent.click(advBtn as HTMLElement);
-    expect(document.documentElement.getAttribute('data-mode')).toBe('advanced');
+    expect(document.documentElement.getAttribute('data-mode')).toBe('developers');
 
     const budgetInput = screen.getByTestId('general-default-budget-input').querySelector('input') as HTMLInputElement;
     fireEvent.change(budgetInput, { target: { value: '25' } });
@@ -605,7 +605,7 @@ describe('SettingsPage (Slice 1)', () => {
 
   it('handles workflow import, select, view dialog, and delete dialog in WorkflowsSection', async () => {
     const client = createMockClient();
-    renderSettings('/settings/workflows', client, 'advanced');
+    renderSettings('/settings/workflows', client, 'developers');
     await waitFor(() => expect(screen.getByTestId('settings-section-workflows')).toBeDefined());
 
     const importArea = screen.getByTestId('workflow-import-textarea').querySelector('textarea') as HTMLTextAreaElement;
@@ -628,7 +628,7 @@ describe('SettingsPage (Slice 1)', () => {
 
   it('handles skill import, toggle, and delete dialog in SkillsSection', async () => {
     const client = createMockClient();
-    renderSettings('/settings/skills', client, 'advanced');
+    renderSettings('/settings/skills', client, 'developers');
     await waitFor(() => expect(screen.getByTestId('settings-section-skills')).toBeDefined());
 
     fireEvent.change(screen.getByTestId('skill-import-name').querySelector('input') as HTMLInputElement, {
@@ -651,7 +651,7 @@ describe('SettingsPage (Slice 1)', () => {
 
   it('handles plugin install, toggle, configure dialog, and remove dialog in PluginsSection', async () => {
     const client = createMockClient();
-    renderSettings('/settings/plugins', client, 'advanced');
+    renderSettings('/settings/plugins', client, 'developers');
     await waitFor(() => expect(screen.getByTestId('settings-section-plugins')).toBeDefined());
 
     fireEvent.change(screen.getByTestId('plugin-install-textarea').querySelector('textarea') as HTMLTextAreaElement, {
@@ -682,7 +682,7 @@ describe('SettingsPage (Slice 1)', () => {
 
   it('handles integration connect dialog, test, and disconnect dialog in IntegrationsSection', async () => {
     const client = createMockClient();
-    renderSettings('/settings/integrations', client, 'advanced');
+    renderSettings('/settings/integrations', client, 'developers');
     await waitFor(() => expect(screen.getByTestId('settings-section-integrations')).toBeDefined());
 
     fireEvent.click(document.querySelector('button[data-action="settings.integration.connect.open"]') as HTMLElement);
@@ -708,7 +708,7 @@ describe('SettingsPage (Slice 1)', () => {
 
   it('handles routine run-now, pause, resume, and view dialog in RoutinesSection', async () => {
     const client = createMockClient();
-    renderSettings('/settings/routines', client, 'advanced');
+    renderSettings('/settings/routines', client, 'developers');
     await waitFor(() => expect(screen.getByTestId('settings-section-routines')).toBeDefined());
 
     fireEvent.click(document.querySelector('button[data-action="settings.routine.run-now"]') as HTMLElement);
@@ -726,7 +726,7 @@ describe('SettingsPage (Slice 1)', () => {
 
   it('handles project budget save in BudgetsSection', async () => {
     const client = createMockClient();
-    renderSettings('/settings/budgets', client, 'advanced');
+    renderSettings('/settings/budgets', client, 'developers');
     await waitFor(() => expect(screen.getByTestId('settings-section-budgets')).toBeDefined());
 
     const input = screen.getByTestId('project-budget-input-proj-1').querySelector('input') as HTMLInputElement;
@@ -737,7 +737,7 @@ describe('SettingsPage (Slice 1)', () => {
 
   it('handles crash filter, crash copy, and reviews filter in PostLaunchSection', async () => {
     const client = createMockClient();
-    renderSettings('/settings/postlaunch', client, 'advanced');
+    renderSettings('/settings/postlaunch', client, 'developers');
     await waitFor(() => expect(screen.getByTestId('settings-section-postlaunch')).toBeDefined());
 
     fireEvent.change(screen.getByTestId('postlaunch-run-filter-input').querySelector('input') as HTMLInputElement, {
@@ -758,7 +758,7 @@ describe('SettingsPage (Slice 1)', () => {
 
   it('handles backend kind set, feature toggle, and export in BackendSection', async () => {
     const client = createMockClient();
-    renderSettings('/settings/backend', client, 'advanced');
+    renderSettings('/settings/backend', client, 'developers');
     await waitFor(() => expect(screen.getByTestId('settings-section-backend')).toBeDefined());
 
     const supabaseBtn = document.querySelector('button[data-action="settings.backend.kind.set"][data-value="supabase"]') as HTMLElement;
@@ -861,7 +861,7 @@ describe('SettingsPage (Slice 1)', () => {
 
   it('validates workflow import in WorkflowsSection and refuses empty content', async () => {
     const client = createMockClient();
-    renderSettings('/settings/workflows', client, 'advanced');
+    renderSettings('/settings/workflows', client, 'developers');
     await waitFor(() => expect(screen.getByTestId('settings-section-workflows')).toBeDefined());
 
     fireEvent.click(document.querySelector('button[data-action="settings.harness.import"]') as HTMLElement);
@@ -873,14 +873,14 @@ describe('SettingsPage (Slice 1)', () => {
 
   it('renders EmptyState in WorkflowsSection when harnesses list is empty', async () => {
     const client = createMockClient({ listHarnesses: vi.fn().mockResolvedValue([]) });
-    renderSettings('/settings/workflows', client, 'advanced');
+    renderSettings('/settings/workflows', client, 'developers');
     await waitFor(() => expect(screen.getByTestId('settings-section-workflows')).toBeDefined());
     expect(document.querySelector('.w-empty-state')).not.toBeNull();
   });
 
   it('validates skill import in SkillsSection and refuses empty content', async () => {
     const client = createMockClient();
-    renderSettings('/settings/skills', client, 'advanced');
+    renderSettings('/settings/skills', client, 'developers');
     await waitFor(() => expect(screen.getByTestId('settings-section-skills')).toBeDefined());
 
     fireEvent.click(document.querySelector('button[data-action="settings.skill.import"]') as HTMLElement);
@@ -892,14 +892,14 @@ describe('SettingsPage (Slice 1)', () => {
 
   it('renders EmptyState in SkillsSection when skills list is empty', async () => {
     const client = createMockClient({ listSkills: vi.fn().mockResolvedValue([]) });
-    renderSettings('/settings/skills', client, 'advanced');
+    renderSettings('/settings/skills', client, 'developers');
     await waitFor(() => expect(screen.getByTestId('settings-section-skills')).toBeDefined());
     expect(document.querySelector('.w-empty-state')).not.toBeNull();
   });
 
   it('validates plugin install in PluginsSection and refuses empty manifest', async () => {
     const client = createMockClient();
-    renderSettings('/settings/plugins', client, 'advanced');
+    renderSettings('/settings/plugins', client, 'developers');
     await waitFor(() => expect(screen.getByTestId('settings-section-plugins')).toBeDefined());
 
     fireEvent.click(document.querySelector('button[data-action="settings.plugin.install"]') as HTMLElement);
@@ -911,14 +911,14 @@ describe('SettingsPage (Slice 1)', () => {
 
   it('renders EmptyState in PluginsSection when plugins list is empty', async () => {
     const client = createMockClient({ listPlugins: vi.fn().mockResolvedValue([]) });
-    renderSettings('/settings/plugins', client, 'advanced');
+    renderSettings('/settings/plugins', client, 'developers');
     await waitFor(() => expect(screen.getByTestId('settings-section-plugins')).toBeDefined());
     expect(document.querySelector('.w-empty-state')).not.toBeNull();
   });
 
   it('validates integration connect in IntegrationsSection and refuses empty id', async () => {
     const client = createMockClient();
-    renderSettings('/settings/integrations', client, 'advanced');
+    renderSettings('/settings/integrations', client, 'developers');
     await waitFor(() => expect(screen.getByTestId('settings-section-integrations')).toBeDefined());
 
     fireEvent.click(document.querySelector('button[data-action="settings.integration.connect.open"]') as HTMLElement);
@@ -933,35 +933,35 @@ describe('SettingsPage (Slice 1)', () => {
 
   it('renders EmptyState in IntegrationsSection when integrations list is empty', async () => {
     const client = createMockClient({ listIntegrations: vi.fn().mockResolvedValue([]) });
-    renderSettings('/settings/integrations', client, 'advanced');
+    renderSettings('/settings/integrations', client, 'developers');
     await waitFor(() => expect(screen.getByTestId('settings-section-integrations')).toBeDefined());
     expect(document.querySelector('.w-empty-state')).not.toBeNull();
   });
 
   it('renders EmptyState in RoutinesSection when routines list is empty', async () => {
     const client = createMockClient({ listRoutines: vi.fn().mockResolvedValue([]) });
-    renderSettings('/settings/routines', client, 'advanced');
+    renderSettings('/settings/routines', client, 'developers');
     await waitFor(() => expect(screen.getByTestId('settings-section-routines')).toBeDefined());
     expect(document.querySelector('.w-empty-state')).not.toBeNull();
   });
 
   it('renders EmptyState in BudgetsSection when projects list is empty', async () => {
     const client = createMockClient({ listProjects: vi.fn().mockResolvedValue([]) });
-    renderSettings('/settings/budgets', client, 'advanced');
+    renderSettings('/settings/budgets', client, 'developers');
     await waitFor(() => expect(screen.getByTestId('settings-section-budgets')).toBeDefined());
     expect(document.querySelector('.w-empty-state')).not.toBeNull();
   });
 
   it('renders EmptyState in PostLaunchSection when crashes list is empty', async () => {
     const client = createMockClient({ listCrashReports: vi.fn().mockResolvedValue([]), listStoreReviews: vi.fn().mockResolvedValue([]) });
-    renderSettings('/settings/postlaunch', client, 'advanced');
+    renderSettings('/settings/postlaunch', client, 'developers');
     await waitFor(() => expect(screen.getByTestId('settings-section-postlaunch')).toBeDefined());
     expect(document.querySelector('.w-empty-state')).not.toBeNull();
   });
 
   it('renders EmptyState in BackendSection when runs list is empty', async () => {
     const client = createMockClient({ listProjects: vi.fn().mockResolvedValue([]), listRuns: vi.fn().mockResolvedValue([]) });
-    renderSettings('/settings/backend', client, 'advanced');
+    renderSettings('/settings/backend', client, 'developers');
     await waitFor(() => expect(screen.getByTestId('settings-section-backend')).toBeDefined());
     expect(document.querySelector('.w-empty-state')).not.toBeNull();
   });

@@ -672,7 +672,7 @@ export default function HomePage(): React.ReactElement {
               </button>
             </div>
 
-            {mode === 'advanced' ? (
+            {mode === 'developers' ? (
               <DataTable
                 columns={tableColumns}
                 data={recentProjects}

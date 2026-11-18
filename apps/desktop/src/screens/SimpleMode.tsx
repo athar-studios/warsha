@@ -1077,7 +1077,7 @@ export function SimpleMode({ client, project, endpoint, onBack, onModeChange }: 
                   size="sm"
                   dir={dir}
                   data-testid="mode-toggle"
-                  onClick={() => onModeChange('advanced')}
+                  onClick={() => onModeChange('developers')}
                 >
                   {label('simple.switch_to_complex')}
                 </Button>
