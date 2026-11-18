@@ -37,6 +37,7 @@ mod providers;
 /// The Scout's MCP registry client over `reqwest` (R-EXT-3). Public because the
 /// packet that adds a consumer opts the daemon in; no RPC reaches it today.
 pub mod registry_http;
+pub mod secretary;
 mod settings;
 mod skills;
 mod state;
@@ -317,6 +318,61 @@ impl WarshaApiServer for WarshaRpc {
     ) -> RpcResult<CostEstimate> {
         self.authorize(ext, "runs.estimate").await?;
         crate::api_estimate::compute_run_estimate(self, project_id, &idea)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+    }
+
+    async fn interview_start(
+        &self,
+        ext: &RpcExtensions,
+        project_id: ProjectId,
+        seed_idea: Option<String>,
+    ) -> RpcResult<crate::secretary::TurnOutcome> {
+        self.authorize(ext, "interview.start").await?;
+        let cap_cents = self.secretary_daily_cap_cents().await;
+        let engine = crate::secretary::SecretaryEngine::new(
+            self.state.store.clone(),
+            self.state.providers.clone(),
+            Some(self.state.settings.clone()),
+        );
+        engine
+            .start(project_id, seed_idea, cap_cents)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+    }
+
+    async fn interview_turn(
+        &self,
+        ext: &RpcExtensions,
+        project_id: ProjectId,
+        reply: String,
+    ) -> RpcResult<crate::secretary::TurnOutcome> {
+        self.authorize(ext, "interview.turn").await?;
+        let cap_cents = self.secretary_daily_cap_cents().await;
+        let engine = crate::secretary::SecretaryEngine::new(
+            self.state.store.clone(),
+            self.state.providers.clone(),
+            Some(self.state.settings.clone()),
+        );
+        engine
+            .turn(project_id, reply, cap_cents)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+    }
+
+    async fn interview_status(
+        &self,
+        ext: &RpcExtensions,
+        project_id: ProjectId,
+    ) -> RpcResult<Option<crate::secretary::InterviewState>> {
+        self.authorize(ext, "interview.status").await?;
+        let engine = crate::secretary::SecretaryEngine::new(
+            self.state.store.clone(),
+            self.state.providers.clone(),
+            Some(self.state.settings.clone()),
+        );
+        engine
+            .status(project_id)
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
     }
@@ -1413,7 +1469,8 @@ impl WarshaApiServer for WarshaRpc {
         // Normalised through the core routing, so what is stored is what was honoured:
         // a caller who sent `INTAKE` or a target with a trailing space gets the same
         // table back from `roles.list` as the router is running.
-        let stored = routing_config(role, &routing);
+        let mut stored = routing_config(role, &routing);
+        stored.daily_spend_cap_cents = config.daily_spend_cap_cents;
 
         for target in &stored.targets {
             if target.provider_id == MOCK_PROVIDER_ID {

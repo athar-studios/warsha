@@ -6,6 +6,18 @@ import type {
   RoleRouting,
   RunSummary,
 } from '@warsha/client';
+type InterviewOutcome =
+  | { kind: 'next_question'; question: string; topic: string; state: unknown }
+  | { kind: 'done'; brief: unknown; direction_card: unknown; idea_text: string; state: unknown }
+  | { kind: 'daily_limit_reached'; message: string; spent_cents: number; cap_cents: number; state: unknown };
+type InterviewStateView = {
+  project_id: string;
+  next_question?: string;
+  open_topics: string[];
+  covered_topics: string[];
+  transcript: { question: string; answer: string }[];
+  is_done: boolean;
+};
 // eslint-disable-next-line import/no-unresolved
 import { useLocale, useT } from '@warsha/i18n/v3';
 import {
@@ -285,6 +297,19 @@ export default function HomePage(): React.ReactElement {
     };
   }, [client, projectsResult.data]);
 
+  // Action: home.interview_start
+  const [interviewProjectId, setInterviewProjectId] = useState<ProjectId | null>(null);
+  const [interviewState, setInterviewState] = useState<InterviewStateView | null>(null);
+  const startInterviewAction = useAction('home.interview_start', async () => {
+    if (!client) throw new Error(t('common.error'));
+    const projectName = deriveProjectName(idea.trim());
+    const project = await client.createProject(projectName, idea.trim(), locale);
+    const outcome = (await client.interviewStart(project.id, idea.trim())) as InterviewOutcome;
+    setInterviewProjectId(project.id);
+    if (outcome.kind === 'next_question') {
+      setInterviewState(outcome.state as InterviewStateView);
+    }
+  });
   // Action: home.start
   // MUST call projects.create -> budget.set -> runs.start IN THAT ORDER
   const startAction = useAction('home.start', async () => {
@@ -518,18 +543,30 @@ export default function HomePage(): React.ReactElement {
             </span>
 
             {hasProvider ? (
-              <Button
-                variant="primary"
-                size="lg"
-                iconEnd={<IconSend size={18} />}
-                disabled={!idea.trim() || startAction.pending}
-                loading={startAction.pending}
-                onClick={handleStartSubmit}
-                data-action="home.start"
-                data-testid="home-start-button"
-              >
-                {t('home.start')}
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  size="lg"
+                  disabled={!idea.trim() || startInterviewAction.pending}
+                  loading={startInterviewAction.pending}
+                  onClick={() => startInterviewAction.run()}
+                  data-action="home.interview_start"
+                >
+                  {t('home.interview_start')}
+                </Button>
+                <Button
+                  variant="primary"
+                  size="lg"
+                  iconEnd={<IconSend size={18} />}
+                  disabled={!idea.trim() || startAction.pending}
+                  loading={startAction.pending}
+                  onClick={handleStartSubmit}
+                  data-action="home.start"
+                  data-testid="home-start-button"
+                >
+                  {t('home.start')}
+                </Button>
+              </div>
             ) : (
               <Button
                 variant="secondary"

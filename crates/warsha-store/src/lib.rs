@@ -932,19 +932,22 @@ impl Store {
 
     // ------------------------------------------------------------------ secretary_interviews
     pub async fn save_secretary_interview(&self, project_id: ProjectId, state: &str) -> Result<()> {
-        sqlx::query("INSERT OR REPLACE INTO secretary_interviews (project_id, state) VALUES (?, ?)")
-            .bind(project_id.0.as_bytes().to_vec())
-            .bind(state)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            "INSERT OR REPLACE INTO secretary_interviews (project_id, state) VALUES (?, ?)",
+        )
+        .bind(project_id.0.as_bytes().to_vec())
+        .bind(state)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
     pub async fn load_secretary_interview(&self, project_id: ProjectId) -> Result<Option<String>> {
-        let row: Option<(String,)> = sqlx::query_as("SELECT state FROM secretary_interviews WHERE project_id = ?")
-            .bind(project_id.0.as_bytes().to_vec())
-            .fetch_optional(&self.pool)
-            .await?;
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT state FROM secretary_interviews WHERE project_id = ?")
+                .bind(project_id.0.as_bytes().to_vec())
+                .fetch_optional(&self.pool)
+                .await?;
         Ok(row.map(|r| r.0))
     }
 
@@ -954,6 +957,72 @@ impl Store {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    /// Record a project-scoped role cost without an owning run (e.g. a
+    /// Secretary interview turn before a pipeline run starts). The row sits in
+    /// `costs` with `run_id = NULL` and carries `agent_role` so A3's usage
+    /// aggregation (`aggregate_costs_by`, `costs_in_window`, etc.) splits it
+    /// out alongside run costs.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn record_role_cost(
+        &self,
+        project_id: ProjectId,
+        role: Role,
+        provider_id: &str,
+        model_id: &str,
+        prompt_tokens: u64,
+        completion_tokens: u64,
+        cost_cents: u64,
+        created_at: DateTime<Utc>,
+    ) -> Result<Ulid> {
+        let id = Ulid::new();
+        let agent_role = serde_json::to_string(&role)?;
+        sqlx::query(
+            "INSERT INTO costs (id, run_id, project_id, agent_role, provider_id, model_id, \
+             prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, source, \
+             estimated, cost_known, duration_ms, session_id, cost_cents, created_at) \
+             VALUES (?, NULL, ?, ?, ?, ?, ?, ?, 0, 0, 'api_metered', 0, 1, NULL, NULL, ?, ?)",
+        )
+        .bind(id.to_string())
+        .bind(project_id.0.as_bytes().to_vec())
+        .bind(agent_role)
+        .bind(provider_id)
+        .bind(model_id)
+        .bind(prompt_tokens as i64)
+        .bind(completion_tokens as i64)
+        .bind(cost_cents as i64)
+        .bind(created_at.to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+        Ok(id)
+    }
+
+    /// Sum recorded costs for a given project and role on a UTC calendar day (`YYYY-MM-DD`).
+    pub async fn daily_role_cost_cents(
+        &self,
+        project_id: ProjectId,
+        role: Role,
+        date_utc: &str,
+    ) -> Result<u64> {
+        let agent_role = serde_json::to_string(&role)?;
+        let row = sqlx::query(
+            "SELECT COALESCE(SUM(cost_cents), 0) AS total \
+             FROM costs \
+             WHERE project_id = ? AND agent_role = ? AND DATE(created_at) = ?",
+        )
+        .bind(project_id.0.as_bytes().to_vec())
+        .bind(agent_role)
+        .bind(date_utc)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(column_int(&row, "total")?.unsigned_abs())
+    }
+
+    /// Sum recorded costs for a given project and role during the current UTC day.
+    pub async fn today_role_cost_cents(&self, project_id: ProjectId, role: Role) -> Result<u64> {
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+        self.daily_role_cost_cents(project_id, role, &today).await
     }
 
     /// Record one model call's token usage and cost.
@@ -1626,7 +1695,7 @@ mod tests {
     fn embedded_migrator_versions_are_lf_only() {
         let migrator = migration_migrator();
         let versions: Vec<i64> = migrator.iter().map(|m| m.version).collect();
-        assert_eq!(versions, vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
         for migration in migrator.iter() {
             assert!(
                 !migration.sql.contains('\r'),
@@ -1649,7 +1718,7 @@ mod tests {
                 .fetch_all(store.pool())
                 .await
                 .expect("the migration ledger is readable");
-        assert_eq!(applied, vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13]);
+        assert_eq!(applied, vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
 
         let tables: Vec<String> = sqlx::query_scalar(
             "SELECT name FROM sqlite_master \

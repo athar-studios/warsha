@@ -45,6 +45,7 @@ function createMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
       role: 'intake',
       targets: [{ provider_id: 'prov-alpha', model_id: 'model-one', weight: 100 }],
       fallback_enabled: true,
+      daily_spend_cap_cents: null,
       budget_cents_per_run: 0,
     },
   ];

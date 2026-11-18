@@ -275,6 +275,7 @@ export default function BenchPage(): React.ReactElement {
         targets: [{ provider_id: providerId, model_id: modelId, weight: 100 }],
         fallback_enabled: existingRouting?.fallback_enabled ?? false,
         budget_cents_per_run: existingRouting?.budget_cents_per_run ?? 0,
+        daily_spend_cap_cents: existingRouting?.daily_spend_cap_cents ?? null,
       };
       await client.setRoleConfig(newConfig);
       rolesHook.reload();

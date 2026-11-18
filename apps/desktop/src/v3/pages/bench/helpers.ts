@@ -51,7 +51,8 @@ const ROLE_TO_MARK: Record<Role, AgentRole> = {
   security: 'security',
   release: 'releaser',
   marketer: 'scribe',
-  feedback: 'verifier',
+  feedback: "verifier",
+  secretary: "scribe",
 };
 
 export function mapRoleToMark(role: Role): AgentRole {

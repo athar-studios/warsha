@@ -342,6 +342,23 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Owner,
         tier: Standard,
     },
+    // Secretary interview: start and turn are Owner/Standard (take owner replies
+    // and guide brief creation), status is Session/Standard.
+    M {
+        method: "interview.start",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "interview.turn",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "interview.status",
+        policy: Session,
+        tier: Standard,
+    },
     // A run is a paid pipeline: it starts model work and writes files.
     M {
         method: "runs.start",

@@ -2650,6 +2650,7 @@ export class WarshaClient
         targets: config.targets,
         fallback_enabled: config.fallback_enabled,
         budget_cents_per_run: config.budget_cents_per_run,
+        daily_spend_cap_cents: config.daily_spend_cap_cents,
       },
     });
   }
@@ -2963,6 +2964,27 @@ export class WarshaClient
   async testIntegration(id: string): Promise<IntegrationTestResult> {
     const row = await this.rpc<unknown>('integrations.test', { id });
     return decodeIntegrationTestResult(row);
+  }
+
+  // Action: home.interview_start — creation-flow interview (packet D1). The
+  // owner's rough idea goes in; the engine asks one question per fixed topic
+  // until "enough", then finalizes a schema-checked Brief + Direction Card.
+  async interviewStart(projectId: ProjectId, seedIdea?: string): Promise<unknown> {
+    return this.rpc<unknown>('interview.start', {
+      project_id: projectId,
+      seed_idea: seedIdea ?? null,
+    });
+  }
+
+  async interviewTurn(projectId: ProjectId, reply: string): Promise<unknown> {
+    return this.rpc<unknown>('interview.turn', {
+      project_id: projectId,
+      reply,
+    });
+  }
+
+  async interviewStatus(projectId: ProjectId): Promise<unknown> {
+    return this.rpc<unknown>('interview.status', { project_id: projectId });
   }
 
   // Wave 2 — the project file browser.

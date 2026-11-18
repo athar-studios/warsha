@@ -51,4 +51,8 @@ export default {
   'home.col_status': 'Status',
   'home.col_stage': 'Stage',
   'home.col_updated': 'Last activity',
+  'home.interview_start': 'Start secretary interview',
+  'home.interview_title': 'Secretary Interview',
+  'home.interview_submit': 'Submit',
+  'home.interview_enough': 'Enough',
 };

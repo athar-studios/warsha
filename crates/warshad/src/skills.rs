@@ -30,7 +30,10 @@ const BUILTIN_SKILL_COMMANDS: &[(&str, &str)] = &[
     ("test", "Write or run the tests for the current change"),
     ("fix", "Repair the failing check, test or build"),
     ("explain", "Explain what a file or a change does"),
-    ("interview", "Conduct the secretary interview to refine the project brief"),
+    (
+        "interview",
+        "Conduct the secretary interview to refine the project brief",
+    ),
 ];
 
 /// The lock the daemon verifies its installed skills against: `factory/skills.lock`

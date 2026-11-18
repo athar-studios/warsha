@@ -33,6 +33,7 @@ describe('useRoles', () => {
         role: 'coder',
         targets: [{ provider_id: 'mock', model_id: 'default', weight: 1 }],
         fallback_enabled: true,
+        daily_spend_cap_cents: null,
         budget_cents_per_run: 100,
       },
     ];

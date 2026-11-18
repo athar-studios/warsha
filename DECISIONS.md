@@ -1974,3 +1974,5 @@ Introduce `should_failover(&ProviderError) -> bool` to distinguish between retry
 ## 2026-11-17 — Tool Permissioning Location: `warsha-core`
 - **Decision**: Define `Rule` model and `RuleStore` trait in `crates/warsha-core`.
 - **Reason**: Tool permissioning is a core domain requirement, not specific to pipeline execution. Placing these in `warsha-core` (the base tier of the architecture) ensures universal accessibility by `warsha-pipeline` and other future components (e.g., `warshad` daemon, `warsha-remote`) without creating upward dependency edges.
+D-RN-D1-001: Secretary interview state persisted in secretary_interviews table.
+D-RN-D1-002: Daily spend cap enforcement implemented in RPC handler using aggregated costs.
