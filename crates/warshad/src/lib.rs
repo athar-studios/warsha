@@ -3697,6 +3697,20 @@ impl WarshaApiServer for WarshaRpc {
         wave2::read_text(&root, &file).map_err(rpc_error)
     }
 
+    async fn diff_project_file(
+        &self,
+        ext: &RpcExtensions,
+        project_id: String,
+        path: String,
+        base_ref: String,
+    ) -> RpcResult<FileDiff> {
+        self.authorize(ext, "files.diff").await?;
+        let root = self.project_files_root(&project_id).await;
+        let joined = wave2::safe_join(&root, &path).map_err(rpc_invalid_params)?;
+        let file = wave2::resolve_inside(&root, &joined).map_err(rpc_invalid_params)?;
+        wave2::read_diff_with_extra(&root, &file, Some(&base_ref), &[]).map_err(rpc_error)
+    }
+
     async fn get_global_rules(&self, ext: &RpcExtensions) -> RpcResult<ToolRulesReply> {
         self.authorize(ext, "rules.global.get").await?;
         let settings = self.state.store.settings();

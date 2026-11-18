@@ -32,9 +32,10 @@ describe('useRuns', () => {
         id: 'r1' as RunId,
         projectId: 'p1' as ProjectId,
         stage: 'code',
-        status: 'running',
+        status: 'running', runMode: 'agent',
         startedAt: '2026-11-09T00:00:00Z',
         updatedAt: '2026-11-09T00:00:00Z',
+
       },
     ];
     const client = {

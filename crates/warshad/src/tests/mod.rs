@@ -6832,3 +6832,26 @@ mod agent_tool_events {
         );
     }
 }
+
+#[tokio::test]
+async fn a_protected_file_is_marked_and_not_read() {
+    let temp = crate::test_util::fresh_tempdir();
+    let root = temp.path().join("repo");
+    std::fs::create_dir_all(&root).expect("the directory is made");
+    std::fs::write(root.join(".env"), "SECRET=true").expect("a file is written");
+    std::fs::write(root.join("config.rs"), "pub fn x() {}").expect("a file is written");
+
+    // The list_tree and read_text tests.
+    let entries = crate::wave2::list_tree(&root, &root).expect("the root lists");
+
+    let env_entry = entries
+        .iter()
+        .find(|e| e.name == ".env")
+        .expect("entry should exist");
+    assert!(env_entry.protected, "protected files should be marked");
+
+    crate::wave2::read_text(&root, &root.join(".env"))
+        .expect_err("protected files should not be served");
+    crate::wave2::read_text(&root, &root.join("config.rs"))
+        .expect("normal files should be readable");
+}

@@ -953,6 +953,11 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         tier: Standard,
     },
     M {
+        method: "files.diff",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
         method: "rules.global.get",
         policy: Session,
         tier: Standard,

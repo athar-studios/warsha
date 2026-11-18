@@ -42,12 +42,14 @@ const SAMPLE_PROJECTS: ProjectSummary[] = [
     name: 'متجر ورشة',
     createdAt: '2026-10-01T08:00:00.000Z',
     updatedAt: '2026-10-02T09:00:00.000Z',
+
   },
   {
     id: 'proj-2' as ProjectId,
     name: 'Alpha Store',
     createdAt: '2026-10-03T08:00:00.000Z',
     updatedAt: '2026-10-04T09:00:00.000Z',
+
   },
 ];
 
@@ -56,9 +58,10 @@ const SAMPLE_RUNS_P1: RunSummary[] = [
     id: 'run-1' as RunId,
     projectId: 'proj-1' as ProjectId,
     stage: 'code',
-    status: 'running',
+    status: 'running', runMode: 'agent',
     startedAt: '2026-10-02T08:00:00.000Z',
     updatedAt: '2026-10-05T10:00:00.000Z',
+
   },
 ];
 
@@ -68,6 +71,7 @@ const SAMPLE_RUNS_P2: RunSummary[] = [
     projectId: 'proj-2' as ProjectId,
     stage: 'gate_a',
     status: 'awaiting_gate',
+    runMode: 'agent',
     startedAt: '2026-10-04T08:00:00.000Z',
     updatedAt: '2026-10-04T09:00:00.000Z',
   },
@@ -347,7 +351,7 @@ describe('ProjectsPage', () => {
     const planRun: RunSummary = {
       id: 'run-plan' as RunId,
       projectId: 'proj-1' as ProjectId,
-      stage: 'plan',
+      stage: 'plan_tasks',
       status: 'running',
       runMode: 'plan',
       startedAt: '2026-10-02T08:00:00.000Z',

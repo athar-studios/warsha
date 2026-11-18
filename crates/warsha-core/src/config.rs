@@ -83,6 +83,14 @@ pub struct FileEntry {
     pub is_dir: bool,
     /// Size in bytes for files; 0 for directories.
     pub size_bytes: u64,
+    /// Modification time, if available.
+    pub mtime: Option<DateTime<Utc>>,
+    /// Whether the entry is protected and content should not be served.
+    #[serde(default)]
+    pub protected: bool,
+    /// Short git porcelain status code (e.g. `"M"`, `"A"`, `"??"`), when in a git repo.
+    #[serde(default)]
+    pub git_status: Option<String>,
 }
 
 /// The text content of one file, for the viewer pane.
@@ -93,6 +101,21 @@ pub struct FileContent {
     /// The file's text; binary files are rejected before this is built.
     pub content: String,
     /// Best-guess MIME type, e.g. `text/markdown` or `application/json`.
+    pub mime_type: String,
+}
+
+/// Side-by-side diff payload for one file (`files.diff`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileDiff {
+    /// Path the diff was built for, relative to the browsing root.
+    pub path: String,
+    /// Git ref used for the base side (e.g. `"HEAD"` or a run base commit SHA).
+    pub base_ref: String,
+    /// File text at `base_ref` (empty string when the file does not exist at `base_ref`).
+    pub base_content: String,
+    /// Current file text on disk.
+    pub current_content: String,
+    /// Best-guess MIME type, e.g. `text/rust`.
     pub mime_type: String,
 }
 
@@ -223,6 +246,9 @@ mod tests {
             path: "docs/README.md".to_string(),
             is_dir: false,
             size_bytes: 1_024,
+            mtime: None,
+            protected: false,
+            git_status: Some("M".to_string()),
         };
         let encoded = serde_json::to_string(&entry).expect("encodes");
         assert_eq!(
@@ -239,6 +265,19 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<FileContent>(&encoded).expect("decodes"),
             content
+        );
+
+        let diff = FileDiff {
+            path: "docs/README.md".to_string(),
+            base_ref: "HEAD".to_string(),
+            base_content: "# Old".to_string(),
+            current_content: "# Warsha".to_string(),
+            mime_type: "text/markdown".to_string(),
+        };
+        let encoded = serde_json::to_string(&diff).expect("encodes");
+        assert_eq!(
+            serde_json::from_str::<FileDiff>(&encoded).expect("decodes"),
+            diff
         );
     }
 

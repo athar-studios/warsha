@@ -31,6 +31,7 @@ function run(projectId: string, stage: Stage, updatedAt = '2026-10-31T10:00:00.0
     projectId: projectId as ProjectId,
     stage,
     status: 'running',
+    runMode: 'agent',
     startedAt: updatedAt,
     updatedAt,
   };

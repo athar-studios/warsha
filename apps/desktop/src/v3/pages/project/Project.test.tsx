@@ -40,15 +40,17 @@ const SAMPLE_PROJECT: ProjectSummary = {
   name: 'متجر ورشة',
   createdAt: '2026-10-01T08:00:00.000Z',
   updatedAt: '2026-10-02T09:00:00.000Z',
+
 };
 
 const RUNNING_RUN: RunSummary = {
   id: 'run-code' as RunId,
   projectId: 'proj-1' as ProjectId,
   stage: 'code',
-  status: 'running',
+  status: 'running', runMode: 'agent',
   startedAt: '2026-10-02T08:00:00.000Z',
   updatedAt: '2026-10-02T09:00:00.000Z',
+
 };
 
 const AWAITING_GATE_RUN: RunSummary = {
@@ -56,6 +58,7 @@ const AWAITING_GATE_RUN: RunSummary = {
   projectId: 'proj-1' as ProjectId,
   stage: 'gate_a',
   status: 'awaiting_gate',
+  runMode: 'agent',
   startedAt: '2026-10-02T08:00:00.000Z',
   updatedAt: '2026-10-02T09:00:00.000Z',
 };
@@ -65,6 +68,7 @@ const FAILED_RUN: RunSummary = {
   projectId: 'proj-1' as ProjectId,
   stage: 'code',
   status: 'failed',
+  runMode: 'agent',
   startedAt: '2026-10-02T08:00:00.000Z',
   updatedAt: '2026-10-02T09:00:00.000Z',
 };
@@ -431,7 +435,7 @@ describe('ProjectPage component', () => {
   it('renders runmode-chip for a plan fixture row and none for agent rows', async () => {
     // Agent run: no runmode chip
     const agentClient = createMockClient({
-      listRuns: vi.fn().mockResolvedValue([{ ...RUNNING_RUN, runMode: 'agent' }]),
+      listRuns: vi.fn().mockResolvedValue([{ ...RUNNING_RUN }]),
     });
     const { unmount } = renderProject(agentClient);
     await waitFor(() => {

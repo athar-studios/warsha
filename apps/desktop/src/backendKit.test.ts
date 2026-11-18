@@ -8,6 +8,7 @@ const project: ProjectSummary = {
   name: 'shop',
   createdAt: '2026-10-31T10:00:00.000Z',
   updatedAt: '2026-10-31T10:00:00.000Z',
+
 };
 
 const run: RunSummary = {
@@ -16,7 +17,10 @@ const run: RunSummary = {
   stage: 'code',
   status: 'running',
   startedAt: '2026-10-31T10:00:00.000Z',
+  
   updatedAt: '2026-10-31T10:00:00.000Z',
+  runMode: 'agent',
+
 };
 
 describe('deriveBackendOutputDir', () => {
