@@ -43,14 +43,16 @@ function makeMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
     name: 'Build store',
     createdAt: '2026-10-01T08:00:00.000Z',
     updatedAt: '2026-10-01T08:00:00.000Z',
+
   };
   const startedRun: RunSummary = {
     id: 'run-456' as RunId,
     projectId: 'proj-123' as ProjectId,
     stage: 'idea',
-    status: 'running',
+    status: 'running', runMode: 'agent',
     startedAt: '2026-10-01T08:00:00.000Z',
     updatedAt: '2026-10-01T08:00:00.000Z',
+
   };
   const modelDiff: ModelCatalogDiff = {
     provider: 'deep_seek',

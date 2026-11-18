@@ -50,6 +50,7 @@ const PROJ_1: ProjectSummary = {
   name: 'متجر ورشة',
   createdAt: '2026-10-01T08:00:00.000Z',
   updatedAt: '2026-10-02T09:00:00.000Z',
+
 };
 
 const PROJ_2: ProjectSummary = {
@@ -57,15 +58,17 @@ const PROJ_2: ProjectSummary = {
   name: 'Warsha Store',
   createdAt: '2026-10-03T08:00:00.000Z',
   updatedAt: '2026-10-04T09:00:00.000Z',
+
 };
 
 const RUNNING_RUN: RunSummary = {
   id: 'run-code' as RunId,
   projectId: 'proj-1' as ProjectId,
   stage: 'code',
-  status: 'running',
+  status: 'running', runMode: 'agent',
   startedAt: '2026-10-02T08:00:00.000Z',
   updatedAt: '2026-10-02T09:00:00.000Z',
+
 };
 
 const AWAITING_GATE_RUN: RunSummary = {
@@ -73,6 +76,7 @@ const AWAITING_GATE_RUN: RunSummary = {
   projectId: 'proj-2' as ProjectId,
   stage: 'gate_a',
   status: 'awaiting_gate',
+  runMode: 'agent',
   startedAt: '2026-10-04T08:00:00.000Z',
   updatedAt: '2026-10-04T09:30:00.000Z',
 };
@@ -284,18 +288,18 @@ describe('InboxPage component journeys and states', () => {
       name: 'Project Plan',
       createdAt: '2026-10-01T08:00:00.000Z',
       updatedAt: '2026-10-02T09:00:00.000Z',
+
     };
     const proj2: ProjectSummary = {
       id: 'proj-2' as ProjectId,
       name: 'Project Agent',
       createdAt: '2026-10-03T08:00:00.000Z',
       updatedAt: '2026-10-04T09:00:00.000Z',
+
     };
     const gate: GateSummary = {
       stage: 'gate_a',
       state: { state: 'pending' },
-      decidedAt: null,
-      decisionPayload: null,
     };
     const client = createMockClient({
       listProjects: vi.fn().mockResolvedValue([proj1, proj2]),
@@ -487,6 +491,7 @@ describe('Inbox MCP approvals (R-BRIDGE-B3b)', () => {
       role: 'agent',
       summary: '{title: "Bug", body: [120 chars]}',
       updatedAt: '2026-10-05T09:00:00.000Z',
+
     });
 
     const gateItem = {
@@ -498,6 +503,7 @@ describe('Inbox MCP approvals (R-BRIDGE-B3b)', () => {
       runStage: 'gate_a' as const,
       gateStage: 'gate_a' as const,
       updatedAt: '2026-10-04T09:30:00.000Z',
+
     };
     const merged = mergeInboxItems([gateItem], mcpItems);
     expect(merged).toHaveLength(2);

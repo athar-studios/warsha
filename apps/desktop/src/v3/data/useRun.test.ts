@@ -32,6 +32,7 @@ describe('useRun', () => {
       projectId: 'p1' as ProjectId,
       stage: 'idea',
       status: 'active',
+      runMode: 'agent',
       startedAt: '2026-11-09T00:00:00Z',
       updatedAt: '2026-11-09T00:00:00Z',
     };
@@ -62,6 +63,7 @@ describe('useRun', () => {
       projectId: 'p1' as ProjectId,
       stage: 'idea',
       status: 'active',
+      runMode: 'agent',
       startedAt: '',
       updatedAt: '',
     };

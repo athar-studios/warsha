@@ -29,9 +29,11 @@ const run: RunSummary = {
   id: 'run-1' as RunId,
   projectId: 'proj-1' as ProjectId,
   stage: 'code',
-  status: 'running',
+  status: 'running', runMode: 'agent',
   startedAt: '2026-11-02T10:00:00.000Z',
+  
   updatedAt: '2026-11-02T10:00:00.000Z',
+
 };
 
 /** The same run stopped at a gate — the state the lit plate is reserved for. */

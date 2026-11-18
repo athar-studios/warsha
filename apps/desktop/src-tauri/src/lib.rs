@@ -938,6 +938,7 @@ pub fn run() -> anyhow::Result<()> {
     }
 
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .manage(shell)
         .invoke_handler(tauri::generate_handler![get_config, set_config])
         .build(tauri::generate_context!())?;

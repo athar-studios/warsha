@@ -20,6 +20,7 @@ function makeProject(id: string, name: string): ProjectSummary {
     name,
     createdAt: '2026-10-01T08:00:00.000Z',
     updatedAt: '2026-10-02T09:00:00.000Z',
+
   };
 }
 
@@ -29,6 +30,7 @@ function makeRun(id: string, projectId: string, stage: RunSummary['stage'], stat
     projectId: projectId as ProjectId,
     stage,
     status,
+    runMode: 'agent',
     startedAt: '2026-10-01T08:00:00.000Z',
     updatedAt: '2026-10-02T09:00:00.000Z',
   };

@@ -806,6 +806,7 @@ describe('Advanced Workbench (U4)', () => {
       <AdvancedComposer
         harnesses={[]}
         runModes={[]}
+        budgetUsd={10}
         onSendFollowup={vi.fn()}
         onSelectHarness={vi.fn()}
         onSetRunMode={vi.fn()}

@@ -25,7 +25,9 @@ const run: RunSummary = {
   stage: 'code',
   status: 'running',
   startedAt: '2026-11-02T10:00:00.000Z',
+  runMode: 'agent',
   updatedAt: '2026-11-02T10:00:00.000Z',
+
 };
 
 function offlineClient(): WarshaClient {

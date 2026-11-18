@@ -2,6 +2,10 @@
 - **Decision**: Implement Secretary interview using a new `Secretary` role with a bundled `interview` skill and a new state management approach that reuses `ProjectBrief` for state persistence.
 - **Reason**: Reusing `ProjectBrief` for interview state minimizes schema drift and simplifies pipeline integration (Gate A).
 
+## 2026-11-18 — E6: CodeMirror 6 Adoption
+- **Decision**: Use CodeMirror 6 (@codemirror/state, @codemirror/view, @codemirror/language, @codemirror/commands, @codemirror/search, @codemirror/lang-rust, @codemirror/lang-javascript, @codemirror/lang-json, @codemirror/lang-python, @codemirror/lang-css, @codemirror/lang-html, @codemirror/lang-markdown, @codemirror/merge) for read-only code viewing.
+- **Reason**: Meets E6 spec requirement for a modern, performant, and extensible editor. Audit confirms MIT licensing and no unsafe eval usage.
+
 ## 2026-11-16 — A1: Model Catalog Persistence
 - **Decision**: Catalog metadata (JSON) is embedded in binary; refreshed catalog is stored in app data directory with digest verification; custom models are stored in app data directory to survive refresh.
 - **Alternatives**: Always fetch from URL, build-time code generation for catalog, no custom model support.

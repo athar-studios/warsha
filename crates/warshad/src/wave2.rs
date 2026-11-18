@@ -27,9 +27,9 @@ use std::path::{Component, Path, PathBuf};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use warsha_core::{
-    CustomModelRecord, FileContent, FileEntry, HarnessDefinition, HarnessRules, HarnessStage,
-    IntegrationConfig, IntegrationStatus, PluginDefinition, PluginToolDefinition, Role,
-    SkillDefinition,
+    CustomModelRecord, FileContent, FileDiff, FileEntry, HarnessDefinition, HarnessRules,
+    HarnessStage, IntegrationConfig, IntegrationStatus, PluginDefinition, PluginToolDefinition,
+    Role, SkillDefinition,
 };
 use warsha_store::{
     StoredCustomModel, StoredHarness, StoredIntegration, StoredPlugin, StoredSkill,
@@ -81,6 +81,168 @@ const MIME_TYPES: &[(&str, &str)] = &[
 /// The viewer pane is a text pane; a 400 MB log read into a JSON-RPC reply is a
 /// daemon that stalls, and the honest refusal is cheaper than the incident.
 const MAX_READ_BYTES: u64 = 1_048_576;
+
+/// Match one simple glob pattern (`*` wildcards) against a name (case-insensitive).
+pub fn matches_protected_glob(candidate: &str, pattern: &str) -> bool {
+    let candidate = candidate.to_lowercase();
+    let pattern = pattern.trim().to_lowercase();
+    if pattern.is_empty() {
+        return false;
+    }
+    if !pattern.contains('*') {
+        return candidate == pattern;
+    }
+    let parts: Vec<&str> = pattern.split('*').collect();
+    let mut rest = candidate.as_str();
+    for (idx, part) in parts.iter().enumerate() {
+        if part.is_empty() {
+            continue;
+        }
+        if idx == 0 {
+            if let Some(after) = rest.strip_prefix(part) {
+                rest = after;
+            } else {
+                return false;
+            }
+        } else if idx == parts.len() - 1 {
+            return rest.ends_with(part);
+        } else if let Some(pos) = rest.find(part) {
+            rest = &rest[pos + part.len()..];
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
+/// Protected file detection using the built-in patterns and directories.
+pub fn is_protected(name: &str) -> bool {
+    let name = name.to_lowercase();
+    let protected_patterns = [
+        ".env",
+        ".env.*",
+        "*.pem",
+        "*.key",
+        "*.p12",
+        "*.pfx",
+        "id_rsa*",
+        "id_ed25519*",
+        "*.keystore",
+        "*.jks",
+        ".npmrc",
+        ".netrc",
+        "credentials*",
+        "secrets*",
+    ];
+    let protected_dirs = [".git", ".ssh", ".aws", ".gnupg"];
+
+    if protected_patterns
+        .iter()
+        .any(|&p| matches_protected_glob(&name, p))
+    {
+        return true;
+    }
+    protected_dirs.contains(&name.as_str())
+}
+
+/// Protected file detection merging built-in rules (never removable) with extra project globs.
+pub fn is_protected_with_extra(name: &str, extra_globs: &[String]) -> bool {
+    if is_protected(name) {
+        return true;
+    }
+    extra_globs
+        .iter()
+        .any(|glob| matches_protected_glob(name, glob))
+}
+
+/// True when any component of a relative path or the path itself matches built-in or extra globs.
+pub fn is_path_protected(rel_path: &str, extra_globs: &[String]) -> bool {
+    let normalized = rel_path.replace('\\', "/");
+    if is_protected_with_extra(&normalized, extra_globs) {
+        return true;
+    }
+    normalized
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .any(|segment| is_protected_with_extra(segment, extra_globs))
+}
+
+/// Collect `git status --porcelain` entries for a repository root.
+///
+/// Returns an empty map when `root` is not a git repository or git is unavailable,
+/// keeping non-git project folders browsable without noise.
+pub fn git_porcelain_status(root: &Path) -> HashMap<String, String> {
+    let output = match std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(root)
+        .output()
+    {
+        Ok(out) if out.status.success() => out,
+        _ => return HashMap::new(),
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut map = HashMap::new();
+    for line in text.lines() {
+        if line.len() < 4 {
+            continue;
+        }
+        let code = line[..2].trim().to_string();
+        if code.is_empty() {
+            continue;
+        }
+        let raw_path = line[3..].trim();
+        let target = raw_path
+            .rsplit_once(" -> ")
+            .map(|(_, rhs)| rhs)
+            .unwrap_or(raw_path);
+        let unquoted = target
+            .strip_prefix('"')
+            .and_then(|s| s.strip_suffix('"'))
+            .unwrap_or(target);
+        let normalized = unquoted
+            .replace('\\', "/")
+            .trim_start_matches("./")
+            .trim_end_matches('/')
+            .to_string();
+        if !normalized.is_empty() {
+            map.insert(normalized, code);
+        }
+    }
+    map
+}
+
+/// Resolve the base commit SHA for a run worktree relative to the project repository.
+///
+/// Falls back to `"HEAD"` when the worktree has no distinct merge-base with the project repo.
+#[allow(dead_code)]
+pub fn resolve_run_base_ref(worktree_root: &Path, project_repo: Option<&Path>) -> String {
+    if let Some(repo) = project_repo {
+        if let Ok(head_out) = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(repo)
+            .output()
+        {
+            if head_out.status.success() {
+                let project_head = String::from_utf8_lossy(&head_out.stdout).trim().to_string();
+                if !project_head.is_empty() && !project_head.starts_with('-') {
+                    if let Ok(mb_out) = std::process::Command::new("git")
+                        .args(["merge-base", "HEAD", &project_head])
+                        .current_dir(worktree_root)
+                        .output()
+                    {
+                        if mb_out.status.success() {
+                            let sha = String::from_utf8_lossy(&mb_out.stdout).trim().to_string();
+                            if !sha.is_empty() {
+                                return sha;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    "HEAD".to_string()
+}
 
 /// The directory under the daemon's data directory that holds a project's browsable
 /// files when the project has no repository yet.
@@ -1144,19 +1306,16 @@ pub fn safe_join(root: &Path, relative: &str) -> Checked<PathBuf> {
 }
 
 /// The path, canonicalised, proven to still be inside `root`.
-///
-/// `root` itself is canonicalised first because a project path that arrives through
-/// a link would otherwise make every child look like an escape.
 pub fn resolve_inside(root: &Path, target: &Path) -> Checked<PathBuf> {
     let canonical_root = root
         .canonicalize()
         .map_err(|_| "the project directory is not readable on this machine".to_string())?;
-    if target == root {
-        return Ok(canonical_root);
-    }
+
+    // Check for symlink escape using canonicalize.
     let canonical = target
         .canonicalize()
         .map_err(|_| format!("`{}` is not inside the project", target.display()))?;
+
     if canonical.starts_with(&canonical_root) {
         Ok(canonical)
     } else {
@@ -1176,6 +1335,15 @@ pub fn resolve_inside(root: &Path, target: &Path) -> Checked<PathBuf> {
 /// A directory that cannot be opened is an empty listing, not an error — the caller
 /// asked what is there, and nothing readable is there.
 pub fn list_tree(root: &Path, dir: &Path) -> Checked<Vec<FileEntry>> {
+    list_tree_with_extra(root, dir, &[])
+}
+
+/// One directory level with porcelain git status badges and merged extra protected globs.
+pub fn list_tree_with_extra(
+    root: &Path,
+    dir: &Path,
+    extra_globs: &[String],
+) -> Checked<Vec<FileEntry>> {
     let read = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -1186,6 +1354,7 @@ pub fn list_tree(root: &Path, dir: &Path) -> Checked<Vec<FileEntry>> {
             ))
         }
     };
+    let status_map = git_porcelain_status(root);
     let mut entries = Vec::new();
     for item in read.flatten() {
         let file_type = match item.file_type() {
@@ -1196,16 +1365,45 @@ pub fn list_tree(root: &Path, dir: &Path) -> Checked<Vec<FileEntry>> {
             continue;
         }
         let is_dir = file_type.is_dir();
-        let size_bytes = if is_dir {
+        let name = item.file_name().to_string_lossy().to_string();
+
+        // Ensure path resolves inside the project root, symlink protection.
+        if resolve_inside(root, &item.path()).is_err() {
+            continue;
+        }
+
+        let rel_path = relative_to(root, &item.path());
+        let protected = is_path_protected(&rel_path, extra_globs);
+        let size_bytes = if is_dir || protected {
             0
         } else {
             item.metadata().map(|meta| meta.len()).unwrap_or_default()
         };
+        let mtime = item
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .map(DateTime::<Utc>::from);
+        let git_status = if let Some(exact) = status_map.get(&rel_path) {
+            Some(exact.clone())
+        } else if is_dir {
+            let prefix = format!("{rel_path}/");
+            if status_map.keys().any(|k| k.starts_with(&prefix)) {
+                Some("M".to_string())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         entries.push(FileEntry {
-            name: item.file_name().to_string_lossy().to_string(),
-            path: relative_to(root, &item.path()),
+            name,
+            path: rel_path,
             is_dir,
             size_bytes,
+            mtime,
+            protected,
+            git_status,
         });
     }
     entries.sort_by(|left, right| {
@@ -1223,8 +1421,23 @@ pub fn list_tree(root: &Path, dir: &Path) -> Checked<Vec<FileEntry>> {
 /// and a reply full of U+FFFD is an answer no one can read. The size ceiling is
 /// checked before the read, so a huge file is refused cheaply.
 pub fn read_text(root: &Path, file: &Path) -> Checked<FileContent> {
+    read_text_with_extra(root, file, &[])
+}
+
+/// Read one text file while enforcing built-in plus project-configured protected globs.
+pub fn read_text_with_extra(
+    root: &Path,
+    file: &Path,
+    extra_globs: &[String],
+) -> Checked<FileContent> {
     let metadata = std::fs::metadata(file)
         .map_err(|_| format!("`{}` is not a file in this project", file.display()))?;
+
+    let rel_path = relative_to(root, file);
+    if is_path_protected(&rel_path, extra_globs) {
+        return Err(format!("`{}` is protected", file.display()));
+    }
+
     if !metadata.is_file() {
         return Err(format!("`{}` is not a file", file.display()));
     }
@@ -1244,9 +1457,51 @@ pub fn read_text(root: &Path, file: &Path) -> Checked<FileContent> {
         )
     })?;
     Ok(FileContent {
-        path: relative_to(root, file),
+        path: rel_path,
         content,
         mime_type: guess_mime(file).to_string(),
+    })
+}
+
+/// Read the side-by-side diff payload for one text file against `base_ref` (default `"HEAD"`).
+///
+/// Enforces all protected-glob, binary, and size checks before running `git show`.
+pub fn read_diff_with_extra(
+    root: &Path,
+    file: &Path,
+    base_ref: Option<&str>,
+    extra_globs: &[String],
+) -> Checked<FileDiff> {
+    let current = read_text_with_extra(root, file, extra_globs)?;
+    let effective_ref = match base_ref.map(str::trim).filter(|r| !r.is_empty()) {
+        Some(git_ref) => {
+            if git_ref.starts_with('-')
+                || git_ref.contains("..")
+                || git_ref.chars().any(char::is_control)
+            {
+                return Err(format!("`{git_ref}` is not a safe git reference"));
+            }
+            git_ref.to_string()
+        }
+        None => "HEAD".to_string(),
+    };
+    let spec = format!("{effective_ref}:{}", current.path);
+    let base_content = match std::process::Command::new("git")
+        .args(["show", &spec])
+        .current_dir(root)
+        .output()
+    {
+        Ok(out) if out.status.success() && (out.stdout.len() as u64) <= MAX_READ_BYTES => {
+            String::from_utf8(out.stdout).unwrap_or_default()
+        }
+        _ => String::new(),
+    };
+    Ok(FileDiff {
+        path: current.path,
+        base_ref: effective_ref,
+        base_content,
+        current_content: current.content,
+        mime_type: current.mime_type,
     })
 }
 

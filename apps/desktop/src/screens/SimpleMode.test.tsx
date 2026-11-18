@@ -115,7 +115,7 @@ const run: RunSummary = {
   id: 'run-9' as RunId,
   projectId: mockProject.id,
   stage: 'gate_a',
-  status: 'running',
+  status: 'running', runMode: 'agent',
   startedAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 };
@@ -327,9 +327,10 @@ const startedRun: RunSummary = {
   id: 'run-42' as RunId,
   projectId: mockProject.id,
   stage: 'idea',
-  status: 'running',
+  status: 'running', runMode: 'agent',
   startedAt: '2026-11-05T08:00:00.000Z',
   updatedAt: '2026-11-05T08:00:00.000Z',
+
 };
 
 const shelfArtifacts: RunArtifact[] = [

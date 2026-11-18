@@ -67,5 +67,7 @@
       "tsp": false
     }
   },
-  "plugins": {}
+  "plugins": {
+    "opener": {}
+  }
 }

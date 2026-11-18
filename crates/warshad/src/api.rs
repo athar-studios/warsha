@@ -746,6 +746,14 @@ pub trait WarshaApi {
     #[method(name = "files.read", with_extensions)]
     async fn read_project_file(&self, project_id: String, path: String) -> RpcResult<FileContent>;
 
+    #[method(name = "files.diff", with_extensions)]
+    async fn diff_project_file(
+        &self,
+        project_id: String,
+        path: String,
+        base_ref: String,
+    ) -> RpcResult<FileDiff>;
+
     // ----------------------------------------------------- tool rules (B3)
 
     /// The global owner-authored tool rules (deny/ask/allow lists).

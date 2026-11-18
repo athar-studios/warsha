@@ -19,6 +19,7 @@ const project: ProjectSummary = {
   name: 'متجر ورشة',
   createdAt: '2026-10-31T10:00:00.000Z',
   updatedAt: '2026-10-31T10:00:00.000Z',
+
 };
 
 const run: RunSummary = {
@@ -27,7 +28,10 @@ const run: RunSummary = {
   stage: 'code',
   status: 'running',
   startedAt: '2026-10-31T10:00:00.000Z',
+  
   updatedAt: '2026-10-31T10:00:00.000Z',
+  runMode: 'agent',
+
 };
 
 // Onboarding is done and the mode is Simple, exactly as the browser suite stubs it. One project with

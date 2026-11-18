@@ -18,6 +18,8 @@ Last reviewed: 2026-11-02 (M16 and B0 design-skill intake).
 | **IBM Plex Mono** | `5.3.0` (`@fontsource/ibm-plex-mono`) | OFL-1.1 | Code and ID typography for Design System v3. Bundled as woff2 assets. | [`fontsource/ibm-plex-mono/LICENSE`](https://github.com/fontsource/fontsource/blob/main/fonts/google/ibm-plex-mono/LICENSE) |
 | **oauth2** | `4.4.2` | MIT OR Apache-2.0 | Generic OAuth 2.0 PKCE and device flow handling in `warsha-providers`. | [`ramosbugs/oauth2-rs/LICENSE-MIT`](https://github.com/ramosbugs/oauth2-rs/blob/main/LICENSE-MIT) |
 | **url** | `2.5.4` | MIT OR Apache-2.0 | URL parsing and query parameter handling for OAuth and HTTP endpoints. | [`servo/rust-url/LICENSE-MIT`](https://github.com/servo/rust-url/blob/master/LICENSE-MIT) |
+| **CodeMirror 6 Editor** | (Pinned in `package.json`) | MIT | Editor for the project code viewer and diffing. | [codemirror/dev/LICENSE](https://github.com/codemirror/dev/blob/main/LICENSE) |
+| **tauri-plugin-opener** | `2.7.2` | Apache-2.0 | External file and URL opening plugin for Tauri desktop. | [tauri-apps/plugins-workspace/LICENSE](https://github.com/tauri-apps/plugins-workspace/blob/dev/LICENSE) |
 
 ## Reviewed external design skills — reference material only, not bundled
 
