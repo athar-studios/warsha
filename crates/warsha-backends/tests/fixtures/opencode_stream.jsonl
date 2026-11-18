@@ -1,0 +1,5 @@
+{"type":"step_start","timestamp":1794953310025,"sessionID":"ses_e14721b8dffe2AMxpbQc4R24AO","part":{"id":"prt_1","type":"step_start"}}
+{"type":"tool_use","timestamp":1794953310100,"sessionID":"ses_e14721b8dffe2AMxpbQc4R24AO","part":{"tool":"shell","state":{"status":"running","input":{"command":"echo hello"}}}}
+{"type":"tool_use","timestamp":1794953310200,"sessionID":"ses_e14721b8dffe2AMxpbQc4R24AO","part":{"tool":"shell","state":{"status":"completed","input":{"command":"echo hello"},"time":{"start":1794953310100,"end":1794953310200}}}}
+{"type":"tool_use","timestamp":1794953310250,"sessionID":"ses_e14721b8dffe2AMxpbQc4R24AO","part":{"tool":"write","state":{"status":"completed","input":{"path":"src/test.txt"},"time":{"start":1794953310200,"end":1794953310250}}}}
+{"type":"step_finish","timestamp":1794953310300,"sessionID":"ses_e14721b8dffe2AMxpbQc4R24AO","part":{"tokens":{"input":150,"output":50,"reasoning":10,"cache":{"read":20,"write":0}},"cost":0,"reason":"stop"}}

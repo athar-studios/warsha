@@ -164,6 +164,7 @@ export function RolesSettings({ client, onBack }: RolesSettingsProps) {
       targets: targets.map((target) => ({ provider_id: target.provider, model_id: target.model, weight: target.weight })),
       fallback_enabled: previous?.fallback_enabled ?? true,
       budget_cents_per_run: previous?.budget_cents_per_run ?? 500,
+      daily_spend_cap_cents: previous?.daily_spend_cap_cents ?? null,
     };
     try {
       await client.setRoleConfig(config);

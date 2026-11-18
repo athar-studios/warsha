@@ -23,6 +23,7 @@ function routing(role: Role, provider: string, model: string): RoleRoutingConfig
     targets: [{ provider_id: provider, model_id: model, weight: 100 }],
     fallback_enabled: true,
     budget_cents_per_run: 500,
+    daily_spend_cap_cents: null,
   };
 }
 
@@ -93,6 +94,7 @@ describe('RolesSettings', () => {
       targets: [{ provider_id: 'openai-main', model_id: 'claude-3-5-sonnet', weight: 40 }],
       fallback_enabled: true,
       budget_cents_per_run: 500,
+      daily_spend_cap_cents: null,
     });
 
     expect(await screen.findByText(`${ar('role.pm')} — ${ar('roles.saved')}`)).toBeInTheDocument();

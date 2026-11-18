@@ -131,6 +131,7 @@ function createMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
         role: 'coder',
         targets: [{ provider_id: 'ollama', model_id: 'qwen-coder', weight: 100 }],
         fallback_enabled: false,
+        daily_spend_cap_cents: null,
         budget_cents_per_run: null,
       },
     ]),
@@ -532,6 +533,7 @@ describe('Advanced Workbench (U4)', () => {
         targets: [{ provider_id: 'ollama', model_id: 'qwen-coder', weight: 100 }],
         fallback_enabled: false,
         budget_cents_per_run: null,
+        daily_spend_cap_cents: null,
       },
     ];
     const models: CustomModelRecord[] = [

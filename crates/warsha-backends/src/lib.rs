@@ -1,5 +1,6 @@
 //! Warsha Backends — Coding backends: builtin agent, OpenHands, Claude Code, Codex CLI, Gemini CLI, Cursor CLI
 
+pub mod catalog;
 pub mod permissions;
 pub mod stream;
 use async_trait::async_trait;
@@ -105,6 +106,8 @@ pub struct CliBackend {
     pub command: String,
     pub args: Vec<String>,
     pub env_vars: HashMap<String, String>,
+    pub permission_mapping: Option<String>,
+    pub output_format: String,
 }
 
 /// The wall-clock bound a coding CLI gets before the backend gives up.
@@ -112,11 +115,43 @@ pub const DEFAULT_CODING_CLI_TIMEOUT: std::time::Duration = std::time::Duration:
 
 impl CliBackend {
     pub fn new(name: &str, command: &str, args: Vec<String>) -> Self {
+        let format = match name {
+            "claude-code" => "stream-json",
+            "codex-cli" => "jsonl",
+            "opencode" => "jsonl",
+            _ => "plain",
+        };
         Self {
             name: name.to_string(),
             command: command.to_string(),
             args,
             env_vars: HashMap::new(),
+            permission_mapping: None,
+            output_format: format.to_string(),
+        }
+    }
+
+    pub fn from_catalog_entry(entry: &catalog::CatalogEntry) -> Self {
+        let mut b = Self::new(&entry.name, &entry.command, entry.args_before_prompt());
+        b.output_format = entry.output_format.to_string();
+        b.permission_mapping = entry.permission_mapping.clone();
+        b
+    }
+
+    pub fn from_custom_definition(def: &warsha_core::config::CustomBackendDefinition) -> Self {
+        let mut env_vars = HashMap::new();
+        for key in &def.env_names {
+            if let Ok(val) = std::env::var(key) {
+                env_vars.insert(key.clone(), val);
+            }
+        }
+        Self {
+            name: def.name.clone(),
+            command: def.executable.clone(),
+            args: def.args_template.clone(),
+            env_vars,
+            permission_mapping: def.permission_mapping.clone(),
+            output_format: def.output_format.clone(),
         }
     }
 
@@ -150,6 +185,11 @@ impl CodingBackend for CliBackend {
         self.check_installed()
     }
 
+    fn has_permission_mapping(&self) -> bool {
+        let target = self.permission_mapping.as_deref().unwrap_or(&self.name);
+        permissions::has_permission_mapping(target)
+    }
+
     async fn execute(&self, task: CodingTask, sandbox: &Sandbox) -> Result<CodingResult> {
         if !self.is_available() {
             return Err(BackendError::NotInstalled(format!(
@@ -165,7 +205,8 @@ impl CodingBackend for CliBackend {
         let prompt = Self::task_prompt(&task);
 
         let mut cmd = tokio::process::Command::new(&self.command);
-        let is_streaming = matches!(self.name.as_str(), "claude-code" | "codex-cli");
+        let is_streaming = matches!(self.output_format.as_str(), "stream-json" | "jsonl")
+            || matches!(self.name.as_str(), "claude-code" | "codex-cli" | "opencode");
 
         // Add streaming flags if missing
         let mut args = self.args.clone();
@@ -179,32 +220,66 @@ impl CodingBackend for CliBackend {
                 }
             } else if self.name == "codex-cli" && !args.contains(&"--json".to_string()) {
                 args.push("--json".to_string());
+            } else if self.name == "opencode" && !args.contains(&"--format".to_string()) {
+                args.extend(["--format".to_string(), "json".to_string()]);
             }
         }
 
-        // B2: the CLI stage is launched to match the run's confinement and
+        // B2 + N2: the CLI stage is launched to match the run's confinement and
         // approval mode — the mapping table (permissions.rs) turns the run's
-        // policy into backend launch args and an honest header. The plan's args
-        // come after the streaming flags so the CLI parses them as its own.
+        // policy into backend launch args and an honest header. An engine with
+        // no mapping is refused under read-only confinement unless the B2
+        // tree-hash backstop is active.
+        let perm_target = self.permission_mapping.as_deref().unwrap_or(&self.name);
+        let mut perm_args = Vec::new();
         if let (Some(confinement), Some(approval)) = (
             task.context.get("confinement"),
             task.context.get("approval_mode"),
         ) {
-            let plan = permissions::permission_plan(
-                &self.name,
-                confinement
-                    .parse()
-                    .map_err(|e: String| BackendError::Other(e))?,
-                approval
-                    .parse()
-                    .map_err(|e: String| BackendError::Other(e))?,
-            );
-            args.extend(plan.args.iter().cloned());
+            let parsed_confinement: warsha_core::Confinement = confinement
+                .parse()
+                .map_err(|e: String| BackendError::Other(e))?;
+            let parsed_approval: warsha_core::ApprovalMode = approval
+                .parse()
+                .map_err(|e: String| BackendError::Other(e))?;
+            let backstop_active = task
+                .context
+                .get("read_only_backstop")
+                .map(|v| v == "true")
+                .unwrap_or(false);
+            if parsed_confinement == warsha_core::Confinement::ReadOnly
+                && !permissions::has_permission_mapping(perm_target)
+                && !backstop_active
+            {
+                return Err(BackendError::ExecutionFailed(format!(
+                    "coding backend `{}` has no permission mapping and cannot be run under read-only confinement without the read-only backstop active",
+                    self.name
+                )));
+            }
+            let plan =
+                permissions::permission_plan(perm_target, parsed_confinement, parsed_approval);
+            perm_args = plan.args;
         }
 
-        cmd.args(&args)
-            .arg(&prompt)
-            .current_dir(&sandbox.work_dir)
+        let has_prompt_placeholder = args.iter().any(|a| a.contains("{prompt}"));
+        if has_prompt_placeholder {
+            let mut final_args = Vec::new();
+            for arg in args {
+                if arg.contains("{prompt}") {
+                    final_args.extend(perm_args.clone());
+                    final_args.push(arg.replace("{prompt}", &prompt));
+                } else {
+                    final_args.push(arg);
+                }
+            }
+            args = final_args;
+            cmd.args(&args);
+        } else {
+            args.extend(perm_args);
+            cmd.args(&args).arg(&prompt);
+        }
+
+        cmd.current_dir(&sandbox.work_dir)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
@@ -307,6 +382,8 @@ impl CodingBackend for CliBackend {
             |l: &str, usage: &mut Option<warsha_core::TokenUsage>, ended: &mut bool| {
                 let parsed = if self.name == "claude-code" {
                     parse_claude_stream_line(l)
+                } else if self.name == "opencode" {
+                    parse_opencode_stream_line(l)
                 } else {
                     parse_codex_stream_line(l)
                 };
@@ -379,8 +456,8 @@ impl CodingBackend for CliBackend {
                             duration_ms,
                             usage: stream_usage,
                         } => {
-                            if let Some(u) = stream_usage {
-                                *usage = Some(u);
+                            if let Some(u) = &stream_usage {
+                                *usage = Some(u.clone());
                             }
                             *ended = true;
                             let mut p = serde_json::json!({
@@ -389,6 +466,17 @@ impl CodingBackend for CliBackend {
                             });
                             if let Some(d) = duration_ms {
                                 p["duration_ms"] = serde_json::Value::from(d);
+                            }
+                            if let Some(u) = &stream_usage {
+                                let estimated = u.cost_cents.is_none() || u.cost_cents == Some(0);
+                                p["usage"] = serde_json::json!({
+                                    "input": u.input,
+                                    "output": u.output,
+                                    "total": u.total,
+                                    "cost_cents": u.cost_cents,
+                                    "estimated": estimated,
+                                });
+                                p["usage_estimated"] = serde_json::Value::Bool(estimated);
                             }
                             send_event(EventKind::SessionEnded, p);
                         }
@@ -626,43 +714,88 @@ impl BackendFactory {
     }
 
     pub fn claude_code() -> Box<dyn CodingBackend> {
-        Box::new(CliBackend::new(
-            "claude-code",
-            "claude",
-            vec!["-p".to_string()],
-        ))
+        if let Some(entry) = catalog::EngineCatalog::builtin().get("claude-code") {
+            Box::new(CliBackend::from_catalog_entry(entry))
+        } else {
+            Box::new(CliBackend::new(
+                "claude-code",
+                "claude",
+                vec!["-p".to_string()],
+            ))
+        }
     }
 
     pub fn codex_cli() -> Box<dyn CodingBackend> {
-        Box::new(CliBackend::new(
-            "codex-cli",
-            "codex",
-            vec!["exec".to_string(), "--json".to_string()],
-        ))
+        if let Some(entry) = catalog::EngineCatalog::builtin().get("codex-cli") {
+            Box::new(CliBackend::from_catalog_entry(entry))
+        } else {
+            Box::new(CliBackend::new(
+                "codex-cli",
+                "codex",
+                vec!["exec".to_string(), "--json".to_string()],
+            ))
+        }
     }
 
     pub fn gemini_cli() -> Box<dyn CodingBackend> {
-        Box::new(CliBackend::new("gemini-cli", "gemini", vec![]))
+        if let Some(entry) = catalog::EngineCatalog::builtin().get("gemini-cli") {
+            Box::new(CliBackend::from_catalog_entry(entry))
+        } else {
+            Box::new(CliBackend::new("gemini-cli", "gemini", vec![]))
+        }
     }
 
     pub fn cursor_cli() -> Box<dyn CodingBackend> {
-        Box::new(CliBackend::new(
-            "cursor-cli",
-            "cursor",
-            vec!["--cli".to_string()],
-        ))
+        if let Some(entry) = catalog::EngineCatalog::builtin().get("cursor-cli") {
+            Box::new(CliBackend::from_catalog_entry(entry))
+        } else {
+            Box::new(CliBackend::new(
+                "cursor-cli",
+                "cursor",
+                vec!["--cli".to_string()],
+            ))
+        }
     }
 
     pub fn opencode() -> Box<dyn CodingBackend> {
-        Box::new(CliBackend::new(
-            "opencode",
-            "opencode",
-            vec!["run".to_string()],
-        ))
+        if let Some(entry) = catalog::EngineCatalog::builtin().get("opencode") {
+            Box::new(CliBackend::from_catalog_entry(entry))
+        } else {
+            Box::new(CliBackend::new(
+                "opencode",
+                "opencode",
+                vec!["run".to_string()],
+            ))
+        }
     }
 
     pub fn openhands() -> Box<dyn CodingBackend> {
-        Box::new(CliBackend::new("openhands", "openhands", vec![]))
+        if let Some(entry) = catalog::EngineCatalog::builtin().get("openhands") {
+            Box::new(CliBackend::from_catalog_entry(entry))
+        } else {
+            Box::new(CliBackend::new("openhands", "openhands", vec![]))
+        }
+    }
+
+    /// Build a backend from an entry in the engine catalog by name.
+    pub fn from_catalog(name: &str) -> Option<Box<dyn CodingBackend>> {
+        let entry = catalog::EngineCatalog::builtin().get(name)?;
+        Some(Box::new(CliBackend::from_catalog_entry(entry)))
+    }
+
+    /// Check if the backend name is recognized by the factory or catalog.
+    pub fn is_known(name: &str) -> bool {
+        let name = name.trim();
+        name == "builtin" || catalog::EngineCatalog::builtin().is_known(name)
+    }
+
+    /// Every backend in the embedded catalog plus `builtin`.
+    pub fn all_catalog() -> Vec<Box<dyn CodingBackend>> {
+        let mut out = vec![Self::builtin()];
+        for entry in catalog::EngineCatalog::builtin().entries() {
+            out.push(Box::new(CliBackend::from_catalog_entry(entry)));
+        }
+        out
     }
 
     /// Every backend the factory can build, in inventory order.
@@ -691,6 +824,7 @@ impl BackendFactory {
         Self::all()
             .into_iter()
             .find(|backend| backend.name() == name)
+            .or_else(|| Self::from_catalog(name))
     }
 
     /// The backend [`CODING_BACKEND_ENV`] names, when the variable is set.
@@ -701,6 +835,22 @@ impl BackendFactory {
     pub fn from_env() -> Option<Box<dyn CodingBackend>> {
         let name = std::env::var(CODING_BACKEND_ENV).ok()?;
         Self::named(&name)
+    }
+
+    /// Read [`CODING_BACKEND_ENV`]. If set to an unknown backend name, return `Err(unknown_name)`
+    /// so the daemon fails named at startup instead of silently falling back to routed provider (A16.11).
+    pub fn from_env_validated() -> std::result::Result<Option<Box<dyn CodingBackend>>, String> {
+        let Ok(name) = std::env::var(CODING_BACKEND_ENV) else {
+            return Ok(None);
+        };
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Ok(None);
+        }
+        match Self::named(trimmed) {
+            Some(backend) => Ok(Some(backend)),
+            None => Err(trimmed.to_string()),
+        }
     }
 
     pub fn all_available() -> Vec<Box<dyn CodingBackend>> {

@@ -41,6 +41,7 @@ const CODER_ROUTING: RoleRouting = {
   targets: [{ provider_id: 'openai-main', model_id: 'gpt-4o', weight: 100 }],
   fallback_enabled: true,
   budget_cents_per_run: null,
+  daily_spend_cap_cents: null,
 };
 
 function clientStub(overrides: Partial<WarshaClient> = {}): WarshaClient {
@@ -216,6 +217,7 @@ describe('ModelsSettings', () => {
       targets: [{ provider_id: 'anthropic-main', model_id: 'claude-3-5-sonnet', weight: 100 }],
       fallback_enabled: true,
       budget_cents_per_run: 0,
+      daily_spend_cap_cents: null,
     });
     expect(
       await screen.findByText(t('models.assign_done', { role: ar('role.pm') }, 'ar'))

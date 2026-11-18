@@ -734,6 +734,7 @@ impl CliApp {
                     targets: target_vec,
                     fallback_enabled: true,
                     budget_cents_per_run: None,
+                    daily_spend_cap_cents: None,
                 };
                 self.client.request::<(), _>("roles.set", (config,)).await?;
                 self.output(role_routing_set_message(lang, &role))?;
@@ -812,21 +813,14 @@ impl CliApp {
 
         // Check providers
         self.output(providers_section_message(lang))?;
-        // Check CLIs
-        let clis = [
-            ("Claude Code", "claude"),
-            ("Codex CLI", "codex"),
-            ("Gemini CLI", "gemini"),
-            ("Cursor CLI", "cursor"),
-            ("OpenHands", "openhands"),
-            ("Opencode", "opencode"),
-        ];
-
-        for (name, cmd) in clis {
-            if which::which(cmd).is_ok() {
-                self.output(format!("  ✓ {}", name))?;
+        // Check coding CLIs catalogued in Warsha (R-NEXT N2)
+        let catalog = warsha_backends::catalog::EngineCatalog::builtin();
+        for entry in catalog.entries() {
+            let label = format!("{} [{}]", entry.display_name, entry.tier);
+            if entry.is_installed() {
+                self.output(format!("  ✓ {}", label))?;
             } else {
-                self.output(agent_cli_missing_message(lang, name))?;
+                self.output(agent_cli_missing_message(lang, &label))?;
             }
         }
 

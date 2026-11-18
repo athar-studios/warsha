@@ -131,6 +131,9 @@ export const RPC_METHODS = [
   'integrations.disconnect',
   'integrations.list',
   'integrations.test',
+  'interview.start',
+  'interview.status',
+  'interview.turn',
   'mcp.approvals.allow_once',
   'mcp.approvals.list',
   'mcp.connect',
@@ -1655,6 +1658,58 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
         ],
       };
     }
+    case 'interview.start':
+      return {
+        ok: true,
+        result: {
+          kind: 'next_question',
+          question: 'What is the primary problem you want to solve?',
+          topic: 'problem',
+          state: {
+            project_id: paramValue(params, 'project_id'),
+            brief: {},
+            topic_answers: {},
+            covered_topics: [],
+            open_topics: ['audience', 'problem'],
+            transcript: [],
+            is_done: false,
+            updated_at: new Date().toISOString(),
+          },
+        },
+      };
+    case 'interview.turn':
+      return {
+        ok: true,
+        result: {
+          kind: 'next_question',
+          question: 'Who are the target users?',
+          topic: 'audience',
+          state: {
+            project_id: paramValue(params, 'project_id'),
+            brief: { problem_statement: paramValue(params, 'reply') },
+            topic_answers: { problem: paramValue(params, 'reply') },
+            covered_topics: ['problem'],
+            open_topics: ['audience'],
+            transcript: [{ question: 'What is the primary problem you want to solve?', answer: paramValue(params, 'reply') }],
+            is_done: false,
+            updated_at: new Date().toISOString(),
+          },
+        },
+      };
+    case 'interview.status':
+      return {
+        ok: true,
+        result: {
+          project_id: paramValue(params, 'project_id'),
+          brief: {},
+          topic_answers: {},
+          covered_topics: [],
+          open_topics: ['audience', 'problem'],
+          transcript: [],
+          is_done: false,
+          updated_at: new Date().toISOString(),
+        },
+      };
     case 'projects.get': {
       // `get_project(&self, id)` really is named `id` (`crates/warshad/src/lib.rs:677`), so this one
       // is the checked-and-correct case; it still refuses a request that never carried it rather

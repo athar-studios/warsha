@@ -341,6 +341,7 @@ export function Onboarding({ client, onComplete }: OnboardingProps) {
             targets: [{ provider_id: name, model_id: modelId, weight: 100 }],
             fallback_enabled: true,
             budget_cents_per_run: 0,
+            daily_spend_cap_cents: null,
           });
         }
       }

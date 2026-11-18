@@ -242,6 +242,7 @@ export function ModelsSection(): React.ReactElement {
       targets: [{ provider_id: providerId, model_id: modelId, weight: 100 }],
       fallback_enabled: existing?.fallback_enabled ?? true,
       budget_cents_per_run: existing?.budget_cents_per_run ?? 0,
+      daily_spend_cap_cents: existing?.daily_spend_cap_cents ?? null,
     });
     setStatusMessage(t('settings.roles.saved', { role: t(`settings.role.${role}`) }));
     await loadData();

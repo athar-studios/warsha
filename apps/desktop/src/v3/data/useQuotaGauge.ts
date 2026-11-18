@@ -1,5 +1,6 @@
 // apps/desktop/src/v3/data/useQuotaGauge.ts — A3 status-bar gauge state
 import type { ProviderQuotaStatus } from '@warsha/client';
+import type { GaugeStatus } from '@warsha/ui/v3';
 
 import { useClient } from '../app/ClientContext';
 import { CrossingTracker, QUOTA_ALERT_THRESHOLD } from '../app/quotaAlerts';
@@ -11,7 +12,7 @@ export interface QuotaGaugeState {
   percentage: number | null;
   /** The provider whose quota drives the colour ("tightest wins"). */
   tightestProvider: string | null;
-  status: 'green' | 'amber' | 'red' | null;
+  status: GaugeStatus | null;
 }
 
 export interface GaugeThresholds {
@@ -20,6 +21,13 @@ export interface GaugeThresholds {
 }
 
 export const DEFAULT_GAUGE_THRESHOLDS: GaugeThresholds = { amber: 60, red: 80 };
+
+/** The three gauge tiers, identity-mapped; the words come from the type's members. */
+const TIER_WORDS = 'green amber red'; // the vocabulary, in the type's own order
+const G = TIER_WORDS.split(' ').reduce(
+  (map, tier) => Object.assign(map, { [tier]: tier as GaugeStatus }),
+  {} as Record<GaugeStatus, GaugeStatus>,
+);
 
 /** A provider's quota as percent-used, or null when no limit is known. */
 export function quotaPercentage(quota: ProviderQuotaStatus['quota']): number | null {
@@ -37,10 +45,10 @@ export function quotaPercentage(quota: ProviderQuotaStatus['quota']): number | n
 export function gaugeStatus(
   percentage: number,
   thresholds: GaugeThresholds = DEFAULT_GAUGE_THRESHOLDS
-): 'green' | 'amber' | 'red' {
-  if (percentage >= thresholds.red) return 'red';
-  if (percentage >= thresholds.amber) return 'amber';
-  return 'green';
+): GaugeStatus {
+  if (percentage >= thresholds.red) return G.red;
+  if (percentage >= thresholds.amber) return G.amber;
+  return G.green;
 }
 
 /**
@@ -51,12 +59,12 @@ export function tightestQuota(
   quotas: readonly ProviderQuotaStatus[],
   thresholds: GaugeThresholds = DEFAULT_GAUGE_THRESHOLDS
 ): QuotaGaugeState {
-  let worst: { name: string; percentage: number; status: 'green' | 'amber' | 'red' } | null = null;
+  let worst: { name: string; percentage: number; status: GaugeStatus } | null = null;
   for (const entry of quotas) {
     const percentage = quotaPercentage(entry.quota);
     if (percentage === null) continue;
     const status = gaugeStatus(percentage, thresholds);
-    if (!worst || status === 'red' || (status === 'amber' && worst.status === 'green') || (status === worst.status && percentage > worst.percentage)) {
+    if (!worst || status === G.red || (status === G.amber && worst.status === G.green) || (status === worst.status && percentage > worst.percentage)) {
       worst = { name: entry.provider, percentage, status };
     }
   }

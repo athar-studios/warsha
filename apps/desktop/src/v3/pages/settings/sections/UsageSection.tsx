@@ -17,6 +17,11 @@ import { useAction } from '../../../actions';
 import { useClient } from '../../../app/ClientContext';
 import { useDataReady } from '../../../app/DataReadyContext';
 import {
+  quotaPercentage,
+  gaugeStatus,
+  DEFAULT_GAUGE_THRESHOLDS,
+} from '../../../data/useQuotaGauge';
+import {
   useProviders,
   useUsageByDimension,
   useUsageByTime,
@@ -27,21 +32,11 @@ import {
 const DIMENSIONS: UsageDimension[] = ['provider_id', 'model_id', 'agent_role', 'project_id'];
 const GRANULARITIES: UsageGranularity[] = ['day', 'month'];
 
-/** The quota's colour: red past 80% of a known limit, amber past 60%, green otherwise. */
-function quotaStatus(quota: ProviderQuotaStatus['quota']): 'green' | 'amber' | 'red' | null {
-  if (quota.state === 'reported') {
-    if (quota.limit === 0) return null;
-    const used = quota.used / quota.limit;
-    if (used >= 0.8) return 'red';
-    if (used >= 0.6) return 'amber';
-    return 'green';
-  }
-  if (quota.state === 'estimated') {
-    if (quota.usagePercentage >= 80) return 'red';
-    if (quota.usagePercentage >= 60) return 'amber';
-    return 'green';
-  }
-  return null;
+/** The quota's GaugeStatus tier: red past 80% of a known limit, amber past 60%, green otherwise. */
+function quotaStatus(quota: ProviderQuotaStatus['quota']) {
+  const percentage = quotaPercentage(quota);
+  if (percentage === null) return null;
+  return gaugeStatus(percentage, DEFAULT_GAUGE_THRESHOLDS);
 }
 
 function quotaLine(

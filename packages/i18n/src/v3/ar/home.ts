@@ -51,4 +51,8 @@ export default {
   'home.col_status': 'الحالة',
   'home.col_stage': 'المرحلة',
   'home.col_updated': 'آخر نشاط',
+  'home.interview_start': 'ابدأ مقابلة السكرتير',
+  'home.interview_title': 'مقابلة السكرتير',
+  'home.interview_submit': 'إرسال',
+  'home.interview_enough': 'يكفي',
 };

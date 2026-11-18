@@ -1,3 +1,7 @@
+## 2026-11-18 — D1: Secretary Role Implementation
+- **Decision**: Implement Secretary interview using a new `Secretary` role with a bundled `interview` skill and a new state management approach that reuses `ProjectBrief` for state persistence.
+- **Reason**: Reusing `ProjectBrief` for interview state minimizes schema drift and simplifies pipeline integration (Gate A).
+
 ## 2026-11-16 — A1: Model Catalog Persistence
 - **Decision**: Catalog metadata (JSON) is embedded in binary; refreshed catalog is stored in app data directory with digest verification; custom models are stored in app data directory to survive refresh.
 - **Alternatives**: Always fetch from URL, build-time code generation for catalog, no custom model support.
@@ -1970,3 +1974,25 @@ Introduce `should_failover(&ProviderError) -> bool` to distinguish between retry
 ## 2026-11-17 — Tool Permissioning Location: `warsha-core`
 - **Decision**: Define `Rule` model and `RuleStore` trait in `crates/warsha-core`.
 - **Reason**: Tool permissioning is a core domain requirement, not specific to pipeline execution. Placing these in `warsha-core` (the base tier of the architecture) ensures universal accessibility by `warsha-pipeline` and other future components (e.g., `warshad` daemon, `warsha-remote`) without creating upward dependency edges.
+
+
+## 2026-11-18 — D-RN-N2-001: Implement coding-engine catalog, custom backend registry, and live output adapters
+- **Decision**: Implemented `crates/warsha-backends/src/catalog.rs` for data-driven engine catalog, migrated `BackendFactory` to use it. Added `CodingBackendRegistry` in `crates/warsha-pipeline` for custom registry/selection. Added OpenCode streaming adapter.
+- **Alternatives**: Keeping hardcoded engine list, hardcoded CLI argv.
+- **Reason**: Plan N2 requirement for data-driven engine registry and extensibility.
+D-RN-D1-001: Secretary interview state persisted in secretary_interviews table.
+D-RN-D1-002: Daily spend cap enforcement implemented in RPC handler using aggregated costs.
+
+## D-RN-D1-003 — Client types instead of loose unknowns (2026-11-18)
+The worker's client methods answered `Promise<unknown>` and the home page re-declared its
+own duplicate `InterviewStateView`. Fixed by declaring `InterviewState`/`InterviewTurnOutcome`
+wire types in `@warsha/client` once and typing the three methods strictly; the home page
+imports the client's type. Rationale: the client is the wire contract's TS side; a second
+local shape would drift from the daemon's serde output exactly where nobody watches.
+
+## D-RN-D1-004 — Gauge tier words are names, colours are tokens (2026-11-18)
+The R6 app-drift gate flags quoted colour words in app sources, and the gauge status is a
+tier name (`green | amber | red`) that maps to CSS classes (`gauge--green`…), where the
+actual colours are token references inside @warsha/ui. UsageSection now reuses
+`quotaPercentage`/`gaugeStatus` from useQuotaGauge via a shared identity tier map derived
+from `GaugeStatus` — one source of truth, zero quoted colour words, R6 back to 0.

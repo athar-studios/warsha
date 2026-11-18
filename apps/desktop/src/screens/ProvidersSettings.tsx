@@ -249,6 +249,7 @@ export function ProvidersSettings({ client, onBack, project }: ProvidersSettings
               targets: [{ provider_id: created.name, model_id: modelId, weight: 100 }],
               fallback_enabled: true,
               budget_cents_per_run: 0,
+              daily_spend_cap_cents: null,
             });
           }
         }
