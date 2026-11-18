@@ -209,4 +209,11 @@ export default {
   'bench.composer.no_harnesses': 'لا توجد مسارات عمل',
   'bench.composer.no_runmodes': 'لا توجد أوضاع تشغيل',
   'bench.composer.send': 'أرسل للفريق',
+  // D4 run-mode chips + picker (agent default; plan/spec-file stop at GateB).
+  'bench.runmode.agent': 'وكيل',
+  'bench.runmode.plan': 'خطة',
+  'bench.runmode.spec-file': 'ملف مواصفات',
+  'bench.runmode.ask': 'اسأل',
+  'bench.runmode.picker_label': 'وضع التشغيل',
+  'bench.runmode.picker_hint': 'تشغيلات الخطة وملف المواصفات تتوقف عند بوابة الخطة لموافقتك.',
 };

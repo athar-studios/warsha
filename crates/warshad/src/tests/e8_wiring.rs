@@ -173,7 +173,13 @@ async fn pilot_attaches_a_repository_runs_decides_gate_c_and_collects_evidence()
 
     // 3. `runs.start`: the run gets its own worktree of that repository.
     let run = rpc
-        .start_run(&owner, project.id, "Build a todo app".to_string())
+        .start_run(
+            &owner,
+            project.id,
+            "Build a todo app".to_string(),
+            None,
+            None,
+        )
         .await
         .expect("the run starts");
     let worktree = rpc

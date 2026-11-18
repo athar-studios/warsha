@@ -364,6 +364,40 @@ impl Project {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum RunMode {
+    #[default]
+    Agent,
+    Plan,
+    SpecFile,
+    Ask,
+}
+
+impl std::fmt::Display for RunMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Agent => write!(f, "agent"),
+            Self::Plan => write!(f, "plan"),
+            Self::SpecFile => write!(f, "spec-file"),
+            Self::Ask => write!(f, "ask"),
+        }
+    }
+}
+
+impl std::str::FromStr for RunMode {
+    type Err = String;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "agent" => Ok(Self::Agent),
+            "plan" => Ok(Self::Plan),
+            "spec-file" | "specfile" => Ok(Self::SpecFile),
+            "ask" => Ok(Self::Ask),
+            other => Err(format!("unknown run mode: {other}")),
+        }
+    }
+}
+
 /// Run represents a single execution of the pipeline for a project
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Run {
@@ -382,6 +416,7 @@ pub struct Run {
     /// B2: the confinement this run is confined by (resolved at start from the
     /// project's effective permissions). The read-only backstop keys on it.
     pub confinement: Option<Confinement>,
+    pub run_mode: RunMode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

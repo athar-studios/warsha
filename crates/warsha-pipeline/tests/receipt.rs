@@ -1,7 +1,7 @@
 use chrono::Utc;
 use std::collections::HashMap;
 use ulid::Ulid;
-use warsha_core::{ApprovalMode, Confinement, ProjectId, Run, RunId, RunStatus, Stage};
+use warsha_core::{ApprovalMode, Confinement, ProjectId, Run, RunId, RunMode, RunStatus, Stage};
 use warsha_pipeline::receipt::build_run_receipt;
 
 #[test]
@@ -20,6 +20,7 @@ fn test_run_receipt_builder() {
         worktree_path: Some("/tmp/wt".to_string()),
         worktree_branch: Some("warsha/run-1".to_string()),
         confinement: Some(Confinement::WorkspaceWrite),
+        run_mode: warsha_core::RunMode::Agent,
     };
     let receipt = build_run_receipt(
         &run,
@@ -38,4 +39,26 @@ fn test_run_receipt_builder() {
         receipt.effective_approval_mode,
         Some(ApprovalMode::AskForRisky)
     );
+    // D4: an agent run carries its mode and no plan approval.
+    assert_eq!(receipt.run_mode, RunMode::Agent);
+    assert_eq!(receipt.plan_approved_at, None);
+
+    // D4: a plan run approved at GateB records the plan-approved-at on its receipt.
+    let mut plan_run = run.clone();
+    plan_run.run_mode = RunMode::Plan;
+    plan_run.gate_states.insert(
+        Stage::GateB,
+        warsha_core::GateState::Approved {
+            by: warsha_core::DeviceId::new(),
+            at: Utc::now(),
+        },
+    );
+    let plan_receipt = build_run_receipt(
+        &plan_run,
+        Some(3600),
+        Some(Confinement::WorkspaceWrite),
+        Some(ApprovalMode::AskForRisky),
+    );
+    assert_eq!(plan_receipt.run_mode, RunMode::Plan);
+    assert!(plan_receipt.plan_approved_at.is_some());
 }

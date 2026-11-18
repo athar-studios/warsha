@@ -68,7 +68,13 @@ async fn the_per_run_method_still_runs_a_turn() {
     let rpc = WarshaRpc::new(state);
 
     let run = rpc
-        .start_run(&owner(), project.id, "Build a todo app".to_string())
+        .start_run(
+            &owner(),
+            project.id,
+            "Build a todo app".to_string(),
+            None,
+            None,
+        )
         .await
         .expect("the run starts");
     let turn = rpc

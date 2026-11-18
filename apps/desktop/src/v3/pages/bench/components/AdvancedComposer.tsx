@@ -19,6 +19,11 @@ export interface AdvancedComposerProps {
   runModePending?: boolean;
   onSaveBudget: (cents: number) => Promise<void> | void;
   budgetPending?: boolean;
+  /** D4: the mode for the NEXT run; plan/spec-file stop at GateB for approval. */
+  runModeChoice?: 'agent' | 'plan' | 'spec-file';
+  onRunModeChoice?: (mode: 'agent' | 'plan' | 'spec-file') => void;
+  /** D4: start a run with the chosen mode (topic = the run idea). */
+  onStartRun?: (idea: string) => Promise<void> | void;
 }
 
 export const AdvancedComposer: React.FC<AdvancedComposerProps> = ({
@@ -33,6 +38,9 @@ export const AdvancedComposer: React.FC<AdvancedComposerProps> = ({
   runModePending = false,
   onSaveBudget,
   budgetPending = false,
+  runModeChoice = 'agent',
+  onRunModeChoice,
+  onStartRun,
 }) => {
   const t = useT();
   const capabilities = useCapabilities();
@@ -89,6 +97,15 @@ export const AdvancedComposer: React.FC<AdvancedComposerProps> = ({
     await onSaveBudget(Math.round(parsed * 100));
   };
 
+  // D4: start a run whose mode is whatever the picker holds. The idea text is
+  // the composer prompt; plan/spec-file runs stop at GateB for the owner.
+  const handleStartRun = async () => {
+    const trimmed = prompt.trim();
+    if (!trimmed || !onStartRun) return;
+    await onStartRun(trimmed);
+    setPrompt('');
+  };
+
   const harnessOptions =
     harnesses.length > 0
       ? harnesses.map((h) => ({ value: h.id, label: h.name || h.id }))
@@ -98,6 +115,14 @@ export const AdvancedComposer: React.FC<AdvancedComposerProps> = ({
     runModes.length > 0
       ? runModes.map((m) => ({ value: m.mode, label: m.mode }))
       : [{ value: '', label: t('bench.composer.no_runmodes'), disabled: true }];
+
+  // D4: distinct per-run mode picker (view-mode switch is elsewhere; this
+  // chooses how the next run behaves).
+  const runModeChoices: { value: 'agent' | 'plan' | 'spec-file'; label: string }[] = [
+    { value: 'agent', label: t('bench.runmode.agent') },
+    { value: 'plan', label: t('bench.runmode.plan') },
+    { value: 'spec-file', label: t('bench.runmode.spec-file') },
+  ];
 
   return (
     <Card
@@ -201,6 +226,36 @@ export const AdvancedComposer: React.FC<AdvancedComposerProps> = ({
         </div>
 
         <div style={{ marginInlineStart: 'auto' }}>
+          {onStartRun && (
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'flex-end',
+                gap: 'var(--w-space-1)',
+                marginInlineEnd: 'var(--w-space-3)',
+              }}
+            >
+              <Select
+                label={t('bench.runmode.picker_label')}
+                options={runModeChoices}
+                value={runModeChoice}
+                onChange={(e) => onRunModeChoice?.(e.target.value as 'agent' | 'plan' | 'spec-file')}
+                data-testid="bench-newrun-mode-select"
+              />
+              <Button
+                variant="primary"
+                size="sm"
+                iconEnd={<IconSend size={14} />}
+                loading={followupPending}
+                disabled={!prompt.trim() || followupPending}
+                onClick={() => void handleStartRun()}
+                data-action="bench.runmode.start"
+                data-testid="bench-newrun-start-btn"
+              >
+                {t('bench.action.run_start')}
+              </Button>
+            </div>
+          )}
           <Button
             variant="secondary"
             size="sm"

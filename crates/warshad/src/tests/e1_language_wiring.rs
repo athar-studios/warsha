@@ -213,7 +213,13 @@ async fn a_project_created_in_arabic_renders_its_run_prompts_in_arabic() {
     store_language_harness(&state.settings, project.id).await;
 
     let run = rpc
-        .start_run(&owner, project.id, "تطبيق حجز مواعيد".to_string())
+        .start_run(
+            &owner,
+            project.id,
+            "تطبيق حجز مواعيد".to_string(),
+            None,
+            None,
+        )
         .await
         .expect("the run starts");
     let at_gate = rpc

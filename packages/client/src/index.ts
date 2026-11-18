@@ -118,6 +118,8 @@ export interface RunSummary {
   status: string;
   startedAt: string;
   updatedAt: string;
+  /** D4: how the run was started — absent on older daemons decodes to `agent`. */
+  runMode?: 'agent' | 'plan' | 'spec-file' | 'ask';
 }
 
 export interface GateSummary {
@@ -233,6 +235,13 @@ export function decodeRunSummary(source: unknown): RunSummary {
   }
   const startedAt =
     summaryString(field(record, 'created_at', 'createdAt', 'started_at', 'startedAt')) ?? '';
+  // D4: optional run mode. Older daemons omit the field; a non-string answer
+  // (or an unknown word) folds to undefined rather than guessing a mode.
+  const runModeRaw = summaryString(field(record, 'run_mode', 'runMode'));
+  const runMode =
+    runModeRaw === 'agent' || runModeRaw === 'plan' || runModeRaw === 'spec-file' || runModeRaw === 'ask'
+      ? runModeRaw
+      : undefined;
   return {
     id: summaryId(field(record, 'id'), 'run') as RunId,
     projectId: (summaryString(field(record, 'project_id', 'projectId')) ?? '') as ProjectId,
@@ -240,6 +249,7 @@ export function decodeRunSummary(source: unknown): RunSummary {
     status,
     startedAt,
     updatedAt: summaryString(field(record, 'updated_at', 'updatedAt')) ?? startedAt,
+    runMode,
   };
 }
 
@@ -2270,8 +2280,20 @@ export class WarshaClient
     return summaryList(rows, 'runs.list', decodeRunSummary);
   }
 
-  async startRun(projectId: ProjectId, idea: string): Promise<RunSummary> {
-    const row = await this.rpc<unknown>('runs.start', { projectId, idea });
+  async startRun(
+    projectId: ProjectId,
+    idea: string,
+    runMode?: 'agent' | 'plan' | 'spec-file' | 'ask',
+    specFilePath?: string,
+  ): Promise<RunSummary> {
+    // D4: the wire keeps the daemon's positional shape — trailing optional
+    // params serialise as absent fields, never as a params object.
+    const row = await this.rpc<unknown>('runs.start', {
+      projectId,
+      idea,
+      runMode,
+      specFilePath,
+    });
     return decodeRunSummary(row);
   }
 
