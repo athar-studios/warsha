@@ -142,7 +142,11 @@ pub trait WarshaApi {
     ) -> RpcResult<Vec<SecretaryConversation>>;
 
     #[method(name = "secretary.thread.turns", with_extensions)]
-    async fn secretary_thread_turns(&self, conversation_id: Ulid) -> RpcResult<Vec<SecretaryTurn>>;
+    async fn secretary_thread_turns(
+        &self,
+        conversation_id: Ulid,
+        project_id: Option<ProjectId>,
+    ) -> RpcResult<Vec<SecretaryTurn>>;
 
     #[method(name = "secretary.chat", with_extensions)]
     async fn secretary_chat(

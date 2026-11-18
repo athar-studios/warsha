@@ -438,20 +438,53 @@ impl WarshaApiServer for WarshaRpc {
         project_id: Option<ProjectId>,
     ) -> RpcResult<Vec<SecretaryConversation>> {
         self.authorize(ext, "secretary.thread.list").await?;
-        Ok(self
+        let store_err =
+            |e: warsha_store::StoreError| ErrorObject::owned(-32000, e.to_string(), None::<()>);
+        let mut conversations = self
             .state
             .store
             .list_secretary_conversations(project_id.map(|id| id.0))
             .await
-            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?)
+            .map_err(store_err)?;
+        if project_id.is_some() {
+            // A project's list also carries the global thread.
+            let global = self
+                .state
+                .store
+                .list_secretary_conversations(None)
+                .await
+                .map_err(store_err)?;
+            for conversation in global {
+                if !conversations.iter().any(|c| c.id == conversation.id) {
+                    conversations.push(conversation);
+                }
+            }
+            conversations.sort_by_key(|c| std::cmp::Reverse(c.updated_at));
+        }
+        Ok(conversations)
     }
 
     async fn secretary_thread_turns(
         &self,
         ext: &RpcExtensions,
         conversation_id: Ulid,
+        project_id: Option<ProjectId>,
     ) -> RpcResult<Vec<SecretaryTurn>> {
         self.authorize(ext, "secretary.thread.turns").await?;
+        if let Some(pid) = project_id {
+            let conversation = self
+                .state
+                .store
+                .get_secretary_conversation(conversation_id)
+                .await
+                .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?
+                .ok_or_else(|| rpc_invalid_params("conversation not found"))?;
+            if conversation.project_id != Some(pid.0) {
+                return Err(rpc_invalid_params(
+                    "conversation belongs to a different project",
+                ));
+            }
+        }
         Ok(self
             .state
             .store
