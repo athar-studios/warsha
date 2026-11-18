@@ -254,6 +254,8 @@ pub struct DaemonHandle {
     pub(crate) _lock_file: LockFile,
     pub(crate) http_task: tokio::task::JoinHandle<()>,
     pub(crate) rpc_server: jsonrpsee::server::ServerHandle,
+    pub(crate) loopback_http_task: Option<tokio::task::JoinHandle<()>>,
+    pub(crate) loopback_rpc_server: Option<jsonrpsee::server::ServerHandle>,
     pub(crate) http_port: u16,
     pub(crate) rpc_port: u16,
     /// The address both listeners actually bound. Reported so a startup log and a test can
@@ -313,6 +315,10 @@ impl DaemonHandle {
     pub fn pairing_origin(&self) -> Option<String> {
         self.pairing_origin.clone()
     }
+    /// Whether this daemon started a companion loopback listener (e.g. for RemoteBind::Tailscale).
+    pub fn has_loopback_companion(&self) -> bool {
+        self.loopback_rpc_server.is_some()
+    }
     /// Shuts down the daemon: stops the RPC server, aborts the HTTP task,
     /// kills and reaps every child it started, and releases the lock file.
     ///
@@ -321,11 +327,19 @@ impl DaemonHandle {
     /// killed *and* waited for. Killing alone would leave a zombie, and dropping
     /// the handles would leave a dev server holding its port for the next daemon
     /// to trip over.
-    pub async fn shutdown(self) {
+    pub async fn shutdown(mut self) {
         if let Err(e) = self.rpc_server.stop() {
             warn!("RPC server was already stopped: {e}");
         }
+        if let Some(loopback_rpc) = self.loopback_rpc_server.take() {
+            if let Err(e) = loopback_rpc.stop() {
+                warn!("Companion loopback RPC server was already stopped: {e}");
+            }
+        }
         self.http_task.abort();
+        if let Some(loopback_http) = self.loopback_http_task.take() {
+            loopback_http.abort();
+        }
         let killed = self.processes.kill_all().await;
         self.reaped.store(true, std::sync::atomic::Ordering::SeqCst);
         if killed > 0 {
@@ -340,7 +354,13 @@ impl Drop for DaemonHandle {
             return;
         }
         let _ = self.rpc_server.stop();
+        if let Some(loopback_rpc) = &self.loopback_rpc_server {
+            let _ = loopback_rpc.stop();
+        }
         self.http_task.abort();
+        if let Some(loopback_http) = &self.loopback_http_task {
+            loopback_http.abort();
+        }
 
         let processes = Arc::clone(&self.processes);
         let runtime = self.runtime.clone();

@@ -129,7 +129,28 @@ pub(crate) fn enumerate_interfaces() -> Vec<InterfaceInfo> {
                 }
             }
         }
+        // `ip` is absent (minimal containers, some BSDs) or yielded nothing: ask the
+        // Tailscale CLI for its IPv4 address. Failure of either probe is an empty list,
+        // which `remote_bind = tailscale` treats as "no Tailscale interface" and refuses.
+        if let Ok(output) = std::process::Command::new("tailscale")
+            .args(["ip", "-4"])
+            .output()
+        {
+            if output.status.success() {
+                if let Some(ip) = String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .find_map(|line| line.trim().parse::<IpAddr>().ok())
+                {
+                    return vec![InterfaceInfo {
+                        name: "tailscale".to_string(),
+                        ip,
+                    }];
+                }
+            }
+        }
     }
+    // Non-Unix hosts have no probe here yet: Tailscale binding is refused there rather
+    // than guessed.
     Vec::new()
 }
 

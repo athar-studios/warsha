@@ -8,62 +8,65 @@ Implements and verifies E2 Lane A on worktree `.agents/worktrees/rn-e2` (branch 
 
 ---
 
-## 2. Changed Files
+## 2. Reviewer findings fixed (H1, M1–M10, Low)
 
-### `crates/warshad`
-- `crates/warshad/src/secretary_chat.rs`:
-  - `SecretaryChat` engine with model routing, cost tracking, context compaction, and read-only snapshot construction.
-  - Hardened proposal validation: checks `references_owner_turn` against owner turns in the conversation, enforces bilingual action intent matching (English and Arabic: `approve`/`وافق`, `reject`/`ارفض`, `allow`/`اسمح`, `start`/`ابدأ`, `cancel`/`أوقف`), rejects empty or `"unknown"` identifiers, and sets thread `project_id` for nil project actions.
-  - Enforced daily cap check (`today_role_cost_cents >= daily_cap_cents -> DailyLimitReached`) before invoking the model for summarization or chat turns.
-  - Untrusted data warning in system prompt marking snapshot/queue/artifact content as quoted data.
-- `crates/warshad/src/tests/secretary_chat.rs`:
-  - 10 targeted tests covering:
-    - Serde wire round-trip for all 5 `ProposalAction` variants in snake_case format (`gate_approve`, `gate_reject`, `queue_decide`, `run_start`, `run_cancel`).
-    - Proposal refusal when `references_owner_turn` is missing, points to non-owner turn, has prompt injection/untrusted data, or has `"unknown"`/empty target IDs.
-    - Proposal acceptance when owner explicitly requests action in EN or AR.
-    - Daily limit enforcement (`SecretaryChatError::DailyLimitReached`).
-    - Global thread cost recording with `ProjectId(Uuid::nil())`.
-    - Context summarization triggered when turn count > 40 turns (persists summary, updates `covers_until`, records summarizer model spend).
-    - Read-only snapshot content verification (`daily_cap_cents`, `today_spend_cents`, `active_runs`, `pending_gates`, `pending_ask_queue`).
-    - RPC auth policy checks (`secretary.thread.list`, `secretary.thread.turns`, `secretary.chat`).
-- `crates/warshad/src/http.rs`:
-  - `resolve_bind_addr` implementation with `RemoteBind` options (`Default`, `Localhost`, `Tailscale`).
-  - Unit tests verifying interface resolution and fail-closed behavior on missing Tailscale interface.
-- `crates/warshad/src/settings.rs`:
-  - Restored `delete_integration` method.
-  - Implemented `SettingsProvider` for `SettingsStore`.
-  - Added `load_remote_bind` and `save_remote_bind` preference helpers.
-- `crates/warshad/src/state.rs`:
-  - `RemoteBind` enum (`#[serde(rename_all = "snake_case")]`) and `DaemonConfig::remote_bind`.
-- `crates/warshad/src/api.rs`:
-  - Registered `secretary.chat`, `secretary.thread.list`, and `secretary.thread.turns` RPC handlers.
-- `crates/warshad/src/auth.rs`:
-  - Configured `MethodPolicy` for secretary RPCs: `secretary.chat` as `Policy::Owner` / `Tier::Spend`, and `secretary.thread.*` as `Policy::Session` / `Tier::Standard`.
-- `crates/warshad/src/lib.rs`:
-  - Re-exported `RemoteBind` and wired `SecretaryChat` initialization with `mcp_approvals`.
+### H1 — `remote_bind = tailscale` no longer disconnects the desktop app
+- `crates/warshad/src/http.rs`: `resolve_listener_bind(&config, &ifaces)` (the function was misnamed `resolve_bind_addr` in the previous report) still fails closed with `DaemonError::Config("no Tailscale interface found; remote_bind=tailscale refused")` when `tailscale_bind_ip` finds nothing. `Default` and `Localhost` are unchanged.
+- `crates/warshad/src/startup.rs`: `start_daemon` now delegates to `start_daemon_with_interfaces(config, secrets, provider_factory, ifaces)`, a `pub(crate)` seam so tests can inject interfaces. With `RemoteBind::Tailscale` and a non-loopback bind it also starts a companion JSON-RPC server and a companion HTTP listener on `127.0.0.1` at the same actual ports, sharing the same `DaemonState`, CORS layer and auth layer. It never binds `0.0.0.0` or any other interface.
+- `crates/warshad/src/state.rs`: `DaemonHandle` owns the companion `ServerHandle` and HTTP task (`has_loopback_companion()`); `shutdown(mut self)` and `Drop` stop both.
+- `enumerate_interfaces` (M7): `ip -j addr`, then a `tailscale ip -4` fallback (interface name `tailscale`). Unix only; on non-unix hosts the list is empty, so `remote_bind = tailscale` is refused there (documented in code, not supported).
+- Tests (`crates/warshad/src/tests/mod.rs`): `tailscale_bind_also_serves_the_loopback_companion` (Linux; mock interface `tailscale0 = 127.0.0.2`, asserts both `127.0.0.1` and `127.0.0.2` accept connections on the HTTP and RPC ports and that the companion is gone after `shutdown`), `tailscale_bind_without_an_interface_refuses_to_start`; the five stub-interface `http::tests::test_remote_bind_*` tests remain.
 
-### `crates/warsha-cli`
-- `crates/warsha-cli/tests/cli_rpc_auth.rs`:
-  - Updated test daemon config to use `warshad::RemoteBind::Default`.
-- `crates/warsha-cli/tests/mcp_serve.rs`:
-  - Updated test daemon config to use `warshad::RemoteBind::Default`.
+### M6 — invalid `WARSHA_REMOTE_BIND` fails closed
+- `apply_env_overrides(config) -> Result<DaemonConfig>` returns `DaemonError::Config("invalid WARSHA_REMOTE_BIND value: '…', expected 'default', 'localhost', or 'tailscale'")`. Test: `an_invalid_remote_bind_env_value_fails_closed`.
 
-### `crates/warsha-store`
-- `crates/warsha-store/migrations/018_secretary_chat.sql`:
-  - Schema migration for `secretary_conversations`, `secretary_turns`, and `secretary_summaries`.
-- `crates/warsha-store/src/secretary_chat.rs` & `crates/warsha-store/src/lib.rs`:
-  - CRUD operations for conversations, turns, and summaries.
-- `crates/warsha-store/tests/secretary_chat.rs`:
-  - Integration tests for migration and storage round-trips.
+### M8 — `remote_bind` configuration surface
+- Dead `save_remote_bind` removed from `crates/warshad/src/settings.rs`; no new JSON-RPC method was added (`packages/client` calls none, and `scripts/check-wire-contract.mjs` would flag one).
+- `remote_bind` is configured through `config.toml` (`remote_bind`), the `WARSHA_REMOTE_BIND` environment variable, or a `settings_kv` document named `remote-bind`, which `load_remote_bind` reads at startup only when the config value is `Default`. Nothing in the daemon writes that document. Test: `the_persisted_remote_bind_document_is_read_back`.
 
----
+### M1 — summarization re-billing and cap ordering (`crates/warshad/src/secretary_chat.rs`)
+- Only turns after `summary.covers_until` are considered (`uncovered_after`, backed by `Store::list_secretary_turns_after`). Summarization runs only when the uncovered turns exceed 40 or the uncovered characters exceed 24 000; it folds all but the newest 20 and carries the previous summary forward. The prompt contains only the summary plus the uncovered suffix.
+- The daily cap is checked before any write and before the summarizer; it is checked again after the summarizer, before the owner turn is persisted and before the main model call. A refused call leaves no owner turn.
+- Tests: `test_refused_cap_leaves_no_orphaned_owner_turn`, `test_summary_is_not_rebilled_and_cap_guards_the_summarizer`, `test_daily_cap_is_checked_before_the_summarizer_runs_again`.
 
-## 3. Wire Contract & Security Guarantees
+### M2 / M9 — single global thread, migration 018
+- `crates/warsha-store/migrations/018_secretary_chat.sql` (LF only): `ON DELETE CASCADE` on `secretary_turns` and `secretary_summaries`, `idx_secretary_turns_conv ON secretary_turns(conversation_id, created_at)`, and a partial unique index `idx_secretary_global_thread ON secretary_conversations((1)) WHERE project_id IS NULL` (at most one global thread).
+- `Store::get_or_create_global_secretary_conversation`; `create_secretary_conversation(None)` returns that singleton; `list_secretary_conversations(Some(pid))` returns only `project_id = pid` rows. `secretary.chat` with `project_id: None, conversation_id: None` reuses the global thread; a `conversation_id` whose scope differs from the call's `project_id` is refused with `InvalidParams`.
+- The migration was edited in place: `018` has not shipped in a release (assumption from the branch state; it only exists on this branch).
+- Tests: store `global_conversation_is_a_singleton`, `turns_after_a_summary_cover_only_the_uncovered_suffix`, `deleting_a_conversation_cascades_to_turns_and_summary`, updated list test; `assert_full_schema` in `crates/warsha-store/tests/settings_migration.rs` now asserts the three secretary tables; daemon `test_global_thread_is_a_single_conversation`.
+
+### M3 / Low — scoped, minimal snapshot
+- A project thread sees only that project's runs, pending gates and ask-queue items (approvals filtered by `run_id` ∈ the project's runs). The global thread sees up to 20 most recently updated active runs, their pending gates, all pending asks and the project list.
+- Runs are projected to `{id, project_id, goal, status, current_stage}` (goal = first 200 chars of the `idea` artifact); worktree paths and artifact bodies are never serialized. Snapshot keys the earlier test relied on are kept.
+- Tests: `test_snapshot_scopes_the_ask_queue_and_projects_runs_minimally`, `test_read_only_snapshot_content`.
+
+### M4 — `refs_owner_message` on replies
+- `ProposalCard.refs_owner_message` and `ChatTurnReply.refs_owner_message` (`Option<String>`, `#[serde(default)]`) carry the verified owner-turn id, equal to the stored `SecretaryTurn.refs_owner_message`. Asserted in `test_proposal_accepted_when_owner_requests_action`.
+
+### M5 / Low — proposal authorization
+- A proposal is accepted only if: the referenced owner turn exists in this thread; the owner text is an explicit imperative for that action; the target (run/stage/question/project) exists in this thread's scope; ids the owner typed match exactly or by unambiguous prefix of at least 8 characters (no substring matching); and, when the owner typed no id, exactly one candidate exists.
+- `RunStart` is refused for questions (`?`, `؟`, `كيف`, `how`, `why`, `what if`).
+- `message` is trimmed and must be 1–16 000 characters, otherwise `InvalidParams` (JSON-RPC -32602) before anything is written.
+- Tests: `test_run_start_rejects_questions_and_short_ids_are_not_matches`, `test_message_is_bounded`, `test_a_proposal_for_another_projects_run_is_refused`, plus the existing refusal tests.
+
+### M10 — language and events
+- `secretary.chat` takes an optional trailing `language: Option<String>` (omitted → `"en"`; `ar`/`en`, locale suffixes such as `ar-SA` accepted; anything else → `InvalidParams`). The system prompt carries `Reply in Arabic (العربية).` or `Reply in English.`. Tests: `test_language_parameter_and_directive`, `test_language_directive_reaches_the_system_prompt`.
+- Events / streaming, stated plainly: `secretary.chat` is one blocking request/response RPC that returns the finished `ChatTurnReply`. It emits no events and does not stream. No `EventKind` variant was added: `EventKind` lives in `warsha-core` and is decoded by `packages/client`, which belongs to Lane B, so an uncoordinated variant could break TS decoders. Nothing in `packages/client` calls `secretary.chat` yet.
+
+## 3. Files changed by this fix round (uncommitted on top of `ea48017`)
+- `crates/warshad/src/{secretary_chat,api,lib,startup,state,http,settings}.rs`
+- `crates/warshad/src/tests/{secretary_chat,mod}.rs`
+- `crates/warsha-store/migrations/018_secretary_chat.sql`, `crates/warsha-store/src/lib.rs`
+- `crates/warsha-store/tests/{secretary_chat,settings_migration}.rs`
+- `docs/zadloop/packets/E2-report-laneA.md`
+- No `packages/` or `apps/` file was touched.
+
+## 3b. Wire contract
 
 ### RPC Methods & Authorization
 | Method | Policy | Tier | Notes |
 |---|---|---|---|
-| `secretary.chat` | `Owner` | `Spend` | Requires Owner token/secret, tracked under Secretary daily cap |
+| `secretary.chat` | `Owner` | `Spend` | Params: `project_id?`, `conversation_id?`, `message`, `language?`; tracked under Secretary daily cap |
 | `secretary.thread.list` | `Session` | `Standard` | Paired sessions can list thread IDs |
 | `secretary.thread.turns` | `Session` | `Standard` | Paired sessions can read thread history |
 
@@ -75,22 +78,24 @@ Implements and verifies E2 Lane A on worktree `.agents/worktrees/rn-e2` (branch 
 - `run_cancel`: `{"run_cancel":{"run_id":"..."}}`
 
 ### Security & Invariant Protections
-1. **Prompt Injection & Untrusted Data**: Read-only snapshot and artifacts are framed as untrusted quoted data in the system prompt. Models are strictly forbidden from executing instructions contained within snapshot data.
-2. **Proposal Authorization**: Secretary cannot emit a proposal on its own. Proposals require an owner turn explicitly asking for that action (in EN or AR) with matching IDs. Mismatched or `"unknown"` IDs fail closed (`proposal: None`).
-3. **Spend Limits**: Daily cap is checked before any model invocation. Reaching the cap immediately errors with `SecretaryChatError::DailyLimitReached` without incurring API charges. Costs are recorded for both project-scoped threads and global (`nil`) threads under `Role::Secretary`.
-4. **Network Fail-Closed**: When configured with `RemoteBind::Tailscale`, daemon refuses to fall back to `0.0.0.0` or `127.0.0.1` if no Tailscale interface is found (`DaemonError::Config`).
+1. **Prompt injection / untrusted data**: the snapshot is framed as untrusted quoted data in the system prompt; the secretary cannot execute instructions found in it.
+2. **Proposal authorization**: see M5 above; anything not matching fails closed (`proposal: None`, `refs_owner_message: None`).
+3. **Spend limits**: see M1 above; costs are recorded for project threads and for the global thread (`ProjectId(Uuid::nil())`) under `Role::Secretary`.
+4. **Network fail-closed**: `RemoteBind::Tailscale` with no Tailscale interface refuses to start; it never falls back to `0.0.0.0` or `127.0.0.1`. With one, it binds the Tailscale address plus a `127.0.0.1` companion.
 
 ---
 
-## 4. Verification Evidence
+## 4. Verification evidence (this worktree, `CARGO_HOME=/tmp/cargo-home`)
+- `cargo fmt --check` -> exit 0.
+- `cargo clippy --workspace --all-targets -- -D warnings` -> exit 0.
+- `cargo test -p warsha-store -p warshad -p warsha-cli` -> exit 0, no failures:
+  - `warsha-store`: 26 unit + 1 project_swarm_settings + 4 secretary_chat + 19 settings_characterization + 5 settings_migration.
+  - `warshad`: 287 lib unit tests passed (4 ignored), including 20 `secretary_chat_tests` and the `remote_bind` / Tailscale tests; 18 integration suites, 85 tests passed (1 ignored in `child_reaping`).
+  - `warsha-cli`: 16 unit + 4 cli_rpc + 7 cli_rpc_auth + 2 mcp_serve + 3 permission_bridge.
+- `node scripts/check-arch.mjs` -> 5 rules, 0 violations.
+- `node scripts/check-engineering-policy.mjs` -> 8 checks, 0 failures.
 
-### Exact Gate Command Results
-- **Code Formatting**:
-  `CARGO_HOME=/tmp/cargo-home cargo fmt --check` -> **Passed** (exit code 0, no output)
-- **Clippy Analysis**:
-  `CARGO_HOME=/tmp/cargo-home cargo clippy --workspace --all-targets -- -D warnings` -> **Passed** (exit code 0, 0 warnings/errors)
-- **Targeted Test Suites**:
-  `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-store -p warshad -p warsha-cli` -> **Passed** (exit code 0)
-  - `warsha-store`: 26 unit tests + 1 secretary_chat test + 19 settings tests + 5 migration tests passed.
-  - `warshad`: 273 library unit tests (including all 10 `secretary_chat_tests` and 5 `remote_bind` tests) + 14 integration test suites passed.
-  - `warsha-cli`: 16 unit tests + 4 cli_rpc tests + 7 cli_rpc_auth tests + 2 mcp_serve tests + 3 permission_bridge tests passed.
+### Limits
+- `node scripts/check-wire-contract.mjs` was not part of the required gates and fails independently of this lane on `catalog.refresh` / `catalog.apply`; it was not changed or fixed here.
+- The Tailscale companion test needs Linux (`127.0.0.2` loopback alias); the real Tailscale interface discovery (`ip`, `tailscale`) is not exercised against a live adapter.
+- `secretary.chat` has no client wiring yet (Lane B); no streaming exists.

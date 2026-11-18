@@ -305,6 +305,10 @@ async fn assert_full_schema(pool: &SqlitePool) {
         "artifacts",
         "costs",
         "mcp_permissions",
+        // 018: the secretary chat tables.
+        "secretary_conversations",
+        "secretary_turns",
+        "secretary_summaries",
     ] {
         assert!(names.iter().any(|name| name == table), "{table} is missing");
     }

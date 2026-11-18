@@ -46,15 +46,13 @@ async fn secretary_chat_round_trip() {
     assert_eq!(global_only.len(), 1);
     assert_eq!(global_only[0].id, global_conv.id);
 
-    // list_secretary_conversations(Some(project_a)) returns project_a + global
+    // list_secretary_conversations(Some(project_a)) returns ONLY project_a's threads
     let proj_a_list = store
         .list_secretary_conversations(Some(project_a))
         .await
         .expect("list project a");
-    assert_eq!(proj_a_list.len(), 2);
-    let ids: Vec<_> = proj_a_list.iter().map(|c| c.id).collect();
-    assert!(ids.contains(&global_conv.id));
-    assert!(ids.contains(&conv_a.id));
+    assert_eq!(proj_a_list.len(), 1);
+    assert_eq!(proj_a_list[0].id, conv_a.id);
 
     // Add turns and verify order + updated_at touch
     let turn1 = store
@@ -119,4 +117,97 @@ async fn secretary_chat_round_trip() {
         .expect("exists");
     assert_eq!(summary2.summary, "summary v2");
     assert_eq!(summary2.covers_until, turn2.id.to_string());
+}
+
+#[tokio::test]
+async fn global_conversation_is_a_singleton() {
+    let (_dir, store) = temp_store().await;
+    let first = store
+        .get_or_create_global_secretary_conversation()
+        .await
+        .expect("create");
+    let second = store
+        .get_or_create_global_secretary_conversation()
+        .await
+        .expect("reuse");
+    assert_eq!(first.id, second.id);
+    assert_eq!(first.project_id, None);
+    // `create(None)` converges on the same thread rather than adding a second.
+    let third = store
+        .create_secretary_conversation(None)
+        .await
+        .expect("create(None)");
+    assert_eq!(third.id, first.id);
+    assert_eq!(
+        store
+            .list_secretary_conversations(None)
+            .await
+            .expect("list")
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn turns_after_a_summary_cover_only_the_uncovered_suffix() {
+    let (_dir, store) = temp_store().await;
+    let conv = store
+        .get_or_create_global_secretary_conversation()
+        .await
+        .expect("conv");
+    let mut ids = Vec::new();
+    for i in 0..4 {
+        ids.push(
+            store
+                .add_secretary_turn(conv.id, "owner", &format!("m{i}"), None, None)
+                .await
+                .expect("turn")
+                .id,
+        );
+    }
+    assert_eq!(
+        store
+            .list_secretary_turns_after(conv.id, None)
+            .await
+            .expect("all")
+            .len(),
+        4
+    );
+    let after = store
+        .list_secretary_turns_after(conv.id, Some(ids[1]))
+        .await
+        .expect("suffix");
+    assert_eq!(after.iter().map(|t| t.id).collect::<Vec<_>>(), ids[2..]);
+}
+
+#[tokio::test]
+async fn deleting_a_conversation_cascades_to_turns_and_summary() {
+    let (_dir, store) = temp_store().await;
+    let conv = store
+        .create_secretary_conversation(Some(Uuid::new_v4()))
+        .await
+        .expect("conv");
+    let turn = store
+        .add_secretary_turn(conv.id, "owner", "hi", None, None)
+        .await
+        .expect("turn");
+    store
+        .set_secretary_summary(conv.id, "s", turn.id.to_string())
+        .await
+        .expect("summary");
+    sqlx::query("DELETE FROM secretary_conversations WHERE id = ?")
+        .bind(conv.id.to_string())
+        .execute(store.pool())
+        .await
+        .expect("delete");
+    assert!(store
+        .list_secretary_turns(conv.id)
+        .await
+        .expect("turns")
+        .is_empty());
+    assert!(store
+        .get_secretary_summary(conv.id)
+        .await
+        .expect("summary")
+        .is_none());
 }

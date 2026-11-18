@@ -529,6 +529,13 @@ impl SettingsStore {
         Ok(store.delete_integration(id).await?)
     }
 
+    /// The owner's persisted `remote_bind` posture: the `remote-bind` settings document
+    /// holding `"default"`, `"localhost"` or `"tailscale"`.
+    ///
+    /// Read at startup only when `config.toml` / `WARSHA_REMOTE_BIND` left the bind at
+    /// the default. There is deliberately no RPC that writes it (the wire contract has no
+    /// such method); the document is written by the owner or by tooling. An unrecognised
+    /// value reads as `Default`, which is the loopback-only posture.
     pub async fn load_remote_bind(&self) -> SettingsResult<RemoteBind> {
         let doc = self.load_document("remote-bind").await?;
         match doc
@@ -539,12 +546,6 @@ impl SettingsStore {
             Some("tailscale") => Ok(RemoteBind::Tailscale),
             _ => Ok(RemoteBind::Default),
         }
-    }
-
-    pub async fn save_remote_bind(&self, bind: RemoteBind) -> SettingsResult<()> {
-        let val = serde_json::Value::String(bind.to_string());
-        self.save_document("remote-bind", &val).await?;
-        Ok(())
     }
 }
 
@@ -717,6 +718,26 @@ mod tests {
             .await
             .expect("the settings open");
         (dir, store)
+    }
+
+    #[tokio::test]
+    async fn the_persisted_remote_bind_document_is_read_back() {
+        let (_dir, settings) = settings().await;
+        assert_eq!(
+            settings.load_remote_bind().await.expect("reads"),
+            RemoteBind::Default
+        );
+        for (written, expected) in [
+            ("tailscale", RemoteBind::Tailscale),
+            ("localhost", RemoteBind::Localhost),
+            ("nonsense", RemoteBind::Default),
+        ] {
+            settings
+                .save_document("remote-bind", &serde_json::json!(written))
+                .await
+                .expect("the document writes");
+            assert_eq!(settings.load_remote_bind().await.expect("reads"), expected);
+        }
     }
 
     #[tokio::test]

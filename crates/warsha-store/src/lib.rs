@@ -711,10 +711,41 @@ impl Store {
 
     // ------------------------------------------------------------ secretary_chat
 
+    /// The single global (project-less) secretary thread: the earliest one, created if
+    /// none exists. `idx_secretary_global_thread` makes a second one impossible, so a race
+    /// between two creators converges on the same row.
+    pub async fn get_or_create_global_secretary_conversation(
+        &self,
+    ) -> Result<SecretaryConversation> {
+        const SELECT_GLOBAL: &str = "SELECT id, project_id, created_at, updated_at FROM secretary_conversations WHERE project_id IS NULL ORDER BY created_at ASC, id ASC LIMIT 1";
+        if let Some(row) = sqlx::query(SELECT_GLOBAL)
+            .fetch_optional(&self.pool)
+            .await?
+        {
+            return secretary_conversation_from_row(&row);
+        }
+        let now = Utc::now();
+        sqlx::query(
+            "INSERT OR IGNORE INTO secretary_conversations (id, project_id, created_at, updated_at) VALUES (?, NULL, ?, ?)",
+        )
+        .bind(Ulid::new().to_string())
+        .bind(now.to_rfc3339())
+        .bind(now.to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+        let row = sqlx::query(SELECT_GLOBAL).fetch_one(&self.pool).await?;
+        secretary_conversation_from_row(&row)
+    }
+
+    /// Create a conversation. `None` is the global thread, which is a singleton: it
+    /// returns the existing one rather than creating a second.
     pub async fn create_secretary_conversation(
         &self,
         project_id: Option<Uuid>,
     ) -> Result<SecretaryConversation> {
+        if project_id.is_none() {
+            return self.get_or_create_global_secretary_conversation().await;
+        }
         let id = Ulid::new();
         let now = Utc::now();
         sqlx::query(
@@ -794,7 +825,7 @@ impl Store {
         project_id: Option<Uuid>,
     ) -> Result<Vec<SecretaryConversation>> {
         let query = match project_id {
-            Some(_) => "SELECT id, project_id, created_at, updated_at FROM secretary_conversations WHERE project_id IS NULL OR project_id = ? ORDER BY updated_at DESC",
+            Some(_) => "SELECT id, project_id, created_at, updated_at FROM secretary_conversations WHERE project_id = ? ORDER BY updated_at DESC",
             None => "SELECT id, project_id, created_at, updated_at FROM secretary_conversations WHERE project_id IS NULL ORDER BY updated_at DESC",
         };
 
@@ -816,6 +847,23 @@ impl Store {
         .await?;
 
         rows.iter().map(secretary_turn_from_row).collect()
+    }
+
+    /// The turns of a conversation strictly after `after_turn_id` (all of them when
+    /// `None`, or when the id is not among them), oldest first.
+    pub async fn list_secretary_turns_after(
+        &self,
+        conversation_id: Ulid,
+        after_turn_id: Option<Ulid>,
+    ) -> Result<Vec<SecretaryTurn>> {
+        let turns = self.list_secretary_turns(conversation_id).await?;
+        let Some(after) = after_turn_id else {
+            return Ok(turns);
+        };
+        match turns.iter().position(|t| t.id == after) {
+            Some(index) => Ok(turns.into_iter().skip(index + 1).collect()),
+            None => Ok(turns),
+        }
     }
 
     pub async fn set_secretary_summary(

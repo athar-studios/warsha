@@ -150,6 +150,7 @@ pub trait WarshaApi {
         project_id: Option<ProjectId>,
         conversation_id: Option<Ulid>,
         message: String,
+        language: Option<String>,
     ) -> RpcResult<crate::secretary_chat::ChatTurnReply>;
 
     #[method(name = "runs.start", with_extensions)]

@@ -466,8 +466,11 @@ impl WarshaApiServer for WarshaRpc {
         project_id: Option<ProjectId>,
         conversation_id: Option<Ulid>,
         message: String,
+        language: Option<String>,
     ) -> RpcResult<crate::secretary_chat::ChatTurnReply> {
         self.authorize(ext, "secretary.chat").await?;
+        let language = crate::secretary_chat::normalize_language(language.as_deref())
+            .map_err(|e| rpc_invalid_params(e.to_string()))?;
         let cap_cents = self.secretary_daily_cap_cents().await;
         let chat = crate::secretary_chat::SecretaryChat::new(
             self.state.store.clone(),
@@ -475,11 +478,12 @@ impl WarshaApiServer for WarshaRpc {
             self.state.mcp_approvals.clone(),
         );
         let reply = chat
-            .turn(
+            .turn_with_language(
                 project_id.map(|id| id.0),
                 conversation_id,
                 &message,
                 cap_cents,
+                language,
             )
             .await
             .map_err(|e| match e {
@@ -496,6 +500,9 @@ impl WarshaApiServer for WarshaRpc {
                         "cap_cents": cap_cents,
                     })),
                 ),
+                crate::secretary_chat::SecretaryChatError::InvalidParams(message) => {
+                    rpc_invalid_params(message)
+                }
                 _ => ErrorObject::owned(-32000, e.to_string(), None::<()>),
             })?;
         Ok(reply)
