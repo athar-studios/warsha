@@ -3,6 +3,7 @@ import type { BudgetStatus, ProjectId, ProjectSummary } from '@warsha/client';
 /* eslint-disable import/no-unresolved */
 import { useT } from '@warsha/i18n/v3';
 import {
+  Badge,
   Banner,
   Button,
   EmptyState,
@@ -28,7 +29,18 @@ export function BudgetsSection(): React.ReactElement {
   const [loadingBudgets, setLoadingBudgets] = useState(false);
   const [budgetMap, setBudgetMap] = useState<Record<string, BudgetStatus>>({});
   const [inputMap, setInputMap] = useState<Record<string, string>>({});
+  const [defaultBudget, setDefaultBudget] = useState<number>(10);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!client) return;
+    client.listPreferences('global').then((prefs) => {
+      const found = prefs.find((p) => p.key === 'default_budget_usd');
+      if (found && Number.isFinite(found.score) && found.score > 0) {
+        setDefaultBudget(found.score);
+      }
+    }).catch(() => {});
+  }, [client]);
 
   useEffect(() => {
     setReady(status !== 'loading' && !loadingBudgets);
@@ -142,17 +154,26 @@ export function BudgetsSection(): React.ReactElement {
               const b = budgetMap[p.id];
               const pName = p.name || t('settings.budgets.unnamed');
               const currentInput = inputMap[p.id] ?? '10';
+              const isOverridden = b !== undefined && b.totalBudgetUsd > 0;
+              const effectiveBudget = isOverridden ? b.totalBudgetUsd : defaultBudget;
               return (
                 <div key={p.id} className="v3-settings-row" data-testid={`project-budget-row-${p.id}`}>
                   <span className="v3-settings-row-icon" aria-hidden="true">
                     <IconWallet size={18} />
                   </span>
                   <div className="v3-settings-row-main">
-                    <div className="v3-settings-row-title">
-                      {pName}
+                    <div className="v3-settings-row-title" style={{ display: 'flex', alignItems: 'center', gap: 'var(--w-space-2)' }}>
+                      <span>{pName}</span>
+                      {isOverridden ? (
+                        <Badge variant="attention">{t('settings.override.badge')}</Badge>
+                      ) : (
+                        <Badge variant="neutral">{t('settings.override.global_default')}</Badge>
+                      )}
                     </div>
                     <div className="v3-settings-row-subtitle">
                       <span>
+                        <span>{t('settings.override.effective', { value: `$${effectiveBudget}` })}</span>
+                        {' · '}
                         <span>{t('settings.budgets.spent', { spent: b?.spentUsd ?? 0 })}</span>
                         {' · '}
                         <span>{t('settings.budgets.remaining', { remaining: b?.remainingUsd ?? 0 })}</span>

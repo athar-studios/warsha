@@ -49,7 +49,7 @@ async function renderFrame(
     client?: WarshaClient;
     initialPath?: string;
     locale?: 'ar' | 'en';
-    initialMode?: 'simple' | 'advanced';
+    initialMode?: 'simple' | 'developers';
     children?: React.ReactNode;
   } = {}
 ) {
@@ -263,7 +263,7 @@ describe('Frame component', () => {
 
     expect(
       invokeCalls.some(
-        (c) => c.cmd === 'set_config' && c.args?.key === 'app_mode' && c.args?.value === 'advanced'
+        (c) => c.cmd === 'set_config' && c.args?.key === 'app_mode' && c.args?.value === 'developers'
       )
     ).toBe(true);
 

@@ -5,9 +5,10 @@ import { useDensity } from '../../app/DensityContext';
 import { useNavigate, useRoute } from '../../router';
 import { useNarrowViewport } from '../bench/useNarrowViewport';
 
-import { SettingsNav } from './SettingsNav';
+import { SettingsNav, type SettingsLayer } from './SettingsNav';
 import { AboutSection } from './sections/AboutSection';
 import { BackendSection } from './sections/BackendSection';
+import { SettingsExportSection } from './sections/SettingsExportSection';
 import { BudgetsSection } from './sections/BudgetsSection';
 import { ConnectionsSection } from './sections/ConnectionsSection';
 import { DevicesSection } from './sections/DevicesSection';
@@ -43,6 +44,8 @@ export default function SettingsPage(): React.ReactElement {
     : 'general';
 
   const activeMeta = SETTINGS_SECTIONS.find((s) => s.id === activeSection) ?? SETTINGS_SECTIONS[0];
+  const [layer, setLayer] = useState<SettingsLayer>('developers');
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [advancedExpanded, setAdvancedExpanded] = useState<boolean>(
     () => Boolean(activeMeta?.isAdvanced)
   );
@@ -89,6 +92,8 @@ export default function SettingsPage(): React.ReactElement {
         return <PostLaunchSection />;
       case 'backend':
         return <BackendSection />;
+      case 'export':
+        return <SettingsExportSection />;
       case 'about':
         return <AboutSection />;
       default:
@@ -106,6 +111,10 @@ export default function SettingsPage(): React.ReactElement {
         activeSection={activeSection}
         onSelectSection={handleSelectSection}
         mode={mode}
+        layer={layer}
+        onLayerChange={setLayer}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
         advancedExpanded={advancedExpanded}
         onToggleAdvanced={() => setAdvancedExpanded((prev) => !prev)}
       />

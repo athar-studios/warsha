@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
-export type AppMode = 'simple' | 'advanced';
+export type AppMode = 'simple' | 'factory' | 'developers';
 export type Density = 'comfortable' | 'compact';
 
 interface DensityContextValue {
@@ -23,7 +23,7 @@ export function readStoredAppMode(): AppMode {
   if (typeof window === 'undefined') return 'simple';
   try {
     const val = window.localStorage.getItem(APP_MODE_STORAGE_KEY);
-    if (val === 'simple' || val === 'advanced') return val;
+    if (val === 'simple' || val === 'factory' || val === 'developers') return val;
   } catch {
     // Ignore storage errors
   }
@@ -44,7 +44,7 @@ export function DensityProvider({
   const [mode, setModeState] = useState<AppMode>(() => initialMode ?? readStoredAppMode());
   const [density, setDensityState] = useState<Density>(() => {
     if (initialDensity) return initialDensity;
-    return mode === 'advanced' ? 'compact' : 'comfortable';
+    return mode === 'developers' ? 'compact' : 'comfortable';
   });
 
   useEffect(() => {
@@ -63,7 +63,7 @@ export function DensityProvider({
 
   const setMode = (nextMode: AppMode): void => {
     setModeState(nextMode);
-    setDensityState(nextMode === 'advanced' ? 'compact' : 'comfortable');
+    setDensityState(nextMode === 'simple' ? 'comfortable' : 'compact');
   };
 
   const value = useMemo<DensityContextValue>(

@@ -1996,3 +1996,5 @@ tier name (`green | amber | red`) that maps to CSS classes (`gauge--green`…), 
 actual colours are token references inside @warsha/ui. UsageSection now reuses
 `quotaPercentage`/`gaugeStatus` from useQuotaGauge via a shared identity tier map derived
 from `GaugeStatus` — one source of truth, zero quoted colour words, R6 back to 0.
+D-RN-E1-001: Extend WorkbenchMode to include 'developers' mode as a first-class mode.
+D-RN-E1-002: Settings export/import uses placeholder refs for secrets.

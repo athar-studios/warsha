@@ -716,6 +716,7 @@ export const messages: Record<Locale, Record<string, string>> = {
 
     // Top bar (§4). `app.simpleMode` / `app.advancedMode` / `app.settings` are the controls themselves.
     'app.simpleMode': 'بسيط',
+    'app.factoryMode': 'المصنع',
     'app.advancedMode': 'متقدّم',
     'app.settings': 'الإعدادات',
     'app.mode_label': 'نمط الواجهة',
@@ -1951,6 +1952,7 @@ export const messages: Record<Locale, Record<string, string>> = {
     // English twin of the Arabic block above; `index.test.ts` fails if the two key sets ever differ.
 
     'app.simpleMode': 'Simple',
+    'app.factoryMode': 'Factory',
     'app.advancedMode': 'Advanced',
     'app.settings': 'Settings',
     'app.mode_label': 'Interface mode',

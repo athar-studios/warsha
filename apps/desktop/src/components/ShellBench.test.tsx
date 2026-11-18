@@ -97,7 +97,7 @@ describe('BenchTopbar', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
-    expect(onModeChange).toHaveBeenCalledWith('advanced');
+    expect(onModeChange).toHaveBeenCalledWith('developers');
 
     // No selection, so the row has nothing contextual to name (§4).
     expect(screen.getByTestId('bench-identity')).toHaveTextContent('');

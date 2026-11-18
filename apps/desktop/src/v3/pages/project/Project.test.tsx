@@ -376,7 +376,7 @@ describe('ProjectPage component', () => {
 
     fireEvent.click(document.querySelector('[data-action="project.open-advanced"]') as HTMLElement);
     await waitFor(() => {
-      expect(document.documentElement.getAttribute('data-mode')).toBe('advanced');
+      expect(document.documentElement.getAttribute('data-mode')).toBe('developers');
     });
   });
 

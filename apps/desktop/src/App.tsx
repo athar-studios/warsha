@@ -97,7 +97,9 @@ export type Screen =
   | 'models'
   | 'crash-reports'
   | 'store-reviews'
-  | 'backend-kit';
+  | 'backend-kit'
+  | 'factory'
+  | 'developers';
 
 // The Settings tab strip (PLAN.md M20 wiring batch): every settings sub-screen can reach the others, so
 // none of them is a dead end. Order is the sidebar order, and §4 gives all six one `role="tablist"`.
@@ -266,7 +268,7 @@ async function readConfig(key: string): Promise<string> {
 async function getSavedMode(): Promise<WorkbenchMode> {
   try {
     const result = await invoke<string>('get_config', { key: 'app_mode' });
-    return result === 'advanced' ? 'advanced' : 'simple';
+    return result === 'factory' || result === 'developers' ? result : 'simple';
   } catch {
     return 'simple';
   }
@@ -405,7 +407,7 @@ function AppContent() {
   const setMode = useCallback((next: WorkbenchMode) => {
     // §3: the switch keeps the project, the run and the screen it belongs to — only the depth changes.
     setModeState(next);
-    setScreen(next);
+    setScreen(next === 'simple' ? 'simple' : 'advanced');
     void saveMode(next);
   }, []);
 
@@ -800,7 +802,7 @@ function AppContent() {
             project={project}
             endpoint={endpoint}
             onBack={() => setScreen('projects')}
-            onModeChange={setMode}
+            onModeChange={(m) => setMode(m as WorkbenchMode)}
           />
         );
       }

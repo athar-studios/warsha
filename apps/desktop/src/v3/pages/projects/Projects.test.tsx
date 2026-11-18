@@ -121,7 +121,7 @@ async function renderProjects(
   options: {
     client?: WarshaClient;
     locale?: 'ar' | 'en';
-    mode?: 'simple' | 'advanced';
+    mode?: 'simple' | 'developers';
   } = {}
 ) {
   const { client = makeMockClient(), locale = 'ar', mode = 'simple' } = options;
@@ -318,7 +318,7 @@ describe('ProjectsPage', () => {
   });
 
   it('renders DataTable in Advanced mode and cycles sort on projects.sort', async () => {
-    await renderProjects({ locale: 'en', mode: 'advanced' });
+    await renderProjects({ locale: 'en', mode: 'developers' });
 
     await waitFor(() => {
       expect(screen.getByTestId('projects-table')).toBeDefined();

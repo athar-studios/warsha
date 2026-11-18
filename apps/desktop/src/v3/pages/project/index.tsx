@@ -451,9 +451,9 @@ export default function ProjectPage(): React.ReactElement {
   });
 
   const openAdvancedAction = useAction('project.open-advanced', async () => {
-    setMode('advanced');
+    setMode('developers');
     try {
-      await invoke('set_config', { key: 'app_mode', value: 'advanced' });
+      await invoke('set_config', { key: 'app_mode', value: 'developers' });
     } catch {
       // Ignore Tauri IPC errors in plain browser / test environments
     }
@@ -467,7 +467,7 @@ export default function ProjectPage(): React.ReactElement {
 
   const visibleEvents = useMemo<WarshaEvent[]>(() => {
     const raw = eventsResult.data ?? [];
-    if (mode === 'advanced') return raw;
+    if (mode === 'developers') return raw;
     return raw.filter((ev) => ev.kind !== 'tool_call');
   }, [eventsResult.data, mode]);
 

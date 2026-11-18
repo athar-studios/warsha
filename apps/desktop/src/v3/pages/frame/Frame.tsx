@@ -97,7 +97,7 @@ export function Frame({ children }: FrameProps): React.ReactElement {
     try {
       invoke<string>('get_config', { key: 'app_mode' })
         .then((stored) => {
-          if (stored === 'simple' || stored === 'advanced') {
+          if (stored === 'simple' || stored === 'factory' || stored === 'developers') {
             setMode(stored);
           }
         })
@@ -206,7 +206,16 @@ export function Frame({ children }: FrameProps): React.ReactElement {
         e.key === 'ArrowUp'
       ) {
         e.preventDefault();
-        const next: AppMode = current === 'simple' ? 'advanced' : 'simple';
+        const modes: AppMode[] = ['simple', 'factory', 'developers'];
+        const idx = modes.indexOf(current);
+        const isRtl = document.documentElement.dir === 'rtl';
+        let delta = 0;
+        if (e.key === 'ArrowRight') delta = isRtl ? -1 : 1;
+        else if (e.key === 'ArrowLeft') delta = isRtl ? 1 : -1;
+        else if (e.key === 'ArrowDown') delta = 1;
+        else if (e.key === 'ArrowUp') delta = -1;
+
+        const next = modes[(idx + delta + modes.length) % modes.length];
         handleSwitchMode(next);
         const group = e.currentTarget.parentElement;
         const target = group?.querySelector<HTMLButtonElement>(`[data-action="frame.mode.${next}"]`);
@@ -322,12 +331,12 @@ export function Frame({ children }: FrameProps): React.ReactElement {
         <button
           type="button"
           role="radio"
-          aria-checked={mode === 'advanced'}
-          tabIndex={mode === 'advanced' ? 0 : -1}
-          data-action="frame.mode.advanced"
-          onClick={() => handleSwitchMode('advanced')}
-          onKeyDown={(e) => handleModeKeyDown(e, 'advanced')}
-          className={`w-segmented__item ${mode === 'advanced' ? 'w-segmented__item--selected' : ''}`.trim()}
+          aria-checked={mode === 'factory'}
+          tabIndex={mode === 'factory' ? 0 : -1}
+          data-action="frame.mode.factory"
+          onClick={() => handleSwitchMode('factory')}
+          onKeyDown={(e) => handleModeKeyDown(e, 'factory')}
+          className={`w-segmented__item ${mode === 'factory' ? 'w-segmented__item--selected' : ''}`.trim()}
           style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -340,12 +349,46 @@ export function Frame({ children }: FrameProps): React.ReactElement {
             fontSize: 'var(--w-font-size-sm)',
             lineHeight: 'var(--w-line-height-sm)',
             fontWeight:
-              mode === 'advanced'
+              mode === 'factory'
                 ? 'var(--w-font-weight-medium)'
                 : 'var(--w-font-weight-regular)',
-            backgroundColor: mode === 'advanced' ? 'var(--w-surface)' : 'transparent',
-            color: mode === 'advanced' ? 'var(--w-text)' : 'var(--w-text-muted)',
-            boxShadow: mode === 'advanced' ? 'var(--w-shadow-1)' : 'none',
+            backgroundColor: mode === 'factory' ? 'var(--w-surface)' : 'transparent',
+            color: mode === 'factory' ? 'var(--w-text)' : 'var(--w-text-muted)',
+            boxShadow: mode === 'factory' ? 'var(--w-shadow-1)' : 'none',
+            cursor: 'pointer',
+            transition:
+              'background-color var(--w-dur-fast) var(--w-ease), color var(--w-dur-fast) var(--w-ease)',
+          }}
+        >
+          {t('frame.mode_factory')}
+        </button>
+        <button
+          type="button"
+          role="radio"
+          aria-checked={mode === 'developers'}
+          tabIndex={mode === 'developers' ? 0 : -1}
+          data-action="frame.mode.advanced"
+          onClick={() => handleSwitchMode('developers')}
+          onKeyDown={(e) => handleModeKeyDown(e, 'developers')}
+          className={`w-segmented__item ${mode === 'developers' ? 'w-segmented__item--selected' : ''}`.trim()}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            border: 'none',
+            borderRadius: 'var(--w-radius-sm)',
+            paddingBlock: 'var(--w-space-1)',
+            paddingInline: 'var(--w-space-3)',
+            minBlockSize: 'var(--w-control-height)',
+            fontSize: 'var(--w-font-size-sm)',
+            lineHeight: 'var(--w-line-height-sm)',
+            fontWeight:
+              mode === 'developers'
+                ? 'var(--w-font-weight-medium)'
+                : 'var(--w-font-weight-regular)',
+            backgroundColor: mode === 'developers' ? 'var(--w-surface)' : 'transparent',
+            color: mode === 'developers' ? 'var(--w-text)' : 'var(--w-text-muted)',
+            boxShadow: mode === 'developers' ? 'var(--w-shadow-1)' : 'none',
             cursor: 'pointer',
             transition:
               'background-color var(--w-dur-fast) var(--w-ease), color var(--w-dur-fast) var(--w-ease)',

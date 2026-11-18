@@ -14,6 +14,7 @@ export type SettingsSectionId =
   | 'permissions'
   | 'postlaunch'
   | 'backend'
+  | 'export'
   | 'about';
 
 export interface SectionMeta {
@@ -22,6 +23,7 @@ export interface SectionMeta {
   descKey: string;
   scopeKey: string;
   isAdvanced: boolean;
+  isQuick?: boolean;
 }
 
 export const SETTINGS_SECTIONS: readonly SectionMeta[] = [
@@ -32,6 +34,7 @@ export const SETTINGS_SECTIONS: readonly SectionMeta[] = [
     descKey: 'settings.section.general.desc',
     scopeKey: 'settings.scope.device',
     isAdvanced: false,
+    isQuick: true,
   },
   {
     id: 'models',
@@ -39,6 +42,7 @@ export const SETTINGS_SECTIONS: readonly SectionMeta[] = [
     descKey: 'settings.section.models.desc',
     scopeKey: 'settings.scope.system',
     isAdvanced: false,
+    isQuick: true,
   },
   {
     id: 'devices',
@@ -111,6 +115,7 @@ export const SETTINGS_SECTIONS: readonly SectionMeta[] = [
     descKey: 'settings.section.budgets.desc',
     scopeKey: 'settings.scope.project',
     isAdvanced: true,
+    isQuick: true,
   },
   {
     id: 'usage',
@@ -118,6 +123,7 @@ export const SETTINGS_SECTIONS: readonly SectionMeta[] = [
     descKey: 'settings.section.usage.desc',
     scopeKey: 'settings.scope.all_runs',
     isAdvanced: true,
+    isQuick: true,
   },
   {
     id: 'permissions',
@@ -125,6 +131,7 @@ export const SETTINGS_SECTIONS: readonly SectionMeta[] = [
     descKey: 'settings.section.permissions.desc',
     scopeKey: 'settings.scope.daemon',
     isAdvanced: true,
+    isQuick: true,
   },
   {
     id: 'postlaunch',
@@ -138,6 +145,13 @@ export const SETTINGS_SECTIONS: readonly SectionMeta[] = [
     labelKey: 'settings.section.backend',
     descKey: 'settings.section.backend.desc',
     scopeKey: 'settings.scope.run',
+    isAdvanced: true,
+  },
+  {
+    id: 'export',
+    labelKey: 'settings.section.export',
+    descKey: 'settings.section.export.desc',
+    scopeKey: 'settings.scope.device',
     isAdvanced: true,
   },
 ];
