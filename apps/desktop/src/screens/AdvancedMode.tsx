@@ -160,6 +160,7 @@ const ROLE_MODEL_FIXTURE: Record<Role, string> = {
   release: 'DeepSeek V3',
   marketer: 'GPT-4o',
   feedback: 'Ollama',
+  secretary: 'GPT-4o',
 };
 
 /** The pipeline's stage order — the plan the run walks, gate steps included. */

@@ -38,11 +38,11 @@ use crate::MockProviderFactory;
 use crate::{
     acquire_lock, apply_role_routings, build_agent_loop, http_app, mcp_approvals, mcp_http,
     pairing_origin, register_configured_providers, resolve_bind_host, scrub_event_payload,
-    seed_agent_snapshot, seed_role_routings, wave2, windows_firewall_command, DaemonArgs,
-    DaemonConfig, DaemonError, DaemonHandle, DaemonPermissionStore, DaemonState, EventSequencer,
-    KeychainProviderFactory, ProcessPolicy, ProviderFactory, RateGovernor, Result, RpcAuthLayer,
-    Sessions, SettingsStore, StoreRunLiveness, WarshaApiServer, WarshaRpc, LOCAL_POCKETBASE_URL,
-    MOCK_PROVIDER_ID, REMOTE_ASSETS_DIR_ENV,
+    seed_agent_snapshot, seed_backend_routings, seed_custom_backends, seed_role_routings, wave2,
+    windows_firewall_command, DaemonArgs, DaemonConfig, DaemonError, DaemonHandle,
+    DaemonPermissionStore, DaemonState, EventSequencer, KeychainProviderFactory, ProcessPolicy,
+    ProviderFactory, RateGovernor, Result, RpcAuthLayer, Sessions, SettingsStore, StoreRunLiveness,
+    WarshaApiServer, WarshaRpc, LOCAL_POCKETBASE_URL, MOCK_PROVIDER_ID, REMOTE_ASSETS_DIR_ENV,
 };
 
 /// The backend kit a project starts from until it exports or sets one of its own.
@@ -226,11 +226,81 @@ pub async fn start_daemon_with_provider_factory(
     let mut pipeline =
         warsha_pipeline::PipelineEngine::new(store.clone(), providers.clone(), settings.clone());
 
-    // The wiring side owns the environment selection: the pipeline never reads
-    // `WARSHA_CODING_BACKEND` or names a backend, it only accepts an injected one.
-    if let Some(backend) = BackendFactory::from_env() {
-        pipeline = pipeline.with_coding_backend(Arc::from(backend));
+    // R-NEXT N2: build the coding backend registry from the embedded catalog,
+    // custom backend definitions in settings, per-project/role routings, and
+    // WARSHA_CODING_BACKEND. Any unknown backend name is a named startup error (A16.11).
+    let registry = Arc::new(warsha_pipeline::CodingBackendRegistry::new());
+    for backend in BackendFactory::all_catalog() {
+        registry.register(Arc::from(backend));
     }
+
+    let custom_backends = seed_custom_backends(&settings).await?;
+    for def in &custom_backends {
+        def.validate().map_err(DaemonError::Other)?;
+        registry.register(Arc::new(
+            warsha_backends::CliBackend::from_custom_definition(def),
+        ));
+    }
+
+    let backend_routings = seed_backend_routings(&settings).await?;
+    if let Some(default_name) = backend_routings
+        .default_backend
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        if !registry.contains(default_name) {
+            return Err(DaemonError::Other(format!(
+                "unknown coding backend `{default_name}` configured in settings"
+            )));
+        }
+        registry.set_default_backend(Some(default_name.to_string()));
+    }
+    for (role_str, backend_name) in &backend_routings.role_backends {
+        let backend_name = backend_name.trim();
+        if !registry.contains(backend_name) {
+            return Err(DaemonError::Other(format!(
+                "unknown coding backend `{backend_name}` configured in settings for role `{role_str}`"
+            )));
+        }
+        let role: warsha_core::Role =
+            serde_json::from_value(serde_json::Value::String(role_str.to_lowercase())).map_err(
+                |_| DaemonError::Other(format!("unknown role `{role_str}` in backend routings")),
+            )?;
+        registry.set_role_backend(role, backend_name);
+    }
+    for (project_str, backend_name) in &backend_routings.project_backends {
+        let backend_name = backend_name.trim();
+        if !registry.contains(backend_name) {
+            return Err(DaemonError::Other(format!(
+                "unknown coding backend `{backend_name}` configured in settings for project `{project_str}`"
+            )));
+        }
+        let project_uuid: uuid::Uuid = project_str.parse().map_err(|_| {
+            DaemonError::Other(format!(
+                "invalid project id `{project_str}` in backend routings"
+            ))
+        })?;
+        registry.set_project_backend(warsha_core::ProjectId(project_uuid), backend_name);
+    }
+
+    // The wiring side owns the environment selection: the pipeline never reads
+    // `WARSHA_CODING_BACKEND` or names a backend, it only accepts an injected registry.
+    // A16.11: an unknown backend name in WARSHA_CODING_BACKEND is a named startup error.
+    if let Ok(env_backend) = std::env::var(warsha_backends::CODING_BACKEND_ENV) {
+        let trimmed = env_backend.trim();
+        if !trimmed.is_empty() {
+            if !registry.contains(trimmed) {
+                return Err(DaemonError::Other(format!(
+                    "unknown coding backend `{trimmed}` specified in {}",
+                    warsha_backends::CODING_BACKEND_ENV
+                )));
+            }
+            registry.set_default_backend(Some(trimmed.to_string()));
+        }
+    }
+
+    pipeline = pipeline.with_backend_registry(registry);
     let pipeline = Arc::new(pipeline);
 
     // Initialize backends

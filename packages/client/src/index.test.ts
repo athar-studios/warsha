@@ -811,6 +811,7 @@ describe('configured provider and agent wiring (C2)', () => {
       targets: [{ provider_id: 'my-qwen', model_id: 'gpt-4o-mini', weight: 100 }],
       fallback_enabled: false,
       budget_cents_per_run: 25,
+      daily_spend_cap_cents: null,
     });
 
     expect(lastBody().method).toBe('roles.set');
@@ -820,6 +821,7 @@ describe('configured provider and agent wiring (C2)', () => {
         targets: [{ provider_id: 'my-qwen', model_id: 'gpt-4o-mini', weight: 100 }],
         fallback_enabled: false,
         budget_cents_per_run: 25,
+        daily_spend_cap_cents: null,
       },
     });
   });

@@ -7,12 +7,15 @@ pub mod config;
 pub mod harness;
 pub mod plugin;
 pub mod redaction;
+pub mod rules;
 pub mod session;
 pub mod skill;
 
+pub use rules::{InMemoryRuleStore, RuleAction, RuleStore, ToolRules};
+
 pub use config::{
-    CustomModelRecord, FileContent, FileEntry, IntegrationConfig, IntegrationStatus,
-    IntegrationTestResult,
+    CustomBackendDefinition, CustomModelRecord, FileContent, FileEntry, IntegrationConfig,
+    IntegrationStatus, IntegrationTestResult,
 };
 pub use harness::{bundled_harnesses, HarnessDefinition, HarnessRules, HarnessStage};
 pub use plugin::{bundled_plugins, PluginDefinition, PluginToolDefinition};
@@ -193,6 +196,7 @@ pub enum Role {
     Release,
     Marketer,
     Feedback,
+    Secretary,
 }
 
 impl Role {
@@ -210,6 +214,7 @@ impl Role {
             Role::Release,
             Role::Marketer,
             Role::Feedback,
+            Role::Secretary,
         ]
     }
 }

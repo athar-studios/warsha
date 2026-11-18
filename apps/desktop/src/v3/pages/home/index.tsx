@@ -1,6 +1,7 @@
 import type {
   CostEstimate,
   GateSummary,
+  InterviewState,
   ProjectId,
   ProjectSummary,
   RoleRouting,
@@ -285,6 +286,19 @@ export default function HomePage(): React.ReactElement {
     };
   }, [client, projectsResult.data]);
 
+  // Action: home.interview_start
+  const [interviewProjectId, setInterviewProjectId] = useState<ProjectId | null>(null);
+  const [interviewState, setInterviewState] = useState<InterviewState | null>(null);
+  const startInterviewAction = useAction('home.interview_start', async () => {
+    if (!client) throw new Error(t('common.error'));
+    const projectName = deriveProjectName(idea.trim());
+    const project = await client.createProject(projectName, idea.trim(), locale);
+    const outcome = await client.interviewStart(project.id, idea.trim());
+    setInterviewProjectId(project.id);
+    if (outcome.kind === 'next_question') {
+      setInterviewState(outcome.state);
+    }
+  });
   // Action: home.start
   // MUST call projects.create -> budget.set -> runs.start IN THAT ORDER
   const startAction = useAction('home.start', async () => {
@@ -518,18 +532,30 @@ export default function HomePage(): React.ReactElement {
             </span>
 
             {hasProvider ? (
-              <Button
-                variant="primary"
-                size="lg"
-                iconEnd={<IconSend size={18} />}
-                disabled={!idea.trim() || startAction.pending}
-                loading={startAction.pending}
-                onClick={handleStartSubmit}
-                data-action="home.start"
-                data-testid="home-start-button"
-              >
-                {t('home.start')}
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  size="lg"
+                  disabled={!idea.trim() || startInterviewAction.pending}
+                  loading={startInterviewAction.pending}
+                  onClick={() => startInterviewAction.run()}
+                  data-action="home.interview_start"
+                >
+                  {t('home.interview_start')}
+                </Button>
+                <Button
+                  variant="primary"
+                  size="lg"
+                  iconEnd={<IconSend size={18} />}
+                  disabled={!idea.trim() || startAction.pending}
+                  loading={startAction.pending}
+                  onClick={handleStartSubmit}
+                  data-action="home.start"
+                  data-testid="home-start-button"
+                >
+                  {t('home.start')}
+                </Button>
+              </div>
             ) : (
               <Button
                 variant="secondary"

@@ -34,6 +34,11 @@ pub struct BackendPermissionPlan {
     pub can_ask: bool,
 }
 
+/// Returns true if the backend has an explicit permission mapping table entry.
+pub fn has_permission_mapping(backend: &str) -> bool {
+    matches!(backend, "claude-code" | "codex-cli")
+}
+
 /// Map (backend name, confinement, approval mode) to launch arguments.
 ///
 /// Unknown backends get the "own defaults" plan: no permission flags, and the

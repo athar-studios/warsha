@@ -26,7 +26,8 @@ mod backend_kit;
 pub mod coding_backend;
 pub mod live_session;
 pub use crate::coding_backend::{
-    BackendError, CodingBackend, CodingResult, CodingTask, FileAction, Sandbox, TaskFile,
+    BackendError, CodingBackend, CodingBackendRegistry, CodingResult, CodingTask, FileAction,
+    Sandbox, TaskFile,
 };
 pub use crate::live_session::{LiveSessionManager, MAX_TAIL_LINES};
 mod build_cache;
@@ -418,8 +419,10 @@ pub struct PipelineEngine<S: SettingsProvider> {
     orchestrator: Orchestrator,
     /// Settings store for accessing active harness, enabled skills, and plugins
     settings: Arc<S>,
-    /// The coding CLI the Code stage runs through, when the owner selected one.
-    coding_backend: Option<Arc<dyn CodingBackend>>,
+    /// Coding backend registry and per-project/role selection table (R-NEXT N2).
+    backend_registry: Arc<CodingBackendRegistry>,
+    /// Whether the read-only tree-hash backstop (B2) is active (default: true).
+    read_only_backstop: bool,
     /// Per-run synchronization controls for execution serialization and real cancel
     run_controls: Arc<tokio::sync::Mutex<HashMap<RunId, Arc<RunControl>>>>,
     /// Live session manager tracking in-memory tails and process cancellation
@@ -437,7 +440,8 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             providers,
             orchestrator: Orchestrator::new(OrchestratorConfig::default()),
             settings,
-            coding_backend: None,
+            backend_registry: Arc::new(CodingBackendRegistry::new()),
+            read_only_backstop: true,
             run_controls: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             live_sessions: LiveSessionManager::new(),
         }
@@ -445,22 +449,45 @@ impl<S: SettingsProvider> PipelineEngine<S> {
 
     /// Run the Code stage through this coding backend instead of the routed provider.
     ///
-    /// The selection is explicit: without a backend the Code stage keeps executing
-    /// as it did before, through the provider router. The wiring side (the daemon)
-    /// reads `WARSHA_CODING_BACKEND` and hands the resolved backend in.
-    pub fn with_coding_backend(mut self, backend: Arc<dyn CodingBackend>) -> Self {
-        self.coding_backend = Some(backend);
+    /// Registers the backend in the engine's registry and sets it as the default.
+    pub fn with_coding_backend(self, backend: Arc<dyn CodingBackend>) -> Self {
+        let name = backend.name().to_string();
+        self.backend_registry.register(backend);
+        self.backend_registry.set_default_backend(Some(name));
         self
     }
 
-    /// The coding backend the Code stage runs through, when the run selected one.
-    ///
-    /// The backend is injected through [`PipelineEngine::with_coding_backend`]; the
-    /// pipeline itself never reads the environment or names a backend. The backend
-    /// is used even when its CLI is not installed, so the stage can report the
-    /// absent CLI instead of quietly falling back to a provider.
-    fn selected_coding_backend(&self) -> Option<Arc<dyn CodingBackend>> {
-        self.coding_backend.clone()
+    /// Replace the engine's coding backend registry (used by daemon wiring).
+    pub fn with_backend_registry(mut self, registry: Arc<CodingBackendRegistry>) -> Self {
+        self.backend_registry = registry;
+        self
+    }
+
+    /// Access the engine's coding backend registry for per-project / per-role selection.
+    pub fn backend_registry(&self) -> Arc<CodingBackendRegistry> {
+        self.backend_registry.clone()
+    }
+
+    /// Enable or disable the B2 read-only tree-hash backstop.
+    pub fn with_read_only_backstop(mut self, enabled: bool) -> Self {
+        self.read_only_backstop = enabled;
+        self
+    }
+
+    /// Resolve the coding backend for a project and role, failing by name if
+    /// an unknown backend is configured (A16.11).
+    pub fn resolve_coding_backend(
+        &self,
+        project_id: Option<ProjectId>,
+        role: Role,
+    ) -> Result<Option<Arc<dyn CodingBackend>>> {
+        self.backend_registry
+            .resolve(project_id, role)
+            .map_err(|unknown| {
+                PipelineError::Other(format!(
+                    "unknown coding backend `{unknown}` is configured; refusing to fall back to routed provider"
+                ))
+            })
     }
 
     /// Obtain or create the [`RunControl`] for `run_id`.
@@ -514,6 +541,10 @@ impl<S: SettingsProvider> PipelineEngine<S> {
     /// budget stays unbudgeted, which is allowed.
     pub async fn start_run(&self, project_id: ProjectId, idea: &str) -> Result<Run> {
         let project = self.store.get_project(project_id).await?;
+
+        // A16.11: validate that any configured coding backend resolves before starting the run.
+        // An unknown backend name is a named run-start error, never a fallback to the routed provider.
+        let _ = self.resolve_coding_backend(Some(project_id), Role::Coder)?;
 
         let (project_budget_cents, project_spent_cents) =
             self.project_budget_state(project_id).await?;
@@ -1100,13 +1131,25 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         if stage != Stage::Code {
             return Ok(None);
         }
-        let Some(backend) = self.selected_coding_backend() else {
+        let Some(backend) = self.resolve_coding_backend(Some(run.project_id), Role::Coder)? else {
             return Ok(None);
         };
         let backend_name = backend.name().to_string();
         if !backend.is_available() {
             return Err(PipelineError::Other(format!(
                 "the selected coding backend `{backend_name}` is not installed"
+            )));
+        }
+
+        let is_read_only = run
+            .confinement
+            .as_ref()
+            .map(|c| *c == Confinement::ReadOnly)
+            .unwrap_or(false);
+
+        if is_read_only && !backend.has_permission_mapping() && !self.read_only_backstop {
+            return Err(PipelineError::Other(format!(
+                "coding backend `{backend_name}` has no permission mapping and cannot be run under read-only confinement without the read-only backstop active"
             )));
         }
 
@@ -1155,6 +1198,10 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                     "approval_mode".to_string(),
                     project.permissions.approval_mode.to_string(),
                 ),
+                (
+                    "read_only_backstop".to_string(),
+                    self.read_only_backstop.to_string(),
+                ),
             ]),
         };
         let session_id = warsha_core::SessionId::new();
@@ -1190,11 +1237,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         // tree, so the tree is hashed before the stage runs and hashed again
         // after; a moved tree is restored from HEAD, the stage fails, and the
         // violation is named in the receipt.
-        let backstop = run
-            .confinement
-            .as_ref()
-            .map(|c| *c == Confinement::ReadOnly)
-            .unwrap_or(false);
+        let backstop = is_read_only && self.read_only_backstop;
         let tree_before = if backstop {
             Some(worktree::dirty_set(&sandbox_path).await.map_err(|e| {
                 PipelineError::Other(format!(

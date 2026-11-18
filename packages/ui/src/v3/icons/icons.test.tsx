@@ -6,8 +6,8 @@ import { describe, expect, it } from 'vitest';
 import { ALL_ICONS, IconChevron, IconHome } from './icons';
 
 describe('Design System v3 Icons', () => {
-  it('exports all 46 icons', () => {
-    expect(Object.keys(ALL_ICONS)).toHaveLength(46);
+  it('exports all 47 icons', () => {
+    expect(Object.keys(ALL_ICONS)).toHaveLength(47);
   });
 
   it('renders with 24 viewBox, currentColor, and 1.75 stroke', () => {

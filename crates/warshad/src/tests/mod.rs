@@ -1123,6 +1123,7 @@ fn role_config() -> RoleRoutingConfig {
         targets: Vec::new(),
         fallback_enabled: false,
         budget_cents_per_run: None,
+        daily_spend_cap_cents: None,
     }
 }
 

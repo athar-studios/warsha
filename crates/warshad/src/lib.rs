@@ -37,6 +37,7 @@ mod providers;
 /// The Scout's MCP registry client over `reqwest` (R-EXT-3). Public because the
 /// packet that adds a consumer opts the daemon in; no RPC reaches it today.
 pub mod registry_http;
+pub mod secretary;
 mod settings;
 mod skills;
 mod state;
@@ -98,7 +99,7 @@ pub use api::{
     AgentState, AuthCompleteResponse, AuthStartResponse, AuthStatus, BudgetStatus, CostEstimate,
     GateSummary, GateSummaryState, HealthCapabilities, HealthResponse, ProviderQuotaStatus,
     ProviderRecord, QuotaState, RoleRoutingConfig, RoutingTargetConfig, SubscriptionWindow,
-    UsageRow, UsageTimeRow, WarshaApiServer, WindowUsage,
+    ToolRulesReply, UsageRow, UsageTimeRow, WarshaApiServer, WindowUsage,
 };
 // --- end P-H1 A1 ---
 
@@ -120,8 +121,9 @@ mod runtime;
 pub use runtime::AgentLoopSnapshot;
 pub(crate) use runtime::{
     apply_role_routings, build_agent_loop, build_agent_loop_in, register_configured_providers,
-    routing_config, routing_for, seed_agent_snapshot, seed_role_routings, store_agent_snapshot,
-    store_role_routings, AGENT_METER_KEY, AGENT_WORKSPACE_DIR, MOCK_PROVIDER_ID,
+    routing_config, routing_for, seed_agent_snapshot, seed_backend_routings, seed_custom_backends,
+    seed_role_routings, store_agent_snapshot, store_role_routings, AGENT_METER_KEY,
+    AGENT_WORKSPACE_DIR, MOCK_PROVIDER_ID,
 };
 // --- end P-H1 A7 ---
 
@@ -317,6 +319,61 @@ impl WarshaApiServer for WarshaRpc {
     ) -> RpcResult<CostEstimate> {
         self.authorize(ext, "runs.estimate").await?;
         crate::api_estimate::compute_run_estimate(self, project_id, &idea)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+    }
+
+    async fn interview_start(
+        &self,
+        ext: &RpcExtensions,
+        project_id: ProjectId,
+        seed_idea: Option<String>,
+    ) -> RpcResult<crate::secretary::TurnOutcome> {
+        self.authorize(ext, "interview.start").await?;
+        let cap_cents = self.secretary_daily_cap_cents().await;
+        let engine = crate::secretary::SecretaryEngine::new(
+            self.state.store.clone(),
+            self.state.providers.clone(),
+            Some(self.state.settings.clone()),
+        );
+        engine
+            .start(project_id, seed_idea, cap_cents)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+    }
+
+    async fn interview_turn(
+        &self,
+        ext: &RpcExtensions,
+        project_id: ProjectId,
+        reply: String,
+    ) -> RpcResult<crate::secretary::TurnOutcome> {
+        self.authorize(ext, "interview.turn").await?;
+        let cap_cents = self.secretary_daily_cap_cents().await;
+        let engine = crate::secretary::SecretaryEngine::new(
+            self.state.store.clone(),
+            self.state.providers.clone(),
+            Some(self.state.settings.clone()),
+        );
+        engine
+            .turn(project_id, reply, cap_cents)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+    }
+
+    async fn interview_status(
+        &self,
+        ext: &RpcExtensions,
+        project_id: ProjectId,
+    ) -> RpcResult<Option<crate::secretary::InterviewState>> {
+        self.authorize(ext, "interview.status").await?;
+        let engine = crate::secretary::SecretaryEngine::new(
+            self.state.store.clone(),
+            self.state.providers.clone(),
+            Some(self.state.settings.clone()),
+        );
+        engine
+            .status(project_id)
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
     }
@@ -1413,7 +1470,8 @@ impl WarshaApiServer for WarshaRpc {
         // Normalised through the core routing, so what is stored is what was honoured:
         // a caller who sent `INTAKE` or a target with a trailing space gets the same
         // table back from `roles.list` as the router is running.
-        let stored = routing_config(role, &routing);
+        let mut stored = routing_config(role, &routing);
+        stored.daily_spend_cap_cents = config.daily_spend_cap_cents;
 
         for target in &stored.targets {
             if target.provider_id == MOCK_PROVIDER_ID {
@@ -3489,6 +3547,81 @@ impl WarshaApiServer for WarshaRpc {
         let joined = wave2::safe_join(&root, &path).map_err(rpc_invalid_params)?;
         let file = wave2::resolve_inside(&root, &joined).map_err(rpc_invalid_params)?;
         wave2::read_text(&root, &file).map_err(rpc_error)
+    }
+
+    async fn get_global_rules(&self, ext: &RpcExtensions) -> RpcResult<ToolRulesReply> {
+        self.authorize(ext, "rules.global.get").await?;
+        let settings = self.state.store.settings();
+        match settings
+            .load_tool_rules("global")
+            .await
+            .map_err(rpc_error)?
+        {
+            Some(rules_json) => Ok(serde_json::from_str(&rules_json)
+                .map_err(|error| rpc_error(format!("stored tool rules are malformed: {error}")))?),
+            None => Ok(ToolRulesReply::default()),
+        }
+    }
+
+    async fn set_global_rules(
+        &self,
+        ext: &RpcExtensions,
+        rules: ToolRulesReply,
+    ) -> RpcResult<ToolRulesReply> {
+        self.authorize(ext, "rules.global.set").await?;
+        let settings = self.state.store.settings();
+        let rules_json = serde_json::to_string(&rules)
+            .map_err(|error| rpc_error(format!("tool rules could not be serialised: {error}")))?;
+        settings
+            .save_tool_rules("global", &rules_json)
+            .await
+            .map_err(rpc_error)?;
+        Ok(rules)
+    }
+
+    async fn get_project_rules(
+        &self,
+        ext: &RpcExtensions,
+        project_id: String,
+    ) -> RpcResult<ToolRulesReply> {
+        self.authorize(ext, "rules.project.get").await?;
+        let settings = self.state.store.settings();
+        match settings
+            .load_tool_rules(&project_id)
+            .await
+            .map_err(rpc_error)?
+        {
+            Some(rules_json) => Ok(serde_json::from_str(&rules_json)
+                .map_err(|error| rpc_error(format!("stored tool rules are malformed: {error}")))?),
+            None => Ok(ToolRulesReply::default()),
+        }
+    }
+
+    async fn set_project_rules(
+        &self,
+        ext: &RpcExtensions,
+        project_id: String,
+        rules: ToolRulesReply,
+    ) -> RpcResult<ToolRulesReply> {
+        self.authorize(ext, "rules.project.set").await?;
+        // Fail named on a project that does not exist: rules attach to a project,
+        // and a typo'd id must not silently write an orphan row.
+        let parsed = ProjectId(uuid::Uuid::parse_str(&project_id).map_err(|error| {
+            rpc_error(format!("project id `{project_id}` is not one: {error}"))
+        })?);
+        self.state
+            .store
+            .get_project(parsed)
+            .await
+            .map_err(rpc_error)?;
+        let settings = self.state.store.settings();
+        let rules_json = serde_json::to_string(&rules)
+            .map_err(|error| rpc_error(format!("tool rules could not be serialised: {error}")))?;
+        settings
+            .save_tool_rules(&project_id, &rules_json)
+            .await
+            .map_err(rpc_error)?;
+        Ok(rules)
     }
 }
 

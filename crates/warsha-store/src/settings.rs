@@ -21,6 +21,7 @@
 use std::fmt;
 use std::time::Duration;
 
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
@@ -465,6 +466,45 @@ impl SettingsRepo {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    // ---------------------------------------------------------- tool rules (B3)
+
+    /// Save one tool-rules scope (`global` or a project id), replacing the scope.
+    pub async fn save_tool_rules(&self, scope: &str, rules_json: &str) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO tool_permission_rules (scope, rules_json, updated_at) \
+             VALUES (?, ?, ?) \
+             ON CONFLICT(scope) DO UPDATE SET rules_json = excluded.rules_json, \
+             updated_at = excluded.updated_at",
+        )
+        .bind(scope)
+        .bind(rules_json)
+        .bind(Utc::now().to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// One scope's tool rules, or `None` when the scope was never saved.
+    pub async fn load_tool_rules(&self, scope: &str) -> Result<Option<String>> {
+        let rules_json = sqlx::query_scalar::<_, String>(
+            "SELECT rules_json FROM tool_permission_rules WHERE scope = ?",
+        )
+        .bind(scope)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(rules_json)
+    }
+
+    /// Clear one tool-rules scope, answering whether there was one.
+    pub async fn clear_tool_rules(&self, scope: &str) -> Result<bool> {
+        let deleted = sqlx::query("DELETE FROM tool_permission_rules WHERE scope = ?")
+            .bind(scope)
+            .execute(&self.pool)
+            .await?
+            .rows_affected();
+        Ok(deleted > 0)
     }
 
     /// One mode's config, or `None` when that mode was never saved.

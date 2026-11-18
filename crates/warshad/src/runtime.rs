@@ -114,11 +114,21 @@ pub(crate) fn build_agent_loop_in(
             workspace_dir.display()
         );
     }
-    let command_policy = CommandPolicy::from_config(allowed_commands);
+    let command_policy = CommandPolicy::from_config(allowed_commands)
+        // B3: owner rules sit on top of the allowlist, never instead of it.
+        // The daemon-wide loop carries no rules yet — the per-run store is
+        // loaded from the settings table when a run starts (rules.load RPC).
+        // An empty store evaluates every tool to `Allow` (= axis default), so
+        // installing it unconditionally changes nothing until rules are set.
+        .with_rule_store(Arc::new(InMemoryRuleStore::new()));
     let tools = FilesystemToolExecutor::new(workspace_dir.to_path_buf())
         .with_protection(Some(policy))
         .with_read_before_write(policy.read_before_write)
-        .with_command_policy(command_policy);
+        .with_command_policy(command_policy)
+        // B3: native `RunCommand` asks go to the same shared queue the MCP
+        // asks use. The daemon-wide loop (run id `None`) can never register
+        // one — `register_pending` is only reached with a run id present.
+        .with_mcp_approvals(mcp_approvals.clone(), run_id.clone());
     let router = ProviderRouterAdapter::new(providers, AGENT_ROLE, AGENT_METER_KEY);
     let agent_loop = AgentLoop::with_tool_executor(Box::new(tools))
         .with_router(Arc::new(router))
@@ -139,6 +149,23 @@ const ROLE_ROUTINGS_DOCUMENT: &str = "role-routings";
 
 /// The settings document the agent loop's conversation state is kept in.
 const AGENT_LOOP_DOCUMENT: &str = "agent-loop";
+
+/// The settings document owner-defined custom coding backends are kept in (R-NEXT N2).
+pub(crate) const CUSTOM_BACKENDS_DOCUMENT: &str = "custom-backends";
+
+/// The settings document per-project and per-role coding backend selections are kept in (R-NEXT N2).
+pub(crate) const BACKEND_ROUTINGS_DOCUMENT: &str = "backend-routings";
+
+/// Stored per-project / per-role coding backend selection configuration.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct BackendRoutingsConfig {
+    #[serde(default)]
+    pub default_backend: Option<String>,
+    #[serde(default)]
+    pub role_backends: HashMap<String, String>,
+    #[serde(default)]
+    pub project_backends: HashMap<String, String>,
+}
 
 /// The provider id the daemon's own offline provider is registered under.
 ///
@@ -231,6 +258,52 @@ pub(crate) async fn seed_role_routings(
         }
     }
     Ok(routings)
+}
+
+/// The custom coding engine backends as stored in settings (R-NEXT N2).
+pub(crate) async fn seed_custom_backends(
+    settings: &SettingsStore,
+) -> Result<Vec<warsha_core::config::CustomBackendDefinition>> {
+    let stored = match settings.load_document(CUSTOM_BACKENDS_DOCUMENT).await {
+        Ok(stored) => stored,
+        Err(error) => {
+            warn!("the custom backends document could not be read: {error}");
+            return Ok(Vec::new());
+        }
+    };
+    let Some(stored) = stored else {
+        return Ok(Vec::new());
+    };
+    match serde_json::from_value::<Vec<warsha_core::config::CustomBackendDefinition>>(stored) {
+        Ok(defs) => Ok(defs),
+        Err(error) => {
+            warn!("the custom backends document is not valid: {error}");
+            Ok(Vec::new())
+        }
+    }
+}
+
+/// The per-project / per-role backend routing config as stored in settings (R-NEXT N2).
+pub(crate) async fn seed_backend_routings(
+    settings: &SettingsStore,
+) -> Result<BackendRoutingsConfig> {
+    let stored = match settings.load_document(BACKEND_ROUTINGS_DOCUMENT).await {
+        Ok(stored) => stored,
+        Err(error) => {
+            warn!("the backend routings document could not be read: {error}");
+            return Ok(BackendRoutingsConfig::default());
+        }
+    };
+    let Some(stored) = stored else {
+        return Ok(BackendRoutingsConfig::default());
+    };
+    match serde_json::from_value::<BackendRoutingsConfig>(stored) {
+        Ok(cfg) => Ok(cfg),
+        Err(error) => {
+            warn!("the backend routings document is not valid: {error}");
+            Ok(BackendRoutingsConfig::default())
+        }
+    }
 }
 
 /// The loop's stored conversation, if there is one.
@@ -396,6 +469,7 @@ pub(crate) fn routing_config(role: Role, routing: &RoleRouting) -> RoleRoutingCo
             .collect(),
         fallback_enabled: routing.fallback_enabled,
         budget_cents_per_run: routing.budget_cents_per_run,
+        daily_spend_cap_cents: None,
     }
 }
 

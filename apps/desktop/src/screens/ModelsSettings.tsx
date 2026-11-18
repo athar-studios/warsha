@@ -266,6 +266,7 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
         targets: [{ provider_id: provider, model_id: modelId, weight: 100 }],
         fallback_enabled: true,
         budget_cents_per_run: 0,
+        daily_spend_cap_cents: null,
       });
       setRoutings((previous) => {
         const next: RoleRouting = {
@@ -273,6 +274,7 @@ export function ModelsSettings({ client, project }: ModelsSettingsProps) {
           targets: [{ provider_id: provider, model_id: modelId, weight: 100 }],
           fallback_enabled: true,
           budget_cents_per_run: 0,
+          daily_spend_cap_cents: null,
         };
         const existing = previous.findIndex((routing) => routing.role === role);
         if (existing === -1) return [...previous, next];
