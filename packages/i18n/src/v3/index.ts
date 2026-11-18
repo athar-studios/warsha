@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 
 import arBench from './ar/bench';
 import arCommon from './ar/common';
+import arDevelopers from './ar/developers';
 import arFrame from './ar/frame';
 import arHome from './ar/home';
 import arInbox from './ar/inbox';
@@ -11,6 +12,7 @@ import arProjects from './ar/projects';
 import arSettings from './ar/settings';
 import enBench from './en/bench';
 import enCommon from './en/common';
+import enDevelopers from './en/developers';
 import enFrame from './en/frame';
 import enHome from './en/home';
 import enInbox from './en/inbox';
@@ -26,6 +28,7 @@ export const LOCALE_STORAGE_KEY = 'warsha.locale';
 
 export const arCatalog: Record<string, string> = {
   ...arCommon,
+  ...arDevelopers,
   ...arFrame,
   ...arOnboarding,
   ...arHome,
@@ -38,6 +41,7 @@ export const arCatalog: Record<string, string> = {
 
 export const enCatalog: Record<string, string> = {
   ...enCommon,
+  ...enDevelopers,
   ...enFrame,
   ...enOnboarding,
   ...enHome,
