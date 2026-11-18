@@ -357,13 +357,14 @@ async fn test_killed_cli_leaves_failed_or_stopped_session() {
         worktree_path: None,
         worktree_branch: None,
         confinement: None,
+        run_mode: warsha_core::RunMode::Agent,
     };
     store.create_run(&run).await.expect("create run");
 
     let session_id = SessionId::new();
     let session = warsha_core::Session {
         id: session_id,
-        run_id,
+        run_id: Some(run_id),
         project_id,
         role: warsha_core::Role::Coder,
         backend: "sh".to_string(),

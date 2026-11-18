@@ -715,7 +715,7 @@ impl Store {
              started_at, ended_at, parent_session_id, cli_session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(session.id.to_string())
-        .bind(session.run_id.0.to_string())
+        .bind(session.run_id.as_ref().map(|r| r.0.to_string()))
         .bind(session.project_id.0.as_bytes().to_vec())
         .bind(serde_json::to_string(&session.role)?)
         .bind(&session.backend)
@@ -769,6 +769,22 @@ impl Store {
              WHERE run_id = ? ORDER BY started_at ASC",
         )
         .bind(run_id.0.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(session_from_row).collect()
+    }
+
+    /// List standalone (run-less, e.g. Ask mode) sessions for a project, newest first.
+    pub async fn list_standalone_sessions_by_project(
+        &self,
+        project_id: ProjectId,
+    ) -> Result<Vec<Session>> {
+        let rows = sqlx::query(
+            "SELECT id, run_id, project_id, role, backend, provider, model, status, \
+             started_at, ended_at, parent_session_id, cli_session_id FROM sessions \
+             WHERE project_id = ? AND run_id IS NULL ORDER BY started_at DESC",
+        )
+        .bind(project_id.0.as_bytes().to_vec())
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(session_from_row).collect()
@@ -1515,7 +1531,10 @@ fn gate_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Gate> {
 fn session_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Session> {
     Ok(Session {
         id: SessionId(parse_ulid("sessions.id", &column_text(row, "id")?)?),
-        run_id: RunId(parse_ulid("sessions.run_id", &column_text(row, "run_id")?)?),
+        run_id: column_opt_text(row, "run_id")?
+            .map(|t| parse_ulid("sessions.run_id", &t))
+            .transpose()?
+            .map(RunId),
         project_id: ProjectId(parse_uuid(
             "sessions.project_id",
             &column_blob(row, "project_id")?,
@@ -1703,7 +1722,7 @@ mod tests {
         let versions: Vec<i64> = migrator.iter().map(|m| m.version).collect();
         assert_eq!(
             versions,
-            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
         );
         for migration in migrator.iter() {
             assert!(
@@ -1729,7 +1748,7 @@ mod tests {
                 .expect("the migration ledger is readable");
         assert_eq!(
             applied,
-            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
         );
 
         let tables: Vec<String> = sqlx::query_scalar(
@@ -2480,7 +2499,7 @@ mod tests {
         let session_id = SessionId::new();
         let session = Session {
             id: session_id,
-            run_id: run.id,
+            run_id: Some(run.id),
             project_id: project.id,
             role: Role::Coder,
             backend: "claude-code".to_string(),
@@ -2504,8 +2523,37 @@ mod tests {
             .expect("session fetches")
             .expect("session is found");
         assert_eq!(fetched.id, session_id);
+        assert_eq!(fetched.run_id, Some(run.id));
         assert_eq!(fetched.status, SessionStatus::Starting);
         assert_eq!(fetched.backend, "claude-code");
+
+        // Ask-mode session with NULL run_id (migration 016)
+        let ask_session_id = SessionId::new();
+        let ask_session = Session {
+            id: ask_session_id,
+            run_id: None,
+            project_id: project.id,
+            role: Role::Secretary,
+            backend: "native".to_string(),
+            provider: "mock".to_string(),
+            model: "default".to_string(),
+            status: SessionStatus::Done,
+            started_at: Utc::now(),
+            ended_at: Some(Utc::now()),
+            parent_session_id: None,
+            cli_session_id: None,
+        };
+        store
+            .create_session(&ask_session)
+            .await
+            .expect("ask session creates without run_id");
+        let fetched_ask = store
+            .get_session(ask_session_id)
+            .await
+            .expect("ask session fetches")
+            .expect("ask session found");
+        assert_eq!(fetched_ask.run_id, None);
+        assert_eq!(fetched_ask.role, Role::Secretary);
 
         store
             .update_session_status(session_id, SessionStatus::Working)

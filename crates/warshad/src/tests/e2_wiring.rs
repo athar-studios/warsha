@@ -29,7 +29,13 @@ async fn a_run_turn_uses_the_runs_own_session() {
     let rpc = WarshaRpc::new(state);
 
     let first = rpc
-        .start_run(&owner(), project.id, "Build a todo app".to_string())
+        .start_run(
+            &owner(),
+            project.id,
+            "Build a todo app".to_string(),
+            None,
+            None,
+        )
         .await
         .expect("the first run starts");
     let turn = rpc
@@ -44,7 +50,7 @@ async fn a_run_turn_uses_the_runs_own_session() {
     );
 
     let second = rpc
-        .start_run(&owner(), project.id, "Second idea".to_string())
+        .start_run(&owner(), project.id, "Second idea".to_string(), None, None)
         .await
         .expect("the second run starts");
     assert!(rpc.state.agent_sessions.contains(first.id));
@@ -85,7 +91,7 @@ async fn approving_a_run_over_the_wire_executes_its_next_turn() {
     let owner = owner();
 
     let run = rpc
-        .start_run(&owner, project.id, "Write the note".to_string())
+        .start_run(&owner, project.id, "Write the note".to_string(), None, None)
         .await
         .expect("the run starts");
 
@@ -164,11 +170,11 @@ async fn approving_one_run_leaves_the_other_run_and_the_daemon_loop_in_plan() {
     let owner = owner();
 
     let first = rpc
-        .start_run(&owner, project.id, "First".to_string())
+        .start_run(&owner, project.id, "First".to_string(), None, None)
         .await
         .expect("the first run starts");
     let second = rpc
-        .start_run(&owner, project.id, "Second".to_string())
+        .start_run(&owner, project.id, "Second".to_string(), None, None)
         .await
         .expect("the second run starts");
 
@@ -233,7 +239,7 @@ async fn without_a_run_id_the_daemon_loop_is_the_one_that_switches() {
     let owner = owner();
 
     let run = rpc
-        .start_run(&owner, project.id, "Untouched".to_string())
+        .start_run(&owner, project.id, "Untouched".to_string(), None, None)
         .await
         .expect("the run starts");
 
@@ -292,7 +298,7 @@ async fn a_run_returns_to_plan_over_the_wire() {
     let owner = owner();
 
     let run = rpc
-        .start_run(&owner, project.id, "Return".to_string())
+        .start_run(&owner, project.id, "Return".to_string(), None, None)
         .await
         .expect("the run starts");
     // The daemon-wide record goes to Agent as well, so the return below has to be

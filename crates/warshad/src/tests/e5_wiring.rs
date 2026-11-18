@@ -45,7 +45,13 @@ fn git_repo(dir: &std::path::Path) {
 
 async fn start(store: &Store, rpc: &WarshaRpc, project: &Project, gate_c: bool) -> Run {
     let run = rpc
-        .start_run(&owner(), project.id, "Build a todo app".to_string())
+        .start_run(
+            &owner(),
+            project.id,
+            "Build a todo app".to_string(),
+            None,
+            None,
+        )
         .await
         .expect("the run starts");
     if gate_c {

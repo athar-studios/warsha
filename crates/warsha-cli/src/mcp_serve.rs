@@ -131,7 +131,7 @@ pub fn tool_definitions() -> Vec<Value> {
         }),
         json!({
             "name": "start_run",
-            "description": "Start a new pipeline run for an existing project.",
+            "description": "Start a new pipeline run for an existing project. Modes: agent (default, executes), plan (stops at the plan-approval gate before code), spec-file (plan from a spec file inside the repository).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -142,6 +142,15 @@ pub fn tool_definitions() -> Vec<Value> {
                     "idea": {
                         "type": "string",
                         "description": "Idea description or task brief for the run."
+                    },
+                    "run_mode": {
+                        "type": "string",
+                        "description": "Optional run mode: agent, plan, or spec-file. Defaults to agent.",
+                        "enum": ["agent", "plan", "spec-file", "ask"]
+                    },
+                    "spec_file_path": {
+                        "type": "string",
+                        "description": "Spec-file mode: path of the spec file inside the repository, taken as the run's brief (treated as untrusted data)."
                     }
                 },
                 "required": ["project_id", "idea"]
@@ -339,8 +348,20 @@ async fn call_start_run(client: &HttpClient, args: &Value) -> Value {
         Ok(idea) => idea,
         Err(msg) => return tool_error(msg),
     };
+    // D4: optional run mode + spec-file path. The wire keeps trailing positional
+    // Options so an older client tuple still parses; a mode the daemon cannot
+    // parse is passed through rather than second-guessed here (the RPC layer
+    // already defaults unknown modes to `agent`).
+    let run_mode = args
+        .get("run_mode")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let spec_file_path = args
+        .get("spec_file_path")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     match client
-        .request::<Run, _>("runs.start", (project_id, idea))
+        .request::<Run, _>("runs.start", (project_id, idea, run_mode, spec_file_path))
         .await
     {
         Ok(run) => tool_ok_json(&run),

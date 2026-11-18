@@ -92,6 +92,28 @@ pub trait WarshaApi {
         reply: String,
     ) -> RpcResult<crate::secretary::TurnOutcome>;
 
+    #[method(name = "ask.start", with_extensions)]
+    async fn ask_start(
+        &self,
+        project_id: ProjectId,
+        idea: String,
+    ) -> RpcResult<warsha_core::SessionId>;
+
+    #[method(name = "ask.turn", with_extensions)]
+    async fn ask_turn(
+        &self,
+        project_id: ProjectId,
+        session_id: String,
+        reply: String,
+    ) -> RpcResult<crate::secretary::TurnOutcome>;
+
+    #[method(name = "ask.status", with_extensions)]
+    async fn ask_status(
+        &self,
+        project_id: ProjectId,
+        session_id: String,
+    ) -> RpcResult<crate::secretary::TurnOutcome>;
+
     #[method(name = "interview.status", with_extensions)]
     async fn interview_status(
         &self,
@@ -99,7 +121,13 @@ pub trait WarshaApi {
     ) -> RpcResult<Option<crate::secretary::InterviewState>>;
 
     #[method(name = "runs.start", with_extensions)]
-    async fn start_run(&self, project_id: ProjectId, idea: String) -> RpcResult<Run>;
+    async fn start_run(
+        &self,
+        project_id: ProjectId,
+        idea: String,
+        run_mode: Option<String>,
+        spec_file_path: Option<String>,
+    ) -> RpcResult<Run>;
 
     #[method(name = "runs.worktree", with_extensions)]
     async fn run_worktree(&self, run_id: RunId) -> RpcResult<Option<RunWorktree>>;

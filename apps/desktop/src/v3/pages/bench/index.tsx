@@ -113,6 +113,11 @@ export default function BenchPage(): React.ReactElement {
     client.listRunModes().then(setRunModes).catch(() => {});
   }, [client]);
 
+  // D4: the chosen mode for the NEXT run (plan / spec-file stop at GateB for
+  // the owner's approval; agent runs straight through). Kept local — the mode
+  // travels with the runs.start call, not with the project.
+  const [newRunMode, setNewRunMode] = useState<'agent' | 'plan' | 'spec-file'>('agent');
+
   // Below 768px the rail leaves the layout and opens from a labelled button (planner decision 4): the
   // Workbench has no room for a 264px column beside the screen at 390, and squeezing the screen into
   // what is left produced the unusable captures the 2026-11-10 review rejected.
@@ -158,13 +163,20 @@ export default function BenchPage(): React.ReactElement {
   }, [isPrimarySettled, setReady]);
 
   // Actions wired to useAction
-  const startNewRunAction = useAction('bench.run.start', async (pId: string, idea: string) => {
-    if (!client) return;
-    const newRun = await client.startRun(pId as ProjectId, idea || t('bench.header.new_run'));
-    runHook.reload();
-    activeProjectRunsHook.reload();
-    navigate(`/p/${pId}/r/${newRun.id}/${activeTab}`);
-  });
+  const startNewRunAction = useAction(
+    'bench.run.start',
+    async (pId: string, idea: string, runMode?: 'agent' | 'plan' | 'spec-file' | 'ask') => {
+      if (!client) return;
+      const newRun = await client.startRun(
+        pId as ProjectId,
+        idea || t('bench.header.new_run'),
+        runMode ?? 'agent',
+      );
+      runHook.reload();
+      activeProjectRunsHook.reload();
+      navigate(`/p/${pId}/r/${newRun.id}/${activeTab}`);
+    },
+  );
 
   const advanceRunAction = useAction('bench.run.advance', async (rId: string) => {
     if (!client) return;
@@ -595,6 +607,11 @@ export default function BenchPage(): React.ReactElement {
           runModePending={runmodeSetAction.pending}
           onSaveBudget={(cents) => void budgetSaveAction.run(cents)}
           budgetPending={budgetSaveAction.pending}
+          // D4: the run-MODE picker for new runs — separate from the view-mode
+          // switch and from the listen-mode runmode select above.
+          runModeChoice={newRunMode}
+          onRunModeChoice={setNewRunMode}
+          onStartRun={(idea) => void startNewRunAction.run(effectiveProjectId, idea, newRunMode)}
         />
       </div>
     </div>

@@ -46,12 +46,13 @@ fn test_run_receipt_builder() {
     // D4: a plan run approved at GateB records the plan-approved-at on its receipt.
     let mut plan_run = run.clone();
     plan_run.run_mode = RunMode::Plan;
-    plan_run
-        .gate_states
-        .insert(Stage::GateB, warsha_core::GateState::Approved {
+    plan_run.gate_states.insert(
+        Stage::GateB,
+        warsha_core::GateState::Approved {
             by: warsha_core::DeviceId::new(),
             at: Utc::now(),
-        });
+        },
+    );
     let plan_receipt = build_run_receipt(
         &plan_run,
         Some(3600),

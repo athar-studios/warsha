@@ -42,7 +42,7 @@ pub enum SessionStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Session {
     pub id: SessionId,
-    pub run_id: RunId,
+    pub run_id: Option<RunId>,
     pub project_id: ProjectId,
     pub role: Role,
     pub backend: String,

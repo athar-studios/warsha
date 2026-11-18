@@ -7,6 +7,8 @@ import React from 'react';
 
 import { getStatusLabelKey, mapRunStatusToPill } from '../helpers';
 
+import { RunModeChip } from './RunModeChip';
+
 export interface BenchRailProps {
   projects: ProjectSummary[];
   projectsStatus: 'loading' | 'empty' | 'error' | 'ready';
@@ -170,7 +172,10 @@ export const BenchRail: React.FC<BenchRailProps> = ({
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {t('bench.header.run_num', { number: runs.length - idx })}
                         </span>
-                        <StatusPill status={pillState} label={t(getStatusLabelKey(run.status))} />
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--w-space-2)' }}>
+                          <RunModeChip runMode={run.runMode} data-testid="bench-rail-runmode" />
+                          <StatusPill status={pillState} label={t(getStatusLabelKey(run.status))} />
+                        </span>
                       </button>
                     );
                   })

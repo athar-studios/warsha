@@ -1,29 +1,28 @@
-//! End-to-end test: a written request becomes a working, tested, built binary.
-//!
-//! The flow is the one a real project takes, with a cheap model in place of a
-//! cloud one: the daemon's RPC layer creates the project and starts the run, the
-//! agent asks its clarifying question and the owner answers it, the plan is shown
-//! in Plan mode and approved into Agent mode, the run walks the pipeline stages
-//! with the mock provider answering every one, the planned Rust project lands in a
-//! temporary directory, and `cargo test`, `cargo build` and the built binary are
-//! what decide whether the result is green.
-//!
-//! What the test does not pretend:
-//!
-//! - **No network, no key, no spend.** The only provider on the router is
-//!   [`MockProvider`]. It is also the cheap model: the router prices a stage call
-//!   at a fraction of a cent, so a run to the code stage costs cents.
-//! - **The mock provider answers every stage with one sentence.** The intake
-//!   question, the plan, the code and the tests are the scripted answers below —
-//!   the canned LLM responses the flow needs. The three answers that carry real
-//!   content — the plan, the code and the test — are recorded through the same
-//!   [`PipelineEngine::upsert_artifact`] call an agent's output would use, and the
-//!   test asserts the mock's sentence was there first, so the stage really did
-//!   reach the provider.
-//! - **`cargo` runs as a real subprocess** in the generated project (offline, no
-//!   dependencies), so "tests green" and "the binary prints the greeting" mean
-//!   exactly what they say.
-
+/// End-to-end test: a written request becomes a working, tested, built binary.
+///
+/// The flow is the one a real project takes, with a cheap model in place of a
+/// cloud one: the daemon's RPC layer creates the project and starts the run, the
+/// agent asks its clarifying question and the owner answers it, the plan is shown
+/// in Plan mode and approved into Agent mode, the run walks the pipeline stages
+/// with the mock provider answering every one, the planned Rust project lands in a
+/// temporary directory, and `cargo test`, `cargo build` and the built binary are
+/// what decide whether the result is green.
+///
+/// What the test does not pretend:
+///
+/// - **No network, no key, no spend.** The only provider on the router is
+///   [`MockProvider`]. It is also the cheap model: the router prices a stage call
+///   at a fraction of a cent, so a run to the code stage costs cents.
+/// - **The mock provider answers every stage with one sentence.** The intake
+///   question, the plan, the code and the tests are the scripted answers below —
+///   the canned LLM responses the flow needs. The three answers that carry real
+///   content — the plan, the code and the test — are recorded through the same
+///   [`PipelineEngine::upsert_artifact`] call an agent's output would use, and the
+///   test asserts the mock's sentence was there first, so the stage really did
+///   reach the provider.
+/// - **`cargo` runs as a real subprocess** in the generated project (offline, no
+///   dependencies), so "tests green" and "the binary prints the greeting" mean
+///   exactly what they say.
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -196,7 +195,7 @@ async fn e2e_request_to_artifact() {
         .expect("projects.create succeeds");
     assert_eq!(project.name, PACKAGE_NAME);
     let run = rpc
-        .start_run(&ext, project.id, HELLO_REQUEST.to_string())
+        .start_run(&ext, project.id, HELLO_REQUEST.to_string(), None, None)
         .await
         .expect("runs.start succeeds");
     assert_eq!(run.current_stage, Stage::Idea);

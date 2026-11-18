@@ -310,7 +310,13 @@ async fn approved_agent_run(state: &Arc<DaemonState>, store: &Arc<Store>) -> Run
     store.create_project(&project).await.expect("the project");
     let rpc = WarshaRpc::new(state.clone());
     let run = rpc
-        .start_run(&owner_ext(), project.id, "An agent turn".to_string())
+        .start_run(
+            &owner_ext(),
+            project.id,
+            "An agent turn".to_string(),
+            None,
+            None,
+        )
         .await
         .expect("the run starts");
     rpc.approve_agent_mode(&owner_ext(), Some(run.id))
@@ -1247,6 +1253,7 @@ async fn stored_run(store: &Store, name: &str, repo_path: Option<&Path>) -> Run 
         project_id: project.id,
         current_stage: Stage::Idea,
         gate_states: HashMap::new(),
+        run_mode: warsha_core::RunMode::Agent,
         artifacts: HashMap::new(),
         created_at: Utc::now(),
         updated_at: Utc::now(),
@@ -2264,7 +2271,13 @@ async fn second_run_never_inherits_a_live_server() {
     let rpc = WarshaRpc::new(state.clone());
 
     let first = rpc
-        .start_run(&owner_ext(), project.id, "the first run".to_string())
+        .start_run(
+            &owner_ext(),
+            project.id,
+            "the first run".to_string(),
+            None,
+            None,
+        )
         .await
         .expect("run A starts");
     let started = rpc
@@ -2273,7 +2286,13 @@ async fn second_run_never_inherits_a_live_server() {
         .expect("run A starts the project's preview");
 
     let second = rpc
-        .start_run(&owner_ext(), project.id, "the second run".to_string())
+        .start_run(
+            &owner_ext(),
+            project.id,
+            "the second run".to_string(),
+            None,
+            None,
+        )
         .await
         .expect("run B starts");
     // Run B is the project's newest live run, so it is the run context a
@@ -2331,7 +2350,7 @@ async fn terminal_advance_stops_the_owned_server() {
     let rpc = WarshaRpc::new(state.clone());
 
     let run = rpc
-        .start_run(&owner_ext(), project.id, "a run".to_string())
+        .start_run(&owner_ext(), project.id, "a run".to_string(), None, None)
         .await
         .expect("the run starts");
     let started = rpc
@@ -2382,7 +2401,7 @@ async fn cancel_stops_the_owned_server() {
     let rpc = WarshaRpc::new(state.clone());
 
     let run = rpc
-        .start_run(&owner_ext(), project.id, "a run".to_string())
+        .start_run(&owner_ext(), project.id, "a run".to_string(), None, None)
         .await
         .expect("the run starts");
     let started = rpc
@@ -2421,7 +2440,13 @@ async fn dead_run_entry_swept_lazily() {
     let rpc = WarshaRpc::new(state.clone());
 
     let dead = rpc
-        .start_run(&owner_ext(), project.id, "the run that dies".to_string())
+        .start_run(
+            &owner_ext(),
+            project.id,
+            "the run that dies".to_string(),
+            None,
+            None,
+        )
         .await
         .expect("the run starts");
     let abandoned = rpc
@@ -2454,7 +2479,13 @@ async fn dead_run_entry_swept_lazily() {
 
     // ... and the next run starts clean instead of being refused.
     let next = rpc
-        .start_run(&owner_ext(), project.id, "the next run".to_string())
+        .start_run(
+            &owner_ext(),
+            project.id,
+            "the next run".to_string(),
+            None,
+            None,
+        )
         .await
         .expect("the next run starts");
     let fresh = rpc
@@ -2484,7 +2515,7 @@ async fn a_run_closes_even_when_its_server_is_already_down() {
     let rpc = WarshaRpc::new(state.clone());
 
     let run = rpc
-        .start_run(&owner_ext(), project.id, "a run".to_string())
+        .start_run(&owner_ext(), project.id, "a run".to_string(), None, None)
         .await
         .expect("the run starts");
     let started = rpc
@@ -3559,7 +3590,13 @@ mod runs_resume {
             .await
             .expect("project created");
         let run = rpc
-            .start_run(&owner, project.id, "Idea for resume auth".to_string())
+            .start_run(
+                &owner,
+                project.id,
+                "Idea for resume auth".to_string(),
+                None,
+                None,
+            )
             .await
             .expect("run started");
 
@@ -3604,7 +3641,13 @@ mod runs_resume {
             .await
             .expect("project created");
         let run = rpc
-            .start_run(&owner, project.id, "Clinic booking app".to_string())
+            .start_run(
+                &owner,
+                project.id,
+                "Clinic booking app".to_string(),
+                None,
+                None,
+            )
             .await
             .expect("run started");
 
@@ -3667,7 +3710,13 @@ mod runs_resume {
             .await
             .expect("project created");
         let run = rpc
-            .start_run(&owner, project.id, "Budgeted project".to_string())
+            .start_run(
+                &owner,
+                project.id,
+                "Budgeted project".to_string(),
+                None,
+                None,
+            )
             .await
             .expect("run started");
 
@@ -3736,7 +3785,8 @@ mod runs_resume {
                 id: RunId::new(),
                 project_id: project.id,
                 current_stage: Stage::Idea,
-                gate_states,
+                gate_states: HashMap::new(),
+                run_mode: warsha_core::RunMode::Agent,
                 artifacts: HashMap::new(),
                 created_at: now,
                 updated_at: now,
@@ -3796,7 +3846,13 @@ mod runs_start_budget {
             .await
             .expect("project created");
         let run = rpc
-            .start_run(&owner, project.id, "Budgeted project".to_string())
+            .start_run(
+                &owner,
+                project.id,
+                "Budgeted project".to_string(),
+                None,
+                None,
+            )
             .await
             .expect("first run starts");
 
@@ -3809,7 +3865,7 @@ mod runs_start_budget {
 
         // runs.start is refused with the pipeline's message naming both numbers.
         let err = rpc
-            .start_run(&owner, project.id, "Second run".to_string())
+            .start_run(&owner, project.id, "Second run".to_string(), None, None)
             .await
             .expect_err("runs.start must refuse an over-budget project");
         assert!(
@@ -3829,7 +3885,7 @@ mod runs_start_budget {
             .await
             .expect("budget.set succeeds");
         let second = rpc
-            .start_run(&owner, project.id, "Second run".to_string())
+            .start_run(&owner, project.id, "Second run".to_string(), None, None)
             .await
             .expect("runs.start succeeds after budget.set");
         assert_eq!(second.budget_cents, Some(500));
@@ -3859,7 +3915,7 @@ mod runs_followup {
             .await
             .expect("project created");
         let run = rpc
-            .start_run(&owner, project.id, "Initial idea".to_string())
+            .start_run(&owner, project.id, "Initial idea".to_string(), None, None)
             .await
             .expect("run started");
 
@@ -3935,6 +3991,8 @@ mod runs_followup {
                 &owner,
                 project.id,
                 "In-flight cancel signal test".to_string(),
+                None,
+                None,
             )
             .await
             .expect("run2 started");
@@ -3992,7 +4050,13 @@ mod provider_truth {
             .await
             .expect("project created");
         let run = rpc
-            .start_run(&owner, project.id, "Task tracker app".to_string())
+            .start_run(
+                &owner,
+                project.id,
+                "Task tracker app".to_string(),
+                None,
+                None,
+            )
             .await
             .expect("run started");
 
@@ -4059,7 +4123,13 @@ mod provider_truth {
             .await
             .expect("project created");
         let run = rpc
-            .start_run(&owner, project.id, "Followup test idea".to_string())
+            .start_run(
+                &owner,
+                project.id,
+                "Followup test idea".to_string(),
+                None,
+                None,
+            )
             .await
             .expect("run started");
 
@@ -4114,7 +4184,13 @@ mod provider_truth {
             .await
             .expect("project created");
         let run = rpc
-            .start_run(&owner, project.id, "Explicit routing idea".to_string())
+            .start_run(
+                &owner,
+                project.id,
+                "Explicit routing idea".to_string(),
+                None,
+                None,
+            )
             .await
             .expect("run started");
 
@@ -4153,7 +4229,7 @@ mod provider_truth {
             .await
             .expect("project created");
         let run = rpc
-            .start_run(&owner, project.id, "Resume idea".to_string())
+            .start_run(&owner, project.id, "Resume idea".to_string(), None, None)
             .await
             .expect("run started");
 
@@ -5656,7 +5732,11 @@ mod mcp_approval {
                 state.mcp_approvals.clone(),
                 Some(run_id.0.to_string()),
                 Arc::new(RwLock::new(default_backend_kit("run"))),
-                None,
+                Some(warsha_core::ProjectPermissions {
+                    confinement: warsha_core::Confinement::ReadOnly,
+                    approval_mode: warsha_core::ApprovalMode::NeverAsk,
+                    is_override: true,
+                }),
             );
             agent
                 .approve_agent_mode("owner")
@@ -5913,7 +5993,11 @@ mod mcp_approval {
             restarted.mcp_approvals.clone(),
             Some(run_id.0.to_string()),
             Arc::new(RwLock::new(default_backend_kit("run"))),
-            None,
+            Some(warsha_core::ProjectPermissions {
+                confinement: warsha_core::Confinement::ReadOnly,
+                approval_mode: warsha_core::ApprovalMode::NeverAsk,
+                is_override: true,
+            }),
         );
         agent
             .approve_agent_mode("owner")
@@ -6147,7 +6231,13 @@ mod agent_tool_events {
         store.create_project(&project).await.expect("the project");
         let rpc = WarshaRpc::new(state.clone());
         let run = rpc
-            .start_run(&owner_ext(), project.id, "an agent turn".to_string())
+            .start_run(
+                &owner_ext(),
+                project.id,
+                "an agent turn".to_string(),
+                None,
+                None,
+            )
             .await
             .expect("the run starts");
         rpc.approve_agent_mode(&owner_ext(), Some(run.id))
@@ -6456,7 +6546,11 @@ mod agent_tool_events {
             state.mcp_approvals.clone(),
             Some(run_id.0.to_string()),
             Arc::new(RwLock::new(default_backend_kit("run"))),
-            None,
+            Some(warsha_core::ProjectPermissions {
+                confinement: warsha_core::Confinement::ReadOnly,
+                approval_mode: warsha_core::ApprovalMode::NeverAsk,
+                is_override: true,
+            }),
         );
         agent
             .approve_agent_mode("owner")
@@ -6582,7 +6676,13 @@ mod agent_tool_events {
             .expect("the project");
         *state.providers.write().await = ProviderRouter::new();
         let paused_run = rpc
-            .start_run(&owner_ext(), paused_project.id, "a run".to_string())
+            .start_run(
+                &owner_ext(),
+                paused_project.id,
+                "a run".to_string(),
+                None,
+                None,
+            )
             .await
             .expect("the run starts");
         rpc.advance_run(&owner_ext(), paused_run.id)
@@ -6640,7 +6740,13 @@ mod agent_tool_events {
             .await
             .expect("the project");
         let failing_run = failing_rpc
-            .start_run(&owner_ext(), failing_project.id, "a run".to_string())
+            .start_run(
+                &owner_ext(),
+                failing_project.id,
+                "a run".to_string(),
+                None,
+                None,
+            )
             .await
             .expect("the run starts");
         failing_rpc

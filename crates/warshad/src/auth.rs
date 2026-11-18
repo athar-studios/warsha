@@ -359,6 +359,24 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Session,
         tier: Standard,
     },
+    // Ask mode (D4): a project-scoped secretary conversation, not a pipeline
+    // run. It starts model work for the owner, so start/turn are Owner/Standard
+    // and status is Session/Standard — the same shape as the interview family.
+    M {
+        method: "ask.start",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "ask.turn",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "ask.status",
+        policy: Session,
+        tier: Standard,
+    },
     // A run is a paid pipeline: it starts model work and writes files.
     M {
         method: "runs.start",

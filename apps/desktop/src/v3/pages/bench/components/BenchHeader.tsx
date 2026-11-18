@@ -18,6 +18,8 @@ import React, { useState } from 'react';
 import { getSimpleStageLabelKey } from '../../../copy/stages';
 import { getStatusLabelKey, mapRunStatusToPill } from '../helpers';
 
+import { RunModeChip } from './RunModeChip';
+
 export interface BenchHeaderProps {
   project?: ProjectSummary | null;
   run?: RunSummary | null;
@@ -102,6 +104,9 @@ export const BenchHeader: React.FC<BenchHeaderProps> = ({
         </span>
 
         <StatusPill status={runStatusPill} label={t(getStatusLabelKey(run.status))} />
+
+        {/* D4: how this run was started — agent / plan / spec-file / ask. */}
+        <RunModeChip runMode={run.runMode} data-testid="bench-header-runmode" />
 
         <span
           style={{

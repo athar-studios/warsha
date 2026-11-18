@@ -1585,7 +1585,16 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
     case 'runs.events':
       return { ok: true, result: RUN_EVENTS };
     case 'runs.start':
-      return { ok: true, result: RUNS[0] };
+      // D4: echo the requested mode back so the chip could be exercised. The
+      // daemon accepts the mode as a positional Option; unknown words decode
+      // to `agent` on the client, and the stub mirrors that leniency.
+      return {
+        ok: true,
+        result: {
+          ...RUNS[0],
+          run_mode: paramValue(params, 'runMode') ?? paramValue(params, 'run_mode') ?? 'agent',
+        },
+      };
     // Run stream synchronisation and run control (WS3). The stub answers the
     // daemon's own wire shapes: `runs.subscribe` returns a `RunStreamSync`
     // (seq / gap flags / run / sequenced events), the run-control methods

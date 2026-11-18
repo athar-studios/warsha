@@ -1,29 +1,28 @@
-//! End-to-end test: Arabic request for a dental clinic appointment booking web app.
-//!
-//! Covers the Definition of Done requirement:
-//! "Real build: from one written Arabic request ("تطبيق حجز مواعيد لعيادة أسنان"),
-//! Warsha asks clarifying questions, plans, writes code with a REAL model
-//! (cheapest configured, cost cap enforced by Warsha's own cost accounting),
-//! tests pass, and produces a runnable web app. Proven by WARSHA_E2E_REAL=1 test
-//! + screenshots of the generated app."
-//!
-//! # Modes of Execution
-//!
-//! - **Standard run** (`WARSHA_E2E_REAL != "1"`, default in `cargo test`):
-//!   Runs completely offline using [`MockProvider`]. Meters spend at a fraction of a cent
-//!   via Warsha's own cost accounting ([`ProviderRouter::cost_of`], [`ProviderRouter::set_budget`],
-//!   [`ProviderRouter::get_spent`]). Adheres strictly to the repository rule:
-//!   "No network calls to real model APIs in tests".
-//!
-//! - **Real model run** (`WARSHA_E2E_REAL=1`):
-//!   Detects API key from `WARSHA_REAL_PROVIDER_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
-//!   or the secret store. Registers the real provider with the cheapest configured model
-//!   (`gpt-4o-mini` for OpenAI-compatible, `claude-3-5-haiku-20241022` for Anthropic).
-//!   Enforces budget cap, makes live model calls, verifies costs, builds the app,
-//!   and writes the screenshot preview to `bridge-io/shots/clinic-app-preview.png`.
-//!   If `WARSHA_E2E_REAL=1` is set but no API key is found, the test fails immediately
-//!   with a clear explanation.
-
+/// End-to-end test: Arabic request for a dental clinic appointment booking web app.
+///
+/// Covers the Definition of Done requirement:
+/// "Real build: from one written Arabic request ("تطبيق حجز مواعيد لعيادة أسنان"),
+/// Warsha asks clarifying questions, plans, writes code with a REAL model
+/// (cheapest configured, cost cap enforced by Warsha's own cost accounting),
+/// tests pass, and produces a runnable web app. Proven by WARSHA_E2E_REAL=1 test
+/// + screenshots of the generated app."
+///
+/// # Modes of Execution
+///
+/// - **Standard run** (`WARSHA_E2E_REAL != "1"`, default in `cargo test`):
+///   Runs completely offline using [`MockProvider`]. Meters spend at a fraction of a cent
+///   via Warsha's own cost accounting ([`ProviderRouter::cost_of`], [`ProviderRouter::set_budget`],
+///   [`ProviderRouter::get_spent`]). Adheres strictly to the repository rule:
+///   "No network calls to real model APIs in tests".
+///
+/// - **Real model run** (`WARSHA_E2E_REAL=1`):
+///   Detects API key from `WARSHA_REAL_PROVIDER_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+///   or the secret store. Registers the real provider with the cheapest configured model
+///   (`gpt-4o-mini` for OpenAI-compatible, `claude-3-5-haiku-20241022` for Anthropic).
+///   Enforces budget cap, makes live model calls, verifies costs, builds the app,
+///   and writes the screenshot preview to `bridge-io/shots/clinic-app-preview.png`.
+///   If `WARSHA_E2E_REAL=1` is set but no API key is found, the test fails immediately
+///   with a clear explanation.
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -652,7 +651,7 @@ async fn e2e_real_arabic_request_clinic_flow() {
     assert_eq!(project.description, ARABIC_REQUEST);
 
     let run = rpc
-        .start_run(&ext, project.id, ARABIC_REQUEST.to_string())
+        .start_run(&ext, project.id, ARABIC_REQUEST.to_string(), None, None)
         .await
         .expect("runs.start succeeds");
     assert_eq!(run.current_stage, Stage::Idea);

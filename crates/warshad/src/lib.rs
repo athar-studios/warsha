@@ -6,6 +6,7 @@ use jsonrpsee::{
     types::ErrorObject,
 };
 use std::collections::{BTreeMap, HashMap};
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -90,7 +91,7 @@ pub(crate) use rpc::{
 // --- P-H1 A4: `state` region (DaemonState + MCP permission DTOs) moved to state.rs; facade above. ---
 
 // --- P-H1 A1: `api` region (WarshaApi trait + DTOs) moved to api.rs; kept crate-visible here. ---
-mod api;
+pub mod api;
 mod api_estimate;
 #[allow(unused_imports)] // read only by `mod tests`
 pub(crate) use api::provider_model;
@@ -383,14 +384,30 @@ impl WarshaApiServer for WarshaRpc {
         ext: &RpcExtensions,
         project_id: ProjectId,
         idea: String,
+        run_mode: Option<String>,
+        spec_file_path: Option<String>,
     ) -> RpcResult<Run> {
         self.authorize(ext, "runs.start").await?;
+        let run_mode = run_mode
+            .and_then(|m| warsha_core::RunMode::from_str(&m).ok())
+            .unwrap_or_default();
+
         let run = self
             .state
             .pipeline
-            .start_run(project_id, &idea)
+            .start_run_in_mode(project_id, &idea, run_mode, spec_file_path.as_deref())
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+
+        // D4: a Plan or SpecFile run stops at the GateB plan-approval gate by
+        // construction — it must not get a worktree (zero workspace changes
+        // before approval) and must not get an agent session loop yet. Both are
+        // created lazily when the owner approves GateB and the run advances.
+        if run.run_mode == warsha_core::RunMode::Plan
+            || run.run_mode == warsha_core::RunMode::SpecFile
+        {
+            return Ok(run);
+        }
 
         // Wire active harness + enabled skills + enabled plugins into run start context (F2)
         let active_harness = self
@@ -641,6 +658,137 @@ impl WarshaApiServer for WarshaRpc {
             .list_sessions_by_run(run_id)
             .await
             .map_err(rpc_error)
+    }
+
+    async fn ask_start(
+        &self,
+        ext: &RpcExtensions,
+        project_id: ProjectId,
+        _idea: String,
+    ) -> RpcResult<warsha_core::SessionId> {
+        self.authorize(ext, "ask.start").await?;
+
+        // 1. Create Ask-mode Session (role Secretary)
+        let session_id = warsha_core::SessionId::new();
+        let session = warsha_core::Session {
+            id: session_id,
+            run_id: None, // Migration 016
+            project_id,
+            role: warsha_core::Role::Secretary,
+            backend: "native".to_string(),
+            provider: "default".to_string(),
+            model: "default".to_string(),
+            status: warsha_core::SessionStatus::Working,
+            started_at: chrono::Utc::now(),
+            ended_at: None,
+            parent_session_id: None,
+            cli_session_id: None,
+        };
+        self.state
+            .store
+            .create_session(&session)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+
+        // 2. Build ReadOnly Agent Loop
+        let permissions = warsha_core::ProjectPermissions {
+            confinement: warsha_core::Confinement::ReadOnly,
+            approval_mode: warsha_core::ApprovalMode::NeverAsk,
+            is_override: true,
+        };
+
+        let workspace = self.state.config.data_dir.join(AGENT_WORKSPACE_DIR);
+        let backend_kit = Arc::new(RwLock::new(default_backend_kit("ask")));
+
+        let per_ask_loop = build_agent_loop_in(
+            &workspace,
+            &self.state.config.allowed_commands,
+            self.state.providers.clone(),
+            self.state.mcp.clone(),
+            self.state.mcp_permissions.clone(),
+            self.state.mcp_approvals.clone(),
+            None, // No run_id for Ask mode
+            backend_kit,
+            Some(permissions),
+        );
+
+        // Store session loop
+        self.state
+            .agent_sessions
+            .insert(warsha_core::RunId(session_id.0), per_ask_loop)
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+
+        Ok(session_id)
+    }
+
+    async fn ask_turn(
+        &self,
+        ext: &RpcExtensions,
+        project_id: ProjectId,
+        session_id: String,
+        reply: String,
+    ) -> RpcResult<crate::secretary::TurnOutcome> {
+        self.authorize(ext, "ask.turn").await?;
+        let sid = warsha_core::SessionId(
+            ulid::Ulid::from_str(&session_id)
+                .map_err(|_| ErrorObject::owned(-32000, "invalid session id", None::<()>))?,
+        );
+        let run_id = warsha_core::RunId(sid.0);
+
+        // Use public accessor - run_turn is public
+        let outcome = self
+            .state
+            .agent_sessions
+            .run_turn(run_id, &reply, &[])
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+
+        self.state
+            .store
+            .record_role_cost(
+                project_id,
+                warsha_core::Role::Secretary,
+                "native",
+                "default",
+                0,
+                0,
+                0,
+                chrono::Utc::now(),
+            )
+            .await
+            .ok();
+
+        Ok(crate::secretary::TurnOutcome::NextQuestion {
+            question: format!("Turn finished: {:?}", outcome),
+            topic: crate::secretary::Topic::Audience,
+            state: crate::secretary::InterviewState::new(project_id, None),
+        })
+    }
+
+    async fn ask_status(
+        &self,
+        ext: &RpcExtensions,
+        _project_id: ProjectId,
+        session_id: String,
+    ) -> RpcResult<crate::secretary::TurnOutcome> {
+        self.authorize(ext, "ask.status").await?;
+        let sid = warsha_core::SessionId(
+            ulid::Ulid::from_str(&session_id)
+                .map_err(|_| ErrorObject::owned(-32000, "invalid session id", None::<()>))?,
+        );
+        let session = self
+            .state
+            .store
+            .get_session(sid)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?
+            .ok_or_else(|| ErrorObject::owned(-32000, "session not found", None::<()>))?;
+
+        Ok(crate::secretary::TurnOutcome::NextQuestion {
+            question: format!("Session status: {:?}", session.status),
+            topic: crate::secretary::Topic::Audience,
+            state: crate::secretary::InterviewState::new(session.project_id, None),
+        })
     }
 
     async fn session_tail(

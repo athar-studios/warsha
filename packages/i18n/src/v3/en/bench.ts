@@ -209,4 +209,11 @@ export default {
   'bench.composer.no_harnesses': 'No workflows',
   'bench.composer.no_runmodes': 'No run modes',
   'bench.composer.send': 'Send to team',
+  // D4 run-mode chips + picker (agent default; plan/spec-file stop at GateB).
+  'bench.runmode.agent': 'Agent',
+  'bench.runmode.plan': 'Plan',
+  'bench.runmode.spec-file': 'Spec file',
+  'bench.runmode.ask': 'Ask',
+  'bench.runmode.picker_label': 'Run mode',
+  'bench.runmode.picker_hint': 'Plan and spec-file runs stop at the plan gate for your approval.',
 };
