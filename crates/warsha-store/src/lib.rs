@@ -31,8 +31,10 @@ use warsha_core::{
     RunSubtask, RunSubtaskStatus, Session, SessionId, SessionStatus, Stage, TokenUsage,
 };
 
+pub mod secretary_chat;
 mod settings;
 
+pub use secretary_chat::{SecretaryConversation, SecretarySummary, SecretaryTurn};
 pub use settings::{
     SettingsRepo, StoredBackendKit, StoredCustomModel, StoredHarness, StoredIntegration,
     StoredPairing, StoredPlugin, StoredPreference, StoredProjectSwarmSettings, StoredProvider,
@@ -707,7 +709,161 @@ impl Store {
         rows.iter().map(event_from_row).collect()
     }
 
-    // ------------------------------------------------------------------ sessions
+    // ------------------------------------------------------------ secretary_chat
+
+    pub async fn create_secretary_conversation(
+        &self,
+        project_id: Option<Uuid>,
+    ) -> Result<SecretaryConversation> {
+        let id = Ulid::new();
+        let now = Utc::now();
+        sqlx::query(
+            "INSERT INTO secretary_conversations (id, project_id, created_at, updated_at) VALUES (?, ?, ?, ?)",
+        )
+        .bind(id.to_string())
+        .bind(project_id.map(|u| u.to_string()))
+        .bind(now.to_rfc3339())
+        .bind(now.to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+
+        Ok(SecretaryConversation {
+            id,
+            project_id,
+            created_at: now,
+            updated_at: now,
+        })
+    }
+
+    pub async fn get_secretary_conversation(
+        &self,
+        id: Ulid,
+    ) -> Result<Option<SecretaryConversation>> {
+        let row = sqlx::query(
+            "SELECT id, project_id, created_at, updated_at FROM secretary_conversations WHERE id = ?",
+        )
+        .bind(id.to_string())
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(|r| secretary_conversation_from_row(&r)).transpose()
+    }
+
+    pub async fn add_secretary_turn(
+        &self,
+        conversation_id: Ulid,
+        role: &str,
+        content: &str,
+        proposal_json: Option<&str>,
+        refs_owner_message: Option<&str>,
+    ) -> Result<SecretaryTurn> {
+        let id = Ulid::new();
+        let now = Utc::now();
+        sqlx::query(
+            "INSERT INTO secretary_turns (id, conversation_id, role, content, proposal_json, refs_owner_message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(id.to_string())
+        .bind(conversation_id.to_string())
+        .bind(role)
+        .bind(content)
+        .bind(proposal_json)
+        .bind(refs_owner_message)
+        .bind(now.to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query("UPDATE secretary_conversations SET updated_at = ? WHERE id = ?")
+            .bind(now.to_rfc3339())
+            .bind(conversation_id.to_string())
+            .execute(&self.pool)
+            .await?;
+
+        Ok(SecretaryTurn {
+            id,
+            conversation_id,
+            role: role.to_string(),
+            content: content.to_string(),
+            proposal_json: proposal_json.map(|s| s.to_string()),
+            refs_owner_message: refs_owner_message.map(|s| s.to_string()),
+            created_at: now,
+        })
+    }
+
+    pub async fn list_secretary_conversations(
+        &self,
+        project_id: Option<Uuid>,
+    ) -> Result<Vec<SecretaryConversation>> {
+        let query = match project_id {
+            Some(_) => "SELECT id, project_id, created_at, updated_at FROM secretary_conversations WHERE project_id IS NULL OR project_id = ? ORDER BY updated_at DESC",
+            None => "SELECT id, project_id, created_at, updated_at FROM secretary_conversations WHERE project_id IS NULL ORDER BY updated_at DESC",
+        };
+
+        let mut query_builder = sqlx::query(query);
+        if let Some(pid) = project_id {
+            query_builder = query_builder.bind(pid.to_string());
+        }
+
+        let rows = query_builder.fetch_all(&self.pool).await?;
+        rows.iter().map(secretary_conversation_from_row).collect()
+    }
+
+    pub async fn list_secretary_turns(&self, conversation_id: Ulid) -> Result<Vec<SecretaryTurn>> {
+        let rows = sqlx::query(
+            "SELECT id, conversation_id, role, content, proposal_json, refs_owner_message, created_at FROM secretary_turns WHERE conversation_id = ? ORDER BY created_at ASC",
+        )
+        .bind(conversation_id.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.iter().map(secretary_turn_from_row).collect()
+    }
+
+    pub async fn set_secretary_summary(
+        &self,
+        conversation_id: Ulid,
+        summary: &str,
+        covers_until: String,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO secretary_summaries (conversation_id, summary, covers_until) VALUES (?, ?, ?) ON CONFLICT(conversation_id) DO UPDATE SET summary = excluded.summary, covers_until = excluded.covers_until",
+        )
+        .bind(conversation_id.to_string())
+        .bind(summary)
+        .bind(covers_until)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_secretary_summary(
+        &self,
+        conversation_id: Ulid,
+    ) -> Result<Option<SecretarySummary>> {
+        let row = sqlx::query(
+            "SELECT conversation_id, summary, covers_until FROM secretary_summaries WHERE conversation_id = ?",
+        )
+        .bind(conversation_id.to_string())
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(|r| {
+            let conversation_id =
+                Ulid::from_string(&column_text(&r, "conversation_id")?).map_err(|e| {
+                    StoreError::CorruptId {
+                        field: "conversation_id",
+                        value: e.to_string(),
+                    }
+                })?;
+            let summary = column_text(&r, "summary")?;
+            let covers_until = column_text(&r, "covers_until")?;
+            Ok(SecretarySummary {
+                conversation_id,
+                summary,
+                covers_until,
+            })
+        })
+        .transpose()
+    }
 
     /// Create a session.
     pub async fn create_session(&self, session: &Session) -> Result<()> {
@@ -1461,6 +1617,65 @@ fn parse_time(field: &'static str, value: &str) -> Result<DateTime<Utc>> {
     )
 }
 
+fn secretary_turn_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<SecretaryTurn> {
+    let id = Ulid::from_string(&column_text(row, "id")?).map_err(|e| StoreError::CorruptId {
+        field: "id",
+        value: e.to_string(),
+    })?;
+    let conversation_id =
+        Ulid::from_string(&column_text(row, "conversation_id")?).map_err(|e| {
+            StoreError::CorruptId {
+                field: "conversation_id",
+                value: e.to_string(),
+            }
+        })?;
+    let role = column_text(row, "role")?;
+    let content = column_text(row, "content")?;
+    let proposal_json = column_opt_text(row, "proposal_json")?;
+    let refs_owner_message = column_opt_text(row, "refs_owner_message")?;
+    let created_at = DateTime::parse_from_rfc3339(&column_text(row, "created_at")?)
+        .map_err(|e| StoreError::ParseError("created_at", e.to_string()))?
+        .with_timezone(&Utc);
+
+    Ok(SecretaryTurn {
+        id,
+        conversation_id,
+        role,
+        content,
+        proposal_json,
+        refs_owner_message,
+        created_at,
+    })
+}
+
+fn secretary_conversation_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<SecretaryConversation> {
+    let id = Ulid::from_string(&column_text(row, "id")?).map_err(|e| StoreError::CorruptId {
+        field: "id",
+        value: e.to_string(),
+    })?;
+    let project_id = column_opt_text(row, "project_id")?
+        .map(|s| {
+            Uuid::parse_str(&s).map_err(|e| StoreError::CorruptId {
+                field: "project_id",
+                value: e.to_string(),
+            })
+        })
+        .transpose()?;
+    let created_at = DateTime::parse_from_rfc3339(&column_text(row, "created_at")?)
+        .map_err(|e| StoreError::ParseError("created_at", e.to_string()))?
+        .with_timezone(&Utc);
+    let updated_at = DateTime::parse_from_rfc3339(&column_text(row, "updated_at")?)
+        .map_err(|e| StoreError::ParseError("updated_at", e.to_string()))?
+        .with_timezone(&Utc);
+
+    Ok(SecretaryConversation {
+        id,
+        project_id,
+        created_at,
+        updated_at,
+    })
+}
+
 fn project_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Project> {
     let confinement: Option<Confinement> = column_opt_text(row, "confinement")?
         .map(|s| {
@@ -1800,7 +2015,7 @@ mod tests {
         let versions: Vec<i64> = migrator.iter().map(|m| m.version).collect();
         assert_eq!(
             versions,
-            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
+            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
         );
         for migration in migrator.iter() {
             assert!(
@@ -1826,7 +2041,7 @@ mod tests {
                 .expect("the migration ledger is readable");
         assert_eq!(
             applied,
-            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
+            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
         );
 
         let tables: Vec<String> = sqlx::query_scalar(

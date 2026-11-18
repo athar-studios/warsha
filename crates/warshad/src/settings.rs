@@ -30,6 +30,7 @@
 //!   daemon's business, and a store that cached would answer from memory after
 //!   another process changed the file.
 
+use crate::state::RemoteBind;
 use std::path::{Path, PathBuf};
 
 use thiserror::Error;
@@ -527,84 +528,26 @@ impl SettingsStore {
         let store = self.repo().await?;
         Ok(store.delete_integration(id).await?)
     }
-}
 
-/// The counter that makes each document write's temp file unique.
-///
-/// One process can write two documents, or the same document twice in a row, and two
-/// writers must not share a scratch file: the second would rename the first's bytes
-/// and call that durable.
-static DOCUMENT_WRITE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-/// The name a settings document may be stored under.
-///
-/// A lower-case slug of at most 64 characters, because this name becomes a file and
-/// code that reaches the filesystem has to treat everything it is given as something
-/// a caller wrote. A `..`, a slash or a backslash would let a caller name a file
-/// outside the data directory, and no document has ever needed a name like that.
-fn checked_document_name(name: &str) -> SettingsResult<String> {
-    let trimmed = name.trim();
-    if trimmed.is_empty() || trimmed.len() > 64 {
-        return Err(SettingsError::Document(format!(
-            "{name} is not a document name between 1 and 64 characters"
-        )));
-    }
-    if !trimmed
-        .chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
-    {
-        return Err(SettingsError::Document(format!(
-            "{name} holds characters a document name may not: lower-case letters, \
-             digits, `-` and `_` only"
-        )));
-    }
-    Ok(trimmed.to_string())
-}
-
-/// Write the document, atomically, and leave it on disk.
-fn write_document(directory: &Path, name: &str, encoded: &[u8]) -> SettingsResult<()> {
-    let failure = |reason: String| SettingsError::DocumentIo {
-        name: name.to_string(),
-        reason,
-    };
-    std::fs::create_dir_all(directory).map_err(|error| failure(error.to_string()))?;
-    let sequence = DOCUMENT_WRITE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let scratch = directory.join(format!(
-        ".{name}.json.{}.{}.tmp",
-        std::process::id(),
-        sequence
-    ));
-    let target = directory.join(format!("{name}.json"));
-    if let Err(error) = std::fs::write(&scratch, encoded) {
-        // A half-written scratch file is nothing the next write should inherit.
-        let _ = std::fs::remove_file(&scratch);
-        return Err(failure(error.to_string()));
-    }
-    std::fs::rename(&scratch, &target).map_err(|error| {
-        let _ = std::fs::remove_file(&scratch);
-        failure(error.to_string())
-    })
-}
-
-/// Read the document, or say it is not there / not readable.
-fn read_document(directory: &Path, name: &str) -> SettingsResult<Option<serde_json::Value>> {
-    let target = directory.join(format!("{name}.json"));
-    let bytes = match std::fs::read(&target) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => {
-            return Err(SettingsError::DocumentIo {
-                name: name.to_string(),
-                reason: error.to_string(),
-            })
+    pub async fn load_remote_bind(&self) -> SettingsResult<RemoteBind> {
+        let doc = self.load_document("remote-bind").await?;
+        match doc
+            .and_then(|d| d.as_str().map(ToOwned::to_owned))
+            .as_deref()
+        {
+            Some("localhost") => Ok(RemoteBind::Localhost),
+            Some("tailscale") => Ok(RemoteBind::Tailscale),
+            _ => Ok(RemoteBind::Default),
         }
-    };
-    serde_json::from_slice(&bytes)
-        .map(Some)
-        .map_err(|_| SettingsError::DocumentFormat(name.to_string()))
+    }
+
+    pub async fn save_remote_bind(&self, bind: RemoteBind) -> SettingsResult<()> {
+        let val = serde_json::Value::String(bind.to_string());
+        self.save_document("remote-bind", &val).await?;
+        Ok(())
+    }
 }
 
-// Implementation of SettingsProvider trait for the daemon's SettingsStore
 #[async_trait::async_trait]
 impl SettingsProvider for SettingsStore {
     async fn get_active_harness(
@@ -684,6 +627,81 @@ impl SettingsProvider for SettingsStore {
                     .collect()
             })
     }
+}
+
+/// The counter that makes each document write's temp file unique.
+///
+/// One process can write two documents, or the same document twice in a row, and two
+/// writers must not share a scratch file: the second would rename the first's bytes
+/// and call that durable.
+static DOCUMENT_WRITE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The name a settings document may be stored under.
+///
+/// A lower-case slug of at most 64 characters, because this name becomes a file and
+/// code that reaches the filesystem has to treat everything it is given as something
+/// a caller wrote. A `..`, a slash or a backslash would let a caller name a file
+/// outside the data directory, and no document has ever needed a name like that.
+fn checked_document_name(name: &str) -> SettingsResult<String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() || trimmed.len() > 64 {
+        return Err(SettingsError::Document(format!(
+            "{name} is not a document name between 1 and 64 characters"
+        )));
+    }
+    if !trimmed
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+    {
+        return Err(SettingsError::Document(format!(
+            "{name} holds characters a document name may not: lower-case letters, \
+             digits, `-` and `_` only"
+        )));
+    }
+    Ok(trimmed.to_string())
+}
+
+/// Write the document, atomically, and leave it on disk.
+fn write_document(directory: &Path, name: &str, encoded: &[u8]) -> SettingsResult<()> {
+    let failure = |reason: String| SettingsError::DocumentIo {
+        name: name.to_string(),
+        reason,
+    };
+    std::fs::create_dir_all(directory).map_err(|error| failure(error.to_string()))?;
+    let sequence = DOCUMENT_WRITE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let scratch = directory.join(format!(
+        ".{name}.json.{}.{}.tmp",
+        std::process::id(),
+        sequence
+    ));
+    let target = directory.join(format!("{name}.json"));
+    if let Err(error) = std::fs::write(&scratch, encoded) {
+        // A half-written scratch file is nothing the next write should inherit.
+        let _ = std::fs::remove_file(&scratch);
+        return Err(failure(error.to_string()));
+    }
+    std::fs::rename(&scratch, &target).map_err(|error| {
+        let _ = std::fs::remove_file(&scratch);
+        failure(error.to_string())
+    })
+}
+
+/// Read the document, or say it is not there / not readable.
+fn read_document(directory: &Path, name: &str) -> SettingsResult<Option<serde_json::Value>> {
+    let target = directory.join(format!("{name}.json"));
+    let bytes = match std::fs::read(&target) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(SettingsError::DocumentIo {
+                name: name.to_string(),
+                reason: error.to_string(),
+            })
+        }
+    };
+    serde_json::from_slice(&bytes)
+        .map(Some)
+        .map_err(|_| SettingsError::DocumentFormat(name.to_string()))
 }
 
 #[cfg(test)]

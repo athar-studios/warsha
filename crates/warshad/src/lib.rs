@@ -10,6 +10,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
+use ulid::Ulid;
 use warsha_core::*;
 use warsha_pipeline::mcp_permission::{McpPermissionSource, ToolPermission};
 #[allow(unused_imports)] // read only by `mod tests`
@@ -23,7 +24,7 @@ use warsha_pipeline::{
     AGENT_ROLE,
 };
 use warsha_providers::{probe_endpoint, HealthCheck, OneClickProvider, ProviderSetupWizard};
-use warsha_store::{Store, StoredProvider};
+use warsha_store::{SecretaryConversation, SecretaryTurn, Store, StoredProvider};
 
 mod auth;
 mod events;
@@ -39,6 +40,7 @@ mod providers;
 /// packet that adds a consumer opts the daemon in; no RPC reaches it today.
 pub mod registry_http;
 pub mod secretary;
+pub mod secretary_chat;
 mod settings;
 mod skills;
 mod state;
@@ -59,7 +61,11 @@ use events::events_handler;
 pub use events::{
     EventSequencer, RunStreamSync, SequencedEventFrame, StreamSync, EVENT_REPLAY_CAPACITY,
 };
-use http::{http_app, origin_is_loopback, pairing_origin, resolve_bind_host};
+#[allow(unused_imports)]
+pub(crate) use http::{
+    enumerate_interfaces, http_app, origin_is_loopback, pairing_origin, resolve_bind_host,
+    resolve_listener_bind, tailscale_bind_ip, InterfaceInfo,
+};
 pub use http::{REMOTE_ASSETS_DIR_ENV, REMOTE_CSP};
 use lock::acquire_lock;
 pub use mcp_call_events::StoreMcpCallObserver;
@@ -71,7 +77,7 @@ pub use settings::{SettingsError, SettingsStore};
 pub(crate) use state::paired_device_is_active;
 pub use state::{
     scrub_event_payload, windows_firewall_command, AppState, DaemonArgs, DaemonConfig,
-    DaemonHandle, DaemonState, McpPermissionRow, McpPermissionsReply,
+    DaemonHandle, DaemonState, McpPermissionRow, McpPermissionsReply, RemoteBind,
 };
 
 pub type Result<T> = std::result::Result<T, DaemonError>;
@@ -424,6 +430,75 @@ impl WarshaApiServer for WarshaRpc {
             .status(project_id)
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+    }
+
+    async fn secretary_thread_list(
+        &self,
+        ext: &RpcExtensions,
+        project_id: Option<ProjectId>,
+    ) -> RpcResult<Vec<SecretaryConversation>> {
+        self.authorize(ext, "secretary.thread.list").await?;
+        Ok(self
+            .state
+            .store
+            .list_secretary_conversations(project_id.map(|id| id.0))
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?)
+    }
+
+    async fn secretary_thread_turns(
+        &self,
+        ext: &RpcExtensions,
+        conversation_id: Ulid,
+    ) -> RpcResult<Vec<SecretaryTurn>> {
+        self.authorize(ext, "secretary.thread.turns").await?;
+        Ok(self
+            .state
+            .store
+            .list_secretary_turns(conversation_id)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?)
+    }
+
+    async fn secretary_chat(
+        &self,
+        ext: &RpcExtensions,
+        project_id: Option<ProjectId>,
+        conversation_id: Option<Ulid>,
+        message: String,
+    ) -> RpcResult<crate::secretary_chat::ChatTurnReply> {
+        self.authorize(ext, "secretary.chat").await?;
+        let cap_cents = self.secretary_daily_cap_cents().await;
+        let chat = crate::secretary_chat::SecretaryChat::new(
+            self.state.store.clone(),
+            self.state.providers.clone(),
+            self.state.mcp_approvals.clone(),
+        );
+        let reply = chat
+            .turn(
+                project_id.map(|id| id.0),
+                conversation_id,
+                &message,
+                cap_cents,
+            )
+            .await
+            .map_err(|e| match e {
+                crate::secretary_chat::SecretaryChatError::DailyLimitReached {
+                    spent_cents,
+                    cap_cents,
+                } => ErrorObject::owned(
+                    -32000,
+                    format!(
+                        "daily limit reached: spent {spent_cents} cents of {cap_cents} cents cap"
+                    ),
+                    Some(serde_json::json!({
+                        "spent_cents": spent_cents,
+                        "cap_cents": cap_cents,
+                    })),
+                ),
+                _ => ErrorObject::owned(-32000, e.to_string(), None::<()>),
+            })?;
+        Ok(reply)
     }
 
     async fn start_run(
@@ -3998,6 +4073,9 @@ mod origin_guard;
 #[cfg(test)]
 #[path = "tests/pair_repair.rs"]
 mod pair_repair;
+#[cfg(test)]
+#[path = "tests/secretary_chat.rs"]
+mod secretary_chat_tests;
 #[cfg(test)]
 pub(crate) mod test_util;
 #[cfg(test)]

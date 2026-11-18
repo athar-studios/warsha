@@ -60,6 +60,7 @@ async fn start_test_daemon(data_dir: &std::path::Path) -> DaemonHandle {
         allowed_commands: Vec::new(),
         rate_limits: RateLimitConfig::default(),
         remote_assets_dir: None,
+        remote_bind: warshad::RemoteBind::Default,
     };
     start_daemon(config)
         .await

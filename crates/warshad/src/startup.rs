@@ -36,13 +36,14 @@ use crate::auth::cors_origins;
 #[allow(unused_imports)] // named only by the doc link on `start_daemon_with_provider_factory`
 use crate::MockProviderFactory;
 use crate::{
-    acquire_lock, apply_role_routings, build_agent_loop, http_app, mcp_approvals, mcp_http,
-    pairing_origin, register_configured_providers, resolve_bind_host, scrub_event_payload,
-    seed_agent_snapshot, seed_backend_routings, seed_custom_backends, seed_role_routings, wave2,
-    windows_firewall_command, DaemonArgs, DaemonConfig, DaemonError, DaemonHandle,
-    DaemonPermissionStore, DaemonState, EventSequencer, KeychainProviderFactory, ProcessPolicy,
-    ProviderFactory, RateGovernor, Result, RpcAuthLayer, Sessions, SettingsStore, StoreRunLiveness,
-    WarshaApiServer, WarshaRpc, LOCAL_POCKETBASE_URL, MOCK_PROVIDER_ID, REMOTE_ASSETS_DIR_ENV,
+    acquire_lock, apply_role_routings, build_agent_loop, enumerate_interfaces, http_app,
+    mcp_approvals, mcp_http, pairing_origin, register_configured_providers, resolve_listener_bind,
+    scrub_event_payload, seed_agent_snapshot, seed_backend_routings, seed_custom_backends,
+    seed_role_routings, wave2, windows_firewall_command, DaemonArgs, DaemonConfig, DaemonError,
+    DaemonHandle, DaemonPermissionStore, DaemonState, EventSequencer, KeychainProviderFactory,
+    ProcessPolicy, ProviderFactory, RateGovernor, RemoteBind, Result, RpcAuthLayer, Sessions,
+    SettingsStore, StoreRunLiveness, WarshaApiServer, WarshaRpc, LOCAL_POCKETBASE_URL,
+    MOCK_PROVIDER_ID, REMOTE_ASSETS_DIR_ENV,
 };
 
 /// The backend kit a project starts from until it exports or sets one of its own.
@@ -183,6 +184,11 @@ pub async fn start_daemon_with_provider_factory(
     // that cannot be opened fails the start instead of the first setting the owner
     // changes.
     let settings = Arc::new(SettingsStore::open(&db_path).await?);
+    if config.remote_bind == RemoteBind::Default {
+        if let Ok(persisted_bind) = settings.load_remote_bind().await {
+            config.remote_bind = persisted_bind;
+        }
+    }
     let store = Arc::new(Store::open_at(db_path).await?);
 
     // Initialize provider router
@@ -504,7 +510,8 @@ pub async fn start_daemon_with_provider_factory(
     // reach this machine — it would be dialling itself. Loopback remains the default, and
     // every other address is an opt-in the owner made in the config file or with
     // `--bind-host` (see [`DaemonConfig::bind_host`] for why that posture is deliberate).
-    let bind = resolve_bind_host(&config)?;
+    let ifaces = enumerate_interfaces();
+    let bind = resolve_listener_bind(&config, &ifaces)?;
     let rpc_addr: SocketAddr = SocketAddr::new(bind, config.ws_port);
     // The origins this daemon accepts, parsed once and used by both servers below.
     //
@@ -978,6 +985,13 @@ pub(crate) fn apply_env_overrides(mut config: DaemonConfig) -> DaemonConfig {
     }
     if let Some(dir) = env_string(REMOTE_ASSETS_DIR_ENV) {
         config.remote_assets_dir = Some(PathBuf::from(dir));
+    }
+    if let Some(bind) = env_string("WARSHA_REMOTE_BIND") {
+        match bind.to_lowercase().as_str() {
+            "localhost" => config.remote_bind = RemoteBind::Localhost,
+            "tailscale" => config.remote_bind = RemoteBind::Tailscale,
+            _ => config.remote_bind = RemoteBind::Default,
+        }
     }
     config
 }

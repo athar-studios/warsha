@@ -118,6 +118,25 @@ pub fn windows_firewall_command(http_port: u16, ws_port: u16) -> String {
     )
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum RemoteBind {
+    #[default]
+    Default,
+    Localhost,
+    Tailscale,
+}
+
+impl std::fmt::Display for RemoteBind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RemoteBind::Default => write!(f, "default"),
+            RemoteBind::Localhost => write!(f, "localhost"),
+            RemoteBind::Tailscale => write!(f, "tailscale"),
+        }
+    }
+}
+
 /// Daemon configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonConfig {
@@ -144,6 +163,12 @@ pub struct DaemonConfig {
     /// [`DaemonConfig::rate_limits`]. A file that names nothing binds loopback.
     #[serde(default = "default_bind_host")]
     pub bind_host: String,
+
+    /// The network interface mode to bind the remote listener to: `default` (standard host),
+    /// `localhost` (127.0.0.1 only), or `tailscale` (binds to Tailscale IP).
+    #[serde(default)]
+    pub remote_bind: RemoteBind,
+
     /// The host a pairing link advertises when [`DaemonConfig::bind_host`] is a wildcard
     /// (`0.0.0.0`, `::`).
     ///
@@ -213,6 +238,7 @@ impl Default for DaemonConfig {
             rate_limits: RateLimitConfig::default(),
             allowed_commands: Vec::new(),
             remote_assets_dir: None,
+            remote_bind: RemoteBind::default(),
         }
     }
 }

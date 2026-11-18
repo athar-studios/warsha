@@ -374,6 +374,21 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Session,
         tier: Standard,
     },
+    M {
+        method: "secretary.thread.list",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "secretary.thread.turns",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "secretary.chat",
+        policy: Owner,
+        tier: Spend,
+    },
     // Ask mode (D4): a project-scoped secretary conversation, not a pipeline
     // run. It starts model work for the owner, so start/turn are Owner/Standard
     // and status is Session/Standard — the same shape as the interview family.
