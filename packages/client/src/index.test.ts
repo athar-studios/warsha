@@ -327,9 +327,30 @@ describe('client', () => {
     expect(reply.proposal?.action).toEqual({ type: 'gate_approve', runId: 'r1', stage: 'code' });
     expect(reply.conversationId).toBe('conv-1');
     expect(reply.turnId).toBe('turn-2');
+    expect(reply.refsOwnerMessage).toBeNull();
+    const refd = decodeSecretaryChatReply({ ...wire, refs_owner_message: 'owner-9' });
+    expect(refd.refsOwnerMessage).toBe('owner-9');
+    const camel = decodeSecretaryChatReply({ ...wire, refsOwnerMessage: 'owner-8' });
+    expect(camel.refsOwnerMessage).toBe('owner-8');
     const bare = decodeSecretaryChatReply({ reply: 'r', proposal: null, conversation_id: 'c', turn_id: 't' });
     expect(bare.proposal).toBeNull();
     expect(() => decodeSecretaryChatReply({ reply: 'r' })).toThrow(/missing conversation_id/);
+  });
+
+  it('sends `language` on secretary.chat only when given', async () => {
+    const wire = { reply: 'ok', proposal: null, conversation_id: 'c', turn_id: 't', refs_owner_message: 'o1' };
+    fetchMock.mockResolvedValueOnce(okResponse(wire));
+    const withLang = await client.secretaryChat('p1', null, 'hello', 'ar');
+    expect(withLang.refsOwnerMessage).toBe('o1');
+    expect(sentParams(0)).toEqual({
+      project_id: 'p1',
+      conversation_id: null,
+      message: 'hello',
+      language: 'ar',
+    });
+    fetchMock.mockResolvedValueOnce(okResponse(wire));
+    await client.secretaryChat('p1', null, 'hello');
+    expect(Object.keys(sentParams(1)).sort()).toEqual(['conversation_id', 'message', 'project_id']);
   });
 
   it('reads a null budget ceiling as no budget, and refuses a malformed one', async () => {

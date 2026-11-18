@@ -197,6 +197,8 @@ export interface SecretaryChatReply {
   proposal: SecretaryProposal | null;
   conversationId: string;
   turnId: string;
+  /** The owner turn the proposal answers; `null` when the daemon names none. */
+  refsOwnerMessage: string | null;
 }
 
 /** The object half of a secretary decode. */
@@ -360,6 +362,7 @@ export function decodeSecretaryChatReply(source: unknown): SecretaryChatReply {
     proposal,
     conversationId: secretaryString(record, 'conversation_id', 'conversationId'),
     turnId: secretaryString(record, 'turn_id', 'turnId'),
+    refsOwnerMessage: secretaryOptionalString(record, 'refs_owner_message', 'refsOwnerMessage'),
   };
 }
 
@@ -2902,12 +2905,14 @@ export class WarshaClient
   async secretaryChat(
     projectId: string | null,
     conversationId: string | null,
-    message: string
+    message: string,
+    language?: 'ar' | 'en'
   ): Promise<SecretaryChatReply> {
     const row = await this.rpc<unknown>('secretary.chat', {
       project_id: projectId,
       conversation_id: conversationId,
       message,
+      ...(language ? { language } : {}),
     });
     return decodeSecretaryChatReply(row);
   }

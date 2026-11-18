@@ -91,6 +91,39 @@ test.describe('secretary chat', () => {
     await expect(page.locator('[data-testid="secretary-input"]')).toBeVisible();
     await page.fill('[data-testid="secretary-input"]', 'What is waiting on me?');
     await act(page, 'secretary.send');
+    await expectRpc(page, 'secretary.chat', { language: 'en' });
+  });
+
+  test('loads secretary threads for the project on mount', async ({ page }) => {
+    await openV3(page, '/p/proj-ui', { lang: 'en' });
+    await act(page, 'project.secretary.open');
+    await expectRpc(page, 'secretary.thread.list', { project_id: 'proj-ui' });
+  });
+
+  test('keeps a proposal blocked when the chat reply has no refs_owner_message and turns fail', async ({ page }) => {
+    await openV3(page, '/p/proj-ui', {
+      lang: 'en',
+      fixtures: {
+        'secretary.thread.turns': { error: 'turns unavailable' },
+        'secretary.chat': {
+          result: {
+            reply: 'Gate B is ready.',
+            proposal: {
+              label: 'Approve gate B on the current run',
+              action: { gate_approve: { run_id: 'run-1', stage: 'gate_b' } },
+            },
+            conversation_id: 'sec-conv-2',
+            turn_id: 'turn-77',
+            refs_owner_message: null,
+          },
+        },
+      },
+    });
+    await act(page, 'project.secretary.open');
+    await page.fill('[data-testid="secretary-input"]', 'approve gate B');
+    await act(page, 'secretary.send');
     await expectRpc(page, 'secretary.chat');
+    await expect(page.locator('[data-testid="secretary-proposal-card"]')).toBeVisible();
+    await expect(page.locator('[data-testid="secretary-confirm"]')).toHaveCount(0);
   });
 });

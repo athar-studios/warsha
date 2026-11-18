@@ -16,6 +16,8 @@ import type {
   Stage,
   WarshaClient,
 } from '@warsha/client';
+// eslint-disable-next-line import/no-unresolved
+import { useLocale } from '@warsha/i18n/v3';
 /* eslint-disable import/no-unresolved */
 import { Banner, Button, Skeleton } from '@warsha/ui/v3';
 /* eslint-enable import/no-unresolved */
@@ -114,6 +116,7 @@ export default function SecretaryChat({
   onConfirmed,
 }: SecretaryChatProps): React.ReactElement {
   const contextClient = useClient() as WarshaClient | null;
+  const { locale } = useLocale();
 
   const [threads, setThreads] = useState<SecretaryThread[]>([]);
   const [scope, setScope] = useState<'global' | 'project'>(
@@ -145,7 +148,7 @@ export default function SecretaryChat({
     if (contextClient === null) return undefined;
     let cancelled = false;
     contextClient
-      .listSecretaryThreads()
+      .listSecretaryThreads(projectId ?? undefined)
       .then((list) => {
         if (cancelled) return;
         setThreads(list);
@@ -157,7 +160,7 @@ export default function SecretaryChat({
     return () => {
       cancelled = true;
     };
-  }, [contextClient]);
+  }, [contextClient, projectId]);
 
   const turnThreadId = activeThread(threads)?.id ?? null;
 
@@ -244,7 +247,8 @@ export default function SecretaryChat({
       const reply = await contextClient.secretaryChat(
         scope === 'project' ? projectId : null,
         activeThread(threads)?.id ?? null,
-        text
+        text,
+        locale
       );
       // The daemon's own row is the truth: read this thread again instead of splicing.
       setThreads((previous) => {
@@ -267,10 +271,13 @@ export default function SecretaryChat({
       });
       setInput('');
       const rows = await contextClient.getSecretaryTurns(reply.conversationId).catch(() => {
-        // M2: Preserve optimistic owner turn + returned reply
+        // M2: Preserve optimistic owner turn + returned reply. The owner turn takes the
+        // daemon's `refs_owner_message` id when given; a null ref stays null so an
+        // unreferenced proposal still trips ProposalCard's render guard.
+        const ownerTurnId = reply.refsOwnerMessage ?? `owner-${reply.turnId}`;
         return [
           {
-            id: `owner-${reply.turnId}`,
+            id: ownerTurnId,
             conversationId: reply.conversationId,
             role: 'owner',
             content: text,
@@ -282,7 +289,7 @@ export default function SecretaryChat({
             role: 'secretary',
             proposal: reply.proposal,
             content: reply.reply,
-            refsOwnerMessage: `owner-${reply.turnId}`,
+            refsOwnerMessage: reply.refsOwnerMessage,
             createdAt: new Date().toISOString(),
           } as SecretaryTurn
         ];
@@ -299,7 +306,7 @@ export default function SecretaryChat({
     } finally {
       setSending(false);
     }
-  }, [contextClient, input, sending, scope, projectId, threads, activeThread, t]);
+  }, [contextClient, input, sending, scope, projectId, threads, activeThread, locale, t]);
 
   const onDismiss = useCallback((turnId: string) => {
     setDismissedTurnIds((prev) => new Set(prev).add(turnId));

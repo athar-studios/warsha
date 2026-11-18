@@ -64,6 +64,7 @@ function mockClient(overrides: {
         proposal: null,
         conversationId: 'sec-conv-2',
         turnId: 'turn-3',
+        refsOwnerMessage: null,
       }
     ),
     approveGate: overrides.approve ?? vi.fn().mockResolvedValue(undefined),
@@ -172,6 +173,7 @@ describe('SecretaryChat', () => {
       proposal: null,
       conversationId: 'sec-conv-2',
       turnId: 'turn-3',
+      refsOwnerMessage: null,
     } as SecretaryChatReply);
     const client = mockClient({});
     (client as unknown as Record<string, unknown>).secretaryChat = chat;
@@ -185,6 +187,103 @@ describe('SecretaryChat', () => {
     fireEvent.click(screen.getByTestId('secretary-send'));
     await waitFor(() => {
       expect(chat).toHaveBeenCalled();
+    });
+  });
+
+  it('loads threads for the project and reloads when the project changes', async () => {
+    const client = mockClient({});
+    const { rerender } = render(
+      <I18nProvider initialLocale="en">
+        <ClientProvider client={client}>
+          <SecretaryChat projectId={'p1' as ProjectId} t={(key: string) => key} />
+        </ClientProvider>
+      </I18nProvider>
+    );
+    await waitFor(() => {
+      expect(client.listSecretaryThreads).toHaveBeenCalledWith('p1');
+    });
+    rerender(
+      <I18nProvider initialLocale="en">
+        <ClientProvider client={client}>
+          <SecretaryChat projectId={'p2' as ProjectId} t={(key: string) => key} />
+        </ClientProvider>
+      </I18nProvider>
+    );
+    await waitFor(() => {
+      expect(client.listSecretaryThreads).toHaveBeenCalledWith('p2');
+    });
+  });
+
+  it('forwards the active locale as `language` on secretaryChat', async () => {
+    const client = mockClient({});
+    renderPanel(client, 'p1' as ProjectId);
+    await waitFor(() => {
+      expect(screen.getByTestId('secretary-input')).toBeTruthy();
+    });
+    fireEvent.change(screen.getByTestId('secretary-input'), { target: { value: 'hello' } });
+    fireEvent.click(screen.getByTestId('secretary-send'));
+    await waitFor(() => {
+      expect(client.secretaryChat).toHaveBeenCalledWith('p1', 'sec-conv-2', 'hello', 'en');
+    });
+  });
+
+  it('keeps a null refsOwnerMessage null when the turns re-read fails (guard still blocks)', async () => {
+    const client = mockClient({
+      reply: {
+        reply: 'Approve it.',
+        proposal: {
+          label: 'Approve gate B',
+          action: { type: 'gate_approve', runId: 'run-1', stage: 'gate_b' } as ProposalAction,
+        },
+        conversationId: 'sec-conv-2',
+        turnId: 'turn-9',
+        refsOwnerMessage: null,
+      },
+    });
+    client.getSecretaryTurns = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockRejectedValue(new Error('boom'));
+    renderPanel(client, 'p1' as ProjectId);
+    await waitFor(() => {
+      expect(screen.getByTestId('secretary-input')).toBeTruthy();
+    });
+    fireEvent.change(screen.getByTestId('secretary-input'), { target: { value: 'approve' } });
+    fireEvent.click(screen.getByTestId('secretary-send'));
+    await waitFor(() => {
+      expect(screen.getByTestId('secretary-proposal-card')).toBeTruthy();
+    });
+    expect(screen.queryByTestId('secretary-confirm')).toBeNull();
+    expect(screen.getByTestId('secretary-proposal-card').textContent).toContain(
+      'secretary.proposal.needs_ref'
+    );
+  });
+
+  it('uses the daemon refsOwnerMessage as the fallback owner turn id so confirm is offered', async () => {
+    const client = mockClient({
+      reply: {
+        reply: 'Approve it.',
+        proposal: {
+          label: 'Approve gate B',
+          action: { type: 'gate_approve', runId: 'run-1', stage: 'gate_b' } as ProposalAction,
+        },
+        conversationId: 'sec-conv-2',
+        turnId: 'turn-9',
+        refsOwnerMessage: 'owner-real',
+      },
+    });
+    client.getSecretaryTurns = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockRejectedValue(new Error('boom'));
+    renderPanel(client, 'p1' as ProjectId);
+    await waitFor(() => {
+      expect(screen.getByTestId('secretary-input')).toBeTruthy();
+    });
+    fireEvent.change(screen.getByTestId('secretary-input'), { target: { value: 'approve' } });
+    fireEvent.click(screen.getByTestId('secretary-send'));
+    await waitFor(() => {
+      expect(screen.getByTestId('secretary-confirm')).toBeTruthy();
     });
   });
 
