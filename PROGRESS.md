@@ -1,5 +1,10 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-20 — FIX-RELEASE: Verifier grep quoting (D-RN-REL-VERIFY-1)
+- **Root cause**: run 44627337731 `Verify no placeholders` failed `homebrew formula has no real sha256` even though the generated formula carries a valid 64-hex sha256 (`6fac12…`, downloaded from `package-manifests` artifact and inspected). The verifier's homebrew/scoop greps used single-quoted DOUBLE-backslash `\\{64\\}`; in single quotes the shell passes both backslashes literally, so grep matched literal backslash + `{64}` and never the hash. Winget (double-quoted `\\{64\\}`) was unaffected.
+- **Fix**: `release.yml` homebrew/scoop verifier greps → single-backslash BRE `\{64\}`; winget untouched. Proved locally: old patterns FAIL / new patterns PASS on the real CI-generated files; `YAML_OK`; `check-engineering-policy.mjs` 8/0.
+- **Status**: uncommitted pending commit/push/retag/CI.
+
 ## Run 2026-11-20 — FIX-RELEASE: Hash Homebrew formula and Scoop manifest
 - **Delivered**:
   1. `.github/workflows/release.yml`: Rewrote `Create Homebrew formula` step to download the source tarball, compute sha256, and use that hash instead of grepping `artifacts/checksums.sha256`.

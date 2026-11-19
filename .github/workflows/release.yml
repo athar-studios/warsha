@@ -815,8 +815,8 @@ jobs:
           test -f manifests/homebrew/warsha.rb || { echo "::error::homebrew formula was not generated"; exit 1; }
           test -f manifests/scoop/warsha.json || { echo "::error::scoop manifest was not generated"; exit 1; }
           grep -q "InstallerSha256: [0-9a-f]\\{64\\}" manifests/winget/warsha.yaml || { echo "::error::winget manifest has no real sha256"; exit 1; }
-          grep -q 'sha256 "[0-9a-f]\\{64\\}"' manifests/homebrew/warsha.rb || { echo "::error::homebrew formula has no real sha256"; exit 1; }
-          grep -q '"hash": "[0-9a-f]\\{64\\}"' manifests/scoop/warsha.json || { echo "::error::scoop manifest has no real hash"; exit 1; }
+          grep -q 'sha256 "[0-9a-f]\{64\}"' manifests/homebrew/warsha.rb || { echo "::error::homebrew formula has no real sha256"; exit 1; }
+          grep -q '"hash": "[0-9a-f]\{64\}"' manifests/scoop/warsha.json || { echo "::error::scoop manifest has no real hash"; exit 1; }
 
   # ============================================================
   # Docs build

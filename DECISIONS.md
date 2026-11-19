@@ -1,4 +1,9 @@
 
+## 2026-11-20 — D-RN-REL-VERIFY-1: Verifier greps use single-backslash BRE intervals
+- **Decision**: `Verify no placeholders` homebrew/scoop hash greps use single-quoted single-backslash BRE `\{64\}` (winget already double-quoted double-backslash and stays).
+- **Reason**: In single quotes the shell passes `\\{` through literally, so grep saw escaped backslash + `{64}` and never matched; proved by downloading run 44627337731 `package-manifests`: old patterns FAIL, fixed patterns PASS on the real files.
+- **Record**: No placeholders/keys involved; verifier only.
+
 ## 2026-11-20 — D-RN-REL-SCOOP-1: Updated Scoop manifest ARTIFACT
 - **Decision**: Updated Scoop manifest `ARTIFACT` to use `warsha-x86_64-pc-windows-msvc.exe` instead of `warsha-windows.exe`.
 - **Reason**: The build output artifact is named `warsha-x86_64-pc-windows-msvc.exe` (with triple), not `warsha-windows.exe`.
