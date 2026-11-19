@@ -396,6 +396,79 @@ impl FilesystemToolExecutor {
         Ok(self.working_dir.join(candidate))
     }
 
+    /// Resolve `path` for a write operation, ensuring it stays contained within
+    /// the workspace and does not escape via symlinks.
+    ///
+    /// Refused:
+    /// - Any path refused by [`Self::resolve`] (blank, absolute, `..`, drive prefix).
+    /// - Any path whose final component is a symlink (including dangling links).
+    /// - Any path that resolves outside the workspace root (via symlinked parent directories).
+    /// - Any path whose deepest existing parent cannot be resolved or escapes the workspace.
+    pub fn resolve_write_path(&self, path: &str) -> Result<PathBuf, ToolError> {
+        let resolved = self.resolve(path)?;
+
+        // The workspace root as the operating system sees it, so containment
+        // checks compare resolved real paths.
+        let canonical_root = self
+            .working_dir
+            .canonicalize()
+            .map_err(|error| ToolError::Io {
+                path: self.working_dir.display().to_string(),
+                error: error.to_string(),
+            })?;
+
+        // Refuse if the final component is a symlink (including dangling links).
+        if let Ok(meta) = std::fs::symlink_metadata(&resolved) {
+            if meta.file_type().is_symlink() {
+                return Err(ToolError::PathEscapesWorkingDir(path.to_string()));
+            }
+            let canonical_target = resolved
+                .canonicalize()
+                .map_err(|_| ToolError::PathEscapesWorkingDir(path.to_string()))?;
+            if !canonical_target.starts_with(&canonical_root) {
+                return Err(ToolError::PathEscapesWorkingDir(path.to_string()));
+            }
+            return Ok(resolved);
+        }
+
+        // Target does not exist: find the deepest existing parent.
+        let mut deepest_existing = None;
+        let mut current = resolved.parent();
+        while let Some(parent) = current {
+            match std::fs::symlink_metadata(parent) {
+                Ok(meta) => {
+                    deepest_existing = Some((parent, meta));
+                    break;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    current = parent.parent();
+                }
+                Err(e) => {
+                    return Err(ToolError::Io {
+                        path: parent.display().to_string(),
+                        error: e.to_string(),
+                    });
+                }
+            }
+        }
+
+        let Some((existing_parent, _meta)) = deepest_existing else {
+            return Err(ToolError::PathEscapesWorkingDir(path.to_string()));
+        };
+
+        // If the deepest existing parent is a dangling symlink or points outside,
+        // canonicalize will fail or produce a path outside the workspace root.
+        let canonical_parent = existing_parent
+            .canonicalize()
+            .map_err(|_| ToolError::PathEscapesWorkingDir(path.to_string()))?;
+
+        if !canonical_parent.starts_with(&canonical_root) {
+            return Err(ToolError::PathEscapesWorkingDir(path.to_string()));
+        }
+
+        Ok(resolved)
+    }
+
     /// The resolved absolute path with `.` components normalised away, so
     /// `notes.md` and `./notes.md` name the same file. An invalid path carries the
     /// same refusal the read/write itself would report.
@@ -468,7 +541,7 @@ impl FilesystemToolExecutor {
             path: path.to_string(),
             content: content.to_string(),
         };
-        let resolved = self.resolve(path)?;
+        let resolved = self.resolve_write_path(path)?;
         // B2: read-only confinement refuses every write by name.
         if let Some(policy) = &self.protection {
             if policy.mode == PermissionMode::ReadOnly {
@@ -487,6 +560,12 @@ impl FilesystemToolExecutor {
                     tool,
                     format!("could not create {}: {error}", parent.display()),
                 ));
+            }
+        }
+        // Defense-in-depth: re-check that the target component has not become a symlink.
+        if let Ok(meta) = std::fs::symlink_metadata(&resolved) {
+            if meta.file_type().is_symlink() {
+                return Err(ToolError::PathEscapesWorkingDir(path.to_string()));
             }
         }
         match std::fs::write(&resolved, content) {
@@ -951,6 +1030,83 @@ mod tests {
             "{} was written",
             escape_target.display()
         );
+    }
+
+    #[tokio::test]
+    async fn symlink_to_parent_dir_is_refused() {
+        let temp = fresh_tempdir();
+        let workspace = temp.path().join("work");
+        std::fs::create_dir_all(&workspace).expect("workspace made");
+        let executor = executor(&workspace);
+        let link_path = workspace.join("link_to_parent");
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("..", &link_path).expect("link created");
+
+        let result = executor
+            .execute(&AgentTool::WriteFile {
+                path: "link_to_parent/escape.md".to_string(),
+                content: "bad".to_string(),
+            })
+            .await;
+        assert!(!result.success, "Write should fail");
+    }
+
+    #[tokio::test]
+    async fn symlink_to_etc_is_refused() {
+        let temp = fresh_tempdir();
+        let workspace = temp.path().join("work");
+        std::fs::create_dir_all(&workspace).expect("workspace made");
+        let executor = executor(&workspace);
+        let link_path = workspace.join("link_to_etc");
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("/etc", &link_path).expect("link created");
+
+        let result = executor
+            .execute(&AgentTool::WriteFile {
+                path: "link_to_etc/passwd".to_string(),
+                content: "bad".to_string(),
+            })
+            .await;
+        assert!(!result.success, "Write should fail");
+    }
+
+    #[tokio::test]
+    async fn dangling_symlink_is_refused() {
+        let temp = fresh_tempdir();
+        let workspace = temp.path().join("work");
+        std::fs::create_dir_all(&workspace).expect("workspace made");
+        let executor = executor(&workspace);
+        let link_path = workspace.join("dangling_link");
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("/tmp/nonexistent", &link_path).expect("link created");
+
+        let result = executor
+            .execute(&AgentTool::WriteFile {
+                path: "dangling_link/file.txt".to_string(),
+                content: "bad".to_string(),
+            })
+            .await;
+        assert!(!result.success, "Write should fail");
+    }
+
+    #[tokio::test]
+    async fn normal_nested_paths_still_work() {
+        let temp = fresh_tempdir();
+        let workspace = temp.path().join("work");
+        std::fs::create_dir_all(&workspace).expect("workspace made");
+        let executor = executor(&workspace);
+
+        let result = executor
+            .execute(&AgentTool::WriteFile {
+                path: "nested/dir/file.txt".to_string(),
+                content: "good".to_string(),
+            })
+            .await;
+        assert!(result.success, "Write should succeed");
+        assert!(workspace.join("nested/dir/file.txt").exists());
     }
 
     #[tokio::test]
