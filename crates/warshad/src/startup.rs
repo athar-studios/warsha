@@ -200,6 +200,8 @@ pub(crate) async fn start_daemon_with_interfaces(
             config.remote_bind = persisted_bind;
         }
     }
+    validate_token_for_config(&config)?;
+
     let store = Arc::new(Store::open_at(db_path).await?);
 
     // Initialize provider router
@@ -1018,6 +1020,29 @@ pub async fn load_or_create_config(config_path: Option<&Path>) -> Result<DaemonC
     apply_env_overrides(config)
 }
 
+fn validate_token_for_config(config: &DaemonConfig) -> Result<()> {
+    let is_loopback = match config.remote_bind {
+        RemoteBind::Localhost => true,
+        RemoteBind::Default => config
+            .bind_host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback()),
+        RemoteBind::Tailscale => config
+            .bind_host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback()),
+    };
+    if !is_loopback {
+        if let Err(e) = crate::auth::validate_token(&config.auth_token) {
+            return Err(DaemonError::Config(format!(
+                "security: {e} for non-loopback bind path (bind_host: '{}', remote_bind: '{}')",
+                config.bind_host, config.remote_bind
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Overlay `WARSHA_*` environment variables on a configuration the daemon read or made.
 ///
 /// A container image sets the bind address and the ports without rewriting a
@@ -1048,14 +1073,11 @@ pub(crate) fn apply_env_overrides(mut config: DaemonConfig) -> Result<DaemonConf
         config.data_dir = PathBuf::from(dir);
     }
     if let Some(token) = env_string("WARSHA_AUTH_TOKEN") {
-        if config.bind_host != "127.0.0.1" && config.bind_host != "::1" && token.len() < 32 {
-            return Err(DaemonError::Config(format!(
-                "security: auth token must be at least 32 characters for non-loopback bind host '{}'",
-                config.bind_host
-            )));
-        }
         config.auth_token = token;
     }
+
+    validate_token_for_config(&config)?;
+
     if let Some(dir) = env_string(REMOTE_ASSETS_DIR_ENV) {
         config.remote_assets_dir = Some(PathBuf::from(dir));
     }

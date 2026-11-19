@@ -952,10 +952,6 @@ async fn health(
     Ok(Json(serde_json::json!({ "status": "healthy" })))
 }
 
-pub async fn stub_endpoint() -> Result<StatusCode> {
-    Err(RelayError::NotImplemented)
-}
-
 /// The relay's routes, over a state the caller built.
 ///
 /// Split from [`run_relay`] so a test can serve the same router an operator starts,
@@ -963,7 +959,6 @@ pub async fn stub_endpoint() -> Result<StatusCode> {
 pub fn router(state: Arc<RelayState>) -> Router {
     Router::new()
         .route("/health", get(health))
-        .route("/stub", get(stub_endpoint))
         .route("/frame", post(submit_frame))
         .route("/ws", get(websocket_handler))
         .with_state(state)

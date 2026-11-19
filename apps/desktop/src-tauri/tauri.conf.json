@@ -68,8 +68,6 @@
     }
   },
   "plugins": {
-    "opener": {
-      "open": "safe"
-    }
+    "opener": {}
   }
 }

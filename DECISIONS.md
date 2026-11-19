@@ -2114,3 +2114,4 @@ P9-redo fixes the first P9 attempt's job-ordering race (release now needs manife
   `EngineCatalog::builtin()` fail-fast `.expect()` (original behavior);
   reverted worker's out-of-scope empty-catalog fallback before commit.
 - No test weakened (11 assert_eq/assert! kept, 0 contains-weakened).
+D-RN-FIX-LAUNCH-1: Hardening launch, token validation, and relay stub (P10).

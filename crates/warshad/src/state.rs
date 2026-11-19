@@ -400,7 +400,7 @@ pub struct DaemonArgs {
     pub http_port: u16,
     #[arg(long, default_value = "8766")]
     pub ws_port: u16,
-    #[arg(long)]
+    #[arg(long, visible_alias = "bind")]
     pub bind_host: Option<String>,
     #[arg(long)]
     pub advertised_host: Option<String>,

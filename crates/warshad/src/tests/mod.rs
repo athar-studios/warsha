@@ -6971,9 +6971,7 @@ async fn auth_token_must_be_long_enough_for_non_loopback() {
     let error = crate::startup::apply_env_overrides(config.clone())
         .expect_err("short token on non-loopback must fail");
     assert!(
-        error
-            .to_string()
-            .contains("auth token must be at least 32 characters"),
+        error.to_string().contains("token too short"),
         "unexpected error: {error}"
     );
 
