@@ -1,6 +1,0 @@
---- 1) No stale Android package id ---
---- 2) Dev.warsha.remote count ---
-25
---- 3) Warsha.exe check ---
---- 4) plugins.updater check ---
-docs/src/changelog.md:193:- **M20 (W1, 2026-11-05) — the Tauri updater configuration.** The `plugins.updater` block and

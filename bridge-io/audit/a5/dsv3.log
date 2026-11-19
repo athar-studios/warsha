@@ -1,3 +1,0 @@
-Found 2 Design System v3 violation(s):
-packages/ui/src/v3/composites/Gauge.css:3 [length-literal] px/rem/em literal is forbidden in v3 (use semantic tokens --w-space-*, --w-font-size-*, etc.) -> height: 8px;
-packages/ui/src/v3/composites/Gauge.css:5 [length-literal] px/rem/em literal is forbidden in v3 (use semantic tokens --w-space-*, --w-font-size-*, etc.) -> border-radius: 4px;

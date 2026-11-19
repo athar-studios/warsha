@@ -1,5 +1,6 @@
 # PROGRESS.md — Warsha Build Log
 
+- [x] P11 Repo Hygiene: Claude Review §P11/S-L8 (rel-p11-final)
 - [x] P10 Hardening: Claude Review §P10 hardening items (rel-p10-harden)
 - [x] Z1: Final release report (plan §10 Z1, integration tip 28ee5e2, audit complete)
 - [x] A5: Final code-health audit (complete, merged at 43ec295)
@@ -8,6 +9,18 @@
 - [x] A1: Model catalog (merged at 797721c)
 - [x] A2: OAuth engine, Warshad RPC, Providers UI (merged at 9fdb797)
 - [x] D1: Secretary role (merged at c500b7a)
+
+## Run 2026-11-19 — P11 Repo Hygiene (Claude Review §P11/S-L8)
+
+- **Delivered**:
+  1. Untracked `bridge-io/`: `git rm -r --cached bridge-io/` stopped tracking all 71 audit logs (a5, z1 evidence). All working files kept on disk. Verified `.gitignore:74` narrows ignore rule.
+  2. Operator placeholder in `DECISIONS.md`: line 940 operator login `ashrymahrm` replaced with `[operator]` placeholder to minimize exposure for public release; verified with grep before/after.
+  3. Superseded `COMPLETION_STATUS.md`: updated header to explicitly state superseded by `docs/zadloop/R-NEXT-FINAL-REPORT.md` at integration tip, with clear SUPERSEDED banner dated 2026-11-19; all historical content preserved intact below banner.
+- **Verification**:
+  - `git ls-files bridge-io` prints empty (exit code 0).
+  - `gitleaks detect --source . --no-git` reports no leaks found (exit code 0).
+  - `node scripts/check-engineering-policy.mjs` reports 8 checks, 0 failures (exit code 0).
+- **Status**: Left uncommitted on branch `rel-p11-final` for review.
 
 ## Run 2026-11-19 — P10 Hardening (Claude Review §P10)
 - **Delivered**:

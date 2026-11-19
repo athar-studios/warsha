@@ -1,5 +1,0 @@
-W1: packages/client/src/index.ts:3169 method "catalog.refresh" (the client can put it on the wire and the daemon registers no such name — a live call answers -32601)
-W1: packages/client/src/index.ts:3173 method "catalog.apply" (the client can put it on the wire and the daemon registers no such name — a live call answers -32601)
-W9: packages/client/src/index.ts:3169 client method "catalog.refresh" has no e2e harness stub (apps/desktop/e2e/harness.ts RPC_METHODS)
-W9: packages/client/src/index.ts:3173 client method "catalog.apply" has no e2e harness stub (apps/desktop/e2e/harness.ts RPC_METHODS)
-wire: 11 checks, 4 violation(s)
