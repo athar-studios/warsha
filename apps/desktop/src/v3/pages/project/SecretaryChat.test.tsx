@@ -15,7 +15,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ClientProvider } from '../../app/ClientContext';
 
-import SecretaryChat from './SecretaryChat';
+import SecretaryChat, { ProposalCard } from './SecretaryChat';
 
 type ProjectId = Parameters<WarshaClient['startRun']>[0];
 
@@ -81,11 +81,15 @@ function mockClient(overrides: {
   } as unknown as WarshaClient;
 }
 
+/** Keys echo back with their params, so a test can see what a label was built from. */
+const echoT = (key: string, params?: Record<string, string | number>): string =>
+  params === undefined ? key : `${key} ${JSON.stringify(params)}`;
+
 function renderPanel(client: WarshaClient, projectId: ProjectId | null): void {
   render(
     <I18nProvider initialLocale="en">
       <ClientProvider client={client}>
-        <SecretaryChat projectId={projectId} t={(key: string) => key} />
+        <SecretaryChat projectId={projectId} t={echoT} />
       </ClientProvider>
     </I18nProvider>
   );
@@ -199,7 +203,7 @@ describe('SecretaryChat', () => {
     const { rerender } = render(
       <I18nProvider initialLocale="en">
         <ClientProvider client={client}>
-          <SecretaryChat projectId={'p1' as ProjectId} t={(key: string) => key} />
+          <SecretaryChat projectId={'p1' as ProjectId} t={echoT} />
         </ClientProvider>
       </I18nProvider>
     );
@@ -209,7 +213,7 @@ describe('SecretaryChat', () => {
     rerender(
       <I18nProvider initialLocale="en">
         <ClientProvider client={client}>
-          <SecretaryChat projectId={'p2' as ProjectId} t={(key: string) => key} />
+          <SecretaryChat projectId={'p2' as ProjectId} t={echoT} />
         </ClientProvider>
       </I18nProvider>
     );
@@ -406,5 +410,163 @@ describe('SecretaryChat', () => {
       expect(screen.getByText('secretary.error')).toBeTruthy();
     });
     expect(approve).not.toHaveBeenCalled();
+  });
+
+  it('names a queue_decide ask as server.tool (role) when the ask is known', async () => {
+    const client = {
+      ...mockClient({}),
+      mcpApprovalsList: vi.fn().mockResolvedValue([
+        { id: 'q1', runId: 'r1', server: 'github', tool: 'create_issue', role: 'coder', summary: 's', requestedAt: 'now' },
+      ]),
+    } as unknown as WarshaClient;
+    const turn = {
+      ...proposalTurn('turn-1'),
+      proposal: {
+        label: 'Allow MCP',
+        action: { type: 'queue_decide', questionId: 'q1', allow: true } as ProposalAction,
+      },
+    };
+    client.getSecretaryTurns = vi.fn().mockResolvedValue([ownerTurn, turn]);
+    renderPanel(client, 'p1' as ProjectId);
+    await waitFor(() => {
+      expect(screen.getByTestId('secretary-proposal-card').textContent).toContain(
+        'github.create_issue (coder)'
+      );
+    });
+  });
+
+  it('falls back to the question id when the ask is unknown', async () => {
+    const client = mockClient({});
+    const turn = {
+      ...proposalTurn('turn-1'),
+      proposal: {
+        label: 'Allow MCP',
+        action: { type: 'queue_decide', questionId: 'q-missing', allow: true } as ProposalAction,
+      },
+    };
+    client.getSecretaryTurns = vi.fn().mockResolvedValue([ownerTurn, turn]);
+    renderPanel(client, 'p1' as ProjectId);
+    await waitFor(() => {
+      expect(screen.getByTestId('secretary-proposal-card').textContent).toContain('q-missing');
+    });
+  });
+
+  it('names the project on a run_start proposal and formats the estimate with two decimals', async () => {
+    const client = {
+      ...mockClient({}),
+      listProjects: vi.fn().mockResolvedValue([{ id: 'p1', name: 'Landing page' }]),
+    } as unknown as WarshaClient;
+    const turn = {
+      ...proposalTurn('turn-1'),
+      proposal: {
+        label: 'Start run',
+        action: { type: 'run_start', projectId: 'p1' as ProjectId, idea: 'build a landing page' } as ProposalAction,
+      },
+    };
+    client.getSecretaryTurns = vi.fn().mockResolvedValue([ownerTurn, turn]);
+    renderPanel(client, 'p1' as ProjectId);
+    await waitFor(() => {
+      expect(screen.getByTestId('secretary-proposal-card').textContent).toContain('Landing page');
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('secretary-estimate').textContent).toContain('"min":"0.12"');
+    });
+    expect(screen.getByTestId('secretary-estimate').textContent).toContain('"max":"0.60"');
+  });
+
+  it('passes the project id to getSecretaryTurns in project scope only', async () => {
+    const client = mockClient({});
+    renderPanel(client, 'p1' as ProjectId);
+    await waitFor(() => {
+      expect(client.getSecretaryTurns).toHaveBeenCalledWith('sec-conv-2', 'p1');
+    });
+  });
+
+  it('rejects a run_start with a blank idea before any RPC', async () => {
+    const startRun = vi.fn().mockResolvedValue({ id: 'r2' });
+    const client = mockClient({ startRun });
+    const turn = {
+      ...proposalTurn('turn-1'),
+      proposal: {
+        label: 'Start run',
+        action: { type: 'run_start', projectId: 'p1' as ProjectId, idea: '   ' } as ProposalAction,
+      },
+    };
+    client.getSecretaryTurns = vi.fn().mockResolvedValue([ownerTurn, turn]);
+    renderPanel(client, 'p1' as ProjectId);
+    await waitFor(() => {
+      expect(screen.getByTestId('secretary-confirm')).toBeTruthy();
+    });
+    fireEvent.click(screen.getByTestId('secretary-confirm'));
+    await waitFor(() => {
+      expect(screen.getByText('secretary.error')).toBeTruthy();
+    });
+    expect(startRun).not.toHaveBeenCalled();
+  });
+
+  it('rejects a gate proposal with an unknown stage before any RPC', async () => {
+    const approve = vi.fn().mockResolvedValue(undefined);
+    const client = mockClient({ approve });
+    const turn = {
+      ...proposalTurn('turn-1'),
+      proposal: {
+        label: 'Approve',
+        action: { type: 'gate_approve', runId: 'run-1', stage: 'not_a_stage' } as unknown as ProposalAction,
+      },
+    };
+    client.getSecretaryTurns = vi.fn().mockResolvedValue([ownerTurn, turn]);
+    renderPanel(client, 'p1' as ProjectId);
+    await waitFor(() => {
+      expect(screen.getByTestId('secretary-confirm')).toBeTruthy();
+    });
+    expect(screen.getByTestId('secretary-proposal-card').textContent).not.toContain('bench.stage.not_a_stage');
+    fireEvent.click(screen.getByTestId('secretary-confirm'));
+    await waitFor(() => {
+      expect(screen.getByText('secretary.error')).toBeTruthy();
+    });
+    expect(approve).not.toHaveBeenCalled();
+  });
+
+  it('localizes the cancel reason on run_cancel', async () => {
+    const client = mockClient({});
+    const turn = {
+      ...proposalTurn('turn-1'),
+      proposal: {
+        label: 'Cancel',
+        action: { type: 'run_cancel', runId: 'run-1' } as ProposalAction,
+      },
+    };
+    client.getSecretaryTurns = vi.fn().mockResolvedValue([ownerTurn, turn]);
+    renderPanel(client, 'p1' as ProjectId);
+    await waitFor(() => {
+      expect(screen.getByTestId('secretary-confirm')).toBeTruthy();
+    });
+    fireEvent.click(screen.getByTestId('secretary-confirm'));
+    await waitFor(() => {
+      expect(client.cancelRun).toHaveBeenCalledWith('run-1', 'secretary.proposal.cancel_reason');
+    });
+  });
+
+  it('ProposalCard never treats a synthesized owner turn as a persisted owner turn', () => {
+    const action = { type: 'gate_approve', runId: 'run-1', stage: 'gate_b' } as ProposalAction;
+    const common = {
+      proposal: { label: 'Approve', action, turnId: 'turn-2' },
+      refsOwnerMessage: 'turn-1',
+      turns: [ownerTurn, proposalTurn('turn-1')],
+      t: echoT,
+      onConfirm: vi.fn(),
+      onDismiss: vi.fn(),
+      estimate: null,
+      estimateState: 'idle' as const,
+      asksById: {},
+      projectsById: {},
+    };
+    const { rerender } = render(<ProposalCard {...common} synthesizedTurnIds={new Set()} />);
+    expect(screen.getByTestId('secretary-confirm')).toBeTruthy();
+    rerender(<ProposalCard {...common} synthesizedTurnIds={new Set(['turn-1'])} />);
+    expect(screen.queryByTestId('secretary-confirm')).toBeNull();
+    expect(screen.getByTestId('secretary-proposal-card').textContent).toContain(
+      'secretary.proposal.needs_ref'
+    );
   });
 });

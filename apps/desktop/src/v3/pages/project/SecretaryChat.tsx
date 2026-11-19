@@ -9,6 +9,7 @@
 // before any RPC: unquoted instruction content must not move the owner's money.
 import type {
   CostEstimate,
+  McpApproval,
   ProposalAction,
   RunId,
   SecretaryThread,
@@ -25,6 +26,31 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useClient } from '../../app/ClientContext';
 
+/** The stages a gate proposal may name (the client `Stage` union, exhaustively). */
+const KNOWN_STAGES: readonly Stage[] = [
+  'idea',
+  'gate_a',
+  'research',
+  'prd_spec',
+  'gate_b',
+  'design',
+  'plan_tasks',
+  'code',
+  'review_qa_security',
+  'gate_c',
+  'release',
+  'gate_d',
+  'launch_drafts',
+  'feedback',
+];
+
+function isKnownStage(stage: string): stage is Stage {
+  return (KNOWN_STAGES as readonly string[]).includes(stage);
+}
+
+/** What the card knows about a pending approval ask, to name it for the owner. */
+type AskInfo = Pick<McpApproval, 'server' | 'tool' | 'role' | 'summary'>;
+
 /** The wire `refs_owner_message` is the injection gate; the label is for the owner. */
 interface ProposalCardProps {
   proposal: { label: string; action: ProposalAction; turnId: string } | null;
@@ -35,29 +61,75 @@ interface ProposalCardProps {
   onDismiss: () => void;
   estimate: CostEstimate | null;
   estimateState: 'idle' | 'loading' | 'ready' | 'failed';
+  /** Pending approval asks by id, so a queue decision names `server.tool (role)`. */
+  asksById: Readonly<Record<string, AskInfo>>;
+  /** Project names by id, so a run start names the project instead of its id. */
+  projectsById: Readonly<Record<string, string>>;
+  /** Owner turns this panel built locally (never read from the daemon): they authorise nothing. */
+  synthesizedTurnIds: ReadonlySet<string>;
 }
 
 /** The one button that performs the proposal, labelled with what the secretary proposed. */
 export function ProposalCard(props: ProposalCardProps): React.ReactElement | null {
-  const { proposal, refsOwnerMessage, turns, t, onConfirm, onDismiss, estimate, estimateState } = props;
+  const {
+    proposal,
+    refsOwnerMessage,
+    turns,
+    t,
+    onConfirm,
+    onDismiss,
+    estimate,
+    estimateState,
+    asksById,
+    projectsById,
+    synthesizedTurnIds,
+  } = props;
   if (proposal === null) return null;
-  const blocked = refsOwnerMessage === null || !turns.some((turn) => turn.id === refsOwnerMessage && turn.role === 'owner');
+  const blocked =
+    refsOwnerMessage === null ||
+    !turns.some(
+      (turn) =>
+        turn.id === refsOwnerMessage && turn.role === 'owner' && !synthesizedTurnIds.has(turn.id)
+    );
+  const action = proposal.action;
+  const stageName = (stage: string): string | null =>
+    isKnownStage(stage) ? t(`bench.stage.${stage}` as Parameters<typeof t>[0]) : null;
+  const ask = action.type === 'queue_decide' ? asksById[action.questionId] : undefined;
+  const askName =
+    action.type === 'queue_decide'
+      ? ask !== undefined
+        ? `${ask.server}.${ask.tool} (${ask.role})`
+        : action.questionId
+      : '';
+  const gateStage =
+    action.type === 'gate_approve' || action.type === 'gate_reject' ? stageName(action.stage) : null;
+  const gateLabel =
+    action.type === 'gate_approve' || action.type === 'gate_reject'
+      ? gateStage === null
+        ? t('secretary.refused')
+        : t(
+            action.type === 'gate_approve'
+              ? 'secretary.proposal.gate_approve'
+              : 'secretary.proposal.gate_reject',
+            { stage: gateStage, run: action.runId }
+          )
+      : null;
   return (
     <div className="v3-secretary-proposal" data-testid="secretary-proposal-card">
       <div className="v3-secretary-proposal-title">{t('secretary.proposal.title')}</div>
       <div className="v3-secretary-proposal-label">
-        {proposal.action.type === 'gate_approve'
-          ? t('secretary.proposal.gate_approve', { stage: t(`bench.stage.${proposal.action.stage}` as Parameters<typeof t>[0]), run: proposal.action.runId })
-          : proposal.action.type === 'gate_reject'
-          ? t('secretary.proposal.gate_reject', { stage: t(`bench.stage.${proposal.action.stage}` as Parameters<typeof t>[0]), run: proposal.action.runId })
-          : proposal.action.type === 'queue_decide'
-          ? proposal.action.allow
-            ? t('secretary.proposal.queue_decide', { tool: proposal.action.questionId })
-            : t('secretary.proposal.queue_deny', { tool: proposal.action.questionId })
-          : proposal.action.type === 'run_start'
-          ? t('secretary.proposal.run_start', { project: proposal.action.projectId })
-          : proposal.action.type === 'run_cancel'
-          ? t('secretary.proposal.run_cancel', { run: proposal.action.runId })
+        {gateLabel !== null
+          ? gateLabel
+          : action.type === 'queue_decide'
+          ? action.allow
+            ? t('secretary.proposal.queue_decide', { tool: askName })
+            : t('secretary.proposal.queue_deny', { tool: askName })
+          : action.type === 'run_start'
+          ? t('secretary.proposal.run_start', {
+              project: projectsById[action.projectId] ?? action.projectId,
+            })
+          : action.type === 'run_cancel'
+          ? t('secretary.proposal.run_cancel', { run: action.runId })
           : proposal.label}
       </div>
       {blocked ? (
@@ -70,8 +142,8 @@ export function ProposalCard(props: ProposalCardProps): React.ReactElement | nul
           {proposal.action.type === 'run_start' && estimateState === 'ready' && estimate !== null && (
             <div className="v3-secretary-estimate" data-testid="secretary-estimate">
               {t('secretary.proposal.estimate_line', {
-                min: String(estimate.minCents / 100),
-                max: String(estimate.maxCents / 100),
+                min: (estimate.minCents / 100).toFixed(2),
+                max: (estimate.maxCents / 100).toFixed(2),
               })}
             </div>
           )}
@@ -135,6 +207,10 @@ export default function SecretaryChat({
   const [estimate, setEstimate] = useState<CostEstimate | null>(null);
   const [estimateState, setEstimateState] = useState<'idle' | 'loading' | 'ready' | 'failed'>('idle');
   const [dismissedTurnIds, setDismissedTurnIds] = useState<Set<string>>(new Set());
+  const [asksById, setAsksById] = useState<Record<string, AskInfo>>({});
+  const [projectsById, setProjectsById] = useState<Record<string, string>>({});
+  // Owner turns built locally when the thread re-read failed: never a persisted owner turn.
+  const [synthesizedTurnIds, setSynthesizedTurnIds] = useState<ReadonlySet<string>>(new Set());
 
   const tailRef = useRef<HTMLDivElement | null>(null);
 
@@ -179,10 +255,11 @@ export default function SecretaryChat({
     let cancelled = false;
     setTurnsState('loading');
     contextClient
-      .getSecretaryTurns(turnThreadId)
+      .getSecretaryTurns(turnThreadId, scope === 'project' ? (projectId ?? undefined) : undefined)
       .then((rows) => {
         if (cancelled) return;
         setTurns(rows);
+        setSynthesizedTurnIds(new Set());
         setTurnsState('ready');
       })
       .catch(() => {
@@ -192,7 +269,7 @@ export default function SecretaryChat({
     return () => {
       cancelled = true;
     };
-  }, [contextClient, turnThreadId]);
+  }, [contextClient, turnThreadId, scope, projectId]);
 
   // The pre-run estimate only has a job on a run_start proposal: read it when one appears.
   const lastProposal = getLastProposal(turns);
@@ -201,6 +278,36 @@ export default function SecretaryChat({
   const lastProposalIdea = lastProposal && lastProposal.action.type === 'run_start' ? lastProposal.action.idea : null;
   const lastProposalProjectId = lastProposal?.action.type === 'run_start' ? lastProposal.action.projectId : null;
   const visibleProposal = lastProposal && !dismissedTurnIds.has(lastProposal.turnId) ? lastProposal : null;
+
+  // Names for the proposal card: pending asks and projects. A client (or mock) that lacks
+  // either read just leaves the card on the raw ids.
+  useEffect(() => {
+    if (contextClient === null) return undefined;
+    let active = true;
+    void Promise.resolve()
+      .then(() => contextClient.mcpApprovalsList())
+      .catch((): McpApproval[] => [])
+      .then((list) => {
+        if (!active) return;
+        const next: Record<string, AskInfo> = {};
+        for (const ask of list) {
+          next[ask.id] = { server: ask.server, tool: ask.tool, role: ask.role, summary: ask.summary };
+        }
+        setAsksById(next);
+      });
+    void Promise.resolve()
+      .then(() => contextClient.listProjects())
+      .catch((): { id: string; name: string }[] => [])
+      .then((list) => {
+        if (!active) return;
+        const next: Record<string, string> = {};
+        for (const project of list) next[project.id] = project.name;
+        setProjectsById(next);
+      });
+    return () => {
+      active = false;
+    };
+  }, [contextClient, lastProposalTurnId]);
 
   useEffect(() => {
     if (contextClient === null) return undefined;
@@ -271,11 +378,17 @@ export default function SecretaryChat({
         ];
       });
       setInput('');
-      const rows = await contextClient.getSecretaryTurns(reply.conversationId).catch(() => {
+      const synthesized = new Set<string>();
+      const rows = await contextClient
+        .getSecretaryTurns(reply.conversationId, scope === 'project' ? (projectId ?? undefined) : undefined)
+        .catch(() => {
         // M2: Preserve optimistic owner turn + returned reply. The owner turn takes the
         // daemon's `refs_owner_message` id when given; a null ref stays null so an
         // unreferenced proposal still trips ProposalCard's render guard.
         const ownerTurnId = reply.refsOwnerMessage ?? `owner-${reply.turnId}`;
+        // Only an id this panel invented is synthesized; the daemon's own `refs_owner_message`
+        // names a persisted owner turn even though the row is rebuilt locally.
+        if (reply.refsOwnerMessage === null) synthesized.add(ownerTurnId);
         return [
           {
             id: ownerTurnId,
@@ -296,6 +409,7 @@ export default function SecretaryChat({
         ];
       });
       setTurns(rows);
+      setSynthesizedTurnIds(synthesized);
       setTurnsState('ready');
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '';
@@ -320,11 +434,17 @@ export default function SecretaryChat({
       const action = proposal.action;
 
       const validateAction = (act: ProposalAction): boolean => {
-        if (act.type === 'gate_approve' || act.type === 'gate_reject' || act.type === 'run_cancel') {
+        if (act.type === 'gate_approve' || act.type === 'gate_reject') {
+          return act.runId !== '' && act.runId !== 'unknown' && isKnownStage(act.stage);
+        }
+        if (act.type === 'run_cancel') {
           return act.runId !== '' && act.runId !== 'unknown';
         }
         if (act.type === 'queue_decide') {
           return act.questionId !== '' && act.questionId !== 'unknown';
+        }
+        if (act.type === 'run_start') {
+          return act.idea.trim() !== '';
         }
         return true;
       };
@@ -385,7 +505,7 @@ export default function SecretaryChat({
         }
         run(contextClient.startRun(targetProject, action.idea));
       } else if (action.type === 'run_cancel') {
-        run(contextClient.cancelRun(action.runId as RunId, 'secretary confirmed'));
+        run(contextClient.cancelRun(action.runId as RunId, t('secretary.proposal.cancel_reason')));
       }
     },
     [contextClient, onConfirmed, t, confirmed, projectId, scope]
@@ -470,6 +590,9 @@ export default function SecretaryChat({
         }}
         estimate={estimate}
         estimateState={estimateState}
+        asksById={asksById}
+        projectsById={projectsById}
+        synthesizedTurnIds={synthesizedTurnIds}
       />
 
       <div className="v3-secretary-composer">

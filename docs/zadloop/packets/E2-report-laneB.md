@@ -39,6 +39,11 @@ harness stubs, and the e2e journeys. No Rust, no routes, no Frame.tsx (PM-owned 
   ids are invisible to the actions gate's dot-form regex; the id is now registered.
 
 ### SecretaryChat panel (`apps/desktop/src/v3/pages/project/`)
+- Proposal card labels: `queue_decide` names the ask as `server.tool (role)` and
+  `run_start` names the project, each resolved from `mcpApprovalsList()` /
+  `listProjects()` read in a mount effect (re-read when the newest proposal changes). A
+  client without either read, or a failing read, leaves the card on the raw
+  `questionId` / `projectId` — never a blank label.
 - Proposal card: **blocked** (danger banner, no confirm button) when the proposal's
   `refs_owner_message` is null — unquoted instruction content cannot move the owner's
   money. Confirm dials the same RPC the desktop card dials (`gates.approve`,
@@ -51,9 +56,12 @@ harness stubs, and the e2e journeys. No Rust, no routes, no Frame.tsx (PM-owned 
 ### Harness + e2e
 - `secretary.thread.list` / `thread.turns` / `chat` cases; the chat stub answers a
   proposal only when the owner's own message asks for one (injection rule).
-- `e2e/v3/secretary.spec.ts` — 7 journeys: sheet opens, turns render, refusal case
+- `e2e/v3/secretary.spec.ts` — 9 tests: sheet opens, turns render, refusal case
   (own fixture with `refs_owner_message: null`), confirm → `gates.approve`, dismiss
-  (no RPC), scope switch, send → `secretary.chat`. All green.
+  (no RPC), scope switch, send → `secretary.chat`, thread list on mount, and a
+  chat reply with no `refs_owner_message` plus failed turns stays blocked. Written
+  against the harness stubs; **not run in this round** (Playwright is deferred to PM,
+  see the gate matrix).
 - `home.spec.ts`: `home.needsyou.open` navigates to the waiting item;
   `home.interview.start` dials `interview.start`; keyboard traversal now walks the
   strip's anchors before the composer (waiting things come first — the strip's job),
@@ -83,20 +91,31 @@ All findings from the independent Reviewer report on E2 Lane B have been remedia
 - **MEDIUM — client:** unused `turnId` parameter removed from `decodeProposalJson`.
 - **MEDIUM — project sheet:** `SecretaryChat` import moved to the sibling group (`import/order`); `secretary.confirm` registry rpc now also lists `mcp.approvals.list` and `mcp.permissions.set`.
 
+## Reviewer round 3 (1 MEDIUM + 1 MEDIUM + LOWs)
+
+- **MEDIUM — proposal labels:** see "Proposal card labels" above. `getSecretaryTurns(conversationId, projectId?)` now forwards `project_id` when given (omitted otherwise, so the wire is unchanged for existing callers); the panel passes the project id in project scope only.
+- **MEDIUM — Home retry:** `home.run.retry` runs through `useAction('home.run.retry', …)` (project id carried in `retryProjectIdRef`), so a failure toasts through the action layer, the button is `disabled` while pending (no duplicate paid `runs.start`), the swallowed `.catch(() => {})` is gone, and success calls `projectsResult.reload()` and bumps `runsReloadTick` (a dep of the runs/gates effect) so the failed row clears.
+- **LOW — stage validation:** `gate_approve` / `gate_reject` check `action.stage` against the 14-value client `Stage` union (`idea … feedback`; the E2 brief's different 14-name list does not match the client type, so the client union is the source of truth) before any RPC; an unknown stage sets `secretary.error`, and the card renders `secretary.refused` instead of an unknown `bench.stage.*` key.
+- **LOW — blank idea:** `run_start` with a blank `idea` is rejected in `validateAction`.
+- **LOW — estimate format:** min/max rendered with `.toFixed(2)` (the catalog line already carries the `$`, as `home.estimate.line` does).
+- **LOW — cancel reason:** `cancelRun` sends the localized `secretary.proposal.cancel_reason` (en + ar) instead of the literal `'secretary confirmed'`.
+- **LOW — synthesized owner turn:** when the thread re-read fails and the panel invents an owner turn (null `refs_owner_message`), its id goes in `synthesizedTurnIds`; `ProposalCard` never treats such a turn as a persisted owner turn. A daemon-supplied `refs_owner_message` id is still trusted.
+- **Tests:** `SecretaryChat.test.tsx` gains cases for the `server.tool (role)` label (and the `questionId` fallback), the project-name label + 2-decimal estimate, `project_id` forwarding, blank-idea and unknown-stage rejection, the localized cancel reason, and the synthesized-turn block.
+
 ## Gate matrix (this tree, measured with `XDG_DATA_HOME=/tmp/xdgdata`)
 
 | Gate | Result |
 | --- | --- |
-| client build (tsc) / lint / vitest | exit 0 · 200/200 (2 files) |
-| desktop `vitest run src/v3` | 452/452 (53 files) |
+| client build (tsc) / vitest | exit 0 · 200/200 (2 files) |
+| desktop `vitest run src/v3` | 460/460 (53 files) |
 | desktop legacy `vitest run src/components src/hooks src/lib src/pages src/screens src/stores` | 403/403 (42 files) |
 | remote lint / vitest / build | exit 0 · 229/229 (17 files) |
 | desktop tsc --noEmit | clean |
-| i18n-gate | 1020 keys / 0 violations |
+| i18n-gate | 1021 keys / 0 violations |
 | check-ds-v3 | 0 violations |
 | check-arch / check-engineering-policy | 5 rules, 0 violations · 8 checks, 0 failures |
 | actions-gate | 185 registered / 191 used / 19 violations = 18 baseline + `secretary.chat` (A5, daemon registration lives in lane A) |
-| desktop ESLint (E2 file list) | **exit 1 — 5 errors, all pre-existing, none in E2 lines**: `e2e/harness.ts:1942` `no-fallthrough` (blame 08d61af) and `src/v3/pages/project/index.tsx:1092,1102` `no-explicit-any` / `no-restricted-syntax` (blame 7f556bb); both commits predate E2 (`2fcb216`). Zero ESLint findings in the files/lines E2 touched (incl. `import/order`). |
+| desktop ESLint (`SecretaryChat.tsx`, `SecretaryChat.test.tsx`, `home/index.tsx`, `e2e/v3/home.spec.ts`, `e2e/v3/secretary.spec.ts`) | exit 0, no findings |
 | Playwright (secretary / home e2e), i18n package tests, wire gate, gitleaks | **not run in this round** (Playwright deferred to PM; earlier-round figures are stale and omitted) |
 
 The three W1/W2 `secretary.*` pairs exist because the **daemon registration lives in

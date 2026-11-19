@@ -2889,9 +2889,10 @@ export class WarshaClient
   }
 
   /** `secretary.thread.turns` — one thread's turns, oldest first. */
-  async getSecretaryTurns(conversationId: string): Promise<SecretaryTurn[]> {
+  async getSecretaryTurns(conversationId: string, projectId?: ProjectId): Promise<SecretaryTurn[]> {
     const rows = await this.rpc<unknown[]>('secretary.thread.turns', {
       conversation_id: conversationId,
+      ...(projectId !== undefined ? { project_id: projectId } : {}),
     });
     return rows.map((row) => decodeSecretaryTurn(row));
   }

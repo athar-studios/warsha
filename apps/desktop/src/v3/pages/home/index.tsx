@@ -294,6 +294,9 @@ export default function HomePage(): React.ReactElement {
   // once-per-condition alert bookkeeping.
   const [needsYou, setNeedsYou] = useState<NeedsYouRow[]>([]);
   const [secretarySheetOpen, setSecretarySheetOpen] = useState(false);
+  // Bumped after a failed-run retry so the runs/gates read repeats and the failed row clears.
+  const [runsReloadTick, setRunsReloadTick] = useState(0);
+  const retryProjectIdRef = useRef<ProjectId | null>(null);
   const raisedRef = useRef<Record<string, string>>({});
 
   const projectsResult = useProjects();
@@ -501,7 +504,7 @@ export default function HomePage(): React.ReactElement {
     return () => {
       active = false;
     };
-  }, [client, projectsResult.data, t]);
+  }, [client, projectsResult.data, t, runsReloadTick]);
 
   // Action: home.interview.start
   const startInterviewAction = useAction('home.interview.start', async () => {
@@ -566,6 +569,15 @@ export default function HomePage(): React.ReactElement {
   // Action: home.retry
   const retryAction = useAction('home.retry', async () => {
     projectsResult.reload();
+  });
+
+  // Action: home.run.retry — one paid runs.start; failures toast through useAction.
+  const retryRunAction = useAction('home.run.retry', async () => {
+    const retryProjectId = retryProjectIdRef.current;
+    if (!client || retryProjectId === null) return;
+    await client.startRun(retryProjectId, t('home.retry_run_idea'));
+    projectsResult.reload();
+    setRunsReloadTick((tick) => tick + 1);
   });
 
   const handleStartSubmit = (): void => {
@@ -745,12 +757,11 @@ export default function HomePage(): React.ReactElement {
                     <Button
                       variant="primary"
                       data-action="home.run.retry"
+                      disabled={retryRunAction.pending}
                       onClick={() => {
-                        if (client && row.projectId) {
-                          void client.startRun(row.projectId, t('home.retry_run_idea')).then(() => {
-                            projectsResult.reload();
-                          }).catch(() => {});
-                        }
+                        if (row.projectId === null || retryRunAction.pending) return;
+                        retryProjectIdRef.current = row.projectId;
+                        void retryRunAction.run();
                       }}
                     >
                       {t('home.retry')}
