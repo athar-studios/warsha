@@ -7111,3 +7111,6 @@ Merged P1 (9293310: ESLint resolver + disable removals) + P2 (dfc0650: wire stub
 
 ## Run 2026-11-19 — release-merge-2 (D-RN-REL-M2)
 Merged P7 (ea888f7: S-M2 symlink containment + 4 tests, pipeline lib 526/0). Merged tip gates: fmt 0, versions 0, arch 5/0, policy 8/0, wire 11/0. Merge done from root session (workers sandbox-blocked on .git index.lock). Unpushed. P6 risky-table correction still running.
+
+## Run 2026-11-19 — release-merge-3 (D-RN-REL-M3)
+Merged P6 (1d1d475: S-M1 shared risky-command table, shells narrowed to inline-eval; correction narrowed bare-shell "*" after 26 regressions). Merged tip gates: fmt 0, versions 0, arch 5/0, wire 11/0, policy 8/0, pipeline lib 527/0 (522 base + P5 4 bypass + P7 4 symlink + P6 row tests, minus overlap). Merge from root session. Unpushed. Remaining: P4, P9, P10-P12, P13.
