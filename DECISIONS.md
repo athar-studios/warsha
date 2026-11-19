@@ -1,7 +1,13 @@
+
 ## 2026-11-20 — D-RN-REL-UNSIGNED-1: 0.3.0 ships unsigned installers
 - **Decision**: 0.3.0 ships unsigned installers because no signing keys (Apple/Windows/Tauri) exist; never generate or store any.
 - **Reason**: Fixes macOS codesign failure in CI run 44617829839.
 - **Record**: No keys were generated or stored for this release.
+
+## 2026-11-20 — D-RN-REL-HOMEBREW-1: Hash Homebrew formula from GitHub archive tarball
+- **Decision**: Homebrew formula hash is computed from the GitHub-generated source tarball (`v${VERSION}.tar.gz`) directly by downloading it, rather than grepping from `artifacts/checksums.sha256`.
+- **Reason**: The `artifacts` job does not create or checksum the source tarball, so it cannot be found in `artifacts/checksums.sha256`. Downloading it during the formula creation ensures the hash is correct for the URL used in the formula.
+- **Record**: No keys or secrets are involved in downloading the public GitHub archive.
 
 
 - **Decision**: Document `RUSTSEC-2026-0543` (chrono) and `RUSTSEC-2026-0371` (zbus_names) as owner-accepted debt in `deny.toml`.

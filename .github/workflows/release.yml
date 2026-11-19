@@ -717,12 +717,24 @@ jobs:
       - name: Create Homebrew formula
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
-          ARTIFACT="v${VERSION}.tar.gz"
-          HASH=$(grep "$ARTIFACT" artifacts/checksums.sha256 | awk '{print $1}' || true)
+          TARBALL="v${VERSION}.tar.gz"
+          URL="https://github.com/${{ env.RELEASE_REPO }}/archive/refs/tags/${TARBALL}"
+          
+          # Download source tarball with retry, fail on error
+          curl -sSfL --retry 3 -o source.tar.gz "$URL"
+          
+          # Compute sha256 (sha256sum on Linux; shasum on macOS runners)
+          if command -v sha256sum >/dev/null 2>&1; then
+            HASH=$(sha256sum source.tar.gz | cut -d ' ' -f 1)
+          else
+            HASH=$(shasum -a 256 source.tar.gz | cut -d ' ' -f 1)
+          fi
+          
           if [ -z "$HASH" ]; then
-            echo "::error::$ARTIFACT not found in checksums — the source tarball was not built or not checksummed"
+            echo "::error::Failed to compute hash for $URL"
             exit 1
           fi
+          
           mkdir -p manifests/homebrew
           # The heredoc is unquoted so $VERSION and the RELEASE_REPO expression
           # expand; `version "$VERSION"` is emitted because the `url` line below

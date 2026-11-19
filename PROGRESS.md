@@ -1,6 +1,14 @@
 # PROGRESS.md — Warsha Build Log
 
-- [ ] REL-UNSIGNED: Build unsigned desktop installers for 0.3.0 (D-RN-REL-UNSIGNED-1) (uncommitted — pending commit/push/CI)
+## Run 2026-11-20 — FIX-RELEASE: Hash Homebrew formula from GitHub archive tarball
+- **Delivered**:
+  1. `.github/workflows/release.yml`: Rewrote `Create Homebrew formula` step to download the source tarball, compute sha256, and use that hash instead of grepping `artifacts/checksums.sha256`.
+  2. `DECISIONS.md`: Added `D-RN-REL-HOMEBREW-1`.
+- **Verification**:
+  - `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/release.yml')); print('YAML_OK')"` passed.
+  - Reviewed diff and verified logic.
+- **Status**: Left uncommitted on branch `r-next/integration`.
+- [ ] REL-HOMEBREW: Finalize Homebrew manifest generation (uncommitted — pending CI)
 
 ## Run 2026-11-20 — Unsigned desktop builds for 0.3.0
 - Build unsigned installers on all OSes by gating secret envs and using tauri.ci.unsigned.json override.
