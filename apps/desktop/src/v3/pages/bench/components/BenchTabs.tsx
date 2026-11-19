@@ -1,4 +1,3 @@
-// eslint-disable-next-line import/no-unresolved
 import { useDirection, useT } from '@warsha/i18n/v3';
 import React, { useRef } from 'react';
 

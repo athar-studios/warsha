@@ -2,9 +2,7 @@
 // R-UI-3 T5/D2-b/D2-c: one switch in Settings › General, off by default, device-scoped storage, no RPC.
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { WarshaClient } from '@warsha/client';
-/* eslint-disable import/no-unresolved */
 import { I18nProvider, type Locale } from '@warsha/i18n/v3';
-/* eslint-enable import/no-unresolved */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 

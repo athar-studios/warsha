@@ -1,6 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
 import { ALL_ROLES, type ModelInfo } from '@warsha/client';
-// eslint-disable-next-line import/no-unresolved
 import { useLocale, useT, type Locale } from '@warsha/i18n/v3';
 import {
   Banner,
@@ -15,7 +14,6 @@ import {
   StatusPill,
   TextArea,
   TextField,
-  // eslint-disable-next-line import/no-unresolved
 } from '@warsha/ui/v3';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 

@@ -1,6 +1,5 @@
 // apps/desktop/src/v3/pages/settings/sections/GeneralSection.tsx
 import { invoke } from '@tauri-apps/api/core';
-/* eslint-disable import/no-unresolved */
 import { type Locale, useLocale, useT } from '@warsha/i18n/v3';
 import {
   Banner,
@@ -10,7 +9,6 @@ import {
   Skeleton,
   TextField,
 } from '@warsha/ui/v3';
-/* eslint-enable import/no-unresolved */
 import React, { useEffect, useState } from 'react';
 
 import { useAction } from '../../../actions';

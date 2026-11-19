@@ -4,7 +4,6 @@
 // word comes from the v3 bench catalog (ar + en), never hardcoded strings.
 
 import type { RunSummary } from '@warsha/client';
-// eslint-disable-next-line import/no-unresolved
 import { useT } from '@warsha/i18n/v3';
 import React from 'react';
 

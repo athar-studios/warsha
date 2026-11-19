@@ -3,9 +3,7 @@
 // the parent; the receipt export carries the trail; the table virtualises.
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { RunSubtask, RunSummary, Session, WarshaEvent, WarshaClient } from '@warsha/client';
-/* eslint-disable import/no-unresolved */
 import { I18nProvider, type Locale } from '@warsha/i18n/v3';
-/* eslint-enable import/no-unresolved */
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 

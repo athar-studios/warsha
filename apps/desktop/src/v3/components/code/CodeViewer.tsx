@@ -9,7 +9,6 @@ import { rust } from '@codemirror/lang-rust';
 import { search, searchKeymap } from '@codemirror/search';
 import { EditorState, type Extension } from '@codemirror/state';
 import { EditorView, lineNumbers, highlightActiveLine, highlightSpecialChars, drawSelection, dropCursor, keymap } from '@codemirror/view';
-// eslint-disable-next-line import/no-unresolved
 import { useT } from '@warsha/i18n/v3';
 import React, { useEffect, useRef, useState } from 'react';
 

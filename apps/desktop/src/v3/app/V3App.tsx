@@ -1,8 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { WarshaClient } from '@warsha/client';
-// eslint-disable-next-line import/no-unresolved
 import { I18nProvider } from '@warsha/i18n/v3';
-// eslint-disable-next-line import/no-unresolved
 import '@warsha/ui/v3/fonts.css';
 import React, { useEffect, useState } from 'react';
 

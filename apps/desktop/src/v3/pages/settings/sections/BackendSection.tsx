@@ -6,7 +6,6 @@ import type {
   RunId,
   RunSummary,
 } from '@warsha/client';
-/* eslint-disable import/no-unresolved */
 import { useT } from '@warsha/i18n/v3';
 import {
   Banner,
@@ -19,7 +18,6 @@ import {
   Skeleton,
   TextField,
 } from '@warsha/ui/v3';
-/* eslint-enable import/no-unresolved */
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { useAction } from '../../../actions';

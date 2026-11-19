@@ -1,6 +1,5 @@
 // apps/desktop/src/v3/pages/settings/sections/WorkflowsSection.tsx
 import type { HarnessDefinition } from '@warsha/client';
-/* eslint-disable import/no-unresolved */
 import { useT } from '@warsha/i18n/v3';
 import {
   Badge,
@@ -16,7 +15,6 @@ import {
   StatusPill,
   TextArea,
 } from '@warsha/ui/v3';
-/* eslint-enable import/no-unresolved */
 import React, { useEffect, useState } from 'react';
 
 import { useAction } from '../../../actions';

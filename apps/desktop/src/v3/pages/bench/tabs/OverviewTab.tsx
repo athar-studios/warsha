@@ -1,7 +1,5 @@
 import type { GateSummary, RunArtifact, RunSummary, WarshaEvent } from '@warsha/client';
-// eslint-disable-next-line import/no-unresolved
 import { useLocale, useT } from '@warsha/i18n/v3';
-// eslint-disable-next-line import/no-unresolved
 import { ActivityFeed, Card, EmptyState, IconSparkle } from '@warsha/ui/v3';
 import React from 'react';
 

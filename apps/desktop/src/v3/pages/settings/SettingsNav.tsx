@@ -1,5 +1,4 @@
 // apps/desktop/src/v3/pages/settings/SettingsNav.tsx — Settings SideNav with Simple/Advanced disclosure
-/* eslint-disable import/no-unresolved */
 import { arCatalog, enCatalog, useT } from '@warsha/i18n/v3';
 import {
   Button,
@@ -20,7 +19,6 @@ import {
   IconWallet,
   TextField,
 } from '@warsha/ui/v3';
-/* eslint-enable import/no-unresolved */
 import React from 'react';
 
 import { SETTINGS_SECTIONS, type SectionMeta, type SettingsSectionId } from './types';
