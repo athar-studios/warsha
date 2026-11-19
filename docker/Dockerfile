@@ -117,7 +117,7 @@ ENV WARSHA_DATA_DIR=/var/lib/warsha \
     WARSHA_HTTP_PORT=8765 \
     WARSHA_WS_PORT=8766 \
     WARSHA_REMOTE_ASSETS_DIR=/usr/share/warsha/remote \
-    WARSHA_LLM_BASE_URL=https://router.sayl.site/v1 \
+    WARSHA_LLM_BASE_URL= \
     WARSHA_LLM_MODEL=bzl/deepseek-v4-flash-0731free \
     RUST_LOG=info
 

@@ -301,7 +301,7 @@ fn code_stage_report(
 /// reused here so one table defines what a secret looks like.
 fn scrub_llm_error(error: &PipelineError) -> String {
     let raw = error.to_string();
-    let scrubbed = match EnvLlmConfig::from_env().api_key {
+    let scrubbed = match EnvLlmConfig::from_env().ok().and_then(|c| c.api_key) {
         Some(key) if !key.is_empty() => raw.replace(key.as_str(), REDACTED),
         _ => raw,
     };
@@ -345,6 +345,8 @@ pub enum PipelineError {
     Serialization(#[from] serde_json::Error),
     #[error("Other: {0}")]
     Other(String),
+    #[error("Internal error: {0}")]
+    Internal(#[from] anyhow::Error),
 }
 
 pub type Result<T> = std::result::Result<T, PipelineError>;
@@ -1484,7 +1486,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 .await?);
         }
 
-        let env_cfg = EnvLlmConfig::from_env();
+        let env_cfg = EnvLlmConfig::from_env()?;
         let forced_fake = std::env::var("WARSHA_LLM_PROVIDER")
             .ok()
             .map(|value| value.trim() == "fake")
