@@ -213,6 +213,13 @@ test.describe('Workbench (U4) — Action ID contracts', () => {
     await expect(page).toHaveURL(/#\/p\/proj-ui\/r\/run-research\/overview/);
   });
 
+  test('action: bench.runmode.start calls runs.start', async ({ page }) => {
+    await openV3(page, BENCH_URL, { mode: 'advanced', fixtures: { 'health': RUN_CONTROLS_HEALTH } });
+    await page.getByTestId('bench-composer-textarea').locator('textarea').fill('idea');
+    await act(page, 'bench.runmode.start');
+    await expectRpc(page, 'runs.start');
+  });
+
   test('action: bench.run.start calls runs.start', async ({ page }) => {
     await openV3(page, BENCH_URL, { mode: 'advanced' });
     await act(page, 'bench.run.start');
@@ -681,6 +688,29 @@ test.describe('@visual Workbench tabs & states', () => {
           await expect(page).toHaveScreenshot(
             `bench-error-${viewport.name}-${lang}-${theme}.png`
           );
+        });
+      }
+    }
+  }
+});
+
+test.describe('Bench visual baselines (@visual)', () => {
+  const VIEWPORTS = [
+    { name: 'desktop', width: 1280, height: 800 },
+    { name: 'mobile', width: 390, height: 844 },
+  ];
+  const LOCALES = ['ar', 'en'] as const;
+  const THEMES = ['light', 'dark'] as const;
+
+  for (const vp of VIEWPORTS) {
+    for (const locale of LOCALES) {
+      for (const theme of THEMES) {
+        test(`@visual bench-newrun-mode-${vp.name}-${locale}-${theme}`, async ({ page }) => {
+          await openV3(page, BENCH_URL, { viewport: { width: vp.width, height: vp.height }, lang: locale, theme, mode: 'advanced' });
+          await expect(page.getByTestId('bench-advanced-composer')).toBeVisible();
+          const fit = await auditViewportFit(page);
+          expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
+          await expect(page).toHaveScreenshot(`bench-newrun-mode-${vp.name}-${locale}-${theme}.png`);
         });
       }
     }

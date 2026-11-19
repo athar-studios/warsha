@@ -1,5 +1,6 @@
 // apps/desktop/src/v3/pages/settings/sections/PermissionsSection.tsx
 import type { ProjectId, ProjectPermissions, ProjectSummary } from '@warsha/client';
+// eslint-disable-next-line import/no-unresolved
 import { useT } from '@warsha/i18n/v3';
 import {
   Banner,
@@ -8,6 +9,7 @@ import {
   Select,
   Skeleton,
   StatusPill,
+  // eslint-disable-next-line import/no-unresolved
 } from '@warsha/ui/v3';
 import React, { useCallback, useEffect, useState } from 'react';
 
@@ -128,6 +130,7 @@ export function PermissionsSection(): React.ReactElement {
           value={defaultPerms.confinement}
           onChange={(e) => void saveDefaultsAction.run(e.target.value as ProjectPermissions['confinement'], defaultPerms.approvalMode)}
           data-testid="settings-permissions-default-confinement"
+          data-action="settings.permissions.defaults.save"
         />
         <Select
           label={t('settings.permissions.approval_label')}
@@ -135,6 +138,7 @@ export function PermissionsSection(): React.ReactElement {
           value={defaultPerms.approvalMode}
           onChange={(e) => void saveDefaultsAction.run(defaultPerms.confinement, e.target.value as ProjectPermissions['approvalMode'])}
           data-testid="settings-permissions-default-approval"
+          data-action="settings.permissions.defaults.save"
         />
       </div>
 
@@ -167,6 +171,7 @@ export function PermissionsSection(): React.ReactElement {
               value={pPerms.confinement}
               onChange={(e) => void saveProjectAction.run(p.id, e.target.value as 'read-only' | 'workspace-write' | 'full-access', pPerms.approvalMode)}
               data-testid={'project-permission-confinement-' + p.id}
+              data-action="settings.permissions.project.save"
             />
             <Select
               label={t('settings.permissions.approval_label')}
@@ -174,6 +179,7 @@ export function PermissionsSection(): React.ReactElement {
               value={pPerms.approvalMode}
               onChange={(e) => void saveProjectAction.run(p.id, pPerms.confinement, e.target.value as 'ask-always' | 'ask-for-risky' | 'never-ask')}
               data-testid={'project-permission-approval-' + p.id}
+              data-action="settings.permissions.project.save"
             />
             {pPerms.isOverride && (
               <Button

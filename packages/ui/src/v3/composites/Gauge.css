@@ -1,17 +1,17 @@
 .gauge-container {
   width: 100%;
   height: var(--w-space-2);
-  background-color: var(--color-bg-subtle);
+  background-color: var(--w-sunken);
   border-radius: var(--w-space-1);
   overflow: hidden;
 }
 
 .gauge-bar {
   height: 100%;
-  transition: width 0.3s ease-in-out;
+  transition: width var(--w-dur) var(--w-ease);
 }
 
-.gauge--green { background-color: var(--color-status-success); }
-.gauge--amber { background-color: var(--color-status-warning); }
-.gauge--red { background-color: var(--color-status-error); }
-.gauge--default { background-color: var(--color-brand-primary); }
+.gauge--green { background-color: var(--w-success); }
+.gauge--amber { background-color: var(--w-attention); }
+.gauge--red { background-color: var(--w-danger); }
+.gauge--default { background-color: var(--w-primary); }

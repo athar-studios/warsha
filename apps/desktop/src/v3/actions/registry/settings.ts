@@ -4,6 +4,8 @@ export const ACTIONS: readonly ActionDef[] = [
   // Navigation & disclosure
   { id: 'settings.nav.open', labelKey: 'settings.nav.open', effect: 'nav' },
   { id: 'settings.advanced.toggle', labelKey: 'settings.nav.advanced_show', effect: 'state' },
+  { id: 'settings.layer.quick', labelKey: 'settings.nav.layer_quick', effect: 'state' },
+  { id: 'settings.layer.advanced', labelKey: 'settings.nav.layer_advanced', effect: 'state' },
 
   // General section
   { id: 'settings.language.set', labelKey: 'settings.general.language', effect: 'state' },
@@ -66,6 +68,11 @@ export const ACTIONS: readonly ActionDef[] = [
     effect: 'rpc',
     rpc: ['roles.set'],
   },
+  { id: 'settings.provider.disconnect', labelKey: 'settings.providers.disconnect', effect: 'rpc', rpc: ['providers.disconnect'] },
+  { id: 'settings.provider.auth', labelKey: 'settings.providers.auth_start', effect: 'rpc', rpc: ['providers.auth_start'] },
+  { id: 'settings.usage.dimension.set', labelKey: 'settings.usage.dimension', effect: 'state' },
+  { id: 'settings.usage.granularity.set', labelKey: 'settings.usage.granularity', effect: 'state' },
+  { id: 'settings.usage.quota.check', labelKey: 'settings.usage.quota', effect: 'rpc', rpc: ['providers.quota'] },
 
   // Devices section
   {

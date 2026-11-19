@@ -334,4 +334,30 @@ test.describe('Frame visual baselines (@visual)', () => {
       }
     }
   }
+
+  for (const vp of VIEWPORTS) {
+    for (const locale of LOCALES) {
+      for (const theme of THEMES) {
+        test(`visual screenshot: frame quota-gauge ${vp.name} ${locale} ${theme} @visual`, async ({ page }) => {
+          await openV3(page, '/', {
+            viewport: { width: vp.width, height: vp.height },
+            lang: locale,
+            theme,
+            fixtures: {
+              'providers.list': { result: [{ name: 'deepseek', kind: 'openai', enabled: true }] },
+              'providers.quota': {
+                result: {
+                  provider: 'deepseek',
+                  kind: 'openai',
+                  quota: { state: 'reported', used: 50, limit: 100 },
+                },
+              },
+            },
+          });
+          await expect(page.getByTestId('frame-quota-gauge')).toBeVisible();
+          await expect(page).toHaveScreenshot(`frame-quota-gauge-${vp.name}-${locale}-${theme}.png`);
+        });
+      }
+    }
+  }
 });

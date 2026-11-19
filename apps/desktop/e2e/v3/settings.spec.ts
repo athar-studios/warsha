@@ -33,6 +33,10 @@ const SECTIONS = [
   'backend',
 ] as const;
 
+const E5_SECTIONS = ['usage', 'permissions', 'swarm', 'connections', 'mcp', 'export'] as const;
+// `AuthStatus.kind` on the wire is authenticated | unauthenticated | pending (there is no 'expired').
+const PROVIDER_AUTH_KINDS = ['authenticated', 'pending', 'unauthenticated'] as const;
+
 const CUSTOM_MODELS_FIXTURE = {
   'models.list': {
     result: [
@@ -1035,8 +1039,63 @@ test.describe('Settings v3', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Accessibility & Keyboard (@a11y)
+  // E5 action coverage (A6)
   // ---------------------------------------------------------------------------
+  test('actions: settings.layer.quick', async ({ page }) => {
+    await openV3(page, '/settings/general', { lang: 'en' });
+    await act(page, 'settings.layer.quick');
+    await expect(page.locator('[data-action="settings.layer.quick"]')).toHaveAttribute('aria-checked', 'true');
+  });
+
+  test('actions: settings.layer.advanced', async ({ page }) => {
+    await openV3(page, '/settings/general', { lang: 'en' });
+    await act(page, 'settings.layer.advanced');
+    await expect(page.locator('[data-action="settings.layer.advanced"]')).toHaveAttribute('aria-checked', 'true');
+  });
+
+  test('actions: settings.provider.disconnect', async ({ page }) => {
+    await openV3(page, '/settings/models', {
+      lang: 'en',
+      fixtures: { 'providers.auth_status': { result: { kind: 'authenticated' } } },
+    });
+    await act(page, 'settings.provider.disconnect');
+    await expectRpc(page, 'providers.disconnect');
+  });
+
+  test('actions: settings.provider.auth', async ({ page }) => {
+    await openV3(page, '/settings/models', { lang: 'en' });
+    await act(page, 'settings.provider.auth');
+    await expectRpc(page, 'providers.auth_start');
+  });
+
+  test('actions: settings.usage.dimension.set', async ({ page }) => {
+    await openV3(page, '/settings/usage', { lang: 'en' });
+    const model = page.locator('[data-action="settings.usage.dimension.set"][data-dimension="model_id"]');
+    const provider = page.locator('[data-action="settings.usage.dimension.set"][data-dimension="provider_id"]');
+    await expect(provider).toHaveAttribute('data-variant', 'primary');
+    await expect(model).toHaveAttribute('data-variant', 'secondary');
+    await model.click();
+    await expect(model).toHaveAttribute('data-variant', 'primary');
+    await expect(provider).toHaveAttribute('data-variant', 'secondary');
+  });
+
+  test('actions: settings.usage.granularity.set', async ({ page }) => {
+    await openV3(page, '/settings/usage', { lang: 'en' });
+    const month = page.locator('[data-action="settings.usage.granularity.set"][data-granularity="month"]');
+    const day = page.locator('[data-action="settings.usage.granularity.set"][data-granularity="day"]');
+    await expect(day).toHaveAttribute('data-variant', 'primary');
+    await expect(month).toHaveAttribute('data-variant', 'secondary');
+    await month.click();
+    await expect(month).toHaveAttribute('data-variant', 'primary');
+    await expect(day).toHaveAttribute('data-variant', 'secondary');
+  });
+
+  test('actions: settings.usage.quota.check', async ({ page }) => {
+    await openV3(page, '/settings/usage', { lang: 'en' });
+    await act(page, 'settings.usage.quota.check');
+    await expectRpc(page, 'providers.quota');
+  });
+
   for (const locale of LOCALES) {
     for (const theme of THEMES) {
       test(`settings accessibility and keyboard navigation (${locale}, ${theme}) @a11y`, async ({
@@ -1058,6 +1117,77 @@ test.describe('Settings v3', () => {
           expect(focus.stops.length).toBeGreaterThan(0);
         }
       });
+    }
+  }
+
+
+  // ---------------------------------------------------------------------------
+  // Additional Visual checks (@visual) for new E5 surfaces
+  // ---------------------------------------------------------------------------
+  for (const viewport of VIEWPORTS) {
+    for (const locale of LOCALES) {
+      for (const theme of THEMES) {
+        for (const section of E5_SECTIONS) {
+          test(`visual baseline: settings ${section} ready ${viewport.name} ${locale} ${theme} @visual`, async ({
+            page,
+          }) => {
+            await openV3(page, `/settings/${section}`, {
+              lang: locale,
+              theme,
+              viewport: { width: viewport.width, height: viewport.height },
+            });
+            await expect(page.locator(`[data-testid="settings-section-${section}"]`)).toBeVisible();
+            const fit = await auditViewportFit(page);
+            expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
+            await expect(page).toHaveScreenshot(
+              `settings-${section}-ready-${viewport.name}-${locale}-${theme}.png`
+            );
+          });
+        }
+
+        // A2: provider auth states are rendered on each provider row.
+        for (const authKind of PROVIDER_AUTH_KINDS) {
+          test(`visual baseline: settings provider auth ${authKind} ${viewport.name} ${locale} ${theme} @visual`, async ({
+            page,
+          }) => {
+            await openV3(page, '/settings/models', {
+              lang: locale,
+              theme,
+              viewport: { width: viewport.width, height: viewport.height },
+              fixtures: { 'providers.auth_status': { result: { kind: authKind } } },
+            });
+            await expect(page.locator('[data-testid^="provider-row-"]').first()).toBeVisible();
+            const fit = await auditViewportFit(page);
+            expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
+            await expect(page).toHaveScreenshot(
+              `settings-provider-auth-${authKind}-${viewport.name}-${locale}-${theme}.png`
+            );
+          });
+        }
+
+        // E1: quick vs advanced settings navigation layer.
+        for (const layerId of ['quick', 'advanced'] as const) {
+          test(`visual baseline: settings nav ${layerId} ${viewport.name} ${locale} ${theme} @visual`, async ({
+            page,
+          }) => {
+            await openV3(page, '/settings/general', {
+              lang: locale,
+              theme,
+              viewport: { width: viewport.width, height: viewport.height },
+            });
+            await act(page, `settings.layer.${layerId}`);
+            await expect(page.locator(`[data-action="settings.layer.${layerId}"]`)).toHaveAttribute(
+              'aria-checked',
+              'true'
+            );
+            const fit = await auditViewportFit(page);
+            expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
+            await expect(page).toHaveScreenshot(
+              `settings-nav-${layerId}-${viewport.name}-${locale}-${theme}.png`
+            );
+          });
+        }
+      }
     }
   }
 

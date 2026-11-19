@@ -95,7 +95,7 @@ export async function openV3(
             : 'unknown';
         return {
           provider: name,
-          quota: { state: 'none' },
+          quota: { state: 'unknown' },
         };
       },
     },
