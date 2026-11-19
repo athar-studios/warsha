@@ -1,5 +1,11 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-20 — FIX-RELEASE: Organize desktop bundles (D-RN-REL-ORGANIZE-1)
+- **Root cause**: `find release/desktop -mindepth 2 -type f -exec mv -t release/desktop/ {} +` caused collisions because Ubuntu `bundle/**/*` upload preserves nested directories (deb/, rpm/, AppImage/, nsis/, msi/, dmg/), leading to hundreds of same-name payload files (copyright, Warsha.desktop, .so files) clobbering at the top level.
+- **Fix**: Removed the flatten step. Desktop bundles remain nested per-OS (`release/desktop/<os>/...`). Updated `Create draft release` to use `release/desktop/**/*` recursive glob for upload.
+- **Verification**: `test -n "$(find release/desktop -mindepth 2 -type f -print -quit)"` ensures nested files are present.
+- **Status**: uncommitted pending commit/push.
+
 ## Run 2026-11-20 — FIX-RELEASE: Verifier grep quoting (D-RN-REL-VERIFY-1)
 - **Root cause**: run 44627337731 `Verify no placeholders` failed `homebrew formula has no real sha256` even though the generated formula carries a valid 64-hex sha256 (`6fac12…`, downloaded from `package-manifests` artifact and inspected). The verifier's homebrew/scoop greps used single-quoted DOUBLE-backslash `\\{64\\}`; in single quotes the shell passes both backslashes literally, so grep matched literal backslash + `{64}` and never the hash. Winget (double-quoted `\\{64\\}`) was unaffected.
 - **Fix**: `release.yml` homebrew/scoop verifier greps → single-backslash BRE `\{64\}`; winget untouched. Proved locally: old patterns FAIL / new patterns PASS on the real CI-generated files; `YAML_OK`; `check-engineering-policy.mjs` 8/0.

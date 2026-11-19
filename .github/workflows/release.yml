@@ -575,8 +575,7 @@ jobs:
       # entirely empty release/) invisible. Now: unmasked under set -euo pipefail,
       # target-triple globs that cannot cross-match (warsha-x86_64-* never matches
       # warshad-x86_64-*), a per-folder count assertion so a missing OS leg fails
-      # loudly, and a flatten of the nested bundle/<fmt>/ paths the merge-multiple
-      # desktop download preserves (the old find sweep is gone).
+      # loudly, and we keep the nested bundle/<fmt>/ paths to avoid collisions.
       - name: Organize release files
         run: |
           set -euo pipefail
@@ -585,8 +584,7 @@ jobs:
           mv release/warshad-x86_64-* release/daemon/
           test "$(find release/cli -maxdepth 1 -type f | wc -l)" -eq 3
           test "$(find release/daemon -maxdepth 1 -type f | wc -l)" -eq 3
-          find release/desktop -mindepth 2 -type f -exec mv -t release/desktop/ {} +
-          test -n "$(find release/desktop -type f -print -quit)"
+          test -n "$(find release/desktop -mindepth 2 -type f -print -quit)"
 
       # A rerun must never overwrite a release's assets: any release for this tag
       # (draft or public) fails the job before the upload step can run.
@@ -611,7 +609,7 @@ jobs:
           files: |
             release/cli/*
             release/daemon/*
-            release/desktop/*
+            release/desktop/**/*
             release/checksums.sha256
             release/sbom-cli.cdx.xml
             release/sbom-daemon.cdx.xml
