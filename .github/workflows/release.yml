@@ -767,7 +767,7 @@ jobs:
       - name: Create Scoop manifest
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
-          ARTIFACT="warsha-windows.exe"
+          ARTIFACT="warsha-x86_64-pc-windows-msvc.exe"
           HASH=$(grep "$ARTIFACT" artifacts/checksums.sha256 | awk '{print $1}' || true)
           if [ -z "$HASH" ]; then
             echo "::error::$ARTIFACT not found in checksums — the Windows CLI binary was not built or not checksummed"

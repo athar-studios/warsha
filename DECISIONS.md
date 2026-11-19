@@ -1,4 +1,9 @@
 
+## 2026-11-20 — D-RN-REL-SCOOP-1: Updated Scoop manifest ARTIFACT
+- **Decision**: Updated Scoop manifest `ARTIFACT` to use `warsha-x86_64-pc-windows-msvc.exe` instead of `warsha-windows.exe`.
+- **Reason**: The build output artifact is named `warsha-x86_64-pc-windows-msvc.exe` (with triple), not `warsha-windows.exe`.
+- **Record**: Manifest hashes track the real checksummed artifact name.
+
 ## 2026-11-20 — D-RN-REL-UNSIGNED-1: 0.3.0 ships unsigned installers
 - **Decision**: 0.3.0 ships unsigned installers because no signing keys (Apple/Windows/Tauri) exist; never generate or store any.
 - **Reason**: Fixes macOS codesign failure in CI run 44617829839.
