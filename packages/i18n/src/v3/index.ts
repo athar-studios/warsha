@@ -10,6 +10,7 @@ import arInbox from './ar/inbox';
 import arOnboarding from './ar/onboarding';
 import arProject from './ar/project';
 import arProjects from './ar/projects';
+import arSecretary from './ar/secretary';
 import arSettings from './ar/settings';
 import enBench from './en/bench';
 import enCommon from './en/common';
@@ -21,6 +22,7 @@ import enInbox from './en/inbox';
 import enOnboarding from './en/onboarding';
 import enProject from './en/project';
 import enProjects from './en/projects';
+import enSecretary from './en/secretary';
 import enSettings from './en/settings';
 
 export type Locale = 'ar' | 'en';
@@ -39,6 +41,7 @@ export const arCatalog: Record<string, string> = {
   ...arProject,
   ...arInbox,
   ...arBench,
+  ...arSecretary,
   ...arSettings,
 };
 
@@ -53,6 +56,7 @@ export const enCatalog: Record<string, string> = {
   ...enProject,
   ...enInbox,
   ...enBench,
+  ...enSecretary,
   ...enSettings,
 };
 

@@ -153,6 +153,219 @@ export interface Session {
   cliSessionId: string | null;
 }
 
+const SECRETARY_ERROR = 'Malformed secretary thread';
+
+/** One secretary chat thread. `projectId` null is the one global thread. */
+export interface SecretaryThread {
+  id: string;
+  projectId: ProjectId | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * What the secretary may propose. The daemon keeps a proposal only when an owner turn
+ * of the same thread asked for the action AND the proposal references that turn; the
+ * shape mirrors `crates/warshad/src/secretary_chat.rs` `ProposalAction` (serde
+ * snake_case, one key present).
+ */
+export type ProposalAction =
+  | { type: 'gate_approve'; runId: string; stage: string }
+  | { type: 'gate_reject'; runId: string; stage: string; reason: string }
+  | { type: 'queue_decide'; questionId: string; allow: boolean }
+  | { type: 'run_start'; projectId: ProjectId; idea: string }
+  | { type: 'run_cancel'; runId: string };
+
+export interface SecretaryProposal {
+  label: string;
+  action: ProposalAction;
+}
+
+export interface SecretaryTurn {
+  id: string;
+  conversationId: string;
+  role: 'owner' | 'secretary';
+  content: string;
+  proposal: SecretaryProposal | null;
+  /** The owner turn this proposal answers — the UI's render-refusal check. */
+  refsOwnerMessage: string | null;
+  createdAt: string;
+}
+
+export interface SecretaryChatReply {
+  reply: string;
+  proposal: SecretaryProposal | null;
+  conversationId: string;
+  turnId: string;
+  /** The owner turn the proposal answers; `null` when the daemon names none. */
+  refsOwnerMessage: string | null;
+}
+
+/** The object half of a secretary decode. */
+function secretaryObject(value: unknown, name: string): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`${SECRETARY_ERROR}: "${name}" is not a JSON object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function secretaryString(record: Record<string, unknown>, ...names: string[]): string {
+  const value = field(record, ...names);
+  if (typeof value !== 'string') {
+    throw new Error(`${SECRETARY_ERROR}: missing ${names[0]}`);
+  }
+  return value;
+}
+
+function secretaryOptionalString(
+  record: Record<string, unknown>,
+  ...names: string[]
+): string | null {
+  const value = field(record, ...names);
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') {
+    throw new Error(`${SECRETARY_ERROR}: invalid ${names[0]}`);
+  }
+  return value;
+}
+
+/** Decodes the single-key proposal action (`{ gate_approve: {…} }` → tagged union). */
+function decodeProposalAction(source: unknown): ProposalAction {
+  const record = secretaryObject(source, 'proposal action');
+  if (!('type' in record)) {
+    // Wire shape: one key whose value carries the fields.
+    const keys = Object.keys(record);
+    if (keys.length !== 1) {
+      throw new Error(`${SECRETARY_ERROR}: "proposal action" must have exactly one key`);
+    }
+    const key = keys[0];
+    const body = secretaryObject(record[key], `proposal action "${key}"`);
+    const str = (name: string): string => secretaryString(body, name);
+    const optStr = (name: string): string | null => secretaryOptionalString(body, name);
+    switch (key) {
+      case 'gate_approve':
+        return { type: 'gate_approve', runId: str('run_id'), stage: str('stage') };
+      case 'gate_reject':
+        return { type: 'gate_reject', runId: str('run_id'), stage: str('stage'), reason: optStr('reason') ?? '' };
+      case 'queue_decide':
+        return {
+          type: 'queue_decide',
+          questionId: str('question_id'),
+          allow: body['allow'] === true,
+        };
+      case 'run_start':
+        return {
+          type: 'run_start',
+          projectId: str('project_id') as ProjectId,
+          idea: str('idea'),
+        };
+      case 'run_cancel':
+        return { type: 'run_cancel', runId: str('run_id') };
+      default:
+        throw new Error(`${SECRETARY_ERROR}: unknown proposal action "${key}"`);
+    }
+  }
+  // Already-tagged shape (`{ type: 'gate_approve', run_id, stage }`).
+  const type = secretaryString(record, 'type');
+  const str = (name: string): string => secretaryString(record, name);
+  switch (type) {
+    case 'gate_approve':
+      return { type, runId: str('run_id'), stage: str('stage') };
+    case 'gate_reject':
+      return {
+        type,
+        runId: str('run_id'),
+        stage: str('stage'),
+        reason: secretaryOptionalString(record, 'reason') ?? '',
+      };
+    case 'queue_decide':
+      return {
+        type,
+        questionId: str('question_id'),
+        allow: record['allow'] === true,
+      };
+    case 'run_start':
+      return { type, projectId: str('project_id') as ProjectId, idea: str('idea') };
+    case 'run_cancel':
+      return { type, runId: str('run_id') };
+    default:
+      throw new Error(`${SECRETARY_ERROR}: unknown proposal action "${type}"`);
+  }
+}
+
+/** `proposal_json` is a JSON-encoded string on the turn wire; junk drops the proposal. */
+function decodeProposalJson(source: unknown): SecretaryProposal | null {
+  if (source === null || source === undefined) return null;
+  if (typeof source !== 'string') return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  const record = parsed as Record<string, unknown>;
+  const label = field(record, 'label');
+  const action = field(record, 'action');
+  if (typeof label !== 'string' || action === undefined) return null;
+  try {
+    return { label, action: decodeProposalAction(action) };
+  } catch {
+    return null;
+  }
+}
+
+export function decodeSecretaryThread(source: unknown): SecretaryThread {
+  const record = secretaryObject(source, 'thread');
+  return {
+    id: secretaryString(record, 'id'),
+    projectId: (secretaryOptionalString(record, 'project_id', 'projectId') ?? null) as
+      | ProjectId
+      | null,
+    createdAt: secretaryString(record, 'created_at', 'createdAt'),
+    updatedAt: secretaryString(record, 'updated_at', 'updatedAt'),
+  };
+}
+
+export function decodeSecretaryTurn(source: unknown): SecretaryTurn {
+  const record = secretaryObject(source, 'turn');
+  const roleValue = field(record, 'role');
+  const role = roleValue === 'owner' || roleValue === 'secretary' ? roleValue : null;
+  if (role === null) {
+    throw new Error(`${SECRETARY_ERROR}: "turn" has an invalid "role"`);
+  }
+  const id = secretaryString(record, 'id');
+  return {
+    id,
+    conversationId: secretaryString(record, 'conversation_id', 'conversationId'),
+    role,
+    content: secretaryString(record, 'content'),
+    proposal: decodeProposalJson(field(record, 'proposal_json', 'proposalJson')),
+    refsOwnerMessage: secretaryOptionalString(record, 'refs_owner_message', 'refsOwnerMessage'),
+    createdAt: secretaryString(record, 'created_at', 'createdAt'),
+  };
+}
+
+export function decodeSecretaryChatReply(source: unknown): SecretaryChatReply {
+  const record = secretaryObject(source, 'chat reply');
+  const proposalValue = field(record, 'proposal');
+  let proposal: SecretaryProposal | null = null;
+  if (proposalValue !== null && proposalValue !== undefined) {
+    const inner = secretaryObject(proposalValue, 'proposal');
+    const label = field(inner, 'label');
+    if (typeof label === 'string' && field(inner, 'action') !== undefined) {
+      proposal = { label, action: decodeProposalAction(field(inner, 'action')) };
+    }
+  }
+  return {
+    reply: secretaryString(record, 'reply'),
+    proposal,
+    conversationId: secretaryString(record, 'conversation_id', 'conversationId'),
+    turnId: secretaryString(record, 'turn_id', 'turnId'),
+    refsOwnerMessage: secretaryOptionalString(record, 'refs_owner_message', 'refsOwnerMessage'),
+  };
+}
+
 const SUMMARY_ERROR = 'Malformed summary';
 
 /** The object half of a summary decode: anything but a JSON object is refused by name. */
@@ -2659,7 +2872,53 @@ export class WarshaClient
   // and no per-provider budget exists (DECISIONS.md 2026-11-03). Both client methods were
   // deleted rather than aliased, so no screen can present a number the daemon never kept.
 
-  // Project Budgets
+    // ------------------------------------------------------------------
+  // E2 — the secretary chat (per-project threads + one global thread)
+  // ------------------------------------------------------------------
+
+  /**
+   * `secretary.thread.list` — the caller's conversation threads. With a project id
+   * that project's threads plus the one global thread; without it, only the global
+   * thread. Newest activity first (the daemon orders by `updated_at`).
+   */
+  async listSecretaryThreads(projectId?: ProjectId): Promise<SecretaryThread[]> {
+    const rows = await this.rpc<unknown[]>('secretary.thread.list', {
+      project_id: projectId ?? null,
+    });
+    return rows.map((row) => decodeSecretaryThread(row));
+  }
+
+  /** `secretary.thread.turns` — one thread's turns, oldest first. */
+  async getSecretaryTurns(conversationId: string, projectId?: ProjectId): Promise<SecretaryTurn[]> {
+    const rows = await this.rpc<unknown[]>('secretary.thread.turns', {
+      conversation_id: conversationId,
+      ...(projectId !== undefined ? { project_id: projectId } : {}),
+    });
+    return rows.map((row) => decodeSecretaryTurn(row));
+  }
+
+  /**
+   * `secretary.chat` — one chat turn. A model call (Owner/Spend on the daemon), so the
+   * daily secretary cap applies server-side and a cap error arrives here as one. The
+   * reply may carry a proposal; only a proposal the daemon validated against an owner
+   * turn of the SAME thread is returned — the UI still re-checks before rendering.
+   */
+  async secretaryChat(
+    projectId: string | null,
+    conversationId: string | null,
+    message: string,
+    language?: 'ar' | 'en'
+  ): Promise<SecretaryChatReply> {
+    const row = await this.rpc<unknown>('secretary.chat', {
+      project_id: projectId,
+      conversation_id: conversationId,
+      message,
+      ...(language ? { language } : {}),
+    });
+    return decodeSecretaryChatReply(row);
+  }
+
+// Project Budgets
   /**
    * `budget.show`, converted from the daemon's cents to the USD the screens present.
    *

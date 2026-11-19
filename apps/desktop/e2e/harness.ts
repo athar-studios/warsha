@@ -193,6 +193,9 @@ export const RPC_METHODS = [
   'runs.get',
   'runs.list',
   'runs.start',
+  'secretary.chat',
+  'secretary.thread.list',
+  'secretary.thread.turns',
   'runs.subtasks',
   'runs.subscribe',
   'sessions.list',
@@ -1604,6 +1607,57 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
       if (!paramEntry(params, 'run_id').found) return missingField('run_id');
       // No seeded subtasks yet — the desktop reads an empty list as "not a swarm run".
       return { ok: true, result: [] };
+    }
+    case 'secretary.thread.list':
+      // One global thread plus one project thread, so the scope switcher has both.
+      return {
+        ok: true,
+        result: [
+          { id: 'sec-conv-1', project_id: null, created_at: '2026-11-18T09:00:00Z', updated_at: '2026-11-18T09:30:00Z' },
+          { id: 'sec-conv-2', project_id: 'proj-ui', created_at: '2026-11-18T10:00:00Z', updated_at: '2026-11-18T10:05:00Z' },
+        ],
+      };
+    case 'secretary.thread.turns': {
+      if (!paramEntry(params, 'conversation_id').found) return missingField('conversation_id');
+      return {
+        ok: true,
+        result: [
+          { id: 'turn-1', conversation_id: paramValue(params, 'conversation_id'), role: 'owner', content: 'Can you approve gate B?', proposal_json: null, refs_owner_message: null, created_at: '2026-11-18T09:10:00Z' },
+          {
+            id: 'turn-2',
+            conversation_id: paramValue(params, 'conversation_id'),
+            role: 'secretary',
+            content: 'Gate B is ready for your decision.',
+            proposal_json: JSON.stringify({
+              label: 'Approve gate B on the current run',
+              action: { gate_approve: { run_id: 'run-1', stage: 'gate_b' } },
+            }),
+            refs_owner_message: 'turn-1',
+            created_at: '2026-11-18T09:11:00Z',
+          },
+        ],
+      };
+    }
+    case 'secretary.chat': {
+      if (!paramEntry(params, 'message').found) return missingField('message');
+      // The stub answers words; a proposal appears only when the owner's own
+      // message asks for one — the injection rule the engine enforces upstream.
+      const message = String(paramValue(params, 'message') ?? '');
+      const wantsProposal = message.toLowerCase().includes('approve');
+      return {
+        ok: true,
+        result: {
+          reply: 'Noted. The gate is still waiting on you.',
+          proposal: wantsProposal
+            ? {
+                label: 'Approve gate B on the current run',
+                action: { gate_approve: { run_id: 'run-1', stage: 'gate_b' } },
+              }
+            : null,
+          conversation_id: paramValue(params, 'conversation_id') ?? 'sec-conv-1',
+          turn_id: `turn-${Math.floor(Date.now() / 1000)}`,
+        },
+      };
     }
     case 'runs.start':
       // D4: echo the requested mode back so the chip could be exercised. The

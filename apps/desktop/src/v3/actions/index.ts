@@ -9,7 +9,7 @@ import { ACTIONS as frameActions } from './registry/frame';
 import { ACTIONS as homeActions } from './registry/home';
 import { ACTIONS as inboxActions } from './registry/inbox';
 import { ACTIONS as onboardingActions } from './registry/onboarding';
-import { ACTIONS as projectActions } from './registry/project';
+import { ACTIONS as projectActions, SECRETARY_ACTIONS } from './registry/project';
 import { ACTIONS as projectsActions } from './registry/projects';
 import { ACTIONS as settingsActions } from './registry/settings';
 import type { ActionDef } from './types';
@@ -28,6 +28,7 @@ export const ALL_ACTIONS: readonly ActionDef[] = [
   ...benchActions,
   ...settingsActions,
   ...factoryActions,
+  ...SECRETARY_ACTIONS,
 ];
 
 export function validateActionRegistry(actions: readonly ActionDef[]): void {
