@@ -1,5 +1,11 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-20 — FIX-RELEASE: Nested bundle upload collisions (D-RN-REL-DESKTOP-1)
+- **Root cause**: After the organizer flatten was dropped, `release/desktop/**/*` in `Create draft release` included hundreds of same-basename payload files (`copyright`, `Warsha.desktop`, `.so` files), causing `HttpError: Not Found` on `releases/assets#delete-a-release-asset` as the uploader's overwrite-by-name logic failed.
+- **Fix**: Replaced recursive glob with explicit installer-only glob list. Added installer-count assertion to `Organize release files`.
+- **Verification**: Installer-count assertion added and verified to match expected count.
+- **Status**: uncommitted pending commit/push.
+
 ## Run 2026-11-20 — FIX-RELEASE: Organize desktop bundles (D-RN-REL-ORGANIZE-1)
 - **Root cause**: `find release/desktop -mindepth 2 -type f -exec mv -t release/desktop/ {} +` caused collisions because Ubuntu `bundle/**/*` upload preserves nested directories (deb/, rpm/, AppImage/, nsis/, msi/, dmg/), leading to hundreds of same-name payload files (copyright, Warsha.desktop, .so files) clobbering at the top level.
 - **Fix**: Removed the flatten step. Desktop bundles remain nested per-OS (`release/desktop/<os>/...`). Updated `Create draft release` to use `release/desktop/**/*` recursive glob for upload.

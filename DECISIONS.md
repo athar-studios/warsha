@@ -1,4 +1,9 @@
 
+## 2026-11-20 — D-RN-REL-DESKTOP-1: Nested bundles stay on disk for assert
+- **Decision**: Nested bundles stay on disk for assert, only installer extensions upload.
+- **Reason**: Payload basenames collide in release-asset namespace; installer extensions are installer-only.
+- **Record**: Installer-specific globs used for draft release uploads.
+
 ## 2026-11-20 — D-RN-REL-ORGANIZE-1: Desktop bundles stay nested per-OS
 - **Decision**: Desktop bundles stay nested per-OS (`release/desktop/<os>/...`) to avoid payload filename collisions; draft uploads via recursive glob `release/desktop/**/*`.
 - **Reason**: Bundle payloads (deb/rpm/AppImage/etc.) contain colliding filenames (`copyright`, `Warsha.desktop`, `.so` files) which cause collisions at the top-level flatten.

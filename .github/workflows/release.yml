@@ -584,7 +584,7 @@ jobs:
           mv release/warshad-x86_64-* release/daemon/
           test "$(find release/cli -maxdepth 1 -type f | wc -l)" -eq 3
           test "$(find release/daemon -maxdepth 1 -type f | wc -l)" -eq 3
-          test -n "$(find release/desktop -mindepth 2 -type f -print -quit)"
+          test "$(find release/desktop \( -name '*.exe' -o -name '*.msi' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) | wc -l)" -ge 6
 
       # A rerun must never overwrite a release's assets: any release for this tag
       # (draft or public) fails the job before the upload step can run.
@@ -609,7 +609,12 @@ jobs:
           files: |
             release/cli/*
             release/daemon/*
-            release/desktop/**/*
+            release/desktop/**/*.exe
+            release/desktop/**/*.msi
+            release/desktop/**/*.dmg
+            release/desktop/**/*.deb
+            release/desktop/**/*.rpm
+            release/desktop/**/*.AppImage
             release/checksums.sha256
             release/sbom-cli.cdx.xml
             release/sbom-daemon.cdx.xml
