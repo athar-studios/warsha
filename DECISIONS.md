@@ -2087,3 +2087,6 @@ Underscore ids are invisible to the actions gate's dot-form regex (`[a-z0-9-]+` 
 
 ## D-RN-E2B-005 — `BENCH_API_TO_RPC` carries the remote bench's three adapter pairs
 The remote bench calls `estimateRun/mcpApprovalsList/mcpAllowOnce`; the client methods dial `runs.estimate` / `mcp.approvals.list` / `mcp.approvals.allow_once`. The wire gate's name map (planner-owned file, table-only edit) now mirrors those pairs so W10 reads the real dial names.
+
+## D-RN-E5-001 (2026-11-19)
+E5 visual baseline sweep: 144 surfaces verified against F1 host inside the pinned-font Docker image.

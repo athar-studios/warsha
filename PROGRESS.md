@@ -7084,3 +7084,7 @@ Packet A4 spend: 18/20. Cumulative spend: 18.
 - **v3 non-visual e2e** (deferred from E4/E3 branch work; one run covers both): desktop project 304 passed / 14 failed. **A/B check against a scratch worktree @ 73375b1 (pre-E3/E4)**: the SAME 14 cases fail there (294 passed / 14 failed) — E3/E4 introduced ZERO new e2e failures; the 14 are pre-existing E1-lineage mode-contract debt (frame/mode-soak/settings journeys expect the two-rung `advanced` config value the three-rung E1 switch no longer writes; webmcp ×3 Arabic switch name; permissions `/projects/1` legacy path + swarm-toggle visibility). Recorded for the E5 sweep; not re-fixed here (§0.6: bounded repair — the failing set predates this packet and predates D5's merge too).
 - **Lane note**: E4 corr budget 2/2 exhausted (stub page, wrong e2e framework, unauthorized dep bump — reverted; PM completed); E3 corr budget 3/3 exhausted (worker scaffolds 25–60 lines each; PM completed the floor in-tree).
 - **Budget**: E4 spend ≈ 11 of cap 20 (worker attempts ≈ 6, PM takeover ≈ 5). E3 spend ≈ 13 of cap 20 (worker attempts+corrs ≈ 7, PM takeover ≈ 6). Cumulative ≈ 180 of 400 (45%). Alert threshold 320 (80%); hard stop 400.
+
+## 2026-11-19 — E5 visual baseline sweep completed
+- **Deliveries**: 144 E5 surfaces (bench, code, developers, factory, frame, settings) baseline sweep @ visual verified in F1 host; manifest updated.
+- **Budget**: E5 spend ≈ 2 of cap 20 (gate setup + verify pass). Cumulative ≈ 182 of 400 (45.5%). Alert 320 (80%); hard stop 400.
