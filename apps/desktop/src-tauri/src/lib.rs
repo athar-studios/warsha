@@ -225,6 +225,7 @@ fn write_settings(path: &Path, settings: &BTreeMap<String, String>) -> Result<()
 /// `http://tauri.localhost` (Tauri 2's webview origin), macOS and Linux from `tauri://localhost`,
 /// and `http://localhost:5173` is `pnpm tauri dev`'s Vite server.
 fn webview_origins() -> Vec<String> {
+    #[cfg_attr(not(debug_assertions), allow(unused_mut))]
     let mut origins = vec![
         "http://tauri.localhost".to_string(),
         "https://tauri.localhost".to_string(),
