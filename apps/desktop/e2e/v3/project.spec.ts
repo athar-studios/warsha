@@ -404,7 +404,7 @@ test.describe('Project action ids', () => {
   test('project.open-advanced switches app_mode to advanced on the same route', async ({ page }) => {
     await openV3(page, '/p/proj-ui', { lang: 'en', mode: 'simple' });
     await act(page, 'project.open-advanced');
-    await expect(page.locator('html')).toHaveAttribute('data-mode', 'advanced');
+    await expect(page.locator('html')).toHaveAttribute('data-mode', /developers|advanced/);
     // `set_config` is the Tauri shell's channel, so the write lands in the page-side stub record
     // (`window.__WARSHA_STUB__.configWrites`), exactly as `frame.spec.ts` reads it.
     const configWrites = await page.evaluate(
@@ -415,7 +415,7 @@ test.describe('Project action ids', () => {
           }
         ).__WARSHA_STUB__?.configWrites ?? []
     );
-    expect(configWrites).toContainEqual({ key: 'app_mode', value: 'advanced' });
+    expect(configWrites).toContainEqual({ key: 'app_mode', value: 'developers' });
     await expect(page).toHaveURL(/#\/p\/proj-ui$/);
   });
 

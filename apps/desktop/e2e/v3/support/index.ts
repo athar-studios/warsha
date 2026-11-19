@@ -86,7 +86,22 @@ export async function openV3(
   const { lang = 'ar', theme = 'light', mode = 'simple' } = options;
 
   const report = createStubReport();
-  const daemon = options.daemon ?? createDaemon({ fixtures: options.fixtures });
+  const defaultFixtures: Partial<Record<RpcMethod, RpcBehaviour>> = {
+    'providers.quota': {
+      result: (params: unknown) => {
+        const name =
+          typeof params === 'object' && params !== null && 'name' in params
+            ? String((params as { name?: unknown }).name)
+            : 'unknown';
+        return {
+          provider: name,
+          quota: { state: 'unknown' },
+        };
+      },
+    },
+    ...(options.fixtures ?? {}),
+  };
+  const daemon = options.daemon ?? createDaemon({ fixtures: defaultFixtures });
 
   const viewport = options.viewport ?? { width: 1440, height: 900 };
   await page.setViewportSize(viewport);
@@ -101,12 +116,13 @@ export async function openV3(
 
   await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
 
+  const normalizedMode = mode === 'advanced' ? 'developers' : mode;
   const mergedConfig: Record<string, string> = {
     daemon_url: DAEMON_URL,
     daemon_ws_url: DAEMON_WS_URL,
     daemon_token: DAEMON_TOKEN,
     onboarding_complete: 'true',
-    app_mode: mode,
+    app_mode: normalizedMode,
     ui_version: 'v3',
     ...(options.config ?? {}),
   };
@@ -123,6 +139,7 @@ export async function openV3(
     }) => {
       window.localStorage.setItem('warsha.theme', themeVal);
       window.localStorage.setItem('warsha.locale', locale);
+      window.localStorage.setItem('warsha.app_mode', merged['app_mode'] ?? 'simple');
 
       interface StubWindow {
         __WARSHA_STUB__?: { configWrites: { key: string; value: string }[] };

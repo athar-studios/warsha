@@ -34,5 +34,6 @@ export const ACTIONS: readonly ActionDef[] = [
   { id: 'bench.followup.send', labelKey: 'bench.action.followup_send', effect: 'rpc', rpc: ['runs.followup'] },
   { id: 'bench.harness.select', labelKey: 'bench.action.harness_select', effect: 'rpc', rpc: ['harness.select'], capability: 'harnesses' },
   { id: 'bench.runmode.set', labelKey: 'bench.action.runmode_set', effect: 'rpc', rpc: ['runmode.set'] },
+  { id: 'bench.runmode.start', labelKey: 'bench.action.run_start', effect: 'rpc', rpc: ['runs.start'] },
   { id: 'bench.stream.reconnect', labelKey: 'bench.action.stream_reconnect', effect: 'state' },
 ];

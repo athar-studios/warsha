@@ -84,26 +84,34 @@ for (const viewport of FLOW_VIEWPORTS) {
       await openForKeys(page, 'simple', locale, 'light', viewport);
 
       const rungs = page.locator('.warsha-mode-rung');
-      await expect(rungs).toHaveCount(2);
+      await expect(rungs).toHaveCount(3);
       await rungs.first().focus();
 
-      await page.keyboard.press('ArrowRight');
-      await expect(rungs.nth(1), 'ArrowRight did not move focus to the other rung').toBeFocused();
+      const isRtl = (await page.evaluate(() => document.documentElement.dir)) === 'rtl';
+      await page.keyboard.press(isRtl ? 'ArrowLeft' : 'ArrowRight');
+      await expect(rungs.nth(1), 'ArrowRight/Left did not move focus to the middle rung').toBeFocused();
 
-      await page.keyboard.press('ArrowLeft');
-      await expect(rungs.first(), 'ArrowLeft did not bring focus back').toBeFocused();
+      await page.keyboard.press(isRtl ? 'ArrowLeft' : 'ArrowRight');
+      await expect(rungs.nth(2), 'ArrowRight/Left did not move focus to the other rung').toBeFocused();
+
+      await page.keyboard.press(isRtl ? 'ArrowRight' : 'ArrowLeft');
+      await expect(rungs.nth(1), 'ArrowLeft/Right did not move focus to the middle rung').toBeFocused();
+
+      await page.keyboard.press(isRtl ? 'ArrowRight' : 'ArrowLeft');
+      await expect(rungs.first(), 'ArrowLeft/Right did not bring focus back').toBeFocused();
 
       // Enter on the far rung is the switch: the bench changes depth and the shell saves the owner's
       // choice through the seam `checkOnboarding` reads back at the next start-up. The writes are read
       // from the page here rather than from `openScreen`'s snapshot, which is a record of the open.
-      await page.keyboard.press('ArrowRight');
+      await page.keyboard.press(isRtl ? 'ArrowLeft' : 'ArrowRight');
+      await page.keyboard.press(isRtl ? 'ArrowLeft' : 'ArrowRight');
       await page.keyboard.press('Enter');
       await expect(page.locator(screenCase('advanced').root)).toBeVisible();
       await expect
         .poll(() => readConfigWrites(page), {
           message: 'switching mode did not persist the choice',
         })
-        .toContainEqual({ key: 'app_mode', value: 'advanced' });
+        .toContainEqual({ key: 'app_mode', value: 'developers' });
     });
 
     test(`the settings tab strip is a roving tablist: ${where}`, async ({ page }) => {

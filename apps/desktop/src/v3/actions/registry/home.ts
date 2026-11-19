@@ -2,6 +2,12 @@ import type { ActionDef } from '../types';
 
 export const ACTIONS: readonly ActionDef[] = [
   {
+    id: 'home.interview_start',
+    labelKey: 'home.interview_start',
+    effect: 'rpc',
+    rpc: ['projects.create', 'budget.set', 'runs.start'],
+  },
+  {
     id: 'home.start',
     labelKey: 'home.start',
     effect: 'rpc',

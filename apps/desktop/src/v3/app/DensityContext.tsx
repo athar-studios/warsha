@@ -24,6 +24,7 @@ export function readStoredAppMode(): AppMode {
   try {
     const val = window.localStorage.getItem(APP_MODE_STORAGE_KEY);
     if (val === 'simple' || val === 'factory' || val === 'developers') return val;
+    if (val === 'advanced') return 'developers';
   } catch {
     // Ignore storage errors
   }

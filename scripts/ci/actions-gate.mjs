@@ -58,7 +58,13 @@ export function scanSource(file, src) {
   for (const t of jsxTags(src)) {
     const handler = /\bon(Click|Submit|Press)\s*=/.test(t.attrs);
     if (t.name === 'form') continue;
-    if (!(INTERACTIVE.test(t.name) || handler)) continue;
+    if (!(INTERACTIVE.test(t.name) || handler)) {
+      // Not click-interactive. Only a <Select data-action=… onChange=…> (a change control, not a click target)
+      // counts as a use of that registered id; an onChange on any other tag (e.g. a <div>) does not.
+      const passive = !(/^(Select|select)$/.test(t.name) && /\bonChange\s*=/.test(t.attrs)) ? null : /data-action\s*=\s*"([a-z0-9-]+(?:\.[a-z0-9-]+)+)"/.exec(t.attrs);
+      if (passive) used.push(passive[1]);
+      continue;
+    }
     const lit = /data-action\s*=\s*"([a-z0-9-]+(?:\.[a-z0-9-]+)+)"/.exec(t.attrs);
     if (!lit) v.push(`A1 ${file}:${t.line} <${t.name}> has no literal data-action="page.verb"`);
     else used.push(lit[1]);
@@ -141,6 +147,12 @@ function selfTest() {
   ok('an unbuilt page fails without --only', r.v.some((s) => s.includes('"settings.device.pair" is not used')));
   r = check(root, ['home.']);
   ok('--only home. ignores the unbuilt settings page', r.v.length === 0);
+  // passive change controls: only <Select data-action onChange> counts as a use, never an arbitrary tag
+  put('apps/desktop/src/v3/actions/registry/mode.ts', "export const MODE = [\n { id: 'home.mode', effect: 'state' },\n { id: 'home.ghost', effect: 'state' },\n];");
+  put('apps/desktop/src/v3/pages/Sel.tsx', 'export const S = () => (<>\n<Select data-action="home.mode" onChange={() => pick()} />\n<div data-action="home.ghost" onChange={() => pick()} />\n</>);');
+  r = check(root, ['home.']);
+  ok('<Select data-action onChange> counts as used', !r.v.some((s) => s.includes('"home.mode" is not used')));
+  ok('<div data-action onChange> does not count as used', r.v.some((s) => s.includes('"home.ghost" is not used')));
   rmSync(root, { recursive: true, force: true });
   for (const [n, p] of checks) process.stdout.write(`${p ? 'ok  ' : 'FAIL'} ${n}\n`);
   process.exit(checks.every(([, p]) => p) ? 0 : 1);

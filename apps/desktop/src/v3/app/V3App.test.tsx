@@ -20,7 +20,7 @@ describe('V3App', () => {
     expect(main?.getAttribute('data-ready')).toBe('true');
   });
 
-  it('renders Onboarding placeholder at /onboarding', () => {
+  it('renders Onboarding page at /onboarding', () => {
     render(<V3App initialRoute="/onboarding" />);
     expect(screen.getByRole('heading', { level: 1, name: /Onboarding|التهيئة الأولى/ })).toBeDefined();
   });

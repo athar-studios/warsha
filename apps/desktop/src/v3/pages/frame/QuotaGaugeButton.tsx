@@ -32,6 +32,7 @@ export function QuotaGaugeButton(): React.ReactElement | null {
           : t('frame.quota_gauge_none')
       }
       aria-label={t('frame.quota_gauge_label')}
+      data-action="frame.settings.open"
       onClick={() => navigate('/settings/usage')}
     >
       <Gauge percentage={gauge.percentage} status={gauge.status} />

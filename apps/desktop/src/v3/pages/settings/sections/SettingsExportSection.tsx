@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { t, useDirection, useLocale } from '@warsha/i18n';
 import { Banner, Box, Button, Panel, Text } from '@warsha/ui';
-import { invoke } from '@tauri-apps/api/core';
+import React, { useState } from 'react';
 
 // Keys to export/import
 const SETTINGS_TO_EXPORT = ['app_mode', 'theme', 'onboarding_complete'];
@@ -28,8 +28,11 @@ export function SettingsExportSection() {
   const handleImport = async (event: React.ChangeEvent<HTMLTextAreaElement>) => {
     const json = event.target.value;
     try {
-      const data = JSON.parse(json);
+      const data: unknown = JSON.parse(json);
+      if (typeof data !== 'object' || data === null || Array.isArray(data)) throw new Error('invalid');
       for (const [key, value] of Object.entries(data)) {
+        // Only allowlisted keys are applied; anything else in pasted JSON is ignored.
+        if (!SETTINGS_TO_EXPORT.includes(key)) continue;
         await invoke('set_config', { key, value: String(value) });
       }
       setImportError(null);
@@ -40,9 +43,9 @@ export function SettingsExportSection() {
   };
 
   return (
-    <Box dir={dir} style={{ padding: 'var(--warsha-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-3)' }}>
+    <Box dir={dir} data-testid="settings-section-export" style={{ padding: 'var(--warsha-space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--warsha-space-3)' }}>
       <Text size="sm">{t('settings.export.desc', {}, locale)}</Text>
-      <Button variant="primary" onClick={handleExport}>{t('settings.export.export', {}, locale)}</Button>
+      <Button variant="primary" data-action="settings.backend.export" onClick={handleExport}>{t('settings.export.export', {}, locale)}</Button>
       {exportedData && (
         <Panel title={t('settings.export.title', {}, locale)}>
           <Text size="xs" style={{ fontFamily: 'var(--warsha-font-mono)' }}>{exportedData}</Text>

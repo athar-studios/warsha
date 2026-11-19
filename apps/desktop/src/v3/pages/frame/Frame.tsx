@@ -97,8 +97,9 @@ export function Frame({ children }: FrameProps): React.ReactElement {
     try {
       invoke<string>('get_config', { key: 'app_mode' })
         .then((stored) => {
-          if (stored === 'simple' || stored === 'factory' || stored === 'developers') {
-            setMode(stored);
+          const normalized = stored === 'advanced' ? 'developers' : stored;
+          if (normalized === 'simple' || normalized === 'factory' || normalized === 'developers') {
+            setMode(normalized);
           }
         })
         .catch(() => {
@@ -218,7 +219,8 @@ export function Frame({ children }: FrameProps): React.ReactElement {
         const next = modes[(idx + delta + modes.length) % modes.length];
         handleSwitchMode(next);
         const group = e.currentTarget.parentElement;
-        const target = group?.querySelector<HTMLButtonElement>(`[data-action="frame.mode.${next}"]`);
+        const nextAction = next === 'developers' ? 'frame.mode.advanced' : `frame.mode.${next}`;
+        const target = group?.querySelector<HTMLButtonElement>(`[data-action="${nextAction}"]`);
         target?.focus();
       }
     },

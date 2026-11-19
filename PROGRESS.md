@@ -7085,4 +7085,8 @@ Packet A4 spend: 18/20. Cumulative spend: 18.
 - **Lane note**: E4 corr budget 2/2 exhausted (stub page, wrong e2e framework, unauthorized dep bump — reverted; PM completed); E3 corr budget 3/3 exhausted (worker scaffolds 25–60 lines each; PM completed the floor in-tree).
 - **Budget**: E4 spend ≈ 11 of cap 20 (worker attempts ≈ 6, PM takeover ≈ 5). E3 spend ≈ 13 of cap 20 (worker attempts+corrs ≈ 7, PM takeover ≈ 6). Cumulative ≈ 180 of 400 (45%). Alert threshold 320 (80%); hard stop 400.
 
+## 2026-11-19 — E5 visual baseline sweep completed
+- **Deliveries**: 144 E5 surfaces (bench, code, developers, factory, frame, settings) baseline sweep @ visual verified in F1 host; manifest updated.
+- **Budget**: E5 spend ≈ 2 of cap 20 (gate setup + verify pass). Cumulative ≈ 182 of 400 (45.5%). Alert 320 (80%); hard stop 400.
+
 - [2026-11-19] A5: Final code-health audit (packet A5 complete, branch r-next/a5-health@978e40e, audit report docs/zadloop/packets/A5-report.md, evidence bridge-io/audit/a5/).

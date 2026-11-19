@@ -34,7 +34,8 @@ test(`mode soak: Simple <-> Advanced ${SWITCHES} times stays clean`, async ({ pa
 
     await act(page, `frame.mode.${next}`);
 
-    await expect(page.locator('html')).toHaveAttribute('data-mode', next);
+    const expectedMode = next === 'advanced' ? 'developers' : 'simple';
+    await expect(page.locator('html')).toHaveAttribute('data-mode', expectedMode);
     await expect(root).toHaveAttribute('data-density', density);
     await expect(root).toBeVisible();
     await expect(page.locator(`[data-action="frame.mode.${next}"]`)).toHaveAttribute(
